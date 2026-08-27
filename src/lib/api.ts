@@ -41,6 +41,7 @@ export const api = {
   restoreTrashItem: (itemId: number) =>
     invoke<string>("restore_trash_item", { itemId }),
   emptyTrash: () => invoke<number>("empty_trash"),
+  completeExit: () => invoke<void>("complete_exit"),
   setBookmark: (path: string, bookmarked: boolean) =>
     invoke<void>("set_bookmark", { path, bookmarked }),
   recordEdit: (path: string) => invoke<NoteStats>("record_edit", { path }),
@@ -61,14 +62,35 @@ export const api = {
       imageSource,
     }),
   saveAttachment: async (notePath: string, file: File) => {
-    const data = Array.from(new Uint8Array(await file.arrayBuffer()));
+    const maxAttachmentBytes = 25 * 1024 * 1024;
+    if (file.size > maxAttachmentBytes) {
+      throw new Error("Attachment is larger than the 25 MB limit.");
+    }
+    const dataBase64 = await fileToBase64(file);
     return invoke<string>("save_attachment", {
       notePath,
       fileName: file.name,
-      data,
+      dataBase64,
     });
   },
 };
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () =>
+      reject(reader.error ?? new Error(`Unable to read ${file.name}.`));
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error(`Unable to encode ${file.name}.`));
+        return;
+      }
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) {

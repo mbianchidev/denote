@@ -5,6 +5,7 @@ import {
   extractHeadings,
   extractTags,
   hasUnsupportedRichMarkdown,
+  recoverMarkdownLinkTarget,
   resolveInternalLink,
 } from "./markdown";
 
@@ -58,6 +59,21 @@ describe("markdown utilities", () => {
     expect(directivesToCallouts(directive)).toBe(
       ">![info]\n> ```text\n> :::\n> ```\n> Outside the fence",
     );
+  });
+
+  it("preserves callout indentation inside list containers", () => {
+    const source = "- item\n\n  >![info]\n  > nested";
+    expect(directivesToCallouts(calloutsToDirectives(source))).toBe(source);
+  });
+
+  it("recovers bare relative note targets normalized by the rich editor", () => {
+    expect(
+      recoverMarkdownLinkTarget(
+        "Open [Plan](notes/plan.md).",
+        "Plan",
+        "https://notes/plan.md/",
+      ),
+    ).toBe("notes/plan.md");
   });
 
   it("routes syntax unsupported by the rich editor to source mode", () => {

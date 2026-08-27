@@ -9,6 +9,7 @@ use std::{
 
 use atomic_write_file::AtomicWriteFile;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use fs2::FileExt as Fs2FileExt;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -104,6 +105,7 @@ pub fn save_note(
         ));
     }
 
+    let _note_lock = acquire_note_lock(&root, relative_path)?;
     let previous = fs::read_to_string(&path)?;
     let previous_hash = hash_content(&previous);
     if let Some(expected_hash) = expected_hash
@@ -446,6 +448,7 @@ pub fn restore_revision(
 ) -> AppResult<NoteDocument> {
     let root = canonical_vault(vault_path)?;
     let path = existing_entry(&root, relative_path)?;
+    let _note_lock = acquire_note_lock(&root, relative_path)?;
     let current = fs::read_to_string(&path)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
@@ -1114,6 +1117,22 @@ fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
     Ok(())
 }
 
+fn acquire_note_lock(root: &Path, relative_path: &str) -> AppResult<fs::File> {
+    let lock_directory = root.join(".denote").join("locks");
+    ensure_no_symlinks(root, &lock_directory, true)?;
+    fs::create_dir_all(&lock_directory)?;
+    let lock_name = format!("{}.lock", hash_content(relative_path));
+    let lock_path = lock_directory.join(lock_name);
+    ensure_no_symlinks(root, &lock_path, true)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(lock_path)?;
+    file.lock_exclusive()?;
+    Ok(file)
+}
+
 #[cfg(unix)]
 fn read_extended_attributes(path: &Path) -> AppResult<Vec<(OsString, Vec<u8>)>> {
     if !path.exists() {
@@ -1287,6 +1306,48 @@ mod tests {
             list_history(&db_path, vault_path.to_str().unwrap(), "note.md")
                 .expect("history")
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn serializes_saves_across_denote_processes_with_content_hashes() {
+        use std::sync::{Arc, Barrier};
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "first").expect("initial note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        let document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("read note");
+        let barrier = Arc::new(Barrier::new(2));
+
+        let handles = ["second", "third"].map(|content| {
+            let barrier = Arc::clone(&barrier);
+            let db_path = db_path.clone();
+            let vault_path = vault_path.clone();
+            let expected_hash = document.content_hash.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                save_note(
+                    &db_path,
+                    vault_path.to_str().unwrap(),
+                    "note.md",
+                    content,
+                    "autosave",
+                    Some(&expected_hash),
+                )
+            })
+        });
+        let results = handles.map(|handle| handle.join().expect("save thread"));
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| matches!(result, Err(AppError::Conflict(_))))
+                .count(),
+            1
         );
     }
 

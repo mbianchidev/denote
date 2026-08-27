@@ -1,5 +1,6 @@
 import type { MDXEditorMethods } from "@mdxeditor/editor";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowDown,
@@ -38,6 +39,7 @@ import {
   calloutsToDirectives,
   extractHeadings,
   extractTags,
+  recoverMarkdownLinkTarget,
   resolveInternalLink,
   slugifyHeading,
 } from "./lib/markdown";
@@ -107,6 +109,7 @@ function App() {
   const tabsRef = useRef<EditorTab[]>([]);
   const saveTimers = useRef(new Map<string, number>());
   const saveQueues = useRef(new Map<string, Promise<boolean>>());
+  const saveGenerations = useRef(new Map<string, number>());
   const editQueues = useRef(new Map<string, Promise<boolean>>());
   const attachmentUploads = useRef(new Set<Promise<boolean>>());
   const pendingAttachmentInsertions = useRef(
@@ -144,6 +147,10 @@ function App() {
       window.clearTimeout(timer);
     }
     saveTimers.current.delete(path);
+    saveGenerations.current.set(
+      path,
+      (saveGenerations.current.get(path) ?? 0) + 1,
+    );
     saveQueues.current.delete(path);
     editQueues.current.delete(path);
   }, []);
@@ -275,6 +282,12 @@ function App() {
           window.clearTimeout(timer);
         }
         saveTimers.current.clear();
+        for (const path of saveGenerations.current.keys()) {
+          saveGenerations.current.set(
+            path,
+            (saveGenerations.current.get(path) ?? 0) + 1,
+          );
+        }
         saveQueues.current.clear();
         editQueues.current.clear();
         commitTabs(() => []);
@@ -402,9 +415,13 @@ function App() {
         ),
       );
       const previous = saveQueues.current.get(path) ?? Promise.resolve(true);
+      const generation = saveGenerations.current.get(path) ?? 0;
       const task = previous
         .catch(() => false)
         .then(async () => {
+          if ((saveGenerations.current.get(path) ?? 0) !== generation) {
+            return true;
+          }
           try {
             const expectedHash = tabsRef.current.find(
               (tab) => tab.path === path,
@@ -415,6 +432,9 @@ function App() {
               reason,
               expectedHash,
             );
+            if ((saveGenerations.current.get(path) ?? 0) !== generation) {
+              return true;
+            }
             commitTabs((current) =>
               current.map((tab) =>
                 tab.path === path
@@ -580,35 +600,49 @@ function App() {
     [showError],
   );
 
+  const completeSafeExit = useCallback(async () => {
+    if (closingWindow.current) {
+      return;
+    }
+    closingWindow.current = true;
+    if (await beginWorkspaceOperationRef.current()) {
+      try {
+        await api.completeExit();
+      } catch (caught) {
+        closingWindow.current = false;
+        setWorkspaceLock(false);
+        showError(caught);
+      }
+    } else {
+      closingWindow.current = false;
+      setWorkspaceLock(false);
+      setStatus("Close cancelled because a note could not be saved");
+    }
+  }, [setWorkspaceLock, showError]);
+
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
+    let unlistenClose: (() => void) | undefined;
+    let unlistenExit: (() => void) | undefined;
     const appWindow = getCurrentWindow();
     void appWindow
       .onCloseRequested(async (event) => {
-        if (closingWindow.current) {
-          return;
-        }
         event.preventDefault();
-        if (await beginWorkspaceOperationRef.current()) {
-          closingWindow.current = true;
-          try {
-            await appWindow.destroy();
-          } catch (caught) {
-            closingWindow.current = false;
-            setWorkspaceLock(false);
-            showError(caught);
-          }
-        } else {
-          setWorkspaceLock(false);
-          setStatus("Close cancelled because a note could not be saved");
-        }
+        await completeSafeExit();
       })
       .then((cleanup) => {
-        unlisten = cleanup;
+        unlistenClose = cleanup;
       })
       .catch(showError);
-    return () => unlisten?.();
-  }, [setWorkspaceLock, showError]);
+    void listen("denote://exit-requested", () => completeSafeExit())
+      .then((cleanup) => {
+        unlistenExit = cleanup;
+      })
+      .catch(showError);
+    return () => {
+      unlistenClose?.();
+      unlistenExit?.();
+    };
+  }, [completeSafeExit, showError]);
 
   const openFile = useCallback(
     async (path: string, anchor?: string | null) => {
@@ -1140,6 +1174,15 @@ function App() {
     setWorkspaceLock(true);
     const path = activeTab.path;
     try {
+      const timer = saveTimers.current.get(path);
+      if (timer) {
+        window.clearTimeout(timer);
+        saveTimers.current.delete(path);
+      }
+      const pendingSave = saveQueues.current.get(path);
+      if (pendingSave) {
+        await pendingSave;
+      }
       cancelPendingPath(path);
       if (activeTab.kind === "image") {
         const imageDataUrl = await api.readImageDataUrl(path);
@@ -1244,28 +1287,30 @@ function App() {
   );
 
   const openLink = useCallback(
-    async (href: string) => {
+    async (href: string, linkText = "") => {
       if (!activeTab || !href) {
         return;
       }
       try {
-        if (/^(https?:|mailto:|tel:)/i.test(href)) {
-          await openUrl(href);
+        const target =
+          recoverMarkdownLinkTarget(activeTab.content, linkText, href) ?? href;
+        if (/^(https?:|mailto:|tel:)/i.test(target)) {
+          await openUrl(target);
           return;
         }
-        if (href.startsWith("file://")) {
-          await openPath(fileUrlToPath(href));
+        if (target.startsWith("file://")) {
+          await openPath(fileUrlToPath(target));
           return;
         }
         const resolved = resolveInternalLink(
           activeTab.path,
-          href,
+          target,
           allFiles
             .filter((node) => node.kind !== "folder")
             .map((node) => node.path),
         );
         if (!resolved) {
-          showError(`Link target not found: ${href}`);
+          showError(`Link target not found: ${target}`);
           return;
         }
         await openFile(resolved.path, resolved.anchor);
@@ -1671,7 +1716,7 @@ function App() {
                     readOnly={workspaceLocked}
                     onChange={changeActiveContent}
                     onError={showError}
-                    onLinkOpen={(href) => void openLink(href)}
+                    onLinkOpen={(href, text) => void openLink(href, text)}
                     onImageUpload={uploadAttachment}
                   />
                 )}

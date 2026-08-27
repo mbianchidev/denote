@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::RwLock,
+    sync::{
+        RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
 use chrono::Utc;
@@ -19,6 +22,7 @@ pub const HISTORY_LIMIT: i64 = 10;
 pub struct AppState {
     pub db_path: PathBuf,
     active_vault: RwLock<Option<PathBuf>>,
+    allow_exit: AtomicBool,
 }
 
 impl AppState {
@@ -26,6 +30,7 @@ impl AppState {
         Self {
             db_path,
             active_vault: RwLock::new(active_vault),
+            allow_exit: AtomicBool::new(false),
         }
     }
 
@@ -44,6 +49,14 @@ impl AppState {
             .map_err(|_| crate::error::AppError::State("Vault lock is poisoned".to_string()))? =
             Some(path);
         Ok(())
+    }
+
+    pub fn allow_exit(&self) {
+        self.allow_exit.store(true, Ordering::SeqCst);
+    }
+
+    pub fn exit_is_allowed(&self) -> bool {
+        self.allow_exit.load(Ordering::SeqCst)
     }
 }
 

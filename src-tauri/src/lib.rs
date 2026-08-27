@@ -5,7 +5,7 @@ mod models;
 mod vault;
 
 use db::AppState;
-use tauri::Manager;
+use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +36,7 @@ pub fn run() {
             commands::trash_entry,
             commands::restore_trash_item,
             commands::empty_trash,
+            commands::complete_exit,
             commands::set_bookmark,
             commands::record_edit,
             commands::set_entry_order,
@@ -45,6 +46,17 @@ pub fn run() {
             commands::read_image_data_url,
             commands::save_attachment,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Denote");
+        .build(tauri::generate_context!())
+        .expect("error while building Denote")
+        .run(|app, event| {
+            if let RunEvent::ExitRequested { api, .. } = event {
+                let state = app.state::<AppState>();
+                if !state.exit_is_allowed() {
+                    api.prevent_exit();
+                    if let Err(error) = app.emit("denote://exit-requested", ()) {
+                        eprintln!("Unable to request Denote exit flush: {error}");
+                    }
+                }
+            }
+        });
 }

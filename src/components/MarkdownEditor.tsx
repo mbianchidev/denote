@@ -52,7 +52,7 @@ interface MarkdownEditorProps {
   readOnly: boolean;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
-  onLinkOpen: (href: string) => void;
+  onLinkOpen: (href: string, text: string) => void;
   onImageUpload: (notePath: string, file: File) => Promise<string>;
 }
 
@@ -191,7 +191,10 @@ export const MarkdownEditor = forwardRef<
         const link = target.closest<HTMLAnchorElement>("a[href]");
         if (link && target === link) {
           event.preventDefault();
-          onLinkOpen(link.getAttribute("href") ?? "");
+          onLinkOpen(
+            link.getAttribute("href") ?? "",
+            link.textContent ?? "",
+          );
         }
       }}
       onClickCapture={(event) => {
@@ -202,7 +205,10 @@ export const MarkdownEditor = forwardRef<
         const link = target.closest<HTMLAnchorElement>("a[href]");
         if (link) {
           event.preventDefault();
-          onLinkOpen(link.getAttribute("href") ?? "");
+          onLinkOpen(
+            link.getAttribute("href") ?? "",
+            link.textContent ?? "",
+          );
         }
       }}
     >

@@ -1,3 +1,4 @@
+use base64::{Engine, engine::general_purpose::STANDARD};
 use tauri::{AppHandle, State};
 use tauri_plugin_dialog::DialogExt;
 
@@ -116,6 +117,12 @@ pub fn empty_trash(state: State<'_, AppState>) -> AppResult<usize> {
 }
 
 #[tauri::command]
+pub fn complete_exit(app: AppHandle, state: State<'_, AppState>) {
+    state.allow_exit();
+    app.exit(0);
+}
+
+#[tauri::command]
 pub fn set_bookmark(state: State<'_, AppState>, path: String, bookmarked: bool) -> AppResult<()> {
     let root = state.active_vault()?;
     vault::set_bookmark(&state.db_path, &root.to_string_lossy(), &path, bookmarked)
@@ -178,8 +185,23 @@ pub fn save_attachment(
     state: State<'_, AppState>,
     note_path: String,
     file_name: String,
-    data: Vec<u8>,
+    data_base64: String,
 ) -> AppResult<String> {
+    const MAX_ATTACHMENT_BYTES: usize = 25 * 1024 * 1024;
+    const MAX_BASE64_BYTES: usize = MAX_ATTACHMENT_BYTES.div_ceil(3) * 4;
+    if data_base64.len() > MAX_BASE64_BYTES {
+        return Err(AppError::InvalidData(
+            "Attachment is larger than the 25 MB limit".to_string(),
+        ));
+    }
+    let data = STANDARD
+        .decode(data_base64)
+        .map_err(|error| AppError::InvalidData(format!("Invalid attachment data: {error}")))?;
+    if data.len() > MAX_ATTACHMENT_BYTES {
+        return Err(AppError::InvalidData(
+            "Attachment is larger than the 25 MB limit".to_string(),
+        ));
+    }
     let root = state.active_vault()?;
     vault::save_attachment(&root.to_string_lossy(), &note_path, &file_name, &data)
 }

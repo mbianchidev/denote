@@ -19,7 +19,7 @@ export function calloutsToDirectives(markdown: string): string {
     }
     const match = lines[index].match(
       new RegExp(
-        `^\\s*>\\s*(?:!\\[(${CALLOUT_TYPES})\\]|\\[!(${CALLOUT_TYPES})\\])\\s*$`,
+        `^(\\s*)>\\s*(?:!\\[(${CALLOUT_TYPES})\\]|\\[!(${CALLOUT_TYPES})\\])\\s*$`,
         "i",
       ),
     );
@@ -28,19 +28,27 @@ export function calloutsToDirectives(markdown: string): string {
       continue;
     }
 
-    const sourceType = (match[1] ?? match[2]).toLowerCase();
+    const indent = match[1];
+    const sourceType = (match[2] ?? match[3]).toLowerCase();
     const directiveType = sourceType === "warning" ? "caution" : sourceType;
     const body: string[] = [];
     let cursor = index + 1;
     while (cursor < lines.length) {
-      const quote = lines[cursor].match(/^\s*>\s?(.*)$/);
+      if (!lines[cursor].startsWith(indent)) {
+        break;
+      }
+      const quote = lines[cursor].slice(indent.length).match(/^>\s?(.*)$/);
       if (!quote) {
         break;
       }
       body.push(quote[1]);
       cursor += 1;
     }
-    output.push(`:::${directiveType}`, ...body, ":::");
+    output.push(
+      `${indent}:::${directiveType}`,
+      ...body.map((line) => `${indent}${line}`),
+      `${indent}:::`,
+    );
     index = cursor - 1;
   }
 
@@ -63,27 +71,31 @@ export function directivesToCallouts(markdown: string): string {
       continue;
     }
     const match = lines[index].match(
-      new RegExp(`^\\s*:::(${CALLOUT_TYPES})\\s*$`, "i"),
+      new RegExp(`^(\\s*):::(${CALLOUT_TYPES})\\s*$`, "i"),
     );
     if (!match) {
       output.push(lines[index]);
       continue;
     }
 
-    const directiveType = match[1].toLowerCase();
+    const indent = match[1];
+    const directiveType = match[2].toLowerCase();
     const sourceType = directiveType === "caution" ? "warning" : directiveType;
     const body: string[] = [];
     let cursor = index + 1;
     let nestedFence: Fence | null = null;
     while (cursor < lines.length) {
       const line = lines[cursor];
-      if (!nestedFence && line.trim() === ":::") {
+      const relativeLine = line.startsWith(indent)
+        ? line.slice(indent.length)
+        : line;
+      if (!nestedFence && /^:::\s*$/.test(relativeLine)) {
         break;
       }
       if (!isIndentedCode(line)) {
-        nestedFence = updateFence(line, nestedFence);
+        nestedFence = updateFence(relativeLine, nestedFence);
       }
-      body.push(line);
+      body.push(relativeLine);
       cursor += 1;
     }
     if (cursor >= lines.length) {
@@ -91,8 +103,10 @@ export function directivesToCallouts(markdown: string): string {
       continue;
     }
     output.push(
-      `>![${sourceType}]`,
-      ...body.map((line) => (line ? `> ${line}` : ">")),
+      `${indent}>![${sourceType}]`,
+      ...body.map((line) =>
+        line ? `${indent}> ${line}` : `${indent}>`,
+      ),
     );
     index = cursor;
   }
@@ -189,6 +203,27 @@ export function resolveInternalLink(
   return path ? { path, anchor: anchor || null } : null;
 }
 
+export function recoverMarkdownLinkTarget(
+  markdown: string,
+  linkText: string,
+  renderedHref: string,
+): string | null {
+  const normalizedText = linkText.trim();
+  const pattern =
+    /\[([^\]]+)\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
+  for (const match of markdown.matchAll(pattern)) {
+    const text = match[1].replace(/[*_`~]/g, "").trim();
+    const target = match[2].replace(/^<|>$/g, "");
+    if (text !== normalizedText || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+      continue;
+    }
+    if (normalizedRenderedHref(target) === normalizedRenderedHref(renderedHref)) {
+      return target;
+    }
+  }
+  return null;
+}
+
 export function hasUnsupportedRichMarkdown(markdown: string): boolean {
   return (
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
@@ -227,4 +262,17 @@ function updateFence(line: string, current: Fence | null): Fence | null {
 
 function isIndentedCode(line: string): boolean {
   return /^(?: {4}|\t)/.test(line);
+}
+
+function normalizedRenderedHref(value: string): string {
+  if (/^[/.#]/.test(value)) {
+    return value;
+  }
+  try {
+    return new URL(
+      /^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`,
+    ).href.replace(/\/$/, "");
+  } catch {
+    return value;
+  }
 }
