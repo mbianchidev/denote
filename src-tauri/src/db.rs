@@ -609,6 +609,22 @@ pub fn restore_metadata(
     Ok(())
 }
 
+pub fn purge_trash_metadata(
+    connection: &mut Connection,
+    vault_id: i64,
+    item_id: i64,
+    trash_path: &str,
+) -> AppResult<()> {
+    let transaction = connection.transaction()?;
+    delete_content_metadata_tx(&transaction, vault_id, trash_path)?;
+    transaction.execute(
+        "DELETE FROM trash_items WHERE id = ?1 AND vault_id = ?2",
+        params![item_id, vault_id],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
 pub fn rename_metadata(
     connection: &mut Connection,
     vault_id: i64,
@@ -630,18 +646,6 @@ fn rename_metadata_tx(
     new_path: &str,
 ) -> AppResult<()> {
     rekey_content_metadata_tx(transaction, vault_id, old_path, new_path)?;
-    transaction.execute(
-        r#"
-        UPDATE trash_items
-        SET original_path = ?1 || substr(original_path, length(?2) + 1)
-        WHERE vault_id = ?3
-          AND (
-            original_path = ?2
-            OR substr(original_path, 1, length(?2) + 1) = ?2 || '/'
-          )
-        "#,
-        params![new_path, old_path, vault_id],
-    )?;
     Ok(())
 }
 
@@ -752,6 +756,27 @@ fn rekey_content_metadata_tx(
             "#
         );
         transaction.execute(&query, params![new_path, old_path, vault_id])?;
+    }
+    Ok(())
+}
+
+fn delete_content_metadata_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    path: &str,
+) -> AppResult<()> {
+    for table in ["note_stats", "history", "entry_order"] {
+        let query = format!(
+            r#"
+            DELETE FROM {table}
+            WHERE vault_id = ?1
+              AND (
+                path = ?2
+                OR substr(path, 1, length(?2) + 1) = ?2 || '/'
+              )
+            "#
+        );
+        transaction.execute(&query, params![vault_id, path])?;
     }
     Ok(())
 }

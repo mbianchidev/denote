@@ -49,9 +49,11 @@ import {
 interface MarkdownEditorProps {
   notePath: string;
   markdown: string;
+  readOnly: boolean;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
   onLinkOpen: (href: string) => void;
+  onImageUpload: (notePath: string, file: File) => Promise<string>;
 }
 
 export const MarkdownEditor = forwardRef<
@@ -61,9 +63,11 @@ export const MarkdownEditor = forwardRef<
   {
   notePath,
     markdown,
+    readOnly,
     onChange,
     onError,
     onLinkOpen,
+    onImageUpload,
   },
   ref,
 ) {
@@ -78,7 +82,7 @@ export const MarkdownEditor = forwardRef<
       linkPlugin({ disableAutoLink: false }),
       linkDialogPlugin({ showLinkTitleField: true }),
       imagePlugin({
-        imageUploadHandler: (file) => api.saveAttachment(notePath, file),
+        imageUploadHandler: (file) => onImageUpload(notePath, file),
         imagePreviewHandler: async (source) => {
           if (
             source.startsWith("data:") ||
@@ -173,7 +177,7 @@ export const MarkdownEditor = forwardRef<
         ),
       }),
     ],
-    [notePath, sourceFirst],
+    [notePath, onImageUpload, sourceFirst],
   );
 
   return (
@@ -209,6 +213,7 @@ export const MarkdownEditor = forwardRef<
         className="denote-editor-root"
         contentEditableClassName="denote-editor-content"
         placeholder="Start writing…"
+        readOnly={readOnly}
         spellCheck
         onChange={(value, initialNormalize) => {
           if (!initialNormalize) {

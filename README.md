@@ -13,6 +13,7 @@ plain UTF-8 files as the source of truth.
   and recency filters
 - Tabs, bookmarks, recently opened files, and search navigation
 - File and folder creation, rename, reorder, trash, and restore
+- Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks, images, and links
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document

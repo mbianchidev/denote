@@ -16,7 +16,8 @@ them into memory.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored
-name when necessary.
+name when necessary. Empty Trash permanently removes both hidden files and
+their plugin-free metadata after explicit confirmation.
 
 ## SQLite metadata
 

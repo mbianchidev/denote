@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-27T19:42:00+02:00",
+  "generatedAt": "2026-08-27T20:55:00+02:00",
   "title": "Design System: Denote",
   "extensions": {
     "colorMeta": {
@@ -27,6 +27,12 @@
         "displayName": "Dialog Scrim",
         "canonical": "rgba(8, 9, 10, 0.66)",
         "tonalRamp": ["#08090a", "#121315", "#202327", "#30343a", "#555a60", "#858680", "#aaa9a2", "#e8e5de"]
+      },
+      "light-moss": {
+        "role": "primary",
+        "displayName": "Light Workbench Moss",
+        "canonical": "#537642",
+        "tonalRamp": ["#182015", "#283324", "#3f5135", "#537642", "#759461", "#9fbe85", "#c4d9b2", "#edf4e7"]
       }
     },
     "typographyMeta": {

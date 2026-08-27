@@ -21,6 +21,7 @@
   --accent: #9fbe85;
   --accent-strong: #b1cf98;
   --accent-muted: #283324;
+  --accent-contrast: #182015;
   --danger: #e28b86;
   --danger-muted: #3b2526;
   --warning: #d8b36a;
@@ -38,15 +39,16 @@
   --editor-raised: #f2efe8;
   --text-primary: #252722;
   --text-secondary: #51554d;
-  --text-tertiary: #61645b;
+  --text-tertiary: #585b53;
   --border: #d1cdc3;
   --border-strong: #b8b3a8;
   --accent: #537642;
   --accent-strong: #3f6132;
   --accent-muted: #dce7d5;
+  --accent-contrast: #f8f6f1;
   --danger: #a33d39;
   --danger-muted: #f3d9d7;
-  --warning: #936918;
+  --warning: #6f4a00;
   --info: #2f6f8b;
   --focus: #3f6132;
   --shadow: 0 16px 36px rgba(48, 43, 33, 0.18);
@@ -149,7 +151,7 @@ button:disabled {
   place-items: center;
   width: 28px;
   height: 28px;
-  color: #1b2118;
+  color: var(--accent-contrast);
   font-size: 13px;
   font-weight: 800;
   background: var(--accent);
@@ -338,8 +340,16 @@ button:disabled {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  outline: none;
   background: var(--editor-bg);
+}
+
+.workspace-main:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.workspace-main[data-locked="true"] {
+  cursor: progress;
 }
 
 .workspace-topbar {
@@ -860,7 +870,7 @@ button.tag-chip {
 }
 
 .primary-button {
-  color: #182015;
+  color: var(--accent-contrast);
   background: var(--accent);
   border: 1px solid var(--accent-strong);
 }
@@ -1025,6 +1035,11 @@ kbd {
   margin: 0;
   font-size: 12px;
   font-weight: 650;
+}
+
+.sidebar-view__actions {
+  display: flex;
+  gap: 2px;
 }
 
 .search-result,

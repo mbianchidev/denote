@@ -14,6 +14,11 @@ colors:
   danger: "#e28b86"
   light-paper: "#f8f6f1"
   light-sidebar: "#e8e5de"
+  light-moss: "#537642"
+  light-moss-strong: "#3f6132"
+  light-secondary-ink: "#51554d"
+  light-tertiary-ink: "#585b53"
+  light-warning: "#6f4a00"
   dialog-scrim: "rgba(8, 9, 10, 0.66)"
 typography:
   headline:

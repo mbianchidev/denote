@@ -8,6 +8,10 @@ export function calloutsToDirectives(markdown: string): string {
   let fence: Fence | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
+    if (isIndentedCode(lines[index])) {
+      output.push(lines[index]);
+      continue;
+    }
     fence = updateFence(lines[index], fence);
     if (fence || isFenceLine(lines[index])) {
       output.push(lines[index]);
@@ -49,6 +53,10 @@ export function directivesToCallouts(markdown: string): string {
   let fence: Fence | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
+    if (isIndentedCode(lines[index])) {
+      output.push(lines[index]);
+      continue;
+    }
     fence = updateFence(lines[index], fence);
     if (fence || isFenceLine(lines[index])) {
       output.push(lines[index]);
@@ -66,8 +74,16 @@ export function directivesToCallouts(markdown: string): string {
     const sourceType = directiveType === "caution" ? "warning" : directiveType;
     const body: string[] = [];
     let cursor = index + 1;
-    while (cursor < lines.length && lines[cursor].trim() !== ":::") {
-      body.push(lines[cursor]);
+    let nestedFence: Fence | null = null;
+    while (cursor < lines.length) {
+      const line = lines[cursor];
+      if (!nestedFence && line.trim() === ":::") {
+        break;
+      }
+      if (!isIndentedCode(line)) {
+        nestedFence = updateFence(line, nestedFence);
+      }
+      body.push(line);
       cursor += 1;
     }
     if (cursor >= lines.length) {
@@ -178,9 +194,10 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
     /\[\^[^\]]+\]/.test(markdown) ||
     /<!--[\s\S]*?-->/.test(markdown) ||
-    /(^|\n)\s*<\/?[a-z][^>]*>/im.test(markdown) ||
+    /<\/?[a-z][^>]*>/i.test(markdown) ||
+    /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
-    /(^|[^\\])\$[^$\n]+\$/.test(markdown)
+    /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown)
   );
 }
 
@@ -190,11 +207,11 @@ interface Fence {
 }
 
 function isFenceLine(line: string): boolean {
-  return /^\s*(`{3,}|~{3,})/.test(line);
+  return /^ {0,3}(`{3,}|~{3,})/.test(line);
 }
 
 function updateFence(line: string, current: Fence | null): Fence | null {
-  const match = line.match(/^\s*(`{3,}|~{3,})/);
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})/);
   if (!match) {
     return current;
   }
@@ -206,4 +223,8 @@ function updateFence(line: string, current: Fence | null): Fence | null {
   return current.character === character && marker.length >= current.length
     ? null
     : current;
+}
+
+function isIndentedCode(line: string): boolean {
+  return /^(?: {4}|\t)/.test(line);
 }

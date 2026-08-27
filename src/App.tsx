@@ -77,21 +77,26 @@ function App() {
   const [status, setStatus] = useState("Ready");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [historyRevisions, setHistoryRevisions] = useState<HistoryRevision[]>(
     [],
   );
   const editorRef = useRef<MDXEditorMethods>(null);
   const searchIndex = useRef(new VaultSearchIndex());
   const searchQueryRef = useRef(searchQuery);
+  const rebuildRequest = useRef(0);
+  const queryRequest = useRef(0);
   const tabsRef = useRef<EditorTab[]>([]);
   const saveTimers = useRef(new Map<string, number>());
   const saveQueues = useRef(new Map<string, Promise<boolean>>());
   const editQueues = useRef(new Map<string, Promise<boolean>>());
+  const attachmentUploads = useRef(new Set<Promise<boolean>>());
   const flushAllTabsRef = useRef<() => Promise<boolean>>(async () => true);
   const indexTimer = useRef<number | null>(null);
   const pendingAnchor = useRef<string | null>(null);
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
+  const workspaceLockedRef = useRef(false);
 
   const commitTabs = useCallback(
     (updater: (current: EditorTab[]) => EditorTab[]) => {
@@ -101,6 +106,19 @@ function App() {
     },
     [],
   );
+  const setWorkspaceLock = useCallback((locked: boolean) => {
+    workspaceLockedRef.current = locked;
+    setWorkspaceLocked(locked);
+  }, []);
+  const cancelPendingPath = useCallback((path: string) => {
+    const timer = saveTimers.current.get(path);
+    if (timer) {
+      window.clearTimeout(timer);
+    }
+    saveTimers.current.delete(path);
+    saveQueues.current.delete(path);
+    editQueues.current.delete(path);
+  }, []);
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
@@ -136,29 +154,44 @@ function App() {
   }, []);
 
   const rebuildSearchIndex = useCallback(
-    async (
-      generation = vaultGeneration.current,
-      query = searchQueryRef.current,
-    ) => {
+    async (generation = vaultGeneration.current) => {
+      const request = ++rebuildRequest.current;
       setIndexing(true);
       try {
         const documents = await api.listSearchDocuments();
-        if (generation !== vaultGeneration.current) {
+        if (
+          generation !== vaultGeneration.current ||
+          request !== rebuildRequest.current
+        ) {
           return;
         }
         const nextIndex = new VaultSearchIndex();
         await nextIndex.rebuild(documents);
-        if (generation !== vaultGeneration.current) {
+        if (
+          generation !== vaultGeneration.current ||
+          request !== rebuildRequest.current
+        ) {
           return;
         }
         searchIndex.current = nextIndex;
-        setSearchResults(await nextIndex.query(query));
+        const query = searchQueryRef.current;
+        const results = await nextIndex.query(query);
+        if (
+          generation === vaultGeneration.current &&
+          request === rebuildRequest.current &&
+          query === searchQueryRef.current
+        ) {
+          setSearchResults(results);
+        }
       } catch (caught) {
         if (generation === vaultGeneration.current) {
           showError(caught);
         }
       } finally {
-        if (generation === vaultGeneration.current) {
+        if (
+          generation === vaultGeneration.current &&
+          request === rebuildRequest.current
+        ) {
           setIndexing(false);
         }
       }
@@ -245,9 +278,10 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const request = ++queryRequest.current;
     void (async () => {
       const results = await searchIndex.current.query(searchQuery);
-      if (!cancelled) {
+      if (!cancelled && request === queryRequest.current) {
         setSearchResults(results);
       }
     })();
@@ -257,12 +291,16 @@ function App() {
   }, [searchQuery]);
 
   const chooseVault = useCallback(async () => {
-    if (!(await flushAllTabsRef.current())) {
-      setStatus("Vault switch cancelled because a note could not be saved");
+    if (workspaceLockedRef.current) {
       return;
     }
+    setWorkspaceLock(true);
     setInitializing(true);
     try {
+      if (!(await flushAllTabsRef.current())) {
+        setStatus("Vault switch cancelled because a note could not be saved");
+        return;
+      }
       const snapshot = await api.chooseVault();
       if (snapshot) {
         vaultGeneration.current += 1;
@@ -272,8 +310,9 @@ function App() {
       showError(caught);
     } finally {
       setInitializing(false);
+      setWorkspaceLock(false);
     }
-  }, [loadWorkspace, showError]);
+  }, [loadWorkspace, setWorkspaceLock, showError]);
 
   const scheduleIndexRebuild = useCallback(() => {
     if (!workspace) {
@@ -380,14 +419,49 @@ function App() {
   );
 
   const flushAllTabs = useCallback(async (): Promise<boolean> => {
-    for (const tab of [...tabsRef.current]) {
-      if (!(await flushTab(tab.path))) {
-        return false;
+    const uploads = await Promise.all([...attachmentUploads.current]);
+    if (uploads.some((succeeded) => !succeeded)) {
+      return false;
+    }
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      for (const tab of [...tabsRef.current]) {
+        if (!(await flushTab(tab.path))) {
+          return false;
+        }
+      }
+      if (
+        tabsRef.current.every(
+          (tab) => tab.kind === "image" || tab.content === tab.savedContent,
+        )
+      ) {
+        return true;
       }
     }
-    return true;
-  }, [flushTab]);
+    showError("Unable to settle concurrent workspace edits. Try again.");
+    return false;
+  }, [flushTab, showError]);
   flushAllTabsRef.current = flushAllTabs;
+
+  const uploadAttachment = useCallback(
+    (notePath: string, file: File): Promise<string> => {
+      if (workspaceLockedRef.current) {
+        return Promise.reject(new Error("Workspace is busy. Try the upload again."));
+      }
+      const operation = api.saveAttachment(notePath, file);
+      const tracked = operation
+        .then(() => true)
+        .catch((caught) => {
+          showError(caught);
+          return false;
+        });
+      attachmentUploads.current.add(tracked);
+      void tracked.finally(() => {
+        attachmentUploads.current.delete(tracked);
+      });
+      return operation;
+    },
+    [showError],
+  );
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -398,10 +472,18 @@ function App() {
           return;
         }
         event.preventDefault();
+        setWorkspaceLock(true);
         if (await flushAllTabsRef.current()) {
           closingWindow.current = true;
-          await appWindow.destroy();
+          try {
+            await appWindow.destroy();
+          } catch (caught) {
+            closingWindow.current = false;
+            setWorkspaceLock(false);
+            showError(caught);
+          }
         } else {
+          setWorkspaceLock(false);
           setStatus("Close cancelled because a note could not be saved");
         }
       })
@@ -410,7 +492,7 @@ function App() {
       })
       .catch(showError);
     return () => unlisten?.();
-  }, [showError]);
+  }, [setWorkspaceLock, showError]);
 
   const openFile = useCallback(
     async (path: string, anchor?: string | null) => {
@@ -487,6 +569,9 @@ function App() {
 
   const changeActiveContent = useCallback(
     (content: string) => {
+      if (workspaceLockedRef.current) {
+        return;
+      }
       const currentTab = tabsRef.current.find(
         (candidate) => candidate.path === activePath,
       );
@@ -553,23 +638,51 @@ function App() {
 
   const closeTab = useCallback(
     async (path: string) => {
-      const currentTabs = tabsRef.current;
-      const index = currentTabs.findIndex((candidate) => candidate.path === path);
-      if (index < 0 || !(await flushTab(path))) {
+      if (workspaceLockedRef.current) {
         return;
       }
-      const remaining = tabsRef.current.filter(
-        (candidate) => candidate.path !== path,
-      );
-      commitTabs(() => remaining);
-      saveQueues.current.delete(path);
-      if (activePath === path) {
-        setActivePath(
-          remaining[Math.min(index, remaining.length - 1)]?.path ?? null,
+      setWorkspaceLock(true);
+      try {
+        const currentTabs = tabsRef.current;
+        const index = currentTabs.findIndex(
+          (candidate) => candidate.path === path,
         );
+        if (index < 0 || !(await flushTab(path))) {
+          return;
+        }
+        const remaining = tabsRef.current.filter(
+          (candidate) => candidate.path !== path,
+        );
+        commitTabs(() => remaining);
+        cancelPendingPath(path);
+        if (activePath === path) {
+            const nextPath =
+              remaining[Math.min(index, remaining.length - 1)]?.path ?? null;
+            setActivePath(nextPath);
+            window.setTimeout(() => {
+              if (nextPath) {
+                const nextTab = [...document.querySelectorAll<HTMLButtonElement>(
+                  "[data-tab-path]",
+                )].find((element) => element.dataset.tabPath === nextPath);
+                nextTab?.focus();
+              } else {
+                document
+                  .querySelector<HTMLButtonElement>(".file-tree__row")
+                  ?.focus();
+              }
+            }, 0);
+          }
+      } finally {
+        setWorkspaceLock(false);
       }
     },
-    [activePath, commitTabs, flushTab],
+    [
+      activePath,
+      cancelPendingPath,
+      commitTabs,
+      flushTab,
+      setWorkspaceLock,
+    ],
   );
 
   const refreshAndReindex = useCallback(async () => {
@@ -583,7 +696,7 @@ function App() {
 
   const createEntry = useCallback(
     async (directory: boolean) => {
-      if (!workspace) {
+      if (!workspace || workspaceLockedRef.current) {
         return;
       }
       const parentPath =
@@ -627,13 +740,14 @@ function App() {
   );
 
   const renameSelected = useCallback(async () => {
-    if (!workspace || !selectedNode) {
+    if (!workspace || !selectedNode || workspaceLockedRef.current) {
       return;
     }
     const newName = window.prompt("Rename", selectedNode.name);
     if (!newName || newName === selectedNode.name) {
       return;
     }
+    setWorkspaceLock(true);
     try {
       const affectedTabs = tabsRef.current.filter(
         (tab) =>
@@ -655,35 +769,40 @@ function App() {
       commitTabs((current) =>
         current.map((tab) => {
           const path = replacePrefix(tab.path);
+          const renamedKind = kindFromPath(path);
           return {
             ...tab,
             path,
             title: path.split("/").slice(-1)[0] ?? path,
+            kind:
+              renamedKind && renamedKind !== "folder" ? renamedKind : tab.kind,
           };
         }),
       );
       setActivePath((current) => (current ? replacePrefix(current) : current));
       setSelectedPath(newPath);
       for (const tab of affectedTabs) {
-        saveTimers.current.delete(tab.path);
-        saveQueues.current.delete(tab.path);
-        editQueues.current.delete(tab.path);
+        cancelPendingPath(tab.path);
       }
       await refreshAndReindex();
     } catch (caught) {
       showError(caught);
+    } finally {
+      setWorkspaceLock(false);
     }
   }, [
+    cancelPendingPath,
     commitTabs,
     flushTab,
     refreshAndReindex,
     selectedNode,
+    setWorkspaceLock,
     showError,
     workspace,
   ]);
 
   const trashSelected = useCallback(async () => {
-    if (!workspace || !selectedNode) {
+    if (!workspace || !selectedNode || workspaceLockedRef.current) {
       return;
     }
     if (
@@ -693,6 +812,7 @@ function App() {
     ) {
       return;
     }
+    setWorkspaceLock(true);
     try {
       const affectedTabs = tabsRef.current.filter(
         (tab) =>
@@ -711,9 +831,7 @@ function App() {
         path.startsWith(`${selectedNode.path}/`);
       commitTabs((current) => current.filter((tab) => !isAffected(tab.path)));
       for (const tab of affectedTabs) {
-        saveTimers.current.delete(tab.path);
-        saveQueues.current.delete(tab.path);
-        editQueues.current.delete(tab.path);
+        cancelPendingPath(tab.path);
       }
       if (activePath && isAffected(activePath)) {
         setActivePath(null);
@@ -722,19 +840,28 @@ function App() {
       await refreshAndReindex();
     } catch (caught) {
       showError(caught);
+    } finally {
+      setWorkspaceLock(false);
     }
   }, [
     activePath,
+    cancelPendingPath,
     commitTabs,
     flushTab,
     refreshAndReindex,
     selectedNode,
+    setWorkspaceLock,
     showError,
     workspace,
   ]);
 
   const toggleBookmark = useCallback(async () => {
-    if (!workspace || !selectedNode || selectedNode.kind === "folder") {
+    if (
+      !workspace ||
+      !selectedNode ||
+      selectedNode.kind === "folder" ||
+      workspaceLockedRef.current
+    ) {
       return;
     }
     try {
@@ -747,7 +874,7 @@ function App() {
 
   const moveSelected = useCallback(
     async (direction: -1 | 1) => {
-      if (!workspace || !selectedNode) {
+      if (!workspace || !selectedNode || workspaceLockedRef.current) {
         return;
       }
       const siblings = findSiblings(workspace.tree, selectedNode.path);
@@ -788,8 +915,43 @@ function App() {
     [refreshAndReindex, showError, workspace],
   );
 
+  const emptyTrash = useCallback(async () => {
+    if (
+      !workspace ||
+      workspace.trash.length === 0 ||
+      workspaceLockedRef.current
+    ) {
+      return;
+    }
+    if (
+      !window.confirm(
+        "Permanently delete every item in Denote Trash? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+    setWorkspaceLock(true);
+    try {
+      const removed = await api.emptyTrash();
+      await refreshAndReindex();
+      setStatus(`Permanently deleted ${removed} trash item${removed === 1 ? "" : "s"}`);
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setWorkspaceLock(false);
+    }
+  }, [
+    refreshAndReindex,
+    setWorkspaceLock,
+    showError,
+    workspace,
+  ]);
+
   const openHistory = useCallback(async () => {
     if (!workspace || !activeTab || activeTab.kind === "image") {
+      return;
+    }
+    if (workspaceLockedRef.current) {
       return;
     }
     setHistoryOpen(true);
@@ -808,6 +970,10 @@ function App() {
       if (!workspace || !activeTab || activeTab.kind === "image") {
         return;
       }
+      if (workspaceLockedRef.current) {
+        return;
+      }
+      setWorkspaceLock(true);
       try {
         if (!(await flushTab(activeTab.path))) {
           setStatus("Restore cancelled because the note could not be saved");
@@ -834,6 +1000,8 @@ function App() {
         scheduleIndexRebuild();
       } catch (caught) {
         showError(caught);
+      } finally {
+        setWorkspaceLock(false);
       }
     },
     [
@@ -841,6 +1009,7 @@ function App() {
       commitTabs,
       flushTab,
       scheduleIndexRebuild,
+      setWorkspaceLock,
       showError,
       workspace,
     ],
@@ -926,11 +1095,13 @@ function App() {
         setActivePath(
           tabs[(index + direction + tabs.length) % tabs.length].path,
         );
+      } else if (event.key === "Escape" && showOutline) {
+        setShowOutline(false);
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activePath, activeTab, closeTab, saveTab, tabs]);
+  }, [activePath, activeTab, closeTab, saveTab, showOutline, tabs]);
 
   if (!workspace) {
     return (
@@ -1122,14 +1293,26 @@ function App() {
           <div className="sidebar-view">
             <div className="sidebar-view__title">
               <h2>Trash</h2>
-              <button
-                type="button"
-                className="icon-button"
-                aria-label="Refresh trash"
-                onClick={() => void refreshWorkspace()}
-              >
-                <RefreshCw aria-hidden="true" size={15} />
-              </button>
+              <div className="sidebar-view__actions">
+                <button
+                  type="button"
+                  className="icon-button icon-button--danger"
+                  aria-label="Empty trash permanently"
+                  title="Empty trash permanently"
+                  disabled={workspace.trash.length === 0}
+                  onClick={() => void emptyTrash()}
+                >
+                  <Trash2 aria-hidden="true" size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Refresh trash"
+                  onClick={() => void refreshWorkspace()}
+                >
+                  <RefreshCw aria-hidden="true" size={15} />
+                </button>
+              </div>
             </div>
             <div className="sidebar-list">
               {workspace.trash.length > 0 ? (
@@ -1159,7 +1342,13 @@ function App() {
           </div>
         )}
       </aside>
-      <section className="workspace-main" id="editor-workspace" tabIndex={-1}>
+      <section
+        className="workspace-main"
+        id="editor-workspace"
+        tabIndex={-1}
+        data-locked={workspaceLocked}
+        aria-busy={workspaceLocked}
+      >
         <header className="workspace-topbar">
           <Tabs
             tabs={tabs}
@@ -1181,9 +1370,14 @@ function App() {
             <button
               type="button"
               className="icon-button"
-              aria-label={`${showOutline ? "Hide" : "Show"} outline`}
-              title={`${showOutline ? "Hide" : "Show"} outline`}
-              aria-pressed={showOutline}
+              aria-label={`${
+                showOutline && activeTab?.kind === "markdown" ? "Hide" : "Show"
+              } outline`}
+              title={`${
+                showOutline && activeTab?.kind === "markdown" ? "Hide" : "Show"
+              } outline`}
+              aria-pressed={activeTab?.kind === "markdown" && showOutline}
+              disabled={!activeTab || activeTab.kind !== "markdown"}
               onClick={() => setShowOutline((current) => !current)}
             >
               <ListTree aria-hidden="true" size={16} />
@@ -1220,6 +1414,7 @@ function App() {
                     className="plain-text-editor"
                     aria-label={`Edit ${activeTab.title}`}
                     value={activeTab.content}
+                    readOnly={workspaceLocked}
                     spellCheck
                     onChange={(event) =>
                       changeActiveContent(event.currentTarget.value)
@@ -1231,9 +1426,11 @@ function App() {
                     ref={editorRef}
                     notePath={activeTab.path}
                     markdown={activeTab.content}
+                    readOnly={workspaceLocked}
                     onChange={changeActiveContent}
                     onError={showError}
                     onLinkOpen={(href) => void openLink(href)}
+                    onImageUpload={uploadAttachment}
                   />
                 )}
                 {tags.length > 0 ? (

@@ -108,6 +108,12 @@ pub fn restore_trash_item(state: State<'_, AppState>, item_id: i64) -> AppResult
 }
 
 #[tauri::command]
+pub fn empty_trash(state: State<'_, AppState>) -> AppResult<usize> {
+    let root = state.active_vault()?;
+    vault::empty_trash(&state.db_path, &root.to_string_lossy())
+}
+
+#[tauri::command]
 pub fn set_bookmark(state: State<'_, AppState>, path: String, bookmarked: bool) -> AppResult<()> {
     let root = state.active_vault()?;
     vault::set_bookmark(&state.db_path, &root.to_string_lossy(), &path, bookmarked)

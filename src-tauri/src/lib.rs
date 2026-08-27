@@ -35,6 +35,7 @@ pub fn run() {
             commands::rename_entry,
             commands::trash_entry,
             commands::restore_trash_item,
+            commands::empty_trash,
             commands::set_bookmark,
             commands::record_edit,
             commands::set_entry_order,

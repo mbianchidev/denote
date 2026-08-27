@@ -38,6 +38,7 @@ export const api = {
   trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
   restoreTrashItem: (itemId: number) =>
     invoke<string>("restore_trash_item", { itemId }),
+  emptyTrash: () => invoke<number>("empty_trash"),
   setBookmark: (path: string, bookmarked: boolean) =>
     invoke<void>("set_bookmark", { path, bookmarked }),
   recordEdit: (path: string) => invoke<NoteStats>("record_edit", { path }),

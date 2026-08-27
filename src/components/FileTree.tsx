@@ -70,6 +70,7 @@ function FileTreeNode({
       <button
         type="button"
         data-selected={selectedPath === node.path}
+        aria-current={selectedPath === node.path ? "true" : undefined}
         aria-expanded={isFolder ? expanded : undefined}
         className="file-tree__row"
         style={style}

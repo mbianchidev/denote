@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    ffi::OsString,
     fs,
     io::Write,
     path::{Component, Path, PathBuf},
@@ -193,10 +194,25 @@ pub fn rename_entry(
     if destination.exists() {
         return Err(AppError::InvalidPath(format!("{new_name} already exists")));
     }
-    if source.is_file() && kind_for_path(&destination).is_none() {
-        return Err(AppError::UnsupportedFile(
-            "Renamed files must keep a supported extension".to_string(),
-        ));
+    if source.is_file() {
+        let source_kind = kind_for_path(&source)
+            .ok_or_else(|| AppError::UnsupportedFile(relative_path.to_string()))?;
+        let destination_kind = kind_for_path(&destination).ok_or_else(|| {
+            AppError::UnsupportedFile("Renamed files must keep a supported extension".to_string())
+        })?;
+        let compatible = matches!(
+            (&source_kind, &destination_kind),
+            (
+                FileKind::Markdown | FileKind::Text,
+                FileKind::Markdown | FileKind::Text
+            ) | (FileKind::Image, FileKind::Image)
+        );
+        if !compatible {
+            return Err(AppError::UnsupportedFile(
+                "Renaming cannot change a text document into an image or an image into text"
+                    .to_string(),
+            ));
+        }
     }
     let new_relative = relative_string(&root, &destination)?;
     let mut connection = db::open(db_path)?;
@@ -330,6 +346,37 @@ pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> App
     Ok(restored_relative)
 }
 
+pub fn empty_trash(db_path: &Path, vault_path: &str) -> AppResult<usize> {
+    let root = canonical_vault(vault_path)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let items = db::list_trash(&connection, vault_id)?;
+    let mut removed = 0;
+    for item in items {
+        let Some((_, trash_path, is_directory)) = db::trash_path(&connection, vault_id, item.id)?
+        else {
+            continue;
+        };
+        ensure_trash_item_path(&trash_path)?;
+        let relative = normalized_relative(&trash_path, true)?;
+        let path = root.join(relative);
+        ensure_no_symlinks(&root, &path, true)?;
+        if path.exists() {
+            if is_directory {
+                fs::remove_dir_all(&path)?;
+            } else {
+                fs::remove_file(&path)?;
+            }
+        }
+        db::purge_trash_metadata(&mut connection, vault_id, item.id, &trash_path)?;
+        if let Some(parent) = path.parent() {
+            let _ = fs::remove_dir(parent);
+        }
+        removed += 1;
+    }
+    Ok(removed)
+}
+
 pub fn set_bookmark(
     db_path: &Path,
     vault_path: &str,
@@ -430,7 +477,7 @@ pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<
             continue;
         }
         let relative = relative_internal_string(&root, entry.path())?;
-        if relative == ".denote" || relative.starts_with(".denote/") {
+        if is_internal_relative_path(&relative) {
             continue;
         }
         if metadata_is_link(&fs::symlink_metadata(entry.path())?) || !entry.file_type().is_file() {
@@ -551,8 +598,19 @@ fn snapshot(
     let stats = db::stats_map(connection, vault_id)?;
     let order = db::order_map(connection, vault_id)?;
     let tree = scan_directory(root, root, &stats, &order, 0)?;
-    let (bookmarks, recent) = db::note_lists(connection, vault_id)?;
-    let trash = db::list_trash(connection, vault_id)?;
+    let (mut bookmarks, mut recent) = db::note_lists(connection, vault_id)?;
+    bookmarks.retain(|item| existing_entry(root, &item.path).is_ok());
+    recent.retain(|item| existing_entry(root, &item.path).is_ok());
+    let mut trash = Vec::new();
+    for item in db::list_trash(connection, vault_id)? {
+        if let Some((_, trash_path, _)) = db::trash_path(connection, vault_id, item.id)? {
+            if internal_entry(root, &trash_path).is_ok() {
+                trash.push(item);
+            } else {
+                db::purge_trash_metadata(connection, vault_id, item.id, &trash_path)?;
+            }
+        }
+    }
     Ok(WorkspaceSnapshot {
         vault_path: path_to_string(root),
         vault_name,
@@ -612,16 +670,19 @@ fn reconcile_pending_operations(
                     )?;
                 }
                 kind => {
-                    return Err(AppError::InvalidData(format!(
-                        "Unknown file operation in recovery journal: {kind}"
-                    )));
+                    eprintln!(
+                        "Discarding unknown Denote recovery operation {} ({kind})",
+                        operation.id
+                    );
+                    db::cancel_file_operation(connection, &operation.id)?;
                 }
             },
             state => {
-                return Err(AppError::InvalidData(format!(
-                    "Unable to reconcile {} operation {}: source/destination state is {state:?}",
-                    operation.kind, operation.id
-                )));
+                eprintln!(
+                    "Discarding ambiguous Denote recovery operation {} ({}): source/destination state is {state:?}",
+                    operation.id, operation.kind
+                );
+                db::cancel_file_operation(connection, &operation.id)?;
             }
         }
     }
@@ -645,7 +706,12 @@ fn scan_directory(
         let entry = entry?;
         let file_type = entry.file_type()?;
         let path = entry.path();
-        if metadata_is_link(&fs::symlink_metadata(&path)?) || entry.file_name() == ".denote" {
+        if metadata_is_link(&fs::symlink_metadata(&path)?)
+            || entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(".denote")
+        {
             continue;
         }
         let relative = relative_string(root, &path)?;
@@ -744,7 +810,7 @@ fn normalized_relative(path: &str, allow_internal: bool) -> AppResult<PathBuf> {
     for component in candidate.components() {
         match component {
             Component::Normal(value) => {
-                if !allow_internal && value == ".denote" {
+                if !allow_internal && value.to_string_lossy().eq_ignore_ascii_case(".denote") {
                     return Err(AppError::InvalidPath(path.to_string()));
                 }
             }
@@ -756,7 +822,7 @@ fn normalized_relative(path: &str, allow_internal: bool) -> AppResult<PathBuf> {
 
 fn relative_string(root: &Path, path: &Path) -> AppResult<String> {
     let relative = relative_internal_string(root, path)?;
-    if relative == ".denote" || relative.starts_with(".denote/") {
+    if is_internal_relative_path(&relative) {
         return Err(AppError::InvalidPath(relative));
     }
     Ok(relative)
@@ -791,7 +857,7 @@ fn validate_name(name: &str) -> AppResult<&str> {
         || trimmed.contains('/')
         || trimmed.contains('\\')
         || trimmed.contains('\0')
-        || trimmed == ".denote"
+        || trimmed.eq_ignore_ascii_case(".denote")
     {
         return Err(AppError::InvalidPath(name.to_string()));
     }
@@ -815,6 +881,23 @@ fn kind_for_path(path: &Path) -> Option<FileKind> {
         }
         _ => None,
     }
+}
+
+fn is_internal_relative_path(path: &str) -> bool {
+    path.split('/')
+        .next()
+        .is_some_and(|component| component.eq_ignore_ascii_case(".denote"))
+}
+
+fn ensure_trash_item_path(path: &str) -> AppResult<()> {
+    let components = path.split('/').collect::<Vec<_>>();
+    if components.len() < 4
+        || !components[0].eq_ignore_ascii_case(".denote")
+        || !components[1].eq_ignore_ascii_case("trash")
+    {
+        return Err(AppError::InvalidPath(path.to_string()));
+    }
+    Ok(())
 }
 
 fn document_title(path: &str, content: &str) -> String {
@@ -890,13 +973,47 @@ fn resolve_image_source(
     } else {
         root.to_path_buf()
     };
-    let candidate = base.join(source);
+    let candidate = normalize_join_inside(root, &base, source)?;
     ensure_no_symlinks(root, &candidate, false)?;
     let candidate = fs::canonicalize(candidate)?;
     if !candidate.starts_with(root) {
         return Err(AppError::InvalidPath(image_source.to_string()));
     }
     Ok(candidate)
+}
+
+fn normalize_join_inside(root: &Path, base: &Path, value: &str) -> AppResult<PathBuf> {
+    let mut components = base
+        .strip_prefix(root)
+        .map_err(|_| AppError::InvalidPath(path_to_string(base)))?
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_os_string()),
+            _ => None,
+        })
+        .collect::<Vec<OsString>>();
+    for component in Path::new(value).components() {
+        match component {
+            Component::Normal(value) => {
+                if value.to_string_lossy().eq_ignore_ascii_case(".denote") {
+                    return Err(AppError::InvalidPath(value.to_string_lossy().into_owned()));
+                }
+                components.push(value.to_os_string());
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if components.pop().is_none() {
+                    return Err(AppError::InvalidPath(value.to_string()));
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(AppError::InvalidPath(value.to_string()));
+            }
+        }
+    }
+    Ok(components
+        .into_iter()
+        .fold(root.to_path_buf(), |path, component| path.join(component)))
 }
 
 fn available_restore_path(root: &Path, original_path: &str) -> AppResult<PathBuf> {
@@ -1034,6 +1151,8 @@ mod tests {
     fn rejects_parent_directory_paths() {
         assert!(normalized_relative("../secret.md", false).is_err());
         assert!(normalized_relative("notes/../../secret.md", false).is_err());
+        assert!(normalized_relative(".DENOTE/trash/file.md", false).is_err());
+        assert!(validate_name(".DeNoTe").is_err());
     }
 
     #[test]
@@ -1126,6 +1245,10 @@ mod tests {
         )
         .expect("save note");
         trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
+        let trashed_snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("trashed snapshot");
+        assert!(trashed_snapshot.bookmarks.is_empty());
+        assert!(trashed_snapshot.recent.is_empty());
 
         create_entry(&db_path, vault_path.to_str().unwrap(), "", "note.md", false)
             .expect("replacement note");
@@ -1153,6 +1276,59 @@ mod tests {
                 .len(),
             1
         );
+    }
+
+    #[test]
+    fn empty_trash_permanently_removes_hidden_files_and_metadata() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "content").expect("initial note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("read note");
+        trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
+
+        assert_eq!(
+            empty_trash(&db_path, vault_path.to_str().unwrap()).expect("empty trash"),
+            1
+        );
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
+        assert!(snapshot.trash.is_empty());
+        let connection = db::open(&db_path).expect("database opened");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        assert!(
+            db::stats_map(&connection, vault_id)
+                .expect("stats")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn renaming_a_replacement_does_not_change_older_trash_destinations() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "original").expect("initial note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
+        create_entry(&db_path, vault_path.to_str().unwrap(), "", "note.md", false)
+            .expect("replacement");
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "current.md",
+        )
+        .expect("rename replacement");
+
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
+        assert_eq!(snapshot.trash[0].original_path, "note.md");
     }
 
     #[test]
@@ -1210,6 +1386,71 @@ mod tests {
         let unaffected =
             read_note(&db_path, vault_path.to_str().unwrap(), "fooxbar/b.md").expect("third read");
         assert_eq!(unaffected.stats.open_count, 2);
+    }
+
+    #[test]
+    fn resolves_parent_relative_images_without_allowing_vault_escape() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("notes")).expect("notes folder");
+        fs::create_dir_all(vault_path.join("images")).expect("images folder");
+        fs::write(
+            vault_path.join("notes/note.md"),
+            "![image](../images/pic.png)",
+        )
+        .expect("note");
+        fs::write(vault_path.join("images/pic.png"), b"png").expect("image");
+        fs::write(directory.path().join("outside.png"), b"outside").expect("outside image");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let preview = read_image_data_url(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            Some("notes/note.md"),
+            "../images/pic.png",
+        )
+        .expect("relative image");
+        assert!(preview.starts_with("data:image/png;base64,"));
+        assert!(
+            read_image_data_url(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                Some("notes/note.md"),
+                "../../outside.png",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_renames_between_text_and_image_categories() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "text").expect("note");
+        fs::write(vault_path.join("image.png"), b"png").expect("image");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        assert!(
+            rename_entry(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "note.md",
+                "note.png",
+            )
+            .is_err()
+        );
+        assert!(
+            rename_entry(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "image.png",
+                "image.md",
+            )
+            .is_err()
+        );
     }
 
     #[cfg(unix)]
