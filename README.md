@@ -4,6 +4,8 @@ Denote is a local-first Markdown vault for macOS, Windows, and Linux. It pairs
 an Obsidian-like file workspace with a Typora-like rich editor while keeping
 plain UTF-8 files as the source of truth.
 
+<img width="1710" height="1078" alt="Denote Markdown editor" src="https://github.com/user-attachments/assets/b984fc91-d90b-41b1-a11f-67cc076ae55d" />
+
 ## Included
 
 - Rich single-pane Markdown editing with optional source mode
