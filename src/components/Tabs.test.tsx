@@ -11,6 +11,7 @@ const tabs: EditorTab[] = [
     kind: "markdown",
     content: "",
     savedContent: "",
+    editRecorded: false,
     saveState: "saved",
   },
   {
@@ -19,6 +20,7 @@ const tabs: EditorTab[] = [
     kind: "markdown",
     content: "",
     savedContent: "",
+    editRecorded: false,
     saveState: "dirty",
   },
 ];

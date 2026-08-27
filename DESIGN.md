@@ -93,6 +93,7 @@ typography:
     fontWeight: 400
     lineHeight: 1.5
 rounded:
+  micro: "3px"
   mark-tight: "7px 3px 7px 3px"
   tight: "4px"
   control: "5px"

@@ -70,7 +70,7 @@ export interface SearchDocument {
   title: string;
   content: string;
   tags: string[];
-  kind: Exclude<FileKind, "folder" | "image">;
+  kind: Exclude<FileKind, "folder">;
   bookmarked: boolean;
   lastOpenedAt: string | null;
 }
@@ -89,6 +89,7 @@ export interface EditorTab {
   savedContent: string;
   stats?: NoteStats;
   imageDataUrl?: string;
+  editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
 }
 

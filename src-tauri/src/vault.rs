@@ -1,10 +1,12 @@
 use std::{
     collections::{HashMap, HashSet},
     fs,
+    io::Write,
     path::{Component, Path, PathBuf},
     time::UNIX_EPOCH,
 };
 
+use atomic_write_file::AtomicWriteFile;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::Connection;
 use uuid::Uuid;
@@ -111,11 +113,19 @@ pub fn save_note(
         });
     }
 
-    let transaction = connection.transaction()?;
-    db::push_history(&transaction, vault_id, relative_path, &previous, reason)?;
-    fs::write(&path, content.as_bytes())?;
-    db::record_save(&transaction, vault_id, relative_path)?;
-    transaction.commit()?;
+    let history_transaction = connection.transaction()?;
+    db::push_history(
+        &history_transaction,
+        vault_id,
+        relative_path,
+        &previous,
+        reason,
+    )?;
+    history_transaction.commit()?;
+    atomic_write(&path, content.as_bytes())?;
+    let save_transaction = connection.transaction()?;
+    db::record_save(&save_transaction, vault_id, relative_path)?;
+    save_transaction.commit()?;
 
     let saved_at = db::now();
     Ok(SaveOutcome {
@@ -147,6 +157,7 @@ pub fn create_entry(
     }
     let safe_name = validate_name(name)?;
     let destination = parent.join(safe_name);
+    ensure_no_symlinks(&root, &destination, true)?;
     if destination.exists() {
         return Err(AppError::InvalidPath(format!("{name} already exists")));
     }
@@ -159,7 +170,7 @@ pub fn create_entry(
         if !matches!(kind, FileKind::Markdown | FileKind::Text) {
             return Err(AppError::UnsupportedFile(name.to_string()));
         }
-        fs::write(&destination, [])?;
+        atomic_write(&destination, &[])?;
     }
     let connection = db::open(db_path)?;
     let _ = ensure_vault(&connection, &root)?;
@@ -187,12 +198,37 @@ pub fn rename_entry(
             "Renamed files must keep a supported extension".to_string(),
         ));
     }
-    fs::rename(&source, &destination)?;
     let new_relative = relative_string(&root, &destination)?;
-
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    db::rename_metadata(&mut connection, vault_id, relative_path, &new_relative)?;
+    let operation_id = db::begin_file_operation(
+        &connection,
+        vault_id,
+        "rename",
+        relative_path,
+        &new_relative,
+        None,
+        source.is_dir(),
+    )?;
+    if let Err(error) = fs::rename(&source, &destination) {
+        db::cancel_file_operation(&connection, &operation_id)?;
+        return Err(error.into());
+    }
+    if let Err(error) = db::rename_metadata(
+        &mut connection,
+        vault_id,
+        relative_path,
+        &new_relative,
+        Some(&operation_id),
+    ) {
+        return Err(rollback_operation(
+            &connection,
+            &operation_id,
+            &destination,
+            &source,
+            error,
+        ));
+    }
     Ok(new_relative)
 }
 
@@ -208,37 +244,90 @@ pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> App
         .join(".denote")
         .join("trash")
         .join(Uuid::new_v4().to_string());
+    ensure_no_symlinks(&root, &trash_directory, true)?;
     fs::create_dir_all(&trash_directory)?;
     let destination = trash_directory.join(name);
-    fs::rename(&source, &destination)?;
-
-    let connection = db::open(db_path)?;
+    let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let trash_relative = relative_internal_string(&root, &destination)?;
-    db::record_trash(
+    let operation_id = db::begin_file_operation(
         &connection,
+        vault_id,
+        "trash",
+        relative_path,
+        &trash_relative,
+        None,
+        is_directory,
+    )?;
+    if let Err(error) = fs::rename(&source, &destination) {
+        db::cancel_file_operation(&connection, &operation_id)?;
+        return Err(error.into());
+    }
+    if let Err(error) = db::trash_metadata(
+        &mut connection,
         vault_id,
         relative_path,
         &trash_relative,
         is_directory,
-    )?;
+        Some(&operation_id),
+    ) {
+        return Err(rollback_operation(
+            &connection,
+            &operation_id,
+            &destination,
+            &source,
+            error,
+        ));
+    }
     Ok(())
 }
 
 pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
-    let connection = db::open(db_path)?;
+    let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let (original_path, trash_path, _) = db::trash_path(&connection, vault_id, item_id)?
         .ok_or_else(|| AppError::NotFound(format!("Trash item {item_id}")))?;
     let source = internal_entry(&root, &trash_path)?;
     let destination = available_restore_path(&root, &original_path)?;
+    ensure_no_symlinks(&root, &destination, true)?;
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::rename(&source, &destination)?;
-    db::mark_restored(&connection, vault_id, item_id)?;
-    relative_string(&root, &destination)
+    let restored_relative = relative_string(&root, &destination)?;
+    let operation_id = db::begin_file_operation(
+        &connection,
+        vault_id,
+        "restore",
+        &trash_path,
+        &restored_relative,
+        Some(item_id),
+        source.is_dir(),
+    )?;
+    if let Err(error) = fs::rename(&source, &destination) {
+        db::cancel_file_operation(&connection, &operation_id)?;
+        return Err(error.into());
+    }
+    if let Err(error) = db::restore_metadata(
+        &mut connection,
+        vault_id,
+        item_id,
+        &trash_path,
+        &restored_relative,
+        Some(&operation_id),
+    ) {
+        return Err(rollback_operation(
+            &connection,
+            &operation_id,
+            &destination,
+            &source,
+            error,
+        ));
+    }
+    if let Some(parent) = source.parent() {
+        let _ = fs::remove_dir(parent);
+    }
+    Ok(restored_relative)
 }
 
 pub fn set_bookmark(
@@ -252,6 +341,19 @@ pub fn set_bookmark(
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     db::set_bookmark(&connection, vault_id, relative_path, bookmarked)
+}
+
+pub fn record_edit(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+) -> AppResult<crate::models::NoteStats> {
+    let root = canonical_vault(vault_path)?;
+    let _ = existing_entry(&root, relative_path)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::record_edit(&connection, vault_id, relative_path)?;
+    db::get_stats(&connection, vault_id, relative_path)
 }
 
 pub fn set_entry_order(db_path: &Path, vault_path: &str, paths: &[String]) -> AppResult<()> {
@@ -289,17 +391,19 @@ pub fn restore_revision(
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let restored = db::history_content(&connection, vault_id, relative_path, revision_id)?
         .ok_or_else(|| AppError::NotFound(format!("Revision {revision_id}")))?;
-    let transaction = connection.transaction()?;
+    let history_transaction = connection.transaction()?;
     db::push_history(
-        &transaction,
+        &history_transaction,
         vault_id,
         relative_path,
         &current,
         "before restore",
     )?;
-    fs::write(&path, restored.as_bytes())?;
-    db::record_save(&transaction, vault_id, relative_path)?;
-    transaction.commit()?;
+    history_transaction.commit()?;
+    atomic_write(&path, restored.as_bytes())?;
+    let save_transaction = connection.transaction()?;
+    db::record_save(&save_transaction, vault_id, relative_path)?;
+    save_transaction.commit()?;
     Ok(NoteDocument {
         path: relative_path.to_string(),
         content: restored,
@@ -329,29 +433,43 @@ pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<
         if relative == ".denote" || relative.starts_with(".denote/") {
             continue;
         }
-        if entry.file_type().is_symlink() || !entry.file_type().is_file() {
+        if metadata_is_link(&fs::symlink_metadata(entry.path())?) || !entry.file_type().is_file() {
             continue;
         }
         let Some(kind) = kind_for_path(entry.path()) else {
             continue;
         };
-        if !matches!(kind, FileKind::Markdown | FileKind::Text) {
-            continue;
-        }
         let metadata = entry
             .metadata()
             .map_err(|error| AppError::Io(error.into()))?;
-        if metadata.len() > MAX_TEXT_BYTES {
-            continue;
-        }
-        let Ok(content) = fs::read_to_string(entry.path()) else {
-            continue;
+        let (content, tags, title) = if matches!(kind, FileKind::Markdown | FileKind::Text) {
+            if metadata.len() > MAX_TEXT_BYTES {
+                continue;
+            }
+            let Ok(content) = fs::read_to_string(entry.path()) else {
+                continue;
+            };
+            (
+                content.clone(),
+                extract_tags(&content),
+                document_title(&relative, &content),
+            )
+        } else {
+            (
+                String::new(),
+                Vec::new(),
+                Path::new(&relative)
+                    .file_stem()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or(&relative)
+                    .to_string(),
+            )
         };
         let stored = stats.get(&relative).cloned().unwrap_or_default();
         documents.push(SearchDocument {
             path: relative.clone(),
-            title: document_title(&relative, &content),
-            tags: extract_tags(&content),
+            title,
+            tags,
             content,
             kind,
             bookmarked: stored.bookmarked,
@@ -362,6 +480,7 @@ pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<
 }
 
 pub fn read_image_data_url(
+    db_path: &Path,
     vault_path: &str,
     note_path: Option<&str>,
     image_source: &str,
@@ -380,6 +499,12 @@ pub fn read_image_data_url(
     }
     let mime = mime_guess::from_path(&image_path).first_or_octet_stream();
     let encoded = STANDARD.encode(fs::read(&image_path)?);
+    if note_path.is_none() {
+        let relative = relative_string(&root, &image_path)?;
+        let connection = db::open(db_path)?;
+        let (vault_id, _) = ensure_vault(&connection, &root)?;
+        db::record_open(&connection, vault_id, &relative)?;
+    }
     Ok(format!("data:{mime};base64,{encoded}"))
 }
 
@@ -405,9 +530,11 @@ pub fn save_attachment(
         return Err(AppError::UnsupportedFile(file_name.to_string()));
     }
     let attachments = parent.join("assets");
+    ensure_no_symlinks(&root, &attachments, true)?;
     fs::create_dir_all(&attachments)?;
     let destination = available_named_path(&attachments, safe_name)?;
-    fs::write(&destination, data)?;
+    ensure_no_symlinks(&root, &destination, true)?;
+    atomic_write(&destination, data)?;
     let relative_to_note = destination
         .strip_prefix(parent)
         .map_err(|_| AppError::InvalidPath(file_name.to_string()))?;
@@ -420,6 +547,7 @@ fn snapshot(
     root: &Path,
     vault_name: String,
 ) -> AppResult<WorkspaceSnapshot> {
+    reconcile_pending_operations(connection, vault_id, root)?;
     let stats = db::stats_map(connection, vault_id)?;
     let order = db::order_map(connection, vault_id)?;
     let tree = scan_directory(root, root, &stats, &order, 0)?;
@@ -433,6 +561,71 @@ fn snapshot(
         recent,
         trash,
     })
+}
+
+fn reconcile_pending_operations(
+    connection: &mut Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<()> {
+    for operation in db::pending_file_operations(connection, vault_id)? {
+        let source = root.join(normalized_relative(&operation.source_path, true)?);
+        let destination = root.join(normalized_relative(&operation.destination_path, true)?);
+        ensure_no_symlinks(root, &source, true)?;
+        ensure_no_symlinks(root, &destination, true)?;
+        match (source.exists(), destination.exists()) {
+            (true, false) => {
+                db::cancel_file_operation(connection, &operation.id)?;
+            }
+            (false, true) => match operation.kind.as_str() {
+                "rename" => db::rename_metadata(
+                    connection,
+                    vault_id,
+                    &operation.source_path,
+                    &operation.destination_path,
+                    Some(&operation.id),
+                )?,
+                "trash" => {
+                    db::trash_metadata(
+                        connection,
+                        vault_id,
+                        &operation.source_path,
+                        &operation.destination_path,
+                        operation.is_directory,
+                        Some(&operation.id),
+                    )?;
+                }
+                "restore" => {
+                    let item_id = operation.item_id.ok_or_else(|| {
+                        AppError::InvalidData(format!(
+                            "Restore journal {} is missing its trash item",
+                            operation.id
+                        ))
+                    })?;
+                    db::restore_metadata(
+                        connection,
+                        vault_id,
+                        item_id,
+                        &operation.source_path,
+                        &operation.destination_path,
+                        Some(&operation.id),
+                    )?;
+                }
+                kind => {
+                    return Err(AppError::InvalidData(format!(
+                        "Unknown file operation in recovery journal: {kind}"
+                    )));
+                }
+            },
+            state => {
+                return Err(AppError::InvalidData(format!(
+                    "Unable to reconcile {} operation {}: source/destination state is {state:?}",
+                    operation.kind, operation.id
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn scan_directory(
@@ -451,10 +644,10 @@ fn scan_directory(
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
         let file_type = entry.file_type()?;
-        if file_type.is_symlink() || entry.file_name() == ".denote" {
+        let path = entry.path();
+        if metadata_is_link(&fs::symlink_metadata(&path)?) || entry.file_name() == ".denote" {
             continue;
         }
-        let path = entry.path();
         let relative = relative_string(root, &path)?;
         let metadata = entry.metadata()?;
         let modified_at = metadata
@@ -520,7 +713,9 @@ fn canonical_vault(path: &str) -> AppResult<PathBuf> {
 
 fn existing_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
     let relative = normalized_relative(relative_path, false)?;
-    let candidate = fs::canonicalize(root.join(relative))?;
+    let candidate = root.join(relative);
+    ensure_no_symlinks(root, &candidate, false)?;
+    let candidate = fs::canonicalize(candidate)?;
     if !candidate.starts_with(root) {
         return Err(AppError::InvalidPath(relative_path.to_string()));
     }
@@ -529,7 +724,9 @@ fn existing_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
 
 fn internal_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
     let relative = normalized_relative(relative_path, true)?;
-    let candidate = fs::canonicalize(root.join(relative))?;
+    let candidate = root.join(relative);
+    ensure_no_symlinks(root, &candidate, false)?;
+    let candidate = fs::canonicalize(candidate)?;
     if !candidate.starts_with(root) {
         return Err(AppError::InvalidPath(relative_path.to_string()));
     }
@@ -693,7 +890,9 @@ fn resolve_image_source(
     } else {
         root.to_path_buf()
     };
-    let candidate = fs::canonicalize(base.join(source))?;
+    let candidate = base.join(source);
+    ensure_no_symlinks(root, &candidate, false)?;
+    let candidate = fs::canonicalize(candidate)?;
     if !candidate.starts_with(root) {
         return Err(AppError::InvalidPath(image_source.to_string()));
     }
@@ -755,6 +954,74 @@ fn available_named_path(directory: &Path, name: &str) -> AppResult<PathBuf> {
     ))
 }
 
+fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
+    let mut file = AtomicWriteFile::options().open(path)?;
+    file.write_all(data)?;
+    file.commit()?;
+    Ok(())
+}
+
+fn rollback_operation(
+    connection: &Connection,
+    operation_id: &str,
+    current: &Path,
+    original: &Path,
+    cause: AppError,
+) -> AppError {
+    match fs::rename(current, original) {
+        Ok(()) => match db::cancel_file_operation(connection, operation_id) {
+            Ok(()) => cause,
+            Err(cancel_error) => AppError::InvalidData(format!(
+                "{cause}. The filesystem move was rolled back, but the recovery journal could not be cleared: {cancel_error}"
+            )),
+        },
+        Err(rollback_error) => AppError::InvalidData(format!(
+            "{cause}. Rollback also failed: {rollback_error}. The recovery journal was preserved for the next vault open."
+        )),
+    }
+}
+
+fn ensure_no_symlinks(root: &Path, path: &Path, allow_missing: bool) -> AppResult<()> {
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| AppError::InvalidPath(path_to_string(path)))?;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(AppError::InvalidPath(path_to_string(path)));
+        };
+        current.push(component);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata_is_link(&metadata) => {
+                return Err(AppError::InvalidPath(format!(
+                    "Symbolic links are not supported: {}",
+                    path_to_string(&current)
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if allow_missing && error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(());
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
+
+fn metadata_is_link(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        return metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    }
+    #[cfg(not(windows))]
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -787,6 +1054,7 @@ mod tests {
         let document =
             read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("read note");
         assert_eq!(document.stats.open_count, 1);
+        record_edit(&db_path, vault_path.to_str().unwrap(), "note.md").expect("record edit");
 
         save_note(
             &db_path,
@@ -812,7 +1080,7 @@ mod tests {
             fs::read_to_string(vault_path.join("note.md")).expect("restored file"),
             "first"
         );
-        assert_eq!(restored.stats.edit_count, 2);
+        assert_eq!(restored.stats.edit_count, 1);
         assert_eq!(restored.stats.save_count, 2);
     }
 
@@ -836,5 +1104,134 @@ mod tests {
                 .expect("restore note");
         assert_eq!(restored, "note.md");
         assert!(vault_path.join("note.md").exists());
+    }
+
+    #[test]
+    fn trashed_note_metadata_does_not_leak_to_replacement_file() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "original").expect("initial note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("read note");
+        set_bookmark(&db_path, vault_path.to_str().unwrap(), "note.md", true).expect("bookmark");
+        save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "edited",
+            "autosave",
+        )
+        .expect("save note");
+        trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
+
+        create_entry(&db_path, vault_path.to_str().unwrap(), "", "note.md", false)
+            .expect("replacement note");
+        let replacement =
+            read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("replacement");
+        assert!(!replacement.stats.bookmarked);
+        assert!(
+            list_history(&db_path, vault_path.to_str().unwrap(), "note.md")
+                .expect("replacement history")
+                .is_empty()
+        );
+
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
+        let restored =
+            restore_trash_item(&db_path, vault_path.to_str().unwrap(), snapshot.trash[0].id)
+                .expect("restore original");
+        assert_eq!(restored, "note (restored 1).md");
+        let restored_document =
+            read_note(&db_path, vault_path.to_str().unwrap(), &restored).expect("restored note");
+        assert!(restored_document.stats.bookmarked);
+        assert_eq!(
+            list_history(&db_path, vault_path.to_str().unwrap(), &restored)
+                .expect("restored history")
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn reconciles_a_file_move_completed_before_metadata_commit() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("old.md"), "content").expect("initial note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        read_note(&db_path, vault_path.to_str().unwrap(), "old.md").expect("read note");
+
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let connection = db::open(&db_path).expect("database opened");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        db::begin_file_operation(
+            &connection,
+            vault_id,
+            "rename",
+            "old.md",
+            "new.md",
+            None,
+            false,
+        )
+        .expect("journal operation");
+        fs::rename(vault_path.join("old.md"), vault_path.join("new.md")).expect("move file");
+
+        refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("reconcile vault");
+        let new_document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "new.md").expect("new note");
+        assert_eq!(new_document.stats.open_count, 2);
+        let connection = db::open(&db_path).expect("database reopened");
+        assert!(
+            db::pending_file_operations(&connection, vault_id)
+                .expect("pending operations")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn rename_does_not_treat_path_characters_as_wildcards() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("foo_bar")).expect("first folder");
+        fs::create_dir_all(vault_path.join("fooxbar")).expect("second folder");
+        fs::write(vault_path.join("foo_bar/a.md"), "a").expect("first note");
+        fs::write(vault_path.join("fooxbar/b.md"), "b").expect("second note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        read_note(&db_path, vault_path.to_str().unwrap(), "foo_bar/a.md").expect("first read");
+        read_note(&db_path, vault_path.to_str().unwrap(), "fooxbar/b.md").expect("second read");
+
+        rename_entry(&db_path, vault_path.to_str().unwrap(), "foo_bar", "renamed")
+            .expect("rename folder");
+        let unaffected =
+            read_note(&db_path, vault_path.to_str().unwrap(), "fooxbar/b.md").expect("third read");
+        assert_eq!(unaffected.stats.open_count, 2);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn rejects_symlinked_attachment_directories() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let outside = directory.path().join("outside");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::create_dir(&outside).expect("outside directory");
+        fs::write(vault_path.join("note.md"), "content").expect("initial note");
+        symlink(&outside, vault_path.join("assets")).expect("assets symlink");
+
+        let result = save_attachment(
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "image.png",
+            b"not-an-image",
+        );
+        assert!(result.is_err());
+        assert!(!outside.join("image.png").exists());
     }
 }

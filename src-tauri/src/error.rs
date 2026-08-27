@@ -15,6 +15,8 @@ pub enum AppError {
     NotFound(String),
     #[error("Invalid data: {0}")]
     InvalidData(String),
+    #[error("Application state error: {0}")]
+    State(String),
 }
 
 impl Serialize for AppError {

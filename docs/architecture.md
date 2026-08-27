@@ -8,9 +8,11 @@ frontend plus a Rust native core.
 The selected vault is the content boundary. Markdown (`.md`, `.markdown`),
 plain text (`.txt`), and supported image files stay in that folder.
 
-The Rust core canonicalizes every path, rejects parent traversal and symlink
-escapes, hides Denote's internal `.denote` folder, and limits document and image
-sizes before reading them into memory.
+The native folder picker establishes the active vault inside Rust. Later IPC
+commands do not accept arbitrary vault roots. The Rust core canonicalizes every
+path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
+internal `.denote` folder, and limits document and image sizes before reading
+them into memory.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored
@@ -29,6 +31,10 @@ The application-data database stores:
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative
 if the metadata database is removed.
 
+Rename, trash, and restore operations are recorded in a recovery journal before
+the filesystem move. Opening or refreshing a vault reconciles any operation
+interrupted between the move and metadata commit.
+
 ## Search
 
 Rust scans readable text documents and returns normalized search documents.
@@ -45,9 +51,11 @@ MDXEditor provides rich single-pane Markdown editing and a source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
 
-Autosave waits 800 ms after the latest change. Before changed content replaces
-the file, the prior content is added to SQLite history. Manual save, tab close,
-restore, and trash operations use the same native save path.
+Autosave waits 800 ms after the latest change. Saves are serialized per note;
+tab close, vault switch, restore, trash, and application close all wait for the
+latest content to reach disk and stop if persistence fails. Before changed
+content replaces the file, the prior content is committed to SQLite history.
+The replacement itself uses a same-directory atomic write.
 
 ## Security
 

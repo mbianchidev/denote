@@ -38,15 +38,15 @@ import {
   thematicBreakPlugin,
   toolbarPlugin,
 } from "@mdxeditor/editor";
-import { forwardRef, useMemo } from "react";
+import { forwardRef, useMemo, useRef } from "react";
 import { api } from "../lib/api";
 import {
   calloutsToDirectives,
   directivesToCallouts,
+  hasUnsupportedRichMarkdown,
 } from "../lib/markdown";
 
 interface MarkdownEditorProps {
-  vaultPath: string;
   notePath: string;
   markdown: string;
   onChange: (markdown: string) => void;
@@ -59,8 +59,7 @@ export const MarkdownEditor = forwardRef<
   MarkdownEditorProps
 >(function MarkdownEditor(
   {
-    vaultPath,
-    notePath,
+  notePath,
     markdown,
     onChange,
     onError,
@@ -68,6 +67,7 @@ export const MarkdownEditor = forwardRef<
   },
   ref,
 ) {
+  const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
   const plugins = useMemo(
     () => [
       headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4, 5, 6] }),
@@ -78,8 +78,7 @@ export const MarkdownEditor = forwardRef<
       linkPlugin({ disableAutoLink: false }),
       linkDialogPlugin({ showLinkTitleField: true }),
       imagePlugin({
-        imageUploadHandler: (file) =>
-          api.saveAttachment(vaultPath, notePath, file),
+        imageUploadHandler: (file) => api.saveAttachment(notePath, file),
         imagePreviewHandler: async (source) => {
           if (
             source.startsWith("data:") ||
@@ -88,7 +87,7 @@ export const MarkdownEditor = forwardRef<
           ) {
             return source;
           }
-          return api.readImageDataUrl(vaultPath, source, notePath);
+          return api.readImageDataUrl(source, notePath);
         },
         allowSetImageDimensions: true,
       }),
@@ -118,7 +117,7 @@ export const MarkdownEditor = forwardRef<
         directiveDescriptors: [AdmonitionDirectiveDescriptor],
       }),
       diffSourcePlugin({
-        viewMode: "rich-text",
+        viewMode: sourceFirst ? "source" : "rich-text",
         diffMarkdown: "",
         readOnlyDiff: false,
       }),
@@ -174,12 +173,23 @@ export const MarkdownEditor = forwardRef<
         ),
       }),
     ],
-    [notePath, vaultPath],
+    [notePath, sourceFirst],
   );
 
   return (
     <div
       className="markdown-editor-shell"
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Enter") {
+          return;
+        }
+        const target = event.target as HTMLElement;
+        const link = target.closest<HTMLAnchorElement>("a[href]");
+        if (link && target === link) {
+          event.preventDefault();
+          onLinkOpen(link.getAttribute("href") ?? "");
+        }
+      }}
       onClickCapture={(event) => {
         if (!(event.metaKey || event.ctrlKey)) {
           return;

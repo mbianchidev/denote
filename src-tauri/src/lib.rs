@@ -15,14 +15,19 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
-            let state = AppState::new(app_data_dir.join("denote.sqlite3"));
-            db::initialize(&state.db_path)?;
+            let db_path = app_data_dir.join("denote.sqlite3");
+            db::initialize(&db_path)?;
+            let connection = db::open(&db_path)?;
+            let active_vault = db::get_last_vault(&connection)?
+                .and_then(|path| std::fs::canonicalize(path).ok())
+                .filter(|path| path.is_dir());
+            let state = AppState::new(db_path, active_vault);
             app.manage(state);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_last_vault,
-            commands::open_vault,
+            commands::choose_vault,
             commands::refresh_vault,
             commands::read_note,
             commands::save_note,
@@ -31,6 +36,7 @@ pub fn run() {
             commands::trash_entry,
             commands::restore_trash_item,
             commands::set_bookmark,
+            commands::record_edit,
             commands::set_entry_order,
             commands::list_history,
             commands::restore_revision,

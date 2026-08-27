@@ -37,8 +37,8 @@
   --editor-bg: #f8f6f1;
   --editor-raised: #f2efe8;
   --text-primary: #252722;
-  --text-secondary: #61645b;
-  --text-tertiary: #7c7f75;
+  --text-secondary: #51554d;
+  --text-tertiary: #61645b;
   --border: #d1cdc3;
   --border-strong: #b8b3a8;
   --accent: #537642;
@@ -293,7 +293,7 @@ button:disabled {
   background: var(--panel-bg);
 }
 
-.file-tree__row[aria-selected="true"] {
+.file-tree__row[data-selected="true"] {
   color: var(--text-primary);
   background: var(--accent-muted);
 }
@@ -432,6 +432,7 @@ button:disabled {
 }
 
 .editor-layout {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
@@ -510,6 +511,8 @@ button:disabled {
   background: var(--editor-raised);
   border-bottom: 1px solid var(--border);
   border-radius: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .denote-editor-content {
@@ -1190,7 +1193,14 @@ kbd {
   }
 
   .toc-panel {
-    display: none;
+    position: absolute;
+    z-index: 10;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: block;
+    box-shadow: -10px 0 28px
+      color-mix(in srgb, var(--app-bg) 72%, transparent);
   }
 
   .denote-editor-content,

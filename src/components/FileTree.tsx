@@ -25,7 +25,7 @@ export function FileTree({
   onToggleFolder,
 }: FileTreeProps) {
   return (
-    <div className="file-tree" role="tree" aria-label="Vault files">
+    <nav className="file-tree" aria-label="Vault files">
       {nodes.map((node) => (
         <FileTreeNode
           key={node.path}
@@ -37,7 +37,7 @@ export function FileTree({
           onToggleFolder={onToggleFolder}
         />
       ))}
-    </div>
+    </nav>
   );
 }
 
@@ -66,11 +66,10 @@ function FileTreeNode({
   const style = { "--tree-depth": depth } as CSSProperties;
 
   return (
-    <div role="none">
+    <div>
       <button
         type="button"
-        role="treeitem"
-        aria-selected={selectedPath === node.path}
+        data-selected={selectedPath === node.path}
         aria-expanded={isFolder ? expanded : undefined}
         className="file-tree__row"
         style={style}

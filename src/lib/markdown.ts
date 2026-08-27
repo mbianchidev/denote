@@ -5,8 +5,14 @@ const CALLOUT_TYPES = "warning|info|danger|note|tip|caution";
 export function calloutsToDirectives(markdown: string): string {
   const lines = markdown.split("\n");
   const output: string[] = [];
+  let fence: Fence | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
+    fence = updateFence(lines[index], fence);
+    if (fence || isFenceLine(lines[index])) {
+      output.push(lines[index]);
+      continue;
+    }
     const match = lines[index].match(
       new RegExp(
         `^\\s*>\\s*(?:!\\[(${CALLOUT_TYPES})\\]|\\[!(${CALLOUT_TYPES})\\])\\s*$`,
@@ -40,8 +46,14 @@ export function calloutsToDirectives(markdown: string): string {
 export function directivesToCallouts(markdown: string): string {
   const lines = markdown.split("\n");
   const output: string[] = [];
+  let fence: Fence | null = null;
 
   for (let index = 0; index < lines.length; index += 1) {
+    fence = updateFence(lines[index], fence);
+    if (fence || isFenceLine(lines[index])) {
+      output.push(lines[index]);
+      continue;
+    }
     const match = lines[index].match(
       new RegExp(`^\\s*:::(${CALLOUT_TYPES})\\s*$`, "i"),
     );
@@ -159,4 +171,39 @@ export function resolveInternalLink(
     ),
   );
   return path ? { path, anchor: anchor || null } : null;
+}
+
+export function hasUnsupportedRichMarkdown(markdown: string): boolean {
+  return (
+    /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
+    /\[\^[^\]]+\]/.test(markdown) ||
+    /<!--[\s\S]*?-->/.test(markdown) ||
+    /(^|\n)\s*<\/?[a-z][^>]*>/im.test(markdown) ||
+    /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
+    /(^|[^\\])\$[^$\n]+\$/.test(markdown)
+  );
+}
+
+interface Fence {
+  character: "`" | "~";
+  length: number;
+}
+
+function isFenceLine(line: string): boolean {
+  return /^\s*(`{3,}|~{3,})/.test(line);
+}
+
+function updateFence(line: string, current: Fence | null): Fence | null {
+  const match = line.match(/^\s*(`{3,}|~{3,})/);
+  if (!match) {
+    return current;
+  }
+  const marker = match[1];
+  const character = marker[0] as Fence["character"];
+  if (!current) {
+    return { character, length: marker.length };
+  }
+  return current.character === character && marker.length >= current.length
+    ? null
+    : current;
 }

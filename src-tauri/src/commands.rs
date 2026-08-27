@@ -1,50 +1,67 @@
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::{
     db::AppState,
-    error::AppResult,
+    error::{AppError, AppResult},
     models::{HistoryRevision, NoteDocument, SaveOutcome, SearchDocument, WorkspaceSnapshot},
     vault,
 };
 
 #[tauri::command]
-pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<String>> {
-    vault::get_last_vault(&state.db_path)
+pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<WorkspaceSnapshot>> {
+    let Some(path) = vault::get_last_vault(&state.db_path)? else {
+        return Ok(None);
+    };
+    let snapshot = vault::open_vault(&state.db_path, &path)?;
+    state.set_active_vault(snapshot.vault_path.clone().into())?;
+    Ok(Some(snapshot))
 }
 
 #[tauri::command]
-pub fn open_vault(state: State<'_, AppState>, vault_path: String) -> AppResult<WorkspaceSnapshot> {
-    vault::open_vault(&state.db_path, &vault_path)
-}
-
-#[tauri::command]
-pub fn refresh_vault(
+pub async fn choose_vault(
+    app: AppHandle,
     state: State<'_, AppState>,
-    vault_path: String,
-) -> AppResult<WorkspaceSnapshot> {
-    vault::refresh_vault(&state.db_path, &vault_path)
+) -> AppResult<Option<WorkspaceSnapshot>> {
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Choose a Denote vault")
+        .blocking_pick_folder();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
+    let snapshot = vault::open_vault(&state.db_path, &path.to_string_lossy())?;
+    state.set_active_vault(snapshot.vault_path.clone().into())?;
+    Ok(Some(snapshot))
 }
 
 #[tauri::command]
-pub fn read_note(
-    state: State<'_, AppState>,
-    vault_path: String,
-    path: String,
-) -> AppResult<NoteDocument> {
-    vault::read_note(&state.db_path, &vault_path, &path)
+pub fn refresh_vault(state: State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
+    let root = state.active_vault()?;
+    vault::refresh_vault(&state.db_path, &root.to_string_lossy())
+}
+
+#[tauri::command]
+pub fn read_note(state: State<'_, AppState>, path: String) -> AppResult<NoteDocument> {
+    let root = state.active_vault()?;
+    vault::read_note(&state.db_path, &root.to_string_lossy(), &path)
 }
 
 #[tauri::command]
 pub fn save_note(
     state: State<'_, AppState>,
-    vault_path: String,
     path: String,
     content: String,
     reason: Option<String>,
 ) -> AppResult<SaveOutcome> {
+    let root = state.active_vault()?;
     vault::save_note(
         &state.db_path,
-        &vault_path,
+        &root.to_string_lossy(),
         &path,
         &content,
         reason.as_deref().unwrap_or("autosave"),
@@ -54,99 +71,107 @@ pub fn save_note(
 #[tauri::command]
 pub fn create_entry(
     state: State<'_, AppState>,
-    vault_path: String,
     parent_path: String,
     name: String,
     directory: bool,
 ) -> AppResult<String> {
-    vault::create_entry(&state.db_path, &vault_path, &parent_path, &name, directory)
+    let root = state.active_vault()?;
+    vault::create_entry(
+        &state.db_path,
+        &root.to_string_lossy(),
+        &parent_path,
+        &name,
+        directory,
+    )
 }
 
 #[tauri::command]
 pub fn rename_entry(
     state: State<'_, AppState>,
-    vault_path: String,
     path: String,
     new_name: String,
 ) -> AppResult<String> {
-    vault::rename_entry(&state.db_path, &vault_path, &path, &new_name)
+    let root = state.active_vault()?;
+    vault::rename_entry(&state.db_path, &root.to_string_lossy(), &path, &new_name)
 }
 
 #[tauri::command]
-pub fn trash_entry(state: State<'_, AppState>, vault_path: String, path: String) -> AppResult<()> {
-    vault::trash_entry(&state.db_path, &vault_path, &path)
+pub fn trash_entry(state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let root = state.active_vault()?;
+    vault::trash_entry(&state.db_path, &root.to_string_lossy(), &path)
 }
 
 #[tauri::command]
-pub fn restore_trash_item(
+pub fn restore_trash_item(state: State<'_, AppState>, item_id: i64) -> AppResult<String> {
+    let root = state.active_vault()?;
+    vault::restore_trash_item(&state.db_path, &root.to_string_lossy(), item_id)
+}
+
+#[tauri::command]
+pub fn set_bookmark(state: State<'_, AppState>, path: String, bookmarked: bool) -> AppResult<()> {
+    let root = state.active_vault()?;
+    vault::set_bookmark(&state.db_path, &root.to_string_lossy(), &path, bookmarked)
+}
+
+#[tauri::command]
+pub fn record_edit(
     state: State<'_, AppState>,
-    vault_path: String,
-    item_id: i64,
-) -> AppResult<String> {
-    vault::restore_trash_item(&state.db_path, &vault_path, item_id)
-}
-
-#[tauri::command]
-pub fn set_bookmark(
-    state: State<'_, AppState>,
-    vault_path: String,
     path: String,
-    bookmarked: bool,
-) -> AppResult<()> {
-    vault::set_bookmark(&state.db_path, &vault_path, &path, bookmarked)
+) -> AppResult<crate::models::NoteStats> {
+    let root = state.active_vault()?;
+    vault::record_edit(&state.db_path, &root.to_string_lossy(), &path)
 }
 
 #[tauri::command]
-pub fn set_entry_order(
-    state: State<'_, AppState>,
-    vault_path: String,
-    paths: Vec<String>,
-) -> AppResult<()> {
-    vault::set_entry_order(&state.db_path, &vault_path, &paths)
+pub fn set_entry_order(state: State<'_, AppState>, paths: Vec<String>) -> AppResult<()> {
+    let root = state.active_vault()?;
+    vault::set_entry_order(&state.db_path, &root.to_string_lossy(), &paths)
 }
 
 #[tauri::command]
-pub fn list_history(
-    state: State<'_, AppState>,
-    vault_path: String,
-    path: String,
-) -> AppResult<Vec<HistoryRevision>> {
-    vault::list_history(&state.db_path, &vault_path, &path)
+pub fn list_history(state: State<'_, AppState>, path: String) -> AppResult<Vec<HistoryRevision>> {
+    let root = state.active_vault()?;
+    vault::list_history(&state.db_path, &root.to_string_lossy(), &path)
 }
 
 #[tauri::command]
 pub fn restore_revision(
     state: State<'_, AppState>,
-    vault_path: String,
     path: String,
     revision_id: i64,
 ) -> AppResult<NoteDocument> {
-    vault::restore_revision(&state.db_path, &vault_path, &path, revision_id)
+    let root = state.active_vault()?;
+    vault::restore_revision(&state.db_path, &root.to_string_lossy(), &path, revision_id)
 }
 
 #[tauri::command]
-pub fn list_search_documents(
-    state: State<'_, AppState>,
-    vault_path: String,
-) -> AppResult<Vec<SearchDocument>> {
-    vault::list_search_documents(&state.db_path, &vault_path)
+pub fn list_search_documents(state: State<'_, AppState>) -> AppResult<Vec<SearchDocument>> {
+    let root = state.active_vault()?;
+    vault::list_search_documents(&state.db_path, &root.to_string_lossy())
 }
 
 #[tauri::command]
 pub fn read_image_data_url(
-    vault_path: String,
+    state: State<'_, AppState>,
     note_path: Option<String>,
     image_source: String,
 ) -> AppResult<String> {
-    vault::read_image_data_url(&vault_path, note_path.as_deref(), &image_source)
+    let root = state.active_vault()?;
+    vault::read_image_data_url(
+        &state.db_path,
+        &root.to_string_lossy(),
+        note_path.as_deref(),
+        &image_source,
+    )
 }
 
 #[tauri::command]
 pub fn save_attachment(
-    vault_path: String,
+    state: State<'_, AppState>,
     note_path: String,
     file_name: String,
     data: Vec<u8>,
 ) -> AppResult<String> {
-    vault::save_attachment(&vault_path, &note_path, &file_name, &data)
+    let root = state.active_vault()?;
+    vault::save_attachment(&root.to_string_lossy(), &note_path, &file_name, &data)
 }

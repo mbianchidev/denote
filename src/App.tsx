@@ -1,5 +1,5 @@
 import type { MDXEditorMethods } from "@mdxeditor/editor";
-import { open } from "@tauri-apps/plugin-dialog";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
 import {
   ArrowDown,
@@ -83,9 +83,24 @@ function App() {
   const editorRef = useRef<MDXEditorMethods>(null);
   const searchIndex = useRef(new VaultSearchIndex());
   const searchQueryRef = useRef(searchQuery);
+  const tabsRef = useRef<EditorTab[]>([]);
   const saveTimers = useRef(new Map<string, number>());
+  const saveQueues = useRef(new Map<string, Promise<boolean>>());
+  const editQueues = useRef(new Map<string, Promise<boolean>>());
+  const flushAllTabsRef = useRef<() => Promise<boolean>>(async () => true);
   const indexTimer = useRef<number | null>(null);
   const pendingAnchor = useRef<string | null>(null);
+  const vaultGeneration = useRef(0);
+  const closingWindow = useRef(false);
+
+  const commitTabs = useCallback(
+    (updater: (current: EditorTab[]) => EditorTab[]) => {
+      const next = updater(tabsRef.current);
+      tabsRef.current = next;
+      setTabs(next);
+    },
+    [],
+  );
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
@@ -121,16 +136,31 @@ function App() {
   }, []);
 
   const rebuildSearchIndex = useCallback(
-    async (vaultPath: string, query = searchQueryRef.current) => {
+    async (
+      generation = vaultGeneration.current,
+      query = searchQueryRef.current,
+    ) => {
       setIndexing(true);
       try {
-        const documents = await api.listSearchDocuments(vaultPath);
-        await searchIndex.current.rebuild(documents);
-        setSearchResults(await searchIndex.current.query(query));
+        const documents = await api.listSearchDocuments();
+        if (generation !== vaultGeneration.current) {
+          return;
+        }
+        const nextIndex = new VaultSearchIndex();
+        await nextIndex.rebuild(documents);
+        if (generation !== vaultGeneration.current) {
+          return;
+        }
+        searchIndex.current = nextIndex;
+        setSearchResults(await nextIndex.query(query));
       } catch (caught) {
-        showError(caught);
+        if (generation === vaultGeneration.current) {
+          showError(caught);
+        }
       } finally {
-        setIndexing(false);
+        if (generation === vaultGeneration.current) {
+          setIndexing(false);
+        }
       }
     },
     [showError],
@@ -153,24 +183,31 @@ function App() {
           window.clearTimeout(timer);
         }
         saveTimers.current.clear();
-        setTabs([]);
+        saveQueues.current.clear();
+        editQueues.current.clear();
+        commitTabs(() => []);
         setActivePath(null);
       }
       setStatus(`Opened ${snapshot.vaultName}`);
-      await rebuildSearchIndex(snapshot.vaultPath);
+      await rebuildSearchIndex(vaultGeneration.current);
     },
-    [rebuildSearchIndex],
+    [commitTabs, rebuildSearchIndex],
   );
 
   const refreshWorkspace = useCallback(async () => {
     if (!workspace) {
       return;
     }
+    const generation = vaultGeneration.current;
     try {
-      const snapshot = await api.refreshVault(workspace.vaultPath);
-      setWorkspace(snapshot);
+      const snapshot = await api.refreshVault();
+      if (generation === vaultGeneration.current) {
+        setWorkspace(snapshot);
+      }
     } catch (caught) {
-      showError(caught);
+      if (generation === vaultGeneration.current) {
+        showError(caught);
+      }
     }
   }, [showError, workspace]);
 
@@ -180,15 +217,16 @@ function App() {
 
   useEffect(() => {
     searchQueryRef.current = searchQuery;
+  }, [searchQuery]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
-        const lastVault = await api.getLastVault();
-        if (!cancelled && lastVault) {
-          const snapshot = await api.openVault(lastVault);
-          if (!cancelled) {
-            await loadWorkspace(snapshot, true);
-          }
+        const snapshot = await api.getLastVault();
+        if (!cancelled && snapshot) {
+          vaultGeneration.current += 1;
+          await loadWorkspace(snapshot, true);
         }
       } catch (caught) {
         if (!cancelled) {
@@ -219,18 +257,15 @@ function App() {
   }, [searchQuery]);
 
   const chooseVault = useCallback(async () => {
+    if (!(await flushAllTabsRef.current())) {
+      setStatus("Vault switch cancelled because a note could not be saved");
+      return;
+    }
     setInitializing(true);
     try {
-      const selected = await open({
-        title: "Choose a Denote vault",
-        directory: true,
-        multiple: false,
-        recursive: true,
-        canCreateDirectories: true,
-        fileAccessMode: "scoped",
-      });
-      if (selected) {
-        const snapshot = await api.openVault(selected);
+      const snapshot = await api.chooseVault();
+      if (snapshot) {
+        vaultGeneration.current += 1;
         await loadWorkspace(snapshot, true);
       }
     } catch (caught) {
@@ -247,60 +282,142 @@ function App() {
     if (indexTimer.current) {
       window.clearTimeout(indexTimer.current);
     }
+    const generation = vaultGeneration.current;
     indexTimer.current = window.setTimeout(() => {
-      void rebuildSearchIndex(workspace.vaultPath);
+      void rebuildSearchIndex(generation);
     }, 900);
   }, [rebuildSearchIndex, workspace]);
 
   const saveTab = useCallback(
-    async (path: string, content: string, reason = "autosave") => {
+    (path: string, content: string, reason = "autosave"): Promise<boolean> => {
       if (!workspace) {
-        return;
+        return Promise.resolve(false);
       }
-      setTabs((current) =>
+      commitTabs((current) =>
         current.map((tab) =>
-          tab.path === path ? { ...tab, saveState: "saving" } : tab,
+          tab.path === path && tab.content === content
+            ? { ...tab, saveState: "saving" }
+            : tab,
         ),
       );
-      try {
-        const outcome = await api.saveNote(
-          workspace.vaultPath,
-          path,
-          content,
-          reason,
-        );
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.path === path
-              ? {
-                  ...tab,
-                  savedContent: content,
-                  saveState: "saved",
-                  stats: outcome.stats,
-                }
-              : tab,
-          ),
-        );
-        setStatus(outcome.changed ? "Saved" : "No changes");
-        scheduleIndexRebuild();
-      } catch (caught) {
-        setTabs((current) =>
-          current.map((tab) =>
-            tab.path === path ? { ...tab, saveState: "error" } : tab,
-          ),
-        );
-        showError(caught);
-      }
+      const previous = saveQueues.current.get(path) ?? Promise.resolve(true);
+      const task = previous
+        .catch(() => false)
+        .then(async () => {
+          try {
+            const outcome = await api.saveNote(path, content, reason);
+            commitTabs((current) =>
+              current.map((tab) =>
+                tab.path === path
+                  ? {
+                      ...tab,
+                      savedContent: content,
+                      saveState:
+                        tab.content === content ? "saved" : ("dirty" as const),
+                      editRecorded:
+                        tab.content === content ? false : tab.editRecorded,
+                      stats: outcome.stats,
+                    }
+                  : tab,
+              ),
+            );
+            setStatus(outcome.changed ? "Saved" : "No changes");
+            scheduleIndexRebuild();
+            return true;
+          } catch (caught) {
+            commitTabs((current) =>
+              current.map((tab) =>
+                tab.path === path
+                  ? {
+                      ...tab,
+                      saveState:
+                        tab.content === content ? "error" : ("dirty" as const),
+                    }
+                  : tab,
+              ),
+            );
+            showError(caught);
+            return false;
+          }
+        });
+      saveQueues.current.set(path, task);
+      void task.finally(() => {
+        if (saveQueues.current.get(path) === task) {
+          saveQueues.current.delete(path);
+          editQueues.current.delete(path);
+        }
+      });
+      return task;
     },
-    [scheduleIndexRebuild, showError, workspace],
+    [commitTabs, scheduleIndexRebuild, showError, workspace],
   );
+
+  const flushTab = useCallback(
+    async (path: string): Promise<boolean> => {
+      const timer = saveTimers.current.get(path);
+      if (timer) {
+        window.clearTimeout(timer);
+        saveTimers.current.delete(path);
+      }
+      await editQueues.current.get(path);
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const pending = saveQueues.current.get(path);
+        if (pending) {
+          await pending;
+        }
+        const tab = tabsRef.current.find((candidate) => candidate.path === path);
+        if (!tab || tab.kind === "image" || tab.content === tab.savedContent) {
+          return true;
+        }
+        if (!(await saveTab(path, tab.content, "flush"))) {
+          return false;
+        }
+      }
+      showError(`Unable to settle concurrent edits for ${path}. Try again.`);
+      return false;
+    },
+    [saveTab, showError],
+  );
+
+  const flushAllTabs = useCallback(async (): Promise<boolean> => {
+    for (const tab of [...tabsRef.current]) {
+      if (!(await flushTab(tab.path))) {
+        return false;
+      }
+    }
+    return true;
+  }, [flushTab]);
+  flushAllTabsRef.current = flushAllTabs;
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const appWindow = getCurrentWindow();
+    void appWindow
+      .onCloseRequested(async (event) => {
+        if (closingWindow.current) {
+          return;
+        }
+        event.preventDefault();
+        if (await flushAllTabsRef.current()) {
+          closingWindow.current = true;
+          await appWindow.destroy();
+        } else {
+          setStatus("Close cancelled because a note could not be saved");
+        }
+      })
+      .then((cleanup) => {
+        unlisten = cleanup;
+      })
+      .catch(showError);
+    return () => unlisten?.();
+  }, [showError]);
 
   const openFile = useCallback(
     async (path: string, anchor?: string | null) => {
       if (!workspace) {
         return;
       }
-      const existing = tabs.find((tab) => tab.path === path);
+      const existing = tabsRef.current.find((tab) => tab.path === path);
       if (existing) {
         pendingAnchor.current = anchor ?? null;
         setActivePath(path);
@@ -314,6 +431,7 @@ function App() {
         return;
       }
       const title = node?.name ?? path.split("/").slice(-1)[0] ?? path;
+      const generation = vaultGeneration.current;
       setStatus(`Opening ${title}…`);
       try {
         const tab: EditorTab =
@@ -324,41 +442,61 @@ function App() {
                 kind: "image",
                 content: "",
                 savedContent: "",
-                imageDataUrl: await api.readImageDataUrl(
-                  workspace.vaultPath,
-                  path,
-                ),
+                imageDataUrl: await api.readImageDataUrl(path),
+                editRecorded: false,
                 saveState: "saved",
               }
-            : await api.readNote(workspace.vaultPath, path).then((document) => ({
+            : await api.readNote(path).then((document) => ({
                 path,
                 title,
                 kind: kind === "markdown" ? "markdown" : "text",
                 content: document.content,
                 savedContent: document.content,
                 stats: document.stats,
+                editRecorded: false,
                 saveState: "saved" as const,
               }));
+        if (generation !== vaultGeneration.current) {
+          return;
+        }
         pendingAnchor.current = anchor ?? null;
-        setTabs((current) => [...current, tab]);
+        commitTabs((current) =>
+          current.some((candidate) => candidate.path === path)
+            ? current
+            : [...current, tab],
+        );
         setActivePath(path);
         setSelectedPath(path);
         setStatus(`Opened ${title}`);
         void refreshWorkspace();
+        scheduleIndexRebuild();
       } catch (caught) {
-        showError(caught);
+        if (generation === vaultGeneration.current) {
+          showError(caught);
+        }
       }
     },
-    [refreshWorkspace, showError, tabs, workspace],
+    [
+      commitTabs,
+      refreshWorkspace,
+      scheduleIndexRebuild,
+      showError,
+      workspace,
+    ],
   );
 
   const changeActiveContent = useCallback(
     (content: string) => {
-      if (!activeTab || activeTab.kind === "image") {
+      const currentTab = tabsRef.current.find(
+        (candidate) => candidate.path === activePath,
+      );
+      if (!currentTab || currentTab.kind === "image") {
         return;
       }
-      const path = activeTab.path;
-      setTabs((current) =>
+      const path = currentTab.path;
+      const shouldRecordEdit =
+        content !== currentTab.savedContent && !currentTab.editRecorded;
+      commitTabs((current) =>
         current.map((tab) =>
           tab.path === path
             ? {
@@ -366,15 +504,41 @@ function App() {
                 content,
                 saveState:
                   content === tab.savedContent ? "saved" : ("dirty" as const),
+                editRecorded:
+                  content === tab.savedContent
+                    ? false
+                    : tab.editRecorded || shouldRecordEdit,
               }
             : tab,
         ),
       );
+      if (shouldRecordEdit) {
+        const editTask = api
+          .recordEdit(path)
+          .then((stats) => {
+            commitTabs((current) =>
+              current.map((tab) =>
+                tab.path === path ? { ...tab, stats } : tab,
+              ),
+            );
+            return true;
+          })
+          .catch((caught) => {
+            showError(caught);
+            return false;
+          });
+        editQueues.current.set(path, editTask);
+        void editTask.finally(() => {
+          if (editQueues.current.get(path) === editTask) {
+            editQueues.current.delete(path);
+          }
+        });
+      }
       const existingTimer = saveTimers.current.get(path);
       if (existingTimer) {
         window.clearTimeout(existingTimer);
       }
-      if (content === activeTab.savedContent) {
+      if (content === currentTab.savedContent) {
         saveTimers.current.delete(path);
         return;
       }
@@ -384,41 +548,37 @@ function App() {
       }, 800);
       saveTimers.current.set(path, timer);
     },
-    [activeTab, saveTab],
+    [activePath, commitTabs, saveTab, showError],
   );
 
   const closeTab = useCallback(
     async (path: string) => {
-      const tab = tabs.find((candidate) => candidate.path === path);
-      if (!tab) {
+      const currentTabs = tabsRef.current;
+      const index = currentTabs.findIndex((candidate) => candidate.path === path);
+      if (index < 0 || !(await flushTab(path))) {
         return;
       }
-      const timer = saveTimers.current.get(path);
-      if (timer) {
-        window.clearTimeout(timer);
-        saveTimers.current.delete(path);
-      }
-      if (tab.saveState === "dirty" && tab.kind !== "image") {
-        await saveTab(path, tab.content, "close");
-      }
-      const index = tabs.findIndex((candidate) => candidate.path === path);
-      const remaining = tabs.filter((candidate) => candidate.path !== path);
-      setTabs(remaining);
+      const remaining = tabsRef.current.filter(
+        (candidate) => candidate.path !== path,
+      );
+      commitTabs(() => remaining);
+      saveQueues.current.delete(path);
       if (activePath === path) {
         setActivePath(
           remaining[Math.min(index, remaining.length - 1)]?.path ?? null,
         );
       }
     },
-    [activePath, saveTab, tabs],
+    [activePath, commitTabs, flushTab],
   );
 
   const refreshAndReindex = useCallback(async () => {
     if (!workspace) {
       return;
     }
+    const generation = vaultGeneration.current;
     await refreshWorkspace();
-    await rebuildSearchIndex(workspace.vaultPath);
+    await rebuildSearchIndex(generation);
   }, [rebuildSearchIndex, refreshWorkspace, workspace]);
 
   const createEntry = useCallback(
@@ -443,12 +603,7 @@ function App() {
           ? `${entered}.md`
           : entered;
       try {
-        const path = await api.createEntry(
-          workspace.vaultPath,
-          parentPath,
-          name,
-          directory,
-        );
+        const path = await api.createEntry(parentPath, name, directory);
         if (parentPath) {
           setExpandedPaths((current) => new Set(current).add(parentPath));
         }
@@ -480,17 +635,24 @@ function App() {
       return;
     }
     try {
-      const newPath = await api.renameEntry(
-        workspace.vaultPath,
-        selectedNode.path,
-        newName,
+      const affectedTabs = tabsRef.current.filter(
+        (tab) =>
+          tab.path === selectedNode.path ||
+          tab.path.startsWith(`${selectedNode.path}/`),
       );
+      for (const tab of affectedTabs) {
+        if (!(await flushTab(tab.path))) {
+          setStatus("Rename cancelled because a note could not be saved");
+          return;
+        }
+      }
+      const newPath = await api.renameEntry(selectedNode.path, newName);
       const oldPath = selectedNode.path;
       const replacePrefix = (path: string) =>
         path === oldPath || path.startsWith(`${oldPath}/`)
           ? `${newPath}${path.slice(oldPath.length)}`
           : path;
-      setTabs((current) =>
+      commitTabs((current) =>
         current.map((tab) => {
           const path = replacePrefix(tab.path);
           return {
@@ -502,11 +664,23 @@ function App() {
       );
       setActivePath((current) => (current ? replacePrefix(current) : current));
       setSelectedPath(newPath);
+      for (const tab of affectedTabs) {
+        saveTimers.current.delete(tab.path);
+        saveQueues.current.delete(tab.path);
+        editQueues.current.delete(tab.path);
+      }
       await refreshAndReindex();
     } catch (caught) {
       showError(caught);
     }
-  }, [refreshAndReindex, selectedNode, showError, workspace]);
+  }, [
+    commitTabs,
+    flushTab,
+    refreshAndReindex,
+    selectedNode,
+    showError,
+    workspace,
+  ]);
 
   const trashSelected = useCallback(async () => {
     if (!workspace || !selectedNode) {
@@ -520,21 +694,27 @@ function App() {
       return;
     }
     try {
-      const affectedTabs = tabs.filter(
+      const affectedTabs = tabsRef.current.filter(
         (tab) =>
           tab.path === selectedNode.path ||
           tab.path.startsWith(`${selectedNode.path}/`),
       );
       for (const tab of affectedTabs) {
-        if (tab.saveState === "dirty" && tab.kind !== "image") {
-          await saveTab(tab.path, tab.content, "before trash");
+        if (!(await flushTab(tab.path))) {
+          setStatus("Trash cancelled because a note could not be saved");
+          return;
         }
       }
-      await api.trashEntry(workspace.vaultPath, selectedNode.path);
+      await api.trashEntry(selectedNode.path);
       const isAffected = (path: string) =>
         path === selectedNode.path ||
         path.startsWith(`${selectedNode.path}/`);
-      setTabs((current) => current.filter((tab) => !isAffected(tab.path)));
+      commitTabs((current) => current.filter((tab) => !isAffected(tab.path)));
+      for (const tab of affectedTabs) {
+        saveTimers.current.delete(tab.path);
+        saveQueues.current.delete(tab.path);
+        editQueues.current.delete(tab.path);
+      }
       if (activePath && isAffected(activePath)) {
         setActivePath(null);
       }
@@ -545,11 +725,11 @@ function App() {
     }
   }, [
     activePath,
+    commitTabs,
+    flushTab,
     refreshAndReindex,
-    saveTab,
     selectedNode,
     showError,
-    tabs,
     workspace,
   ]);
 
@@ -558,11 +738,7 @@ function App() {
       return;
     }
     try {
-      await api.setBookmark(
-        workspace.vaultPath,
-        selectedNode.path,
-        !selectedNode.bookmarked,
-      );
+      await api.setBookmark(selectedNode.path, !selectedNode.bookmarked);
       await refreshAndReindex();
     } catch (caught) {
       showError(caught);
@@ -586,10 +762,7 @@ function App() {
         reordered[index],
       ];
       try {
-        await api.setEntryOrder(
-          workspace.vaultPath,
-          reordered.map((node) => node.path),
-        );
+        await api.setEntryOrder(reordered.map((node) => node.path));
         await refreshWorkspace();
       } catch (caught) {
         showError(caught);
@@ -604,10 +777,7 @@ function App() {
         return;
       }
       try {
-        const restoredPath = await api.restoreTrashItem(
-          workspace.vaultPath,
-          itemId,
-        );
+        const restoredPath = await api.restoreTrashItem(itemId);
         await refreshAndReindex();
         setSidebarView("files");
         setSelectedPath(restoredPath);
@@ -625,9 +795,7 @@ function App() {
     setHistoryOpen(true);
     setHistoryLoading(true);
     try {
-      setHistoryRevisions(
-        await api.listHistory(workspace.vaultPath, activeTab.path),
-      );
+      setHistoryRevisions(await api.listHistory(activeTab.path));
     } catch (caught) {
       showError(caught);
     } finally {
@@ -641,12 +809,12 @@ function App() {
         return;
       }
       try {
-        const document = await api.restoreRevision(
-          workspace.vaultPath,
-          activeTab.path,
-          revisionId,
-        );
-        setTabs((current) =>
+        if (!(await flushTab(activeTab.path))) {
+          setStatus("Restore cancelled because the note could not be saved");
+          return;
+        }
+        const document = await api.restoreRevision(activeTab.path, revisionId);
+        commitTabs((current) =>
           current.map((tab) =>
             tab.path === activeTab.path
               ? {
@@ -654,6 +822,7 @@ function App() {
                   content: document.content,
                   savedContent: document.content,
                   stats: document.stats,
+                  editRecorded: false,
                   saveState: "saved",
                 }
               : tab,
@@ -667,7 +836,14 @@ function App() {
         showError(caught);
       }
     },
-    [activeTab, scheduleIndexRebuild, showError, workspace],
+    [
+      activeTab,
+      commitTabs,
+      flushTab,
+      scheduleIndexRebuild,
+      showError,
+      workspace,
+    ],
   );
 
   const openLink = useCallback(
@@ -681,7 +857,7 @@ function App() {
           return;
         }
         if (href.startsWith("file://")) {
-          await openPath(decodeURIComponent(new URL(href).pathname));
+          await openPath(fileUrlToPath(href));
           return;
         }
         const resolved = resolveInternalLink(
@@ -1053,7 +1229,6 @@ function App() {
                   <MarkdownEditor
                     key={activeTab.path}
                     ref={editorRef}
-                    vaultPath={workspace.vaultPath}
                     notePath={activeTab.path}
                     markdown={activeTab.content}
                     onChange={changeActiveContent}
@@ -1098,7 +1273,7 @@ function App() {
             />
           ) : null}
         </div>
-        <footer className="status-bar" aria-live="polite">
+        <footer className="status-bar">
           <span>{activeTab?.path ?? workspace.vaultPath}</span>
           <span className="status-bar__spacer" />
           {activeTab && activeTab.kind !== "image" ? (
@@ -1107,7 +1282,7 @@ function App() {
               <span>{activeTab.content.length} characters</span>
               <span>
                 {activeTab.stats
-                  ? `${activeTab.stats.openCount} opens · ${activeTab.stats.saveCount} saves`
+                  ? `${activeTab.stats.openCount} opens · ${activeTab.stats.editCount} edits · ${activeTab.stats.saveCount} saves`
                   : "UTF-8"}
               </span>
               <span data-save-state={activeTab.saveState}>
@@ -1117,6 +1292,9 @@ function App() {
           ) : null}
           <span>{status}</span>
         </footer>
+        <span className="sr-only" role="status" aria-live="polite">
+          {status}
+        </span>
       </section>
       <HistoryDialog
         open={historyOpen}
@@ -1242,6 +1420,17 @@ function kindFromPath(path: string): FileNode["kind"] | null {
     return "image";
   }
   return null;
+}
+
+function fileUrlToPath(value: string): string {
+  const url = new URL(value);
+  let path = decodeURIComponent(
+    url.host ? `//${url.host}${url.pathname}` : url.pathname,
+  );
+  if (/^\/[a-z]:\//i.test(path)) {
+    path = path.slice(1);
+  }
+  return path;
 }
 
 function formatRelativeDate(value: string): string {

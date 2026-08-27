@@ -1,11 +1,13 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::RwLock,
 };
 
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
+use uuid::Uuid;
 
 use crate::{
     error::AppResult,
@@ -14,14 +16,34 @@ use crate::{
 
 pub const HISTORY_LIMIT: i64 = 10;
 
-#[derive(Clone)]
 pub struct AppState {
     pub db_path: PathBuf,
+    active_vault: RwLock<Option<PathBuf>>,
 }
 
 impl AppState {
-    pub fn new(db_path: PathBuf) -> Self {
-        Self { db_path }
+    pub fn new(db_path: PathBuf, active_vault: Option<PathBuf>) -> Self {
+        Self {
+            db_path,
+            active_vault: RwLock::new(active_vault),
+        }
+    }
+
+    pub fn active_vault(&self) -> AppResult<PathBuf> {
+        self.active_vault
+            .read()
+            .map_err(|_| crate::error::AppError::State("Vault lock is poisoned".to_string()))?
+            .clone()
+            .ok_or_else(|| crate::error::AppError::State("No vault is open".to_string()))
+    }
+
+    pub fn set_active_vault(&self, path: PathBuf) -> AppResult<()> {
+        *self
+            .active_vault
+            .write()
+            .map_err(|_| crate::error::AppError::State("Vault lock is poisoned".to_string()))? =
+            Some(path);
+        Ok(())
     }
 }
 
@@ -93,6 +115,18 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS pending_file_operations (
+          id TEXT PRIMARY KEY,
+          vault_id INTEGER NOT NULL,
+          kind TEXT NOT NULL CHECK (kind IN ('rename', 'trash', 'restore')),
+          source_path TEXT NOT NULL,
+          destination_path TEXT NOT NULL,
+          item_id INTEGER,
+          is_directory INTEGER NOT NULL DEFAULT 0,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS settings (
           key TEXT PRIMARY KEY,
           value TEXT NOT NULL,
@@ -107,9 +141,13 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           ON history(vault_id, path, id DESC);
         CREATE INDEX IF NOT EXISTS idx_trash_active
           ON trash_items(vault_id, restored_at, deleted_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_pending_file_operations
+          ON pending_file_operations(vault_id, created_at);
 
         INSERT OR IGNORE INTO schema_migrations(version, applied_at)
         VALUES (1, CURRENT_TIMESTAMP);
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+        VALUES (2, CURRENT_TIMESTAMP);
         "#,
     )?;
     Ok(())
@@ -251,15 +289,30 @@ pub fn record_save(transaction: &Transaction<'_>, vault_id: i64, path: &str) -> 
     transaction.execute(
         r#"
         INSERT INTO note_stats(
-          vault_id, path, edit_count, save_count, last_edited_at, last_saved_at,
-          created_at, updated_at
+          vault_id, path, save_count, last_saved_at, created_at, updated_at
         )
-        VALUES (?1, ?2, 1, 1, ?3, ?3, ?3, ?3)
+        VALUES (?1, ?2, 1, ?3, ?3, ?3)
+        ON CONFLICT(vault_id, path) DO UPDATE SET
+          save_count = save_count + 1,
+          last_saved_at = excluded.last_saved_at,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, path, timestamp],
+    )?;
+    Ok(())
+}
+
+pub fn record_edit(connection: &Connection, vault_id: i64, path: &str) -> AppResult<()> {
+    let timestamp = now();
+    connection.execute(
+        r#"
+        INSERT INTO note_stats(
+          vault_id, path, edit_count, last_edited_at, created_at, updated_at
+        )
+        VALUES (?1, ?2, 1, ?3, ?3, ?3)
         ON CONFLICT(vault_id, path) DO UPDATE SET
           edit_count = edit_count + 1,
-          save_count = save_count + 1,
           last_edited_at = excluded.last_edited_at,
-          last_saved_at = excluded.last_saved_at,
           updated_at = excluded.updated_at
         "#,
         params![vault_id, path, timestamp],
@@ -464,14 +517,16 @@ pub fn history_count(connection: &Connection, vault_id: i64, path: &str) -> AppR
     )?)
 }
 
-pub fn record_trash(
-    connection: &Connection,
+pub fn trash_metadata(
+    connection: &mut Connection,
     vault_id: i64,
     original_path: &str,
     trash_path: &str,
     is_directory: bool,
-) -> AppResult<()> {
-    connection.execute(
+    operation_id: Option<&str>,
+) -> AppResult<i64> {
+    let transaction = connection.transaction()?;
+    transaction.execute(
         r#"
         INSERT INTO trash_items(
           vault_id, original_path, trash_path, is_directory, deleted_at
@@ -486,7 +541,11 @@ pub fn record_trash(
             now()
         ],
     )?;
-    Ok(())
+    rekey_content_metadata_tx(&transaction, vault_id, original_path, trash_path)?;
+    finish_file_operation_tx(&transaction, operation_id)?;
+    let item_id = transaction.last_insert_rowid();
+    transaction.commit()?;
+    Ok(item_id)
 }
 
 pub fn list_trash(connection: &Connection, vault_id: i64) -> AppResult<Vec<TrashItem>> {
@@ -527,8 +586,17 @@ pub fn trash_path(
         .optional()?)
 }
 
-pub fn mark_restored(connection: &Connection, vault_id: i64, item_id: i64) -> AppResult<()> {
-    connection.execute(
+pub fn restore_metadata(
+    connection: &mut Connection,
+    vault_id: i64,
+    item_id: i64,
+    trash_path: &str,
+    restored_path: &str,
+    operation_id: Option<&str>,
+) -> AppResult<()> {
+    let transaction = connection.transaction()?;
+    rekey_content_metadata_tx(&transaction, vault_id, trash_path, restored_path)?;
+    transaction.execute(
         r#"
         UPDATE trash_items
         SET restored_at = ?1
@@ -536,6 +604,8 @@ pub fn mark_restored(connection: &Connection, vault_id: i64, item_id: i64) -> Ap
         "#,
         params![now(), item_id, vault_id],
     )?;
+    finish_file_operation_tx(&transaction, operation_id)?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -544,29 +614,145 @@ pub fn rename_metadata(
     vault_id: i64,
     old_path: &str,
     new_path: &str,
+    operation_id: Option<&str>,
 ) -> AppResult<()> {
     let transaction = connection.transaction()?;
+    rename_metadata_tx(&transaction, vault_id, old_path, new_path)?;
+    finish_file_operation_tx(&transaction, operation_id)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn rename_metadata_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
+    rekey_content_metadata_tx(transaction, vault_id, old_path, new_path)?;
+    transaction.execute(
+        r#"
+        UPDATE trash_items
+        SET original_path = ?1 || substr(original_path, length(?2) + 1)
+        WHERE vault_id = ?3
+          AND (
+            original_path = ?2
+            OR substr(original_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![new_path, old_path, vault_id],
+    )?;
+    Ok(())
+}
+
+fn finish_file_operation_tx(
+    transaction: &Transaction<'_>,
+    operation_id: Option<&str>,
+) -> AppResult<()> {
+    if let Some(operation_id) = operation_id {
+        transaction.execute(
+            "DELETE FROM pending_file_operations WHERE id = ?1",
+            params![operation_id],
+        )?;
+    }
+    Ok(())
+}
+
+#[derive(Debug)]
+pub struct PendingFileOperation {
+    pub id: String,
+    pub kind: String,
+    pub source_path: String,
+    pub destination_path: String,
+    pub item_id: Option<i64>,
+    pub is_directory: bool,
+}
+
+pub fn begin_file_operation(
+    connection: &Connection,
+    vault_id: i64,
+    kind: &str,
+    source_path: &str,
+    destination_path: &str,
+    item_id: Option<i64>,
+    is_directory: bool,
+) -> AppResult<String> {
+    let id = Uuid::new_v4().to_string();
+    connection.execute(
+        r#"
+        INSERT INTO pending_file_operations(
+          id, vault_id, kind, source_path, destination_path, item_id,
+          is_directory, created_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        "#,
+        params![
+            id,
+            vault_id,
+            kind,
+            source_path,
+            destination_path,
+            item_id,
+            i64::from(is_directory),
+            now()
+        ],
+    )?;
+    Ok(id)
+}
+
+pub fn cancel_file_operation(connection: &Connection, operation_id: &str) -> AppResult<()> {
+    connection.execute(
+        "DELETE FROM pending_file_operations WHERE id = ?1",
+        params![operation_id],
+    )?;
+    Ok(())
+}
+
+pub fn pending_file_operations(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<Vec<PendingFileOperation>> {
+    let mut statement = connection.prepare(
+        r#"
+        SELECT id, kind, source_path, destination_path, item_id, is_directory
+        FROM pending_file_operations
+        WHERE vault_id = ?1
+        ORDER BY created_at, id
+        "#,
+    )?;
+    let rows = statement.query_map(params![vault_id], |row| {
+        Ok(PendingFileOperation {
+            id: row.get(0)?,
+            kind: row.get(1)?,
+            source_path: row.get(2)?,
+            destination_path: row.get(3)?,
+            item_id: row.get(4)?,
+            is_directory: row.get::<_, i64>(5)? != 0,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn rekey_content_metadata_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
     for table in ["note_stats", "history", "entry_order"] {
         let query = format!(
             r#"
             UPDATE {table}
             SET path = ?1 || substr(path, length(?2) + 1)
             WHERE vault_id = ?3
-              AND (path = ?2 OR path LIKE ?2 || '/%')
+              AND (
+                path = ?2
+                OR substr(path, 1, length(?2) + 1) = ?2 || '/'
+              )
             "#
         );
         transaction.execute(&query, params![new_path, old_path, vault_id])?;
     }
-    transaction.execute(
-        r#"
-        UPDATE trash_items
-        SET original_path = ?1 || substr(original_path, length(?2) + 1)
-        WHERE vault_id = ?3
-          AND (original_path = ?2 OR original_path LIKE ?2 || '/%')
-        "#,
-        params![new_path, old_path, vault_id],
-    )?;
-    transaction.commit()?;
     Ok(())
 }
 

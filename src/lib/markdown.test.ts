@@ -4,6 +4,7 @@ import {
   directivesToCallouts,
   extractHeadings,
   extractTags,
+  hasUnsupportedRichMarkdown,
   resolveInternalLink,
 } from "./markdown";
 
@@ -40,5 +41,17 @@ describe("markdown utilities", () => {
         "projects/plan.md",
       ]),
     ).toEqual({ path: "home.md", anchor: "Overview" });
+  });
+
+  it("does not transform callout examples inside fenced code", () => {
+    const source = "```markdown\n>![warning]\n> example\n:::info\ntext\n:::\n```";
+    expect(calloutsToDirectives(source)).toBe(source);
+    expect(directivesToCallouts(source)).toBe(source);
+  });
+
+  it("routes syntax unsupported by the rich editor to source mode", () => {
+    expect(hasUnsupportedRichMarkdown("Text[^1]\n\n[^1]: Footnote")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<!-- keep this comment -->")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("# Supported\n\n**Markdown**")).toBe(false);
   });
 });

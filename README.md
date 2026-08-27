@@ -22,6 +22,9 @@ plain UTF-8 files as the source of truth.
 Markdown, text, and images remain in the selected vault. Denote's SQLite
 database lives in the operating system's application-data directory.
 
+Notes containing raw HTML, footnotes, or math open in source mode by default so
+unsupported rich-editor transforms cannot silently rewrite that syntax.
+
 ## Search
 
 Search uses ZBSearch locally. Filters can be combined with ordinary terms:
