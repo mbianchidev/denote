@@ -17,6 +17,8 @@ pub enum AppError {
     InvalidData(String),
     #[error("Application state error: {0}")]
     State(String),
+    #[error("Save conflict: {0}")]
+    Conflict(String),
 }
 
 impl Serialize for AppError {

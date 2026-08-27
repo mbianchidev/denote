@@ -12,5 +12,5 @@ export function applyTheme(theme: Theme): void {
   const themeColor = document.querySelector<HTMLMetaElement>(
     'meta[name="theme-color"]',
   );
-  themeColor?.setAttribute("content", theme === "dark" ? "#121315" : "#f4f2ed");
+  themeColor?.setAttribute("content", theme === "dark" ? "#121315" : "#e9e6df");
 }

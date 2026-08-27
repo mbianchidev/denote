@@ -38,6 +38,7 @@ pub struct NoteStats {
 pub struct NoteDocument {
     pub path: String,
     pub content: String,
+    pub content_hash: String,
     pub stats: NoteStats,
 }
 
@@ -76,6 +77,7 @@ pub struct SaveOutcome {
     pub path: String,
     pub changed: bool,
     pub saved_at: String,
+    pub content_hash: String,
     pub history_count: i64,
     pub stats: NoteStats,
 }

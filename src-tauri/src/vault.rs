@@ -10,6 +10,7 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use rusqlite::Connection;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -75,6 +76,7 @@ pub fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppRe
     let stats = db::get_stats(&connection, vault_id, relative_path)?;
     Ok(NoteDocument {
         path: relative_path.to_string(),
+        content_hash: hash_content(&content),
         content,
         stats,
     })
@@ -86,6 +88,7 @@ pub fn save_note(
     relative_path: &str,
     content: &str,
     reason: &str,
+    expected_hash: Option<&str>,
 ) -> AppResult<SaveOutcome> {
     let root = canonical_vault(vault_path)?;
     let path = existing_entry(&root, relative_path)?;
@@ -102,6 +105,14 @@ pub fn save_note(
     }
 
     let previous = fs::read_to_string(&path)?;
+    let previous_hash = hash_content(&previous);
+    if let Some(expected_hash) = expected_hash
+        && expected_hash != previous_hash
+    {
+        return Err(AppError::Conflict(format!(
+            "{relative_path} changed on disk. Reopen it before saving."
+        )));
+    }
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     if previous == content {
@@ -109,6 +120,7 @@ pub fn save_note(
             path: relative_path.to_string(),
             changed: false,
             saved_at: db::now(),
+            content_hash: previous_hash,
             history_count: db::history_count(&connection, vault_id, relative_path)?,
             stats: db::get_stats(&connection, vault_id, relative_path)?,
         });
@@ -133,6 +145,7 @@ pub fn save_note(
         path: relative_path.to_string(),
         changed: true,
         saved_at,
+        content_hash: hash_content(content),
         history_count: db::history_count(&connection, vault_id, relative_path)?,
         stats: db::get_stats(&connection, vault_id, relative_path)?,
     })
@@ -453,6 +466,7 @@ pub fn restore_revision(
     save_transaction.commit()?;
     Ok(NoteDocument {
         path: relative_path.to_string(),
+        content_hash: hash_content(&restored),
         content: restored,
         stats: db::get_stats(&connection, vault_id, relative_path)?,
     })
@@ -465,7 +479,18 @@ pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<
     let stats = db::stats_map(&connection, vault_id)?;
     let mut documents = Vec::new();
 
-    for entry in WalkDir::new(&root).follow_links(false).into_iter() {
+    let walker = WalkDir::new(&root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(|entry| {
+            entry.depth() == 0
+                || !entry.file_type().is_dir()
+                || !entry
+                    .file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case(".denote")
+        });
+    for entry in walker {
         let entry = entry.map_err(|error| {
             AppError::Io(
                 error
@@ -604,10 +629,12 @@ fn snapshot(
     let mut trash = Vec::new();
     for item in db::list_trash(connection, vault_id)? {
         if let Some((_, trash_path, _)) = db::trash_path(connection, vault_id, item.id)? {
-            if internal_entry(root, &trash_path).is_ok() {
-                trash.push(item);
-            } else {
-                db::purge_trash_metadata(connection, vault_id, item.id, &trash_path)?;
+            match internal_entry(root, &trash_path) {
+                Ok(_) => trash.push(item),
+                Err(AppError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+                    db::purge_trash_metadata(connection, vault_id, item.id, &trash_path)?;
+                }
+                Err(error) => return Err(error),
             }
         }
     }
@@ -1072,10 +1099,37 @@ fn available_named_path(directory: &Path, name: &str) -> AppResult<PathBuf> {
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
+    #[cfg(unix)]
+    let extended_attributes = read_extended_attributes(path)?;
     let mut file = AtomicWriteFile::options().open(path)?;
     file.write_all(data)?;
+    #[cfg(unix)]
+    {
+        use xattr::FileExt;
+        for (name, value) in extended_attributes {
+            file.as_file().set_xattr(&name, &value)?;
+        }
+    }
     file.commit()?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn read_extended_attributes(path: &Path) -> AppResult<Vec<(OsString, Vec<u8>)>> {
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let mut attributes = Vec::new();
+    for name in xattr::list(path)? {
+        if let Some(value) = xattr::get(path, &name)? {
+            attributes.push((name, value));
+        }
+    }
+    Ok(attributes)
+}
+
+fn hash_content(content: &str) -> String {
+    hex::encode(Sha256::digest(content.as_bytes()))
 }
 
 fn rollback_operation(
@@ -1181,6 +1235,7 @@ mod tests {
             "note.md",
             "second",
             "autosave",
+            None,
         )
         .expect("save note");
         let history =
@@ -1201,6 +1256,38 @@ mod tests {
         );
         assert_eq!(restored.stats.edit_count, 1);
         assert_eq!(restored.stats.save_count, 2);
+    }
+
+    #[test]
+    fn rejects_saves_when_the_file_changed_outside_denote() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "first").expect("initial note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        let document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("read note");
+        fs::write(vault_path.join("note.md"), "external").expect("external edit");
+
+        let result = save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "denote edit",
+            "autosave",
+            Some(&document.content_hash),
+        );
+        assert!(matches!(result, Err(AppError::Conflict(_))));
+        assert_eq!(
+            fs::read_to_string(vault_path.join("note.md")).expect("current file"),
+            "external"
+        );
+        assert!(
+            list_history(&db_path, vault_path.to_str().unwrap(), "note.md")
+                .expect("history")
+                .is_empty()
+        );
     }
 
     #[test]
@@ -1242,6 +1329,7 @@ mod tests {
             "note.md",
             "edited",
             "autosave",
+            None,
         )
         .expect("save note");
         trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
@@ -1424,6 +1512,28 @@ mod tests {
     }
 
     #[test]
+    fn search_prunes_reserved_directories_at_any_depth() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("nested/.DENOTE/trash")).expect("internal folder");
+        fs::write(vault_path.join("visible.md"), "visible").expect("visible note");
+        fs::write(vault_path.join("nested/.DENOTE/trash/hidden.md"), "hidden")
+            .expect("hidden note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let documents =
+            list_search_documents(&db_path, vault_path.to_str().unwrap()).expect("documents");
+        assert_eq!(
+            documents
+                .iter()
+                .map(|document| document.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["visible.md"]
+        );
+    }
+
+    #[test]
     fn rejects_renames_between_text_and_image_categories() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -1474,5 +1584,39 @@ mod tests {
         );
         assert!(result.is_err());
         assert!(!outside.join("image.png").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_saves_preserve_extended_attributes() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        let note_path = vault_path.join("note.md");
+        fs::write(&note_path, "first").expect("initial note");
+        let attribute = if cfg!(target_os = "macos") {
+            "com.denote.test"
+        } else {
+            "user.denote.test"
+        };
+        xattr::set(&note_path, attribute, b"kept").expect("set xattr");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        let document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "note.md").expect("read note");
+
+        save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "second",
+            "autosave",
+            Some(&document.content_hash),
+        )
+        .expect("save note");
+        assert_eq!(
+            xattr::get(&note_path, attribute).expect("get xattr"),
+            Some(b"kept".to_vec())
+        );
     }
 }

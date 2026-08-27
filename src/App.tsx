@@ -25,6 +25,7 @@ import {
   useState,
 } from "react";
 import { ActivityRail } from "./components/ActivityRail";
+import { ActionDialog } from "./components/ActionDialog";
 import { FileTree } from "./components/FileTree";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
@@ -60,6 +61,20 @@ FIRST VIEWPORT: Narrow activity rail, ordered vault tree, tabbed writing canvas,
 FORM: Familiar Obsidian structure with Typora-style rich editing; canon path chosen from the user brief.
 -->`;
 
+interface ActionDialogState {
+  mode: "text" | "confirm";
+  title: string;
+  message: string;
+  initialValue: string;
+  confirmLabel: string;
+  dangerous: boolean;
+}
+
+interface PendingAttachmentInsertion {
+  source: string | null;
+  settle: (succeeded: boolean) => void;
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -78,6 +93,9 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
+  const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
+    null,
+  );
   const [historyRevisions, setHistoryRevisions] = useState<HistoryRevision[]>(
     [],
   );
@@ -91,12 +109,22 @@ function App() {
   const saveQueues = useRef(new Map<string, Promise<boolean>>());
   const editQueues = useRef(new Map<string, Promise<boolean>>());
   const attachmentUploads = useRef(new Set<Promise<boolean>>());
+  const pendingAttachmentInsertions = useRef(
+    new Map<string, Set<PendingAttachmentInsertion>>(),
+  );
   const flushAllTabsRef = useRef<() => Promise<boolean>>(async () => true);
+  const beginWorkspaceOperationRef = useRef<() => Promise<boolean>>(
+    async () => true,
+  );
   const indexTimer = useRef<number | null>(null);
   const pendingAnchor = useRef<string | null>(null);
+  const activePathRef = useRef<string | null>(activePath);
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
   const workspaceLockedRef = useRef(false);
+  const actionDialogResolver = useRef<((value: string | null) => void) | null>(
+    null,
+  );
 
   const commitTabs = useCallback(
     (updater: (current: EditorTab[]) => EditorTab[]) => {
@@ -118,6 +146,28 @@ function App() {
     saveTimers.current.delete(path);
     saveQueues.current.delete(path);
     editQueues.current.delete(path);
+  }, []);
+  const requestText = useCallback(
+    (options: Omit<ActionDialogState, "mode" | "dangerous">) =>
+      new Promise<string | null>((resolve) => {
+        actionDialogResolver.current = resolve;
+        setActionDialog({ ...options, mode: "text", dangerous: false });
+      }),
+    [],
+  );
+  const requestConfirmation = useCallback(
+    (options: Omit<ActionDialogState, "mode" | "initialValue">) =>
+      new Promise<boolean>((resolve) => {
+        actionDialogResolver.current = (value) => resolve(value !== null);
+        setActionDialog({ ...options, mode: "confirm", initialValue: "" });
+      }),
+    [],
+  );
+  const finishActionDialog = useCallback((value: string | null) => {
+    const resolver = actionDialogResolver.current;
+    actionDialogResolver.current = null;
+    setActionDialog(null);
+    resolver?.(value);
   }, []);
 
   const activeTab = useMemo(
@@ -201,6 +251,15 @@ function App() {
 
   const loadWorkspace = useCallback(
     async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
+      if (indexTimer.current) {
+        window.clearTimeout(indexTimer.current);
+        indexTimer.current = null;
+      }
+      rebuildRequest.current += 1;
+      queryRequest.current += 1;
+      searchIndex.current = new VaultSearchIndex();
+      setSearchResults([]);
+      setIndexing(false);
       setWorkspace(snapshot);
       setSelectedPath(null);
       setExpandedPaths(
@@ -253,6 +312,10 @@ function App() {
   }, [searchQuery]);
 
   useEffect(() => {
+    activePathRef.current = activePath;
+  }, [activePath]);
+
+  useEffect(() => {
     let cancelled = false;
     void (async () => {
       try {
@@ -294,10 +357,9 @@ function App() {
     if (workspaceLockedRef.current) {
       return;
     }
-    setWorkspaceLock(true);
     setInitializing(true);
     try {
-      if (!(await flushAllTabsRef.current())) {
+      if (!(await beginWorkspaceOperationRef.current())) {
         setStatus("Vault switch cancelled because a note could not be saved");
         return;
       }
@@ -344,13 +406,22 @@ function App() {
         .catch(() => false)
         .then(async () => {
           try {
-            const outcome = await api.saveNote(path, content, reason);
+            const expectedHash = tabsRef.current.find(
+              (tab) => tab.path === path,
+            )?.savedHash;
+            const outcome = await api.saveNote(
+              path,
+              content,
+              reason,
+              expectedHash,
+            );
             commitTabs((current) =>
               current.map((tab) =>
                 tab.path === path
                   ? {
                       ...tab,
                       savedContent: content,
+                      savedHash: outcome.contentHash,
                       saveState:
                         tab.content === content ? "saved" : ("dirty" as const),
                       editRecorded:
@@ -419,10 +490,6 @@ function App() {
   );
 
   const flushAllTabs = useCallback(async (): Promise<boolean> => {
-    const uploads = await Promise.all([...attachmentUploads.current]);
-    if (uploads.some((succeeded) => !succeeded)) {
-      return false;
-    }
     for (let attempt = 0; attempt < 5; attempt += 1) {
       for (const tab of [...tabsRef.current]) {
         if (!(await flushTab(tab.path))) {
@@ -442,22 +509,72 @@ function App() {
   }, [flushTab, showError]);
   flushAllTabsRef.current = flushAllTabs;
 
+  const beginWorkspaceOperation = useCallback(async (): Promise<boolean> => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const uploads = await Promise.all([...attachmentUploads.current]);
+      if (uploads.some((succeeded) => !succeeded)) {
+        return false;
+      }
+      setWorkspaceLock(true);
+      if (attachmentUploads.current.size > 0) {
+        setWorkspaceLock(false);
+        continue;
+      }
+      if (await flushAllTabsRef.current()) {
+        return true;
+      }
+      setWorkspaceLock(false);
+      return false;
+    }
+    showError("Unable to settle attachment uploads. Try again.");
+    return false;
+  }, [setWorkspaceLock, showError]);
+  beginWorkspaceOperationRef.current = beginWorkspaceOperation;
+
   const uploadAttachment = useCallback(
     (notePath: string, file: File): Promise<string> => {
       if (workspaceLockedRef.current) {
         return Promise.reject(new Error("Workspace is busy. Try the upload again."));
       }
-      const operation = api.saveAttachment(notePath, file);
-      const tracked = operation
-        .then(() => true)
+      let resolveTracked: (succeeded: boolean) => void = () => {};
+      const tracked = new Promise<boolean>((resolve) => {
+        resolveTracked = resolve;
+      });
+      const insertion: PendingAttachmentInsertion = {
+        source: null,
+        settle: () => {},
+      };
+      const settle = (succeeded: boolean) => {
+        const pending = pendingAttachmentInsertions.current.get(notePath);
+        pending?.delete(insertion);
+        if (pending?.size === 0) {
+          pendingAttachmentInsertions.current.delete(notePath);
+        }
+        attachmentUploads.current.delete(tracked);
+        window.clearTimeout(timeout);
+        resolveTracked(succeeded);
+      };
+      insertion.settle = settle;
+      const pending =
+        pendingAttachmentInsertions.current.get(notePath) ?? new Set();
+      pending.add(insertion);
+      pendingAttachmentInsertions.current.set(notePath, pending);
+      const timeout = window.setTimeout(() => {
+        showError(`Image insertion timed out in ${notePath}.`);
+        settle(false);
+      }, 10_000);
+      const operation = api
+        .saveAttachment(notePath, file)
+        .then((source) => {
+          insertion.source = source;
+          return source;
+        })
         .catch((caught) => {
           showError(caught);
-          return false;
+          settle(false);
+          throw caught;
         });
       attachmentUploads.current.add(tracked);
-      void tracked.finally(() => {
-        attachmentUploads.current.delete(tracked);
-      });
       return operation;
     },
     [showError],
@@ -472,8 +589,7 @@ function App() {
           return;
         }
         event.preventDefault();
-        setWorkspaceLock(true);
-        if (await flushAllTabsRef.current()) {
+        if (await beginWorkspaceOperationRef.current()) {
           closingWindow.current = true;
           try {
             await appWindow.destroy();
@@ -496,7 +612,7 @@ function App() {
 
   const openFile = useCallback(
     async (path: string, anchor?: string | null) => {
-      if (!workspace) {
+      if (!workspace || workspaceLockedRef.current) {
         return;
       }
       const existing = tabsRef.current.find((tab) => tab.path === path);
@@ -534,6 +650,7 @@ function App() {
                 kind: kind === "markdown" ? "markdown" : "text",
                 content: document.content,
                 savedContent: document.content,
+                savedHash: document.contentHash,
                 stats: document.stats,
                 editRecorded: false,
                 saveState: "saved" as const,
@@ -569,9 +686,6 @@ function App() {
 
   const changeActiveContent = useCallback(
     (content: string) => {
-      if (workspaceLockedRef.current) {
-        return;
-      }
       const currentTab = tabsRef.current.find(
         (candidate) => candidate.path === activePath,
       );
@@ -579,6 +693,10 @@ function App() {
         return;
       }
       const path = currentTab.path;
+      const pendingInsertions = pendingAttachmentInsertions.current.get(path);
+      if (workspaceLockedRef.current && !pendingInsertions) {
+        return;
+      }
       const shouldRecordEdit =
         content !== currentTab.savedContent && !currentTab.editRecorded;
       commitTabs((current) =>
@@ -617,6 +735,11 @@ function App() {
           if (editQueues.current.get(path) === editTask) {
             editQueues.current.delete(path);
           }
+          for (const insertion of [...(pendingInsertions ?? [])]) {
+            if (insertion.source && content.includes(insertion.source)) {
+              insertion.settle(true);
+            }
+          }
         });
       }
       const existingTimer = saveTimers.current.get(path);
@@ -641,8 +764,10 @@ function App() {
       if (workspaceLockedRef.current) {
         return;
       }
-      setWorkspaceLock(true);
       try {
+        if (!(await beginWorkspaceOperation())) {
+          return;
+        }
         const currentTabs = tabsRef.current;
         const index = currentTabs.findIndex(
           (candidate) => candidate.path === path,
@@ -682,6 +807,7 @@ function App() {
       commitTabs,
       flushTab,
       setWorkspaceLock,
+      beginWorkspaceOperation,
     ],
   );
 
@@ -704,10 +830,14 @@ function App() {
           ? selectedNode.path
           : selectedPath?.split("/").slice(0, -1).join("/") || "";
       const suggested = directory ? "New folder" : "Untitled.md";
-      const entered = window.prompt(
-        directory ? "Folder name" : "Note name",
-        suggested,
-      );
+      const entered = await requestText({
+        title: directory ? "Create folder" : "Create note",
+        message: directory
+          ? "Choose a name for the new folder."
+          : "Choose a filename for the new Markdown note.",
+        initialValue: suggested,
+        confirmLabel: "Create",
+      });
       if (!entered) {
         return;
       }
@@ -732,6 +862,7 @@ function App() {
     [
       openFile,
       refreshAndReindex,
+      requestText,
       selectedNode,
       selectedPath,
       showError,
@@ -743,12 +874,19 @@ function App() {
     if (!workspace || !selectedNode || workspaceLockedRef.current) {
       return;
     }
-    const newName = window.prompt("Rename", selectedNode.name);
+    const newName = await requestText({
+      title: "Rename item",
+      message: `Choose a new name for ${selectedNode.name}.`,
+      initialValue: selectedNode.name,
+      confirmLabel: "Rename",
+    });
     if (!newName || newName === selectedNode.name) {
       return;
     }
-    setWorkspaceLock(true);
     try {
+      if (!(await beginWorkspaceOperation())) {
+        return;
+      }
       const affectedTabs = tabsRef.current.filter(
         (tab) =>
           tab.path === selectedNode.path ||
@@ -792,9 +930,11 @@ function App() {
     }
   }, [
     cancelPendingPath,
+    beginWorkspaceOperation,
     commitTabs,
     flushTab,
     refreshAndReindex,
+    requestText,
     selectedNode,
     setWorkspaceLock,
     showError,
@@ -806,14 +946,19 @@ function App() {
       return;
     }
     if (
-      !window.confirm(
-        `Move “${selectedNode.name}” to Denote Trash? It can be restored later.`,
-      )
+      !(await requestConfirmation({
+        title: "Move to trash",
+        message: `Move “${selectedNode.name}” to Denote Trash? It can be restored later.`,
+        confirmLabel: "Move to trash",
+        dangerous: true,
+      }))
     ) {
       return;
     }
-    setWorkspaceLock(true);
     try {
+      if (!(await beginWorkspaceOperation())) {
+        return;
+      }
       const affectedTabs = tabsRef.current.filter(
         (tab) =>
           tab.path === selectedNode.path ||
@@ -845,10 +990,12 @@ function App() {
     }
   }, [
     activePath,
+    beginWorkspaceOperation,
     cancelPendingPath,
     commitTabs,
     flushTab,
     refreshAndReindex,
+    requestConfirmation,
     selectedNode,
     setWorkspaceLock,
     showError,
@@ -924,14 +1071,20 @@ function App() {
       return;
     }
     if (
-      !window.confirm(
-        "Permanently delete every item in Denote Trash? This cannot be undone.",
-      )
+      !(await requestConfirmation({
+        title: "Empty trash permanently",
+        message:
+          "Permanently delete every item in Denote Trash? This cannot be undone.",
+        confirmLabel: "Empty trash",
+        dangerous: true,
+      }))
     ) {
       return;
     }
-    setWorkspaceLock(true);
     try {
+      if (!(await beginWorkspaceOperation())) {
+        return;
+      }
       const removed = await api.emptyTrash();
       await refreshAndReindex();
       setStatus(`Permanently deleted ${removed} trash item${removed === 1 ? "" : "s"}`);
@@ -941,7 +1094,9 @@ function App() {
       setWorkspaceLock(false);
     }
   }, [
+    beginWorkspaceOperation,
     refreshAndReindex,
+    requestConfirmation,
     setWorkspaceLock,
     showError,
     workspace,
@@ -965,6 +1120,72 @@ function App() {
     }
   }, [activeTab, showError, workspace]);
 
+  const reloadActiveTab = useCallback(async () => {
+    if (!activeTab || workspaceLockedRef.current) {
+      return;
+    }
+    if (
+      activeTab.kind !== "image" &&
+      activeTab.content !== activeTab.savedContent &&
+      !(await requestConfirmation({
+        title: "Reload from disk",
+        message:
+          "Discard the unsaved editor content and reload the current file from disk?",
+        confirmLabel: "Reload",
+        dangerous: true,
+      }))
+    ) {
+      return;
+    }
+    setWorkspaceLock(true);
+    const path = activeTab.path;
+    try {
+      cancelPendingPath(path);
+      if (activeTab.kind === "image") {
+        const imageDataUrl = await api.readImageDataUrl(path);
+        commitTabs((current) =>
+          current.map((tab) =>
+            tab.path === path ? { ...tab, imageDataUrl, saveState: "saved" } : tab,
+          ),
+        );
+      } else {
+        const document = await api.readNote(path);
+        commitTabs((current) =>
+          current.map((tab) =>
+            tab.path === path
+              ? {
+                  ...tab,
+                  content: document.content,
+                  savedContent: document.content,
+                  savedHash: document.contentHash,
+                  stats: document.stats,
+                  editRecorded: false,
+                  saveState: "saved",
+                }
+              : tab,
+          ),
+        );
+        if (activePathRef.current === path) {
+          editorRef.current?.setMarkdown(calloutsToDirectives(document.content));
+        }
+      }
+      setStatus("Reloaded from disk");
+      scheduleIndexRebuild();
+    } catch (caught) {
+      showError(caught);
+    } finally {
+      setWorkspaceLock(false);
+    }
+  }, [
+    activeTab,
+    cancelPendingPath,
+    commitTabs,
+    requestConfirmation,
+    scheduleIndexRebuild,
+    setWorkspaceLock,
+    showError,
+  ]);
+
   const restoreRevision = useCallback(
     async (revisionId: number) => {
       if (!workspace || !activeTab || activeTab.kind === "image") {
@@ -973,20 +1194,24 @@ function App() {
       if (workspaceLockedRef.current) {
         return;
       }
-      setWorkspaceLock(true);
+      const restorePath = activeTab.path;
       try {
-        if (!(await flushTab(activeTab.path))) {
+        if (!(await beginWorkspaceOperation())) {
+          return;
+        }
+        if (!(await flushTab(restorePath))) {
           setStatus("Restore cancelled because the note could not be saved");
           return;
         }
-        const document = await api.restoreRevision(activeTab.path, revisionId);
+        const document = await api.restoreRevision(restorePath, revisionId);
         commitTabs((current) =>
           current.map((tab) =>
-            tab.path === activeTab.path
+            tab.path === restorePath
               ? {
                   ...tab,
                   content: document.content,
                   savedContent: document.content,
+                  savedHash: document.contentHash,
                   stats: document.stats,
                   editRecorded: false,
                   saveState: "saved",
@@ -994,7 +1219,9 @@ function App() {
               : tab,
           ),
         );
-        editorRef.current?.setMarkdown(calloutsToDirectives(document.content));
+        if (activePathRef.current === restorePath) {
+          editorRef.current?.setMarkdown(calloutsToDirectives(document.content));
+        }
         setHistoryOpen(false);
         setStatus("Revision restored");
         scheduleIndexRebuild();
@@ -1006,6 +1233,7 @@ function App() {
     },
     [
       activeTab,
+      beginWorkspaceOperation,
       commitTabs,
       flushTab,
       scheduleIndexRebuild,
@@ -1072,6 +1300,9 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (workspaceLockedRef.current) {
+        return;
+      }
       const modifier = event.metaKey || event.ctrlKey;
       if (modifier && event.key.toLocaleLowerCase() === "p") {
         event.preventDefault();
@@ -1353,10 +1584,21 @@ function App() {
           <Tabs
             tabs={tabs}
             activePath={activePath}
+            disabled={workspaceLocked}
             onActivate={setActivePath}
             onClose={(path) => void closeTab(path)}
           />
           <div className="workspace-actions">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Reload active file from disk"
+              title="Reload active file from disk"
+              disabled={!activeTab || workspaceLocked}
+              onClick={() => void reloadActiveTab()}
+            >
+              <RefreshCw aria-hidden="true" size={16} />
+            </button>
             <button
               type="button"
               className="icon-button"
@@ -1500,6 +1742,17 @@ function App() {
         loading={historyLoading}
         onClose={() => setHistoryOpen(false)}
         onRestore={(revisionId) => void restoreRevision(revisionId)}
+      />
+      <ActionDialog
+        open={actionDialog !== null}
+        mode={actionDialog?.mode ?? "confirm"}
+        title={actionDialog?.title ?? ""}
+        message={actionDialog?.message ?? ""}
+        initialValue={actionDialog?.initialValue ?? ""}
+        confirmLabel={actionDialog?.confirmLabel ?? "Continue"}
+        dangerous={actionDialog?.dangerous ?? false}
+        onConfirm={(value) => finishActionDialog(value)}
+        onCancel={() => finishActionDialog(null)}
       />
     </div>
   );

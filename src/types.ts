@@ -23,6 +23,7 @@ export interface NoteStats {
 export interface NoteDocument {
   path: string;
   content: string;
+  contentHash: string;
   stats: NoteStats;
 }
 
@@ -53,6 +54,7 @@ export interface SaveOutcome {
   path: string;
   changed: boolean;
   savedAt: string;
+  contentHash: string;
   historyCount: number;
   stats: NoteStats;
 }
@@ -87,6 +89,7 @@ export interface EditorTab {
   kind: Exclude<FileKind, "folder">;
   content: string;
   savedContent: string;
+  savedHash?: string;
   stats?: NoteStats;
   imageDataUrl?: string;
   editRecorded: boolean;

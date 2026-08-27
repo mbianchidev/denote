@@ -5,6 +5,7 @@ import type { EditorTab } from "../types";
 interface TabsProps {
   tabs: EditorTab[];
   activePath: string | null;
+  disabled: boolean;
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
 }
@@ -12,6 +13,7 @@ interface TabsProps {
 export function Tabs({
   tabs,
   activePath,
+  disabled,
   onActivate,
   onClose,
 }: TabsProps) {
@@ -53,6 +55,7 @@ export function Tabs({
               tabIndex={tab.path === activePath ? 0 : -1}
               data-tab-path={tab.path}
               className="tab__activate"
+              disabled={disabled}
               onClick={() => onActivate(tab.path)}
               onKeyDown={(event) => moveFocus(event, index)}
             >
@@ -68,6 +71,7 @@ export function Tabs({
               type="button"
               className="tab__close"
               aria-label={`Close ${tab.title}`}
+              disabled={disabled}
               onClick={() => onClose(tab.path)}
             >
               <X aria-hidden="true" size={13} />

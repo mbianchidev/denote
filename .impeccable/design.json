@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-27T20:55:00+02:00",
+  "generatedAt": "2026-08-27T21:40:00+02:00",
   "title": "Design System: Denote",
   "extensions": {
     "colorMeta": {
@@ -88,6 +88,14 @@
       "description": "Compact workspace action with no resting container.",
       "html": "<button class=\"ds-icon\" aria-label=\"Example action\">+</button>",
       "css": ".ds-icon { width:30px;height:30px;border:1px solid transparent;border-radius:5px;background:transparent;color:#aaa9a2;font:600 16px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-icon:hover { background:#202327;color:#e8e5de; } .ds-icon:focus-visible { outline:2px solid #c5dda9;outline-offset:2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Permanent deletion confirmation only.",
+      "html": "<button class=\"ds-danger\">EMPTY TRASH</button>",
+      "css": ".ds-danger { background:#e28b86;color:#121315;padding:7px 12px;border:1px solid #e28b86;border-radius:5px;font:650 12px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-danger:hover { filter:brightness(1.08); } .ds-danger:focus-visible { outline:2px solid #c5dda9;outline-offset:2px; }"
     },
     {
       "name": "Search Field",

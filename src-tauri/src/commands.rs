@@ -57,6 +57,7 @@ pub fn save_note(
     path: String,
     content: String,
     reason: Option<String>,
+    expected_hash: Option<String>,
 ) -> AppResult<SaveOutcome> {
     let root = state.active_vault()?;
     vault::save_note(
@@ -65,6 +66,7 @@ pub fn save_note(
         &path,
         &content,
         reason.as_deref().unwrap_or("autosave"),
+        expected_hash.as_deref(),
     )
 }
 

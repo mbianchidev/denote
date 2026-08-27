@@ -121,6 +121,11 @@ components:
     textColor: "{colors.muted-ink}"
     rounded: "{rounded.control}"
     size: "30px"
+  button-danger:
+    backgroundColor: "{colors.danger}"
+    textColor: "{colors.graphite-deep}"
+    rounded: "{rounded.control}"
+    padding: "7px 12px"
   input-search:
     backgroundColor: "{colors.graphite-deep}"
     textColor: "{colors.paper-ink}"
@@ -250,6 +255,7 @@ semantic meaning.
 - **Primary:** Moss fill with deep graphite text and 10px/16px padding.
 - **Hover / Focus:** Slightly brighter moss; keyboard focus is a two-pixel ring.
 - **Ghost:** Transparent at rest, raised graphite on hover.
+- **Danger:** Reserved for permanent deletion confirmations.
 
 ### Chips
 

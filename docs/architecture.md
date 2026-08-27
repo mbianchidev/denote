@@ -58,6 +58,11 @@ latest content to reach disk and stop if persistence fails. Before changed
 content replaces the file, the prior content is committed to SQLite history.
 The replacement itself uses a same-directory atomic write.
 
+Each save includes the hash of the version originally read. A mismatched hash
+surfaces a conflict rather than overwriting edits from another application or
+Denote process. On Unix systems, extended attributes are copied to the atomic
+replacement before commit.
+
 ## Security
 
 Filesystem operations run through dedicated Tauri commands rather than a broad

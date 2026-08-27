@@ -34,6 +34,7 @@ describe("Tabs", () => {
       <Tabs
         tabs={tabs}
         activePath="one.md"
+        disabled={false}
         onActivate={onActivate}
         onClose={onClose}
       />,

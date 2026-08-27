@@ -17,11 +17,13 @@ export const api = {
     path: string,
     content: string,
     reason = "autosave",
+    expectedHash?: string,
   ) =>
     invoke<SaveOutcome>("save_note", {
       path,
       content,
       reason,
+      expectedHash: expectedHash ?? null,
     }),
   createEntry: (
     parentPath: string,

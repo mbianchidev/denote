@@ -25,6 +25,8 @@ database lives in the operating system's application-data directory.
 
 Notes containing raw HTML, footnotes, or math open in source mode by default so
 unsupported rich-editor transforms cannot silently rewrite that syntax.
+If another application changes an open note, Denote rejects the stale autosave
+instead of overwriting the external edit.
 
 ## Search
 
