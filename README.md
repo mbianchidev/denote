@@ -46,6 +46,10 @@ unsupported rich-editor transforms cannot silently rewrite that syntax.
 If another application changes an open note, Denote rejects the stale autosave
 instead of overwriting the external edit.
 
+HTTP, HTTPS, email, and telephone links always open through the operating
+system's default application. Denote never navigates its editor window to an
+external website. Relative vault links continue to open inside Denote.
+
 Editor display settings are available from the editor toolbar. The guides are
 visual only and never alter saved text. Plain, binary, and MDX files use the
 source editor directly; Markdown switches from rich editing to source mode while

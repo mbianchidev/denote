@@ -69,6 +69,11 @@ import {
   saveEditorDisplaySettings,
   type EditorDisplaySettings,
 } from "./lib/editorDisplay";
+import {
+  externalLinkTarget,
+  hasUriScheme,
+  isExternalLink,
+} from "./lib/links";
 import type {
   EditorTab,
   FileNode,
@@ -1821,12 +1826,16 @@ function App() {
       try {
         const target =
           recoverMarkdownLinkTarget(activeTab.content, linkText, href) ?? href;
-        if (/^(https?:|mailto:|tel:)/i.test(target)) {
-          await openUrl(target);
+        if (isExternalLink(target)) {
+          await openUrl(externalLinkTarget(target));
           return;
         }
         if (target.startsWith("file://")) {
           await openPath(fileUrlToPath(target));
+          return;
+        }
+        if (hasUriScheme(target)) {
+          showError(`Unsupported link protocol: ${target.split(":", 1)[0]}`);
           return;
         }
         const resolved = resolveInternalLink(

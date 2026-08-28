@@ -45,11 +45,13 @@ import {
   hasEditorDisplayGuides,
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
+import { shouldOpenLinkOnClick } from "../lib/links";
 import {
   calloutsToDirectives,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
+  recoverMarkdownLinkTarget,
   restoreMarkdownBoundaryWhitespace,
 } from "../lib/markdown";
 import type { FileLineEnding } from "../types";
@@ -84,6 +86,8 @@ export const MarkdownEditor = forwardRef<
   ref,
 ) {
   const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
+  const onLinkOpenRef = useRef(onLinkOpen);
+  onLinkOpenRef.current = onLinkOpen;
   const forceSource = hasEditorDisplayGuides(displaySettings);
   const displayExtensions = useMemo(
     () => createEditorDisplayExtensions(displaySettings, lineEnding, false),
@@ -100,7 +104,15 @@ export const MarkdownEditor = forwardRef<
       thematicBreakPlugin(),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
-      linkDialogPlugin({ showLinkTitleField: true }),
+      linkDialogPlugin({
+        showLinkTitleField: true,
+        onClickLinkCallback: (url) => onLinkOpenRef.current(url, ""),
+        onReadOnlyClickLinkCallback: (event, _node, url) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onLinkOpenRef.current(url, "");
+        },
+      }),
       imagePlugin({
         imageUploadHandler: (file) => onImageUpload(notePath, file),
         imagePreviewHandler: async (source) => {
@@ -221,29 +233,42 @@ export const MarkdownEditor = forwardRef<
         if (event.key !== "Enter") {
           return;
         }
-        const target = event.target as HTMLElement;
-        const link = target.closest<HTMLAnchorElement>("a[href]");
-        if (link && target === link) {
-          event.preventDefault();
-          onLinkOpen(
-            link.getAttribute("href") ?? "",
-            link.textContent ?? "",
-          );
-        }
-      }}
-      onClickCapture={(event) => {
-        if (!(event.metaKey || event.ctrlKey)) {
+        const link = renderedLink(event.target, markdown);
+        if (!link) {
           return;
         }
-        const target = event.target as HTMLElement;
-        const link = target.closest<HTMLAnchorElement>("a[href]");
-        if (link) {
-          event.preventDefault();
-          onLinkOpen(
-            link.getAttribute("href") ?? "",
-            link.textContent ?? "",
-          );
+        event.preventDefault();
+        event.stopPropagation();
+        onLinkOpen(link.href, link.text);
+      }}
+      onClickCapture={(event) => {
+        const link = renderedLink(event.target, markdown);
+        if (!link) {
+          return;
         }
+        event.preventDefault();
+        if (
+          !shouldOpenLinkOnClick(
+            link.href,
+            event.metaKey || event.ctrlKey,
+          )
+        ) {
+          return;
+        }
+        event.stopPropagation();
+        onLinkOpen(link.href, link.text);
+      }}
+      onAuxClickCapture={(event) => {
+        if (event.button !== 1) {
+          return;
+        }
+        const link = renderedLink(event.target, markdown);
+        if (!link) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        onLinkOpen(link.href, link.text);
       }}
     >
       <MDXEditor
@@ -271,3 +296,22 @@ export const MarkdownEditor = forwardRef<
     </div>
   );
 });
+
+function renderedLink(
+  target: EventTarget | null,
+  markdown: string,
+): { href: string; text: string } | null {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  const link = target.closest<HTMLAnchorElement>("a[href]");
+  if (!link) {
+    return null;
+  }
+  const href = link.getAttribute("href") ?? "";
+  const text = link.textContent ?? "";
+  return {
+    href: recoverMarkdownLinkTarget(markdown, text, href) ?? href,
+    text,
+  };
+}

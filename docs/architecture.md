@@ -151,7 +151,11 @@ Filesystem operations run through dedicated Tauri commands rather than a broad
 frontend filesystem permission. External URLs and file paths use the official
 Tauri opener plugin. Copying a file path resolves the selected entry inside the
 canonical vault boundary before the native clipboard plugin writes its absolute
-path. The content security policy only allows local application code plus the
-image sources required for Markdown previews. Encrypted vaults must be unlocked
-before content commands receive a data key, and incomplete encryption state
-blocks ordinary content operations until the resumable transformation finishes.
+path. Editor anchor clicks are prevented at the capture boundary; HTTP, HTTPS,
+mailto, and tel targets are passed to the operating system opener, file URLs use
+the associated desktop application, and relative vault links stay in Denote.
+Unsupported URI schemes are rejected instead of navigating the webview. The
+content security policy only allows local application code plus the image
+sources required for Markdown previews. Encrypted vaults must be unlocked before
+content commands receive a data key, and incomplete encryption state blocks
+ordinary content operations until the resumable transformation finishes.
