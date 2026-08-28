@@ -63,6 +63,7 @@ pub fn run() {
             commands::record_edit,
             commands::set_entry_order,
             commands::set_entry_pinned,
+            commands::set_tag_color,
             commands::list_history,
             commands::restore_revision,
             commands::list_search_documents,

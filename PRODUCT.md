@@ -51,14 +51,18 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Base64 so unchanged bytes round-trip exactly.
 - Images retain their visual preview and can switch to raw editing.
 - Rich single-pane Markdown editing is the default.
+- Long rich-text and source documents scroll inside the editor without moving
+  the caret to reveal later content.
+- Hashtags render as colored pills in rich mode. Each normalized tag has one
+  stable default or user-selected color within its vault.
 - The user's rich-text or source-mode choice persists across files and app
   restarts unless file safety or display guides require source mode.
 - Open tabs can be reordered by drag or keyboard without changing file order.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
-  counters, bookmarks, recent activity, ordering, trash records, and revision
-  history.
+  counters, bookmarks, recent activity, ordering, tag color overrides, trash
+  records, and revision history.
 - ZBSearch provides local full-text search with filters for tags, filename,
   path, content, file type, bookmarks, and recency.
 - The standard Command-F / Control-F shortcut opens vault search; platform

@@ -16,7 +16,7 @@ use zeroize::Zeroizing;
 use crate::{
     crypto::VaultKey,
     error::AppResult,
-    models::{FileEncoding, FileLineEnding, NoteListItem, NoteStats, TrashItem},
+    models::{FileEncoding, FileLineEnding, NoteListItem, NoteStats, TagColor, TrashItem},
 };
 
 pub const HISTORY_LIMIT: i64 = 10;
@@ -191,6 +191,15 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS tag_colors (
+          vault_id INTEGER NOT NULL,
+          tag TEXT NOT NULL,
+          color TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (vault_id, tag),
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS trash_items (
           id INTEGER PRIMARY KEY,
           vault_id INTEGER NOT NULL,
@@ -280,6 +289,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (6, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (7, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -542,6 +555,37 @@ pub fn is_default_vault(connection: &Connection, path: &str) -> AppResult<bool> 
         )
         .optional()?
         .unwrap_or(false))
+}
+
+pub fn list_tag_colors(connection: &Connection, vault_id: i64) -> AppResult<Vec<TagColor>> {
+    let mut statement =
+        connection.prepare("SELECT tag, color FROM tag_colors WHERE vault_id = ?1 ORDER BY tag")?;
+    let rows = statement.query_map(params![vault_id], |row| {
+        Ok(TagColor {
+            tag: row.get(0)?,
+            color: row.get(1)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn set_tag_color(
+    connection: &Connection,
+    vault_id: i64,
+    tag: &str,
+    color: &str,
+) -> AppResult<()> {
+    connection.execute(
+        r#"
+        INSERT INTO tag_colors(vault_id, tag, color, updated_at)
+        VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(vault_id, tag) DO UPDATE SET
+          color = excluded.color,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, tag, color, now()],
+    )?;
+    Ok(())
 }
 
 pub fn stats_map(connection: &Connection, vault_id: i64) -> AppResult<HashMap<String, NoteStats>> {
@@ -1347,6 +1391,45 @@ mod tests {
         assert_eq!(
             get_last_vault(&connection).expect("last vault removed"),
             None
+        );
+    }
+
+    #[test]
+    fn stores_tag_colors_per_vault() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("tag-colors.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let connection = open(&db_path).expect("database opened");
+        let work_id = ensure_vault(&connection, "/vaults/work", "work").expect("work vault");
+        let music_id = ensure_vault(&connection, "/vaults/music", "music").expect("music vault");
+
+        set_tag_color(&connection, work_id, "guide", "#7aa66a").expect("work tag color");
+        set_tag_color(&connection, music_id, "guide", "#336699").expect("music tag color");
+        set_tag_color(&connection, work_id, "guide", "#8bb77a").expect("updated work color");
+
+        assert_eq!(
+            list_tag_colors(&connection, work_id).expect("work tag colors"),
+            vec![crate::models::TagColor {
+                tag: "guide".to_string(),
+                color: "#8bb77a".to_string(),
+            }]
+        );
+        assert_eq!(
+            list_tag_colors(&connection, music_id).expect("music tag colors"),
+            vec![crate::models::TagColor {
+                tag: "guide".to_string(),
+                color: "#336699".to_string(),
+            }]
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 7",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("tag color migration"),
+            1
         );
     }
 

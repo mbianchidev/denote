@@ -22,10 +22,24 @@ silently rewrite unsupported syntax.
 Use the toolbar for headings, emphasis, lists, links, images, tables, code
 blocks, thematic breaks, frontmatter, and callouts.
 
+Long documents scroll directly in the editor; you do not need to move the caret
+to reveal content below the current viewport.
+
 The rich-text/source toggle is a global preference. Your last choice is used for
 the next Markdown file and after restarting Denote. Files with unsupported rich
 syntax and enabled editor display guides still use source mode for safety
 without changing that preference.
+
+## Tags
+
+Write a hashtag such as `#guide`, `#project/atlas`, or `#研究`. Rich mode renders
+it as a colored pill while the Markdown source stays unchanged. Every occurrence
+of the same tag uses one color across the current vault. Use the palette control
+beside a tag in the document tag bar to choose a different color.
+
+Tags inside inline or fenced code stay literal. Prefix a hashtag with `\` when
+you want literal text instead of a tag; notes using escaped hashtags open in
+source mode so Denote preserves the escape exactly.
 
 ## Callouts
 

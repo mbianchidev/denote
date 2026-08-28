@@ -119,6 +119,13 @@ pub struct KnownVault {
     pub default: bool,
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TagColor {
+    pub tag: String,
+    pub color: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashItem {
@@ -138,6 +145,7 @@ pub struct WorkspaceSnapshot {
     pub bookmarks: Vec<NoteListItem>,
     pub recent: Vec<NoteListItem>,
     pub trash: Vec<TrashItem>,
+    pub tag_colors: Vec<TagColor>,
     pub encryption: EncryptionStatus,
 }
 

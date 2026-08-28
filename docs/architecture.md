@@ -64,11 +64,11 @@ Unlock, explicit lock, and application exit also sweep files created externally
 while Denote was not actively writing.
 
 Paths are intentionally not encrypted. Filenames, folder structure, file sizes,
-timestamps, trash paths, counters, bookmarks, and other non-content metadata
-remain observable. The application-data SQLite file is not a password vault:
-revision contents are encrypted, but operational metadata is not. Encryption
-also does not protect plaintext already exposed to another process while the
-vault is unlocked.
+timestamps, trash paths, counters, bookmarks, customized tag labels/colors, and
+other non-content metadata remain observable. The application-data SQLite file
+is not a password vault: revision contents are encrypted, but operational
+metadata is not. Encryption also does not protect plaintext already exposed to
+another process while the vault is unlocked.
 
 SQLite connections enable secure deletion. Completing initial encryption
 checkpoints and truncates the WAL, then vacuums the metadata database so prior
@@ -83,6 +83,7 @@ The application-data database stores:
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
 - bookmarks, per-folder pins, and explicit sibling ordering;
+- per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
   encryption is enabled;
 - trash records used by restore.
@@ -145,6 +146,21 @@ externally after preview fail individually instead of being overwritten.
 MDXEditor provides rich single-pane Markdown editing and a source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
+
+The editor opts into MDXEditor's full-height flex chain so its rich-text wrapper
+owns vertical overflow. Source and plain-file CodeMirror instances keep their
+own scroll containers. Long files therefore scroll independently of caret
+movement while the workspace shell remains fixed.
+
+Lexical's hashtag entity support recognizes the same NFC-normalized Unicode,
+slash, underscore, and hyphen syntax as search indexing. Inline and fenced code
+plus escaped hashes remain literal rather than becoming tags. Hashtag nodes
+export through the ordinary text visitor, and Denote restores Markdown's
+line-leading tag syntax after rich export, so visual pills never alter source.
+SQLite stores only explicit per-vault color overrides; deterministic palette
+colors cover tags without an override. CSS mixes the chosen color into the
+current theme surface while retaining normal theme text, keeping dark and light
+contrast stable.
 
 Editor display preferences are stored locally and applied immediately. Plain
 text, binary Base64, and MDX source use a shared CodeMirror surface. Markdown

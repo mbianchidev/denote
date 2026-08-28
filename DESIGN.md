@@ -259,8 +259,12 @@ semantic meaning.
 
 ### Chips
 
-- **Style:** Small moss text on a muted moss field with a subtle border.
-- **State:** Used for tags and filters, never as a generic container.
+- **Style:** Compact pill with a low-dose tint of its assigned tag color, normal
+  document ink, and a one-pixel color-derived border. Custom color never replaces
+  the theme surface or text tokens, preserving contrast in both themes.
+- **State:** Used for tags and filters, never as a generic container. A tag keeps
+  one stable color throughout a vault, and the document tag bar exposes a
+  keyboard-focusable native color picker.
 
 ### Inputs / Fields
 

@@ -10,13 +10,16 @@ the selected folder as the source of truth.
 
 - A built-in **Denote Welcome** vault with a feature-rich welcome page and
   complete in-app usage guide
-- Rich single-pane Markdown editing with optional source mode
+- Rich single-pane Markdown editing with optional source mode and independent
+  scrolling for long files
 - Every regular file is editable: UTF-8 as text, binary as reversible Base64
 - Image preview with an explicit raw-edit toggle
 - Autosave and the previous 10 changed revisions per note
 - Local SQLite metadata for open, edit, and save counts
 - ZBSearch full-text search with filename, path, content, tag, type, bookmark,
   and recency filters
+- Rendered hashtags use consistent colored pills across the vault, with an
+  accessible color picker beside each active document tag
 - Current-note and vault-wide find and replace with selectable preview
 - Reorderable tabs, bookmarks, recently opened files, and search navigation
 - Recent-vault switcher for separate work, music, and personal folders
@@ -68,6 +71,12 @@ Rendered code, editable fenced blocks, Markdown source, and plain-file source
 share the same semantic syntax palette. Theme changes update their backgrounds,
 gutters, selections, cursors, and token colors immediately.
 
+In rich Markdown mode, hashtags such as `#guide` and `#project/日本語` render as
+compact colored pills without changing the saved Markdown. Each tag receives a
+stable default color. Use the palette control in the document tag bar to choose
+a vault-specific color; the same tag then uses that color in notes and search
+results.
+
 Use the vault switcher in the sidebar header, or press
 <kbd>Shift</kbd>+<kbd>Command</kbd>+<kbd>O</kbd> on macOS and
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> on Windows or Linux. Denote lists
@@ -95,8 +104,9 @@ Disabling encryption always decrypts the complete vault before removing the
 encryption manifest.
 
 Encryption protects file and revision contents at rest. It intentionally leaves
-filenames, folder names, file sizes, timestamps, and non-content SQLite metadata
-visible. Content is available in application memory while the vault is unlocked.
+filenames, folder names, file sizes, timestamps, customized tag labels/colors,
+and other non-content SQLite metadata visible. Content is available in
+application memory while the vault is unlocked.
 Other applications see ciphertext while encryption is enabled. Keep
 `.denote/encryption.json` with the vault; backups or Git synchronization must
 include it. The optional Git plugin is designed to commit the encrypted on-disk

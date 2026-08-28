@@ -10,6 +10,7 @@ import type {
   NoteStats,
   RecoveryCodesResult,
   SaveOutcome,
+  TagColor,
   WorkspaceSnapshot,
 } from "../types";
 
@@ -79,6 +80,8 @@ export const api = {
     invoke<void>("set_entry_order", { paths }),
   setEntryPinned: (path: string, pinned: boolean) =>
     invoke<void>("set_entry_pinned", { path, pinned }),
+  setTagColor: (tag: string, color: string) =>
+    invoke<TagColor>("set_tag_color", { tag, color }),
   listHistory: (path: string) =>
     invoke<HistoryRevision[]>("list_history", { path }),
   restoreRevision: (path: string, revisionId: number) =>

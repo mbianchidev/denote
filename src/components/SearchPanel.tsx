@@ -1,10 +1,13 @@
 import { Search, SlidersHorizontal } from "lucide-react";
+import { resolveTagColor, type TagColorMap } from "../lib/tagColors";
 import type { SearchResult } from "../types";
+import { TagChip } from "./TagChip";
 
 interface SearchPanelProps {
   query: string;
   results: SearchResult[];
   searching: boolean;
+  tagColors: TagColorMap;
   onQueryChange: (query: string) => void;
   onOpenResult: (path: string) => void;
 }
@@ -13,6 +16,7 @@ export function SearchPanel({
   query,
   results,
   searching,
+  tagColors,
   onQueryChange,
   onOpenResult,
 }: SearchPanelProps) {
@@ -56,9 +60,11 @@ export function SearchPanel({
               {document.tags.length > 0 ? (
                 <span className="tag-row" aria-label="Tags">
                   {document.tags.slice(0, 4).map((tag) => (
-                    <span className="tag-chip" key={tag}>
-                      #{tag}
-                    </span>
+                    <TagChip
+                      tag={tag}
+                      color={resolveTagColor(tag, tagColors)}
+                      key={tag}
+                    />
                   ))}
                 </span>
               ) : null}

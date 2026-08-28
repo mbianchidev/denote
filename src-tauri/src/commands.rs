@@ -15,7 +15,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
-        KnownVault, NoteDocument, RecoveryCodesResult, SaveOutcome, WorkspaceSnapshot,
+        KnownVault, NoteDocument, RecoveryCodesResult, SaveOutcome, TagColor, WorkspaceSnapshot,
     },
     vault,
 };
@@ -551,6 +551,17 @@ pub fn set_entry_pinned(state: State<'_, AppState>, path: String, pinned: bool) 
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::set_entry_pinned(&state.db_path, &root.to_string_lossy(), &path, pinned)
+}
+
+#[tauri::command]
+pub fn set_tag_color(
+    state: State<'_, AppState>,
+    tag: String,
+    color: String,
+) -> AppResult<TagColor> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::set_tag_color(&state.db_path, &root.to_string_lossy(), &tag, &color)
 }
 
 #[tauri::command]

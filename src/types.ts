@@ -56,6 +56,11 @@ export interface KnownVault {
   default: boolean;
 }
 
+export interface TagColor {
+  tag: string;
+  color: string;
+}
+
 export type EncryptionPhase = "encrypting" | "encrypted" | "decrypting";
 
 export interface EncryptionStatus {
@@ -73,6 +78,7 @@ export interface WorkspaceSnapshot {
   bookmarks: NoteListItem[];
   recent: NoteListItem[];
   trash: TrashItem[];
+  tagColors: TagColor[];
   encryption: EncryptionStatus;
 }
 

@@ -382,7 +382,9 @@ button:disabled {
 .workspace-main {
   display: flex;
   min-width: 0;
+  min-height: 0;
   flex-direction: column;
+  overflow: hidden;
   background: var(--editor-bg);
 }
 
@@ -504,6 +506,7 @@ button:disabled {
   display: flex;
   min-height: 0;
   flex: 1;
+  overflow: hidden;
 }
 
 .editor-pane {
@@ -513,18 +516,22 @@ button:disabled {
   min-height: 0;
   flex: 1;
   flex-direction: column;
+  overflow: hidden;
   background: var(--editor-bg);
 }
 
 .markdown-editor-shell {
+  display: flex;
   min-height: 0;
   flex: 1;
+  flex-direction: column;
   overflow: hidden;
 }
 
 .denote-editor-root {
   display: flex;
   height: 100%;
+  min-height: 0;
   flex-direction: column;
   color: var(--text-primary);
   background: var(--editor-bg);
@@ -845,6 +852,7 @@ button:disabled {
 .document-tags {
   display: flex;
   min-height: 36px;
+  flex-shrink: 0;
   align-items: center;
   gap: 5px;
   padding: 5px 18px;
@@ -853,19 +861,93 @@ button:disabled {
   border-top: 1px solid var(--border);
 }
 
-.tag-chip {
+.tag-chip,
+.denote-inline-tag {
+  --tag-color: var(--accent);
   display: inline-flex;
   align-items: center;
   padding: 3px 7px;
-  color: var(--accent-strong);
+  color: var(--text-primary);
   font-size: 10.5px;
-  background: var(--accent-muted);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  font-weight: 650;
+  line-height: 1.35;
+  background: color-mix(in srgb, var(--tag-color) 22%, var(--panel-bg));
+  border: 1px solid
+    color-mix(in srgb, var(--tag-color) 58%, var(--border-strong));
   border-radius: 999px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  white-space: nowrap;
 }
 
 button.tag-chip {
   cursor: pointer;
+}
+
+button.tag-chip:hover,
+.tag-color-picker:hover {
+  background: color-mix(in srgb, var(--tag-color) 30%, var(--panel-bg));
+}
+
+button.tag-chip:active,
+.tag-color-picker:active {
+  background: color-mix(in srgb, var(--tag-color) 36%, var(--panel-bg));
+}
+
+.denote-inline-tag {
+  display: inline;
+  margin-inline: 0.08em;
+  padding: 0.08em 0.38em;
+  font-size: 0.82em;
+}
+
+.denote-editor-content code .denote-inline-tag {
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.tag-chip-control {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.tag-chip-control > .tag-chip {
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.tag-color-picker {
+  position: relative;
+  display: grid;
+  width: 24px;
+  place-items: center;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--tag-color) 22%, var(--panel-bg));
+  border: 1px solid
+    color-mix(in srgb, var(--tag-color) 58%, var(--border-strong));
+  border-left: 0;
+  border-radius: 0 999px 999px 0;
+  cursor: pointer;
+}
+
+.tag-color-picker input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.tag-color-picker:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .toc-panel {

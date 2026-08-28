@@ -43,6 +43,7 @@ import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { TableOfContents } from "./components/TableOfContents";
+import { TagChip } from "./components/TagChip";
 import { Tabs } from "./components/Tabs";
 import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
 import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
@@ -61,6 +62,7 @@ import {
   type MarkdownViewMode,
 } from "./lib/markdownView";
 import { VaultSearchIndex } from "./lib/search";
+import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import { isReplaceShortcut, isSearchShortcut } from "./lib/shortcuts";
 import {
   previewReplacements,
@@ -87,6 +89,7 @@ import type {
   HistoryRevision,
   SearchResult,
   SidebarView,
+  TagColor,
   WorkspaceSnapshot,
 } from "./types";
 
@@ -265,6 +268,13 @@ function App() {
         : [],
     [activeTab],
   );
+  const tagColorMap = useMemo<TagColorMap>(
+    () =>
+      Object.fromEntries(
+        (workspace?.tagColors ?? []).map(({ tag, color }) => [tag, color]),
+      ),
+    [workspace?.tagColors],
+  );
   const editorDisplayKey = editorDisplaySettingsKey(editorDisplaySettings);
 
   const showError = useCallback((value: unknown) => {
@@ -293,6 +303,32 @@ function App() {
         setMarkdownViewMode(mode);
       } catch (caught) {
         showError(caught);
+      }
+    },
+    [showError],
+  );
+
+  const updateTagColor = useCallback(
+    async (tag: string, color: string) => {
+      const generation = vaultGeneration.current;
+      try {
+        const saved = await api.setTagColor(tag, color);
+        if (generation !== vaultGeneration.current) {
+          return;
+        }
+        setWorkspace((current) =>
+          current
+            ? {
+                ...current,
+                tagColors: upsertTagColor(current.tagColors, saved),
+              }
+            : current,
+        );
+        setStatus(`Updated #${saved.tag} color`);
+      } catch (caught) {
+        if (generation === vaultGeneration.current) {
+          showError(caught);
+        }
       }
     },
     [showError],
@@ -2312,6 +2348,7 @@ function App() {
             query={searchQuery}
             results={searchResults}
             searching={indexing}
+            tagColors={tagColorMap}
             onQueryChange={setSearchQuery}
             onOpenResult={(path) => void openFile(path)}
           />
@@ -2547,6 +2584,7 @@ function App() {
                     displaySettings={editorDisplaySettings}
                     preferredViewMode={markdownViewMode}
                     readOnly={workspaceLocked}
+                    tagColors={tagColorMap}
                     onChange={changeActiveContent}
                     onError={showError}
                     onLinkOpen={(href, text) => void openLink(href, text)}
@@ -2577,17 +2615,19 @@ function App() {
                 {tags.length > 0 ? (
                   <div className="document-tags" aria-label="Document tags">
                     {tags.map((tag) => (
-                      <button
-                        type="button"
-                        className="tag-chip"
+                      <TagChip
+                        tag={tag}
+                        color={resolveTagColor(tag, tagColorMap)}
+                        editable
                         key={tag}
-                        onClick={() => {
+                        onActivate={() => {
                           setSidebarView("search");
                           setSearchQuery(`tag:${tag}`);
                         }}
-                      >
-                        #{tag}
-                      </button>
+                        onColorChange={(changedTag, color) =>
+                          void updateTagColor(changedTag, color)
+                        }
+                      />
                     ))}
                   </div>
                 ) : null}
@@ -2689,6 +2729,12 @@ function App() {
         onCancel={() => finishActionDialog(null)}
       />
     </div>
+  );
+}
+
+function upsertTagColor(colors: TagColor[], next: TagColor): TagColor[] {
+  return [...colors.filter(({ tag }) => tag !== next.tag), next].sort(
+    (left, right) => left.tag.localeCompare(right.tag),
   );
 }
 

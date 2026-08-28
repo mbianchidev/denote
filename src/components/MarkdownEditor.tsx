@@ -50,6 +50,7 @@ import {
   hasEditorDisplayGuides,
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
+import { denoteHashtagPlugin } from "../lib/hashtagPlugin";
 import { shouldOpenLinkOnClick } from "../lib/links";
 import {
   calloutsToDirectives,
@@ -57,9 +58,16 @@ import {
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
   recoverMarkdownLinkTarget,
+  restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
+import {
+  normalizeTag,
+  resolveTagColor,
+  tagColorStyle,
+  type TagColorMap,
+} from "../lib/tagColors";
 import type { FileLineEnding } from "../types";
 
 interface MarkdownEditorProps {
@@ -69,6 +77,7 @@ interface MarkdownEditorProps {
   displaySettings: EditorDisplaySettings;
   preferredViewMode: MarkdownViewMode;
   readOnly: boolean;
+  tagColors?: TagColorMap;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
   onLinkOpen: (href: string, text: string) => void;
@@ -87,6 +96,7 @@ export const MarkdownEditor = forwardRef<
     displaySettings,
     preferredViewMode,
     readOnly,
+    tagColors = EMPTY_TAG_COLORS,
     onChange,
     onError,
     onLinkOpen,
@@ -96,6 +106,7 @@ export const MarkdownEditor = forwardRef<
   ref,
 ) {
   const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
+  const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
   onLinkOpenRef.current = onLinkOpen;
@@ -115,6 +126,7 @@ export const MarkdownEditor = forwardRef<
       listsPlugin(),
       quotePlugin(),
       thematicBreakPlugin(),
+      denoteHashtagPlugin(),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
       linkDialogPlugin({
@@ -253,8 +265,39 @@ export const MarkdownEditor = forwardRef<
     ],
   );
 
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) {
+      return;
+    }
+    applyInlineTagColors(shell, tagColors);
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === "characterData") {
+          applyInlineTagColor(mutation.target.parentElement, tagColors);
+          continue;
+        }
+        for (const node of mutation.addedNodes) {
+          if (node instanceof HTMLElement) {
+            applyInlineTagColor(node, tagColors);
+            applyInlineTagColors(node, tagColors);
+          } else {
+            applyInlineTagColor(node.parentElement, tagColors);
+          }
+        }
+      }
+    });
+    observer.observe(shell, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => observer.disconnect();
+  }, [tagColors]);
+
   return (
     <div
+      ref={shellRef}
       className={`markdown-editor-shell${
         displaySettings.showLineNumbers
           ? " editor-display--line-numbers"
@@ -306,7 +349,7 @@ export const MarkdownEditor = forwardRef<
         ref={ref}
         markdown={calloutsToDirectives(markdown)}
         plugins={plugins}
-        className="denote-editor-root"
+        className="denote-editor-root mdxeditor-full-height"
         contentEditableClassName="denote-editor-content"
         placeholder="Start writing…"
         readOnly={readOnly}
@@ -316,7 +359,7 @@ export const MarkdownEditor = forwardRef<
           if (!initialNormalize) {
             onChange(
               restoreMarkdownBoundaryWhitespace(
-                directivesToCallouts(value),
+                restoreRichTextTagSyntax(directivesToCallouts(value)),
                 boundaryWhitespace,
               ),
             );
@@ -327,6 +370,32 @@ export const MarkdownEditor = forwardRef<
     </div>
   );
 });
+
+const EMPTY_TAG_COLORS: TagColorMap = {};
+
+function applyInlineTagColors(root: HTMLElement, colors: TagColorMap) {
+  for (const element of root.querySelectorAll<HTMLElement>(
+    ".denote-inline-tag",
+  )) {
+    applyInlineTagColor(element, colors);
+  }
+}
+
+function applyInlineTagColor(
+  element: HTMLElement | null,
+  colors: TagColorMap,
+) {
+  if (!element?.matches(".denote-inline-tag")) {
+    return;
+  }
+  const tag = normalizeTag(element.textContent ?? "");
+  if (!tag) {
+    return;
+  }
+  const style = tagColorStyle(resolveTagColor(tag, colors));
+  element.dataset.tag = tag;
+  element.style.setProperty("--tag-color", style["--tag-color"]);
+}
 
 function ViewModePreferenceObserver({
   initialMode,

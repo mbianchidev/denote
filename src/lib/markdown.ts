@@ -1,4 +1,5 @@
 import type { HeadingItem } from "../types";
+import { normalizeTag } from "./tagColors";
 
 const CALLOUT_TYPES = "warning|info|danger|note|tip|caution";
 
@@ -116,11 +117,98 @@ export function directivesToCallouts(markdown: string): string {
 
 export function extractTags(markdown: string): string[] {
   const tags = new Set<string>();
-  const pattern = /(^|[\s([{'""])#([\p{L}\p{N}_/-]+)/gu;
-  for (const match of markdown.matchAll(pattern)) {
-    tags.add(match[2].toLocaleLowerCase());
+  let fence: Fence | null = null;
+  let inlineCodeTicks = 0;
+  for (const line of markdown.split("\n")) {
+    const fenceLine = inlineCodeTicks === 0 && isFenceLine(line);
+    if (fence || fenceLine) {
+      fence = updateFence(line, fence);
+      continue;
+    }
+    if (inlineCodeTicks === 0 && isIndentedCode(line)) {
+      continue;
+    }
+    const characters = [...line];
+    for (let index = 0; index < characters.length; index += 1) {
+      if (characters[index] === "`") {
+        let end = index + 1;
+        while (characters[end] === "`") {
+          end += 1;
+        }
+        const ticks = end - index;
+        if (inlineCodeTicks === 0) {
+          inlineCodeTicks = ticks;
+        } else if (inlineCodeTicks === ticks) {
+          inlineCodeTicks = 0;
+        }
+        index = end - 1;
+        continue;
+      }
+      if (
+        inlineCodeTicks > 0 ||
+        characters[index] !== "#" ||
+        !isTagBoundary(characters, index)
+      ) {
+        continue;
+      }
+      let end = index + 1;
+      while (end < characters.length && isTagCharacter(characters[end])) {
+        end += 1;
+      }
+      if (end > index + 1) {
+        tags.add(normalizeTag(characters.slice(index + 1, end).join("")));
+        index = end - 1;
+      }
+    }
   }
   return [...tags].sort((left, right) => left.localeCompare(right));
+}
+
+const MARKDOWN_TAG_PATTERN = /(^|[\s([{'""])#([\p{L}\p{N}\p{M}_/-]+)/u;
+const TAG_CHARACTER = /[\p{L}\p{N}\p{M}_/-]/u;
+const TAG_BOUNDARY = /[\s([{'"*~]/u;
+
+export function findMarkdownTagMatch(
+  text: string,
+): { start: number; end: number } | null {
+  const match = MARKDOWN_TAG_PATTERN.exec(text);
+  if (!match) {
+    return null;
+  }
+  const start = match.index + match[1].length;
+  return {
+    start,
+    end: start + match[2].length + 1,
+  };
+}
+
+export function restoreRichTextTagSyntax(markdown: string): string {
+  return markdown.replace(
+    /(^|[\s([{'"*~])\\#(?=[\p{L}\p{N}\p{M}_/-])/gmu,
+    "$1#",
+  );
+}
+
+function isTagCharacter(character: string): boolean {
+  return TAG_CHARACTER.test(character);
+}
+
+function isTagBoundary(characters: string[], index: number): boolean {
+  if (index === 0) {
+    return true;
+  }
+  const previous = characters[index - 1];
+  if (TAG_BOUNDARY.test(previous)) {
+    return true;
+  }
+  if (previous !== "_") {
+    return false;
+  }
+  let cursor = index - 1;
+  while (cursor >= 0 && characters[cursor] === "_") {
+    cursor -= 1;
+  }
+  return cursor < 0 || TAG_BOUNDARY.test(characters[cursor]);
 }
 
 export function extractHeadings(markdown: string): HeadingItem[] {
@@ -232,7 +320,8 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
     /<\/?[a-z][^>]*>/i.test(markdown) ||
     /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
-    /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown)
+    /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown) ||
+    /\\#(?=[\p{L}\p{N}\p{M}_/-])/u.test(markdown)
   );
 }
 

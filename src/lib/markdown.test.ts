@@ -5,8 +5,10 @@ import {
   directivesToCallouts,
   extractHeadings,
   extractTags,
+  findMarkdownTagMatch,
   hasUnsupportedRichMarkdown,
   recoverMarkdownLinkTarget,
+  restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   resolveInternalLink,
 } from "./markdown";
@@ -26,6 +28,34 @@ describe("markdown utilities", () => {
     expect(
       extractTags("# Heading\n#work 日本語 #研究 русский #заметка 😀 #ideas"),
     ).toEqual(["ideas", "work", "заметка", "研究"]);
+  });
+
+  it("finds renderable Unicode and path-style tags without matching headings", () => {
+    expect(findMarkdownTagMatch("Open #project/日本語-next today")).toEqual({
+      start: 5,
+      end: 22,
+    });
+    const hindi = "Read #हिन्दी";
+    const hindiMatch = findMarkdownTagMatch(hindi);
+    expect(hindi.slice(hindiMatch?.start, hindiMatch?.end)).toBe("#हिन्दी");
+    expect(findMarkdownTagMatch("# Heading")).toBeNull();
+  });
+
+  it("extracts formatted multilingual tags while ignoring code and escapes", () => {
+    expect(
+      new Set(
+        extractTags(
+          "**#guide** `#literal` \\#escaped #हिन्दी #cafe\u0301",
+        ),
+      ),
+    ).toEqual(new Set(["guide", "हिन्दी", "café"]));
+  });
+
+  it("restores line-leading rich tags without changing escaped tag notes", () => {
+    expect(restoreRichTextTagSyntax("\\#guide\n\nText")).toBe(
+      "#guide\n\nText",
+    );
+    expect(hasUnsupportedRichMarkdown("\\#literal")).toBe(true);
   });
 
   it("ignores headings inside fenced code blocks", () => {

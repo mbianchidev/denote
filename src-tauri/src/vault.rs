@@ -12,6 +12,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use fs2::FileExt as Fs2FileExt;
 use rusqlite::Connection;
 use sha2::{Digest, Sha256};
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
@@ -20,7 +21,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
-        NoteDocument, SaveOutcome, SearchDocument, WorkspaceSnapshot,
+        NoteDocument, SaveOutcome, SearchDocument, TagColor, WorkspaceSnapshot,
     },
 };
 
@@ -578,6 +579,22 @@ pub fn set_bookmark(
     db::set_bookmark(&connection, vault_id, relative_path, bookmarked)
 }
 
+pub fn set_tag_color(
+    db_path: &Path,
+    vault_path: &str,
+    tag: &str,
+    color: &str,
+) -> AppResult<TagColor> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let tag = normalize_tag(tag)?;
+    let color = normalize_tag_color(color)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::set_tag_color(&connection, vault_id, &tag, &color)?;
+    Ok(TagColor { tag, color })
+}
+
 pub fn record_edit(
     db_path: &Path,
     vault_path: &str,
@@ -943,6 +960,7 @@ fn snapshot(
     reconcile_pending_operations(connection, vault_id, root)?;
     let stats = db::stats_map(connection, vault_id)?;
     let placements = db::entry_placement_map(connection, vault_id)?;
+    let tag_colors = db::list_tag_colors(connection, vault_id)?;
     let tree = scan_directory(root, root, &stats, &placements, 0)?;
     let (mut bookmarks, mut recent) = db::note_lists(connection, vault_id)?;
     bookmarks.retain(|item| existing_entry(root, &item.path).is_ok());
@@ -969,8 +987,43 @@ fn snapshot(
         bookmarks,
         recent,
         trash,
+        tag_colors,
         encryption: Default::default(),
     })
+}
+
+fn normalize_tag(tag: &str) -> AppResult<String> {
+    let tag = tag.trim().strip_prefix('#').unwrap_or(tag.trim());
+    let normalized = tag
+        .nfc()
+        .collect::<String>()
+        .to_lowercase()
+        .nfc()
+        .collect::<String>();
+    if normalized.is_empty()
+        || normalized.chars().count() > 128
+        || !normalized.chars().all(|character| {
+            character.is_alphanumeric()
+                || is_combining_mark(character)
+                || matches!(character, '_' | '/' | '-')
+        })
+    {
+        return Err(AppError::InvalidData(format!("Invalid tag: {tag}")));
+    }
+    Ok(normalized)
+}
+
+fn normalize_tag_color(color: &str) -> AppResult<String> {
+    let color = color.trim();
+    if color.len() != 7
+        || !color.starts_with('#')
+        || !color[1..]
+            .bytes()
+            .all(|character| character.is_ascii_hexdigit())
+    {
+        return Err(AppError::InvalidData(format!("Invalid tag color: {color}")));
+    }
+    Ok(color.to_ascii_lowercase())
 }
 
 fn reconcile_pending_operations(
@@ -1446,33 +1499,110 @@ fn encode_binary_content(bytes: &[u8]) -> (String, FileEncoding, FileLineEnding)
 
 fn extract_tags(content: &str) -> Vec<String> {
     let mut tags = HashSet::new();
-    let chars = content.char_indices().collect::<Vec<_>>();
-    for (index, (byte_index, character)) in chars.iter().enumerate() {
-        if *character != '#' {
-            continue;
-        }
-        let previous_is_boundary = index == 0
-            || chars[index - 1].1.is_whitespace()
-            || matches!(chars[index - 1].1, '(' | '[' | '{' | '"' | '\'');
-        if !previous_is_boundary {
-            continue;
-        }
-        let start = byte_index + character.len_utf8();
-        let mut end = start;
-        for (_, next) in chars.iter().skip(index + 1) {
-            if next.is_alphanumeric() || matches!(next, '_' | '-' | '/') {
-                end += next.len_utf8();
-            } else {
-                break;
+    let mut fence: Option<(char, usize)> = None;
+    let mut inline_code_ticks = 0;
+    for line in content.lines() {
+        let marker = (inline_code_ticks == 0)
+            .then(|| markdown_fence_marker(line))
+            .flatten();
+        if let Some((character, length)) = fence {
+            if marker.is_some_and(|candidate| candidate.0 == character && candidate.1 >= length) {
+                fence = None;
             }
+            continue;
         }
-        if end > start {
-            tags.insert(content[start..end].to_lowercase());
+        if let Some(marker) = marker {
+            fence = Some(marker);
+            continue;
+        }
+        if inline_code_ticks == 0 && (line.starts_with("    ") || line.starts_with('\t')) {
+            continue;
+        }
+        let chars = line.chars().collect::<Vec<_>>();
+        let mut index = 0;
+        while index < chars.len() {
+            if chars[index] == '`' {
+                let mut end = index + 1;
+                while end < chars.len() && chars[end] == '`' {
+                    end += 1;
+                }
+                let ticks = end - index;
+                if inline_code_ticks == 0 {
+                    inline_code_ticks = ticks;
+                } else if inline_code_ticks == ticks {
+                    inline_code_ticks = 0;
+                }
+                index = end;
+                continue;
+            }
+            if inline_code_ticks > 0 || chars[index] != '#' || !is_tag_boundary(&chars, index) {
+                index += 1;
+                continue;
+            }
+            let mut end = index + 1;
+            while end < chars.len() && is_tag_character(chars[end]) {
+                end += 1;
+            }
+            if end > index + 1 {
+                let tag = chars[index + 1..end].iter().collect::<String>();
+                if let Ok(tag) = normalize_tag(&tag) {
+                    tags.insert(tag);
+                }
+                index = end;
+            } else {
+                index += 1;
+            }
         }
     }
     let mut tags = tags.into_iter().collect::<Vec<_>>();
     tags.sort();
     tags
+}
+
+fn markdown_fence_marker(line: &str) -> Option<(char, usize)> {
+    let indent = line
+        .bytes()
+        .take_while(|character| *character == b' ')
+        .count();
+    if indent > 3 {
+        return None;
+    }
+    let remainder = &line[indent..];
+    let character = remainder.chars().next()?;
+    if !matches!(character, '`' | '~') {
+        return None;
+    }
+    let length = remainder
+        .chars()
+        .take_while(|candidate| *candidate == character)
+        .count();
+    (length >= 3).then_some((character, length))
+}
+
+fn is_tag_character(character: char) -> bool {
+    character.is_alphanumeric()
+        || is_combining_mark(character)
+        || matches!(character, '_' | '-' | '/')
+}
+
+fn is_tag_boundary(characters: &[char], index: usize) -> bool {
+    if index == 0 {
+        return true;
+    }
+    let previous = characters[index - 1];
+    if previous.is_whitespace() || matches!(previous, '(' | '[' | '{' | '"' | '\'' | '*' | '~') {
+        return true;
+    }
+    if previous != '_' {
+        return false;
+    }
+    let mut cursor = index - 1;
+    while cursor > 0 && characters[cursor] == '_' {
+        cursor -= 1;
+    }
+    characters[cursor] == '_'
+        || characters[cursor].is_whitespace()
+        || matches!(characters[cursor], '(' | '[' | '{' | '"' | '\'' | '*' | '~')
 }
 
 fn resolve_image_source(
@@ -1868,6 +1998,26 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn validates_and_normalizes_tag_color_metadata() {
+        assert_eq!(normalize_tag("#Guide").expect("normalized tag"), "guide");
+        assert_eq!(normalize_tag("#I").expect("locale-independent tag"), "i");
+        assert_eq!(
+            normalize_tag("#cafe\u{301}").expect("decomposed tag"),
+            normalize_tag("#café").expect("composed tag")
+        );
+        assert_eq!(
+            normalize_tag("日本語/資料-next").expect("Unicode tag"),
+            "日本語/資料-next"
+        );
+        assert!(normalize_tag("not a tag").is_err());
+        assert_eq!(
+            normalize_tag_color("#A1B2C3").expect("normalized color"),
+            "#a1b2c3"
+        );
+        assert!(normalize_tag_color("red").is_err());
+    }
+
     fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<NoteDocument> {
         super::read_note(db_path, vault_path, relative_path, None)
     }
@@ -2057,8 +2207,42 @@ mod tests {
 
     #[test]
     fn extracts_unicode_tags_without_treating_headings_as_tags() {
-        let tags = extract_tags("# Heading\n日本語 #研究 русский #заметка #tag-one");
-        assert_eq!(tags, vec!["tag-one", "заметка", "研究"]);
+        let tags = extract_tags(
+            "# Heading\n**#guide** `#literal` \\#escaped #हिन्दी #cafe\u{301} #研究 #tag-one",
+        );
+        assert_eq!(
+            tags.into_iter().collect::<HashSet<_>>(),
+            HashSet::from([
+                "café".to_string(),
+                "guide".to_string(),
+                "tag-one".to_string(),
+                "हिन्दी".to_string(),
+                "研究".to_string(),
+            ])
+        );
+    }
+
+    #[test]
+    fn persists_tag_colors_in_workspace_snapshots() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        let db_path = directory.path().join("denote.sqlite3");
+
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        set_tag_color(&db_path, vault_path.to_str().unwrap(), "#Guide", "#A1B2C3")
+            .expect("save tag color");
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
+
+        assert_eq!(
+            snapshot.tag_colors,
+            vec![TagColor {
+                tag: "guide".to_string(),
+                color: "#a1b2c3".to_string(),
+            }]
+        );
     }
 
     #[test]
