@@ -113,6 +113,11 @@ substring fallback so mixed-script queries still find local content.
 The index rebuilds when a vault opens and shortly after content or file
 structure changes.
 
+Command-F on macOS and Control-F on Windows/Linux are captured before browser or
+CodeMirror find handlers and focus the vault search field. The macOS
+Option-Command-F and Windows/Linux Control-H replace shortcuts are evaluated
+separately and remain unchanged.
+
 ## Replace
 
 Replace previews are calculated from Markdown source rather than rendered

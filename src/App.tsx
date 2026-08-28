@@ -56,7 +56,7 @@ import {
   slugifyHeading,
 } from "./lib/markdown";
 import { VaultSearchIndex } from "./lib/search";
-import { isReplaceShortcut } from "./lib/shortcuts";
+import { isReplaceShortcut, isSearchShortcut } from "./lib/shortcuts";
 import {
   previewReplacements,
   type ReplaceApplySummary,
@@ -1926,9 +1926,11 @@ function App() {
         event.key.toLocaleLowerCase() === "o"
       ) {
         event.preventDefault();
+        event.stopPropagation();
         setVaultSwitcherOpen(true);
-      } else if (modifier && event.key.toLocaleLowerCase() === "p") {
+      } else if (isSearchShortcut(event, navigator.platform)) {
         event.preventDefault();
+        event.stopPropagation();
         setSidebarView("search");
         window.setTimeout(
           () => document.querySelector<HTMLInputElement>(".search-box input")?.focus(),
@@ -1936,17 +1938,21 @@ function App() {
         );
       } else if (isReplaceShortcut(event, navigator.platform)) {
         event.preventDefault();
+        event.stopPropagation();
         setReplaceOpen(true);
       } else if (modifier && event.key.toLocaleLowerCase() === "s" && activeTab) {
         event.preventDefault();
+        event.stopPropagation();
         if (activeTab.kind !== "image" || activeTab.rawEditing) {
           void saveTab(activeTab.path, activeTab.content, "manual save");
         }
       } else if (modifier && event.key.toLocaleLowerCase() === "w" && activePath) {
         event.preventDefault();
+        event.stopPropagation();
         void closeTab(activePath);
       } else if (event.ctrlKey && event.key === "Tab" && tabs.length > 1) {
         event.preventDefault();
+        event.stopPropagation();
         const index = tabs.findIndex((tab) => tab.path === activePath);
         const direction = event.shiftKey ? -1 : 1;
         setActivePath(
@@ -1956,8 +1962,8 @@ function App() {
         setShowOutline(false);
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [
     actionDialog,
     activePath,
@@ -2518,7 +2524,7 @@ function App() {
                 <h2>Your vault is ready.</h2>
                 <p>
                   Open a note from the sidebar or press{" "}
-                  <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}P</kbd>{" "}
+                  <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}F</kbd>{" "}
                   to search.
                 </p>
               </div>

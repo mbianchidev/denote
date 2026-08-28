@@ -53,6 +53,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   history.
 - ZBSearch provides local full-text search with filters for tags, filename,
   path, content, file type, bookmarks, and recency.
+- The standard Command-F / Control-F shortcut opens vault search; platform
+  replace shortcuts remain distinct.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system

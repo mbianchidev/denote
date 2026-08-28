@@ -48,7 +48,13 @@ export function ActivityRail({
             key={id}
             aria-label={label}
             aria-pressed={activeView === id}
-            title={label}
+            title={
+              id === "search"
+                ? `Search (${
+                    navigator.platform.includes("Mac") ? "⌘F" : "Ctrl+F"
+                  })`
+                : label
+            }
             onClick={() => onViewChange(id)}
           >
             <Icon aria-hidden="true" size={19} strokeWidth={1.8} />

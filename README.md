@@ -93,7 +93,9 @@ filesystem snapshots, or storage history that already existed.
 
 ## Search
 
-Search uses ZBSearch locally. Filters can be combined with ordinary terms:
+Press <kbd>Command</kbd>+<kbd>F</kbd> on macOS or
+<kbd>Ctrl</kbd>+<kbd>F</kbd> on Windows and Linux. Search uses ZBSearch locally.
+Filters can be combined with ordinary terms:
 
 ```text
 release notes tag:work file:"project atlas" path:projects
