@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     ffi::OsString,
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Component, Path, PathBuf},
     time::UNIX_EPOCH,
 };
@@ -16,7 +16,7 @@ use uuid::Uuid;
 use walkdir::WalkDir;
 
 use crate::{
-    db,
+    crypto, db,
     error::{AppError, AppResult},
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
@@ -38,6 +38,7 @@ pub fn get_last_vault(db_path: &Path) -> AppResult<Option<String>> {
 
 pub fn open_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSnapshot> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, vault_name) = ensure_vault(&connection, &root)?;
     db::set_last_vault(&connection, &path_to_string(&root))?;
@@ -46,26 +47,192 @@ pub fn open_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSnapsh
 
 pub fn refresh_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSnapshot> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, vault_name) = ensure_vault(&connection, &root)?;
     snapshot(&mut connection, vault_id, &root, vault_name)
 }
 
-pub fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<NoteDocument> {
+pub fn encryption_status(
+    vault_path: &str,
+    unlocked: bool,
+) -> AppResult<crate::models::EncryptionStatus> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let Some(manifest) = crypto::load_manifest(&root)? else {
+        return Ok(Default::default());
+    };
+    Ok(crate::models::EncryptionStatus {
+        enabled: true,
+        unlocked: unlocked && manifest.phase == crypto::EncryptionPhase::Encrypted,
+        phase: Some(manifest.phase),
+        remaining_recovery_codes: manifest.recovery.len(),
+    })
+}
+
+pub fn encrypt_vault_contents(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: &[u8; 32],
+) -> AppResult<()> {
+    transform_vault_encryption_with_mode(db_path, vault_path, vault_key, true, true, true)?;
+    Ok(())
+}
+
+pub fn decrypt_vault_contents(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: &[u8; 32],
+) -> AppResult<()> {
+    transform_vault_encryption_with_mode(db_path, vault_path, vault_key, false, true, false)?;
+    Ok(())
+}
+
+pub fn seal_vault_contents(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: &[u8; 32],
+) -> AppResult<()> {
+    transform_vault_encryption_with_mode(db_path, vault_path, vault_key, true, true, false)?;
+    Ok(())
+}
+
+pub fn sweep_vault_encryption(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: &[u8; 32],
+) -> AppResult<usize> {
+    transform_vault_encryption_with_mode(db_path, vault_path, vault_key, true, false, false)
+}
+
+fn transform_vault_encryption_with_mode(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: &[u8; 32],
+    encrypting: bool,
+    strict: bool,
+    scrub_history_residue: bool,
+) -> AppResult<usize> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
+    let walker = WalkDir::new(&root).follow_links(false).into_iter();
+    let mut skipped_files = 0;
+    for entry in walker {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                let error = AppError::Io(
+                    error
+                        .into_io_error()
+                        .unwrap_or_else(|| std::io::Error::other("Unable to scan vault")),
+                );
+                if strict {
+                    return Err(error);
+                }
+                skipped_files += 1;
+                eprintln!("Skipping unreadable file during encryption sweep: {error}");
+                continue;
+            }
+        };
+        if !entry.file_type().is_file() || is_encryption_control_file(&root, entry.path()) {
+            continue;
+        }
+        let metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(metadata) => metadata,
+            Err(error) if strict => return Err(error.into()),
+            Err(error) => {
+                skipped_files += 1;
+                eprintln!(
+                    "Skipping unreadable file metadata during encryption sweep: {}: {error}",
+                    path_to_string(entry.path())
+                );
+                continue;
+            }
+        };
+        if metadata_is_link(&metadata) {
+            continue;
+        }
+        let encrypted = match file_is_encrypted(entry.path()) {
+            Ok(encrypted) => encrypted,
+            Err(error) if strict => return Err(error),
+            Err(error) => {
+                skipped_files += 1;
+                eprintln!(
+                    "Skipping unreadable file during encryption sweep: {}: {error}",
+                    path_to_string(entry.path())
+                );
+                continue;
+            }
+        };
+        if encrypting != encrypted {
+            if let Err(error) = transform_file_encryption(entry.path(), vault_key, encrypting) {
+                if strict {
+                    return Err(error);
+                }
+                skipped_files += 1;
+                eprintln!(
+                    "Unable to encrypt file during unlock sweep: {}: {error}",
+                    path_to_string(entry.path())
+                );
+            }
+        }
+    }
+
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let mut last_id = 0;
+    loop {
+        let rows = db::history_rows_after(&connection, vault_id, last_id, 100)?;
+        if rows.is_empty() {
+            break;
+        }
+        let transaction = connection.transaction()?;
+        for row in rows {
+            last_id = row.id;
+            if encrypting && !row.is_encrypted {
+                db::update_history_storage(
+                    &transaction,
+                    row.id,
+                    &crypto::encrypt_history_content(vault_key, &row.content)?,
+                    true,
+                )?;
+            } else if !encrypting && row.is_encrypted {
+                db::update_history_storage(
+                    &transaction,
+                    row.id,
+                    &crypto::decrypt_history_content(vault_key, &row.content)?,
+                    false,
+                )?;
+            }
+        }
+        transaction.commit()?;
+    }
+    if scrub_history_residue {
+        db::scrub_deleted_content(&connection)?;
+    }
+    Ok(skipped_files)
+}
+
+pub fn read_note(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<NoteDocument> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
     if !path.is_file() {
         return Err(AppError::UnsupportedFile(format!(
             "{relative_path} is not a regular file"
         )));
     }
-    let metadata = fs::metadata(&path)?;
-    if metadata.len() > MAX_EDIT_BYTES {
+    if file_plaintext_len(&path)? > MAX_EDIT_BYTES {
         return Err(AppError::InvalidData(format!(
             "{relative_path} is larger than 25 MB"
         )));
     }
-    let bytes = fs::read(&path)?;
+    let bytes = read_plain_file(&path, vault_key)?;
     let (content, encoding, line_ending) = decode_file_content(&bytes);
 
     let connection = db::open(db_path)?;
@@ -91,8 +258,10 @@ pub fn save_note(
     line_ending: FileLineEnding,
     reason: &str,
     expected_hash: Option<&str>,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<SaveOutcome> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
     if !path.is_file() {
         return Err(AppError::UnsupportedFile(format!(
@@ -105,9 +274,14 @@ pub fn save_note(
             "File is larger than the 25 MB save limit".to_string(),
         ));
     }
+    if file_plaintext_len(&path)? > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(
+            "Existing file is larger than the 25 MB edit limit".to_string(),
+        ));
+    }
 
     let _note_lock = acquire_note_lock(&root, relative_path)?;
-    let previous_bytes = fs::read(&path)?;
+    let previous_bytes = read_plain_file(&path, vault_key)?;
     let previous_hash = hash_bytes(&previous_bytes);
     let (previous_content, previous_encoding, previous_line_ending) =
         decode_file_content(&previous_bytes);
@@ -131,19 +305,23 @@ pub fn save_note(
         });
     }
 
+    let (history_content, history_encrypted) =
+        encode_history_at_rest(&root, &previous_content, vault_key)?;
     let history_transaction = connection.transaction()?;
     db::push_history(
         &history_transaction,
         vault_id,
         relative_path,
-        &previous_content,
+        &history_content,
         &previous_hash,
         previous_encoding,
         previous_line_ending,
+        history_encrypted,
         reason,
     )?;
     history_transaction.commit()?;
-    atomic_write(&path, &next_bytes)?;
+    let stored_bytes = encode_file_at_rest(&root, &next_bytes, vault_key)?;
+    atomic_write(&path, &stored_bytes)?;
     let save_transaction = connection.transaction()?;
     db::record_save(&save_transaction, vault_id, relative_path)?;
     save_transaction.commit()?;
@@ -165,8 +343,10 @@ pub fn create_entry(
     parent_path: &str,
     name: &str,
     directory: bool,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let parent = if parent_path.is_empty() {
         root.clone()
     } else {
@@ -186,7 +366,8 @@ pub fn create_entry(
     if directory {
         fs::create_dir(&destination)?;
     } else {
-        atomic_write(&destination, &[])?;
+        let stored_bytes = encode_file_at_rest(&root, &[], vault_key)?;
+        atomic_write(&destination, &stored_bytes)?;
     }
     let connection = db::open(db_path)?;
     let _ = ensure_vault(&connection, &root)?;
@@ -200,6 +381,7 @@ pub fn rename_entry(
     new_name: &str,
 ) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let source = existing_entry(&root, relative_path)?;
     let safe_name = validate_name(new_name)?;
     let parent = source
@@ -245,6 +427,7 @@ pub fn rename_entry(
 
 pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<()> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let source = existing_entry(&root, relative_path)?;
     let is_directory = source.is_dir();
     let name = source
@@ -295,6 +478,7 @@ pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> App
 
 pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let (original_path, trash_path, _) = db::trash_path(&connection, vault_id, item_id)?
@@ -343,6 +527,7 @@ pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> App
 
 pub fn empty_trash(db_path: &Path, vault_path: &str) -> AppResult<usize> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let items = db::list_trash(&connection, vault_id)?;
@@ -379,6 +564,7 @@ pub fn set_bookmark(
     bookmarked: bool,
 ) -> AppResult<()> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let _ = existing_entry(&root, relative_path)?;
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
@@ -391,6 +577,7 @@ pub fn record_edit(
     relative_path: &str,
 ) -> AppResult<crate::models::NoteStats> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let _ = existing_entry(&root, relative_path)?;
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
@@ -400,6 +587,7 @@ pub fn record_edit(
 
 pub fn set_entry_order(db_path: &Path, vault_path: &str, paths: &[String]) -> AppResult<()> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     for path in paths {
         let _ = existing_entry(&root, path)?;
     }
@@ -412,12 +600,28 @@ pub fn list_history(
     db_path: &Path,
     vault_path: &str,
     relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<Vec<HistoryRevision>> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let _ = existing_entry(&root, relative_path)?;
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    db::list_history(&connection, vault_id, relative_path)
+    db::list_history(&connection, vault_id, relative_path)?
+        .into_iter()
+        .map(|stored| {
+            let content = decode_history_at_rest(&stored.content, stored.is_encrypted, vault_key)?;
+            Ok(HistoryRevision {
+                id: stored.id,
+                created_at: stored.created_at,
+                reason: stored.reason,
+                preview: history_preview(&content),
+                byte_count: history_byte_count(&content, stored.encoding),
+                encoding: stored.encoding,
+                line_ending: stored.line_ending,
+            })
+        })
+        .collect()
 }
 
 pub fn restore_revision(
@@ -425,33 +629,50 @@ pub fn restore_revision(
     vault_path: &str,
     relative_path: &str,
     revision_id: i64,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<NoteDocument> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
+    if file_plaintext_len(&path)? > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(
+            "File is larger than the 25 MB edit limit".to_string(),
+        ));
+    }
     let _note_lock = acquire_note_lock(&root, relative_path)?;
-    let current_bytes = fs::read(&path)?;
+    let current_bytes = read_plain_file(&path, vault_key)?;
     let current_hash = hash_bytes(&current_bytes);
     let (current_content, current_encoding, current_line_ending) =
         decode_file_content(&current_bytes);
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    let (restored, restored_encoding, restored_line_ending) =
-        db::history_content(&connection, vault_id, relative_path, revision_id)?
-            .ok_or_else(|| AppError::NotFound(format!("Revision {revision_id}")))?;
+    let stored_revision = db::history_content(&connection, vault_id, relative_path, revision_id)?
+        .ok_or_else(|| AppError::NotFound(format!("Revision {revision_id}")))?;
+    let restored = decode_history_at_rest(
+        &stored_revision.content,
+        stored_revision.is_encrypted,
+        vault_key,
+    )?;
+    let restored_encoding = stored_revision.encoding;
+    let restored_line_ending = stored_revision.line_ending;
     let restored_bytes = encode_file_content(&restored, restored_encoding, restored_line_ending)?;
+    let (history_content, history_encrypted) =
+        encode_history_at_rest(&root, &current_content, vault_key)?;
     let history_transaction = connection.transaction()?;
     db::push_history(
         &history_transaction,
         vault_id,
         relative_path,
-        &current_content,
+        &history_content,
         &current_hash,
         current_encoding,
         current_line_ending,
+        history_encrypted,
         "before restore",
     )?;
     history_transaction.commit()?;
-    atomic_write(&path, &restored_bytes)?;
+    let stored_bytes = encode_file_at_rest(&root, &restored_bytes, vault_key)?;
+    atomic_write(&path, &stored_bytes)?;
     let save_transaction = connection.transaction()?;
     db::record_save(&save_transaction, vault_id, relative_path)?;
     save_transaction.commit()?;
@@ -465,21 +686,31 @@ pub fn restore_revision(
     })
 }
 
-pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
+pub fn list_search_documents(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<DocumentBatch> {
     list_documents(
         db_path,
         vault_path,
         MAX_SEARCH_BYTES,
         MAX_SEARCH_AGGREGATE_BYTES,
+        vault_key,
     )
 }
 
-pub fn list_editable_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
+pub fn list_editable_documents(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<DocumentBatch> {
     list_documents(
         db_path,
         vault_path,
         MAX_EDIT_BYTES,
         MAX_EDITABLE_AGGREGATE_BYTES,
+        vault_key,
     )
 }
 
@@ -488,8 +719,10 @@ fn list_documents(
     vault_path: &str,
     max_bytes: u64,
     max_aggregate_bytes: usize,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<DocumentBatch> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let stats = db::stats_map(&connection, vault_id)?;
@@ -544,19 +777,19 @@ fn list_documents(
             continue;
         }
         let kind = kind_for_path(entry.path());
-        let metadata = match entry.metadata() {
-            Ok(metadata) => metadata,
+        let plaintext_len = match file_plaintext_len(entry.path()) {
+            Ok(length) => length,
             Err(error) => {
                 skipped_count += 1;
-                eprintln!("Skipping unreadable file metadata for {relative}: {error}");
+                eprintln!("Skipping unreadable file length for {relative}: {error}");
                 continue;
             }
         };
-        if metadata.len() > max_bytes {
+        if plaintext_len > max_bytes {
             skipped_count += 1;
             continue;
         }
-        let bytes = match fs::read(entry.path()) {
+        let bytes = match read_plain_file(entry.path(), vault_key) {
             Ok(bytes) => bytes,
             Err(error) => {
                 skipped_count += 1;
@@ -606,11 +839,12 @@ pub fn read_image_data_url(
     vault_path: &str,
     note_path: Option<&str>,
     image_source: &str,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let image_path = resolve_image_source(&root, note_path, image_source)?;
-    let metadata = fs::metadata(&image_path)?;
-    if metadata.len() > MAX_IMAGE_BYTES {
+    if file_plaintext_len(&image_path)? > MAX_IMAGE_BYTES {
         return Err(AppError::InvalidData(
             "Image is larger than the 25 MB preview limit".to_string(),
         ));
@@ -620,7 +854,7 @@ pub fn read_image_data_url(
         return Err(AppError::UnsupportedFile(image_source.to_string()));
     }
     let mime = mime_guess::from_path(&image_path).first_or_octet_stream();
-    let encoded = STANDARD.encode(fs::read(&image_path)?);
+    let encoded = STANDARD.encode(read_plain_file(&image_path, vault_key)?);
     Ok(format!("data:{mime};base64,{encoded}"))
 }
 
@@ -629,6 +863,7 @@ pub fn save_attachment(
     note_path: &str,
     file_name: &str,
     data: &[u8],
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<String> {
     if data.len() as u64 > MAX_IMAGE_BYTES {
         return Err(AppError::InvalidData(
@@ -636,6 +871,7 @@ pub fn save_attachment(
         ));
     }
     let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
     let note = existing_entry(&root, note_path)?;
     let parent = note
         .parent()
@@ -650,7 +886,8 @@ pub fn save_attachment(
     fs::create_dir_all(&attachments)?;
     let destination = available_named_path(&attachments, safe_name)?;
     ensure_no_symlinks(&root, &destination, true)?;
-    atomic_write(&destination, data)?;
+    let stored_bytes = encode_file_at_rest(&root, data, vault_key)?;
+    atomic_write(&destination, &stored_bytes)?;
     let relative_to_note = destination
         .strip_prefix(parent)
         .map_err(|_| AppError::InvalidPath(file_name.to_string()))?;
@@ -689,6 +926,7 @@ fn snapshot(
         bookmarks,
         recent,
         trash,
+        encryption: Default::default(),
     })
 }
 
@@ -860,6 +1098,10 @@ fn existing_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
     Ok(candidate)
 }
 
+fn is_encryption_control_file(root: &Path, path: &Path) -> bool {
+    path == crypto::manifest_path(root) || path.starts_with(root.join(".denote").join("locks"))
+}
+
 fn internal_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
     let relative = normalized_relative(relative_path, true)?;
     let candidate = root.join(relative);
@@ -1002,6 +1244,79 @@ fn decode_file_content(bytes: &[u8]) -> (String, FileEncoding, FileLineEnding) {
             normalize_utf8_content(content).unwrap_or_else(|| encode_binary_content(bytes))
         }
         Err(_) => encode_binary_content(bytes),
+    }
+}
+
+fn read_plain_file(path: &Path, vault_key: Option<&[u8; 32]>) -> AppResult<Vec<u8>> {
+    let stored = fs::read(path)?;
+    if crypto::is_encrypted_file(&stored) {
+        let key = vault_key.ok_or(AppError::Locked)?;
+        crypto::decrypt_file_content(key, &stored)
+    } else {
+        Ok(stored)
+    }
+}
+
+fn encode_file_at_rest(
+    root: &Path,
+    plaintext: &[u8],
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<Vec<u8>> {
+    if crypto::manifest_exists(root) {
+        let key = vault_key.ok_or(AppError::Locked)?;
+        crypto::encrypt_file_content(key, plaintext)
+    } else {
+        Ok(plaintext.to_vec())
+    }
+}
+
+fn encode_history_at_rest(
+    root: &Path,
+    content: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<(String, bool)> {
+    if crypto::manifest_exists(root) {
+        let key = vault_key.ok_or(AppError::Locked)?;
+        Ok((crypto::encrypt_history_content(key, content)?, true))
+    } else {
+        Ok((content.to_string(), false))
+    }
+}
+
+fn decode_history_at_rest(
+    content: &str,
+    is_encrypted: bool,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<String> {
+    if is_encrypted {
+        let key = vault_key.ok_or(AppError::Locked)?;
+        crypto::decrypt_history_content(key, content)
+    } else {
+        Ok(content.to_string())
+    }
+}
+
+fn history_preview(content: &str) -> String {
+    let compact = content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(3)
+        .collect::<Vec<_>>()
+        .join(" ");
+    compact.chars().take(180).collect()
+}
+
+fn history_byte_count(content: &str, encoding: FileEncoding) -> usize {
+    match encoding {
+        FileEncoding::Utf8 => content.len(),
+        FileEncoding::Base64 => {
+            let encoded_length = content
+                .chars()
+                .filter(|value| !value.is_whitespace())
+                .count();
+            encoded_length.saturating_mul(3) / 4
+        }
     }
 }
 
@@ -1223,14 +1538,54 @@ fn available_named_path(directory: &Path, name: &str) -> AppResult<PathBuf> {
     ))
 }
 
+fn file_is_encrypted(path: &Path) -> AppResult<bool> {
+    let mut file = fs::File::open(path)?;
+    let mut prefix = Vec::with_capacity(12);
+    Read::by_ref(&mut file).take(12).read_to_end(&mut prefix)?;
+    Ok(crypto::is_encrypted_file(&prefix))
+}
+
+fn file_plaintext_len(path: &Path) -> AppResult<u64> {
+    let stored_len = fs::metadata(path)?.len();
+    let mut file = fs::File::open(path)?;
+    let mut header = Vec::with_capacity(40);
+    Read::by_ref(&mut file).take(40).read_to_end(&mut header)?;
+    Ok(crypto::encrypted_file_plaintext_len(&header, stored_len)?.unwrap_or(stored_len))
+}
+
+fn transform_file_encryption(path: &Path, vault_key: &[u8; 32], encrypting: bool) -> AppResult<()> {
+    let mut reader = fs::File::open(path)?;
+    let source_len = reader.metadata()?.len();
+    atomic_write_with(path, move |writer| {
+        if encrypting {
+            crypto::encrypt_file_stream(vault_key, &mut reader, source_len, writer)
+        } else {
+            crypto::decrypt_file_stream(vault_key, &mut reader, writer)
+        }
+    })
+}
+
 fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
+    atomic_write_with(path, |file| {
+        file.write_all(data)?;
+        Ok(())
+    })
+}
+
+fn atomic_write_with(
+    path: &Path,
+    write_content: impl FnOnce(&mut dyn Write) -> AppResult<()>,
+) -> AppResult<()> {
     #[cfg(windows)]
     if path.exists() {
-        return replace_file_windows(path, data);
+        return replace_file_windows(path, write_content);
     }
 
     #[cfg(windows)]
-    fn replace_file_windows(path: &Path, data: &[u8]) -> AppResult<()> {
+    fn replace_file_windows(
+        path: &Path,
+        write_content: impl FnOnce(&mut dyn Write) -> AppResult<()>,
+    ) -> AppResult<()> {
         use std::{os::windows::ffi::OsStrExt, ptr};
         use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
 
@@ -1247,13 +1602,10 @@ fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
             .create_new(true)
             .write(true)
             .open(&temporary_path)?;
-        if let Err(error) = temporary
-            .write_all(data)
-            .and_then(|()| temporary.sync_all())
-        {
+        if let Err(error) = write_content(&mut temporary).and_then(|()| Ok(temporary.sync_all()?)) {
             drop(temporary);
             let _ = fs::remove_file(&temporary_path);
-            return Err(error.into());
+            return Err(error);
         }
         drop(temporary);
 
@@ -1315,7 +1667,7 @@ fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
     #[cfg(unix)]
     let extended_attributes = read_extended_attributes(path)?;
     let mut file = AtomicWriteFile::options().open(path)?;
-    file.write_all(data)?;
+    write_content(&mut file)?;
     #[cfg(unix)]
     {
         use xattr::FileExt;
@@ -1325,6 +1677,29 @@ fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
     }
     file.commit()?;
     Ok(())
+}
+
+fn acquire_vault_lock(root: &Path, exclusive: bool) -> AppResult<fs::File> {
+    let lock_directory = root.join(".denote").join("locks");
+    ensure_no_symlinks(root, &lock_directory, true)?;
+    fs::create_dir_all(&lock_directory)?;
+    let lock_path = lock_directory.join("vault.lock");
+    ensure_no_symlinks(root, &lock_path, true)?;
+    let file = fs::OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(lock_path)?;
+    if exclusive {
+        Fs2FileExt::lock_exclusive(&file)?;
+    } else {
+        Fs2FileExt::lock_shared(&file)?;
+    }
+    Ok(file)
+}
+
+pub(crate) fn acquire_vault_control_lock(root: &Path) -> AppResult<fs::File> {
+    acquire_vault_lock(root, true)
 }
 
 fn acquire_note_lock(root: &Path, relative_path: &str) -> AppResult<fs::File> {
@@ -1433,6 +1808,87 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+
+    fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<NoteDocument> {
+        super::read_note(db_path, vault_path, relative_path, None)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn save_note(
+        db_path: &Path,
+        vault_path: &str,
+        relative_path: &str,
+        content: &str,
+        encoding: FileEncoding,
+        line_ending: FileLineEnding,
+        reason: &str,
+        expected_hash: Option<&str>,
+    ) -> AppResult<SaveOutcome> {
+        super::save_note(
+            db_path,
+            vault_path,
+            relative_path,
+            content,
+            encoding,
+            line_ending,
+            reason,
+            expected_hash,
+            None,
+        )
+    }
+
+    fn create_entry(
+        db_path: &Path,
+        vault_path: &str,
+        parent_path: &str,
+        name: &str,
+        directory: bool,
+    ) -> AppResult<String> {
+        super::create_entry(db_path, vault_path, parent_path, name, directory, None)
+    }
+
+    fn list_history(
+        db_path: &Path,
+        vault_path: &str,
+        relative_path: &str,
+    ) -> AppResult<Vec<HistoryRevision>> {
+        super::list_history(db_path, vault_path, relative_path, None)
+    }
+
+    fn restore_revision(
+        db_path: &Path,
+        vault_path: &str,
+        relative_path: &str,
+        revision_id: i64,
+    ) -> AppResult<NoteDocument> {
+        super::restore_revision(db_path, vault_path, relative_path, revision_id, None)
+    }
+
+    fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
+        super::list_search_documents(db_path, vault_path, None)
+    }
+
+    fn list_editable_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
+        super::list_editable_documents(db_path, vault_path, None)
+    }
+
+    fn read_image_data_url(
+        db_path: &Path,
+        vault_path: &str,
+        note_path: Option<&str>,
+        image_source: &str,
+    ) -> AppResult<String> {
+        super::read_image_data_url(db_path, vault_path, note_path, image_source, None)
+    }
+
+    fn save_attachment(
+        vault_path: &str,
+        note_path: &str,
+        file_name: &str,
+        data: &[u8],
+    ) -> AppResult<String> {
+        super::save_attachment(vault_path, note_path, file_name, data, None)
+    }
 
     #[test]
     fn rejects_parent_directory_paths() {
@@ -2046,6 +2502,168 @@ mod tests {
         assert_eq!(
             xattr::get(&note_path, attribute).expect("get xattr"),
             Some(b"kept".to_vec())
+        );
+    }
+
+    #[test]
+    fn encryption_round_trip_covers_files_trash_and_history() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let db_path = directory.path().join("denote.sqlite3");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "first").expect("initial note");
+        fs::write(vault_path.join("trashed.bin"), [0, 159, 146, 150]).expect("initial binary");
+        db::initialize(&db_path).expect("database");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        let opened = read_note(&db_path, vault_path.to_str().unwrap(), "note.md")
+            .expect("read initial note");
+        save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "second",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
+            "manual save",
+            Some(&opened.content_hash),
+        )
+        .expect("save note");
+        let connection = db::open(&db_path).expect("database connection");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let (vault_id, _) =
+            ensure_vault(&connection, &canonical_vault_path).expect("vault metadata");
+        assert_eq!(
+            db::list_history(&connection, vault_id, "note.md")
+                .expect("initial stored history")
+                .len(),
+            1
+        );
+        trash_entry(&db_path, vault_path.to_str().unwrap(), "trashed.bin").expect("trash binary");
+
+        let (manifest, vault_key, _) =
+            crypto::create_manifest("correct horse battery staple").expect("manifest");
+        crypto::save_manifest(&vault_path, &manifest).expect("save manifest");
+        let key = vault_key.copy_bytes();
+        encrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("encrypt vault");
+
+        assert!(crypto::is_encrypted_file(
+            &fs::read(vault_path.join("note.md")).expect("encrypted note")
+        ));
+        let trashed_path = WalkDir::new(vault_path.join(".denote/trash"))
+            .into_iter()
+            .filter_map(Result::ok)
+            .find(|entry| entry.file_name() == "trashed.bin")
+            .expect("trashed file")
+            .into_path();
+        assert!(crypto::is_encrypted_file(
+            &fs::read(&trashed_path).expect("encrypted trash")
+        ));
+        let stored_history =
+            db::list_history(&connection, vault_id, "note.md").expect("stored history");
+        assert!(stored_history[0].is_encrypted);
+        assert!(!stored_history[0].content.contains("first"));
+        assert!(
+            !fs::read(&db_path)
+                .expect("database bytes")
+                .windows(b"first".len())
+                .any(|window| window == b"first")
+        );
+        let wal_path = db_path.with_file_name("denote.sqlite3-wal");
+        if wal_path.exists() {
+            assert!(
+                !fs::read(wal_path)
+                    .expect("database WAL bytes")
+                    .windows(b"first".len())
+                    .any(|window| window == b"first")
+            );
+        }
+        assert!(matches!(
+            super::read_note(&db_path, vault_path.to_str().unwrap(), "note.md", None),
+            Err(AppError::Locked)
+        ));
+        assert_eq!(
+            super::read_note(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "note.md",
+                Some(&key)
+            )
+            .expect("read encrypted note")
+            .content,
+            "second"
+        );
+        assert_eq!(
+            super::list_history(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "note.md",
+                Some(&key)
+            )
+            .expect("encrypted history")[0]
+                .preview,
+            "first"
+        );
+
+        encrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("resume encryption");
+        decrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("decrypt vault");
+        crypto::remove_manifest(&vault_path).expect("remove manifest");
+
+        assert_eq!(
+            fs::read_to_string(vault_path.join("note.md")).expect("plain note"),
+            "second"
+        );
+        assert_eq!(
+            fs::read(&trashed_path).expect("plain trash"),
+            [0, 159, 146, 150]
+        );
+        assert_eq!(
+            list_history(&db_path, vault_path.to_str().unwrap(), "note.md").expect("plain history")
+                [0]
+            .preview,
+            "first"
+        );
+        assert!(
+            !db::list_history(&connection, vault_id, "note.md").expect("decrypted stored history")
+                [0]
+            .is_encrypted
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlock_sweep_skips_unreadable_files() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let db_path = directory.path().join("denote.sqlite3");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("readable.md"), "readable").expect("readable file");
+        let unreadable_path = vault_path.join("unreadable.md");
+        fs::write(&unreadable_path, "unreadable").expect("unreadable file");
+        fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o000))
+            .expect("remove permissions");
+        db::initialize(&db_path).expect("database");
+        let (_, vault_key, _) =
+            crypto::create_manifest("correct horse battery staple").expect("manifest");
+        let key = vault_key.copy_bytes();
+
+        let skipped =
+            sweep_vault_encryption(&db_path, vault_path.to_str().unwrap(), &key).expect("sweep");
+
+        fs::set_permissions(&unreadable_path, fs::Permissions::from_mode(0o600))
+            .expect("restore permissions");
+        assert_eq!(skipped, 1);
+        assert!(crypto::is_encrypted_file(
+            &fs::read(vault_path.join("readable.md")).expect("encrypted readable file")
+        ));
+        assert_eq!(
+            fs::read_to_string(unreadable_path).expect("plain unreadable file"),
+            "unreadable"
         );
     }
 }

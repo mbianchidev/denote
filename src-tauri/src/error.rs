@@ -19,6 +19,10 @@ pub enum AppError {
     State(String),
     #[error("Save conflict: {0}")]
     Conflict(String),
+    #[error("Vault is locked")]
+    Locked,
+    #[error("Encryption error: {0}")]
+    Crypto(String),
 }
 
 impl Serialize for AppError {

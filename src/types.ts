@@ -45,6 +45,15 @@ export interface TrashItem {
   isDirectory: boolean;
 }
 
+export type EncryptionPhase = "encrypting" | "encrypted" | "decrypting";
+
+export interface EncryptionStatus {
+  enabled: boolean;
+  unlocked: boolean;
+  phase: EncryptionPhase | null;
+  remainingRecoveryCodes: number;
+}
+
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
@@ -52,6 +61,17 @@ export interface WorkspaceSnapshot {
   bookmarks: NoteListItem[];
   recent: NoteListItem[];
   trash: TrashItem[];
+  encryption: EncryptionStatus;
+}
+
+export interface EncryptionSetupResult {
+  snapshot: WorkspaceSnapshot;
+  recoveryCodes: string[];
+}
+
+export interface RecoveryCodesResult {
+  remainingRecoveryCodes: number;
+  recoveryCodes: string[];
 }
 
 export interface SaveOutcome {

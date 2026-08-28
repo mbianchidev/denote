@@ -18,7 +18,14 @@ Plugins are expected to:
 - store settings and generated data separately from Markdown content;
 - clean up event handlers and resources when disabled;
 - surface errors instead of silently failing;
+- never receive the unwrapped vault encryption key;
 - preserve vault portability when removed.
+
+Content-oriented extension points are unavailable while an encrypted vault is
+locked. Plugins must use host APIs rather than reading decrypted temporary
+files. The Git plugin is the exception for direct on-disk versioning: it stages
+ciphertext only, includes `.denote/encryption.json`, and runs the host's
+encryption preflight before committing.
 
 The first release ships no optional plugins. Git, graph view, Kanban, Mermaid,
 task lists, reminders, comments, highlighting, speech, calendar, time tracking,

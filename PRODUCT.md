@@ -23,8 +23,8 @@ moving their content into a proprietary format or hosted service.
 ## Positioning
 
 Denote combines an Obsidian-like vault and file workflow with a Typora-like
-single-pane Markdown editing experience. Markdown files remain the source of
-truth while optional workspace metadata is stored locally in SQLite.
+single-pane Markdown editing experience. The selected folder remains the source
+of truth while optional workspace metadata is stored locally in SQLite.
 
 ## Operating Context
 
@@ -53,6 +53,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, content, file type, bookmarks, and recency.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
+- Vault encryption is optional and encrypts file contents plus saved revision
+  contents while leaving paths visible. It uses a password, ten one-time
+  recovery codes, and resumable full-vault encryption and decryption.
+- Disabling vault encryption requires every encrypted file and revision to be
+  decrypted successfully first.
 - The core application stays minimal. Additional capabilities are tracked as
   optional plugins rather than bundled into the first release.
 - No cloud account, synchronization service, telemetry, or remote content
@@ -71,7 +76,8 @@ available. Future work must not fabricate them.
 
 ## Product Principles
 
-1. Files first: Markdown on disk is always the durable source of truth.
+1. Files first: the vault on disk is always the durable source of truth, either
+   as directly editable content or explicitly enabled ciphertext.
 2. Writing stays central: editing should feel immediate and visually calm.
 3. Recovery is routine: autosave, history, and trash prevent avoidable loss.
 4. Search is local and fast: useful retrieval does not require a server.

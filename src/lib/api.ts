@@ -4,8 +4,10 @@ import type {
   FileEncoding,
   FileLineEnding,
   DocumentBatch,
+  EncryptionSetupResult,
   NoteDocument,
   NoteStats,
+  RecoveryCodesResult,
   SaveOutcome,
   WorkspaceSnapshot,
 } from "../types";
@@ -14,6 +16,21 @@ export const api = {
   getLastVault: () => invoke<WorkspaceSnapshot | null>("get_last_vault"),
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
+  enableVaultEncryption: (password: string) =>
+    invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),
+  unlockVaultWithPassword: (password: string) =>
+    invoke<WorkspaceSnapshot>("unlock_vault_with_password", { password }),
+  unlockVaultWithRecoveryCode: (recoveryCode: string) =>
+    invoke<WorkspaceSnapshot>("unlock_vault_with_recovery_code", {
+      recoveryCode,
+    }),
+  lockVault: () => invoke<WorkspaceSnapshot>("lock_vault"),
+  changeVaultPassword: (password: string) =>
+    invoke<void>("change_vault_password", { password }),
+  regenerateVaultRecoveryCodes: () =>
+    invoke<RecoveryCodesResult>("regenerate_vault_recovery_codes"),
+  disableVaultEncryption: () =>
+    invoke<WorkspaceSnapshot>("disable_vault_encryption"),
   readNote: (path: string) => invoke<NoteDocument>("read_note", { path }),
   saveNote: (
     path: string,

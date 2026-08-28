@@ -17,6 +17,7 @@ import {
   RefreshCw,
   Replace as ReplaceIcon,
   RotateCcw,
+  ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
@@ -29,6 +30,7 @@ import {
 } from "react";
 import { ActivityRail } from "./components/ActivityRail";
 import { ActionDialog } from "./components/ActionDialog";
+import { EncryptionDialog } from "./components/EncryptionDialog";
 import { FileTree } from "./components/FileTree";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
@@ -36,6 +38,7 @@ import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { TableOfContents } from "./components/TableOfContents";
 import { Tabs } from "./components/Tabs";
+import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
 import {
@@ -104,6 +107,7 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
     null,
@@ -279,6 +283,8 @@ function App() {
 
   const loadWorkspace = useCallback(
     async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
+      const vaultLocked =
+        snapshot.encryption.enabled && !snapshot.encryption.unlocked;
       if (indexTimer.current) {
         window.clearTimeout(indexTimer.current);
         indexTimer.current = null;
@@ -287,6 +293,14 @@ function App() {
       queryRequest.current += 1;
       searchIndex.current = new VaultSearchIndex();
       setSearchResults([]);
+      if (resetTabs || vaultLocked) {
+        setSearchQuery("");
+        setHistoryOpen(false);
+        setHistoryRevisions([]);
+        setReplaceOpen(false);
+        setEncryptionOpen(false);
+        pendingAnchor.current = null;
+      }
       setIndexing(false);
       setWorkspace(snapshot);
       setSelectedPath(null);
@@ -298,7 +312,7 @@ function App() {
             .map((node) => node.path),
         ),
       );
-      if (resetTabs) {
+      if (resetTabs || vaultLocked) {
         for (const timer of saveTimers.current.values()) {
           window.clearTimeout(timer);
         }
@@ -314,8 +328,12 @@ function App() {
         commitTabs(() => []);
         setActivePath(null);
       }
-      setStatus(`Opened ${snapshot.vaultName}`);
-      await rebuildSearchIndex(vaultGeneration.current);
+      if (vaultLocked) {
+        setStatus(`${snapshot.vaultName} is locked`);
+      } else {
+        setStatus(`Opened ${snapshot.vaultName}`);
+        await rebuildSearchIndex(vaultGeneration.current);
+      }
     },
     [commitTabs, rebuildSearchIndex],
   );
@@ -409,6 +427,112 @@ function App() {
       setWorkspaceLock(false);
     }
   }, [loadWorkspace, setWorkspaceLock, showError]);
+
+  const applyEncryptionSnapshot = useCallback(
+    async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
+      vaultGeneration.current += 1;
+      await loadWorkspace(snapshot, resetTabs);
+    },
+    [loadWorkspace],
+  );
+
+  const enableVaultEncryption = useCallback(
+    async (password: string): Promise<string[]> => {
+      if (!(await beginWorkspaceOperationRef.current())) {
+        throw new Error("Encryption cancelled because a file could not be saved.");
+      }
+      try {
+        const result = await api.enableVaultEncryption(password);
+        await applyEncryptionSnapshot(result.snapshot, false);
+        setStatus("Vault encryption enabled");
+        return result.recoveryCodes;
+      } catch (caught) {
+        try {
+          const snapshot = await api.refreshVault();
+          if (snapshot.encryption.enabled) {
+            const lockedSnapshot = await api.lockVault();
+            await applyEncryptionSnapshot(lockedSnapshot, true);
+          }
+        } catch (recoveryError) {
+          console.error(
+            "Unable to lock the vault after encryption failed:",
+            recoveryError,
+          );
+        }
+        showError(caught);
+        throw caught;
+      } finally {
+        setWorkspaceLock(false);
+      }
+    },
+    [applyEncryptionSnapshot, setWorkspaceLock, showError],
+  );
+
+  const lockEncryptedVault = useCallback(async () => {
+    if (!(await beginWorkspaceOperationRef.current())) {
+      throw new Error("Lock cancelled because a file could not be saved.");
+    }
+    try {
+      const snapshot = await api.lockVault();
+      setEncryptionOpen(false);
+      await applyEncryptionSnapshot(snapshot, true);
+    } finally {
+      setWorkspaceLock(false);
+    }
+  }, [applyEncryptionSnapshot, setWorkspaceLock]);
+
+  const unlockEncryptedVault = useCallback(
+    async (credential: string, recovery: boolean) => {
+      const snapshot = recovery
+        ? await api.unlockVaultWithRecoveryCode(credential)
+        : await api.unlockVaultWithPassword(credential);
+      await applyEncryptionSnapshot(snapshot, true);
+      setStatus(
+        recovery
+          ? "Vault unlocked; recovery code consumed"
+          : "Vault unlocked",
+      );
+    },
+    [applyEncryptionSnapshot],
+  );
+
+  const changeVaultPassword = useCallback(async (password: string) => {
+    await api.changeVaultPassword(password);
+    setStatus("Vault password changed");
+  }, []);
+
+  const regenerateRecoveryCodes = useCallback(async (): Promise<string[]> => {
+    const result = await api.regenerateVaultRecoveryCodes();
+    const snapshot = await api.refreshVault();
+    setWorkspace(snapshot);
+    setStatus("Recovery codes replaced");
+    return result.recoveryCodes;
+  }, []);
+
+  const disableVaultEncryption = useCallback(async () => {
+    if (!(await beginWorkspaceOperationRef.current())) {
+      throw new Error("Decryption cancelled because a file could not be saved.");
+    }
+    try {
+      const snapshot = await api.disableVaultEncryption();
+      await applyEncryptionSnapshot(snapshot, false);
+      setStatus("Vault decrypted; encryption disabled");
+    } catch (caught) {
+      try {
+        const lockedSnapshot = await api.lockVault();
+        await applyEncryptionSnapshot(lockedSnapshot, true);
+      } catch (recoveryError) {
+        console.error(
+          "Unable to lock the vault after decryption failed:",
+          recoveryError,
+        );
+      }
+      showError(caught);
+      throw caught;
+    } finally {
+      setWorkspaceLock(false);
+    }
+  }, [applyEncryptionSnapshot, setWorkspaceLock, showError]);
 
   const scheduleIndexRebuild = useCallback(() => {
     if (!workspace) {
@@ -1675,6 +1799,7 @@ function App() {
       if (
         workspaceLockedRef.current ||
         replaceOpen ||
+        encryptionOpen ||
         actionDialog !== null ||
         historyOpen
       ) {
@@ -1717,6 +1842,7 @@ function App() {
     activePath,
     activeTab,
     closeTab,
+    encryptionOpen,
     historyOpen,
     replaceOpen,
     saveTab,
@@ -1750,6 +1876,45 @@ function App() {
     );
   }
 
+  if (workspace.encryption.enabled && !workspace.encryption.unlocked) {
+    return (
+      <>
+        <span
+          hidden
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
+        />
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Dismiss error"
+              onClick={() => setError(null)}
+            >
+              <X aria-hidden="true" size={16} />
+            </button>
+          </div>
+        ) : null}
+        <VaultUnlockScreen
+          vaultName={workspace.vaultName}
+          theme={theme}
+          onThemeToggle={() =>
+            setTheme((current) => (current === "dark" ? "light" : "dark"))
+          }
+          onChooseVault={chooseVault}
+          onUnlockWithPassword={(password) =>
+            unlockEncryptedVault(password, false)
+          }
+          onUnlockWithRecoveryCode={(recoveryCode) =>
+            unlockEncryptedVault(recoveryCode, true)
+          }
+        />
+      </>
+    );
+  }
+
   return (
     <div className="app-shell">
       <span
@@ -1774,15 +1939,26 @@ function App() {
             <span>Vault</span>
             <h1>{workspace.vaultName}</h1>
           </div>
-          <button
-            type="button"
-            className="icon-button"
-            title="Open another vault"
-            aria-label="Open another vault"
-            onClick={chooseVault}
-          >
-            <FolderOpen aria-hidden="true" size={17} />
-          </button>
+          <div className="sidebar-header__actions">
+            <button
+              type="button"
+              className="icon-button"
+              title="Vault encryption"
+              aria-label="Manage vault encryption"
+              onClick={() => setEncryptionOpen(true)}
+            >
+              <ShieldCheck aria-hidden="true" size={17} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              title="Open another vault"
+              aria-label="Open another vault"
+              onClick={chooseVault}
+            >
+              <FolderOpen aria-hidden="true" size={17} />
+            </button>
+          </div>
         </header>
         {sidebarView === "files" ? (
           <>
@@ -2216,6 +2392,16 @@ function App() {
         onClose={() => setReplaceOpen(false)}
         onPreview={previewReplace}
         onApply={applyReplace}
+      />
+      <EncryptionDialog
+        open={encryptionOpen}
+        encryption={workspace.encryption}
+        onClose={() => setEncryptionOpen(false)}
+        onEnable={enableVaultEncryption}
+        onLock={lockEncryptedVault}
+        onChangePassword={changeVaultPassword}
+        onRegenerateRecoveryCodes={regenerateRecoveryCodes}
+        onDisable={disableVaultEncryption}
       />
       <ActionDialog
         open={actionDialog !== null}

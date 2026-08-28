@@ -292,6 +292,15 @@ Binary files use the plain monospace editor with a persistent warning strip
 that names Base64 as the reversible representation and explains save
 validation.
 
+### Vault Security
+
+The locked vault replaces the workspace with one focused unlock surface and
+keeps theme and vault-switch controls available. Encryption management uses a
+compact modal, explicit password confirmation, and plain-language disclosure
+that paths remain visible. Recovery codes use a dense two-column monospace list
+and cannot be dismissed until the user confirms they were saved. Full
+decryption is the only danger-styled encryption action.
+
 ## Do's and Don'ts
 
 ### Do:

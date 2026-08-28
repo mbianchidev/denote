@@ -26,6 +26,49 @@ action returns them to their original path, choosing a non-conflicting restored
 name when necessary. Empty Trash permanently removes both hidden files and
 their plugin-free metadata after explicit confirmation.
 
+## Vault encryption
+
+Encryption is a vault-level, optional state. Denote generates a random 256-bit
+data key and stores only wrapped copies in `.denote/encryption.json`. The
+password wrapper uses Argon2id with a per-vault salt. Ten high-entropy,
+one-time recovery codes each have an independent salt and wrapped copy of the
+same data key. Successfully using a recovery code removes its slot from the
+manifest before the vault is unlocked.
+
+File contents use chunked XChaCha20-Poly1305 with 1 MB chunks. Every chunk has a
+nonce derived from a random per-file prefix and its chunk index, and
+authenticates the file header and index as additional data. Streaming
+transforms use the same atomic replacement path as ordinary saves, so large
+files do not need to fit in memory. Existing version-one whole-file ciphertext
+remains readable.
+
+The manifest records `encrypting`, `encrypted`, or `decrypting`. Each file and
+history row is transformed atomically and checked before work is repeated, so
+an interrupted operation resumes after password or recovery-code unlock.
+The manifest is removed only after every encrypted file and history record has
+been decrypted. Denote Trash is encrypted with the rest of the vault; only the
+manifest and internal lock files remain plaintext control data.
+
+The unwrapped data key lives only in zeroizing native memory while the vault is
+unlocked. Search, previews, history, saves, and attachments cross the native
+boundary as plaintext only after unlock. Tabs, history previews, replace
+previews, and the in-memory search index are cleared when the vault locks.
+Unlock, explicit lock, and application exit also sweep files created externally
+while Denote was not actively writing.
+
+Paths are intentionally not encrypted. Filenames, folder structure, file sizes,
+timestamps, trash paths, counters, bookmarks, and other non-content metadata
+remain observable. The application-data SQLite file is not a password vault:
+revision contents are encrypted, but operational metadata is not. Encryption
+also does not protect plaintext already exposed to another process while the
+vault is unlocked.
+
+SQLite connections enable secure deletion. Completing initial encryption
+checkpoints and truncates the WAL, then vacuums the metadata database so prior
+plaintext revision rows are not left in active database pages. This cannot
+erase independent backups, filesystem snapshots, journal history, or storage
+device remnants created before encryption was enabled.
+
 ## SQLite metadata
 
 The application-data database stores:
@@ -33,7 +76,8 @@ The application-data database stores:
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
 - bookmarks and explicit sibling ordering;
-- the previous 10 distinct saved contents per note;
+- the previous 10 distinct saved contents per note, encrypted when vault
+  encryption is enabled;
 - trash records used by restore.
 
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative
@@ -93,4 +137,7 @@ preserving ACLs, DOS attributes, and alternate data streams.
 Filesystem operations run through dedicated Tauri commands rather than a broad
 frontend filesystem permission. External URLs and file paths use the official
 Tauri opener plugin. The content security policy only allows local application
-code plus the image sources required for Markdown previews.
+code plus the image sources required for Markdown previews. Encrypted vaults
+must be unlocked before content commands receive a data key, and incomplete
+encryption state blocks ordinary content operations until the resumable
+transformation finishes.

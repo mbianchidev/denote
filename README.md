@@ -2,7 +2,7 @@
 
 Denote is a local-first Markdown vault for macOS, Windows, and Linux. It pairs
 an Obsidian-like file workspace with a Typora-like rich editor while keeping
-plain UTF-8 files as the source of truth.
+the selected folder as the source of truth.
 
 <img width="1710" height="1078" alt="Denote Markdown editor" src="https://github.com/user-attachments/assets/b984fc91-d90b-41b1-a11f-67cc076ae55d" />
 
@@ -23,6 +23,7 @@ plain UTF-8 files as the source of truth.
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
 - Dark mode by default with persistent light mode
+- Optional password-based vault encryption with ten one-time recovery codes
 - A typed host contract for separately shipped optional plugins
 
 Files remain in the selected vault. Denote's SQLite database lives in the
@@ -41,6 +42,30 @@ Notes containing raw HTML, footnotes, or math open in source mode by default so
 unsupported rich-editor transforms cannot silently rewrite that syntax.
 If another application changes an open note, Denote rejects the stale autosave
 instead of overwriting the external edit.
+
+## Vault encryption
+
+Vault encryption is optional. When enabled, Denote encrypts every vault content
+file, including files in Denote Trash, plus saved revision contents. A random
+256-bit vault key is protected by a password and ten independently wrapped,
+one-time recovery codes. Save the recovery codes when shown: Denote cannot
+recover a lost password without an unused code.
+
+Files are encrypted with chunked XChaCha20-Poly1305 so large files can be
+transformed without being loaded fully into memory. The password wrapping key
+uses Argon2id. Locking or closing Denote performs a final encryption sweep, and
+interrupted encryption or decryption resumes after the next successful unlock.
+Disabling encryption always decrypts the complete vault before removing the
+encryption manifest.
+
+Encryption protects file and revision contents at rest. It intentionally leaves
+filenames, folder names, file sizes, timestamps, and non-content SQLite metadata
+visible. Content is available in application memory while the vault is unlocked.
+Other applications see ciphertext while encryption is enabled. Keep
+`.denote/encryption.json` with the vault; backups or Git synchronization must
+include it. The optional Git plugin is designed to commit the encrypted on-disk
+files, not plaintext. Enabling encryption cannot erase plaintext from backups,
+filesystem snapshots, or storage history that already existed.
 
 ## Search
 

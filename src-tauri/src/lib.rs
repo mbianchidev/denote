@@ -1,4 +1,5 @@
 mod commands;
+mod crypto;
 mod db;
 mod error;
 mod models;
@@ -29,6 +30,13 @@ pub fn run() {
             commands::get_last_vault,
             commands::choose_vault,
             commands::refresh_vault,
+            commands::enable_vault_encryption,
+            commands::unlock_vault_with_password,
+            commands::unlock_vault_with_recovery_code,
+            commands::lock_vault,
+            commands::change_vault_password,
+            commands::regenerate_vault_recovery_codes,
+            commands::disable_vault_encryption,
             commands::read_note,
             commands::save_note,
             commands::create_entry,

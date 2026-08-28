@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::crypto::EncryptionPhase;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum FileKind {
@@ -122,6 +124,41 @@ pub struct WorkspaceSnapshot {
     pub bookmarks: Vec<NoteListItem>,
     pub recent: Vec<NoteListItem>,
     pub trash: Vec<TrashItem>,
+    pub encryption: EncryptionStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptionStatus {
+    pub enabled: bool,
+    pub unlocked: bool,
+    pub phase: Option<EncryptionPhase>,
+    pub remaining_recovery_codes: usize,
+}
+
+impl Default for EncryptionStatus {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            unlocked: true,
+            phase: None,
+            remaining_recovery_codes: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EncryptionSetupResult {
+    pub snapshot: WorkspaceSnapshot,
+    pub recovery_codes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryCodesResult {
+    pub remaining_recovery_codes: usize,
+    pub recovery_codes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::{
-        RwLock,
+        RwLock, RwLockReadGuard, RwLockWriteGuard,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -11,10 +11,12 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::{
+    crypto::VaultKey,
     error::AppResult,
-    models::{FileEncoding, FileLineEnding, HistoryRevision, NoteListItem, NoteStats, TrashItem},
+    models::{FileEncoding, FileLineEnding, NoteListItem, NoteStats, TrashItem},
 };
 
 pub const HISTORY_LIMIT: i64 = 10;
@@ -22,6 +24,8 @@ pub const HISTORY_LIMIT: i64 = 10;
 pub struct AppState {
     pub db_path: PathBuf,
     active_vault: RwLock<Option<PathBuf>>,
+    vault_key: RwLock<Option<VaultKey>>,
+    vault_access: RwLock<()>,
     allow_exit: AtomicBool,
 }
 
@@ -30,25 +34,77 @@ impl AppState {
         Self {
             db_path,
             active_vault: RwLock::new(active_vault),
+            vault_key: RwLock::new(None),
+            vault_access: RwLock::new(()),
             allow_exit: AtomicBool::new(false),
         }
     }
 
     pub fn active_vault(&self) -> AppResult<PathBuf> {
-        self.active_vault
-            .read()
-            .map_err(|_| crate::error::AppError::State("Vault lock is poisoned".to_string()))?
-            .clone()
+        self.active_vault_optional()?
             .ok_or_else(|| crate::error::AppError::State("No vault is open".to_string()))
     }
 
+    pub fn active_vault_optional(&self) -> AppResult<Option<PathBuf>> {
+        Ok(self
+            .active_vault
+            .read()
+            .map_err(|_| crate::error::AppError::State("Vault lock is poisoned".to_string()))?
+            .clone())
+    }
+
     pub fn set_active_vault(&self, path: PathBuf) -> AppResult<()> {
+        self.clear_vault_key()?;
         *self
             .active_vault
             .write()
             .map_err(|_| crate::error::AppError::State("Vault lock is poisoned".to_string()))? =
             Some(path);
         Ok(())
+    }
+
+    pub fn set_vault_key(&self, key: VaultKey) -> AppResult<()> {
+        *self.vault_key.write().map_err(|_| {
+            crate::error::AppError::State("Vault key lock is poisoned".to_string())
+        })? = Some(key);
+        Ok(())
+    }
+
+    pub fn clear_vault_key(&self) -> AppResult<()> {
+        self.vault_key
+            .write()
+            .map_err(|_| crate::error::AppError::State("Vault key lock is poisoned".to_string()))?
+            .take();
+        Ok(())
+    }
+
+    pub fn vault_key(&self) -> AppResult<Zeroizing<[u8; 32]>> {
+        self.vault_key
+            .read()
+            .map_err(|_| crate::error::AppError::State("Vault key lock is poisoned".to_string()))?
+            .as_ref()
+            .map(VaultKey::copy_bytes)
+            .ok_or(crate::error::AppError::Locked)
+    }
+
+    pub fn vault_is_unlocked(&self) -> AppResult<bool> {
+        Ok(self
+            .vault_key
+            .read()
+            .map_err(|_| crate::error::AppError::State("Vault key lock is poisoned".to_string()))?
+            .is_some())
+    }
+
+    pub fn read_vault_access(&self) -> AppResult<RwLockReadGuard<'_, ()>> {
+        self.vault_access
+            .read()
+            .map_err(|_| crate::error::AppError::State("Vault access lock is poisoned".to_string()))
+    }
+
+    pub fn write_vault_access(&self) -> AppResult<RwLockWriteGuard<'_, ()>> {
+        self.vault_access
+            .write()
+            .map_err(|_| crate::error::AppError::State("Vault access lock is poisoned".to_string()))
     }
 
     pub fn allow_exit(&self) {
@@ -104,6 +160,7 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           content TEXT NOT NULL,
           encoding TEXT NOT NULL DEFAULT 'utf8',
           line_ending TEXT NOT NULL DEFAULT 'lf',
+          is_encrypted INTEGER NOT NULL DEFAULT 0,
           content_hash TEXT NOT NULL,
           reason TEXT NOT NULL,
           created_at TEXT NOT NULL,
@@ -180,12 +237,23 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    let added_history_encryption = !column_exists(&migration, "history", "is_encrypted")?;
+    if added_history_encryption {
+        migration.execute(
+            "ALTER TABLE history ADD COLUMN is_encrypted INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
         [],
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (4, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (5, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -271,8 +339,21 @@ fn column_exists(connection: &Connection, table: &str, column: &str) -> AppResul
 
 pub fn open(db_path: &Path) -> AppResult<Connection> {
     let connection = Connection::open(db_path)?;
-    connection.execute_batch("PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;")?;
+    connection.execute_batch(
+        "PRAGMA foreign_keys = ON;
+         PRAGMA busy_timeout = 5000;
+         PRAGMA secure_delete = ON;",
+    )?;
     Ok(connection)
+}
+
+pub fn scrub_deleted_content(connection: &Connection) -> AppResult<()> {
+    connection.execute_batch(
+        "PRAGMA wal_checkpoint(TRUNCATE);
+         VACUUM;
+         PRAGMA wal_checkpoint(TRUNCATE);",
+    )?;
+    Ok(())
 }
 
 pub fn now() -> String {
@@ -538,6 +619,7 @@ pub fn push_history(
     content_hash: &str,
     encoding: FileEncoding,
     line_ending: FileLineEnding,
+    is_encrypted: bool,
     reason: &str,
 ) -> AppResult<()> {
     let latest_hash: Option<String> = transaction
@@ -560,9 +642,10 @@ pub fn push_history(
     transaction.execute(
         r#"
         INSERT INTO history(
-          vault_id, path, content, encoding, line_ending, content_hash, reason, created_at
+          vault_id, path, content, encoding, line_ending, is_encrypted,
+          content_hash, reason, created_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#,
         params![
             vault_id,
@@ -570,6 +653,7 @@ pub fn push_history(
             content,
             encoding.as_str(),
             line_ending.as_str(),
+            i64::from(is_encrypted),
             content_hash,
             reason,
             now()
@@ -593,31 +677,39 @@ pub fn push_history(
     Ok(())
 }
 
+#[derive(Debug, Clone)]
+pub struct StoredHistoryRevision {
+    pub id: i64,
+    pub created_at: String,
+    pub reason: String,
+    pub content: String,
+    pub encoding: FileEncoding,
+    pub line_ending: FileLineEnding,
+    pub is_encrypted: bool,
+}
+
 pub fn list_history(
     connection: &Connection,
     vault_id: i64,
     path: &str,
-) -> AppResult<Vec<HistoryRevision>> {
+) -> AppResult<Vec<StoredHistoryRevision>> {
     let mut statement = connection.prepare(
         r#"
-        SELECT id, created_at, reason, content, encoding, line_ending
+        SELECT id, created_at, reason, content, encoding, line_ending, is_encrypted
         FROM history
         WHERE vault_id = ?1 AND path = ?2
         ORDER BY id DESC
         "#,
     )?;
     let rows = statement.query_map(params![vault_id, path], |row| {
-        let content: String = row.get(3)?;
-        let encoding = FileEncoding::from_str(&row.get::<_, String>(4)?);
-        let line_ending = FileLineEnding::from_str(&row.get::<_, String>(5)?);
-        Ok(HistoryRevision {
+        Ok(StoredHistoryRevision {
             id: row.get(0)?,
             created_at: row.get(1)?,
             reason: row.get(2)?,
-            preview: preview(&content),
-            byte_count: history_byte_count(&content, encoding),
-            encoding,
-            line_ending,
+            content: row.get(3)?,
+            encoding: FileEncoding::from_str(&row.get::<_, String>(4)?),
+            line_ending: FileLineEnding::from_str(&row.get::<_, String>(5)?),
+            is_encrypted: row.get::<_, i64>(6)? != 0,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -628,24 +720,70 @@ pub fn history_content(
     vault_id: i64,
     path: &str,
     revision_id: i64,
-) -> AppResult<Option<(String, FileEncoding, FileLineEnding)>> {
+) -> AppResult<Option<StoredHistoryRevision>> {
     Ok(connection
         .query_row(
             r#"
-            SELECT content, encoding, line_ending
+            SELECT id, created_at, reason, content, encoding, line_ending, is_encrypted
             FROM history
             WHERE id = ?1 AND vault_id = ?2 AND path = ?3
             "#,
             params![revision_id, vault_id, path],
             |row| {
-                Ok((
-                    row.get(0)?,
-                    FileEncoding::from_str(&row.get::<_, String>(1)?),
-                    FileLineEnding::from_str(&row.get::<_, String>(2)?),
-                ))
+                Ok(StoredHistoryRevision {
+                    id: row.get(0)?,
+                    created_at: row.get(1)?,
+                    reason: row.get(2)?,
+                    content: row.get(3)?,
+                    encoding: FileEncoding::from_str(&row.get::<_, String>(4)?),
+                    line_ending: FileLineEnding::from_str(&row.get::<_, String>(5)?),
+                    is_encrypted: row.get::<_, i64>(6)? != 0,
+                })
             },
         )
         .optional()?)
+}
+
+pub fn history_rows_after(
+    connection: &Connection,
+    vault_id: i64,
+    last_id: i64,
+    limit: i64,
+) -> AppResult<Vec<StoredHistoryRevision>> {
+    let mut statement = connection.prepare(
+        r#"
+        SELECT id, created_at, reason, content, encoding, line_ending, is_encrypted
+        FROM history
+        WHERE vault_id = ?1 AND id > ?2
+        ORDER BY id
+        LIMIT ?3
+        "#,
+    )?;
+    let rows = statement.query_map(params![vault_id, last_id, limit], |row| {
+        Ok(StoredHistoryRevision {
+            id: row.get(0)?,
+            created_at: row.get(1)?,
+            reason: row.get(2)?,
+            content: row.get(3)?,
+            encoding: FileEncoding::from_str(&row.get::<_, String>(4)?),
+            line_ending: FileLineEnding::from_str(&row.get::<_, String>(5)?),
+            is_encrypted: row.get::<_, i64>(6)? != 0,
+        })
+    })?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+pub fn update_history_storage(
+    connection: &Connection,
+    id: i64,
+    content: &str,
+    is_encrypted: bool,
+) -> AppResult<()> {
+    connection.execute(
+        "UPDATE history SET content = ?1, is_encrypted = ?2 WHERE id = ?3",
+        params![content, i64::from(is_encrypted), id],
+    )?;
+    Ok(())
 }
 
 pub fn history_count(connection: &Connection, vault_id: i64, path: &str) -> AppResult<i64> {
@@ -928,30 +1066,6 @@ fn title_from_path(path: &str) -> String {
         .to_string()
 }
 
-fn preview(content: &str) -> String {
-    let compact = content
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .take(3)
-        .collect::<Vec<_>>()
-        .join(" ");
-    compact.chars().take(180).collect()
-}
-
-fn history_byte_count(content: &str, encoding: FileEncoding) -> usize {
-    match encoding {
-        FileEncoding::Utf8 => content.len(),
-        FileEncoding::Base64 => {
-            let encoded_length = content
-                .chars()
-                .filter(|value| !value.is_whitespace())
-                .count();
-            encoded_length.saturating_mul(3) / 4
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
@@ -979,6 +1093,7 @@ mod tests {
                 &hash,
                 FileEncoding::Utf8,
                 FileLineEnding::Lf,
+                false,
                 "autosave",
             )
             .expect("history");
@@ -1010,6 +1125,7 @@ mod tests {
                 &hash,
                 FileEncoding::Utf8,
                 FileLineEnding::Lf,
+                false,
                 "autosave",
             )
             .expect("history");
