@@ -70,6 +70,13 @@ pub fn encryption_status(
     })
 }
 
+pub fn absolute_entry_path(vault_path: &str, relative_path: &str) -> AppResult<String> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let path = existing_entry(&root, relative_path)?;
+    Ok(path_to_string(&path))
+}
+
 pub fn encrypt_vault_contents(
     db_path: &Path,
     vault_path: &str,
@@ -1896,6 +1903,23 @@ mod tests {
         assert!(normalized_relative("notes/../../secret.md", false).is_err());
         assert!(normalized_relative(".DENOTE/trash/file.md", false).is_err());
         assert!(validate_name(".DeNoTe").is_err());
+    }
+
+    #[test]
+    fn resolves_existing_entries_to_absolute_paths() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "content").expect("note");
+
+        let path = absolute_entry_path(vault_path.to_str().unwrap(), "note.md")
+            .expect("absolute file path");
+
+        assert_eq!(
+            PathBuf::from(path),
+            fs::canonicalize(vault_path.join("note.md")).expect("canonical note")
+        );
+        assert!(absolute_entry_path(vault_path.to_str().unwrap(), "../note.md").is_err());
     }
 
     #[test]

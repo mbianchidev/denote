@@ -6,6 +6,7 @@ import {
   ArrowUp,
   Bookmark,
   BookmarkCheck,
+  Copy,
   FileCode2,
   FilePlus2,
   FolderOpen,
@@ -1659,6 +1660,18 @@ function App() {
     showError,
   ]);
 
+  const copyActiveFilePath = useCallback(async () => {
+    if (!activeTab || workspaceLockedRef.current) {
+      return;
+    }
+    try {
+      await api.copyFilePath(activeTab.path);
+      setStatus("Copied file path");
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [activeTab, showError]);
+
   const toggleRawEditing = useCallback(() => {
     if (!activePathRef.current) {
       return;
@@ -2191,6 +2204,16 @@ function App() {
               onClick={() => setReplaceOpen(true)}
             >
               <ReplaceIcon aria-hidden="true" size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Copy active file path"
+              title="Copy active file path"
+              disabled={!activeTab || workspaceLocked}
+              onClick={() => void copyActiveFilePath()}
+            >
+              <Copy aria-hidden="true" size={16} />
             </button>
             <button
               type="button"

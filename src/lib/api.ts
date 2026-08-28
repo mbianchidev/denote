@@ -31,6 +31,7 @@ export const api = {
     invoke<RecoveryCodesResult>("regenerate_vault_recovery_codes"),
   disableVaultEncryption: () =>
     invoke<WorkspaceSnapshot>("disable_vault_encryption"),
+  copyFilePath: (path: string) => invoke<void>("copy_file_path", { path }),
   readNote: (path: string) => invoke<NoteDocument>("read_note", { path }),
   saveNote: (
     path: string,

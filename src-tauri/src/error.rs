@@ -23,6 +23,8 @@ pub enum AppError {
     Locked,
     #[error("Encryption error: {0}")]
     Crypto(String),
+    #[error("Clipboard operation failed: {0}")]
+    Clipboard(String),
 }
 
 impl Serialize for AppError {

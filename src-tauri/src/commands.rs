@@ -1,5 +1,6 @@
 use base64::{Engine, engine::general_purpose::STANDARD};
 use tauri::{AppHandle, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
 
@@ -252,6 +253,16 @@ pub fn disable_vault_encryption(state: State<'_, AppState>) -> AppResult<Workspa
     crypto::remove_manifest(&root)?;
     state.clear_vault_key()?;
     refreshed_snapshot(&state)
+}
+
+#[tauri::command]
+pub fn copy_file_path(app: AppHandle, state: State<'_, AppState>, path: String) -> AppResult<()> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    let absolute_path = vault::absolute_entry_path(&root.to_string_lossy(), &path)?;
+    app.clipboard()
+        .write_text(absolute_path)
+        .map_err(|error| AppError::Clipboard(error.to_string()))
 }
 
 #[tauri::command]

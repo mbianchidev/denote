@@ -12,6 +12,7 @@ use tauri::{Emitter, Manager, RunEvent};
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
@@ -37,6 +38,7 @@ pub fn run() {
             commands::change_vault_password,
             commands::regenerate_vault_recovery_codes,
             commands::disable_vault_encryption,
+            commands::copy_file_path,
             commands::read_note,
             commands::save_note,
             commands::create_entry,

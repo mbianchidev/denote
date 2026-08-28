@@ -53,6 +53,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, content, file type, bookmarks, and recency.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
+- The active file's validated absolute path can be copied to the system
+  clipboard from the editor toolbar.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.
