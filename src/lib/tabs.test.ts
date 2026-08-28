@@ -35,6 +35,16 @@ describe("tab placement", () => {
     ).toEqual(["three.md", "two.md"]);
   });
 
+  it("preserves the active tab group during ordinary file navigation", () => {
+    expect(
+      placeOpenedTab(
+        [{ ...tab("one.md"), groupId: "work" }, tab("two.md")],
+        "one.md",
+        tab("three.md"),
+      )[0].groupId,
+    ).toBe("work");
+  });
+
   it("fills an explicit blank tab and appends only when no tab is active", () => {
     expect(
       placeOpenedTab([tab("new-tab", true)], "new-tab", tab("note.md"))[0]

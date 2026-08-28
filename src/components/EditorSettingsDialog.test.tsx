@@ -12,6 +12,7 @@ describe("EditorSettingsDialog", () => {
     render(
       <EditorSettingsDialog
         open
+        disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         restoreTabs
         onChange={onChange}
@@ -36,6 +37,7 @@ describe("EditorSettingsDialog", () => {
     render(
       <EditorSettingsDialog
         open
+        disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         restoreTabs
         onChange={vi.fn()}
@@ -49,5 +51,28 @@ describe("EditorSettingsDialog", () => {
     );
 
     expect(onRestoreTabsChange).toHaveBeenCalledWith(false);
+  });
+
+  it("blocks preference changes while the workspace is busy", async () => {
+    const user = userEvent.setup();
+    const onRestoreTabsChange = vi.fn();
+    render(
+      <EditorSettingsDialog
+        open
+        disabled
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        onChange={vi.fn()}
+        onRestoreTabsChange={onRestoreTabsChange}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const restore = screen.getByRole("checkbox", {
+      name: /reopen tabs from the last session/i,
+    });
+    expect(restore).toBeDisabled();
+    await user.click(restore);
+    expect(onRestoreTabsChange).not.toHaveBeenCalled();
   });
 });

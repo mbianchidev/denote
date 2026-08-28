@@ -121,6 +121,16 @@ export function Tabs({
     setDropTargetPath(null);
   };
 
+  const focusTabAfterLayoutChange = (path: string) => {
+    window.setTimeout(() => {
+      document
+        .querySelector<HTMLButtonElement>(
+          `[data-tab-path="${CSS.escape(path)}"]`,
+        )
+        ?.focus();
+    }, 0);
+  };
+
   const targetPathAtPointer = (event: PointerEvent): string | null =>
     document
       .elementFromPoint?.(event.clientX, event.clientY)
@@ -163,7 +173,9 @@ export function Tabs({
       event.stopPropagation();
       const destination = index + (event.key === "ArrowRight" ? 1 : -1);
       if (destination >= 0 && destination < visibleTabs.length) {
-        onReorder(visibleTabs[index].path, visibleTabs[destination].path);
+        const path = visibleTabs[index].path;
+        onReorder(path, visibleTabs[destination].path);
+        focusTabAfterLayoutChange(path);
       }
       return;
     }
@@ -334,6 +346,14 @@ export function Tabs({
     closeContextMenu(true);
     action();
   };
+  const moveMenuTabToGroup = (groupId: string | null) => {
+    const path = menuTab?.path;
+    if (!path) {
+      return;
+    }
+    onMoveToGroup(path, groupId);
+    focusTabAfterLayoutChange(path);
+  };
 
   return (
     <>
@@ -413,7 +433,7 @@ export function Tabs({
                     label="Remove from group"
                     onClick={() =>
                       runMenuAction(() =>
-                        onMoveToGroup(menuTab.path, null),
+                        moveMenuTabToGroup(null),
                       )
                     }
                   />
@@ -435,7 +455,7 @@ export function Tabs({
                     label={`Move to ${group.name}`}
                     onClick={() =>
                       runMenuAction(() =>
-                        onMoveToGroup(menuTab.path, group.id),
+                        moveMenuTabToGroup(group.id),
                       )
                     }
                   />

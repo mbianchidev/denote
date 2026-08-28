@@ -53,7 +53,10 @@ export function placeOpenedTab(
     return tabsInVisualOrder([...tabs, opened]);
   }
   const next = [...tabs];
-  next.splice(activeIndex, 1, opened);
+  next.splice(activeIndex, 1, {
+    ...opened,
+    groupId: next[activeIndex].groupId,
+  });
   return tabsInVisualOrder(next);
 }
 

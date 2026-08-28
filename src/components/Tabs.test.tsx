@@ -1,6 +1,8 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { moveTabInLayout } from "../lib/tabs";
 import type { EditorTab } from "../types";
 import { Tabs } from "./Tabs";
 
@@ -250,6 +252,91 @@ describe("Tabs", () => {
     );
 
     expect(onCloseMany).toHaveBeenCalledWith(["outside.md"]);
+  });
+
+  it("restores focus after moving a tab to another group", async () => {
+    const user = userEvent.setup();
+    const StatefulTabs = () => {
+      const [current, setCurrent] = useState(tabs);
+      return (
+        <Tabs
+          tabs={current}
+          activePath="one.md"
+          disabled={false}
+          groups={[{ id: "work", name: "Work", collapsed: false }]}
+          onActivate={vi.fn()}
+          onClose={vi.fn()}
+          onReorder={vi.fn()}
+          onNewTab={vi.fn()}
+          onToggleGroup={vi.fn()}
+          onCreateGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onMoveToGroup={(path, groupId) =>
+            setCurrent((value) =>
+              value.map((tab) =>
+                tab.path === path ? { ...tab, groupId } : tab,
+              ),
+            )
+          }
+          onCloseMany={vi.fn()}
+        />
+      );
+    };
+    render(<StatefulTabs />);
+
+    const tabControl = screen.getByRole("tab", { name: /one\.md/i });
+    tabControl.focus();
+    fireEvent.keyDown(tabControl, { key: "ContextMenu" });
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Move to Work" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /one\.md/i })).toHaveFocus(),
+    );
+  });
+
+  it("restores focus after keyboard reordering changes groups", async () => {
+    const StatefulTabs = () => {
+      const [current, setCurrent] = useState([
+        tabs[0],
+        { ...tabs[1], groupId: "work" },
+      ]);
+      return (
+        <Tabs
+          tabs={current}
+          activePath="one.md"
+          disabled={false}
+          groups={[{ id: "work", name: "Work", collapsed: false }]}
+          onActivate={vi.fn()}
+          onClose={vi.fn()}
+          onReorder={(sourcePath, targetPath) =>
+            setCurrent((value) =>
+              moveTabInLayout(value, sourcePath, targetPath),
+            )
+          }
+          onNewTab={vi.fn()}
+          onToggleGroup={vi.fn()}
+          onCreateGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onMoveToGroup={vi.fn()}
+          onCloseMany={vi.fn()}
+        />
+      );
+    };
+    render(<StatefulTabs />);
+
+    const tabControl = screen.getByRole("tab", { name: /one\.md/i });
+    tabControl.focus();
+    fireEvent.keyDown(tabControl, {
+      key: "ArrowRight",
+      altKey: true,
+      shiftKey: true,
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: /one\.md/i })).toHaveFocus(),
+    );
   });
 
   it("closes other tabs from the tab context menu", async () => {

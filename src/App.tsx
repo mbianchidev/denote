@@ -194,6 +194,7 @@ function App() {
   const editQueues = useRef(new Map<string, Promise<boolean>>());
   const viewModeQueues = useRef(new Map<string, Promise<boolean>>());
   const viewModeWrites = useRef(new Set<Promise<boolean>>());
+  const preferenceWrites = useRef(new Set<Promise<void>>());
   const attachmentUploads = useRef(new Set<Promise<boolean>>());
   const criticalOperations = useRef(new Set<Promise<void>>());
   const pendingAttachmentInsertions = useRef(
@@ -384,7 +385,7 @@ function App() {
   const updateRestoreTabs = useCallback(
     (enabled: boolean) => {
       const vaultPath = workspace?.vaultPath;
-      if (!vaultPath) {
+      if (!vaultPath || workspaceLockedRef.current) {
         return;
       }
       setWorkspace((current) =>
@@ -409,9 +410,10 @@ function App() {
           return false;
         });
       viewModeQueues.current.set(queueKey, write);
-      viewModeWrites.current.add(write);
+      const tracked = write.then(() => undefined);
+      preferenceWrites.current.add(tracked);
       void write.finally(() => {
-        viewModeWrites.current.delete(write);
+        preferenceWrites.current.delete(tracked);
         if (viewModeQueues.current.get(queueKey) === write) {
           viewModeQueues.current.delete(queueKey);
         }
@@ -618,15 +620,14 @@ function App() {
         const hasPendingWorkspaceFile =
           pendingWorkspaceFile.current?.vaultPath === snapshot.vaultPath;
         pendingTabSession.current =
-          !hasPendingWorkspaceFile &&
-          snapshot.restoreTabs &&
-          snapshot.tabSession?.tabs.length
-            ? snapshot.tabSession
+          !hasPendingWorkspaceFile && snapshot.restoreTabs
+            ? (snapshot.tabSession ?? null)
             : null;
         restoringTabSession.current = pendingTabSession.current !== null;
         pendingDefaultWelcome.current =
           !pendingWorkspaceFile.current &&
-          !pendingTabSession.current &&
+          snapshot.restoreTabs &&
+          snapshot.tabSession === null &&
           snapshot.default &&
           welcome !== null &&
           welcome.kind !== "folder"
@@ -662,6 +663,7 @@ function App() {
         editQueues.current.clear();
         viewModeQueues.current.clear();
         viewModeWrites.current.clear();
+        preferenceWrites.current.clear();
         if (tabSessionTimer.current) {
           window.clearTimeout(tabSessionTimer.current);
           tabSessionTimer.current = null;
@@ -1165,14 +1167,24 @@ function App() {
           return false;
         }
         await tabSessionWrite.current;
+        await Promise.all([...preferenceWrites.current]);
         if (
           attachmentUploads.current.size > 0 ||
-          viewModeWrites.current.size > 0
+          viewModeWrites.current.size > 0 ||
+          preferenceWrites.current.size > 0
         ) {
           continue;
         }
         if (await flushAllTabsRef.current()) {
           await persistTabSessionRef.current();
+          await Promise.all([...preferenceWrites.current]);
+          if (
+            attachmentUploads.current.size > 0 ||
+            viewModeWrites.current.size > 0 ||
+            preferenceWrites.current.size > 0
+          ) {
+            continue;
+          }
           return true;
         }
         setWorkspaceLock(false);
@@ -1375,6 +1387,11 @@ function App() {
         }
         pendingAnchor.current = anchor ?? null;
         commitTabs((current) => placeOpenedTab(current, replacePath, tab));
+        commitTabGroups((current) =>
+          current.filter((group) =>
+            tabsRef.current.some((candidate) => candidate.groupId === group.id),
+          ),
+        );
         if (replacePath) {
           cancelPendingPath(replacePath);
         }
@@ -1407,6 +1424,7 @@ function App() {
       }
     },
     [
+      commitTabGroups,
       commitTabs,
       activateTab,
       beginWorkspaceOperation,
@@ -1443,7 +1461,6 @@ function App() {
     pendingTabSession.current = null;
     const generation = vaultGeneration.current;
     const request = ++openFileRequest.current;
-    let openWelcome = false;
     void (async () => {
       await acquireWorkspaceLock();
       try {
@@ -1487,25 +1504,17 @@ function App() {
         setStatus(
           `Restored ${restored.length} tab${restored.length === 1 ? "" : "s"}`,
         );
-        openWelcome =
-          restored.length === 0 &&
-          workspace.default &&
-          findNode(workspace.tree, "Welcome.md")?.kind !== "folder";
       } catch (caught) {
         showError(caught);
       } finally {
         restoringTabSession.current = false;
         setWorkspaceLock(false);
       }
-      if (openWelcome) {
-        void openFile("Welcome.md");
-      }
     })();
   }, [
     acquireWorkspaceLock,
     commitTabGroups,
     commitTabs,
-    openFile,
     readEditorTab,
     setWorkspaceLock,
     showError,
@@ -1810,6 +1819,13 @@ function App() {
         { id: groupId, name, collapsed: false },
       ]);
       moveTabToGroup(path, groupId);
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-tab-path="${CSS.escape(path)}"]`,
+          )
+          ?.focus();
+      }, 0);
     },
     [commitTabGroups, moveTabToGroup, requestText, showError],
   );
@@ -2176,6 +2192,7 @@ function App() {
     [
       beginWorkspaceOperation,
       cancelPendingPath,
+      commitTabGroups,
       commitTabs,
       flushTab,
       refreshAndReindex,
@@ -2241,6 +2258,11 @@ function App() {
       const isAffected = (path: string) =>
         path === node.path || path.startsWith(`${node.path}/`);
       commitTabs((current) => current.filter((tab) => !isAffected(tab.path)));
+      commitTabGroups((current) =>
+        current.filter((group) =>
+          tabsRef.current.some((tab) => tab.groupId === group.id),
+        ),
+      );
       for (const tab of affectedTabs) {
         cancelPendingPath(tab.path);
       }
@@ -2258,6 +2280,7 @@ function App() {
     activePath,
     beginWorkspaceOperation,
     cancelPendingPath,
+    commitTabGroups,
     commitTabs,
     flushTab,
     refreshAndReindex,
@@ -3706,6 +3729,7 @@ function App() {
       />
       <EditorSettingsDialog
         open={editorSettingsOpen}
+        disabled={workspaceLocked}
         settings={editorDisplaySettings}
         restoreTabs={workspace.restoreTabs}
         onChange={updateEditorDisplaySettings}

@@ -7,6 +7,7 @@ import {
 
 interface EditorSettingsDialogProps {
   open: boolean;
+  disabled: boolean;
   settings: EditorDisplaySettings;
   restoreTabs: boolean;
   onChange: (settings: EditorDisplaySettings) => void;
@@ -16,6 +17,7 @@ interface EditorSettingsDialogProps {
 
 export function EditorSettingsDialog({
   open,
+  disabled,
   settings,
   restoreTabs,
   onChange,
@@ -90,24 +92,28 @@ export function EditorSettingsDialog({
             checked={settings.showLineNumbers}
             label="Show line numbers"
             description="Display a numbered gutter beside each source line."
+            disabled={disabled}
             onChange={(enabled) => update("showLineNumbers", enabled)}
           />
           <SettingCheckbox
             checked={settings.showWhitespace}
             label="Show spaces and tabs"
             description="Render spaces as dots and tabs as arrows."
+            disabled={disabled}
             onChange={(enabled) => update("showWhitespace", enabled)}
           />
           <SettingCheckbox
             checked={settings.showLineEndings}
             label="Show line endings"
             description="Mark each displayed newline with LF, CRLF, or CR."
+            disabled={disabled}
             onChange={(enabled) => update("showLineEndings", enabled)}
           />
           <SettingCheckbox
             checked={settings.highlightTrailingWhitespace}
             label="Highlight trailing whitespace"
             description="Emphasize spaces or tabs immediately before a line ending."
+            disabled={disabled}
             onChange={(enabled) =>
               update("highlightTrailingWhitespace", enabled)
             }
@@ -116,6 +122,7 @@ export function EditorSettingsDialog({
             checked={restoreTabs}
             label="Reopen tabs from the last session"
             description="Restore this vault's open files, order, groups, collapsed state, and active file."
+            disabled={disabled}
             onChange={onRestoreTabsChange}
           />
         </div>
@@ -125,7 +132,7 @@ export function EditorSettingsDialog({
         <button
           type="button"
           className="secondary-button"
-          disabled={atDefaults}
+          disabled={disabled || atDefaults}
           onClick={() =>
             onChange({ ...DEFAULT_EDITOR_DISPLAY_SETTINGS })
           }
@@ -146,6 +153,7 @@ interface SettingCheckboxProps {
   checked: boolean;
   label: string;
   description: string;
+  disabled?: boolean;
   onChange: (enabled: boolean) => void;
 }
 
@@ -154,6 +162,7 @@ function SettingCheckbox({
   checked,
   label,
   description,
+  disabled = false,
   onChange,
 }: SettingCheckboxProps) {
   return (
@@ -162,6 +171,7 @@ function SettingCheckbox({
         ref={inputRef}
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(event) => onChange(event.currentTarget.checked)}
       />
       <span>
