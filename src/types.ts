@@ -46,6 +46,15 @@ export interface TrashItem {
   isDirectory: boolean;
 }
 
+export interface KnownVault {
+  id: number;
+  name: string;
+  path: string;
+  lastOpenedAt: string;
+  available: boolean;
+  current: boolean;
+}
+
 export type EncryptionPhase = "encrypting" | "encrypted" | "decrypting";
 
 export interface EncryptionStatus {

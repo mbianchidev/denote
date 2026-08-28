@@ -109,6 +109,17 @@ pub struct NoteListItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct KnownVault {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub last_opened_at: String,
+    pub available: bool,
+    pub current: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TrashItem {
     pub id: i64,
     pub original_path: String,

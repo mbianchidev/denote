@@ -6,11 +6,11 @@ use zeroize::Zeroizing;
 
 use crate::{
     crypto::{self, EncryptionPhase},
-    db::AppState,
+    db::{self, AppState},
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
-        NoteDocument, RecoveryCodesResult, SaveOutcome, WorkspaceSnapshot,
+        KnownVault, NoteDocument, RecoveryCodesResult, SaveOutcome, WorkspaceSnapshot,
     },
     vault,
 };
@@ -40,6 +40,20 @@ fn populate_encryption_status(
     Ok(())
 }
 
+fn seal_active_vault_before_switch(state: &State<'_, AppState>) -> AppResult<()> {
+    let Some(root) = state.active_vault_optional()? else {
+        return Ok(());
+    };
+    let Some(manifest) = crypto::load_manifest(&root)? else {
+        return Ok(());
+    };
+    if manifest.phase == EncryptionPhase::Encrypted && state.vault_is_unlocked()? {
+        let key = state.vault_key()?;
+        vault::seal_vault_contents(&state.db_path, &root.to_string_lossy(), &key)?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<WorkspaceSnapshot>> {
     let _vault_access = state.write_vault_access()?;
@@ -50,6 +64,47 @@ pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<WorkspaceS
     state.set_active_vault(snapshot.vault_path.clone().into())?;
     populate_encryption_status(&state, &mut snapshot)?;
     Ok(Some(snapshot))
+}
+
+#[tauri::command]
+pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault>> {
+    let _vault_access = state.read_vault_access()?;
+    let connection = db::open(&state.db_path)?;
+    let current = state.active_vault_optional()?;
+    Ok(db::list_known_vaults(&connection)?
+        .into_iter()
+        .map(|vault| {
+            let path = std::path::Path::new(&vault.path);
+            let available = path.is_dir();
+            let current = current.as_deref() == Some(path);
+            KnownVault {
+                id: vault.id,
+                name: vault.name,
+                path: vault.path,
+                last_opened_at: vault.last_opened_at,
+                available,
+                current,
+            }
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn open_known_vault(state: State<'_, AppState>, vault_id: i64) -> AppResult<WorkspaceSnapshot> {
+    let _vault_access = state.write_vault_access()?;
+    let connection = db::open(&state.db_path)?;
+    let path = db::known_vault_path(&connection, vault_id)?
+        .ok_or_else(|| AppError::NotFound(format!("Vault {vault_id}")))?;
+    if !std::path::Path::new(&path).is_dir() {
+        return Err(AppError::NotFound(format!(
+            "Vault folder is unavailable: {path}"
+        )));
+    }
+    seal_active_vault_before_switch(&state)?;
+    let mut snapshot = vault::open_vault(&state.db_path, &path)?;
+    state.set_active_vault(snapshot.vault_path.clone().into())?;
+    populate_encryption_status(&state, &mut snapshot)?;
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -69,6 +124,7 @@ pub async fn choose_vault(
         .into_path()
         .map_err(|error| AppError::InvalidPath(error.to_string()))?;
     let _vault_access = state.write_vault_access()?;
+    seal_active_vault_before_switch(&state)?;
     let mut snapshot = vault::open_vault(&state.db_path, &path.to_string_lossy())?;
     state.set_active_vault(snapshot.vault_path.clone().into())?;
     populate_encryption_status(&state, &mut snapshot)?;

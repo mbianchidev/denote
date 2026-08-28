@@ -39,6 +39,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Tauri desktop application with React and TypeScript.
 - macOS, Windows, and Linux support.
 - A user-selected local folder is the active vault.
+- Up to 50 recently opened vault folders are available from a quick switcher,
+  while the native folder picker adds new vaults.
 - Every regular file up to 25 MB can be opened and edited.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.

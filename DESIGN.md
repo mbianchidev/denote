@@ -275,6 +275,8 @@ The activity rail is icon-led and uses an active indicator on the leading edge.
 File rows, tabs, and outline entries share compact hover and selected states.
 Tabs use the editor surface plus a two-pixel moss top edge when active.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
+The vault switcher is a compact recent-folder list with clear current and
+unavailable states; adding a new folder remains a separate native-picker action.
 
 ### Callouts
 

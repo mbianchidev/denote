@@ -1,4 +1,10 @@
-import { FolderOpen, KeyRound, LockKeyhole, Moon, Sun } from "lucide-react";
+import {
+  ChevronsUpDown,
+  KeyRound,
+  LockKeyhole,
+  Moon,
+  Sun,
+} from "lucide-react";
 import { useState } from "react";
 import type { Theme } from "../lib/theme";
 
@@ -6,7 +12,7 @@ interface VaultUnlockScreenProps {
   vaultName: string;
   theme: Theme;
   onThemeToggle: () => void;
-  onChooseVault: () => Promise<void>;
+  onShowVaults: () => void;
   onUnlockWithPassword: (password: string) => Promise<void>;
   onUnlockWithRecoveryCode: (recoveryCode: string) => Promise<void>;
 }
@@ -15,7 +21,7 @@ export function VaultUnlockScreen({
   vaultName,
   theme,
   onThemeToggle,
-  onChooseVault,
+  onShowVaults,
   onUnlockWithPassword,
   onUnlockWithRecoveryCode,
 }: VaultUnlockScreenProps) {
@@ -53,12 +59,12 @@ export function VaultUnlockScreen({
         <button
           type="button"
           className="icon-button"
-          title="Open another vault"
-          aria-label="Open another vault"
+          title="Switch vault"
+          aria-label="Switch vault"
           disabled={busy}
-          onClick={() => void onChooseVault()}
+          onClick={onShowVaults}
         >
-          <FolderOpen aria-hidden="true" size={17} />
+          <ChevronsUpDown aria-hidden="true" size={17} />
         </button>
         <button
           type="button"

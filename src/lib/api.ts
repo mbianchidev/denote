@@ -5,6 +5,7 @@ import type {
   FileLineEnding,
   DocumentBatch,
   EncryptionSetupResult,
+  KnownVault,
   NoteDocument,
   NoteStats,
   RecoveryCodesResult,
@@ -14,6 +15,9 @@ import type {
 
 export const api = {
   getLastVault: () => invoke<WorkspaceSnapshot | null>("get_last_vault"),
+  listKnownVaults: () => invoke<KnownVault[]>("list_known_vaults"),
+  openKnownVault: (vaultId: number) =>
+    invoke<WorkspaceSnapshot>("open_known_vault", { vaultId }),
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
   enableVaultEncryption: (password: string) =>

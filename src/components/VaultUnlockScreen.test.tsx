@@ -13,7 +13,7 @@ describe("VaultUnlockScreen", () => {
         vaultName="Notes"
         theme="dark"
         onThemeToggle={vi.fn()}
-        onChooseVault={vi.fn()}
+        onShowVaults={vi.fn()}
         onUnlockWithPassword={vi.fn()}
         onUnlockWithRecoveryCode={onUnlockWithRecoveryCode}
       />,

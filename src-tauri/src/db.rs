@@ -27,6 +27,13 @@ pub struct EntryPlacement {
     pub pinned: bool,
 }
 
+pub struct KnownVaultRecord {
+    pub id: i64,
+    pub name: String,
+    pub path: String,
+    pub last_opened_at: String,
+}
+
 pub struct AppState {
     pub db_path: PathBuf,
     active_vault: RwLock<Option<PathBuf>>,
@@ -418,6 +425,34 @@ pub fn get_last_vault(connection: &Connection) -> AppResult<Option<String>> {
         .query_row(
             "SELECT value FROM settings WHERE key = 'last_vault'",
             [],
+            |row| row.get(0),
+        )
+        .optional()?)
+}
+
+pub fn list_known_vaults(connection: &Connection) -> AppResult<Vec<KnownVaultRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, name, path, last_opened_at
+         FROM vaults
+         ORDER BY last_opened_at DESC, name COLLATE NOCASE
+         LIMIT 50",
+    )?;
+    let rows = statement.query_map([], |row| {
+        Ok(KnownVaultRecord {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            path: row.get(2)?,
+            last_opened_at: row.get(3)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn known_vault_path(connection: &Connection, vault_id: i64) -> AppResult<Option<String>> {
+    Ok(connection
+        .query_row(
+            "SELECT path FROM vaults WHERE id = ?1",
+            params![vault_id],
             |row| row.get(0),
         )
         .optional()?)
@@ -1181,6 +1216,41 @@ mod tests {
         assert_eq!(
             history_count(&connection, vault_id, "note.md").expect("count"),
             1
+        );
+    }
+
+    #[test]
+    fn lists_known_vaults_by_recent_use_and_resolves_ids() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("vaults.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let connection = open(&db_path).expect("database opened");
+        let work_id = ensure_vault(&connection, "/vaults/work", "work").expect("work vault");
+        let music_id = ensure_vault(&connection, "/vaults/music", "music").expect("music vault");
+        connection
+            .execute(
+                "UPDATE vaults SET last_opened_at = '2026-01-01T00:00:00Z' WHERE id = ?1",
+                params![work_id],
+            )
+            .expect("work timestamp");
+        connection
+            .execute(
+                "UPDATE vaults SET last_opened_at = '2026-01-02T00:00:00Z' WHERE id = ?1",
+                params![music_id],
+            )
+            .expect("music timestamp");
+
+        let vaults = list_known_vaults(&connection).expect("known vaults");
+
+        assert_eq!(vaults[0].id, music_id);
+        assert_eq!(vaults[1].id, work_id);
+        assert_eq!(
+            known_vault_path(&connection, work_id).expect("known path"),
+            Some("/vaults/work".to_string())
+        );
+        assert_eq!(
+            known_vault_path(&connection, i64::MAX).expect("missing path"),
+            None
         );
     }
 

@@ -1106,9 +1106,16 @@ button.tag-chip {
 }
 
 .welcome__button {
-  margin-top: 28px;
   padding: 10px 16px;
   font-size: 13px;
+}
+
+.welcome__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 28px;
 }
 
 .welcome__facts {
@@ -1472,6 +1479,108 @@ kbd {
   justify-content: space-between;
   gap: 8px;
   padding: 0 18px 18px;
+}
+
+.vault-switcher-dialog {
+  width: min(620px, calc(100vw - 48px));
+}
+
+.vault-switcher-dialog__body {
+  min-height: 180px;
+  max-height: min(520px, calc(100vh - 210px));
+  padding: 8px;
+  overflow: auto;
+}
+
+.vault-switcher-dialog__error {
+  margin: 10px;
+  color: var(--danger);
+  font-size: 12px;
+}
+
+.vault-switcher-list {
+  display: grid;
+  gap: 3px;
+}
+
+.vault-switcher-item {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  color: var(--text-primary);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.vault-switcher-item:hover:not(:disabled) {
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
+.vault-switcher-item[aria-current="true"] {
+  opacity: 1;
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  cursor: default;
+}
+
+.vault-switcher-item__icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  color: var(--accent-strong);
+  background: var(--editor-bg);
+  border-radius: 5px;
+}
+
+.vault-switcher-item:disabled:not([aria-current="true"])
+  .vault-switcher-item__icon {
+  color: var(--warning);
+}
+
+.vault-switcher-item__details {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 2px;
+}
+
+.vault-switcher-item__details strong,
+.vault-switcher-item__details span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-switcher-item__details strong {
+  font-size: 13px;
+}
+
+.vault-switcher-item__details span,
+.vault-switcher-item__details small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.vault-switcher-item__status {
+  color: var(--accent-strong);
+  font-size: 11px;
+}
+
+.vault-switcher-dialog__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 18px 18px;
+  border-top: 1px solid var(--border);
 }
 
 .encryption-dialog {

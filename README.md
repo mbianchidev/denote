@@ -17,6 +17,7 @@ the selected folder as the source of truth.
   and recency filters
 - Current-note and vault-wide find and replace with selectable preview
 - Tabs, bookmarks, recently opened files, and search navigation
+- Recent-vault switcher for separate work, music, and personal folders
 - One-click copying of the active file's absolute path
 - File and folder creation, rename, per-folder pinning/custom order, trash, and restore
 - Permanent empty-trash action with explicit confirmation
@@ -54,6 +55,12 @@ Editor display settings are available from the editor toolbar. The guides are
 visual only and never alter saved text. Plain, binary, and MDX files use the
 source editor directly; Markdown switches from rich editing to source mode while
 any line-number or invisible-character guide is enabled.
+
+Use the vault switcher in the sidebar header, or press
+<kbd>Shift</kbd>+<kbd>Command</kbd>+<kbd>O</kbd> on macOS and
+<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> on Windows or Linux. Denote lists
+the 50 most recently opened vault folders and marks unavailable folders without
+discarding their history.
 
 ## Vault encryption
 

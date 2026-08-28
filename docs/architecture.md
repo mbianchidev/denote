@@ -88,6 +88,14 @@ come first, then explicit custom positions, then the folders-first/name fallback
 The up/down controls reorder only inside the selected entry's pinned or unpinned
 section, so ordinary entries cannot move above pins accidentally.
 
+The vault switcher reads the 50 most recently opened rows from SQLite and opens
+them by trusted database ID rather than accepting a new arbitrary path from the
+frontend. Missing folders remain visible but disabled. Switching uses the same
+save/attachment flush barrier as closing the application, clears the prior
+vault's tabs and search index, seals an unlocked encrypted source vault before
+discarding its key, and then either opens the target workspace or its password
+screen.
+
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.

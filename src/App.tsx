@@ -6,10 +6,10 @@ import {
   ArrowUp,
   Bookmark,
   BookmarkCheck,
+  ChevronsUpDown,
   Copy,
   FileCode2,
   FilePlus2,
-  FolderOpen,
   FolderPlus,
   History,
   Image as ImageIcon,
@@ -45,6 +45,7 @@ import { SearchPanel } from "./components/SearchPanel";
 import { TableOfContents } from "./components/TableOfContents";
 import { Tabs } from "./components/Tabs";
 import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
+import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
 import {
@@ -128,6 +129,7 @@ function App() {
   const [editorDisplaySettings, setEditorDisplaySettings] =
     useState<EditorDisplaySettings>(() => getEditorDisplaySettings());
   const [encryptionOpen, setEncryptionOpen] = useState(false);
+  const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
     null,
@@ -348,6 +350,7 @@ function App() {
         setReplaceOpen(false);
         setEncryptionOpen(false);
         setEditorSettingsOpen(false);
+        setVaultSwitcherOpen(false);
         pendingAnchor.current = null;
       }
       setIndexing(false);
@@ -458,6 +461,7 @@ function App() {
     if (workspaceLockedRef.current) {
       return;
     }
+    setVaultSwitcherOpen(false);
     setInitializing(true);
     try {
       if (!(await beginWorkspaceOperationRef.current())) {
@@ -476,6 +480,29 @@ function App() {
       setWorkspaceLock(false);
     }
   }, [loadWorkspace, setWorkspaceLock, showError]);
+
+  const switchKnownVault = useCallback(
+    async (vaultId: number) => {
+      if (workspaceLockedRef.current) {
+        throw new Error("Workspace is busy. Try switching vaults again.");
+      }
+      setInitializing(true);
+      try {
+        if (!(await beginWorkspaceOperationRef.current())) {
+          throw new Error(
+            "Vault switch cancelled because a note could not be saved.",
+          );
+        }
+        const snapshot = await api.openKnownVault(vaultId);
+        vaultGeneration.current += 1;
+        await loadWorkspace(snapshot, true);
+      } finally {
+        setInitializing(false);
+        setWorkspaceLock(false);
+      }
+    },
+    [loadWorkspace, setWorkspaceLock],
+  );
 
   const applyEncryptionSnapshot = useCallback(
     async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
@@ -1886,13 +1913,21 @@ function App() {
         replaceOpen ||
         encryptionOpen ||
         editorSettingsOpen ||
+        vaultSwitcherOpen ||
         actionDialog !== null ||
         historyOpen
       ) {
         return;
       }
       const modifier = event.metaKey || event.ctrlKey;
-      if (modifier && event.key.toLocaleLowerCase() === "p") {
+      if (
+        modifier &&
+        event.shiftKey &&
+        event.key.toLocaleLowerCase() === "o"
+      ) {
+        event.preventDefault();
+        setVaultSwitcherOpen(true);
+      } else if (modifier && event.key.toLocaleLowerCase() === "p") {
         event.preventDefault();
         setSidebarView("search");
         window.setTimeout(
@@ -1935,7 +1970,18 @@ function App() {
     saveTab,
     showOutline,
     tabs,
+    vaultSwitcherOpen,
   ]);
+
+  const vaultSwitcherDialog = (
+    <VaultSwitcherDialog
+      open={vaultSwitcherOpen}
+      onLoad={api.listKnownVaults}
+      onSwitch={switchKnownVault}
+      onChooseFolder={() => void chooseVault()}
+      onClose={() => setVaultSwitcherOpen(false)}
+    />
+  );
 
   if (!workspace) {
     return (
@@ -1958,7 +2004,12 @@ function App() {
             </button>
           </div>
         ) : null}
-        <Welcome loading={initializing} onChooseVault={chooseVault} />
+        <Welcome
+          loading={initializing}
+          onChooseVault={chooseVault}
+          onShowRecentVaults={() => setVaultSwitcherOpen(true)}
+        />
+        {vaultSwitcherDialog}
       </>
     );
   }
@@ -1990,7 +2041,7 @@ function App() {
           onThemeToggle={() =>
             setTheme((current) => (current === "dark" ? "light" : "dark"))
           }
-          onChooseVault={chooseVault}
+          onShowVaults={() => setVaultSwitcherOpen(true)}
           onUnlockWithPassword={(password) =>
             unlockEncryptedVault(password, false)
           }
@@ -1998,6 +2049,7 @@ function App() {
             unlockEncryptedVault(recoveryCode, true)
           }
         />
+        {vaultSwitcherDialog}
       </>
     );
   }
@@ -2039,11 +2091,15 @@ function App() {
             <button
               type="button"
               className="icon-button"
-              title="Open another vault"
-              aria-label="Open another vault"
-              onClick={chooseVault}
+              title={`Switch vault (${
+                navigator.platform.includes("Mac") ? "⇧⌘O" : "Ctrl+Shift+O"
+              })`}
+              aria-label="Switch vault"
+              aria-haspopup="dialog"
+              aria-expanded={vaultSwitcherOpen}
+              onClick={() => setVaultSwitcherOpen(true)}
             >
-              <FolderOpen aria-hidden="true" size={17} />
+              <ChevronsUpDown aria-hidden="true" size={17} />
             </button>
           </div>
         </header>
@@ -2530,6 +2586,7 @@ function App() {
         onChange={updateEditorDisplaySettings}
         onClose={() => setEditorSettingsOpen(false)}
       />
+      {vaultSwitcherDialog}
       <EncryptionDialog
         open={encryptionOpen}
         encryption={workspace.encryption}
