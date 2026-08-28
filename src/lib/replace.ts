@@ -1,3 +1,5 @@
+import type { FileEncoding, FileLineEnding } from "../types";
+
 export type ReplaceScope = "current" | "vault";
 
 export interface ReplaceRequest {
@@ -12,6 +14,8 @@ export interface ReplaceSource {
   path: string;
   content: string;
   contentHash?: string;
+  encoding: FileEncoding;
+  lineEnding: FileLineEnding;
 }
 
 export interface ReplacePreview {
@@ -20,6 +24,8 @@ export interface ReplacePreview {
   originalContent: string;
   replacedContent: string;
   contentHash?: string;
+  encoding: FileEncoding;
+  lineEnding: FileLineEnding;
   beforeSnippet: string;
   afterSnippet: string;
 }
@@ -30,6 +36,10 @@ export interface ReplaceApplySummary {
   replacedOccurrences: number;
 }
 
+const MAX_REPLACEMENTS_PER_FILE = 100_000;
+const MAX_PREVIEW_CHARACTERS = 64 * 1024 * 1024;
+const MAX_WHOLE_WORD_CHARACTERS = 8 * 1024 * 1024;
+
 export function previewReplacements(
   sources: ReplaceSource[],
   request: ReplaceRequest,
@@ -37,75 +47,112 @@ export function previewReplacements(
   if (!request.find) {
     return [];
   }
-  return sources.flatMap((source) => {
-    const matches = findMatches(source.content, request);
-    if (matches.length === 0) {
-      return [];
-    }
-    const replacedContent = replaceMatches(
-      source.content,
-      matches,
-      request.replacement,
+  const previews: ReplacePreview[] = [];
+  let previewCharacters = 0;
+  for (const source of sources) {
+    const remainingOutputCharacters = Math.max(
+      0,
+      MAX_PREVIEW_CHARACTERS - previewCharacters - source.content.length,
     );
-    const firstIndex = matches[0].index;
-    return [
-      {
-        path: source.path,
-        occurrences: matches.length,
-        originalContent: source.content,
-        replacedContent,
-        contentHash: source.contentHash,
-        beforeSnippet: snippetAround(
-          source.content,
-          firstIndex,
-          request.find.length,
-        ),
-        afterSnippet: snippetAround(
-          replacedContent,
-          firstIndex,
-          request.replacement.length,
-        ),
-      },
-    ];
-  });
+    const replacement = replaceContent(
+      source.content,
+      request,
+      remainingOutputCharacters,
+    );
+    if (replacement.occurrences === 0) {
+      continue;
+    }
+    previewCharacters += source.content.length + replacement.content.length;
+    if (previewCharacters > MAX_PREVIEW_CHARACTERS) {
+      throw new Error(
+        "Replace preview exceeds the 64 MB safety limit. Narrow the scope or search text.",
+      );
+    }
+    previews.push({
+      path: source.path,
+      occurrences: replacement.occurrences,
+      originalContent: source.content,
+      replacedContent: replacement.content,
+      contentHash: source.contentHash,
+      encoding: source.encoding,
+      lineEnding: source.lineEnding,
+      beforeSnippet: snippetAround(
+        source.content,
+        replacement.firstIndex,
+        request.find.length,
+      ),
+      afterSnippet: snippetAround(
+        replacement.content,
+        replacement.firstIndex,
+        request.replacement.length,
+      ),
+    });
+  }
+  return previews;
 }
 
-interface MatchRange {
-  index: number;
-  length: number;
+interface ReplacementResult {
+  content: string;
+  occurrences: number;
+  firstIndex: number;
 }
 
-function findMatches(content: string, request: ReplaceRequest): MatchRange[] {
+function replaceContent(
+  content: string,
+  request: ReplaceRequest,
+  maxOutputCharacters: number,
+): ReplacementResult {
+  if (request.wholeWord && content.length > MAX_WHOLE_WORD_CHARACTERS) {
+    throw new Error(
+      "Whole-word replacement is limited to 8 MB per file. Use literal replacement for larger files.",
+    );
+  }
   const escaped = request.find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const pattern = new RegExp(escaped, request.matchCase ? "gu" : "giu");
   const graphemeBoundaries = request.wholeWord
     ? createGraphemeBoundaries(content)
     : null;
-  return [...content.matchAll(pattern)]
-    .map((match) => ({
-      index: match.index ?? 0,
-      length: match[0].length,
-    }))
-    .filter(
-      (match) =>
-        !request.wholeWord ||
-        isWholeWordMatch(content, match, graphemeBoundaries ?? new Set()),
-    );
+  const parts: string[] = [];
+  let cursor = 0;
+  let occurrences = 0;
+  let firstIndex = -1;
+  let projectedLength = content.length;
+  for (let match = pattern.exec(content); match; match = pattern.exec(content)) {
+    const range = { index: match.index, length: match[0].length };
+    if (
+      request.wholeWord &&
+      !isWholeWordMatch(content, range, graphemeBoundaries ?? new Set())
+    ) {
+      continue;
+    }
+    occurrences += 1;
+    if (occurrences > MAX_REPLACEMENTS_PER_FILE) {
+      throw new Error(
+        `More than ${MAX_REPLACEMENTS_PER_FILE.toLocaleString()} replacements match in one file. Narrow the search text.`,
+      );
+    }
+    if (firstIndex < 0) {
+      firstIndex = range.index;
+    }
+    projectedLength += request.replacement.length - range.length;
+    if (projectedLength > maxOutputCharacters) {
+      throw new Error(
+        "Replace preview exceeds the 64 MB safety limit. Narrow the scope, search text, or replacement.",
+      );
+    }
+    parts.push(content.slice(cursor, range.index), request.replacement);
+    cursor = range.index + range.length;
+  }
+  if (occurrences === 0) {
+    return { content, occurrences: 0, firstIndex: 0 };
+  }
+  parts.push(content.slice(cursor));
+  return { content: parts.join(""), occurrences, firstIndex };
 }
 
-function replaceMatches(
-  content: string,
-  matches: MatchRange[],
-  replacement: string,
-): string {
-  let cursor = 0;
-  let result = "";
-  for (const match of matches) {
-    result += content.slice(cursor, match.index);
-    result += replacement;
-    cursor = match.index + match.length;
-  }
-  return result + content.slice(cursor);
+interface MatchRange {
+  index: number;
+  length: number;
 }
 
 function isWholeWordMatch(
@@ -161,7 +208,14 @@ function isGraphemeContinuation(value: string): boolean {
 }
 
 function codePointBefore(content: string, index: number): string {
-  return [...content.slice(0, index)].slice(-1)[0] ?? "";
+  if (index === 0) {
+    return "";
+  }
+  const lastUnit = content.charCodeAt(index - 1);
+  const start =
+    lastUnit >= 0xdc00 && lastUnit <= 0xdfff && index > 1 ? index - 2 : index - 1;
+  const value = content.codePointAt(start);
+  return value === undefined ? "" : String.fromCodePoint(value);
 }
 
 function codePointAt(content: string, index: number): string {

@@ -5,8 +5,15 @@ frontend plus a Rust native core.
 
 ## Data boundaries
 
-The selected vault is the content boundary. Markdown (`.md`, `.markdown`),
-plain text (`.txt`), and supported image files stay in that folder.
+The selected vault is the content boundary. Every regular file up to 25 MB can
+be opened. Markdown (`.md`, `.markdown`, `.mdx`) gets the rich/source editor,
+other valid UTF-8 files use the plain editor, and invalid UTF-8 uses a
+byte-preserving Base64 representation. Images keep their visual preview and
+offer a raw-edit toggle.
+
+Consistent LF, CRLF, and CR files are normalized in the editor and restored to
+their original line-ending style when saved. Mixed line endings use Base64 so
+no newline information is discarded.
 
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
@@ -38,7 +45,10 @@ interrupted between the move and metadata commit.
 
 ## Search
 
-Rust scans readable text documents and returns normalized search documents.
+Rust scans regular files up to 10 MB and returns normalized search documents.
+Binary content is indexed in its Base64 representation. Unreadable files are
+reported and skipped individually; the automatic index stops at a 64 MB
+aggregate content budget.
 The frontend builds an in-memory ZBSearch index. ZBSearch provides ranked,
 typo-tolerant full-text retrieval; Denote applies metadata filters and a Unicode
 substring fallback so mixed-script queries still find local content.
@@ -49,8 +59,9 @@ structure changes.
 ## Replace
 
 Replace previews are calculated from Markdown source rather than rendered
-editor text. Current-note replacement uses the open tab content. Vault-wide
-replacement flushes open tabs first, then previews searchable text documents.
+editor text. Current-file replacement uses the open tab content. Vault-wide
+replacement flushes open tabs first, then previews all editable files up to 25
+MB, including Base64 binary content.
 Each selected file is saved with its preview-time content hash, so files changed
 externally after preview fail individually instead of being overwritten.
 
@@ -73,7 +84,9 @@ Each save includes the hash of the version originally read. A mismatched hash
 surfaces a conflict rather than overwriting edits from another application or
 Denote process. A per-note cross-process lock keeps validation and replacement
 in one critical section. On Unix systems, extended attributes are copied to the
-atomic replacement before commit.
+atomic replacement before commit. On Windows, Denote writes and syncs a sibling
+temporary file, then uses `ReplaceFileW` so replacement stays atomic while
+preserving ACLs, DOS attributes, and alternate data streams.
 
 ## Security
 

@@ -28,8 +28,9 @@ truth while optional workspace metadata is stored locally in SQLite.
 
 ## Operating Context
 
-Users work with existing or new folders containing Markdown, text, and image
-files. Notes may mix any Unicode languages and emoji in the same document.
+Users work with existing or new folders containing arbitrary files. UTF-8
+content opens as text, while binary content opens as a reversible Base64
+representation. Notes may mix any Unicode languages and emoji in the same document.
 Users commonly switch among several notes, browse folders, search by content
 or metadata, follow links, and recover earlier content after an unwanted edit.
 
@@ -38,7 +39,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Tauri desktop application with React and TypeScript.
 - macOS, Windows, and Linux support.
 - A user-selected local folder is the active vault.
-- Markdown and text files remain plain UTF-8 files on disk.
+- Every regular file up to 25 MB can be opened and edited.
+- Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
+  Base64 so unchanged bytes round-trip exactly.
+- Images retain their visual preview and can switch to raw editing.
 - Rich single-pane Markdown editing is the default.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.

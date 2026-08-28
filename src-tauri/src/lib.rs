@@ -43,6 +43,7 @@ pub fn run() {
             commands::list_history,
             commands::restore_revision,
             commands::list_search_documents,
+            commands::list_editable_documents,
             commands::read_image_data_url,
             commands::save_attachment,
         ])

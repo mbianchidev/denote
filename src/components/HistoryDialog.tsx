@@ -73,6 +73,11 @@ export function HistoryDialog({
                 </time>
                 <span>
                   {revision.reason} · {formatBytes(revision.byteCount)}
+                  {revision.encoding === "base64" ? " · binary Base64" : ""}
+                  {revision.encoding === "utf8" &&
+                  revision.lineEnding !== "lf"
+                    ? ` · ${revision.lineEnding.toUpperCase()}`
+                    : ""}
                 </span>
                 <p>{revision.preview || "Empty document"}</p>
               </div>

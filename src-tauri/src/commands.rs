@@ -5,7 +5,10 @@ use tauri_plugin_dialog::DialogExt;
 use crate::{
     db::AppState,
     error::{AppError, AppResult},
-    models::{HistoryRevision, NoteDocument, SaveOutcome, SearchDocument, WorkspaceSnapshot},
+    models::{
+        DocumentBatch, FileEncoding, FileLineEnding, HistoryRevision, NoteDocument, SaveOutcome,
+        WorkspaceSnapshot,
+    },
     vault,
 };
 
@@ -57,6 +60,8 @@ pub fn save_note(
     state: State<'_, AppState>,
     path: String,
     content: String,
+    encoding: FileEncoding,
+    line_ending: FileLineEnding,
     reason: Option<String>,
     expected_hash: Option<String>,
 ) -> AppResult<SaveOutcome> {
@@ -66,6 +71,8 @@ pub fn save_note(
         &root.to_string_lossy(),
         &path,
         &content,
+        encoding,
+        line_ending,
         reason.as_deref().unwrap_or("autosave"),
         expected_hash.as_deref(),
     )
@@ -160,9 +167,15 @@ pub fn restore_revision(
 }
 
 #[tauri::command]
-pub fn list_search_documents(state: State<'_, AppState>) -> AppResult<Vec<SearchDocument>> {
+pub fn list_search_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
     let root = state.active_vault()?;
     vault::list_search_documents(&state.db_path, &root.to_string_lossy())
+}
+
+#[tauri::command]
+pub fn list_editable_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
+    let root = state.active_vault()?;
+    vault::list_editable_documents(&state.db_path, &root.to_string_lossy())
 }
 
 #[tauri::command]

@@ -40,3 +40,6 @@ tempfile = "3.27.0"
 
 [target."cfg(unix)".dependencies]
 xattr = "1.6.1"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

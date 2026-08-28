@@ -42,8 +42,10 @@ import { forwardRef, useMemo, useRef } from "react";
 import { api } from "../lib/api";
 import {
   calloutsToDirectives,
+  captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
+  restoreMarkdownBoundaryWhitespace,
 } from "../lib/markdown";
 
 interface MarkdownEditorProps {
@@ -62,7 +64,7 @@ export const MarkdownEditor = forwardRef<
 >(function MarkdownEditor(
   {
   notePath,
-    markdown,
+  markdown,
     readOnly,
     onChange,
     onError,
@@ -72,6 +74,9 @@ export const MarkdownEditor = forwardRef<
   ref,
 ) {
   const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
+  const boundaryWhitespace = useRef(
+    captureMarkdownBoundaryWhitespace(markdown),
+  ).current;
   const plugins = useMemo(
     () => [
       headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4, 5, 6] }),
@@ -220,10 +225,16 @@ export const MarkdownEditor = forwardRef<
         contentEditableClassName="denote-editor-content"
         placeholder="Start writing…"
         readOnly={readOnly}
+        trim={false}
         spellCheck
         onChange={(value, initialNormalize) => {
           if (!initialNormalize) {
-            onChange(directivesToCallouts(value));
+            onChange(
+              restoreMarkdownBoundaryWhitespace(
+                directivesToCallouts(value),
+                boundaryWhitespace,
+              ),
+            );
           }
         }}
         onError={({ error }) => onError(error)}

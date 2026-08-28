@@ -1,4 +1,6 @@
-export type FileKind = "folder" | "markdown" | "text" | "image";
+export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
+export type FileEncoding = "utf8" | "base64";
+export type FileLineEnding = "lf" | "crlf" | "cr";
 
 export interface FileNode {
   path: string;
@@ -24,6 +26,8 @@ export interface NoteDocument {
   path: string;
   content: string;
   contentHash: string;
+  encoding: FileEncoding;
+  lineEnding: FileLineEnding;
   stats: NoteStats;
 }
 
@@ -65,6 +69,8 @@ export interface HistoryRevision {
   reason: string;
   preview: string;
   byteCount: number;
+  encoding: FileEncoding;
+  lineEnding: FileLineEnding;
 }
 
 export interface SearchDocument {
@@ -72,10 +78,18 @@ export interface SearchDocument {
   title: string;
   content: string;
   contentHash: string;
+  encoding: FileEncoding;
+  lineEnding: FileLineEnding;
   tags: string[];
   kind: Exclude<FileKind, "folder">;
   bookmarked: boolean;
   lastOpenedAt: string | null;
+}
+
+export interface DocumentBatch {
+  documents: SearchDocument[];
+  skippedCount: number;
+  truncated: boolean;
 }
 
 export interface SearchResult {
@@ -91,8 +105,12 @@ export interface EditorTab {
   content: string;
   savedContent: string;
   savedHash?: string;
+  encoding: FileEncoding;
+  lineEnding: FileLineEnding;
   stats?: NoteStats;
   imageDataUrl?: string;
+  rawEditing: boolean;
+  editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
 }

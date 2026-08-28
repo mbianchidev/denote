@@ -19,12 +19,15 @@ use crate::{
     db,
     error::{AppError, AppResult},
     models::{
-        FileKind, FileNode, HistoryRevision, NoteDocument, SaveOutcome, SearchDocument,
-        WorkspaceSnapshot,
+        DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
+        NoteDocument, SaveOutcome, SearchDocument, WorkspaceSnapshot,
     },
 };
 
-const MAX_TEXT_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_EDIT_BYTES: u64 = 25 * 1024 * 1024;
+const MAX_SEARCH_BYTES: u64 = 10 * 1024 * 1024;
+const MAX_SEARCH_AGGREGATE_BYTES: usize = 64 * 1024 * 1024;
+const MAX_EDITABLE_AGGREGATE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 
 pub fn get_last_vault(db_path: &Path) -> AppResult<Option<String>> {
@@ -51,25 +54,19 @@ pub fn refresh_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSna
 pub fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<NoteDocument> {
     let root = canonical_vault(vault_path)?;
     let path = existing_entry(&root, relative_path)?;
-    let kind = kind_for_path(&path).ok_or_else(|| {
-        AppError::UnsupportedFile(format!("{relative_path} is not a text document"))
-    })?;
-    if !matches!(kind, FileKind::Markdown | FileKind::Text) {
-        return Err(AppError::UnsupportedFile(relative_path.to_string()));
-    }
-    let metadata = fs::metadata(&path)?;
-    if metadata.len() > MAX_TEXT_BYTES {
-        return Err(AppError::InvalidData(format!(
-            "{relative_path} is larger than 10 MB"
+    if !path.is_file() {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a regular file"
         )));
     }
-    let content = fs::read_to_string(&path).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::InvalidData {
-            AppError::InvalidData(format!("{relative_path} is not valid UTF-8"))
-        } else {
-            AppError::Io(error)
-        }
-    })?;
+    let metadata = fs::metadata(&path)?;
+    if metadata.len() > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(format!(
+            "{relative_path} is larger than 25 MB"
+        )));
+    }
+    let bytes = fs::read(&path)?;
+    let (content, encoding, line_ending) = decode_file_content(&bytes);
 
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
@@ -77,8 +74,10 @@ pub fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppRe
     let stats = db::get_stats(&connection, vault_id, relative_path)?;
     Ok(NoteDocument {
         path: relative_path.to_string(),
-        content_hash: hash_content(&content),
+        content_hash: hash_bytes(&bytes),
         content,
+        encoding,
+        line_ending,
         stats,
     })
 }
@@ -88,26 +87,30 @@ pub fn save_note(
     vault_path: &str,
     relative_path: &str,
     content: &str,
+    encoding: FileEncoding,
+    line_ending: FileLineEnding,
     reason: &str,
     expected_hash: Option<&str>,
 ) -> AppResult<SaveOutcome> {
     let root = canonical_vault(vault_path)?;
     let path = existing_entry(&root, relative_path)?;
-    let kind = kind_for_path(&path).ok_or_else(|| {
-        AppError::UnsupportedFile(format!("{relative_path} is not a text document"))
-    })?;
-    if !matches!(kind, FileKind::Markdown | FileKind::Text) {
-        return Err(AppError::UnsupportedFile(relative_path.to_string()));
+    if !path.is_file() {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a regular file"
+        )));
     }
-    if content.len() as u64 > MAX_TEXT_BYTES {
+    let next_bytes = encode_file_content(content, encoding, line_ending)?;
+    if next_bytes.len() as u64 > MAX_EDIT_BYTES {
         return Err(AppError::InvalidData(
-            "Document is larger than the 10 MB save limit".to_string(),
+            "File is larger than the 25 MB save limit".to_string(),
         ));
     }
 
     let _note_lock = acquire_note_lock(&root, relative_path)?;
-    let previous = fs::read_to_string(&path)?;
-    let previous_hash = hash_content(&previous);
+    let previous_bytes = fs::read(&path)?;
+    let previous_hash = hash_bytes(&previous_bytes);
+    let (previous_content, previous_encoding, previous_line_ending) =
+        decode_file_content(&previous_bytes);
     if let Some(expected_hash) = expected_hash
         && expected_hash != previous_hash
     {
@@ -117,7 +120,7 @@ pub fn save_note(
     }
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    if previous == content {
+    if previous_bytes == next_bytes {
         return Ok(SaveOutcome {
             path: relative_path.to_string(),
             changed: false,
@@ -133,11 +136,14 @@ pub fn save_note(
         &history_transaction,
         vault_id,
         relative_path,
-        &previous,
+        &previous_content,
+        &previous_hash,
+        previous_encoding,
+        previous_line_ending,
         reason,
     )?;
     history_transaction.commit()?;
-    atomic_write(&path, content.as_bytes())?;
+    atomic_write(&path, &next_bytes)?;
     let save_transaction = connection.transaction()?;
     db::record_save(&save_transaction, vault_id, relative_path)?;
     save_transaction.commit()?;
@@ -147,7 +153,7 @@ pub fn save_note(
         path: relative_path.to_string(),
         changed: true,
         saved_at,
-        content_hash: hash_content(content),
+        content_hash: hash_bytes(&next_bytes),
         history_count: db::history_count(&connection, vault_id, relative_path)?,
         stats: db::get_stats(&connection, vault_id, relative_path)?,
     })
@@ -180,12 +186,6 @@ pub fn create_entry(
     if directory {
         fs::create_dir(&destination)?;
     } else {
-        let kind = kind_for_path(&destination).ok_or_else(|| {
-            AppError::UnsupportedFile("New notes must use .md, .markdown, or .txt".to_string())
-        })?;
-        if !matches!(kind, FileKind::Markdown | FileKind::Text) {
-            return Err(AppError::UnsupportedFile(name.to_string()));
-        }
         atomic_write(&destination, &[])?;
     }
     let connection = db::open(db_path)?;
@@ -208,26 +208,6 @@ pub fn rename_entry(
     let destination = parent.join(safe_name);
     if destination.exists() {
         return Err(AppError::InvalidPath(format!("{new_name} already exists")));
-    }
-    if source.is_file() {
-        let source_kind = kind_for_path(&source)
-            .ok_or_else(|| AppError::UnsupportedFile(relative_path.to_string()))?;
-        let destination_kind = kind_for_path(&destination).ok_or_else(|| {
-            AppError::UnsupportedFile("Renamed files must keep a supported extension".to_string())
-        })?;
-        let compatible = matches!(
-            (&source_kind, &destination_kind),
-            (
-                FileKind::Markdown | FileKind::Text,
-                FileKind::Markdown | FileKind::Text
-            ) | (FileKind::Image, FileKind::Image)
-        );
-        if !compatible {
-            return Err(AppError::UnsupportedFile(
-                "Renaming cannot change a text document into an image or an image into text"
-                    .to_string(),
-            ));
-        }
     }
     let new_relative = relative_string(&root, &destination)?;
     let mut connection = db::open(db_path)?;
@@ -449,38 +429,74 @@ pub fn restore_revision(
     let root = canonical_vault(vault_path)?;
     let path = existing_entry(&root, relative_path)?;
     let _note_lock = acquire_note_lock(&root, relative_path)?;
-    let current = fs::read_to_string(&path)?;
+    let current_bytes = fs::read(&path)?;
+    let current_hash = hash_bytes(&current_bytes);
+    let (current_content, current_encoding, current_line_ending) =
+        decode_file_content(&current_bytes);
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    let restored = db::history_content(&connection, vault_id, relative_path, revision_id)?
-        .ok_or_else(|| AppError::NotFound(format!("Revision {revision_id}")))?;
+    let (restored, restored_encoding, restored_line_ending) =
+        db::history_content(&connection, vault_id, relative_path, revision_id)?
+            .ok_or_else(|| AppError::NotFound(format!("Revision {revision_id}")))?;
+    let restored_bytes = encode_file_content(&restored, restored_encoding, restored_line_ending)?;
     let history_transaction = connection.transaction()?;
     db::push_history(
         &history_transaction,
         vault_id,
         relative_path,
-        &current,
+        &current_content,
+        &current_hash,
+        current_encoding,
+        current_line_ending,
         "before restore",
     )?;
     history_transaction.commit()?;
-    atomic_write(&path, restored.as_bytes())?;
+    atomic_write(&path, &restored_bytes)?;
     let save_transaction = connection.transaction()?;
     db::record_save(&save_transaction, vault_id, relative_path)?;
     save_transaction.commit()?;
     Ok(NoteDocument {
         path: relative_path.to_string(),
-        content_hash: hash_content(&restored),
+        content_hash: hash_bytes(&restored_bytes),
         content: restored,
+        encoding: restored_encoding,
+        line_ending: restored_line_ending,
         stats: db::get_stats(&connection, vault_id, relative_path)?,
     })
 }
 
-pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<SearchDocument>> {
+pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
+    list_documents(
+        db_path,
+        vault_path,
+        MAX_SEARCH_BYTES,
+        MAX_SEARCH_AGGREGATE_BYTES,
+    )
+}
+
+pub fn list_editable_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
+    list_documents(
+        db_path,
+        vault_path,
+        MAX_EDIT_BYTES,
+        MAX_EDITABLE_AGGREGATE_BYTES,
+    )
+}
+
+fn list_documents(
+    db_path: &Path,
+    vault_path: &str,
+    max_bytes: u64,
+    max_aggregate_bytes: usize,
+) -> AppResult<DocumentBatch> {
     let root = canonical_vault(vault_path)?;
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let stats = db::stats_map(&connection, vault_id)?;
     let mut documents = Vec::new();
+    let mut skipped_count = 0;
+    let mut loaded_bytes: usize = 0;
+    let mut truncated = false;
 
     let walker = WalkDir::new(&root)
         .follow_links(false)
@@ -494,69 +510,99 @@ pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<
                     .eq_ignore_ascii_case(".denote")
         });
     for entry in walker {
-        let entry = entry.map_err(|error| {
-            AppError::Io(
-                error
-                    .into_io_error()
-                    .unwrap_or_else(|| std::io::Error::other("Unable to scan vault")),
-            )
-        })?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                skipped_count += 1;
+                eprintln!("Skipping unreadable vault entry: {error}");
+                continue;
+            }
+        };
         if entry.path() == root {
             continue;
         }
-        let relative = relative_internal_string(&root, entry.path())?;
+        let relative = match relative_internal_string(&root, entry.path()) {
+            Ok(relative) => relative,
+            Err(error) => {
+                skipped_count += 1;
+                eprintln!("Skipping invalid vault entry: {error}");
+                continue;
+            }
+        };
         if is_internal_relative_path(&relative) {
             continue;
         }
-        if metadata_is_link(&fs::symlink_metadata(entry.path())?) || !entry.file_type().is_file() {
-            continue;
-        }
-        let Some(kind) = kind_for_path(entry.path()) else {
-            continue;
-        };
-        let metadata = entry
-            .metadata()
-            .map_err(|error| AppError::Io(error.into()))?;
-        let (content, tags, title) = if matches!(kind, FileKind::Markdown | FileKind::Text) {
-            if metadata.len() > MAX_TEXT_BYTES {
+        let symlink_metadata = match fs::symlink_metadata(entry.path()) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                skipped_count += 1;
+                eprintln!("Skipping unreadable vault metadata for {relative}: {error}");
                 continue;
             }
-            let Ok(content) = fs::read_to_string(entry.path()) else {
+        };
+        if metadata_is_link(&symlink_metadata) || !entry.file_type().is_file() {
+            continue;
+        }
+        let kind = kind_for_path(entry.path());
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                skipped_count += 1;
+                eprintln!("Skipping unreadable file metadata for {relative}: {error}");
                 continue;
+            }
+        };
+        if metadata.len() > max_bytes {
+            skipped_count += 1;
+            continue;
+        }
+        let bytes = match fs::read(entry.path()) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                skipped_count += 1;
+                eprintln!("Skipping unreadable file {relative}: {error}");
+                continue;
+            }
+        };
+        let (content, encoding, line_ending) = decode_file_content(&bytes);
+        if loaded_bytes.saturating_add(content.len()) > max_aggregate_bytes {
+            truncated = true;
+            break;
+        }
+        loaded_bytes += content.len();
+        let (tags, title) = if encoding == FileEncoding::Utf8 {
+            let title = if kind == FileKind::Markdown {
+                document_title(&relative, &content)
+            } else {
+                title_from_file_path(&relative)
             };
-            (
-                content.clone(),
-                extract_tags(&content),
-                document_title(&relative, &content),
-            )
+            (extract_tags(&content), title)
         } else {
-            (
-                String::new(),
-                Vec::new(),
-                Path::new(&relative)
-                    .file_stem()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or(&relative)
-                    .to_string(),
-            )
+            (Vec::new(), title_from_file_path(&relative))
         };
         let stored = stats.get(&relative).cloned().unwrap_or_default();
         documents.push(SearchDocument {
             path: relative.clone(),
             title,
             tags,
-            content_hash: hash_content(&content),
+            content_hash: hash_bytes(&bytes),
             content,
+            encoding,
+            line_ending,
             kind,
             bookmarked: stored.bookmarked,
             last_opened_at: stored.last_opened_at,
         });
     }
-    Ok(documents)
+    Ok(DocumentBatch {
+        documents,
+        skipped_count,
+        truncated,
+    })
 }
 
 pub fn read_image_data_url(
-    db_path: &Path,
+    _db_path: &Path,
     vault_path: &str,
     note_path: Option<&str>,
     image_source: &str,
@@ -570,17 +616,11 @@ pub fn read_image_data_url(
         ));
     }
     let kind = kind_for_path(&image_path);
-    if kind != Some(FileKind::Image) {
+    if kind != FileKind::Image {
         return Err(AppError::UnsupportedFile(image_source.to_string()));
     }
     let mime = mime_guess::from_path(&image_path).first_or_octet_stream();
     let encoded = STANDARD.encode(fs::read(&image_path)?);
-    if note_path.is_none() {
-        let relative = relative_string(&root, &image_path)?;
-        let connection = db::open(db_path)?;
-        let (vault_id, _) = ensure_vault(&connection, &root)?;
-        db::record_open(&connection, vault_id, &relative)?;
-    }
     Ok(format!("data:{mime};base64,{encoded}"))
 }
 
@@ -602,7 +642,7 @@ pub fn save_attachment(
         .ok_or_else(|| AppError::InvalidPath(note_path.to_string()))?;
     let safe_name = validate_name(file_name)?;
     let kind = kind_for_path(Path::new(safe_name));
-    if kind != Some(FileKind::Image) {
+    if kind != FileKind::Image {
         return Err(AppError::UnsupportedFile(file_name.to_string()));
     }
     let attachments = parent.join("assets");
@@ -762,7 +802,8 @@ fn scan_directory(
                 modified_at,
                 bookmarked: false,
             });
-        } else if let Some(kind) = kind_for_path(&path) {
+        } else {
+            let kind = kind_for_path(&path);
             nodes.push(FileNode {
                 path: relative.clone(),
                 name: entry.file_name().to_string_lossy().into_owned(),
@@ -895,9 +936,9 @@ fn validate_name(name: &str) -> AppResult<&str> {
     Ok(trimmed)
 }
 
-fn kind_for_path(path: &Path) -> Option<FileKind> {
+fn kind_for_path(path: &Path) -> FileKind {
     if path.is_dir() {
-        return Some(FileKind::Folder);
+        return FileKind::Folder;
     }
     match path
         .extension()
@@ -905,12 +946,10 @@ fn kind_for_path(path: &Path) -> Option<FileKind> {
         .map(|value| value.to_ascii_lowercase())
         .as_deref()
     {
-        Some("md" | "markdown") => Some(FileKind::Markdown),
-        Some("txt") => Some(FileKind::Text),
-        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif") => {
-            Some(FileKind::Image)
-        }
-        _ => None,
+        Some("md" | "markdown" | "mdx") => FileKind::Markdown,
+        Some("txt") => FileKind::Text,
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif") => FileKind::Image,
+        _ => FileKind::File,
     }
 }
 
@@ -947,6 +986,88 @@ fn document_title(path: &str, content: &str) -> String {
                 .unwrap_or(path)
                 .to_string()
         })
+}
+
+fn title_from_file_path(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn decode_file_content(bytes: &[u8]) -> (String, FileEncoding, FileLineEnding) {
+    match String::from_utf8(bytes.to_vec()) {
+        Ok(content) => {
+            normalize_utf8_content(content).unwrap_or_else(|| encode_binary_content(bytes))
+        }
+        Err(_) => encode_binary_content(bytes),
+    }
+}
+
+fn encode_file_content(
+    content: &str,
+    encoding: FileEncoding,
+    line_ending: FileLineEnding,
+) -> AppResult<Vec<u8>> {
+    match encoding {
+        FileEncoding::Utf8 => {
+            let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+            let encoded = match line_ending {
+                FileLineEnding::Lf => normalized,
+                FileLineEnding::Crlf => normalized.replace('\n', "\r\n"),
+                FileLineEnding::Cr => normalized.replace('\n', "\r"),
+            };
+            Ok(encoded.into_bytes())
+        }
+        FileEncoding::Base64 => {
+            let compact = content
+                .chars()
+                .filter(|value| !value.is_whitespace())
+                .collect::<String>();
+            STANDARD.decode(compact).map_err(|error| {
+                AppError::InvalidData(format!("Binary Base64 content is invalid: {error}"))
+            })
+        }
+    }
+}
+
+fn normalize_utf8_content(content: String) -> Option<(String, FileEncoding, FileLineEnding)> {
+    let without_crlf = content.replace("\r\n", "");
+    let has_crlf = content.contains("\r\n");
+    let has_cr = without_crlf.contains('\r');
+    let has_lf = without_crlf.contains('\n');
+    if [has_crlf, has_cr, has_lf]
+        .into_iter()
+        .filter(|value| *value)
+        .count()
+        > 1
+    {
+        return None;
+    }
+    let line_ending = if has_crlf {
+        FileLineEnding::Crlf
+    } else if has_cr {
+        FileLineEnding::Cr
+    } else {
+        FileLineEnding::Lf
+    };
+    Some((
+        content.replace("\r\n", "\n").replace('\r', "\n"),
+        FileEncoding::Utf8,
+        line_ending,
+    ))
+}
+
+fn encode_binary_content(bytes: &[u8]) -> (String, FileEncoding, FileLineEnding) {
+    let encoded = STANDARD.encode(bytes);
+    let content = encoded
+        .as_bytes()
+        .chunks(76)
+        .map(|chunk| String::from_utf8_lossy(chunk))
+        .collect::<Vec<_>>()
+        .join("\n");
+    (content, FileEncoding::Base64, FileLineEnding::Lf)
 }
 
 fn extract_tags(content: &str) -> Vec<String> {
@@ -1103,6 +1224,94 @@ fn available_named_path(directory: &Path, name: &str) -> AppResult<PathBuf> {
 }
 
 fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
+    #[cfg(windows)]
+    if path.exists() {
+        return replace_file_windows(path, data);
+    }
+
+    #[cfg(windows)]
+    fn replace_file_windows(path: &Path, data: &[u8]) -> AppResult<()> {
+        use std::{os::windows::ffi::OsStrExt, ptr};
+        use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
+
+        let parent = path
+            .parent()
+            .ok_or_else(|| AppError::InvalidPath(path_to_string(path)))?;
+        let file_name = path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("file");
+        let temporary_path = parent.join(format!(".{file_name}.{}.denote-tmp", Uuid::new_v4()));
+        let backup_path = parent.join(format!(".{file_name}.{}.denote-backup", Uuid::new_v4()));
+        let mut temporary = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary_path)?;
+        if let Err(error) = temporary
+            .write_all(data)
+            .and_then(|()| temporary.sync_all())
+        {
+            drop(temporary);
+            let _ = fs::remove_file(&temporary_path);
+            return Err(error.into());
+        }
+        drop(temporary);
+
+        let target_wide = path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let replacement_wide = temporary_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let backup_wide = backup_path
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<_>>();
+        let replaced = unsafe {
+            ReplaceFileW(
+                target_wide.as_ptr(),
+                replacement_wide.as_ptr(),
+                backup_wide.as_ptr(),
+                1,
+                ptr::null(),
+                ptr::null(),
+            )
+        };
+        if replaced == 0 {
+            let error = std::io::Error::last_os_error();
+            if !path.exists() {
+                let recovery = if backup_path.exists() {
+                    fs::rename(&backup_path, path)
+                } else if temporary_path.exists() {
+                    fs::rename(&temporary_path, path)
+                } else {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::NotFound,
+                        "Windows replacement left no recoverable file",
+                    ))
+                };
+                if let Err(recovery_error) = recovery {
+                    return Err(AppError::InvalidData(format!(
+                        "Windows file replacement failed: {error}. Recovery also failed: {recovery_error}. Check {} and {}.",
+                        path_to_string(&temporary_path),
+                        path_to_string(&backup_path)
+                    )));
+                }
+            }
+            if path.exists() {
+                let _ = fs::remove_file(&temporary_path);
+                let _ = fs::remove_file(&backup_path);
+            }
+            return Err(error.into());
+        }
+        let _ = fs::remove_file(&backup_path);
+        Ok(())
+    }
     #[cfg(unix)]
     let extended_attributes = read_extended_attributes(path)?;
     let mut file = AtomicWriteFile::options().open(path)?;
@@ -1149,7 +1358,11 @@ fn read_extended_attributes(path: &Path) -> AppResult<Vec<(OsString, Vec<u8>)>> 
 }
 
 fn hash_content(content: &str) -> String {
-    hex::encode(Sha256::digest(content.as_bytes()))
+    hash_bytes(content.as_bytes())
+}
+
+fn hash_bytes(content: &[u8]) -> String {
+    hex::encode(Sha256::digest(content))
 }
 
 fn rollback_operation(
@@ -1254,6 +1467,8 @@ mod tests {
             vault_path.to_str().unwrap(),
             "note.md",
             "second",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
             "autosave",
             None,
         )
@@ -1295,6 +1510,8 @@ mod tests {
             vault_path.to_str().unwrap(),
             "note.md",
             "denote edit",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
             "autosave",
             Some(&document.content_hash),
         );
@@ -1336,6 +1553,8 @@ mod tests {
                     vault_path.to_str().unwrap(),
                     "note.md",
                     content,
+                    FileEncoding::Utf8,
+                    FileLineEnding::Lf,
                     "autosave",
                     Some(&expected_hash),
                 )
@@ -1390,6 +1609,8 @@ mod tests {
             vault_path.to_str().unwrap(),
             "note.md",
             "edited",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
             "autosave",
             None,
         )
@@ -1584,10 +1805,11 @@ mod tests {
         let db_path = directory.path().join("denote.sqlite3");
         db::initialize(&db_path).expect("database initialized");
 
-        let documents =
+        let batch =
             list_search_documents(&db_path, vault_path.to_str().unwrap()).expect("documents");
         assert_eq!(
-            documents
+            batch
+                .documents
                 .iter()
                 .map(|document| document.path.as_str())
                 .collect::<Vec<_>>(),
@@ -1595,8 +1817,149 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
-    fn rejects_renames_between_text_and_image_categories() {
+    fn search_skips_unreadable_files_without_aborting_the_batch() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("visible.txt"), "visible").expect("visible file");
+        let blocked = vault_path.join("blocked.txt");
+        fs::write(&blocked, "blocked").expect("blocked file");
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000))
+            .expect("block permissions");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let batch =
+            list_search_documents(&db_path, vault_path.to_str().unwrap()).expect("search batch");
+        fs::set_permissions(&blocked, fs::Permissions::from_mode(0o600))
+            .expect("restore permissions");
+        assert_eq!(batch.skipped_count, 1);
+        assert_eq!(batch.documents.len(), 1);
+        assert_eq!(batch.documents[0].path, "visible.txt");
+    }
+
+    #[test]
+    fn reads_and_restores_binary_files_as_base64() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        let original = [0xff, 0x00, 0x80, 0x01];
+        fs::write(vault_path.join("archive.bin"), original).expect("binary file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "archive.bin").expect("read binary");
+        assert_eq!(document.encoding, FileEncoding::Base64);
+        assert_eq!(
+            STANDARD
+                .decode(document.content.replace(char::is_whitespace, ""))
+                .expect("decode original"),
+            original
+        );
+        let indexed =
+            list_editable_documents(&db_path, vault_path.to_str().unwrap()).expect("documents");
+        let indexed_binary = indexed
+            .documents
+            .iter()
+            .find(|document| document.path == "archive.bin")
+            .expect("indexed binary");
+        assert_eq!(indexed_binary.kind, FileKind::File);
+        assert_eq!(indexed_binary.encoding, FileEncoding::Base64);
+
+        let replacement = STANDARD.encode([0xde, 0xad, 0xbe, 0xef]);
+        save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "archive.bin",
+            &replacement,
+            FileEncoding::Base64,
+            FileLineEnding::Lf,
+            "binary edit",
+            Some(&document.content_hash),
+        )
+        .expect("save binary");
+        assert_eq!(
+            fs::read(vault_path.join("archive.bin")).expect("saved binary"),
+            [0xde, 0xad, 0xbe, 0xef]
+        );
+
+        let history =
+            list_history(&db_path, vault_path.to_str().unwrap(), "archive.bin").expect("history");
+        assert_eq!(history[0].encoding, FileEncoding::Base64);
+        let restored = restore_revision(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "archive.bin",
+            history[0].id,
+        )
+        .expect("restore binary");
+        assert_eq!(restored.encoding, FileEncoding::Base64);
+        assert_eq!(
+            fs::read(vault_path.join("archive.bin")).expect("restored binary"),
+            original
+        );
+    }
+
+    #[test]
+    fn preserves_consistent_text_line_endings() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("script.bat"), b"one\r\ntwo\r\n").expect("CRLF file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "script.bat").expect("read script");
+        assert_eq!(document.encoding, FileEncoding::Utf8);
+        assert_eq!(document.line_ending, FileLineEnding::Crlf);
+        assert_eq!(document.content, "one\ntwo\n");
+
+        save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "script.bat",
+            "one\nchanged\n",
+            FileEncoding::Utf8,
+            FileLineEnding::Crlf,
+            "edit",
+            Some(&document.content_hash),
+        )
+        .expect("save script");
+        assert_eq!(
+            fs::read(vault_path.join("script.bat")).expect("saved script"),
+            b"one\r\nchanged\r\n"
+        );
+    }
+
+    #[test]
+    fn mixed_line_endings_use_byte_preserving_base64() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        let original = b"one\r\ntwo\nthree\r";
+        fs::write(vault_path.join("mixed.txt"), original).expect("mixed file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let document =
+            read_note(&db_path, vault_path.to_str().unwrap(), "mixed.txt").expect("read mixed");
+        assert_eq!(document.encoding, FileEncoding::Base64);
+        assert_eq!(
+            STANDARD
+                .decode(document.content.replace(char::is_whitespace, ""))
+                .expect("decode mixed"),
+            original
+        );
+    }
+
+    #[test]
+    fn allows_files_to_be_renamed_across_extension_categories() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
         fs::create_dir(&vault_path).expect("vault directory");
@@ -1605,23 +1968,25 @@ mod tests {
         let db_path = directory.path().join("denote.sqlite3");
         db::initialize(&db_path).expect("database initialized");
 
-        assert!(
+        assert_eq!(
             rename_entry(
                 &db_path,
                 vault_path.to_str().unwrap(),
                 "note.md",
                 "note.png",
             )
-            .is_err()
+            .expect("rename text as image"),
+            "note.png"
         );
-        assert!(
+        assert_eq!(
             rename_entry(
                 &db_path,
                 vault_path.to_str().unwrap(),
                 "image.png",
                 "image.md",
             )
-            .is_err()
+            .expect("rename image as markdown"),
+            "image.md"
         );
     }
 
@@ -1672,6 +2037,8 @@ mod tests {
             vault_path.to_str().unwrap(),
             "note.md",
             "second",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
             "autosave",
             Some(&document.content_hash),
         )

@@ -15,6 +15,8 @@ describe("replace previews", () => {
       path: "one.md",
       content: "Note one. Another note.",
       contentHash: "hash",
+      encoding: "utf8" as const,
+      lineEnding: "lf" as const,
     };
 
     const [preview] = previewReplacements([source], baseRequest);
@@ -31,6 +33,8 @@ describe("replace previews", () => {
         {
           path: "unicode.md",
           content: "кот котик 日本 日本語",
+          encoding: "utf8",
+          lineEnding: "lf",
         },
       ],
       {
@@ -49,8 +53,18 @@ describe("replace previews", () => {
   it("returns only files containing matches", () => {
     const previews = previewReplacements(
       [
-        { path: "one.md", content: "a note" },
-        { path: "two.md", content: "nothing here" },
+        {
+          path: "one.md",
+          content: "a note",
+          encoding: "utf8",
+          lineEnding: "lf",
+        },
+        {
+          path: "two.md",
+          content: "nothing here",
+          encoding: "utf8",
+          lineEnding: "lf",
+        },
       ],
       baseRequest,
     );
@@ -60,7 +74,14 @@ describe("replace previews", () => {
 
   it("does not replace inside Unicode grapheme clusters", () => {
     const previews = previewReplacements(
-      [{ path: "hindi.md", content: "कि क" }],
+      [
+        {
+          path: "hindi.md",
+          content: "कि क",
+          encoding: "utf8",
+          lineEnding: "lf",
+        },
+      ],
       {
         ...baseRequest,
         find: "क",
@@ -76,7 +97,14 @@ describe("replace previews", () => {
   it("does not split emoji sequences in whole-word mode", () => {
     expect(
       previewReplacements(
-        [{ path: "emoji.md", content: "👨‍👩‍👧‍👦 👨 👍🏽 👍" }],
+        [
+          {
+            path: "emoji.md",
+            content: "👨‍👩‍👧‍👦 👨 👍🏽 👍",
+            encoding: "utf8",
+            lineEnding: "lf",
+          },
+        ],
         {
           ...baseRequest,
           find: "👨",
@@ -89,7 +117,14 @@ describe("replace previews", () => {
 
     expect(
       previewReplacements(
-        [{ path: "emoji.md", content: "👍🏽 👍" }],
+        [
+          {
+            path: "emoji.md",
+            content: "👍🏽 👍",
+            encoding: "utf8",
+            lineEnding: "lf",
+          },
+        ],
         {
           ...baseRequest,
           find: "👍",
@@ -99,5 +134,47 @@ describe("replace previews", () => {
         },
       )[0].replacedContent,
     ).toBe("👍🏽 Y");
+  });
+
+  it("rejects pathological replacement counts before building a preview", () => {
+    expect(() =>
+      previewReplacements(
+        [
+          {
+            path: "dense.txt",
+            content: "a".repeat(100_001),
+            encoding: "utf8",
+            lineEnding: "lf",
+          },
+        ],
+        {
+          ...baseRequest,
+          find: "a",
+          replacement: "b",
+          matchCase: true,
+        },
+      ),
+    ).toThrow("100,000");
+  });
+
+  it("rejects oversized replacement output before joining it", () => {
+    expect(() =>
+      previewReplacements(
+        [
+          {
+            path: "expansion.txt",
+            content: "a".repeat(60_000),
+            encoding: "utf8",
+            lineEnding: "lf",
+          },
+        ],
+        {
+          ...baseRequest,
+          find: "a",
+          replacement: "b".repeat(2_000),
+          matchCase: true,
+        },
+      ),
+    ).toThrow("64 MB");
   });
 });

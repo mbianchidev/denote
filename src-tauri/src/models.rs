@@ -7,6 +7,57 @@ pub enum FileKind {
     Markdown,
     Text,
     Image,
+    File,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FileEncoding {
+    Utf8,
+    Base64,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FileLineEnding {
+    Lf,
+    Crlf,
+    Cr,
+}
+
+impl FileLineEnding {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Lf => "lf",
+            Self::Crlf => "crlf",
+            Self::Cr => "cr",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "crlf" => Self::Crlf,
+            "cr" => Self::Cr,
+            _ => Self::Lf,
+        }
+    }
+}
+
+impl FileEncoding {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Utf8 => "utf8",
+            Self::Base64 => "base64",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        if value == "base64" {
+            Self::Base64
+        } else {
+            Self::Utf8
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -39,6 +90,8 @@ pub struct NoteDocument {
     pub path: String,
     pub content: String,
     pub content_hash: String,
+    pub encoding: FileEncoding,
+    pub line_ending: FileLineEnding,
     pub stats: NoteStats,
 }
 
@@ -90,6 +143,8 @@ pub struct HistoryRevision {
     pub reason: String,
     pub preview: String,
     pub byte_count: usize,
+    pub encoding: FileEncoding,
+    pub line_ending: FileLineEnding,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,8 +154,18 @@ pub struct SearchDocument {
     pub title: String,
     pub content: String,
     pub content_hash: String,
+    pub encoding: FileEncoding,
+    pub line_ending: FileLineEnding,
     pub tags: Vec<String>,
     pub kind: FileKind,
     pub bookmarked: bool,
     pub last_opened_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentBatch {
+    pub documents: Vec<SearchDocument>,
+    pub skipped_count: usize,
+    pub truncated: bool,
 }

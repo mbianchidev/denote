@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   calloutsToDirectives,
+  captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   extractHeadings,
   extractTags,
   hasUnsupportedRichMarkdown,
   recoverMarkdownLinkTarget,
+  restoreMarkdownBoundaryWhitespace,
   resolveInternalLink,
 } from "./markdown";
 
@@ -85,5 +87,12 @@ describe("markdown utilities", () => {
       false,
     );
     expect(hasUnsupportedRichMarkdown("# Supported\n\n**Markdown**")).toBe(false);
+  });
+
+  it("restores Markdown boundary whitespace removed by the editor", () => {
+    const boundary = captureMarkdownBoundaryWhitespace("\n# Title\r\n\r\n");
+    expect(restoreMarkdownBoundaryWhitespace("# Changed", boundary)).toBe(
+      "\n# Changed\r\n\r\n",
+    );
   });
 });

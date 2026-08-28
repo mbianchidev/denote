@@ -7,14 +7,14 @@ use std::{
     },
 };
 
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
-use sha2::{Digest, Sha256};
+use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use uuid::Uuid;
 
 use crate::{
     error::AppResult,
-    models::{HistoryRevision, NoteListItem, NoteStats, TrashItem},
+    models::{FileEncoding, FileLineEnding, HistoryRevision, NoteListItem, NoteStats, TrashItem},
 };
 
 pub const HISTORY_LIMIT: i64 = 10;
@@ -61,7 +61,7 @@ impl AppState {
 }
 
 pub fn initialize(db_path: &Path) -> AppResult<()> {
-    let connection = open(db_path)?;
+    let mut connection = open(db_path)?;
     connection.execute_batch(
         r#"
         PRAGMA journal_mode = WAL;
@@ -102,6 +102,8 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           vault_id INTEGER NOT NULL,
           path TEXT NOT NULL,
           content TEXT NOT NULL,
+          encoding TEXT NOT NULL DEFAULT 'utf8',
+          line_ending TEXT NOT NULL DEFAULT 'lf',
           content_hash TEXT NOT NULL,
           reason TEXT NOT NULL,
           created_at TEXT NOT NULL,
@@ -163,7 +165,108 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
         VALUES (2, CURRENT_TIMESTAMP);
         "#,
     )?;
+    let migration = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let added_encoding = !column_exists(&migration, "history", "encoding")?;
+    if added_encoding {
+        migration.execute(
+            "ALTER TABLE history ADD COLUMN encoding TEXT NOT NULL DEFAULT 'utf8'",
+            [],
+        )?;
+    }
+    let added_line_ending = !column_exists(&migration, "history", "line_ending")?;
+    if added_line_ending {
+        migration.execute(
+            "ALTER TABLE history ADD COLUMN line_ending TEXT NOT NULL DEFAULT 'lf'",
+            [],
+        )?;
+    }
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (4, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    if added_encoding || added_line_ending {
+        backfill_history_format(&migration)?;
+    }
+    migration.commit()?;
     Ok(())
+}
+
+fn backfill_history_format(transaction: &Transaction<'_>) -> AppResult<()> {
+    let mut last_id = 0;
+    loop {
+        let rows = {
+            let mut statement = transaction.prepare(
+                "SELECT id, content, encoding FROM history WHERE id > ?1 ORDER BY id LIMIT 100",
+            )?;
+            let mapped = statement.query_map(params![last_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })?;
+            mapped.collect::<Result<Vec<_>, _>>()?
+        };
+        if rows.is_empty() {
+            break;
+        }
+        for (id, content, encoding) in rows {
+            last_id = id;
+            let (content, encoding, line_ending) = if encoding == "base64" {
+                (content, "base64", "lf")
+            } else {
+                match detect_line_ending(&content) {
+                    Some(line_ending) => (content, "utf8", line_ending),
+                    None => (STANDARD.encode(content.as_bytes()), "base64", "lf"),
+                }
+            };
+            transaction.execute(
+                "UPDATE history SET content = ?1, encoding = ?2, line_ending = ?3 WHERE id = ?4",
+                params![content, encoding, line_ending, id],
+            )?;
+        }
+        if last_id == 0 {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn detect_line_ending(content: &str) -> Option<&'static str> {
+    let without_crlf = content.replace("\r\n", "");
+    let has_crlf = content.contains("\r\n");
+    let has_cr = without_crlf.contains('\r');
+    let has_lf = without_crlf.contains('\n');
+    if [has_crlf, has_cr, has_lf]
+        .into_iter()
+        .filter(|value| *value)
+        .count()
+        > 1
+    {
+        return None;
+    }
+    Some(if has_crlf {
+        "crlf"
+    } else if has_cr {
+        "cr"
+    } else {
+        "lf"
+    })
+}
+
+fn column_exists(connection: &Connection, table: &str, column: &str) -> AppResult<bool> {
+    let mut statement = connection.prepare(&format!("PRAGMA table_info({table})"))?;
+    let columns = statement.query_map([], |row| row.get::<_, String>(1))?;
+    for existing in columns {
+        if existing? == column {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub fn open(db_path: &Path) -> AppResult<Connection> {
@@ -432,9 +535,11 @@ pub fn push_history(
     vault_id: i64,
     path: &str,
     content: &str,
+    content_hash: &str,
+    encoding: FileEncoding,
+    line_ending: FileLineEnding,
     reason: &str,
 ) -> AppResult<()> {
-    let hash = hex::encode(Sha256::digest(content.as_bytes()));
     let latest_hash: Option<String> = transaction
         .query_row(
             r#"
@@ -448,16 +553,27 @@ pub fn push_history(
             |row| row.get(0),
         )
         .optional()?;
-    if latest_hash.as_deref() == Some(hash.as_str()) {
+    if latest_hash.as_deref() == Some(content_hash) {
         return Ok(());
     }
 
     transaction.execute(
         r#"
-        INSERT INTO history(vault_id, path, content, content_hash, reason, created_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+        INSERT INTO history(
+          vault_id, path, content, encoding, line_ending, content_hash, reason, created_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
         "#,
-        params![vault_id, path, content, hash, reason, now()],
+        params![
+            vault_id,
+            path,
+            content,
+            encoding.as_str(),
+            line_ending.as_str(),
+            content_hash,
+            reason,
+            now()
+        ],
     )?;
     transaction.execute(
         r#"
@@ -484,7 +600,7 @@ pub fn list_history(
 ) -> AppResult<Vec<HistoryRevision>> {
     let mut statement = connection.prepare(
         r#"
-        SELECT id, created_at, reason, content
+        SELECT id, created_at, reason, content, encoding, line_ending
         FROM history
         WHERE vault_id = ?1 AND path = ?2
         ORDER BY id DESC
@@ -492,12 +608,16 @@ pub fn list_history(
     )?;
     let rows = statement.query_map(params![vault_id, path], |row| {
         let content: String = row.get(3)?;
+        let encoding = FileEncoding::from_str(&row.get::<_, String>(4)?);
+        let line_ending = FileLineEnding::from_str(&row.get::<_, String>(5)?);
         Ok(HistoryRevision {
             id: row.get(0)?,
             created_at: row.get(1)?,
             reason: row.get(2)?,
             preview: preview(&content),
-            byte_count: content.len(),
+            byte_count: history_byte_count(&content, encoding),
+            encoding,
+            line_ending,
         })
     })?;
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -508,16 +628,22 @@ pub fn history_content(
     vault_id: i64,
     path: &str,
     revision_id: i64,
-) -> AppResult<Option<String>> {
+) -> AppResult<Option<(String, FileEncoding, FileLineEnding)>> {
     Ok(connection
         .query_row(
             r#"
-            SELECT content
+            SELECT content, encoding, line_ending
             FROM history
             WHERE id = ?1 AND vault_id = ?2 AND path = ?3
             "#,
             params![revision_id, vault_id, path],
-            |row| row.get(0),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    FileEncoding::from_str(&row.get::<_, String>(1)?),
+                    FileLineEnding::from_str(&row.get::<_, String>(2)?),
+                ))
+            },
         )
         .optional()?)
 }
@@ -813,8 +939,22 @@ fn preview(content: &str) -> String {
     compact.chars().take(180).collect()
 }
 
+fn history_byte_count(content: &str, encoding: FileEncoding) -> usize {
+    match encoding {
+        FileEncoding::Utf8 => content.len(),
+        FileEncoding::Base64 => {
+            let encoded_length = content
+                .chars()
+                .filter(|value| !value.is_whitespace())
+                .count();
+            encoded_length.saturating_mul(3) / 4
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use sha2::{Digest, Sha256};
     use tempfile::tempdir;
 
     use super::*;
@@ -828,12 +968,17 @@ mod tests {
         let vault_id = ensure_vault(&connection, "/tmp/vault", "vault").expect("vault");
 
         for revision in 0..12 {
+            let content = format!("revision {revision}");
+            let hash = hex::encode(Sha256::digest(content.as_bytes()));
             let transaction = connection.transaction().expect("transaction");
             push_history(
                 &transaction,
                 vault_id,
                 "note.md",
-                &format!("revision {revision}"),
+                &content,
+                &hash,
+                FileEncoding::Utf8,
+                FileLineEnding::Lf,
                 "autosave",
             )
             .expect("history");
@@ -855,14 +1000,105 @@ mod tests {
         let vault_id = ensure_vault(&connection, "/tmp/vault", "vault").expect("vault");
 
         for _ in 0..2 {
+            let hash = hex::encode(Sha256::digest(b"same"));
             let transaction = connection.transaction().expect("transaction");
-            push_history(&transaction, vault_id, "note.md", "same", "autosave").expect("history");
+            push_history(
+                &transaction,
+                vault_id,
+                "note.md",
+                "same",
+                &hash,
+                FileEncoding::Utf8,
+                FileLineEnding::Lf,
+                "autosave",
+            )
+            .expect("history");
             transaction.commit().expect("commit");
         }
 
         assert_eq!(
             history_count(&connection, vault_id, "note.md").expect("count"),
             1
+        );
+    }
+
+    #[test]
+    fn migrates_existing_history_rows_to_utf8_encoding() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("legacy.sqlite3");
+        let connection = Connection::open(&db_path).expect("legacy database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE history (
+                  id INTEGER PRIMARY KEY,
+                  vault_id INTEGER NOT NULL,
+                  path TEXT NOT NULL,
+                  content TEXT NOT NULL,
+                  content_hash TEXT NOT NULL,
+                  reason TEXT NOT NULL,
+                  created_at TEXT NOT NULL
+                );
+                INSERT INTO history(
+                  vault_id, path, content, content_hash, reason, created_at
+                ) VALUES (1, 'note.md', 'legacy', 'hash', 'autosave', 'now');
+                INSERT INTO history(
+                  vault_id, path, content, content_hash, reason, created_at
+                ) VALUES (1, 'crlf.txt', 'placeholder', 'crlf-hash', 'autosave', 'now');
+                INSERT INTO history(
+                  vault_id, path, content, content_hash, reason, created_at
+                ) VALUES (1, 'mixed.txt', 'placeholder', 'mixed-hash', 'autosave', 'now');
+                "#,
+            )
+            .expect("legacy schema");
+        connection
+            .execute(
+                "UPDATE history SET content = ?1 WHERE path = 'crlf.txt'",
+                params!["one\r\ntwo\r\n"],
+            )
+            .expect("set CRLF fixture");
+        connection
+            .execute(
+                "UPDATE history SET content = ?1 WHERE path = 'mixed.txt'",
+                params!["one\r\ntwo\nthree\r"],
+            )
+            .expect("set mixed fixture");
+        drop(connection);
+
+        initialize(&db_path).expect("migrate database");
+        let connection = open(&db_path).expect("open migrated database");
+        let encoding: String = connection
+            .query_row("SELECT encoding FROM history WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("encoding");
+        assert_eq!(encoding, "utf8");
+        let line_ending: String = connection
+            .query_row("SELECT line_ending FROM history WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .expect("line ending");
+        assert_eq!(line_ending, "lf");
+        let crlf: (String, String) = connection
+            .query_row(
+                "SELECT encoding, line_ending FROM history WHERE path = 'crlf.txt'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("CRLF metadata");
+        assert_eq!(crlf, ("utf8".to_string(), "crlf".to_string()));
+        let mixed: (String, String, String) = connection
+            .query_row(
+                "SELECT content, encoding, line_ending FROM history WHERE path = 'mixed.txt'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("mixed metadata");
+        assert_eq!(mixed.1, "base64");
+        assert_eq!(mixed.2, "lf");
+        assert_eq!(
+            STANDARD.decode(mixed.0).expect("decode mixed history"),
+            b"one\r\ntwo\nthree\r"
         );
     }
 }

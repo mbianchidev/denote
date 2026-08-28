@@ -632,7 +632,8 @@ button:disabled {
 
 .plain-text-editor {
   width: min(100%, 820px);
-  height: 100%;
+  min-height: 0;
+  flex: 1;
   margin: 0 auto;
   padding: 56px 66px 140px;
   color: var(--text-primary);
@@ -641,6 +642,22 @@ button:disabled {
   background: var(--editor-bg);
   border: 0;
   outline: 0;
+}
+
+.plain-text-editor--binary {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  letter-spacing: 0.02em;
+}
+
+.binary-editor-notice {
+  padding: 8px 14px;
+  color: var(--warning);
+  font-size: 11px;
+  text-align: center;
+  background: color-mix(in srgb, var(--warning) 8%, var(--editor-bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border));
 }
 
 .image-viewer {

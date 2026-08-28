@@ -236,6 +236,31 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
   );
 }
 
+export interface MarkdownBoundaryWhitespace {
+  leading: string;
+  trailing: string;
+}
+
+export function captureMarkdownBoundaryWhitespace(
+  markdown: string,
+): MarkdownBoundaryWhitespace {
+  if (!markdown.trim()) {
+    return { leading: "", trailing: "" };
+  }
+  return {
+    leading: markdown.match(/^\s*/)?.[0] ?? "",
+    trailing: markdown.match(/\s*$/)?.[0] ?? "",
+  };
+}
+
+export function restoreMarkdownBoundaryWhitespace(
+  markdown: string,
+  boundary: MarkdownBoundaryWhitespace,
+): string {
+  const content = markdown.trim();
+  return content ? `${boundary.leading}${content}${boundary.trailing}` : "";
+}
+
 interface Fence {
   character: "`" | "~";
   length: number;

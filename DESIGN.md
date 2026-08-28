@@ -286,6 +286,12 @@ Find and replace uses a wide modal with paired fields, explicit scope controls,
 and selectable per-file source snippets. Destructive text is shown in measured
 danger; replacement text uses the moss accent.
 
+### Binary Editor Notice
+
+Binary files use the plain monospace editor with a persistent warning strip
+that names Base64 as the reversible representation and explains save
+validation.
+
 ## Do's and Don'ts
 
 ### Do:

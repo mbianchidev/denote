@@ -9,6 +9,8 @@ plain UTF-8 files as the source of truth.
 ## Included
 
 - Rich single-pane Markdown editing with optional source mode
+- Every regular file is editable: UTF-8 as text, binary as reversible Base64
+- Image preview with an explicit raw-edit toggle
 - Autosave and the previous 10 changed revisions per note
 - Local SQLite metadata for open, edit, and save counts
 - ZBSearch full-text search with filename, path, content, tag, type, bookmark,
@@ -23,8 +25,17 @@ plain UTF-8 files as the source of truth.
 - Dark mode by default with persistent light mode
 - A typed host contract for separately shipped optional plugins
 
-Markdown, text, and images remain in the selected vault. Denote's SQLite
-database lives in the operating system's application-data directory.
+Files remain in the selected vault. Denote's SQLite database lives in the
+operating system's application-data directory.
+
+Files up to 25 MB can be edited regardless of extension. Invalid UTF-8 is shown
+as Base64; mixed line-ending files also use Base64 to preserve every byte.
+Malformed Base64 is rejected rather than written. Search indexes
+file content up to 10 MB, while vault-wide replace can include editable files up
+to the full 25 MB limit.
+
+MDX files always remain in source mode so JSX and ESM syntax cannot be
+round-tripped through the rich Markdown renderer.
 
 Notes containing raw HTML, footnotes, or math open in source mode by default so
 unsupported rich-editor transforms cannot silently rewrite that syntax.

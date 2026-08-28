@@ -1,10 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   HistoryRevision,
+  FileEncoding,
+  FileLineEnding,
+  DocumentBatch,
   NoteDocument,
   NoteStats,
   SaveOutcome,
-  SearchDocument,
   WorkspaceSnapshot,
 } from "../types";
 
@@ -16,12 +18,16 @@ export const api = {
   saveNote: (
     path: string,
     content: string,
+    encoding: FileEncoding,
+    lineEnding: FileLineEnding,
     reason = "autosave",
     expectedHash?: string,
   ) =>
     invoke<SaveOutcome>("save_note", {
       path,
       content,
+      encoding,
+      lineEnding,
       reason,
       expectedHash: expectedHash ?? null,
     }),
@@ -55,7 +61,9 @@ export const api = {
       revisionId,
     }),
   listSearchDocuments: () =>
-    invoke<SearchDocument[]>("list_search_documents"),
+    invoke<DocumentBatch>("list_search_documents"),
+  listEditableDocuments: () =>
+    invoke<DocumentBatch>("list_editable_documents"),
   readImageDataUrl: (imageSource: string, notePath?: string) =>
     invoke<string>("read_image_data_url", {
       notePath: notePath ?? null,

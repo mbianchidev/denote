@@ -12,6 +12,8 @@ describe("ReplaceDialog", () => {
         occurrences: 2,
         originalContent: "note note",
         replacedContent: "document document",
+        encoding: "utf8",
+        lineEnding: "lf",
         beforeSnippet: "note note",
         afterSnippet: "document document",
       },

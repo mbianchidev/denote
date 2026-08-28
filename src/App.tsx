@@ -1,4 +1,3 @@
-import type { MDXEditorMethods } from "@mdxeditor/editor";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { openPath, openUrl } from "@tauri-apps/plugin-opener";
@@ -7,10 +6,12 @@ import {
   ArrowUp,
   Bookmark,
   BookmarkCheck,
+  FileCode2,
   FilePlus2,
   FolderOpen,
   FolderPlus,
   History,
+  Image as ImageIcon,
   ListTree,
   Pencil,
   RefreshCw,
@@ -38,7 +39,6 @@ import { Tabs } from "./components/Tabs";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
 import {
-  calloutsToDirectives,
   extractHeadings,
   extractTags,
   recoverMarkdownLinkTarget,
@@ -111,7 +111,6 @@ function App() {
   const [historyRevisions, setHistoryRevisions] = useState<HistoryRevision[]>(
     [],
   );
-  const editorRef = useRef<MDXEditorMethods>(null);
   const searchIndex = useRef(new VaultSearchIndex());
   const searchQueryRef = useRef(searchQuery);
   const rebuildRequest = useRef(0);
@@ -202,14 +201,18 @@ function App() {
   );
   const headings = useMemo(
     () =>
-      activeTab && activeTab.kind === "markdown"
+      activeTab &&
+      activeTab.kind === "markdown" &&
+      activeTab.encoding === "utf8"
         ? extractHeadings(activeTab.content)
         : [],
     [activeTab],
   );
   const tags = useMemo(
     () =>
-      activeTab && activeTab.kind !== "image"
+      activeTab &&
+      activeTab.encoding === "utf8" &&
+      (activeTab.kind !== "image" || activeTab.rawEditing)
         ? extractTags(activeTab.content)
         : [],
     [activeTab],
@@ -226,7 +229,7 @@ function App() {
       const request = ++rebuildRequest.current;
       setIndexing(true);
       try {
-        const documents = await api.listSearchDocuments();
+        const batch = await api.listSearchDocuments();
         if (
           generation !== vaultGeneration.current ||
           request !== rebuildRequest.current
@@ -234,7 +237,7 @@ function App() {
           return;
         }
         const nextIndex = new VaultSearchIndex();
-        await nextIndex.rebuild(documents);
+        await nextIndex.rebuild(batch.documents);
         if (
           generation !== vaultGeneration.current ||
           request !== rebuildRequest.current
@@ -250,6 +253,13 @@ function App() {
           query === searchQueryRef.current
         ) {
           setSearchResults(results);
+          if (batch.skippedCount > 0 || batch.truncated) {
+            setStatus(
+              `Search skipped ${batch.skippedCount} file${
+                batch.skippedCount === 1 ? "" : "s"
+              }${batch.truncated ? " and stopped at the 64 MB index limit" : ""}`,
+            );
+          }
         }
       } catch (caught) {
         if (generation === vaultGeneration.current) {
@@ -434,14 +444,16 @@ function App() {
             return true;
           }
           try {
-            const expectedHash = tabsRef.current.find(
+            const currentTab = tabsRef.current.find(
               (tab) => tab.path === path,
-            )?.savedHash;
+            );
             const outcome = await api.saveNote(
               path,
               content,
+              currentTab?.encoding ?? "utf8",
+              currentTab?.lineEnding ?? "lf",
               reason,
-              expectedHash,
+              currentTab?.savedHash,
             );
             if ((saveGenerations.current.get(path) ?? 0) !== generation) {
               return true;
@@ -462,6 +474,18 @@ function App() {
                   : tab,
               ),
             );
+            if (currentTab?.kind === "image") {
+              try {
+                const imageDataUrl = await api.readImageDataUrl(path);
+                commitTabs((current) =>
+                  current.map((tab) =>
+                    tab.path === path ? { ...tab, imageDataUrl } : tab,
+                  ),
+                );
+              } catch (caught) {
+                showError(caught);
+              }
+            }
             setStatus(outcome.changed ? "Saved" : "No changes");
             scheduleIndexRebuild();
             return true;
@@ -507,7 +531,7 @@ function App() {
           await pending;
         }
         const tab = tabsRef.current.find((candidate) => candidate.path === path);
-        if (!tab || tab.kind === "image" || tab.content === tab.savedContent) {
+        if (!tab || tab.content === tab.savedContent) {
           return true;
         }
         if (!(await saveTab(path, tab.content, "flush"))) {
@@ -529,7 +553,7 @@ function App() {
       }
       if (
         tabsRef.current.every(
-          (tab) => tab.kind === "image" || tab.content === tab.savedContent,
+          (tab) => tab.content === tab.savedContent,
         )
       ) {
         return true;
@@ -670,7 +694,7 @@ function App() {
       }
       const node = findNode(workspace.tree, path);
       const kind = node?.kind ?? kindFromPath(path);
-      if (!kind || kind === "folder") {
+      if (kind === "folder") {
         showError(`Unable to find ${path}`);
         return;
       }
@@ -680,23 +704,36 @@ function App() {
       try {
         const tab: EditorTab =
           kind === "image"
-            ? {
+            ? await Promise.all([
+                api.readNote(path),
+                api.readImageDataUrl(path),
+              ]).then(([document, imageDataUrl]) => ({
                 path,
                 title,
-                kind: "image",
-                content: "",
-                savedContent: "",
-                imageDataUrl: await api.readImageDataUrl(path),
-                editRecorded: false,
-                saveState: "saved",
-              }
-            : await api.readNote(path).then((document) => ({
-                path,
-                title,
-                kind: kind === "markdown" ? "markdown" : "text",
+                kind: "image" as const,
                 content: document.content,
                 savedContent: document.content,
                 savedHash: document.contentHash,
+                encoding: document.encoding,
+                lineEnding: document.lineEnding,
+                imageDataUrl,
+                rawEditing: false,
+                editorRevision: 0,
+                stats: document.stats,
+                editRecorded: false,
+                saveState: "saved" as const,
+              }))
+            : await api.readNote(path).then((document) => ({
+                path,
+                title,
+                kind,
+                content: document.content,
+                savedContent: document.content,
+                savedHash: document.contentHash,
+                encoding: document.encoding,
+                lineEnding: document.lineEnding,
+                rawEditing: false,
+                editorRevision: 0,
                 stats: document.stats,
                 editRecorded: false,
                 saveState: "saved" as const,
@@ -735,7 +772,10 @@ function App() {
       const currentTab = tabsRef.current.find(
         (candidate) => candidate.path === activePath,
       );
-      if (!currentTab || currentTab.kind === "image") {
+      if (
+        !currentTab ||
+        (currentTab.kind === "image" && !currentTab.rawEditing)
+      ) {
         return;
       }
       const path = currentTab.path;
@@ -877,10 +917,10 @@ function App() {
           : selectedPath?.split("/").slice(0, -1).join("/") || "";
       const suggested = directory ? "New folder" : "Untitled.md";
       const entered = await requestText({
-        title: directory ? "Create folder" : "Create note",
+        title: directory ? "Create folder" : "Create file",
         message: directory
           ? "Choose a name for the new folder."
-          : "Choose a filename for the new Markdown note.",
+          : "Choose a filename. Files without an extension are created as Markdown.",
         initialValue: suggested,
         confirmLabel: "Create",
       });
@@ -888,7 +928,7 @@ function App() {
         return;
       }
       const name =
-        !directory && !/\.(?:md|markdown|txt)$/i.test(entered)
+        !directory && !/\.[^./\\]+$/.test(entered)
           ? `${entered}.md`
           : entered;
       try {
@@ -958,11 +998,40 @@ function App() {
             ...tab,
             path,
             title: path.split("/").slice(-1)[0] ?? path,
-            kind:
-              renamedKind && renamedKind !== "folder" ? renamedKind : tab.kind,
+            kind: renamedKind,
+            rawEditing:
+              renamedKind === "image" && tab.kind === "image"
+                ? tab.rawEditing
+                : false,
+            imageDataUrl:
+              renamedKind === "image" ? tab.imageDataUrl : undefined,
           };
         }),
       );
+      for (const tab of affectedTabs) {
+        const path = replacePrefix(tab.path);
+        if (kindFromPath(path) === "image") {
+          try {
+            const imageDataUrl = await api.readImageDataUrl(path);
+            commitTabs((current) =>
+              current.map((candidate) =>
+                candidate.path === path
+                  ? { ...candidate, imageDataUrl }
+                  : candidate,
+              ),
+            );
+          } catch (caught) {
+            commitTabs((current) =>
+              current.map((candidate) =>
+                candidate.path === path
+                  ? { ...candidate, rawEditing: true }
+                  : candidate,
+              ),
+            );
+            showError(caught);
+          }
+        }
+      }
       setActivePath((current) => (current ? replacePrefix(current) : current));
       setSelectedPath(newPath);
       for (const tab of affectedTabs) {
@@ -1149,7 +1218,7 @@ function App() {
   ]);
 
   const openHistory = useCallback(async () => {
-    if (!workspace || !activeTab || activeTab.kind === "image") {
+    if (!workspace || !activeTab) {
       return;
     }
     if (workspaceLockedRef.current) {
@@ -1179,7 +1248,7 @@ function App() {
           const tab = tabsRef.current.find(
             (candidate) => candidate.path === activePathRef.current,
           );
-          if (!tab || tab.kind === "image") {
+          if (!tab || (tab.kind === "image" && !tab.rawEditing)) {
             throw new Error(
               "Open an editable note before previewing replacements.",
             );
@@ -1190,22 +1259,33 @@ function App() {
                 path: tab.path,
                 content: tab.content,
                 contentHash: tab.savedHash,
+                encoding: tab.encoding,
+                lineEnding: tab.lineEnding,
               },
             ],
             request,
           );
         }
-        const documents = await api.listSearchDocuments();
+        const batch = await api.listEditableDocuments();
+        if (batch.truncated) {
+          throw new Error(
+            "Vault-wide replace exceeds the 256 MB preview limit. Use current-file replace or a smaller vault.",
+          );
+        }
+        if (batch.skippedCount > 0) {
+          throw new Error(
+            `Vault-wide replace could not read ${batch.skippedCount} file${
+              batch.skippedCount === 1 ? "" : "s"
+            }. Fix access or file-size issues before replacing.`,
+          );
+        }
         return previewReplacements(
-          documents
-            .filter(
-              (document) =>
-                document.kind === "markdown" || document.kind === "text",
-            )
-            .map((document) => ({
+          batch.documents.map((document) => ({
               path: document.path,
               content: document.content,
               contentHash: document.contentHash,
+              encoding: document.encoding,
+              lineEnding: document.lineEnding,
             })),
           request,
         );
@@ -1258,7 +1338,7 @@ function App() {
                 const tab = tabsRef.current.find(
                   (candidate) => candidate.path === previewPath,
                 );
-                if (!tab || tab.kind === "image") {
+                if (!tab || (tab.kind === "image" && !tab.rawEditing)) {
                   return [];
                 }
                 return previewReplacements(
@@ -1267,6 +1347,8 @@ function App() {
                       path: tab.path,
                       content: tab.content,
                       contentHash: tab.savedHash,
+                      encoding: tab.encoding,
+                      lineEnding: tab.lineEnding,
                     },
                   ],
                   request,
@@ -1279,6 +1361,8 @@ function App() {
             const outcome = await api.saveNote(
               preview.path,
               preview.replacedContent,
+              preview.encoding,
+              preview.lineEnding,
               request.scope === "current"
                 ? "replace in note"
                 : "replace across vault",
@@ -1313,19 +1397,28 @@ function App() {
                   savedContent: replacement.content,
                   savedHash: replacement.contentHash,
                   stats: replacement.stats,
+                  editorRevision: tab.editorRevision + 1,
                   editRecorded: false,
                   saveState: "saved",
                 }
               : tab;
           }),
         );
-        const activeReplacement = activePathRef.current
-          ? applied.get(activePathRef.current)
-          : undefined;
-        if (activeReplacement && editorRef.current) {
-          editorRef.current.setMarkdown(
-            calloutsToDirectives(activeReplacement.content),
-          );
+        for (const tab of tabsRef.current) {
+          if (tab.kind === "image" && applied.has(tab.path)) {
+            try {
+              const imageDataUrl = await api.readImageDataUrl(tab.path);
+              commitTabs((current) =>
+                current.map((candidate) =>
+                  candidate.path === tab.path
+                    ? { ...candidate, imageDataUrl }
+                    : candidate,
+                ),
+              );
+            } catch (caught) {
+              showError(caught);
+            }
+          }
         }
         await refreshAndReindex();
         setStatus(
@@ -1355,7 +1448,6 @@ function App() {
       return;
     }
     if (
-      activeTab.kind !== "image" &&
       activeTab.content !== activeTab.savedContent &&
       !(await requestConfirmation({
         title: "Reload from disk",
@@ -1381,10 +1473,28 @@ function App() {
       }
       cancelPendingPath(path);
       if (activeTab.kind === "image") {
-        const imageDataUrl = await api.readImageDataUrl(path);
+        const [document, imageDataUrl] = await Promise.all([
+          api.readNote(path),
+          api.readImageDataUrl(path),
+        ]);
+
         commitTabs((current) =>
           current.map((tab) =>
-            tab.path === path ? { ...tab, imageDataUrl, saveState: "saved" } : tab,
+            tab.path === path
+              ? {
+                  ...tab,
+                  content: document.content,
+                  savedContent: document.content,
+                  savedHash: document.contentHash,
+                  encoding: document.encoding,
+                  lineEnding: document.lineEnding,
+                  imageDataUrl,
+                  editorRevision: tab.editorRevision + 1,
+                  editRecorded: false,
+                  saveState: "saved",
+                  stats: document.stats,
+                }
+              : tab,
           ),
         );
       } else {
@@ -1397,16 +1507,16 @@ function App() {
                   content: document.content,
                   savedContent: document.content,
                   savedHash: document.contentHash,
+                  encoding: document.encoding,
+                  lineEnding: document.lineEnding,
                   stats: document.stats,
+                  editorRevision: tab.editorRevision + 1,
                   editRecorded: false,
                   saveState: "saved",
                 }
               : tab,
           ),
         );
-        if (activePathRef.current === path) {
-          editorRef.current?.setMarkdown(calloutsToDirectives(document.content));
-        }
       }
       setStatus("Reloaded from disk");
       scheduleIndexRebuild();
@@ -1425,9 +1535,22 @@ function App() {
     showError,
   ]);
 
+  const toggleRawEditing = useCallback(() => {
+    if (!activePathRef.current) {
+      return;
+    }
+    commitTabs((current) =>
+      current.map((tab) =>
+        tab.path === activePathRef.current && tab.kind === "image"
+          ? { ...tab, rawEditing: !tab.rawEditing }
+          : tab,
+      ),
+    );
+  }, [commitTabs]);
+
   const restoreRevision = useCallback(
     async (revisionId: number) => {
-      if (!workspace || !activeTab || activeTab.kind === "image") {
+      if (!workspace || !activeTab) {
         return;
       }
       if (workspaceLockedRef.current) {
@@ -1451,15 +1574,23 @@ function App() {
                   content: document.content,
                   savedContent: document.content,
                   savedHash: document.contentHash,
+                  encoding: document.encoding,
+                  lineEnding: document.lineEnding,
                   stats: document.stats,
+                  editorRevision: tab.editorRevision + 1,
                   editRecorded: false,
                   saveState: "saved",
                 }
               : tab,
           ),
         );
-        if (activePathRef.current === restorePath) {
-          editorRef.current?.setMarkdown(calloutsToDirectives(document.content));
+        if (activeTab.kind === "image") {
+          const imageDataUrl = await api.readImageDataUrl(restorePath);
+          commitTabs((current) =>
+            current.map((tab) =>
+              tab.path === restorePath ? { ...tab, imageDataUrl } : tab,
+            ),
+          );
         }
         setHistoryOpen(false);
         setStatus("Revision restored");
@@ -1562,7 +1693,7 @@ function App() {
         setReplaceOpen(true);
       } else if (modifier && event.key.toLocaleLowerCase() === "s" && activeTab) {
         event.preventDefault();
-        if (activeTab.kind !== "image") {
+        if (activeTab.kind !== "image" || activeTab.rawEditing) {
           void saveTab(activeTab.path, activeTab.content, "manual save");
         }
       } else if (modifier && event.key.toLocaleLowerCase() === "w" && activePath) {
@@ -1659,8 +1790,8 @@ function App() {
               <button
                 type="button"
                 className="icon-button"
-                title="New note"
-                aria-label="New note"
+                title="New file"
+                aria-label="New file"
                 onClick={() => void createEntry(false)}
               >
                 <FilePlus2 aria-hidden="true" size={16} />
@@ -1848,6 +1979,31 @@ function App() {
             onClose={(path) => void closeTab(path)}
           />
           <div className="workspace-actions">
+            {activeTab?.kind === "image" ? (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={
+                  activeTab.rawEditing
+                    ? "Preview image"
+                    : "Edit image as raw file"
+                }
+                title={
+                  activeTab.rawEditing
+                    ? "Preview image"
+                    : "Edit image as raw file"
+                }
+                aria-pressed={activeTab.rawEditing}
+                disabled={workspaceLocked}
+                onClick={toggleRawEditing}
+              >
+                {activeTab.rawEditing ? (
+                  <ImageIcon aria-hidden="true" size={16} />
+                ) : (
+                  <FileCode2 aria-hidden="true" size={16} />
+                )}
+              </button>
+            ) : null}
             <button
               type="button"
               className="icon-button"
@@ -1875,7 +2031,7 @@ function App() {
               className="icon-button"
               aria-label="Open note history"
               title="History"
-              disabled={!activeTab || activeTab.kind === "image"}
+              disabled={!activeTab}
               onClick={() => void openHistory()}
             >
               <History aria-hidden="true" size={16} />
@@ -1884,13 +2040,29 @@ function App() {
               type="button"
               className="icon-button"
               aria-label={`${
-                showOutline && activeTab?.kind === "markdown" ? "Hide" : "Show"
+                showOutline &&
+                activeTab?.kind === "markdown" &&
+                activeTab.encoding === "utf8"
+                  ? "Hide"
+                  : "Show"
               } outline`}
               title={`${
-                showOutline && activeTab?.kind === "markdown" ? "Hide" : "Show"
+                showOutline &&
+                activeTab?.kind === "markdown" &&
+                activeTab.encoding === "utf8"
+                  ? "Hide"
+                  : "Show"
               } outline`}
-              aria-pressed={activeTab?.kind === "markdown" && showOutline}
-              disabled={!activeTab || activeTab.kind !== "markdown"}
+              aria-pressed={
+                activeTab?.kind === "markdown" &&
+                activeTab.encoding === "utf8" &&
+                showOutline
+              }
+              disabled={
+                !activeTab ||
+                activeTab.kind !== "markdown" ||
+                activeTab.encoding !== "utf8"
+              }
               onClick={() => setShowOutline((current) => !current)}
             >
               <ListTree aria-hidden="true" size={16} />
@@ -1914,7 +2086,7 @@ function App() {
           <main className="editor-pane">
             {activeTab ? (
               <>
-                {activeTab.kind === "image" ? (
+                {activeTab.kind === "image" && !activeTab.rawEditing ? (
                   <figure className="image-viewer">
                     <img
                       src={activeTab.imageDataUrl}
@@ -1922,21 +2094,11 @@ function App() {
                     />
                     <figcaption>{activeTab.path}</figcaption>
                   </figure>
-                ) : activeTab.kind === "text" ? (
-                  <textarea
-                    className="plain-text-editor"
-                    aria-label={`Edit ${activeTab.title}`}
-                    value={activeTab.content}
-                    readOnly={workspaceLocked}
-                    spellCheck
-                    onChange={(event) =>
-                      changeActiveContent(event.currentTarget.value)
-                    }
-                  />
-                ) : (
+                ) : activeTab.kind === "markdown" &&
+                  activeTab.encoding === "utf8" &&
+                  !activeTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
                   <MarkdownEditor
-                    key={activeTab.path}
-                    ref={editorRef}
+                    key={`${activeTab.path}:${activeTab.editorRevision}`}
                     notePath={activeTab.path}
                     markdown={activeTab.content}
                     readOnly={workspaceLocked}
@@ -1945,6 +2107,29 @@ function App() {
                     onLinkOpen={(href, text) => void openLink(href, text)}
                     onImageUpload={uploadAttachment}
                   />
+                ) : (
+                  <>
+                    {activeTab.encoding === "base64" ? (
+                      <div className="binary-editor-notice" role="note">
+                        Binary file shown as reversible Base64. Invalid Base64
+                        will not be saved.
+                      </div>
+                    ) : null}
+                    <textarea
+                      className={`plain-text-editor${
+                        activeTab.encoding === "base64"
+                          ? " plain-text-editor--binary"
+                          : ""
+                      }`}
+                      aria-label={`Edit ${activeTab.title}`}
+                      value={activeTab.content}
+                      readOnly={workspaceLocked}
+                      spellCheck={activeTab.encoding === "utf8"}
+                      onChange={(event) =>
+                        changeActiveContent(event.currentTarget.value)
+                      }
+                    />
+                  </>
                 )}
                 {tags.length > 0 ? (
                   <div className="document-tags" aria-label="Document tags">
@@ -1976,7 +2161,9 @@ function App() {
               </div>
             )}
           </main>
-          {showOutline && activeTab?.kind === "markdown" ? (
+          {showOutline &&
+          activeTab?.kind === "markdown" &&
+          activeTab.encoding === "utf8" ? (
             <TableOfContents
               headings={headings}
               onNavigate={navigateToHeading}
@@ -1986,9 +2173,13 @@ function App() {
         <footer className="status-bar">
           <span>{activeTab?.path ?? workspace.vaultPath}</span>
           <span className="status-bar__spacer" />
-          {activeTab && activeTab.kind !== "image" ? (
+          {activeTab ? (
             <>
-              <span>{wordCount(activeTab.content)} words</span>
+              <span>
+                {activeTab.encoding === "utf8"
+                  ? wordCountLabel(activeTab.content)
+                  : "Base64"}
+              </span>
               <span>{activeTab.content.length} characters</span>
               <span>
                 {activeTab.stats
@@ -2017,7 +2208,10 @@ function App() {
       <ReplaceDialog
         open={replaceOpen}
         currentPath={
-          activeTab && activeTab.kind !== "image" ? activeTab.path : null
+          activeTab &&
+          (activeTab.kind !== "image" || activeTab.rawEditing)
+            ? activeTab.path
+            : null
         }
         onClose={() => setReplaceOpen(false)}
         onPreview={previewReplace}
@@ -2122,21 +2316,26 @@ function findSiblings(nodes: FileNode[], path: string): FileNode[] {
   return [];
 }
 
-function wordCount(content: string): number {
+function wordCountLabel(content: string): string {
+  if (content.length > 200_000) {
+    return "word count paused";
+  }
   if (!content.trim()) {
-    return 0;
+    return "0 words";
   }
   if ("Segmenter" in Intl) {
     const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
-    return [...segmenter.segment(content)].filter((segment) => segment.isWordLike)
-      .length;
+    const count = [...segmenter.segment(content)].filter(
+      (segment) => segment.isWordLike,
+    ).length;
+    return `${count} words`;
   }
-  return content.trim().split(/\s+/u).length;
+  return `${content.trim().split(/\s+/u).length} words`;
 }
 
-function kindFromPath(path: string): FileNode["kind"] | null {
+function kindFromPath(path: string): Exclude<FileNode["kind"], "folder"> {
   const extension = path.split(".").slice(-1)[0]?.toLocaleLowerCase();
-  if (extension === "md" || extension === "markdown") {
+  if (extension === "md" || extension === "markdown" || extension === "mdx") {
     return "markdown";
   }
   if (extension === "txt") {
@@ -2149,7 +2348,7 @@ function kindFromPath(path: string): FileNode["kind"] | null {
   ) {
     return "image";
   }
-  return null;
+  return "file";
 }
 
 function fileUrlToPath(value: string): string {
