@@ -15,6 +15,8 @@ import {
   Image as ImageIcon,
   ListTree,
   Pencil,
+  Pin,
+  PinOff,
   RefreshCw,
   Replace as ReplaceIcon,
   RotateCcw,
@@ -204,6 +206,20 @@ function App() {
     () => (workspace ? flattenNodes(workspace.tree) : []),
     [workspace],
   );
+  const selectedMoveAvailability = useMemo(() => {
+    if (!workspace || !selectedNode) {
+      return { up: false, down: false };
+    }
+    const siblings = findSiblings(workspace.tree, selectedNode.path);
+    const index = siblings.findIndex((node) => node.path === selectedNode.path);
+    return {
+      up: index > 0 && siblings[index - 1].pinned === selectedNode.pinned,
+      down:
+        index >= 0 &&
+        index < siblings.length - 1 &&
+        siblings[index + 1].pinned === selectedNode.pinned,
+    };
+  }, [selectedNode, workspace]);
   const headings = useMemo(
     () =>
       activeTab &&
@@ -1259,6 +1275,20 @@ function App() {
     }
   }, [refreshAndReindex, selectedNode, showError, workspace]);
 
+  const togglePinned = useCallback(async () => {
+    if (!workspace || !selectedNode || workspaceLockedRef.current) {
+      return;
+    }
+    try {
+      const pinned = !selectedNode.pinned;
+      await api.setEntryPinned(selectedNode.path, pinned);
+      await refreshWorkspace();
+      setStatus(pinned ? "Pinned to top of folder" : "Unpinned from folder");
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [refreshWorkspace, selectedNode, showError, workspace]);
+
   const moveSelected = useCallback(
     async (direction: -1 | 1) => {
       if (!workspace || !selectedNode || workspaceLockedRef.current) {
@@ -1267,7 +1297,12 @@ function App() {
       const siblings = findSiblings(workspace.tree, selectedNode.path);
       const index = siblings.findIndex((node) => node.path === selectedNode.path);
       const destination = index + direction;
-      if (index < 0 || destination < 0 || destination >= siblings.length) {
+      if (
+        index < 0 ||
+        destination < 0 ||
+        destination >= siblings.length ||
+        siblings[destination].pinned !== selectedNode.pinned
+      ) {
         return;
       }
       const reordered = [...siblings];
@@ -1278,6 +1313,7 @@ function App() {
       try {
         await api.setEntryOrder(reordered.map((node) => node.path));
         await refreshWorkspace();
+        setStatus("Updated folder order");
       } catch (caught) {
         showError(caught);
       }
@@ -2010,7 +2046,7 @@ function App() {
                 className="icon-button"
                 title="Move selected item up"
                 aria-label="Move selected item up"
-                disabled={!selectedNode}
+                disabled={!selectedMoveAvailability.up}
                 onClick={() => void moveSelected(-1)}
               >
                 <ArrowUp aria-hidden="true" size={15} />
@@ -2020,10 +2056,33 @@ function App() {
                 className="icon-button"
                 title="Move selected item down"
                 aria-label="Move selected item down"
-                disabled={!selectedNode}
+                disabled={!selectedMoveAvailability.down}
                 onClick={() => void moveSelected(1)}
               >
                 <ArrowDown aria-hidden="true" size={15} />
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                title={
+                  selectedNode?.pinned
+                    ? "Unpin selected item"
+                    : "Pin selected item to top of folder"
+                }
+                aria-label={
+                  selectedNode?.pinned
+                    ? "Unpin selected item"
+                    : "Pin selected item to top of folder"
+                }
+                aria-pressed={selectedNode?.pinned ?? false}
+                disabled={!selectedNode}
+                onClick={() => void togglePinned()}
+              >
+                {selectedNode?.pinned ? (
+                  <PinOff aria-hidden="true" size={15} />
+                ) : (
+                  <Pin aria-hidden="true" size={15} />
+                )}
               </button>
               <button
                 type="button"

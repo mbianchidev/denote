@@ -5,6 +5,7 @@ import {
   FileText,
   Folder,
   FolderOpen,
+  Pin,
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { FileNode } from "../types";
@@ -97,9 +98,18 @@ function FileTreeNode({
           strokeWidth={1.8}
         />
         <span className="file-tree__name">{node.name}</span>
-        {node.bookmarked ? (
-          <span className="file-tree__bookmark" aria-label="Bookmarked">
-            •
+        {node.pinned || node.bookmarked ? (
+          <span className="file-tree__markers">
+            {node.pinned ? (
+              <span className="file-tree__pin" aria-label="Pinned">
+                <Pin aria-hidden="true" size={11} />
+              </span>
+            ) : null}
+            {node.bookmarked ? (
+              <span className="file-tree__bookmark" aria-label="Bookmarked">
+                •
+              </span>
+            ) : null}
           </span>
         ) : null}
       </button>

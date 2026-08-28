@@ -72,6 +72,7 @@ pub struct FileNode {
     pub size: u64,
     pub modified_at: Option<i64>,
     pub bookmarked: bool,
+    pub pinned: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

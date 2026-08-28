@@ -50,6 +50,7 @@ pub fn run() {
             commands::set_bookmark,
             commands::record_edit,
             commands::set_entry_order,
+            commands::set_entry_pinned,
             commands::list_history,
             commands::restore_revision,
             commands::list_search_documents,

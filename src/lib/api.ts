@@ -71,6 +71,8 @@ export const api = {
   recordEdit: (path: string) => invoke<NoteStats>("record_edit", { path }),
   setEntryOrder: (paths: string[]) =>
     invoke<void>("set_entry_order", { paths }),
+  setEntryPinned: (path: string, pinned: boolean) =>
+    invoke<void>("set_entry_pinned", { path, pinned }),
   listHistory: (path: string) =>
     invoke<HistoryRevision[]>("list_history", { path }),
   restoreRevision: (path: string, revisionId: number) =>

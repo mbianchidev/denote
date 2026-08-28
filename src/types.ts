@@ -10,6 +10,7 @@ export interface FileNode {
   size: number;
   modifiedAt: number | null;
   bookmarked: boolean;
+  pinned: boolean;
 }
 
 export interface NoteStats {

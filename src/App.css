@@ -334,8 +334,20 @@ button:disabled {
   white-space: nowrap;
 }
 
-.file-tree__bookmark {
+.file-tree__markers {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: auto;
+}
+
+.file-tree__pin {
+  display: inline-grid;
+  place-items: center;
+  color: var(--warning);
+}
+
+.file-tree__bookmark {
   color: var(--accent);
   font-size: 18px;
   line-height: 1;

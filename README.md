@@ -18,7 +18,7 @@ the selected folder as the source of truth.
 - Current-note and vault-wide find and replace with selectable preview
 - Tabs, bookmarks, recently opened files, and search navigation
 - One-click copying of the active file's absolute path
-- File and folder creation, rename, reorder, trash, and restore
+- File and folder creation, rename, per-folder pinning/custom order, trash, and restore
 - Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks, images, and links
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks

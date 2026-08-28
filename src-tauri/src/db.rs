@@ -21,6 +21,12 @@ use crate::{
 
 pub const HISTORY_LIMIT: i64 = 10;
 
+#[derive(Debug, Clone, Copy)]
+pub struct EntryPlacement {
+    pub position: i64,
+    pub pinned: bool,
+}
+
 pub struct AppState {
     pub db_path: PathBuf,
     active_vault: RwLock<Option<PathBuf>>,
@@ -171,6 +177,7 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           vault_id INTEGER NOT NULL,
           path TEXT NOT NULL,
           position INTEGER NOT NULL,
+          is_pinned INTEGER NOT NULL DEFAULT 0,
           updated_at TEXT NOT NULL,
           PRIMARY KEY (vault_id, path),
           FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
@@ -244,6 +251,13 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    let added_entry_pinning = !column_exists(&migration, "entry_order", "is_pinned")?;
+    if added_entry_pinning {
+        migration.execute(
+            "ALTER TABLE entry_order ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
         [],
@@ -254,6 +268,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (5, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (6, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -574,16 +592,25 @@ pub fn note_lists(
     Ok((bookmarks, recent))
 }
 
-pub fn order_map(connection: &Connection, vault_id: i64) -> AppResult<HashMap<String, i64>> {
-    let mut statement =
-        connection.prepare("SELECT path, position FROM entry_order WHERE vault_id = ?1")?;
+pub fn entry_placement_map(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<HashMap<String, EntryPlacement>> {
+    let mut statement = connection
+        .prepare("SELECT path, position, is_pinned FROM entry_order WHERE vault_id = ?1")?;
     let rows = statement.query_map(params![vault_id], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        Ok((
+            row.get::<_, String>(0)?,
+            EntryPlacement {
+                position: row.get(1)?,
+                pinned: row.get::<_, i64>(2)? != 0,
+            },
+        ))
     })?;
     let mut result = HashMap::new();
     for row in rows {
-        let (path, position) = row?;
-        result.insert(path, position);
+        let (path, placement) = row?;
+        result.insert(path, placement);
     }
     Ok(result)
 }
@@ -608,6 +635,25 @@ pub fn set_entry_order(
         )?;
     }
     transaction.commit()?;
+    Ok(())
+}
+
+pub fn set_entry_pinned(
+    connection: &Connection,
+    vault_id: i64,
+    path: &str,
+    pinned: bool,
+) -> AppResult<()> {
+    connection.execute(
+        r#"
+        INSERT INTO entry_order(vault_id, path, position, is_pinned, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)
+        ON CONFLICT(vault_id, path) DO UPDATE SET
+          is_pinned = excluded.is_pinned,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, path, i64::MAX, i64::from(pinned), now()],
+    )?;
     Ok(())
 }
 
@@ -1134,6 +1180,52 @@ mod tests {
 
         assert_eq!(
             history_count(&connection, vault_id, "note.md").expect("count"),
+            1
+        );
+    }
+
+    #[test]
+    fn migrates_existing_entry_order_rows_with_pinning_disabled() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("legacy-order.sqlite3");
+        let connection = Connection::open(&db_path).expect("legacy database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE entry_order (
+                  vault_id INTEGER NOT NULL,
+                  path TEXT NOT NULL,
+                  position INTEGER NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  PRIMARY KEY (vault_id, path)
+                );
+                INSERT INTO entry_order(vault_id, path, position, updated_at)
+                VALUES (1, 'folder/note.md', 3, 'now');
+                "#,
+            )
+            .expect("legacy entry order");
+        drop(connection);
+
+        initialize(&db_path).expect("database migrated");
+        let connection = open(&db_path).expect("database opened");
+        let placements = entry_placement_map(&connection, 1).expect("entry placements");
+        let placement = placements.get("folder/note.md").expect("legacy placement");
+        assert_eq!(placement.position, 3);
+        assert!(!placement.pinned);
+
+        set_entry_pinned(&connection, 1, "folder/note.md", true).expect("pin entry");
+        assert!(
+            entry_placement_map(&connection, 1).expect("pinned placements")["folder/note.md"]
+                .pinned
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 6",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("migration version"),
             1
         );
     }

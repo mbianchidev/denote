@@ -75,13 +75,18 @@ The application-data database stores:
 
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
-- bookmarks and explicit sibling ordering;
+- bookmarks, per-folder pins, and explicit sibling ordering;
 - the previous 10 distinct saved contents per note, encrypted when vault
   encryption is enabled;
 - trash records used by restore.
 
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative
 if the metadata database is removed.
+
+Tree ordering is evaluated independently for each parent folder: pinned entries
+come first, then explicit custom positions, then the folders-first/name fallback.
+The up/down controls reorder only inside the selected entry's pinned or unpinned
+section, so ordinary entries cannot move above pins accidentally.
 
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation

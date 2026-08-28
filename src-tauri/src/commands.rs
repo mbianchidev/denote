@@ -397,6 +397,13 @@ pub fn set_entry_order(state: State<'_, AppState>, paths: Vec<String>) -> AppRes
 }
 
 #[tauri::command]
+pub fn set_entry_pinned(state: State<'_, AppState>, path: String, pinned: bool) -> AppResult<()> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::set_entry_pinned(&state.db_path, &root.to_string_lossy(), &path, pinned)
+}
+
+#[tauri::command]
 pub fn list_history(state: State<'_, AppState>, path: String) -> AppResult<Vec<HistoryRevision>> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;

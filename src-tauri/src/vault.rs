@@ -595,12 +595,45 @@ pub fn record_edit(
 pub fn set_entry_order(db_path: &Path, vault_path: &str, paths: &[String]) -> AppResult<()> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
+    let mut parent = None;
+    let mut unique_paths = HashSet::new();
     for path in paths {
-        let _ = existing_entry(&root, path)?;
+        if !unique_paths.insert(path) {
+            return Err(AppError::InvalidData(format!(
+                "Duplicate path in custom order: {path}"
+            )));
+        }
+        let entry = existing_entry(&root, path)?;
+        let entry_parent = entry
+            .parent()
+            .ok_or_else(|| AppError::InvalidPath(path.to_string()))?;
+        if parent
+            .as_ref()
+            .is_some_and(|expected: &PathBuf| expected != entry_parent)
+        {
+            return Err(AppError::InvalidData(
+                "Custom ordering can only include entries from one folder".to_string(),
+            ));
+        }
+        parent = Some(entry_parent.to_path_buf());
     }
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     db::set_entry_order(&mut connection, vault_id, paths)
+}
+
+pub fn set_entry_pinned(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    pinned: bool,
+) -> AppResult<()> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let _ = existing_entry(&root, relative_path)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::set_entry_pinned(&connection, vault_id, relative_path, pinned)
 }
 
 pub fn list_history(
@@ -909,8 +942,8 @@ fn snapshot(
 ) -> AppResult<WorkspaceSnapshot> {
     reconcile_pending_operations(connection, vault_id, root)?;
     let stats = db::stats_map(connection, vault_id)?;
-    let order = db::order_map(connection, vault_id)?;
-    let tree = scan_directory(root, root, &stats, &order, 0)?;
+    let placements = db::entry_placement_map(connection, vault_id)?;
+    let tree = scan_directory(root, root, &stats, &placements, 0)?;
     let (mut bookmarks, mut recent) = db::note_lists(connection, vault_id)?;
     bookmarks.retain(|item| existing_entry(root, &item.path).is_ok());
     recent.retain(|item| existing_entry(root, &item.path).is_ok());
@@ -1009,7 +1042,7 @@ fn scan_directory(
     root: &Path,
     directory: &Path,
     stats: &HashMap<String, crate::models::NoteStats>,
-    order: &HashMap<String, i64>,
+    placements: &HashMap<String, db::EntryPlacement>,
     depth: usize,
 ) -> AppResult<Vec<FileNode>> {
     if depth > 64 {
@@ -1042,10 +1075,14 @@ fn scan_directory(
                 path: relative.clone(),
                 name: entry.file_name().to_string_lossy().into_owned(),
                 kind: FileKind::Folder,
-                children: scan_directory(root, &path, stats, order, depth + 1)?,
+                children: scan_directory(root, &path, stats, placements, depth + 1)?,
                 size: 0,
                 modified_at,
                 bookmarked: false,
+                pinned: placements
+                    .get(&relative)
+                    .map(|placement| placement.pinned)
+                    .unwrap_or(false),
             });
         } else {
             let kind = kind_for_path(&path);
@@ -1060,14 +1097,26 @@ fn scan_directory(
                     .get(&relative)
                     .map(|value| value.bookmarked)
                     .unwrap_or(false),
+                pinned: placements
+                    .get(&relative)
+                    .map(|placement| placement.pinned)
+                    .unwrap_or(false),
             });
         }
     }
     nodes.sort_by(|left, right| {
-        let left_position = order.get(&left.path).copied().unwrap_or(i64::MAX);
-        let right_position = order.get(&right.path).copied().unwrap_or(i64::MAX);
-        left_position
-            .cmp(&right_position)
+        let left_position = placements
+            .get(&left.path)
+            .map(|placement| placement.position)
+            .unwrap_or(i64::MAX);
+        let right_position = placements
+            .get(&right.path)
+            .map(|placement| placement.position)
+            .unwrap_or(i64::MAX);
+        right
+            .pinned
+            .cmp(&left.pinned)
+            .then_with(|| left_position.cmp(&right_position))
             .then_with(|| {
                 matches!(right.kind, FileKind::Folder).cmp(&matches!(left.kind, FileKind::Folder))
             })
@@ -1920,6 +1969,87 @@ mod tests {
             fs::canonicalize(vault_path.join("note.md")).expect("canonical note")
         );
         assert!(absolute_entry_path(vault_path.to_str().unwrap(), "../note.md").is_err());
+    }
+
+    #[test]
+    fn pins_and_custom_orders_entries_within_their_folder() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let folder_path = vault_path.join("folder");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::create_dir(&folder_path).expect("nested folder");
+        fs::write(vault_path.join("root.md"), "root").expect("root note");
+        for name in ["a.md", "b.md", "c.md"] {
+            fs::write(folder_path.join(name), name).expect("nested note");
+        }
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        set_entry_order(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            &[
+                "folder/c.md".to_string(),
+                "folder/b.md".to_string(),
+                "folder/a.md".to_string(),
+            ],
+        )
+        .expect("custom order");
+        set_entry_pinned(&db_path, vault_path.to_str().unwrap(), "folder/b.md", true)
+            .expect("pin note");
+
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("vault snapshot");
+        let folder = snapshot
+            .tree
+            .iter()
+            .find(|node| node.path == "folder")
+            .expect("folder");
+        assert_eq!(
+            folder
+                .children
+                .iter()
+                .map(|node| node.name.as_str())
+                .collect::<Vec<_>>(),
+            ["b.md", "c.md", "a.md"]
+        );
+        assert!(folder.children[0].pinned);
+
+        set_entry_pinned(&db_path, vault_path.to_str().unwrap(), "folder/a.md", true)
+            .expect("pin second note");
+        set_entry_order(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            &[
+                "folder/a.md".to_string(),
+                "folder/b.md".to_string(),
+                "folder/c.md".to_string(),
+            ],
+        )
+        .expect("reorder pinned notes");
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("reordered snapshot");
+        let folder = snapshot
+            .tree
+            .iter()
+            .find(|node| node.path == "folder")
+            .expect("folder");
+        assert_eq!(
+            folder
+                .children
+                .iter()
+                .map(|node| node.name.as_str())
+                .collect::<Vec<_>>(),
+            ["a.md", "b.md", "c.md"]
+        );
+        assert!(
+            set_entry_order(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                &["root.md".to_string(), "folder/a.md".to_string()],
+            )
+            .is_err()
+        );
     }
 
     #[test]
