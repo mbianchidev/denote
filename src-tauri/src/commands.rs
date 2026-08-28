@@ -18,7 +18,7 @@ use crate::{
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
         KnownVault, KnownVaultFileBatch, MarkdownViewMode, NoteDocument, RecoveryCodesResult,
-        SaveOutcome, TagColor, WorkspaceSnapshot,
+        SaveOutcome, TabSessionState, TagColor, WorkspaceSnapshot,
     },
     vault,
 };
@@ -694,6 +694,20 @@ pub fn set_vault_markdown_view_mode(
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::set_vault_markdown_view_mode(&state.db_path, &root.to_string_lossy(), mode)
+}
+
+#[tauri::command]
+pub fn set_restore_tabs(state: State<'_, AppState>, enabled: bool) -> AppResult<()> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::set_restore_tabs(&state.db_path, &root.to_string_lossy(), enabled)
+}
+
+#[tauri::command]
+pub fn save_tab_session(state: State<'_, AppState>, session: TabSessionState) -> AppResult<()> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::save_tab_session(&state.db_path, &root.to_string_lossy(), &session)
 }
 
 #[tauri::command]

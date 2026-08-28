@@ -610,6 +610,82 @@ button:disabled {
   background: var(--panel-bg);
 }
 
+.tab-group {
+  display: flex;
+  align-items: stretch;
+  border-right: 1px solid var(--border);
+}
+
+.tab-group__toggle {
+  display: flex;
+  min-width: 72px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-weight: 650;
+  background: var(--rail-bg);
+  border: 0;
+  border-right: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.tab-group[data-active="true"] > .tab-group__toggle {
+  color: var(--text-primary);
+  box-shadow: inset 0 2px var(--accent);
+}
+
+.tab-group__toggle small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.tab-group__tabs {
+  display: flex;
+}
+
+.tab-context-menu {
+  position: fixed;
+  z-index: 130;
+  display: grid;
+  width: 216px;
+  max-height: calc(100vh - 8px);
+  padding: 5px;
+  overflow-y: auto;
+  color: var(--text-primary);
+  background: var(--editor-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: var(--shadow);
+}
+
+.tab-context-menu button {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tab-context-menu button:hover:not(:disabled),
+.tab-context-menu button:focus-visible {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.tab-context-menu__separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--border);
+}
+
 .workspace-actions {
   display: flex;
   align-items: center;
@@ -830,6 +906,38 @@ button:disabled {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
   border-radius: 5px;
+}
+
+.rich-code-block {
+  position: relative;
+}
+
+.rich-code-block__copy {
+  position: absolute;
+  z-index: 3;
+  top: 6px;
+  right: 6px;
+  min-width: 48px;
+  height: 26px;
+  padding: 0 8px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  background: var(--editor-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.rich-code-block--editor > .rich-code-block__copy {
+  top: auto;
+  right: 6px;
+  bottom: 6px;
+}
+
+.rich-code-block__copy:hover {
+  color: var(--text-primary);
+  border-color: var(--accent);
 }
 
 .denote-editor-content img {

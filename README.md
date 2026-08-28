@@ -25,8 +25,11 @@ the selected folder as the source of truth.
 - Rendered hashtags use consistent colored pills across the vault, with an
   accessible color picker beside each active document tag
 - Current-note and vault-wide find and replace with selectable preview
-- Current-tab file navigation, explicit Command-T/Control-T blank tabs,
-  reorderable tabs, bookmarks, recent files, and search navigation
+- Current-tab file navigation, explicit Command-T/Control-T blank tabs, named
+  collapsible groups, reorderable tabs, bulk tab closing, bookmarks, recent
+  files, and search navigation
+- Per-vault restoration of the last open files, order, groups, collapsed state,
+  and active file, enabled by default and configurable in editor settings
 - Recent-vault switcher for separate work, music, and personal folders
 - Cached near-instant switching for previously opened vaults, followed by a
   background disk/search refresh
@@ -37,7 +40,8 @@ the selected folder as the source of truth.
 - Command-N file creation plus file/folder creation from the sidebar context menu
 - Pointer and keyboard resizing for the persistent vault sidebar width
 - Permanent empty-trash action with explicit confirmation
-- Table of contents, task lists, tables, code blocks, images, and links
+- Table of contents, task lists, tables, code blocks with rich-mode copy buttons,
+  images, and links
 - Code blocks and syntax highlighting that adapt to dark and light themes
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
@@ -82,7 +86,9 @@ switching modes.
 
 Rendered code, editable fenced blocks, Markdown source, and plain-file source
 share the same semantic syntax palette. Theme changes update their backgrounds,
-gutters, selections, cursors, and token colors immediately.
+gutters, selections, cursors, and token colors immediately. Rich-mode fenced
+blocks include a copy button that reads the complete live CodeMirror document,
+including lines outside the rendered viewport.
 
 In rich Markdown mode, hashtags such as `#guide` and `#project/日本語` render as
 compact colored pills without changing the saved Markdown. Each tag receives a
@@ -99,10 +105,14 @@ discarding their history.
 Clicking a file opens it in the active tab. Press `Command-T` / `Ctrl-T`, or use
 the small plus button after the tabs, before choosing a file when you want
 another tab. Tabs can be reordered with direct pointer dragging or
-`Alt-Shift-Left/Right`. Each vault remembers one rich-text/source choice for all
-Markdown files. Non-current, non-default vaults can be removed from the
-switcher; an explicit option moves the vault folder and all files to the
-operating system Trash.
+`Alt-Shift-Left/Right`. Right-click a tab to create, rename, or change its named
+group, or to close all, other, left, or right tabs. Group headers collapse while
+keeping the active document reachable. By default, each vault reopens its last
+files with their order, groups, collapsed state, and active file; disable this
+per vault in editor settings. Each vault also remembers one rich-text/source
+choice for all Markdown files. Non-current, non-default vaults can be removed
+from the switcher; an explicit option moves the vault folder and all files to
+the operating system Trash.
 
 Previously opened vaults use their SQLite-cached file tree so switching does not
 wait for a full folder scan or content index. Denote refreshes the tree and

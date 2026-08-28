@@ -18,6 +18,12 @@ raw Base64 editor.
 - Use `Command-W` or `Ctrl-W` to close the active tab.
 - Drag tabs directly with the pointer to reorder them.
 - Use `Alt-Shift-Left/Right` to reorder the focused tab from the keyboard.
+- Right-click a tab to create or rename a group, move the tab between groups, or
+  close all/others/left/right.
+- Collapse or expand a named group from its group header.
+- Denote reopens the previous session's files, order, groups, collapsed state,
+  and active file by default. Disable this per vault in **Editor display
+  settings**.
 - Use the editor toolbar to copy content, an attachment-ready file, or the active
   absolute path. Encrypted vault attachments use a temporary plaintext cache.
 

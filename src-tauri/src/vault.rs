@@ -22,7 +22,7 @@ use crate::{
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
         KnownVaultFile, KnownVaultFileBatch, MarkdownViewMode, NoteDocument, SaveOutcome,
-        SearchDocument, TagColor, WorkspaceSnapshot,
+        SearchDocument, TabSessionState, TagColor, WorkspaceSnapshot,
     },
 };
 
@@ -33,6 +33,8 @@ const MAX_EDITABLE_AGGREGATE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_GLOBAL_FILE_ENTRIES: usize = 25_000;
 const CLIPBOARD_FILE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+const MAX_TAB_SESSION_TABS: usize = 100;
+const MAX_TAB_SESSION_GROUPS: usize = 50;
 
 pub fn get_last_vault(db_path: &Path) -> AppResult<Option<String>> {
     let connection = db::open(db_path)?;
@@ -866,6 +868,27 @@ pub fn set_vault_markdown_view_mode(
     db::set_vault_markdown_view_mode(&mut connection, vault_id, mode)
 }
 
+pub fn set_restore_tabs(db_path: &Path, vault_path: &str, enabled: bool) -> AppResult<()> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::set_restore_tabs(&connection, vault_id, enabled)
+}
+
+pub fn save_tab_session(
+    db_path: &Path,
+    vault_path: &str,
+    session: &TabSessionState,
+) -> AppResult<()> {
+    validate_tab_session(session)?;
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::save_tab_session(&mut connection, vault_id, session)
+}
+
 pub fn record_edit(
     db_path: &Path,
     vault_path: &str,
@@ -1397,6 +1420,27 @@ fn snapshot_with_tree(
 ) -> AppResult<WorkspaceSnapshot> {
     let tag_colors = db::list_tag_colors(connection, vault_id)?;
     let markdown_view_mode = db::get_vault_markdown_view_mode(connection, vault_id)?;
+    let restore_tabs = db::get_restore_tabs(connection, vault_id)?;
+    let tab_session = if restore_tabs {
+        match db::get_tab_session(connection, vault_id) {
+            Ok(Some(session)) => match validate_tab_session(&session) {
+                Ok(()) => Some(session),
+                Err(error) => {
+                    eprintln!("Discarding an invalid saved tab session: {error}");
+                    db::clear_tab_session(connection, vault_id)?;
+                    None
+                }
+            },
+            Ok(None) => None,
+            Err(error) => {
+                eprintln!("Discarding an invalid saved tab session: {error}");
+                db::clear_tab_session(connection, vault_id)?;
+                None
+            }
+        }
+    } else {
+        None
+    };
     let (mut bookmarks, mut recent) = db::note_lists(connection, vault_id)?;
     bookmarks.retain(|item| existing_entry(root, &item.path).is_ok());
     recent.retain(|item| existing_entry(root, &item.path).is_ok());
@@ -1424,9 +1468,56 @@ fn snapshot_with_tree(
         trash,
         tag_colors,
         markdown_view_mode,
+        restore_tabs,
+        tab_session,
         from_cache,
         encryption: Default::default(),
     })
+}
+
+fn validate_tab_session(session: &TabSessionState) -> AppResult<()> {
+    if session.tabs.len() > MAX_TAB_SESSION_TABS || session.groups.len() > MAX_TAB_SESSION_GROUPS {
+        return Err(AppError::InvalidData(
+            "Saved tab session exceeds the supported size".to_string(),
+        ));
+    }
+    let mut group_ids = HashSet::new();
+    for group in &session.groups {
+        if group.id.is_empty()
+            || group.id.len() > 64
+            || group.name.trim().is_empty()
+            || group.name.chars().count() > 64
+            || !group_ids.insert(group.id.as_str())
+        {
+            return Err(AppError::InvalidData(
+                "Saved tab session contains an invalid group".to_string(),
+            ));
+        }
+    }
+    let mut paths = HashSet::new();
+    for tab in &session.tabs {
+        let _ = normalized_relative(&tab.path, false)?;
+        if !paths.insert(tab.path.as_str())
+            || tab
+                .group_id
+                .as_deref()
+                .is_some_and(|group_id| !group_ids.contains(group_id))
+        {
+            return Err(AppError::InvalidData(
+                "Saved tab session contains an invalid tab".to_string(),
+            ));
+        }
+    }
+    if session
+        .active_path
+        .as_deref()
+        .is_some_and(|path| !paths.contains(path))
+    {
+        return Err(AppError::InvalidData(
+            "Saved tab session has an invalid active file".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn normalize_tag(tag: &str) -> AppResult<String> {
@@ -2592,6 +2683,20 @@ mod tests {
             "#a1b2c3"
         );
         assert!(normalize_tag_color("red").is_err());
+    }
+
+    #[test]
+    fn rejects_semantically_invalid_saved_tab_sessions() {
+        let session = TabSessionState {
+            tabs: vec![crate::models::TabSessionTab {
+                path: "note.md".to_string(),
+                group_id: Some("missing".to_string()),
+            }],
+            groups: Vec::new(),
+            active_path: Some("note.md".to_string()),
+        };
+
+        assert!(validate_tab_session(&session).is_err());
     }
 
     fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<NoteDocument> {

@@ -74,6 +74,8 @@ pub fn run() {
             commands::set_entry_pinned,
             commands::set_tag_color,
             commands::set_vault_markdown_view_mode,
+            commands::set_restore_tabs,
+            commands::save_tab_session,
             commands::list_history,
             commands::restore_revision,
             commands::list_search_documents,

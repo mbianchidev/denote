@@ -1,0 +1,148 @@
+name: Plugin proposal
+description: Propose an optional Denote plugin with clear scope, behavior, and safeguards.
+title: "Optional plugin: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing a Denote plugin.
+
+        Plugins should remain optional, use the typed host API, clean up their resources when disabled, and preserve vault portability. Search existing issues before submitting a new proposal.
+
+  - type: input
+    id: name
+    attributes:
+      label: Plugin name
+      description: Use a short name that describes the capability.
+      placeholder: "Example: Encrypted credential store"
+    validations:
+      required: true
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Explain the problem and how the plugin should solve it.
+      placeholder: |
+        Add an optionally enabled plugin that...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Plugin category
+      description: This primary category is used to group and filter plugins in Denote.
+      options:
+        - Code
+        - Productivity
+        - Knowledge management
+        - Editor and writing
+        - Diagrams and visualization
+        - Collaboration
+        - Accessibility
+        - Security and privacy
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List the concrete capabilities included in the first useful release.
+      placeholder: |
+        - Provide...
+        - Allow...
+        - Display...
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Identify related behavior that this proposal should not implement.
+      placeholder: |
+        - Do not...
+
+  - type: textarea
+    id: experience
+    attributes:
+      label: User experience
+      description: Describe where users enable, configure, and interact with the plugin.
+      placeholder: |
+        Explain its commands, views, settings, shortcuts, and empty or error states.
+    validations:
+      required: true
+
+  - type: textarea
+    id: data
+    attributes:
+      label: Data, portability, and removal
+      description: Explain what the plugin stores and what remains after it is disabled or removed.
+      placeholder: |
+        Describe storage location, file format, backup needs, migrations, and removal behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: encryption
+    attributes:
+      label: Encrypted-vault behavior
+      description: Explain how the plugin behaves while an encrypted vault is locked and unlocked.
+      placeholder: |
+        State whether it needs note content, filesystem access, ciphertext-only access, or no vault access.
+    validations:
+      required: true
+
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and privacy
+      description: Describe permissions, external processes, network access, secrets, and sensitive data.
+      placeholder: |
+        List required plugin capabilities and how failures or exposure risks are communicated.
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and bundles
+      description: List companion plugins, external tools, or recommended plugin bundles.
+      placeholder: |
+        Example: Can be installed independently or in the Code tooling bundle.
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Provide observable conditions that define a complete implementation.
+      placeholder: |
+        - [ ] Disabled by default.
+        - [ ] Reports actionable errors instead of failing silently.
+        - [ ] Cleans up processes, timers, and event handlers when disabled.
+        - [ ] Can be removed without corrupting or rewriting unrelated vault content.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add mockups, examples, links, or implementation constraints.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and did not find an equivalent plugin proposal.
+          required: true
+        - label: This feature can remain optional and disabled by default.
+          required: true
+        - label: The proposal explains how disabling the plugin preserves user data and vault access.
+          required: true

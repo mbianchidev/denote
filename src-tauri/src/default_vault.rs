@@ -18,6 +18,10 @@ const SEED_FILES: &[(&str, &[u8])] = &[
         include_bytes!("../resources/default-vault/docs/Getting started.md"),
     ),
     (
+        "docs/Feature reference.md",
+        include_bytes!("../resources/default-vault/docs/Feature reference.md"),
+    ),
+    (
         "docs/Writing and formatting.md",
         include_bytes!("../resources/default-vault/docs/Writing and formatting.md"),
     ),

@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { createRef, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
+import { api } from "../lib/api";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 describe("MarkdownEditor links", () => {
@@ -219,6 +220,33 @@ describe("MarkdownEditor links", () => {
     expect(
       await screen.findByRole("radio", { name: "Source mode", checked: true }),
     ).toBeInTheDocument();
+  });
+
+  it("copies a rich code block from its inline button", async () => {
+    const user = userEvent.setup();
+    const copy = vi.spyOn(api, "copyFileContent").mockResolvedValue();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"```js\nconst answer = 42;\n```"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Copy code block" }),
+    );
+
+    expect(copy).toHaveBeenCalledWith("const answer = 42;");
+    copy.mockRestore();
   });
 });
 

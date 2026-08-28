@@ -11,6 +11,7 @@ import type {
   NoteStats,
   RecoveryCodesResult,
   SaveOutcome,
+  TabSessionState,
   TagColor,
   WorkspaceSnapshot,
 } from "../types";
@@ -104,6 +105,10 @@ export const api = {
     invoke<TagColor>("set_tag_color", { tag, color }),
   setVaultMarkdownViewMode: (mode: MarkdownViewMode) =>
     invoke<void>("set_vault_markdown_view_mode", { mode }),
+  setRestoreTabs: (enabled: boolean) =>
+    invoke<void>("set_restore_tabs", { enabled }),
+  saveTabSession: (session: TabSessionState) =>
+    invoke<void>("save_tab_session", { session }),
   listHistory: (path: string) =>
     invoke<HistoryRevision[]>("list_history", { path }),
   restoreRevision: (path: string, revisionId: number) =>

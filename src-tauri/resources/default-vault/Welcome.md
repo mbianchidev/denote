@@ -40,15 +40,16 @@ const activeVault = vaults.find((vault) => vault === "music");
 
 ## Read the guide
 
-1. [Getting started](<docs/Getting started.md>)
-2. [Writing and formatting](<docs/Writing and formatting.md>)
-3. [Search and replace](<docs/Search and replace.md>)
-4. [Files, tabs, and vaults](<docs/Files, tabs, and vaults.md>)
-5. [History, trash, and recovery](<docs/History, trash, and recovery.md>)
-6. [Vault encryption](<docs/Vault encryption.md>)
-7. [Editor display](<docs/Editor display.md>)
-8. [Keyboard shortcuts](<docs/Keyboard shortcuts.md>)
-9. [Optional plugins](<docs/Optional plugins.md>)
+1. [Complete feature reference](<docs/Feature reference.md>)
+2. [Getting started](<docs/Getting started.md>)
+3. [Writing and formatting](<docs/Writing and formatting.md>)
+4. [Search and replace](<docs/Search and replace.md>)
+5. [Files, tabs, and vaults](<docs/Files, tabs, and vaults.md>)
+6. [History, trash, and recovery](<docs/History, trash, and recovery.md>)
+7. [Vault encryption](<docs/Vault encryption.md>)
+8. [Editor display](<docs/Editor display.md>)
+9. [Keyboard shortcuts](<docs/Keyboard shortcuts.md>)
+10. [Optional plugins](<docs/Optional plugins.md>)
 
 ---
 

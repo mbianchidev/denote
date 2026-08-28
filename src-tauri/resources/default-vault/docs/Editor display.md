@@ -20,4 +20,8 @@ invisible-character guides before switching modes.
 Code blocks, syntax tokens, gutters, selections, cursors, and matching brackets
 use complete dark and light palettes.
 
+**Reopen tabs from the last session** is enabled by default for each vault. It
+restores open files, order, named groups, collapsed state, and the active file.
+Turn it off here when a vault should always open with an empty tab strip.
+
 [Next: Keyboard shortcuts](<Keyboard shortcuts.md>)

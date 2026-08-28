@@ -35,6 +35,9 @@ Programming and markup files outside Markdown use the source editor. Recognized
 extensions such as `.js`, `.ts`, `.py`, `.rs`, `.json`, and many others load
 CodeMirror syntax highlighting automatically.
 
+Fenced code blocks in rich mode include an inline **Copy** button. It copies the
+live code block text, including edits made inside the block.
+
 ## Tags
 
 Write a hashtag such as `#guide`, `#project/atlas`, or `#研究`. Rich mode renders

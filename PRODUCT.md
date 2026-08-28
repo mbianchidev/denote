@@ -66,6 +66,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - File navigation replaces the active tab by default. Explicit blank tabs come
   from Command-T / Control-T or the tab-row plus button and can be reordered by
   pointer or keyboard.
+- Tabs can be organized into named collapsible groups. Their context menu can
+  close all, other, left, or right tabs, and move tabs between groups.
+- Each vault restores its last real file tabs, order, group membership, group
+  names, collapse state, and active file by default. This setting is optional
+  per vault; temporary blank tabs are never persisted.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
@@ -100,6 +105,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   must be turned off before mode switching.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
+- Rich-mode fenced code blocks expose a copy action that reads the complete live
+  code document rather than only visible lines.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.

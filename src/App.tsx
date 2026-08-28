@@ -68,7 +68,15 @@ import {
 } from "./lib/markdownView";
 import { VaultSearchIndex } from "./lib/search";
 import { sourceLanguageName } from "./lib/sourceLanguage";
-import { placeOpenedTab } from "./lib/tabs";
+import {
+  applyTabSessionLayout,
+  buildTabSessionState,
+  MAX_TAB_SESSION_GROUPS,
+  MAX_TAB_SESSION_TABS,
+  moveTabInLayout,
+  placeOpenedTab,
+  tabsInVisualOrder,
+} from "./lib/tabs";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   isGlobalSearchShortcut,
@@ -104,6 +112,8 @@ import type {
   KnownVaultFile,
   SearchResult,
   SidebarView,
+  TabGroup,
+  TabSessionState,
   TagColor,
   WorkspaceSnapshot,
 } from "./types";
@@ -138,6 +148,7 @@ function App() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [tabs, setTabs] = useState<EditorTab[]>([]);
+  const [tabGroups, setTabGroups] = useState<TabGroup[]>([]);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [showOutline, setShowOutline] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -171,6 +182,12 @@ function App() {
   const workspaceRefreshRequest = useRef(0);
   const queryRequest = useRef(0);
   const tabsRef = useRef<EditorTab[]>([]);
+  const tabGroupsRef = useRef<TabGroup[]>([]);
+  const tabSessionTimer = useRef<number | null>(null);
+  const tabSessionWrite = useRef<Promise<boolean>>(Promise.resolve(true));
+  const persistTabSessionRef = useRef<() => Promise<boolean>>(async () => true);
+  const pendingTabSession = useRef<TabSessionState | null>(null);
+  const restoringTabSession = useRef(false);
   const saveTimers = useRef(new Map<string, number>());
   const saveQueues = useRef(new Map<string, Promise<boolean>>());
   const saveGenerations = useRef(new Map<string, number>());
@@ -197,6 +214,7 @@ function App() {
   const openFileRequest = useRef(0);
   const openFileQueue = useRef<Promise<void>>(Promise.resolve());
   const newTabSequence = useRef(0);
+  const tabGroupSequence = useRef(0);
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
   const workspaceLockedRef = useRef(false);
@@ -212,6 +230,14 @@ function App() {
       const next = updater(tabsRef.current);
       tabsRef.current = next;
       setTabs(next);
+    },
+    [],
+  );
+  const commitTabGroups = useCallback(
+    (updater: (current: TabGroup[]) => TabGroup[]) => {
+      const next = updater(tabGroupsRef.current);
+      tabGroupsRef.current = next;
+      setTabGroups(next);
     },
     [],
   );
@@ -353,6 +379,45 @@ function App() {
       }
     },
     [showError],
+  );
+
+  const updateRestoreTabs = useCallback(
+    (enabled: boolean) => {
+      const vaultPath = workspace?.vaultPath;
+      if (!vaultPath) {
+        return;
+      }
+      setWorkspace((current) =>
+        current ? { ...current, restoreTabs: enabled } : current,
+      );
+      const generation = vaultGeneration.current;
+      const queueKey = `${vaultPath}:restore-tabs`;
+      const previous =
+        viewModeQueues.current.get(queueKey) ?? Promise.resolve(true);
+      const write = previous
+        .then(() => api.setRestoreTabs(enabled))
+        .then(() => true)
+        .catch((caught) => {
+          if (generation === vaultGeneration.current) {
+            showError(caught);
+          } else {
+            console.error(
+              `Unable to save tab restore settings for ${vaultPath}:`,
+              caught,
+            );
+          }
+          return false;
+        });
+      viewModeQueues.current.set(queueKey, write);
+      viewModeWrites.current.add(write);
+      void write.finally(() => {
+        viewModeWrites.current.delete(write);
+        if (viewModeQueues.current.get(queueKey) === write) {
+          viewModeQueues.current.delete(queueKey);
+        }
+      });
+    },
+    [showError, workspace?.vaultPath],
   );
 
   const queueVaultViewModeWrite = useCallback(
@@ -550,8 +615,18 @@ function App() {
           pendingWorkspaceFile.current = null;
         }
         const welcome = findNode(snapshot.tree, "Welcome.md");
+        const hasPendingWorkspaceFile =
+          pendingWorkspaceFile.current?.vaultPath === snapshot.vaultPath;
+        pendingTabSession.current =
+          !hasPendingWorkspaceFile &&
+          snapshot.restoreTabs &&
+          snapshot.tabSession?.tabs.length
+            ? snapshot.tabSession
+            : null;
+        restoringTabSession.current = pendingTabSession.current !== null;
         pendingDefaultWelcome.current =
           !pendingWorkspaceFile.current &&
+          !pendingTabSession.current &&
           snapshot.default &&
           welcome !== null &&
           welcome.kind !== "folder"
@@ -587,7 +662,12 @@ function App() {
         editQueues.current.clear();
         viewModeQueues.current.clear();
         viewModeWrites.current.clear();
+        if (tabSessionTimer.current) {
+          window.clearTimeout(tabSessionTimer.current);
+          tabSessionTimer.current = null;
+        }
         commitTabs(() => []);
+        commitTabGroups(() => []);
         setActivePath(null);
       }
       if (snapshot.markdownViewMode === null) {
@@ -612,6 +692,7 @@ function App() {
     },
     [
       commitTabs,
+      commitTabGroups,
       queueVaultViewModeWrite,
       rebuildSearchIndex,
       refreshCachedWorkspace,
@@ -667,6 +748,10 @@ function App() {
   }, []);
 
   const createNewTab = useCallback(() => {
+    if (tabsRef.current.length >= MAX_TAB_SESSION_TABS) {
+      showError(`A vault can have up to ${MAX_TAB_SESSION_TABS} open tabs.`);
+      return;
+    }
     const path = `denote:new-tab:${++newTabSequence.current}`;
     const tab: EditorTab = {
       path,
@@ -677,6 +762,7 @@ function App() {
       encoding: "utf8",
       lineEnding: "lf",
       placeholder: true,
+      groupId: null,
       rawEditing: false,
       editorRevision: 0,
       editRecorded: false,
@@ -688,7 +774,7 @@ function App() {
     setActivePath(path);
     setSelectedPath(null);
     setStatus("New tab");
-  }, [commitTabs]);
+  }, [commitTabs, showError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1063,6 +1149,10 @@ function App() {
   const beginWorkspaceOperation = useCallback(async (): Promise<boolean> => {
     await acquireWorkspaceLock();
     try {
+      if (tabSessionTimer.current) {
+        window.clearTimeout(tabSessionTimer.current);
+        tabSessionTimer.current = null;
+      }
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const uploads = await Promise.all([...attachmentUploads.current]);
         if (uploads.some((succeeded) => !succeeded)) {
@@ -1074,6 +1164,7 @@ function App() {
           setWorkspaceLock(false);
           return false;
         }
+        await tabSessionWrite.current;
         if (
           attachmentUploads.current.size > 0 ||
           viewModeWrites.current.size > 0
@@ -1081,6 +1172,7 @@ function App() {
           continue;
         }
         if (await flushAllTabsRef.current()) {
+          await persistTabSessionRef.current();
           return true;
         }
         setWorkspaceLock(false);
@@ -1190,6 +1282,53 @@ function App() {
     };
   }, [completeSafeExit, showError]);
 
+  const readEditorTab = useCallback(
+    async (
+      path: string,
+      kind: EditorTab["kind"],
+      title: string,
+    ): Promise<EditorTab> =>
+      kind === "image"
+        ? Promise.all([api.readNote(path), api.readImageDataUrl(path)]).then(
+            ([document, imageDataUrl]) => ({
+              path,
+              title,
+              kind: "image" as const,
+              content: document.content,
+              savedContent: document.content,
+              savedHash: document.contentHash,
+              encoding: document.encoding,
+              lineEnding: document.lineEnding,
+              placeholder: false,
+              groupId: null,
+              imageDataUrl,
+              rawEditing: false,
+              editorRevision: 0,
+              stats: document.stats,
+              editRecorded: false,
+              saveState: "saved" as const,
+            }),
+          )
+        : api.readNote(path).then((document) => ({
+            path,
+            title,
+            kind,
+            content: document.content,
+            savedContent: document.content,
+            savedHash: document.contentHash,
+            encoding: document.encoding,
+            lineEnding: document.lineEnding,
+            placeholder: false,
+            groupId: null,
+            rawEditing: false,
+            editorRevision: 0,
+            stats: document.stats,
+            editRecorded: false,
+            saveState: "saved" as const,
+          })),
+    [],
+  );
+
   const openFileNow = useCallback(
     async (
       path: string,
@@ -1227,44 +1366,7 @@ function App() {
         if (request !== openFileRequest.current) {
           return;
         }
-        const tab: EditorTab =
-          kind === "image"
-            ? await Promise.all([
-                api.readNote(path),
-                api.readImageDataUrl(path),
-              ]).then(([document, imageDataUrl]) => ({
-                path,
-                title,
-                kind: "image" as const,
-                content: document.content,
-                savedContent: document.content,
-                savedHash: document.contentHash,
-                encoding: document.encoding,
-                lineEnding: document.lineEnding,
-                placeholder: false,
-                imageDataUrl,
-                rawEditing: false,
-                editorRevision: 0,
-                stats: document.stats,
-                editRecorded: false,
-                saveState: "saved" as const,
-              }))
-            : await api.readNote(path).then((document) => ({
-                path,
-                title,
-                kind,
-                content: document.content,
-                savedContent: document.content,
-                savedHash: document.contentHash,
-                encoding: document.encoding,
-                lineEnding: document.lineEnding,
-                placeholder: false,
-                rawEditing: false,
-                editorRevision: 0,
-                stats: document.stats,
-                editRecorded: false,
-                saveState: "saved" as const,
-              }));
+        const tab = await readEditorTab(path, kind, title);
         if (
           generation !== vaultGeneration.current ||
           request !== openFileRequest.current
@@ -1309,6 +1411,7 @@ function App() {
       activateTab,
       beginWorkspaceOperation,
       cancelPendingPath,
+      readEditorTab,
       setWorkspaceLock,
       showError,
       workspace,
@@ -1326,6 +1429,89 @@ function App() {
     },
     [openFileNow],
   );
+
+  useEffect(() => {
+    const session = pendingTabSession.current;
+    if (
+      !session ||
+      !workspace ||
+      workspaceLocked ||
+      (workspace.encryption.enabled && !workspace.encryption.unlocked)
+    ) {
+      return;
+    }
+    pendingTabSession.current = null;
+    const generation = vaultGeneration.current;
+    const request = ++openFileRequest.current;
+    let openWelcome = false;
+    void (async () => {
+      await acquireWorkspaceLock();
+      try {
+        const restored: EditorTab[] = [];
+        for (const saved of session.tabs) {
+          if (
+            generation !== vaultGeneration.current ||
+            request !== openFileRequest.current
+          ) {
+            return;
+          }
+          const node = findNode(workspace.tree, saved.path);
+          const kind = node?.kind ?? kindFromPath(saved.path);
+          if (kind === "folder") {
+            continue;
+          }
+          const title =
+            node?.name ?? saved.path.split("/").slice(-1)[0] ?? saved.path;
+          try {
+            restored.push({
+              ...(await readEditorTab(saved.path, kind, title)),
+              groupId: saved.groupId,
+            });
+          } catch (caught) {
+            console.warn(`Unable to restore ${saved.path}:`, caught);
+          }
+        }
+        if (
+          generation !== vaultGeneration.current ||
+          request !== openFileRequest.current
+        ) {
+          return;
+        }
+        const layout = applyTabSessionLayout(restored, session);
+        commitTabs(() => layout.tabs);
+        commitTabGroups(() => layout.groups);
+        const activePath = layout.activePath;
+        activePathRef.current = activePath;
+        setActivePath(activePath);
+        setSelectedPath(activePath);
+        setStatus(
+          `Restored ${restored.length} tab${restored.length === 1 ? "" : "s"}`,
+        );
+        openWelcome =
+          restored.length === 0 &&
+          workspace.default &&
+          findNode(workspace.tree, "Welcome.md")?.kind !== "folder";
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        restoringTabSession.current = false;
+        setWorkspaceLock(false);
+      }
+      if (openWelcome) {
+        void openFile("Welcome.md");
+      }
+    })();
+  }, [
+    acquireWorkspaceLock,
+    commitTabGroups,
+    commitTabs,
+    openFile,
+    readEditorTab,
+    setWorkspaceLock,
+    showError,
+    workspace,
+    workspaceLocked,
+  ]);
 
   const openKnownVaultFile = useCallback(
     async (file: KnownVaultFile) => {
@@ -1448,9 +1634,10 @@ function App() {
     [activePath, commitTabs, saveTab, showError],
   );
 
-  const closeTab = useCallback(
-    async (path: string) => {
-      if (workspaceLockedRef.current) {
+  const closeTabs = useCallback(
+    async (paths: string[]) => {
+      const closing = new Set(paths);
+      if (closing.size === 0 || workspaceLockedRef.current) {
         return;
       }
       openFileRequest.current += 1;
@@ -1459,66 +1646,270 @@ function App() {
           return;
         }
         const currentTabs = tabsRef.current;
-        const index = currentTabs.findIndex(
-          (candidate) => candidate.path === path,
+        const activeIndex = currentTabs.findIndex(
+          (tab) => tab.path === activePathRef.current,
         );
-        if (index < 0 || !(await flushTab(path))) {
-          return;
-        }
-        const remaining = tabsRef.current.filter(
-          (candidate) => candidate.path !== path,
-        );
+        const remaining = currentTabs.filter((tab) => !closing.has(tab.path));
         commitTabs(() => remaining);
-        cancelPendingPath(path);
-        if (activePath === path) {
-            const nextPath =
-              remaining[Math.min(index, remaining.length - 1)]?.path ?? null;
-            setActivePath(nextPath);
-            activePathRef.current = nextPath;
-            window.setTimeout(() => {
-              if (nextPath) {
-                const nextTab = [...document.querySelectorAll<HTMLButtonElement>(
-                  "[data-tab-path]",
-                )].find((element) => element.dataset.tabPath === nextPath);
-                nextTab?.focus();
-              } else {
-                document
-                  .querySelector<HTMLButtonElement>(".file-tree__row")
-                  ?.focus();
-              }
-            }, 0);
-          }
+        for (const path of closing) {
+          cancelPendingPath(path);
+        }
+        commitTabGroups((current) =>
+          current.filter((group) =>
+            remaining.some((tab) => tab.groupId === group.id),
+          ),
+        );
+        if (
+          activePathRef.current &&
+          closing.has(activePathRef.current)
+        ) {
+          const nextPath =
+            remaining[Math.min(Math.max(activeIndex, 0), remaining.length - 1)]
+              ?.path ?? null;
+          activePathRef.current = nextPath;
+          setActivePath(nextPath);
+          setSelectedPath(
+            remaining.find((tab) => tab.path === nextPath)?.placeholder
+              ? null
+              : nextPath,
+          );
+          window.setTimeout(() => {
+            if (nextPath) {
+              document
+                .querySelector<HTMLButtonElement>(
+                  `[data-tab-path="${CSS.escape(nextPath)}"]`,
+                )
+                ?.focus();
+            } else {
+              document
+                .querySelector<HTMLButtonElement>(".file-tree__row")
+                ?.focus();
+            }
+          }, 0);
+        }
+      } catch (caught) {
+        showError(caught);
       } finally {
         setWorkspaceLock(false);
       }
     },
     [
-      activePath,
-      cancelPendingPath,
-      commitTabs,
-      flushTab,
-      setWorkspaceLock,
       beginWorkspaceOperation,
+      cancelPendingPath,
+      commitTabGroups,
+      commitTabs,
+      setWorkspaceLock,
+      showError,
     ],
   );
 
+  const closeTab = useCallback(
+    async (path: string) => closeTabs([path]),
+    [closeTabs],
+  );
+
   const reorderTabs = useCallback(
-    (paths: string[]) => {
-      commitTabs((current) => {
-        const byPath = new Map(current.map((tab) => [tab.path, tab]));
-        const ordered = paths
-          .map((path) => byPath.get(path))
-          .filter((tab): tab is EditorTab => tab !== undefined);
-        const included = new Set(paths);
-        return [
-          ...ordered,
-          ...current.filter((tab) => !included.has(tab.path)),
-        ];
-      });
+    (sourcePath: string, targetPath: string) => {
+      const sourceGroupId =
+        tabsRef.current.find((tab) => tab.path === sourcePath)?.groupId ?? null;
+      const targetGroupId =
+        tabsRef.current.find((tab) => tab.path === targetPath)?.groupId ?? null;
+      commitTabs((current) =>
+        moveTabInLayout(current, sourcePath, targetPath),
+      );
+      commitTabGroups((current) =>
+        current
+          .map((group) =>
+            sourceGroupId !== targetGroupId && group.id === targetGroupId
+              ? { ...group, collapsed: false }
+              : group,
+          )
+          .filter((group) =>
+            tabsRef.current.some((tab) => tab.groupId === group.id),
+          ),
+      );
       setStatus("Reordered tabs");
     },
-    [commitTabs],
+    [commitTabGroups, commitTabs],
   );
+
+  const toggleTabGroup = useCallback(
+    (groupId: string) => {
+      commitTabGroups((current) =>
+        current.map((group) =>
+          group.id === groupId
+            ? { ...group, collapsed: !group.collapsed }
+            : group,
+        ),
+      );
+    },
+    [commitTabGroups],
+  );
+
+  const moveTabToGroup = useCallback(
+    (path: string, groupId: string | null) => {
+      commitTabs((current) => {
+        const index = current.findIndex((tab) => tab.path === path);
+        if (index < 0) {
+          return current;
+        }
+        const target = { ...current[index], groupId };
+        const remaining = current.filter((tab) => tab.path !== path);
+        if (!groupId) {
+          remaining.splice(Math.min(index, remaining.length), 0, target);
+          return tabsInVisualOrder(remaining);
+        }
+        const lastGroupIndex = remaining.reduce(
+          (last, tab, tabIndex) => (tab.groupId === groupId ? tabIndex : last),
+          -1,
+        );
+        remaining.splice(
+          lastGroupIndex >= 0 ? lastGroupIndex + 1 : remaining.length,
+          0,
+          target,
+        );
+        return tabsInVisualOrder(remaining);
+      });
+      commitTabGroups((current) =>
+        current
+          .map((group) =>
+            group.id === groupId ? { ...group, collapsed: false } : group,
+          )
+          .filter((group) =>
+            tabsRef.current.some((tab) => tab.groupId === group.id),
+          ),
+      );
+    },
+    [commitTabGroups, commitTabs],
+  );
+
+  const createTabGroup = useCallback(
+    async (path: string) => {
+      if (tabGroupsRef.current.length >= MAX_TAB_SESSION_GROUPS) {
+        showError(
+          `A vault can have up to ${MAX_TAB_SESSION_GROUPS} tab groups.`,
+        );
+        return;
+      }
+      const name = await requestText({
+        title: "Create tab group",
+        message: "Choose a name for the new tab group.",
+        initialValue: "Group",
+        confirmLabel: "Create",
+      });
+      if (!name) {
+        return;
+      }
+      if ([...name].length > 64) {
+        showError("Tab group names must be 64 characters or fewer.");
+        return;
+      }
+      const groupId = `group-${Date.now()}-${++tabGroupSequence.current}`;
+      commitTabGroups((current) => [
+        ...current,
+        { id: groupId, name, collapsed: false },
+      ]);
+      moveTabToGroup(path, groupId);
+    },
+    [commitTabGroups, moveTabToGroup, requestText, showError],
+  );
+
+  const renameTabGroup = useCallback(
+    async (groupId: string) => {
+      const group = tabGroupsRef.current.find(
+        (candidate) => candidate.id === groupId,
+      );
+      if (!group) {
+        return;
+      }
+      const name = await requestText({
+        title: "Rename tab group",
+        message: "Choose a new name for this tab group.",
+        initialValue: group.name,
+        confirmLabel: "Rename",
+      });
+      if (!name) {
+        return;
+      }
+      if ([...name].length > 64) {
+        showError("Tab group names must be 64 characters or fewer.");
+        return;
+      }
+      commitTabGroups((current) =>
+        current.map((candidate) =>
+          candidate.id === groupId ? { ...candidate, name } : candidate,
+        ),
+      );
+    },
+    [commitTabGroups, requestText, showError],
+  );
+
+  const persistTabSession = useCallback((): Promise<boolean> => {
+    if (
+      !workspace ||
+      restoringTabSession.current ||
+      (workspace.encryption.enabled && !workspace.encryption.unlocked)
+    ) {
+      return Promise.resolve(true);
+    }
+    const generation = vaultGeneration.current;
+    const vaultPath = workspace.vaultPath;
+    const session = buildTabSessionState(
+      tabsRef.current,
+      tabGroupsRef.current,
+      activePathRef.current,
+    );
+    const write = tabSessionWrite.current
+      .then(() => api.saveTabSession(session))
+      .then(() => true)
+      .catch((caught) => {
+        if (
+          generation === vaultGeneration.current &&
+          workspace.vaultPath === vaultPath
+        ) {
+          showError(caught);
+        } else {
+          console.error(`Unable to save the tab session for ${vaultPath}:`, caught);
+        }
+        return false;
+      });
+    tabSessionWrite.current = write;
+    return write;
+  }, [showError, workspace]);
+  persistTabSessionRef.current = persistTabSession;
+
+  const tabLayoutKey = useMemo(
+    () =>
+      JSON.stringify({
+        tabs: tabs.map(({ path, placeholder, groupId }) => ({
+          path,
+          placeholder,
+          groupId,
+        })),
+        groups: tabGroups,
+        activePath,
+      }),
+    [activePath, tabGroups, tabs],
+  );
+
+  useEffect(() => {
+    if (!workspace || restoringTabSession.current) {
+      return;
+    }
+    if (tabSessionTimer.current) {
+      window.clearTimeout(tabSessionTimer.current);
+    }
+    tabSessionTimer.current = window.setTimeout(() => {
+      tabSessionTimer.current = null;
+      void persistTabSession();
+    }, 400);
+    return () => {
+      if (tabSessionTimer.current) {
+        window.clearTimeout(tabSessionTimer.current);
+        tabSessionTimer.current = null;
+      }
+    };
+  }, [persistTabSession, tabLayoutKey, workspace]);
 
   const refreshAndReindex = useCallback(async () => {
     if (!workspace) {
@@ -2996,12 +3387,18 @@ function App() {
         <header className="workspace-topbar">
           <Tabs
             tabs={tabs}
+            groups={tabGroups}
             activePath={activePath}
             disabled={workspaceLocked}
             onActivate={activateTab}
             onClose={(path) => void closeTab(path)}
+            onCloseMany={(paths) => void closeTabs(paths)}
             onReorder={reorderTabs}
             onNewTab={createNewTab}
+            onToggleGroup={toggleTabGroup}
+            onCreateGroup={(path) => void createTabGroup(path)}
+            onRenameGroup={(groupId) => void renameTabGroup(groupId)}
+            onMoveToGroup={moveTabToGroup}
           />
           <div className="workspace-actions">
             {activeFileTab?.kind === "image" ? (
@@ -3310,7 +3707,9 @@ function App() {
       <EditorSettingsDialog
         open={editorSettingsOpen}
         settings={editorDisplaySettings}
+        restoreTabs={workspace.restoreTabs}
         onChange={updateEditorDisplaySettings}
+        onRestoreTabsChange={updateRestoreTabs}
         onClose={() => setEditorSettingsOpen(false)}
       />
       {vaultSwitcherDialog}

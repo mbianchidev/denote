@@ -18,7 +18,7 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         FileEncoding, FileLineEnding, FileNode, MarkdownViewMode, NoteListItem, NoteStats,
-        TagColor, TrashItem,
+        TabSessionState, TagColor, TrashItem,
     },
 };
 
@@ -152,7 +152,8 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           last_opened_at TEXT NOT NULL,
-          markdown_view_mode TEXT CHECK (markdown_view_mode IN ('rich-text', 'source'))
+          markdown_view_mode TEXT CHECK (markdown_view_mode IN ('rich-text', 'source')),
+          restore_tabs INTEGER NOT NULL DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS note_stats (
@@ -247,6 +248,13 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE IF NOT EXISTS tab_sessions (
+          vault_id INTEGER PRIMARY KEY,
+          state_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_note_stats_recent
           ON note_stats(vault_id, last_opened_at DESC);
         CREATE INDEX IF NOT EXISTS idx_note_stats_bookmarks
@@ -307,6 +315,13 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    let added_restore_tabs = !column_exists(&migration, "vaults", "restore_tabs")?;
+    if added_restore_tabs {
+        migration.execute(
+            "ALTER TABLE vaults ADD COLUMN restore_tabs INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
         [],
@@ -341,6 +356,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (11, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (12, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -895,6 +914,71 @@ pub fn set_vault_markdown_view_mode(
         params![vault_id],
     )?;
     transaction.commit()?;
+    Ok(())
+}
+
+pub fn get_restore_tabs(connection: &Connection, vault_id: i64) -> AppResult<bool> {
+    Ok(connection.query_row(
+        "SELECT restore_tabs FROM vaults WHERE id = ?1",
+        params![vault_id],
+        |row| row.get::<_, i64>(0).map(|value| value != 0),
+    )?)
+}
+
+pub fn set_restore_tabs(connection: &Connection, vault_id: i64, enabled: bool) -> AppResult<()> {
+    connection.execute(
+        "UPDATE vaults SET restore_tabs = ?1, updated_at = ?2 WHERE id = ?3",
+        params![i64::from(enabled), now(), vault_id],
+    )?;
+    Ok(())
+}
+
+pub fn get_tab_session(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<Option<TabSessionState>> {
+    let serialized = connection
+        .query_row(
+            "SELECT state_json FROM tab_sessions WHERE vault_id = ?1",
+            params![vault_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    serialized
+        .map(|serialized| {
+            serde_json::from_str(&serialized).map_err(|error| {
+                AppError::InvalidData(format!("Saved tab session is invalid: {error}"))
+            })
+        })
+        .transpose()
+}
+
+pub fn save_tab_session(
+    connection: &mut Connection,
+    vault_id: i64,
+    session: &TabSessionState,
+) -> AppResult<()> {
+    let serialized = serde_json::to_string(session).map_err(|error| {
+        AppError::State(format!("Unable to serialize the tab session: {error}"))
+    })?;
+    connection.execute(
+        r#"
+        INSERT INTO tab_sessions(vault_id, state_json, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(vault_id) DO UPDATE SET
+          state_json = excluded.state_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, serialized, now()],
+    )?;
+    Ok(())
+}
+
+pub fn clear_tab_session(connection: &Connection, vault_id: i64) -> AppResult<()> {
+    connection.execute(
+        "DELETE FROM tab_sessions WHERE vault_id = ?1",
+        params![vault_id],
+    )?;
     Ok(())
 }
 
@@ -1643,6 +1727,42 @@ mod tests {
                 .expect("cache exists")[0]
                 .name,
             "new.md"
+        );
+    }
+
+    #[test]
+    fn stores_tab_restore_preferences_and_grouped_sessions_per_vault() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("tab-session.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let mut connection = open(&db_path).expect("database opened");
+        let vault_id = ensure_vault(&connection, "/vaults/work", "work").expect("vault");
+        let session = crate::models::TabSessionState {
+            tabs: vec![
+                crate::models::TabSessionTab {
+                    path: "one.md".to_string(),
+                    group_id: Some("work".to_string()),
+                },
+                crate::models::TabSessionTab {
+                    path: "two.md".to_string(),
+                    group_id: Some("work".to_string()),
+                },
+            ],
+            groups: vec![crate::models::TabGroup {
+                id: "work".to_string(),
+                name: "Work".to_string(),
+                collapsed: true,
+            }],
+            active_path: Some("two.md".to_string()),
+        };
+
+        save_tab_session(&mut connection, vault_id, &session).expect("save tab session");
+        set_restore_tabs(&connection, vault_id, false).expect("disable restore");
+
+        assert!(!get_restore_tabs(&connection, vault_id).expect("restore preference"));
+        assert_eq!(
+            get_tab_session(&connection, vault_id).expect("tab session"),
+            Some(session)
         );
     }
 

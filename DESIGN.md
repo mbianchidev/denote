@@ -282,7 +282,10 @@ Tabs support pointer-driven ordering with a quiet full-outline drop target and a
 keyboard equivalent; reordering never changes the underlying file tree.
 The row ends with one small plus control. File selection replaces the active tab;
 the plus control or Command-T creates the explicit empty slot needed for another
-open document.
+open document. Named tab groups use a compact labeled header, disclosure icon,
+and count rather than a separate panel. Collapsing a group preserves access to
+its active tab. The tab context menu keeps group actions and bulk close commands
+in one keyboard-operable surface.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
@@ -317,7 +320,8 @@ Code uses a distinct but nearby editor surface in both themes, never a fixed
 light panel inside dark mode. Syntax roles use restrained lavender, moss, amber,
 blue, and neutral ink variants with WCAG AA contrast. Gutters, selections,
 active lines, matching brackets, and editable fenced blocks share the same
-semantic palette.
+semantic palette. Rich fenced blocks add one compact copy action; editable blocks
+place it at the lower edge so the language and delete controls remain clear.
 
 ### Replace Preview
 

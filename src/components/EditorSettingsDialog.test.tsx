@@ -13,7 +13,9 @@ describe("EditorSettingsDialog", () => {
       <EditorSettingsDialog
         open
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
         onChange={onChange}
+        onRestoreTabsChange={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -26,5 +28,26 @@ describe("EditorSettingsDialog", () => {
       ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
       showLineNumbers: true,
     });
+  });
+
+  it("changes the current vault tab-restore preference", async () => {
+    const user = userEvent.setup();
+    const onRestoreTabsChange = vi.fn();
+    render(
+      <EditorSettingsDialog
+        open
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        onChange={vi.fn()}
+        onRestoreTabsChange={onRestoreTabsChange}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("checkbox", { name: /reopen tabs from the last session/i }),
+    );
+
+    expect(onRestoreTabsChange).toHaveBeenCalledWith(false);
   });
 });

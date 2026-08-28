@@ -86,6 +86,7 @@ The application-data database stores:
 - per-note open, edit, and save counters and timestamps;
 - each vault's persisted rich-text/source preference;
 - serialized file-tree caches for previously opened vaults;
+- each vault's restore-tabs preference and validated serialized tab session;
 - bookmarks, per-folder pins, and explicit sibling ordering;
 - per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
@@ -160,7 +161,8 @@ SQLite-known vault roots, skips unavailable vaults, symlinks, and each internal
 `.denote` folder, and never reads file contents. Selecting a result uses its
 trusted vault ID, runs the ordinary save-and-seal switch barrier, and opens the
 relative path after the target vault is ready. If that vault is encrypted, the
-path remains pending until unlock.
+path remains pending until unlock. An explicitly selected global-search result
+takes precedence over restoring that vault's previous tab session.
 
 ## Replace
 
@@ -209,11 +211,22 @@ realm observer records only actual user mode changes; initial source mode
 required by unsupported syntax or display guides does not overwrite the vault
 preference.
 
-Tab order is frontend session state. Ordinary file navigation flushes and
-replaces the active tab; Command-T / Control-T and the plus button append an
-explicit placeholder tab that the next file selection fills. Pointer events and
-`Alt-Shift-Left/Right` reorder the same tab array used by activation, `Ctrl-Tab`,
-close-next selection, and rendering, so no parallel order model can drift.
+Tab order and named groups are frontend session state. Ordinary file navigation
+flushes and replaces the active tab; Command-T / Control-T and the plus button
+append an explicit placeholder tab that the next file selection fills. Pointer
+events and `Alt-Shift-Left/Right` update the same group-contiguous order used by
+activation, `Ctrl-Tab`, bulk close ranges, close-next selection, rendering, and
+persistence. Dragging across a group boundary changes the dragged tab's group.
+Collapsed groups keep their active tab rendered so keyboard focus and tab
+semantics remain valid.
+
+Real file tabs are serialized to SQLite after a 400 ms debounce and at workspace
+barriers. The state includes order, group IDs and names, collapsed state, and the
+active path; placeholders are excluded. Restore is enabled by default per vault,
+loads at most 100 tabs and 50 groups, skips missing files, and clears malformed or
+semantically invalid saved state. Explicit cross-vault file opens bypass restore.
+Session metadata failures are surfaced but never block saving note content,
+closing tabs, switching vaults, or exiting.
 
 Plain UTF-8 files remain source-only. The frontend resolves their filenames
 against CodeMirror's language catalog and asynchronously reconfigures a language
@@ -241,7 +254,10 @@ All CodeMirror surfaces receive one highest-precedence Denote theme extension.
 The extension uses CSS semantic tokens, so editable code blocks, Markdown
 source, plain files, gutters, selections, active lines, matching brackets, and
 syntax tokens update immediately when the root theme changes. Static `pre` and
-inline `code` rendering uses the same code-surface tokens.
+inline `code` rendering uses the same code-surface tokens. Rich-mode code-copy
+buttons are React portals attached to MDXEditor's code wrappers. Editable blocks
+copy `EditorView.state.doc`, not virtualized DOM lines, so off-screen content is
+included without changing Lexical or Markdown state.
 
 Autosave waits 800 ms after the latest change. Saves are serialized per note;
 tab close, vault switch, restore, trash, and application close all wait for the

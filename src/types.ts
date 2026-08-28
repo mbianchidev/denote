@@ -79,6 +79,23 @@ export interface TagColor {
   color: string;
 }
 
+export interface TabGroup {
+  id: string;
+  name: string;
+  collapsed: boolean;
+}
+
+export interface TabSessionTab {
+  path: string;
+  groupId: string | null;
+}
+
+export interface TabSessionState {
+  tabs: TabSessionTab[];
+  groups: TabGroup[];
+  activePath: string | null;
+}
+
 export type EncryptionPhase = "encrypting" | "encrypted" | "decrypting";
 
 export interface EncryptionStatus {
@@ -98,6 +115,8 @@ export interface WorkspaceSnapshot {
   trash: TrashItem[];
   tagColors: TagColor[];
   markdownViewMode: MarkdownViewMode | null;
+  restoreTabs: boolean;
+  tabSession: TabSessionState | null;
   fromCache: boolean;
   encryption: EncryptionStatus;
 }
@@ -166,6 +185,7 @@ export interface EditorTab {
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
   placeholder: boolean;
+  groupId: string | null;
   stats?: NoteStats;
   imageDataUrl?: string;
   rawEditing: boolean;

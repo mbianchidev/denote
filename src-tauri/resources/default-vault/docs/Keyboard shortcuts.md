@@ -18,7 +18,7 @@
 
 `Escape` hides the table of contents when it is open. The sidebar divider uses
 Left/Right arrows and Home/End. File-tree context menus use arrow keys and
-Escape. All toolbar and dialog actions are keyboard reachable and use visible
-focus indicators.
+Escape. Tab context menus expose bulk close and group actions. All toolbar and
+dialog actions are keyboard reachable and use visible focus indicators.
 
 [Next: Optional plugins](<Optional plugins.md>)

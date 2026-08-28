@@ -170,6 +170,29 @@ pub struct TagColor {
     pub color: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TabGroup {
+    pub id: String,
+    pub name: String,
+    pub collapsed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TabSessionTab {
+    pub path: String,
+    pub group_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TabSessionState {
+    pub tabs: Vec<TabSessionTab>,
+    pub groups: Vec<TabGroup>,
+    pub active_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrashItem {
@@ -191,6 +214,8 @@ pub struct WorkspaceSnapshot {
     pub trash: Vec<TrashItem>,
     pub tag_colors: Vec<TagColor>,
     pub markdown_view_mode: Option<MarkdownViewMode>,
+    pub restore_tabs: bool,
+    pub tab_session: Option<TabSessionState>,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }

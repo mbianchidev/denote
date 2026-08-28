@@ -41,14 +41,18 @@ import {
   viewMode$,
 } from "@mdxeditor/editor";
 import { useCellValue, usePublisher } from "@mdxeditor/gurx";
+import { EditorView } from "@codemirror/view";
 import {
   forwardRef,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
+  useState,
+  type RefObject,
 } from "react";
-import { api } from "../lib/api";
+import { createPortal } from "react-dom";
+import { api, errorMessage } from "../lib/api";
 import {
   createEditorDisplayExtensions,
   denoteCodeMirrorTheme,
@@ -383,6 +387,7 @@ export const MarkdownEditor = forwardRef<
         }}
         onError={({ error }) => onError(error)}
       />
+      <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
   );
 });
@@ -477,6 +482,128 @@ function DisabledViewModeControls() {
       </span>
     </span>
   );
+}
+
+function RichCodeBlockCopyButtons({
+  rootRef,
+  onError,
+}: {
+  rootRef: RefObject<HTMLDivElement | null>;
+  onError: (message: string) => void;
+}) {
+  const [targets, setTargets] = useState<HTMLElement[]>([]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) {
+      return;
+    }
+    const markedTargets = new Set<HTMLElement>();
+    const scan = () => {
+      const next = [
+        ...root.querySelectorAll<HTMLElement>(".denote-editor-content pre"),
+        ...root.querySelectorAll<HTMLElement>(
+          ".denote-editor-content .cm-editor",
+        ),
+      ]
+        .map((target) =>
+          target.matches("pre")
+            ? target
+            : (target.parentElement?.parentElement ?? target),
+        )
+        .filter(
+          (target, index, values) =>
+            values.indexOf(target) === index && target.isConnected,
+        );
+      for (const target of markedTargets) {
+        if (!next.includes(target)) {
+          target.classList.remove(
+            "rich-code-block",
+            "rich-code-block--editor",
+          );
+          markedTargets.delete(target);
+        }
+      }
+      for (const target of next) {
+        target.classList.add("rich-code-block");
+        if (target.querySelector(".cm-editor")) {
+          target.classList.add("rich-code-block--editor");
+        } else {
+          target.classList.remove("rich-code-block--editor");
+        }
+        markedTargets.add(target);
+      }
+      setTargets((current) =>
+        current.length === next.length &&
+        current.every((target, index) => target === next[index])
+          ? current
+          : next,
+      );
+    };
+    scan();
+    const observer = new MutationObserver(scan);
+    observer.observe(root, { childList: true, subtree: true });
+    return () => {
+      observer.disconnect();
+      for (const target of markedTargets) {
+        target.classList.remove(
+          "rich-code-block",
+          "rich-code-block--editor",
+        );
+      }
+    };
+  }, [rootRef]);
+
+  return targets.map((target, index) =>
+    createPortal(
+      <CodeBlockCopyButton
+        key={index}
+        target={target}
+        onError={onError}
+      />,
+      target,
+    ),
+  );
+}
+
+function CodeBlockCopyButton({
+  target,
+  onError,
+}: {
+  target: HTMLElement;
+  onError: (message: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="rich-code-block__copy"
+      contentEditable={false}
+      aria-label="Copy code block"
+      title="Copy code block"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        void api
+          .copyFileContent(codeBlockText(target))
+          .then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1_500);
+          })
+          .catch((caught) => onError(errorMessage(caught)));
+      }}
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
+  );
+}
+
+function codeBlockText(target: HTMLElement): string {
+  const editor = target.querySelector<HTMLElement>(".cm-editor");
+  const view = editor ? EditorView.findFromDOM(editor) : null;
+  if (view) {
+    return view.state.doc.toString();
+  }
+  return target.querySelector("code")?.textContent ?? "";
 }
 
 function renderedLink(

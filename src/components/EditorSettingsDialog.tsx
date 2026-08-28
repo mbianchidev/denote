@@ -8,14 +8,18 @@ import {
 interface EditorSettingsDialogProps {
   open: boolean;
   settings: EditorDisplaySettings;
+  restoreTabs: boolean;
   onChange: (settings: EditorDisplaySettings) => void;
+  onRestoreTabsChange: (enabled: boolean) => void;
   onClose: () => void;
 }
 
 export function EditorSettingsDialog({
   open,
   settings,
+  restoreTabs,
   onChange,
+  onRestoreTabsChange,
   onClose,
 }: EditorSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -107,6 +111,12 @@ export function EditorSettingsDialog({
             onChange={(enabled) =>
               update("highlightTrailingWhitespace", enabled)
             }
+          />
+          <SettingCheckbox
+            checked={restoreTabs}
+            label="Reopen tabs from the last session"
+            description="Restore this vault's open files, order, groups, collapsed state, and active file."
+            onChange={onRestoreTabsChange}
           />
         </div>
       </div>
