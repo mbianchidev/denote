@@ -1,4 +1,4 @@
-import { FileImage, FileText, X } from "lucide-react";
+import { FileImage, FileText, Plus, X } from "lucide-react";
 import {
   useRef,
   useState,
@@ -14,6 +14,7 @@ interface TabsProps {
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
   onReorder: (paths: string[]) => void;
+  onNewTab: () => void;
 }
 
 export function Tabs({
@@ -23,6 +24,7 @@ export function Tabs({
   onActivate,
   onClose,
   onReorder,
+  onNewTab,
 }: TabsProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
@@ -165,6 +167,16 @@ export function Tabs({
           </div>
         );
       })}
+      <button
+        type="button"
+        className="tab-new"
+        aria-label="New tab"
+        title={`New tab (${navigator.platform.includes("Mac") ? "⌘T" : "Ctrl+T"})`}
+        disabled={disabled}
+        onClick={onNewTab}
+      >
+        <Plus aria-hidden="true" size={14} />
+      </button>
     </div>
   );
 }

@@ -84,7 +84,7 @@ The application-data database stores:
 
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
-- each note's persisted rich-text/source preference;
+- each vault's persisted rich-text/source preference;
 - serialized file-tree caches for previously opened vaults;
 - bookmarks, per-folder pins, and explicit sibling ordering;
 - per-vault tag color overrides keyed by normalized tag;
@@ -201,17 +201,24 @@ Markdown has no stable one-to-one source-line mapping, enabling any guide
 temporarily constrains Markdown editing to source mode. Disabled rich/source
 controls remain visible and point back to the display settings.
 
-The most recent rich-text/source choice remains the default for unseen files.
-Each opened note also stores its own mode in SQLite. The tab carries that mode
-through navigation, and a post-initialization realm write prevents MDXEditor's
-previous global cell value from leaking into the next file. A realm observer
-records only actual user mode changes; initial source mode required by
-unsupported syntax or display guides does not overwrite either preference.
+The most recent rich-text/source choice remains the fallback for vaults without
+a saved preference. Each vault stores one mode in its SQLite row, and every
+Markdown file in that vault receives it. A post-initialization realm write
+prevents MDXEditor's previous global cell value from leaking across vaults. A
+realm observer records only actual user mode changes; initial source mode
+required by unsupported syntax or display guides does not overwrite the vault
+preference.
 
-Tab order is frontend session state. Pointer events and
-`Alt-Shift-Left/Right` reorder the same tab array used by activation,
-`Ctrl-Tab`, close-next selection, and rendering, so no parallel order model can
-drift.
+Tab order is frontend session state. Ordinary file navigation flushes and
+replaces the active tab; Command-T / Control-T and the plus button append an
+explicit placeholder tab that the next file selection fills. Pointer events and
+`Alt-Shift-Left/Right` reorder the same tab array used by activation, `Ctrl-Tab`,
+close-next selection, and rendering, so no parallel order model can drift.
+
+Plain UTF-8 files remain source-only. The frontend resolves their filenames
+against CodeMirror's language catalog and asynchronously reconfigures a language
+compartment, so JavaScript, TypeScript, Python, and other recognized programming
+or markup files receive syntax highlighting without remounting the editor.
 
 The activity rail, resizable vault sidebar, divider, and editor are separate CSS
 grid columns. Sidebar width is clamped to 210–480px, updates continuously during
@@ -222,6 +229,13 @@ Command-N / Control-N resolves the selected folder or selected file's parent and
 uses the existing validated create command. The file tree exposes the same
 parent-resolution logic through a keyboard-operable contextual menu; right-click
 on empty tree space targets the vault root.
+
+Cross-folder moves resolve a folder or vault-root destination inside the
+canonical vault, reject self/descendant folder moves and conflicts, then reuse
+the rename recovery journal around one filesystem rename plus transactional
+metadata path rekeying. The frontend flushes affected tabs first and rewrites
+their paths after the move. Pointer capture plus coordinate hit-testing drives
+folder/root drop targets; **Move to folder…** is the keyboard alternative.
 
 All CodeMirror surfaces receive one highest-precedence Denote theme extension.
 The extension uses CSS semantic tokens, so editable code blocks, Markdown

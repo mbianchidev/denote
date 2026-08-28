@@ -52,17 +52,20 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Every regular file up to 25 MB can be opened and edited.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.
+- Source-only programming and markup files use filename-driven CodeMirror
+  language support when the language catalog recognizes them.
 - Images retain their visual preview and can switch to raw editing.
 - Rich single-pane Markdown editing is the default.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.
 - Hashtags render as colored pills in rich mode. Each normalized tag has one
   stable default or user-selected color within its vault.
-- Each Markdown file keeps its own rich-text or source-mode choice within its
-  vault and restores it after app restarts unless file safety or display guides
-  require source mode.
-- Open tabs can be reordered by direct pointer drag or keyboard without changing
-  file order.
+- Each vault keeps one rich-text or source-mode choice across all Markdown files
+  and restores it after app restarts unless file safety or display guides require
+  source mode.
+- File navigation replaces the active tab by default. Explicit blank tabs come
+  from Command-T / Control-T or the tab-row plus button and can be reordered by
+  pointer or keyboard.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
@@ -86,6 +89,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   launches.
 - Files and folders can be pinned above their siblings and manually ordered
   within the pinned or unpinned section of each parent folder.
+- Files and folders can move between folders by pointer drag or the
+  keyboard-accessible context action. Rename and trash are also available from
+  the file-tree context menu.
 - External links always use the operating system's default browser or handler;
   the Denote editor window never becomes a web browser.
 - Persistent editor display settings can show line numbers, spaces and tabs,

@@ -13,7 +13,7 @@ const tabs: EditorTab[] = [
     savedContent: "",
     encoding: "utf8",
     lineEnding: "lf",
-    viewMode: "rich-text",
+    placeholder: false,
     rawEditing: false,
     editorRevision: 0,
     editRecorded: false,
@@ -27,7 +27,7 @@ const tabs: EditorTab[] = [
     savedContent: "",
     encoding: "utf8",
     lineEnding: "lf",
-    viewMode: "rich-text",
+    placeholder: false,
     rawEditing: false,
     editorRevision: 0,
     editRecorded: false,
@@ -48,6 +48,7 @@ describe("Tabs", () => {
         onActivate={onActivate}
         onClose={onClose}
         onReorder={vi.fn()}
+        onNewTab={vi.fn()}
       />,
     );
 
@@ -68,6 +69,7 @@ describe("Tabs", () => {
         onActivate={vi.fn()}
         onClose={vi.fn()}
         onReorder={onReorder}
+        onNewTab={vi.fn()}
       />,
     );
 
@@ -97,6 +99,7 @@ describe("Tabs", () => {
         onActivate={vi.fn()}
         onClose={vi.fn()}
         onReorder={onReorder}
+        onNewTab={vi.fn()}
       />,
     );
 
@@ -120,5 +123,25 @@ describe("Tabs", () => {
       configurable: true,
       value: originalElementFromPoint,
     });
+  });
+
+  it("creates an explicit new tab from the plus button", async () => {
+    const user = userEvent.setup();
+    const onNewTab = vi.fn();
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={vi.fn()}
+        onNewTab={onNewTab}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "New tab" }));
+
+    expect(onNewTab).toHaveBeenCalledOnce();
   });
 });

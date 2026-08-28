@@ -77,3 +77,21 @@ export function isNewFileShortcut(
         !event.shiftKey &&
         event.code === "KeyN";
 }
+
+export function isNewTabShortcut(
+  event: ShortcutEvent,
+  platform: string,
+): boolean {
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(platform);
+  return isMac
+    ? event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyT"
+    : event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyT";
+}

@@ -25,11 +25,15 @@ blocks, thematic breaks, frontmatter, and callouts.
 Long documents scroll directly in the editor; you do not need to move the caret
 to reveal content below the current viewport.
 
-Each Markdown file remembers its own rich-text/source choice within the current
-vault and restores it after restarting Denote. Your most recent choice is the
-default for files without a saved preference. Files with unsupported rich syntax
-and enabled editor display guides still use source mode for safety without
-changing the saved choice.
+Each vault remembers one rich-text/source choice for all of its Markdown files
+and restores it after restarting Denote. Your most recent choice is the default
+for vaults without a saved preference. Files with unsupported rich syntax and
+enabled editor display guides still use source mode for safety without changing
+the vault choice.
+
+Programming and markup files outside Markdown use the source editor. Recognized
+extensions such as `.js`, `.ts`, `.py`, `.rs`, `.json`, and many others load
+CodeMirror syntax highlighting automatically.
 
 ## Tags
 

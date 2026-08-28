@@ -11,7 +11,9 @@ raw Base64 editor.
 
 ## Tabs
 
-- Select files in the tree to open tabs.
+- Select a file to open it in the active tab.
+- Use `Command-T` / `Ctrl-T` or the small plus button to create a blank tab before
+  opening another file.
 - Use `Ctrl-Tab` and `Ctrl-Shift-Tab` to switch tabs.
 - Use `Command-W` or `Ctrl-W` to close the active tab.
 - Drag tabs directly with the pointer to reorder them.
@@ -25,7 +27,12 @@ The file-tree toolbar can create, rename, pin, reorder, bookmark, and trash
 entries. Pinned files and folders stay above ordinary siblings. Up/down actions
 customize order inside the pinned or unpinned section of the current folder.
 Use `Command-N` / `Ctrl-N` for a new file. Right-click a folder, file, or empty
-tree space for contextual **New file** and **New folder** actions.
+tree space for contextual creation. Entry menus also provide rename, move, and
+trash actions.
+
+Drag a file or folder onto another folder to move it there, or onto empty tree
+space to move it to the vault root. Use **Move to folder…** from the context menu
+for the keyboard-accessible equivalent.
 
 Drag the divider beside the file tree to resize the sidebar. Focus it and use
 Left/Right arrows, or press Home to reset the default width.

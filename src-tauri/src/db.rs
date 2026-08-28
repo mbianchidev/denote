@@ -151,7 +151,8 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           name TEXT NOT NULL,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
-          last_opened_at TEXT NOT NULL
+          last_opened_at TEXT NOT NULL,
+          markdown_view_mode TEXT CHECK (markdown_view_mode IN ('rich-text', 'source'))
         );
 
         CREATE TABLE IF NOT EXISTS note_stats (
@@ -299,6 +300,13 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    let added_vault_view_mode = !column_exists(&migration, "vaults", "markdown_view_mode")?;
+    if added_vault_view_mode {
+        migration.execute(
+            "ALTER TABLE vaults ADD COLUMN markdown_view_mode TEXT CHECK (markdown_view_mode IN ('rich-text', 'source'))",
+            [],
+        )?;
+    }
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
         [],
@@ -329,6 +337,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (10, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (11, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -847,15 +859,14 @@ pub fn set_bookmark(
     Ok(())
 }
 
-pub fn get_note_view_mode(
+pub fn get_vault_markdown_view_mode(
     connection: &Connection,
     vault_id: i64,
-    path: &str,
 ) -> AppResult<Option<MarkdownViewMode>> {
     let value = connection
         .query_row(
-            "SELECT view_mode FROM note_stats WHERE vault_id = ?1 AND path = ?2",
-            params![vault_id, path],
+            "SELECT markdown_view_mode FROM vaults WHERE id = ?1",
+            params![vault_id],
             |row| row.get::<_, Option<String>>(0),
         )
         .optional()?
@@ -869,25 +880,21 @@ pub fn get_note_view_mode(
         .transpose()
 }
 
-pub fn set_note_view_mode(
-    connection: &Connection,
+pub fn set_vault_markdown_view_mode(
+    connection: &mut Connection,
     vault_id: i64,
-    path: &str,
     mode: MarkdownViewMode,
 ) -> AppResult<()> {
-    let timestamp = now();
-    connection.execute(
-        r#"
-        INSERT INTO note_stats(
-          vault_id, path, view_mode, created_at, updated_at
-        )
-        VALUES (?1, ?2, ?3, ?4, ?4)
-        ON CONFLICT(vault_id, path) DO UPDATE SET
-          view_mode = excluded.view_mode,
-          updated_at = excluded.updated_at
-        "#,
-        params![vault_id, path, mode.as_str(), timestamp],
+    let transaction = connection.transaction()?;
+    transaction.execute(
+        "UPDATE vaults SET markdown_view_mode = ?1, updated_at = ?2 WHERE id = ?3",
+        params![mode.as_str(), now(), vault_id],
     )?;
+    transaction.execute(
+        "UPDATE note_stats SET view_mode = NULL WHERE vault_id = ?1",
+        params![vault_id],
+    )?;
+    transaction.commit()?;
     Ok(())
 }
 
@@ -1252,6 +1259,7 @@ pub fn restore_metadata(
     operation_id: Option<&str>,
 ) -> AppResult<()> {
     let transaction = connection.transaction()?;
+    delete_content_metadata_tx(&transaction, vault_id, restored_path)?;
     rekey_content_metadata_tx(&transaction, vault_id, trash_path, restored_path)?;
     transaction.execute(
         r#"
@@ -1302,6 +1310,7 @@ fn rename_metadata_tx(
     old_path: &str,
     new_path: &str,
 ) -> AppResult<()> {
+    delete_content_metadata_tx(transaction, vault_id, new_path)?;
     rekey_content_metadata_tx(transaction, vault_id, old_path, new_path)?;
     Ok(())
 }
@@ -1776,6 +1785,85 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("migration version"),
+            1
+        );
+    }
+
+    #[test]
+    fn adds_vault_view_mode_without_guessing_from_note_activity() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("legacy-view-mode.sqlite3");
+        let connection = Connection::open(&db_path).expect("legacy database");
+        connection
+            .execute_batch(
+                r#"
+                CREATE TABLE vaults (
+                  id INTEGER PRIMARY KEY,
+                  path TEXT NOT NULL UNIQUE,
+                  name TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  last_opened_at TEXT NOT NULL
+                );
+                CREATE TABLE note_stats (
+                  vault_id INTEGER NOT NULL,
+                  path TEXT NOT NULL,
+                  open_count INTEGER NOT NULL DEFAULT 0,
+                  edit_count INTEGER NOT NULL DEFAULT 0,
+                  save_count INTEGER NOT NULL DEFAULT 0,
+                  last_opened_at TEXT,
+                  last_edited_at TEXT,
+                  last_saved_at TEXT,
+                  is_bookmarked INTEGER NOT NULL DEFAULT 0,
+                  view_mode TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  PRIMARY KEY (vault_id, path)
+                );
+                INSERT INTO vaults(
+                  id, path, name, created_at, updated_at, last_opened_at
+                ) VALUES (1, '/vaults/work', 'work', 'now', 'now', 'now');
+                INSERT INTO note_stats(
+                  vault_id, path, view_mode, created_at, updated_at
+                ) VALUES
+                  (1, 'first.md', 'rich-text', 'now', '2026-01-01T00:00:00Z'),
+                  (1, 'second.md', 'source', 'now', '2026-01-02T00:00:00Z');
+                "#,
+            )
+            .expect("legacy view modes");
+        drop(connection);
+
+        initialize(&db_path).expect("database migrated");
+        let mut connection = open(&db_path).expect("database opened");
+
+        assert_eq!(
+            get_vault_markdown_view_mode(&connection, 1).expect("vault view mode"),
+            None
+        );
+        set_vault_markdown_view_mode(&mut connection, 1, MarkdownViewMode::Source)
+            .expect("initialize vault view mode");
+        assert_eq!(
+            get_vault_markdown_view_mode(&connection, 1).expect("saved vault view mode"),
+            Some(MarkdownViewMode::Source)
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM note_stats WHERE view_mode IS NOT NULL",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("legacy view modes cleared after initialization"),
+            0
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 11",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("vault view mode migration"),
             1
         );
     }

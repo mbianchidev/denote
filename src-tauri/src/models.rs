@@ -119,7 +119,6 @@ pub struct NoteDocument {
     pub content_hash: String,
     pub encoding: FileEncoding,
     pub line_ending: FileLineEnding,
-    pub view_mode: Option<MarkdownViewMode>,
     pub stats: NoteStats,
 }
 
@@ -191,6 +190,7 @@ pub struct WorkspaceSnapshot {
     pub recent: Vec<NoteListItem>,
     pub trash: Vec<TrashItem>,
     pub tag_colors: Vec<TagColor>,
+    pub markdown_view_mode: Option<MarkdownViewMode>,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }

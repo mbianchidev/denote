@@ -31,7 +31,6 @@ export interface NoteDocument {
   contentHash: string;
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
-  viewMode: MarkdownViewMode | null;
   stats: NoteStats;
 }
 
@@ -98,6 +97,7 @@ export interface WorkspaceSnapshot {
   recent: NoteListItem[];
   trash: TrashItem[];
   tagColors: TagColor[];
+  markdownViewMode: MarkdownViewMode | null;
   fromCache: boolean;
   encryption: EncryptionStatus;
 }
@@ -165,7 +165,7 @@ export interface EditorTab {
   savedHash?: string;
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
-  viewMode: MarkdownViewMode;
+  placeholder: boolean;
   stats?: NoteStats;
   imageDataUrl?: string;
   rawEditing: boolean;

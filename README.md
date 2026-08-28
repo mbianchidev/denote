@@ -13,6 +13,8 @@ the selected folder as the source of truth.
 - Rich single-pane Markdown editing with optional source mode and independent
   scrolling for long files
 - Every regular file is editable: UTF-8 as text, binary as reversible Base64
+- Supported programming and markup files load filename-based CodeMirror syntax
+  highlighting in the source editor
 - Image preview with an explicit raw-edit toggle
 - Autosave and the previous 10 changed revisions per note
 - Local SQLite metadata for open, edit, and save counts
@@ -23,13 +25,15 @@ the selected folder as the source of truth.
 - Rendered hashtags use consistent colored pills across the vault, with an
   accessible color picker beside each active document tag
 - Current-note and vault-wide find and replace with selectable preview
-- Reorderable tabs, bookmarks, recently opened files, and search navigation
+- Current-tab file navigation, explicit Command-T/Control-T blank tabs,
+  reorderable tabs, bookmarks, recent files, and search navigation
 - Recent-vault switcher for separate work, music, and personal folders
 - Cached near-instant switching for previously opened vaults, followed by a
   background disk/search refresh
 - One-click copying of the active file's content, attachment-ready file, or
   absolute path
-- File and folder creation, rename, per-folder pinning/custom order, trash, and restore
+- File and folder creation, context-menu rename/move/trash, cross-folder drag,
+  per-folder pinning/custom order, trash, and restore
 - Command-N file creation plus file/folder creation from the sidebar context menu
 - Pointer and keyboard resizing for the persistent vault sidebar width
 - Permanent empty-trash action with explicit confirmation
@@ -92,11 +96,13 @@ Use the vault switcher in the sidebar header, or press
 the 50 most recently opened vault folders and marks unavailable folders without
 discarding their history.
 
-Tabs can be reordered with direct pointer dragging or
-`Alt-Shift-Left/Right`. Each Markdown file remembers its own rich-text/source
-choice within the vault and restores it after restarting Denote. Non-current,
-non-default vaults can be removed from the switcher; an explicit option moves
-the vault folder and all files to the operating system Trash.
+Clicking a file opens it in the active tab. Press `Command-T` / `Ctrl-T`, or use
+the small plus button after the tabs, before choosing a file when you want
+another tab. Tabs can be reordered with direct pointer dragging or
+`Alt-Shift-Left/Right`. Each vault remembers one rich-text/source choice for all
+Markdown files. Non-current, non-default vaults can be removed from the
+switcher; an explicit option moves the vault folder and all files to the
+operating system Trash.
 
 Previously opened vaults use their SQLite-cached file tree so switching does not
 wait for a full folder scan or content index. Denote refreshes the tree and
@@ -174,6 +180,11 @@ folder, or file for contextual **New file** and **New folder** actions.
 
 Drag the divider beside the vault sidebar to resize it. Focus the divider and
 use Left/Right arrows for keyboard resizing; Home resets the default width.
+
+Right-click a file or folder to rename it, move it to another folder, or move it
+to trash. Drag files and folders directly onto a folder, or onto empty tree space
+for the vault root. The context menu's **Move to folder…** action is the keyboard
+equivalent.
 
 ## Callouts
 

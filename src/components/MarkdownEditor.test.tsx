@@ -197,7 +197,7 @@ describe("MarkdownEditor links", () => {
     expect(changed).not.toMatch(/^\\#guide/);
   });
 
-  it("restores each file's selected mode when changing files", async () => {
+  it("uses one selected mode for every file in the vault", async () => {
     const user = userEvent.setup();
     render(
       <StrictMode>
@@ -212,7 +212,7 @@ describe("MarkdownEditor links", () => {
 
     await user.click(screen.getByRole("button", { name: "Open second file" }));
     expect(
-      await screen.findByRole("radio", { name: "Rich text", checked: true }),
+      await screen.findByRole("radio", { name: "Source mode", checked: true }),
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Open first file" }));
@@ -224,11 +224,7 @@ describe("MarkdownEditor links", () => {
 
 function ViewModeNavigationHarness() {
   const [path, setPath] = useState("one.md");
-  const [modes, setModes] = useState<Record<string, "rich-text" | "source">>({
-    "one.md": "rich-text",
-    "two.md": "rich-text",
-  });
-  const mode = modes[path];
+  const [mode, setMode] = useState<"rich-text" | "source">("rich-text");
   return (
     <>
       <button type="button" onClick={() => setPath("one.md")}>
@@ -249,9 +245,7 @@ function ViewModeNavigationHarness() {
         onChange={vi.fn()}
         onError={vi.fn()}
         onLinkOpen={vi.fn()}
-        onViewModeChange={(nextMode) =>
-          setModes((current) => ({ ...current, [path]: nextMode }))
-        }
+        onViewModeChange={setMode}
         onImageUpload={vi.fn()}
       />
     </>

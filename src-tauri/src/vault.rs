@@ -425,7 +425,6 @@ pub fn read_note(
         content,
         encoding,
         line_ending,
-        view_mode: db::get_note_view_mode(&connection, vault_id, relative_path)?,
         stats,
     })
 }
@@ -527,7 +526,7 @@ pub fn create_entry(
     vault_key: Option<&[u8; 32]>,
 ) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
-    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
     let parent = if parent_path.is_empty() {
         root.clone()
     } else {
@@ -548,7 +547,7 @@ pub fn create_entry(
         fs::create_dir(&destination)?;
     } else {
         let stored_bytes = encode_file_at_rest(&root, &[], vault_key)?;
-        atomic_write(&destination, &stored_bytes)?;
+        create_file_no_replace(&destination, &stored_bytes)?;
     }
     let connection = db::open(db_path)?;
     let _ = ensure_vault(&connection, &root)?;
@@ -562,7 +561,7 @@ pub fn rename_entry(
     new_name: &str,
 ) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
-    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
     let source = existing_entry(&root, relative_path)?;
     let safe_name = validate_name(new_name)?;
     let parent = source
@@ -584,7 +583,79 @@ pub fn rename_entry(
         None,
         source.is_dir(),
     )?;
-    if let Err(error) = fs::rename(&source, &destination) {
+    if let Err(error) = rename_no_replace(&source, &destination) {
+        db::cancel_file_operation(&connection, &operation_id)?;
+        return Err(error.into());
+    }
+    if let Err(error) = db::rename_metadata(
+        &mut connection,
+        vault_id,
+        relative_path,
+        &new_relative,
+        Some(&operation_id),
+    ) {
+        return Err(rollback_operation(
+            &connection,
+            &operation_id,
+            &destination,
+            &source,
+            error,
+        ));
+    }
+    Ok(new_relative)
+}
+
+pub fn move_entry(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    target_parent_path: &str,
+) -> AppResult<String> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
+    let source = existing_entry(&root, relative_path)?;
+    let target_parent = if target_parent_path.is_empty() {
+        root.clone()
+    } else {
+        existing_entry(&root, target_parent_path)?
+    };
+    if !target_parent.is_dir() {
+        return Err(AppError::InvalidPath(format!(
+            "{target_parent_path} is not a folder"
+        )));
+    }
+    if source.is_dir() && target_parent.starts_with(&source) {
+        return Err(AppError::InvalidPath(
+            "A folder cannot be moved into itself".to_string(),
+        ));
+    }
+    let file_name = source
+        .file_name()
+        .ok_or_else(|| AppError::InvalidPath(relative_path.to_string()))?;
+    let destination = target_parent.join(file_name);
+    if destination == source {
+        return Ok(relative_path.to_string());
+    }
+    ensure_no_symlinks(&root, &destination, true)?;
+    if destination.exists() {
+        return Err(AppError::InvalidPath(format!(
+            "{} already exists in the target folder",
+            file_name.to_string_lossy()
+        )));
+    }
+    let new_relative = relative_string(&root, &destination)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let operation_id = db::begin_file_operation(
+        &connection,
+        vault_id,
+        "rename",
+        relative_path,
+        &new_relative,
+        None,
+        source.is_dir(),
+    )?;
+    if let Err(error) = rename_no_replace(&source, &destination) {
         db::cancel_file_operation(&connection, &operation_id)?;
         return Err(error.into());
     }
@@ -608,7 +679,7 @@ pub fn rename_entry(
 
 pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<()> {
     let root = canonical_vault(vault_path)?;
-    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
     let source = existing_entry(&root, relative_path)?;
     let is_directory = source.is_dir();
     let name = source
@@ -659,31 +730,46 @@ pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> App
 
 pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> AppResult<String> {
     let root = canonical_vault(vault_path)?;
-    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let (original_path, trash_path, _) = db::trash_path(&connection, vault_id, item_id)?
         .ok_or_else(|| AppError::NotFound(format!("Trash item {item_id}")))?;
     let source = internal_entry(&root, &trash_path)?;
-    let destination = available_restore_path(&root, &original_path)?;
-    ensure_no_symlinks(&root, &destination, true)?;
-    if let Some(parent) = destination.parent() {
-        fs::create_dir_all(parent)?;
+    let mut restored_destination = None;
+    for _ in 0..100 {
+        let destination = available_restore_path(&root, &original_path)?;
+        ensure_no_symlinks(&root, &destination, true)?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let restored_relative = relative_string(&root, &destination)?;
+        let operation_id = db::begin_file_operation(
+            &connection,
+            vault_id,
+            "restore",
+            &trash_path,
+            &restored_relative,
+            Some(item_id),
+            source.is_dir(),
+        )?;
+        match rename_no_replace(&source, &destination) {
+            Ok(()) => {
+                restored_destination = Some((destination, restored_relative, operation_id));
+                break;
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                db::cancel_file_operation(&connection, &operation_id)?;
+            }
+            Err(error) => {
+                db::cancel_file_operation(&connection, &operation_id)?;
+                return Err(error.into());
+            }
+        }
     }
-    let restored_relative = relative_string(&root, &destination)?;
-    let operation_id = db::begin_file_operation(
-        &connection,
-        vault_id,
-        "restore",
-        &trash_path,
-        &restored_relative,
-        Some(item_id),
-        source.is_dir(),
-    )?;
-    if let Err(error) = fs::rename(&source, &destination) {
-        db::cancel_file_operation(&connection, &operation_id)?;
-        return Err(error.into());
-    }
+    let (destination, restored_relative, operation_id) = restored_destination.ok_or_else(|| {
+        AppError::Conflict("Unable to find a free restore destination".to_string())
+    })?;
     if let Err(error) = db::restore_metadata(
         &mut connection,
         vault_id,
@@ -768,23 +854,16 @@ pub fn set_tag_color(
     Ok(TagColor { tag, color })
 }
 
-pub fn set_note_view_mode(
+pub fn set_vault_markdown_view_mode(
     db_path: &Path,
     vault_path: &str,
-    relative_path: &str,
     mode: MarkdownViewMode,
 ) -> AppResult<()> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
-    let path = existing_entry(&root, relative_path)?;
-    if !path.is_file() {
-        return Err(AppError::UnsupportedFile(format!(
-            "{relative_path} is not a regular file"
-        )));
-    }
-    let connection = db::open(db_path)?;
+    let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    db::set_note_view_mode(&connection, vault_id, relative_path, mode)
+    db::set_vault_markdown_view_mode(&mut connection, vault_id, mode)
 }
 
 pub fn record_edit(
@@ -931,7 +1010,6 @@ pub fn restore_revision(
         content: restored,
         encoding: restored_encoding,
         line_ending: restored_line_ending,
-        view_mode: db::get_note_view_mode(&connection, vault_id, relative_path)?,
         stats: db::get_stats(&connection, vault_id, relative_path)?,
     })
 }
@@ -1318,6 +1396,7 @@ fn snapshot_with_tree(
     from_cache: bool,
 ) -> AppResult<WorkspaceSnapshot> {
     let tag_colors = db::list_tag_colors(connection, vault_id)?;
+    let markdown_view_mode = db::get_vault_markdown_view_mode(connection, vault_id)?;
     let (mut bookmarks, mut recent) = db::note_lists(connection, vault_id)?;
     bookmarks.retain(|item| existing_entry(root, &item.path).is_ok());
     recent.retain(|item| existing_entry(root, &item.path).is_ok());
@@ -1344,6 +1423,7 @@ fn snapshot_with_tree(
         recent,
         trash,
         tag_colors,
+        markdown_view_mode,
         from_cache,
         encryption: Default::default(),
     })
@@ -2138,6 +2218,118 @@ fn transform_file_encryption(path: &Path, vault_key: &[u8; 32], encrypting: bool
     })
 }
 
+fn create_file_no_replace(path: &Path, data: &[u8]) -> AppResult<()> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(path)))?;
+    let file_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(path)))?;
+    let temporary = parent.join(format!(".{file_name}.{}.denote-create", Uuid::new_v4()));
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    let mut file = options.open(&temporary)?;
+    if let Err(error) = file.write_all(data).and_then(|_| file.sync_all()) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    drop(file);
+    if let Err(error) = rename_no_replace(&temporary, path) {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.into());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid source path")
+    })?;
+    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid destination path")
+    })?;
+    // SAFETY: Both paths are valid NUL-terminated strings and remain alive for the call.
+    let result = unsafe {
+        libc::renameat2(
+            libc::AT_FDCWD,
+            source.as_ptr(),
+            libc::AT_FDCWD,
+            destination.as_ptr(),
+            libc::RENAME_NOREPLACE,
+        )
+    };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::{ffi::CString, os::unix::ffi::OsStrExt};
+
+    let source = CString::new(source.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid source path")
+    })?;
+    let destination = CString::new(destination.as_os_str().as_bytes()).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid destination path")
+    })?;
+    // SAFETY: Both paths are valid NUL-terminated strings and remain alive for the call.
+    let result =
+        unsafe { libc::renamex_np(source.as_ptr(), destination.as_ptr(), libc::RENAME_EXCL) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(windows)]
+fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+
+    let source = source
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let destination = destination
+        .as_os_str()
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    // SAFETY: Both paths are valid NUL-terminated UTF-16 strings for the duration of the call.
+    let result = unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), 0) };
+    if result != 0 {
+        Ok(())
+    } else {
+        Err(std::io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos",
+    target_os = "ios",
+    windows
+)))]
+fn rename_no_replace(source: &Path, destination: &Path) -> std::io::Result<()> {
+    if destination.exists() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            "Destination already exists",
+        ));
+    }
+    fs::rename(source, destination)
+}
+
 fn atomic_write(path: &Path, data: &[u8]) -> AppResult<()> {
     atomic_write_with(path, |file| {
         file.write_all(data)?;
@@ -2320,7 +2512,7 @@ fn rollback_operation(
     original: &Path,
     cause: AppError,
 ) -> AppError {
-    match fs::rename(current, original) {
+    match rename_no_replace(current, original) {
         Ok(()) => match db::cancel_file_operation(connection, operation_id) {
             Ok(()) => cause,
             Err(cancel_error) => AppError::InvalidData(format!(
@@ -2693,7 +2885,7 @@ mod tests {
     }
 
     #[test]
-    fn persists_note_view_mode_through_reopen_and_rename() {
+    fn persists_one_markdown_view_mode_per_vault() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
         fs::create_dir(&vault_path).expect("vault directory");
@@ -2702,37 +2894,31 @@ mod tests {
         db::initialize(&db_path).expect("database initialized");
 
         assert_eq!(
-            read_note(&db_path, vault_path.to_str().unwrap(), "note.md")
-                .expect("initial note")
-                .view_mode,
+            open_vault(&db_path, vault_path.to_str().unwrap())
+                .expect("initial vault")
+                .markdown_view_mode,
             None
         );
-        set_note_view_mode(
+        set_vault_markdown_view_mode(
             &db_path,
             vault_path.to_str().unwrap(),
-            "note.md",
             MarkdownViewMode::Source,
         )
         .expect("save view mode");
         assert_eq!(
-            read_note(&db_path, vault_path.to_str().unwrap(), "note.md")
-                .expect("reopened note")
-                .view_mode,
+            refresh_vault(&db_path, vault_path.to_str().unwrap())
+                .expect("refreshed vault")
+                .markdown_view_mode,
             Some(MarkdownViewMode::Source)
         );
 
-        let renamed = rename_entry(
-            &db_path,
-            vault_path.to_str().unwrap(),
-            "note.md",
-            "renamed.md",
-        )
-        .expect("rename note");
+        let other_vault = directory.path().join("other");
+        fs::create_dir(&other_vault).expect("other vault");
         assert_eq!(
-            read_note(&db_path, vault_path.to_str().unwrap(), &renamed)
-                .expect("renamed note")
-                .view_mode,
-            Some(MarkdownViewMode::Source)
+            open_vault(&db_path, other_vault.to_str().unwrap())
+                .expect("other vault")
+                .markdown_view_mode,
+            None
         );
     }
 
@@ -3379,6 +3565,91 @@ mod tests {
             )
             .expect("rename image as markdown"),
             "image.md"
+        );
+    }
+
+    #[test]
+    fn moves_entries_between_folders_and_rekeys_metadata() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("source")).expect("source folder");
+        fs::create_dir_all(vault_path.join("target")).expect("target folder");
+        fs::write(vault_path.join("source/note.md"), "note").expect("note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let connection = db::open(&db_path).expect("database opened");
+        let canonical_vault = fs::canonicalize(&vault_path).expect("canonical vault");
+        let vault_id = db::ensure_vault(&connection, canonical_vault.to_str().unwrap(), "vault")
+            .expect("vault");
+        db::set_bookmark(&connection, vault_id, "source/note.md", true).expect("bookmark");
+        db::record_open(&connection, vault_id, "target/note.md").expect("stale target metadata");
+
+        let moved = move_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "source/note.md",
+            "target",
+        )
+        .expect("move entry");
+
+        assert_eq!(moved, "target/note.md");
+        assert!(vault_path.join("target/note.md").is_file());
+        assert!(
+            db::get_stats(&connection, vault_id, "target/note.md")
+                .expect("moved metadata")
+                .bookmarked
+        );
+    }
+
+    #[test]
+    fn rejects_moving_a_folder_into_itself() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("parent/child")).expect("folders");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        assert!(
+            move_entry(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "parent",
+                "parent/child",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn no_replace_rename_preserves_an_existing_destination() {
+        let directory = tempdir().expect("temp directory");
+        let source = directory.path().join("source.md");
+        let destination = directory.path().join("destination.md");
+        fs::write(&source, "source").expect("source");
+        fs::write(&destination, "destination").expect("destination");
+
+        assert!(rename_no_replace(&source, &destination).is_err());
+        assert_eq!(
+            fs::read_to_string(&source).expect("source remains"),
+            "source"
+        );
+        assert_eq!(
+            fs::read_to_string(&destination).expect("destination remains"),
+            "destination"
+        );
+    }
+
+    #[test]
+    fn no_replace_file_creation_preserves_an_existing_destination() {
+        let directory = tempdir().expect("temp directory");
+        let destination = directory.path().join("note.md");
+        fs::write(&destination, "existing").expect("existing file");
+
+        assert!(create_file_no_replace(&destination, b"new").is_err());
+        assert_eq!(
+            fs::read_to_string(&destination).expect("destination remains"),
+            "existing"
         );
     }
 

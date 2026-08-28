@@ -280,10 +280,15 @@ File rows, tabs, and outline entries share compact hover and selected states.
 Tabs use the editor surface plus a two-pixel moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a
 keyboard equivalent; reordering never changes the underlying file tree.
+The row ends with one small plus control. File selection replaces the active tab;
+the plus control or Command-T creates the explicit empty slot needed for another
+open document.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
-file-tree target. The sidebar divider is visually one pixel but keeps a larger
-pointer target and exposes arrow-key resizing.
+file-tree target. Entry menus extend that surface with rename, move, and trash.
+Dragging an entry highlights folder or root drop targets; the menu move action
+preserves a keyboard path. The sidebar divider is visually one pixel but keeps a
+larger pointer target and exposes arrow-key resizing.
 The vault switcher is a compact recent-folder list with clear current and
 unavailable states; adding a new folder remains a separate native-picker action.
 Vault removal is a two-step inline confirmation. Removing only metadata is

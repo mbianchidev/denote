@@ -15,6 +15,7 @@ import {
   denoteCodeMirrorTheme,
 } from "../lib/editorExtensions";
 import type { EditorDisplaySettings } from "../lib/editorDisplay";
+import { loadSourceLanguage } from "../lib/sourceLanguage";
 import type { FileLineEnding } from "../types";
 
 interface PlainTextEditorProps {
@@ -23,9 +24,11 @@ interface PlainTextEditorProps {
   readOnly: boolean;
   spellCheck: boolean;
   binary: boolean;
+  filePath: string | null;
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
   onChange: (value: string) => void;
+  onError?: (error: unknown) => void;
 }
 
 export function PlainTextEditor({
@@ -34,9 +37,11 @@ export function PlainTextEditor({
   readOnly,
   spellCheck,
   binary,
+  filePath,
   lineEnding,
   displaySettings,
   onChange,
+  onError,
 }: PlainTextEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorView | null>(null);
@@ -45,6 +50,8 @@ export function PlainTextEditor({
   const syncingValue = useRef(false);
   const displayCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
+  const languageCompartment = useRef(new Compartment()).current;
+  const languageRequest = useRef(0);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -80,6 +87,7 @@ export function PlainTextEditor({
           displayCompartment.of(
             createEditorDisplayExtensions(displaySettings, lineEnding),
           ),
+          languageCompartment.of([]),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !syncingValue.current) {
               const nextValue = update.state.doc.toString();
@@ -98,9 +106,33 @@ export function PlainTextEditor({
   }, [
     ariaLabel,
     displayCompartment,
+    languageCompartment,
     readOnlyCompartment,
     spellCheck,
   ]);
+
+  useEffect(() => {
+    const request = ++languageRequest.current;
+    if (binary || !filePath) {
+      editorRef.current?.dispatch({
+        effects: languageCompartment.reconfigure([]),
+      });
+      return;
+    }
+    void loadSourceLanguage(filePath)
+      .then((language) => {
+        if (request === languageRequest.current && editorRef.current) {
+          editorRef.current.dispatch({
+            effects: languageCompartment.reconfigure(language ? [language] : []),
+          });
+        }
+      })
+      .catch((caught) => {
+        if (request === languageRequest.current) {
+          onError?.(caught);
+        }
+      });
+  }, [binary, filePath, languageCompartment, onError]);
 
   useEffect(() => {
     editorRef.current?.dispatch({

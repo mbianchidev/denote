@@ -348,6 +348,7 @@ button:disabled {
   border: 0;
   border-radius: 4px;
   cursor: default;
+  touch-action: pan-y;
 }
 
 .file-tree__row:hover {
@@ -360,17 +361,31 @@ button:disabled {
   background: var(--accent-muted);
 }
 
+.file-tree__row[data-dragging="true"] {
+  opacity: 0.5;
+  cursor: grabbing;
+}
+
+.file-tree__row[data-drop-target="true"],
+.file-tree[data-drop-target="true"] {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--sidebar-bg));
+}
+
 .file-tree-context-menu {
   position: fixed;
   z-index: 120;
   display: grid;
   width: 176px;
+  max-height: calc(100vh - 8px);
   padding: 5px;
   color: var(--text-primary);
   background: var(--editor-raised);
   border: 1px solid var(--border-strong);
   border-radius: 5px;
   box-shadow: var(--shadow);
+  overflow-y: auto;
 }
 
 .file-tree-context-menu button {
@@ -391,6 +406,16 @@ button:disabled {
 .file-tree-context-menu button:focus-visible {
   color: var(--text-primary);
   background: var(--panel-bg);
+}
+
+.file-tree-context-menu__separator {
+  height: 1px;
+  margin: 4px;
+  background: var(--border);
+}
+
+.file-tree-context-menu .file-tree-context-menu__danger {
+  color: var(--danger);
 }
 
 .file-tree__chevron {
@@ -560,6 +585,27 @@ button:disabled {
 }
 
 .tab__close:hover {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.tab-new {
+  display: grid;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  margin: 4px;
+  padding: 0;
+  place-items: center;
+  align-self: center;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tab-new:hover:not(:disabled) {
   color: var(--text-primary);
   background: var(--panel-bg);
 }

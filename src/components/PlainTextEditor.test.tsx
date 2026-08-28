@@ -12,6 +12,7 @@ describe("PlainTextEditor", () => {
         readOnly={false}
         spellCheck
         binary={false}
+        filePath="note.txt"
         lineEnding="crlf"
         displaySettings={{
           showLineNumbers: true,
@@ -42,6 +43,7 @@ describe("PlainTextEditor", () => {
         readOnly={false}
         spellCheck
         binary={false}
+        filePath="source.ts"
         lineEnding="lf"
         displaySettings={{
           showLineNumbers: false,
@@ -68,6 +70,7 @@ describe("PlainTextEditor", () => {
       readOnly: false,
       spellCheck: true,
       binary: false,
+      filePath: "restored.js",
       lineEnding: "lf" as const,
       displaySettings: {
         showLineNumbers: false,

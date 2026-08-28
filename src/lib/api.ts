@@ -86,6 +86,8 @@ export const api = {
     }),
   renameEntry: (path: string, newName: string) =>
     invoke<string>("rename_entry", { path, newName }),
+  moveEntry: (path: string, targetParentPath: string) =>
+    invoke<string>("move_entry", { path, targetParentPath }),
   trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
   restoreTrashItem: (itemId: number) =>
     invoke<string>("restore_trash_item", { itemId }),
@@ -100,8 +102,8 @@ export const api = {
     invoke<void>("set_entry_pinned", { path, pinned }),
   setTagColor: (tag: string, color: string) =>
     invoke<TagColor>("set_tag_color", { tag, color }),
-  setNoteViewMode: (path: string, mode: MarkdownViewMode) =>
-    invoke<void>("set_note_view_mode", { path, mode }),
+  setVaultMarkdownViewMode: (mode: MarkdownViewMode) =>
+    invoke<void>("set_vault_markdown_view_mode", { mode }),
   listHistory: (path: string) =>
     invoke<HistoryRevision[]>("list_history", { path }),
   restoreRevision: (path: string, revisionId: number) =>

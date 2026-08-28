@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isGlobalSearchShortcut,
   isNewFileShortcut,
+  isNewTabShortcut,
   isReplaceShortcut,
   isSearchShortcut,
 } from "./shortcuts";
@@ -149,6 +150,28 @@ describe("replace shortcut", () => {
             "Linux x86_64",
           ),
         ).toBe(true);
+      });
+
+      describe("new tab shortcut", () => {
+        it("uses Command-T on macOS and Control-T elsewhere", () => {
+          const base = {
+            altKey: false,
+            shiftKey: false,
+            code: "KeyT",
+          };
+          expect(
+            isNewTabShortcut(
+              { ...base, metaKey: true, ctrlKey: false },
+              "MacIntel",
+            ),
+          ).toBe(true);
+          expect(
+            isNewTabShortcut(
+              { ...base, metaKey: false, ctrlKey: true },
+              "Win32",
+            ),
+          ).toBe(true);
+        });
       });
     });
   });

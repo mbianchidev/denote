@@ -592,6 +592,22 @@ pub fn rename_entry(
 }
 
 #[tauri::command]
+pub fn move_entry(
+    state: State<'_, AppState>,
+    path: String,
+    target_parent_path: String,
+) -> AppResult<String> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::move_entry(
+        &state.db_path,
+        &root.to_string_lossy(),
+        &path,
+        &target_parent_path,
+    )
+}
+
+#[tauri::command]
 pub fn trash_entry(state: State<'_, AppState>, path: String) -> AppResult<()> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
@@ -671,14 +687,13 @@ pub fn set_tag_color(
 }
 
 #[tauri::command]
-pub fn set_note_view_mode(
+pub fn set_vault_markdown_view_mode(
     state: State<'_, AppState>,
-    path: String,
     mode: MarkdownViewMode,
 ) -> AppResult<()> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
-    vault::set_note_view_mode(&state.db_path, &root.to_string_lossy(), &path, mode)
+    vault::set_vault_markdown_view_mode(&state.db_path, &root.to_string_lossy(), mode)
 }
 
 #[tauri::command]

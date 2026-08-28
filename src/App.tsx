@@ -67,10 +67,13 @@ import {
   type MarkdownViewMode,
 } from "./lib/markdownView";
 import { VaultSearchIndex } from "./lib/search";
+import { sourceLanguageName } from "./lib/sourceLanguage";
+import { placeOpenedTab } from "./lib/tabs";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   isGlobalSearchShortcut,
   isNewFileShortcut,
+  isNewTabShortcut,
   isReplaceShortcut,
   isSearchShortcut,
 } from "./lib/shortcuts";
@@ -191,12 +194,18 @@ function App() {
     path: string;
   } | null>(null);
   const activePathRef = useRef<string | null>(activePath);
+  const openFileRequest = useRef(0);
+  const openFileQueue = useRef<Promise<void>>(Promise.resolve());
+  const newTabSequence = useRef(0);
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
   const workspaceLockedRef = useRef(false);
+  const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
+  const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
     null,
   );
+  const actionDialogReturnFocus = useRef<HTMLElement | null>(null);
 
   const commitTabs = useCallback(
     (updater: (current: EditorTab[]) => EditorTab[]) => {
@@ -209,7 +218,23 @@ function App() {
   const setWorkspaceLock = useCallback((locked: boolean) => {
     workspaceLockedRef.current = locked;
     setWorkspaceLocked(locked);
+    if (!locked) {
+      const release = workspaceLockRelease.current;
+      workspaceLockRelease.current = null;
+      release?.();
+    }
   }, []);
+  const acquireWorkspaceLock = useCallback(async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const previous = workspaceLockTail.current;
+    workspaceLockTail.current = previous.then(() => gate);
+    await previous;
+    workspaceLockRelease.current = release;
+    setWorkspaceLock(true);
+  }, [setWorkspaceLock]);
   const cancelPendingPath = useCallback((path: string) => {
     const timer = saveTimers.current.get(path);
     if (timer) {
@@ -226,6 +251,10 @@ function App() {
   const requestText = useCallback(
     (options: Omit<ActionDialogState, "mode" | "dangerous">) =>
       new Promise<string | null>((resolve) => {
+        actionDialogReturnFocus.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
         actionDialogResolver.current = resolve;
         setActionDialog({ ...options, mode: "text", dangerous: false });
       }),
@@ -234,6 +263,10 @@ function App() {
   const requestConfirmation = useCallback(
     (options: Omit<ActionDialogState, "mode" | "initialValue">) =>
       new Promise<boolean>((resolve) => {
+        actionDialogReturnFocus.current =
+          document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
         actionDialogResolver.current = (value) => resolve(value !== null);
         setActionDialog({ ...options, mode: "confirm", initialValue: "" });
       }),
@@ -241,15 +274,19 @@ function App() {
   );
   const finishActionDialog = useCallback((value: string | null) => {
     const resolver = actionDialogResolver.current;
+    const returnFocus = actionDialogReturnFocus.current;
     actionDialogResolver.current = null;
+    actionDialogReturnFocus.current = null;
     setActionDialog(null);
     resolver?.(value);
+    window.setTimeout(() => returnFocus?.focus(), 0);
   }, []);
 
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
     [activePath, tabs],
   );
+  const activeFileTab = activeTab?.placeholder ? null : activeTab;
   const selectedNode = useMemo(
     () => (workspace ? findNode(workspace.tree, selectedPath) : null),
     [selectedPath, workspace],
@@ -274,21 +311,21 @@ function App() {
   }, [selectedNode, workspace]);
   const headings = useMemo(
     () =>
-      activeTab &&
-      activeTab.kind === "markdown" &&
-      activeTab.encoding === "utf8"
-        ? extractHeadings(activeTab.content)
+      activeFileTab &&
+      activeFileTab.kind === "markdown" &&
+      activeFileTab.encoding === "utf8"
+        ? extractHeadings(activeFileTab.content)
         : [],
-    [activeTab],
+    [activeFileTab],
   );
   const tags = useMemo(
     () =>
-      activeTab &&
-      activeTab.encoding === "utf8" &&
-      (activeTab.kind !== "image" || activeTab.rawEditing)
-        ? extractTags(activeTab.content)
+      activeFileTab &&
+      activeFileTab.encoding === "utf8" &&
+      (activeFileTab.kind !== "image" || activeFileTab.rawEditing)
+        ? extractTags(activeFileTab.content)
         : [],
-    [activeTab],
+    [activeFileTab],
   );
   const tagColorMap = useMemo<TagColorMap>(
     () =>
@@ -318,41 +355,58 @@ function App() {
     [showError],
   );
 
+  const queueVaultViewModeWrite = useCallback(
+    (vaultPath: string, mode: MarkdownViewMode, generation: number) => {
+      const previous =
+        viewModeQueues.current.get(vaultPath) ?? Promise.resolve(true);
+      const write = previous
+        .then(() => api.setVaultMarkdownViewMode(mode))
+        .then(() => true)
+        .catch((caught) => {
+          if (generation === vaultGeneration.current) {
+            showError(caught);
+          } else {
+            console.error(
+              `Unable to save the view mode for ${vaultPath}:`,
+              caught,
+            );
+          }
+          return false;
+        });
+      viewModeQueues.current.set(vaultPath, write);
+      viewModeWrites.current.add(write);
+      void write.finally(() => {
+        viewModeWrites.current.delete(write);
+        if (viewModeQueues.current.get(vaultPath) === write) {
+          viewModeQueues.current.delete(vaultPath);
+        }
+      });
+    },
+    [showError],
+  );
+
   const updateMarkdownViewMode = useCallback(
-    (path: string, mode: MarkdownViewMode) => {
+    (mode: MarkdownViewMode) => {
+      const vaultPath = workspace?.vaultPath;
+      if (!vaultPath) {
+        return;
+      }
       try {
         saveMarkdownViewMode(mode);
         setMarkdownViewMode(mode);
-        commitTabs((current) =>
-          current.map((tab) => (tab.path === path ? { ...tab, viewMode: mode } : tab)),
+        setWorkspace((current) =>
+          current ? { ...current, markdownViewMode: mode } : current,
         );
-        const generation = vaultGeneration.current;
-        const previous =
-          viewModeQueues.current.get(path) ?? Promise.resolve(true);
-        const write = previous
-          .then(() => api.setNoteViewMode(path, mode))
-          .then(() => true)
-          .catch((caught) => {
-            if (generation === vaultGeneration.current) {
-              showError(caught);
-            } else {
-              console.error(`Unable to save the view mode for ${path}:`, caught);
-            }
-            return false;
-          });
-        viewModeQueues.current.set(path, write);
-        viewModeWrites.current.add(write);
-        void write.finally(() => {
-          viewModeWrites.current.delete(write);
-          if (viewModeQueues.current.get(path) === write) {
-            viewModeQueues.current.delete(path);
-          }
-        });
+        queueVaultViewModeWrite(
+          vaultPath,
+          mode,
+          vaultGeneration.current,
+        );
       } catch (caught) {
         showError(caught);
       }
     },
-    [commitTabs, showError],
+    [queueVaultViewModeWrite, showError, workspace?.vaultPath],
   );
 
   const updateTagColor = useCallback(
@@ -464,6 +518,7 @@ function App() {
 
   const loadWorkspace = useCallback(
     async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
+      openFileRequest.current += 1;
       const vaultLocked =
         snapshot.encryption.enabled && !snapshot.encryption.unlocked;
       if (indexTimer.current) {
@@ -504,7 +559,10 @@ function App() {
             : null;
       }
       setIndexing(false);
-      setWorkspace(snapshot);
+      const vaultViewMode =
+        snapshot.markdownViewMode ?? getMarkdownViewMode();
+      setMarkdownViewMode(vaultViewMode);
+      setWorkspace({ ...snapshot, markdownViewMode: vaultViewMode });
       setSelectedPath(null);
       setExpandedPaths(
         new Set(
@@ -532,6 +590,13 @@ function App() {
         commitTabs(() => []);
         setActivePath(null);
       }
+      if (snapshot.markdownViewMode === null) {
+        queueVaultViewModeWrite(
+          snapshot.vaultPath,
+          vaultViewMode,
+          vaultGeneration.current,
+        );
+      }
       if (vaultLocked) {
         setStatus(`${snapshot.vaultName} is locked`);
       } else {
@@ -545,7 +610,12 @@ function App() {
         }
       }
     },
-    [commitTabs, rebuildSearchIndex, refreshCachedWorkspace],
+    [
+      commitTabs,
+      queueVaultViewModeWrite,
+      rebuildSearchIndex,
+      refreshCachedWorkspace,
+    ],
   );
 
   const refreshWorkspace = useCallback(async (reindex = false) => {
@@ -587,6 +657,38 @@ function App() {
   useEffect(() => {
     activePathRef.current = activePath;
   }, [activePath]);
+
+  const activateTab = useCallback((path: string) => {
+    openFileRequest.current += 1;
+    activePathRef.current = path;
+    setActivePath(path);
+    const tab = tabsRef.current.find((candidate) => candidate.path === path);
+    setSelectedPath(tab?.placeholder ? null : path);
+  }, []);
+
+  const createNewTab = useCallback(() => {
+    const path = `denote:new-tab:${++newTabSequence.current}`;
+    const tab: EditorTab = {
+      path,
+      title: "New tab",
+      kind: "text",
+      content: "",
+      savedContent: "",
+      encoding: "utf8",
+      lineEnding: "lf",
+      placeholder: true,
+      rawEditing: false,
+      editorRevision: 0,
+      editRecorded: false,
+      saveState: "saved",
+    };
+    openFileRequest.current += 1;
+    commitTabs((current) => [...current, tab]);
+    activePathRef.current = path;
+    setActivePath(path);
+    setSelectedPath(null);
+    setStatus("New tab");
+  }, [commitTabs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -959,32 +1061,39 @@ function App() {
   flushAllTabsRef.current = flushAllTabs;
 
   const beginWorkspaceOperation = useCallback(async (): Promise<boolean> => {
-    for (let attempt = 0; attempt < 5; attempt += 1) {
-      const uploads = await Promise.all([...attachmentUploads.current]);
-      if (uploads.some((succeeded) => !succeeded)) {
-        return false;
-      }
-      const viewModes = await Promise.all([...viewModeWrites.current]);
-      if (viewModes.some((saved) => !saved)) {
-        return false;
-      }
-      setWorkspaceLock(true);
-      if (
-        attachmentUploads.current.size > 0 ||
-        viewModeWrites.current.size > 0
-      ) {
+    await acquireWorkspaceLock();
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const uploads = await Promise.all([...attachmentUploads.current]);
+        if (uploads.some((succeeded) => !succeeded)) {
+          setWorkspaceLock(false);
+          return false;
+        }
+        const viewModes = await Promise.all([...viewModeWrites.current]);
+        if (viewModes.some((saved) => !saved)) {
+          setWorkspaceLock(false);
+          return false;
+        }
+        if (
+          attachmentUploads.current.size > 0 ||
+          viewModeWrites.current.size > 0
+        ) {
+          continue;
+        }
+        if (await flushAllTabsRef.current()) {
+          return true;
+        }
         setWorkspaceLock(false);
-        continue;
-      }
-      if (await flushAllTabsRef.current()) {
-        return true;
+        return false;
       }
       setWorkspaceLock(false);
+      showError("Unable to settle attachment uploads. Try again.");
       return false;
+    } catch (caught) {
+      setWorkspaceLock(false);
+      throw caught;
     }
-    showError("Unable to settle attachment uploads. Try again.");
-    return false;
-  }, [setWorkspaceLock, showError]);
+  }, [acquireWorkspaceLock, setWorkspaceLock, showError]);
   beginWorkspaceOperationRef.current = beginWorkspaceOperation;
 
   const uploadAttachment = useCallback(
@@ -1081,18 +1190,25 @@ function App() {
     };
   }, [completeSafeExit, showError]);
 
-  const openFile = useCallback(
-    async (path: string, anchor?: string | null) => {
+  const openFileNow = useCallback(
+    async (
+      path: string,
+      anchor: string | null | undefined,
+      request: number,
+    ) => {
       if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      if (request !== openFileRequest.current) {
         return;
       }
       const existing = tabsRef.current.find((tab) => tab.path === path);
       if (existing) {
         pendingAnchor.current = anchor ?? null;
-        setActivePath(path);
-        setSelectedPath(path);
+        activateTab(path);
         return;
       }
+      const replacePath = activePathRef.current;
       const node = findNode(workspace.tree, path);
       const kind = node?.kind ?? kindFromPath(path);
       if (kind === "folder") {
@@ -1102,7 +1218,15 @@ function App() {
       const title = node?.name ?? path.split("/").slice(-1)[0] ?? path;
       const generation = vaultGeneration.current;
       setStatus(`Opening ${title}…`);
+      let workspaceOperationStarted = false;
       try {
+        if (!(await beginWorkspaceOperation())) {
+          return;
+        }
+        workspaceOperationStarted = true;
+        if (request !== openFileRequest.current) {
+          return;
+        }
         const tab: EditorTab =
           kind === "image"
             ? await Promise.all([
@@ -1117,7 +1241,7 @@ function App() {
                 savedHash: document.contentHash,
                 encoding: document.encoding,
                 lineEnding: document.lineEnding,
-                viewMode: document.viewMode ?? markdownViewMode,
+                placeholder: false,
                 imageDataUrl,
                 rawEditing: false,
                 editorRevision: 0,
@@ -1134,22 +1258,25 @@ function App() {
                 savedHash: document.contentHash,
                 encoding: document.encoding,
                 lineEnding: document.lineEnding,
-                viewMode: document.viewMode ?? markdownViewMode,
+                placeholder: false,
                 rawEditing: false,
                 editorRevision: 0,
                 stats: document.stats,
                 editRecorded: false,
                 saveState: "saved" as const,
               }));
-        if (generation !== vaultGeneration.current) {
+        if (
+          generation !== vaultGeneration.current ||
+          request !== openFileRequest.current
+        ) {
           return;
         }
         pendingAnchor.current = anchor ?? null;
-        commitTabs((current) =>
-          current.some((candidate) => candidate.path === path)
-            ? current
-            : [...current, tab],
-        );
+        commitTabs((current) => placeOpenedTab(current, replacePath, tab));
+        if (replacePath) {
+          cancelPendingPath(replacePath);
+        }
+        activePathRef.current = path;
         setActivePath(path);
         setSelectedPath(path);
         setStatus(`Opened ${title}`);
@@ -1171,14 +1298,33 @@ function App() {
         if (generation === vaultGeneration.current) {
           showError(caught);
         }
+      } finally {
+        if (workspaceOperationStarted) {
+          setWorkspaceLock(false);
+        }
       }
     },
     [
       commitTabs,
+      activateTab,
+      beginWorkspaceOperation,
+      cancelPendingPath,
+      setWorkspaceLock,
       showError,
-      markdownViewMode,
       workspace,
     ],
+  );
+
+  const openFile = useCallback(
+    (path: string, anchor?: string | null): Promise<void> => {
+      const request = ++openFileRequest.current;
+      const operation = openFileQueue.current.then(() =>
+        openFileNow(path, anchor, request),
+      );
+      openFileQueue.current = operation;
+      return operation;
+    },
+    [openFileNow],
   );
 
   const openKnownVaultFile = useCallback(
@@ -1307,6 +1453,7 @@ function App() {
       if (workspaceLockedRef.current) {
         return;
       }
+      openFileRequest.current += 1;
       try {
         if (!(await beginWorkspaceOperation())) {
           return;
@@ -1327,6 +1474,7 @@ function App() {
             const nextPath =
               remaining[Math.min(index, remaining.length - 1)]?.path ?? null;
             setActivePath(nextPath);
+            activePathRef.current = nextPath;
             window.setTimeout(() => {
               if (nextPath) {
                 const nextTab = [...document.querySelectorAll<HTMLButtonElement>(
@@ -1430,27 +1578,28 @@ function App() {
     ],
   );
 
-  const renameSelected = useCallback(async () => {
-    if (!workspace || !selectedNode || workspaceLockedRef.current) {
+  const renameNode = useCallback(async (node: FileNode) => {
+    if (!workspace || workspaceLockedRef.current) {
       return;
     }
     const newName = await requestText({
       title: "Rename item",
-      message: `Choose a new name for ${selectedNode.name}.`,
-      initialValue: selectedNode.name,
+      message: `Choose a new name for ${node.name}.`,
+      initialValue: node.name,
       confirmLabel: "Rename",
     });
-    if (!newName || newName === selectedNode.name) {
+    if (!newName || newName === node.name) {
       return;
     }
+    openFileRequest.current += 1;
     try {
       if (!(await beginWorkspaceOperation())) {
         return;
       }
       const affectedTabs = tabsRef.current.filter(
         (tab) =>
-          tab.path === selectedNode.path ||
-          tab.path.startsWith(`${selectedNode.path}/`),
+          !tab.placeholder &&
+          (tab.path === node.path || tab.path.startsWith(`${node.path}/`)),
       );
       for (const tab of affectedTabs) {
         if (!(await flushTab(tab.path))) {
@@ -1458,14 +1607,17 @@ function App() {
           return;
         }
       }
-      const newPath = await api.renameEntry(selectedNode.path, newName);
-      const oldPath = selectedNode.path;
+      const newPath = await api.renameEntry(node.path, newName);
+      const oldPath = node.path;
       const replacePrefix = (path: string) =>
         path === oldPath || path.startsWith(`${oldPath}/`)
           ? `${newPath}${path.slice(oldPath.length)}`
           : path;
       commitTabs((current) =>
         current.map((tab) => {
+          if (tab.placeholder) {
+            return tab;
+          }
           const path = replacePrefix(tab.path);
           const renamedKind = kindFromPath(path);
           return {
@@ -1524,20 +1676,154 @@ function App() {
     flushTab,
     refreshAndReindex,
     requestText,
-    selectedNode,
     setWorkspaceLock,
     showError,
     workspace,
   ]);
 
-  const trashSelected = useCallback(async () => {
-    if (!workspace || !selectedNode || workspaceLockedRef.current) {
+  const renameSelected = useCallback(async () => {
+    if (selectedNode) {
+      await renameNode(selectedNode);
+    }
+  }, [renameNode, selectedNode]);
+
+  const moveNode = useCallback(
+    async (node: FileNode, targetParentPath: string) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const currentParent = node.path.split("/").slice(0, -1).join("/");
+      if (targetParentPath === currentParent) {
+        return;
+      }
+      try {
+        openFileRequest.current += 1;
+        if (!(await beginWorkspaceOperation())) {
+          return;
+        }
+        const affectedTabs = tabsRef.current.filter(
+          (tab) =>
+            !tab.placeholder &&
+            (tab.path === node.path || tab.path.startsWith(`${node.path}/`)),
+        );
+        for (const tab of affectedTabs) {
+          if (!(await flushTab(tab.path))) {
+            setStatus("Move cancelled because a file could not be saved");
+            return;
+          }
+        }
+        const newPath = await api.moveEntry(node.path, targetParentPath);
+        const replacePrefix = (path: string) =>
+          path === node.path || path.startsWith(`${node.path}/`)
+            ? `${newPath}${path.slice(node.path.length)}`
+            : path;
+        commitTabs((current) =>
+          current.map((tab) => {
+            if (tab.placeholder) {
+              return tab;
+            }
+            const path = replacePrefix(tab.path);
+            const movedKind = kindFromPath(path);
+            return {
+              ...tab,
+              path,
+              title: path.split("/").slice(-1)[0] ?? path,
+              kind: movedKind,
+              rawEditing:
+                movedKind === "image" && tab.kind === "image"
+                  ? tab.rawEditing
+                  : false,
+              imageDataUrl:
+                movedKind === "image" ? tab.imageDataUrl : undefined,
+            };
+          }),
+        );
+        for (const tab of affectedTabs) {
+          const path = replacePrefix(tab.path);
+          if (kindFromPath(path) === "image") {
+            try {
+              const imageDataUrl = await api.readImageDataUrl(path);
+              commitTabs((current) =>
+                current.map((candidate) =>
+                  candidate.path === path
+                    ? { ...candidate, imageDataUrl }
+                    : candidate,
+                ),
+              );
+            } catch (caught) {
+              commitTabs((current) =>
+                current.map((candidate) =>
+                  candidate.path === path
+                    ? { ...candidate, rawEditing: true }
+                    : candidate,
+                ),
+              );
+              showError(caught);
+            }
+          }
+        }
+        setActivePath((current) => {
+          const next = current ? replacePrefix(current) : current;
+          activePathRef.current = next;
+          return next;
+        });
+        setSelectedPath(newPath);
+        for (const tab of affectedTabs) {
+          cancelPendingPath(tab.path);
+        }
+        if (targetParentPath) {
+          setExpandedPaths((current) => new Set(current).add(targetParentPath));
+        }
+        await refreshAndReindex();
+        setStatus(`Moved ${node.name}`);
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        setWorkspaceLock(false);
+      }
+    },
+    [
+      beginWorkspaceOperation,
+      cancelPendingPath,
+      commitTabs,
+      flushTab,
+      refreshAndReindex,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
+
+  const requestMoveNode = useCallback(
+    async (node: FileNode) => {
+      const currentParent = node.path.split("/").slice(0, -1).join("/");
+      const entered = await requestText({
+        title: "Move to folder",
+        message:
+          "Enter a vault-relative folder path. Use a single period for the vault root.",
+        initialValue: currentParent || ".",
+        confirmLabel: "Move",
+      });
+      if (!entered) {
+        return;
+      }
+      const targetParentPath =
+        entered === "." || entered === "/"
+          ? ""
+          : entered.replace(/^\/+|\/+$/g, "");
+      await moveNode(node, targetParentPath);
+    },
+    [moveNode, requestText],
+  );
+
+  const trashNode = useCallback(async (node: FileNode) => {
+    if (!workspace || workspaceLockedRef.current) {
       return;
     }
     if (
       !(await requestConfirmation({
         title: "Move to trash",
-        message: `Move “${selectedNode.name}” to Denote Trash? It can be restored later.`,
+        message: `Move “${node.name}” to Denote Trash? It can be restored later.`,
         confirmLabel: "Move to trash",
         dangerous: true,
       }))
@@ -1545,13 +1831,14 @@ function App() {
       return;
     }
     try {
+      openFileRequest.current += 1;
       if (!(await beginWorkspaceOperation())) {
         return;
       }
       const affectedTabs = tabsRef.current.filter(
         (tab) =>
-          tab.path === selectedNode.path ||
-          tab.path.startsWith(`${selectedNode.path}/`),
+          !tab.placeholder &&
+          (tab.path === node.path || tab.path.startsWith(`${node.path}/`)),
       );
       for (const tab of affectedTabs) {
         if (!(await flushTab(tab.path))) {
@@ -1559,10 +1846,9 @@ function App() {
           return;
         }
       }
-      await api.trashEntry(selectedNode.path);
+      await api.trashEntry(node.path);
       const isAffected = (path: string) =>
-        path === selectedNode.path ||
-        path.startsWith(`${selectedNode.path}/`);
+        path === node.path || path.startsWith(`${node.path}/`);
       commitTabs((current) => current.filter((tab) => !isAffected(tab.path)));
       for (const tab of affectedTabs) {
         cancelPendingPath(tab.path);
@@ -1585,11 +1871,16 @@ function App() {
     flushTab,
     refreshAndReindex,
     requestConfirmation,
-    selectedNode,
     setWorkspaceLock,
     showError,
     workspace,
   ]);
+
+  const trashSelected = useCallback(async () => {
+    if (selectedNode) {
+      await trashNode(selectedNode);
+    }
+  }, [selectedNode, trashNode]);
 
   const toggleBookmark = useCallback(async () => {
     if (
@@ -1712,7 +2003,7 @@ function App() {
   ]);
 
   const openHistory = useCallback(async () => {
-    if (!workspace || !activeTab) {
+    if (!workspace || !activeFileTab) {
       return;
     }
     if (workspaceLockedRef.current) {
@@ -1721,13 +2012,13 @@ function App() {
     setHistoryOpen(true);
     setHistoryLoading(true);
     try {
-      setHistoryRevisions(await api.listHistory(activeTab.path));
+      setHistoryRevisions(await api.listHistory(activeFileTab.path));
     } catch (caught) {
       showError(caught);
     } finally {
       setHistoryLoading(false);
     }
-  }, [activeTab, showError, workspace]);
+  }, [activeFileTab, showError, workspace]);
 
   const previewReplace = useCallback(
     async (request: ReplaceRequest): Promise<ReplacePreview[]> => {
@@ -1938,11 +2229,11 @@ function App() {
   );
 
   const reloadActiveTab = useCallback(async () => {
-    if (!activeTab || workspaceLockedRef.current) {
+    if (!activeFileTab || workspaceLockedRef.current) {
       return;
     }
     if (
-      activeTab.content !== activeTab.savedContent &&
+      activeFileTab.content !== activeFileTab.savedContent &&
       !(await requestConfirmation({
         title: "Reload from disk",
         message:
@@ -1953,8 +2244,8 @@ function App() {
     ) {
       return;
     }
-    setWorkspaceLock(true);
-    const path = activeTab.path;
+    await acquireWorkspaceLock();
+    const path = activeFileTab.path;
     try {
       const timer = saveTimers.current.get(path);
       if (timer) {
@@ -1966,7 +2257,7 @@ function App() {
         await pendingSave;
       }
       cancelPendingPath(path);
-      if (activeTab.kind === "image") {
+      if (activeFileTab.kind === "image") {
         const [document, imageDataUrl] = await Promise.all([
           api.readNote(path),
           api.readImageDataUrl(path),
@@ -2020,7 +2311,8 @@ function App() {
       setWorkspaceLock(false);
     }
   }, [
-    activeTab,
+    activeFileTab,
+    acquireWorkspaceLock,
     cancelPendingPath,
     commitTabs,
     requestConfirmation,
@@ -2030,39 +2322,39 @@ function App() {
   ]);
 
   const copyActiveFilePath = useCallback(async () => {
-    if (!activeTab || workspaceLockedRef.current) {
+    if (!activeFileTab || workspaceLockedRef.current) {
       return;
     }
     try {
-      await api.copyFilePath(activeTab.path);
+      await api.copyFilePath(activeFileTab.path);
       setStatus("Copied file path");
     } catch (caught) {
       showError(caught);
     }
-  }, [activeTab, showError]);
+  }, [activeFileTab, showError]);
 
   const copyActiveFileContent = useCallback(async () => {
-    if (!activeTab || workspaceLockedRef.current) {
+    if (!activeFileTab || workspaceLockedRef.current) {
       return;
     }
     try {
-      await api.copyFileContent(activeTab.content);
+      await api.copyFileContent(activeFileTab.content);
       setStatus("Copied file content");
     } catch (caught) {
       showError(caught);
     }
-  }, [activeTab, showError]);
+  }, [activeFileTab, showError]);
 
   const copyActiveFileForAttachment = useCallback(async () => {
-    if (!activeTab || workspaceLockedRef.current) {
+    if (!activeFileTab || workspaceLockedRef.current) {
       return;
     }
     try {
       await api.copyFileForAttachment(
-        activeTab.path,
-        activeTab.content,
-        activeTab.encoding,
-        activeTab.lineEnding,
+        activeFileTab.path,
+        activeFileTab.content,
+        activeFileTab.encoding,
+        activeFileTab.lineEnding,
       );
       setStatus(
         workspace?.encryption.enabled
@@ -2072,7 +2364,7 @@ function App() {
     } catch (caught) {
       showError(caught);
     }
-  }, [activeTab, showError, workspace?.encryption.enabled]);
+  }, [activeFileTab, showError, workspace?.encryption.enabled]);
 
   const commitSidebarWidth = useCallback(
     (width: number) => {
@@ -2100,13 +2392,13 @@ function App() {
 
   const restoreRevision = useCallback(
     async (revisionId: number) => {
-      if (!workspace || !activeTab) {
+      if (!workspace || !activeFileTab) {
         return;
       }
       if (workspaceLockedRef.current) {
         return;
       }
-      const restorePath = activeTab.path;
+      const restorePath = activeFileTab.path;
       try {
         if (!(await beginWorkspaceOperation())) {
           return;
@@ -2134,7 +2426,7 @@ function App() {
               : tab,
           ),
         );
-        if (activeTab.kind === "image") {
+        if (activeFileTab.kind === "image") {
           const imageDataUrl = await api.readImageDataUrl(restorePath);
           commitTabs((current) =>
             current.map((tab) =>
@@ -2152,7 +2444,7 @@ function App() {
       }
     },
     [
-      activeTab,
+      activeFileTab,
       beginWorkspaceOperation,
       commitTabs,
       flushTab,
@@ -2247,6 +2539,19 @@ function App() {
         event.preventDefault();
         event.stopPropagation();
         setVaultSwitcherOpen(true);
+      } else if (isNewTabShortcut(event, navigator.platform)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!workspace) {
+          showError("Open a vault before creating a tab.");
+        } else if (
+          workspace.encryption.enabled &&
+          !workspace.encryption.unlocked
+        ) {
+          showError("Unlock the vault before creating a tab.");
+        } else {
+          createNewTab();
+        }
       } else if (isGlobalSearchShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -2273,11 +2578,15 @@ function App() {
         event.preventDefault();
         event.stopPropagation();
         setReplaceOpen(true);
-      } else if (modifier && event.key.toLocaleLowerCase() === "s" && activeTab) {
+      } else if (
+        modifier &&
+        event.key.toLocaleLowerCase() === "s" &&
+        activeFileTab
+      ) {
         event.preventDefault();
         event.stopPropagation();
-        if (activeTab.kind !== "image" || activeTab.rawEditing) {
-          void saveTab(activeTab.path, activeTab.content, "manual save");
+        if (activeFileTab.kind !== "image" || activeFileTab.rawEditing) {
+          void saveTab(activeFileTab.path, activeFileTab.content, "manual save");
         }
       } else if (modifier && event.key.toLocaleLowerCase() === "w" && activePath) {
         event.preventDefault();
@@ -2288,9 +2597,7 @@ function App() {
         event.stopPropagation();
         const index = tabs.findIndex((tab) => tab.path === activePath);
         const direction = event.shiftKey ? -1 : 1;
-        setActivePath(
-          tabs[(index + direction + tabs.length) % tabs.length].path,
-        );
+        activateTab(tabs[(index + direction + tabs.length) % tabs.length].path);
       } else if (event.key === "Escape" && showOutline) {
         setShowOutline(false);
       }
@@ -2300,8 +2607,10 @@ function App() {
   }, [
     actionDialog,
     activePath,
-    activeTab,
+    activeFileTab,
+    activateTab,
     closeTab,
+    createNewTab,
     createEntry,
     editorSettingsOpen,
     encryptionOpen,
@@ -2588,6 +2897,12 @@ function App() {
               onCreate={(parentPath, directory) =>
                 void createEntry(directory, parentPath)
               }
+              onRename={(node) => void renameNode(node)}
+              onDelete={(node) => void trashNode(node)}
+              onMove={(node, targetParentPath) =>
+                void moveNode(node, targetParentPath)
+              }
+              onRequestMove={(node) => void requestMoveNode(node)}
             />
           </>
         ) : sidebarView === "search" ? (
@@ -2683,30 +2998,31 @@ function App() {
             tabs={tabs}
             activePath={activePath}
             disabled={workspaceLocked}
-            onActivate={setActivePath}
+            onActivate={activateTab}
             onClose={(path) => void closeTab(path)}
             onReorder={reorderTabs}
+            onNewTab={createNewTab}
           />
           <div className="workspace-actions">
-            {activeTab?.kind === "image" ? (
+            {activeFileTab?.kind === "image" ? (
               <button
                 type="button"
                 className="icon-button"
                 aria-label={
-                  activeTab.rawEditing
+                  activeFileTab.rawEditing
                     ? "Preview image"
                     : "Edit image as raw file"
                 }
                 title={
-                  activeTab.rawEditing
+                  activeFileTab.rawEditing
                     ? "Preview image"
                     : "Edit image as raw file"
                 }
-                aria-pressed={activeTab.rawEditing}
+                aria-pressed={activeFileTab.rawEditing}
                 disabled={workspaceLocked}
                 onClick={toggleRawEditing}
               >
-                {activeTab.rawEditing ? (
+                {activeFileTab.rawEditing ? (
                   <ImageIcon aria-hidden="true" size={16} />
                 ) : (
                   <FileCode2 aria-hidden="true" size={16} />
@@ -2718,7 +3034,7 @@ function App() {
               className="icon-button"
               aria-label="Copy active file content"
               title="Copy active file content"
-              disabled={!activeTab || workspaceLocked}
+              disabled={!activeFileTab || workspaceLocked}
               onClick={() => void copyActiveFileContent()}
             >
               <ClipboardCopy aria-hidden="true" size={16} />
@@ -2732,7 +3048,7 @@ function App() {
                   ? "Copy file for attachment using a temporary plaintext copy"
                   : "Copy active file for attachment"
               }
-              disabled={!activeTab || workspaceLocked}
+              disabled={!activeFileTab || workspaceLocked}
               onClick={() => void copyActiveFileForAttachment()}
             >
               <Paperclip aria-hidden="true" size={16} />
@@ -2754,7 +3070,7 @@ function App() {
               className="icon-button"
               aria-label="Copy active file path"
               title="Copy active file path"
-              disabled={!activeTab || workspaceLocked}
+              disabled={!activeFileTab || workspaceLocked}
               onClick={() => void copyActiveFilePath()}
             >
               <Copy aria-hidden="true" size={16} />
@@ -2764,7 +3080,7 @@ function App() {
               className="icon-button"
               aria-label="Reload active file from disk"
               title="Reload active file from disk"
-              disabled={!activeTab || workspaceLocked}
+              disabled={!activeFileTab || workspaceLocked}
               onClick={() => void reloadActiveTab()}
             >
               <RefreshCw aria-hidden="true" size={16} />
@@ -2774,7 +3090,7 @@ function App() {
               className="icon-button"
               aria-label="Open note history"
               title="History"
-              disabled={!activeTab}
+              disabled={!activeFileTab}
               onClick={() => void openHistory()}
             >
               <History aria-hidden="true" size={16} />
@@ -2796,27 +3112,27 @@ function App() {
               className="icon-button"
               aria-label={`${
                 showOutline &&
-                activeTab?.kind === "markdown" &&
-                activeTab.encoding === "utf8"
+                activeFileTab?.kind === "markdown" &&
+                activeFileTab.encoding === "utf8"
                   ? "Hide"
                   : "Show"
               } outline`}
               title={`${
                 showOutline &&
-                activeTab?.kind === "markdown" &&
-                activeTab.encoding === "utf8"
+                activeFileTab?.kind === "markdown" &&
+                activeFileTab.encoding === "utf8"
                   ? "Hide"
                   : "Show"
               } outline`}
               aria-pressed={
-                activeTab?.kind === "markdown" &&
-                activeTab.encoding === "utf8" &&
+                activeFileTab?.kind === "markdown" &&
+                activeFileTab.encoding === "utf8" &&
                 showOutline
               }
               disabled={
-                !activeTab ||
-                activeTab.kind !== "markdown" ||
-                activeTab.encoding !== "utf8"
+                !activeFileTab ||
+                activeFileTab.kind !== "markdown" ||
+                activeFileTab.encoding !== "utf8"
               }
               onClick={() => setShowOutline((current) => !current)}
             >
@@ -2839,54 +3155,67 @@ function App() {
         ) : null}
         <div className="editor-layout">
           <main className="editor-pane">
-            {activeTab ? (
+            {activeTab?.placeholder ? (
+              <div className="editor-empty">
+                <div className="editor-empty__mark">+</div>
+                <h2>New tab</h2>
+                <p>Choose a file from the sidebar to open it in this tab.</p>
+              </div>
+            ) : activeFileTab ? (
               <>
-                {activeTab.kind === "image" && !activeTab.rawEditing ? (
+                {activeFileTab.kind === "image" && !activeFileTab.rawEditing ? (
                   <figure className="image-viewer">
                     <img
-                      src={activeTab.imageDataUrl}
-                      alt={activeTab.title}
+                      src={activeFileTab.imageDataUrl}
+                      alt={activeFileTab.title}
                     />
-                    <figcaption>{activeTab.path}</figcaption>
+                    <figcaption>{activeFileTab.path}</figcaption>
                   </figure>
-                ) : activeTab.kind === "markdown" &&
-                  activeTab.encoding === "utf8" &&
-                  !activeTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
+                ) : activeFileTab.kind === "markdown" &&
+                  activeFileTab.encoding === "utf8" &&
+                  !activeFileTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
                   <MarkdownEditor
-                    key={`${activeTab.path}:${activeTab.editorRevision}:${editorDisplayKey}`}
-                    notePath={activeTab.path}
-                    markdown={activeTab.content}
-                    lineEnding={activeTab.lineEnding}
+                    key={`${activeFileTab.path}:${activeFileTab.editorRevision}:${editorDisplayKey}`}
+                    notePath={activeFileTab.path}
+                    markdown={activeFileTab.content}
+                    lineEnding={activeFileTab.lineEnding}
                     displaySettings={editorDisplaySettings}
-                    preferredViewMode={activeTab.viewMode}
+                    preferredViewMode={markdownViewMode}
                     readOnly={workspaceLocked}
                     tagColors={tagColorMap}
                     onChange={changeActiveContent}
                     onError={showError}
                     onLinkOpen={(href, text) => void openLink(href, text)}
-                    onViewModeChange={(mode) =>
-                      updateMarkdownViewMode(activeTab.path, mode)
-                    }
+                    onViewModeChange={updateMarkdownViewMode}
                     onImageUpload={uploadAttachment}
                   />
                 ) : (
                   <>
-                    {activeTab.encoding === "base64" ? (
+                    {activeFileTab.encoding === "base64" ? (
                       <div className="binary-editor-notice" role="note">
                         Binary file shown as reversible Base64. Invalid Base64
                         will not be saved.
                       </div>
                     ) : null}
                     <PlainTextEditor
-                      key={`${activeTab.path}:${activeTab.editorRevision}`}
-                      ariaLabel={`Edit ${activeTab.title}`}
-                      value={activeTab.content}
+                      key={`${activeFileTab.path}:${activeFileTab.editorRevision}`}
+                      ariaLabel={`Edit ${activeFileTab.title}`}
+                      value={activeFileTab.content}
                       readOnly={workspaceLocked}
-                      spellCheck={activeTab.encoding === "utf8"}
-                      binary={activeTab.encoding === "base64"}
-                      lineEnding={activeTab.lineEnding}
+                      spellCheck={
+                        activeFileTab.encoding === "utf8" &&
+                        sourceLanguageName(activeFileTab.path) === null
+                      }
+                      binary={activeFileTab.encoding === "base64"}
+                      filePath={
+                        activeFileTab.encoding === "utf8"
+                          ? activeFileTab.path
+                          : null
+                      }
+                      lineEnding={activeFileTab.lineEnding}
                       displaySettings={editorDisplaySettings}
                       onChange={changeActiveContent}
+                      onError={showError}
                     />
                   </>
                 )}
@@ -2923,8 +3252,8 @@ function App() {
             )}
           </main>
           {showOutline &&
-          activeTab?.kind === "markdown" &&
-          activeTab.encoding === "utf8" ? (
+          activeFileTab?.kind === "markdown" &&
+          activeFileTab.encoding === "utf8" ? (
             <TableOfContents
               headings={headings}
               onNavigate={navigateToHeading}
@@ -2932,23 +3261,23 @@ function App() {
           ) : null}
         </div>
         <footer className="status-bar">
-          <span>{activeTab?.path ?? workspace.vaultPath}</span>
+          <span>{activeFileTab?.path ?? activeTab?.title ?? workspace.vaultPath}</span>
           <span className="status-bar__spacer" />
-          {activeTab ? (
+          {activeFileTab ? (
             <>
               <span>
-                {activeTab.encoding === "utf8"
-                  ? wordCountLabel(activeTab.content)
+                {activeFileTab.encoding === "utf8"
+                  ? wordCountLabel(activeFileTab.content)
                   : "Base64"}
               </span>
-              <span>{activeTab.content.length} characters</span>
+              <span>{activeFileTab.content.length} characters</span>
               <span>
-                {activeTab.stats
-                  ? `${activeTab.stats.openCount} opens · ${activeTab.stats.editCount} edits · ${activeTab.stats.saveCount} saves`
+                {activeFileTab.stats
+                  ? `${activeFileTab.stats.openCount} opens · ${activeFileTab.stats.editCount} edits · ${activeFileTab.stats.saveCount} saves`
                   : "UTF-8"}
               </span>
-              <span data-save-state={activeTab.saveState}>
-                {activeTab.saveState}
+              <span data-save-state={activeFileTab.saveState}>
+                {activeFileTab.saveState}
               </span>
             </>
           ) : null}
@@ -2960,7 +3289,7 @@ function App() {
       </section>
       <HistoryDialog
         open={historyOpen}
-        title={activeTab?.title ?? "Note"}
+        title={activeFileTab?.title ?? "Note"}
         revisions={historyRevisions}
         loading={historyLoading}
         onClose={() => setHistoryOpen(false)}
@@ -2969,9 +3298,9 @@ function App() {
       <ReplaceDialog
         open={replaceOpen}
         currentPath={
-          activeTab &&
-          (activeTab.kind !== "image" || activeTab.rawEditing)
-            ? activeTab.path
+          activeFileTab &&
+          (activeFileTab.kind !== "image" || activeFileTab.rawEditing)
+            ? activeFileTab.path
             : null
         }
         onClose={() => setReplaceOpen(false)}

@@ -7,6 +7,7 @@
 | Search vault | `Command-F` | `Ctrl-F` |
 | Search filenames in all vaults | `Command-P` | `Ctrl-P` |
 | Create file | `Command-N` | `Ctrl-N` |
+| Create blank tab | `Command-T` | `Ctrl-T` |
 | Find and replace | `Option-Command-F` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
 | Close tab | `Command-W` | `Ctrl-W` |
