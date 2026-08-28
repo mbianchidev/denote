@@ -3,9 +3,10 @@ import {
   Check,
   FolderOpen,
   FolderPlus,
+  Trash2,
   X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/api";
 import type { KnownVault } from "../types";
 
@@ -13,6 +14,7 @@ interface VaultSwitcherDialogProps {
   open: boolean;
   onLoad: () => Promise<KnownVault[]>;
   onSwitch: (vaultId: number) => Promise<void>;
+  onDelete: (vaultId: number, trashFiles: boolean) => Promise<void>;
   onChooseFolder: () => void;
   onClose: () => void;
 }
@@ -21,6 +23,7 @@ export function VaultSwitcherDialog({
   open,
   onLoad,
   onSwitch,
+  onDelete,
   onChooseFolder,
   onClose,
 }: VaultSwitcherDialogProps) {
@@ -29,6 +32,9 @@ export function VaultSwitcherDialog({
   const [vaults, setVaults] = useState<KnownVault[]>([]);
   const [loading, setLoading] = useState(false);
   const [switchingId, setSwitchingId] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<KnownVault | null>(null);
+  const [trashFiles, setTrashFiles] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -44,37 +50,40 @@ export function VaultSwitcherDialog({
     }
   }, [open]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
+  const reloadVaults = useCallback(async () => {
     const request = ++requestVersion.current;
     setLoading(true);
     setError(null);
-    void onLoad()
-      .then((knownVaults) => {
-        if (request === requestVersion.current) {
-          setVaults(knownVaults);
-          window.setTimeout(
-            () =>
-              dialogRef.current
-                ?.querySelector<HTMLElement>("[data-vault-switch-target]")
-                ?.focus(),
-            0,
-          );
-        }
-      })
-      .catch((caught) => {
-        if (request === requestVersion.current) {
-          setError(errorMessage(caught));
-        }
-      })
-      .finally(() => {
-        if (request === requestVersion.current) {
-          setLoading(false);
-        }
-      });
-  }, [onLoad, open]);
+    try {
+      const knownVaults = await onLoad();
+      if (request === requestVersion.current) {
+        setVaults(knownVaults);
+        window.setTimeout(
+          () =>
+            dialogRef.current
+              ?.querySelector<HTMLElement>("[data-vault-switch-target]")
+              ?.focus(),
+          0,
+        );
+      }
+    } catch (caught) {
+      if (request === requestVersion.current) {
+        setError(errorMessage(caught));
+      }
+    } finally {
+      if (request === requestVersion.current) {
+        setLoading(false);
+      }
+    }
+  }, [onLoad]);
+
+  useEffect(() => {
+    if (open) {
+      setPendingDelete(null);
+      setTrashFiles(false);
+      void reloadVaults();
+    }
+  }, [open, reloadVaults]);
 
   const switchVault = async (vaultId: number) => {
     setSwitchingId(vaultId);
@@ -89,20 +98,40 @@ export function VaultSwitcherDialog({
     }
   };
 
+  const deleteVault = async () => {
+    if (!pendingDelete) {
+      return;
+    }
+    setDeleting(true);
+    setError(null);
+    try {
+      await onDelete(pendingDelete.id, trashFiles);
+      setPendingDelete(null);
+      setTrashFiles(false);
+      await reloadVaults();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const busy = loading || switchingId !== null || deleting;
+
   return (
     <dialog
       ref={dialogRef}
       className="app-dialog vault-switcher-dialog"
       aria-labelledby="vault-switcher-title"
-      aria-busy={loading || switchingId !== null}
+      aria-busy={busy}
       onCancel={(event) => {
         event.preventDefault();
-        if (switchingId === null) {
+        if (!busy) {
           onClose();
         }
       }}
       onClose={() => {
-        if (open && switchingId === null) {
+        if (open && !busy) {
           onClose();
         }
       }}
@@ -116,7 +145,7 @@ export function VaultSwitcherDialog({
           type="button"
           className="icon-button"
           aria-label="Close vault switcher"
-          disabled={switchingId !== null}
+          disabled={busy}
           onClick={onClose}
         >
           <X aria-hidden="true" size={18} />
@@ -129,57 +158,132 @@ export function VaultSwitcherDialog({
             {error}
           </p>
         ) : null}
-        {loading ? (
+        {pendingDelete ? (
+          <section
+            className="vault-delete-confirmation"
+            aria-labelledby="vault-delete-title"
+          >
+            <div>
+              <h3 id="vault-delete-title">
+                Remove {pendingDelete.name}?
+              </h3>
+              <p>
+                This removes the vault and its Denote metadata from the recent
+                list.
+              </p>
+              <code>{pendingDelete.path}</code>
+            </div>
+            <label>
+              <input
+                type="checkbox"
+                checked={trashFiles}
+                disabled={!pendingDelete.available || deleting}
+                onChange={(event) =>
+                  setTrashFiles(event.currentTarget.checked)
+                }
+              />
+              <span>
+                <strong>Also move the vault folder to system Trash</strong>
+                <small>
+                  {pendingDelete.available
+                    ? "The folder and all files can be recovered from the operating system Trash."
+                    : "The folder is unavailable, so only the list entry can be removed."}
+                </small>
+              </span>
+            </label>
+            <div className="vault-delete-confirmation__actions">
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={deleting}
+                onClick={() => {
+                  setPendingDelete(null);
+                  setTrashFiles(false);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="danger-button"
+                disabled={deleting}
+                onClick={() => void deleteVault()}
+              >
+                {deleting
+                  ? "Removing…"
+                  : trashFiles
+                    ? "Move folder to Trash"
+                    : "Remove from list"}
+              </button>
+            </div>
+          </section>
+        ) : loading ? (
           <p className="dialog-empty">Loading vaults…</p>
         ) : vaults.length === 0 ? (
           <p className="dialog-empty">No recent vaults yet.</p>
         ) : (
           <div className="vault-switcher-list">
             {vaults.map((vault) => (
-              <button
-                type="button"
-                className="vault-switcher-item"
-                key={vault.id}
-                data-vault-switch-target={
-                  !vault.current && vault.available ? "" : undefined
-                }
-                aria-current={vault.current ? "true" : undefined}
-                disabled={
-                  vault.current || !vault.available || switchingId !== null
-                }
-                onClick={() => void switchVault(vault.id)}
-              >
-                <span className="vault-switcher-item__icon" aria-hidden="true">
-                  {vault.current ? (
-                    <Check size={17} />
-                  ) : vault.available ? (
-                    <FolderOpen size={17} />
-                  ) : (
-                    <AlertTriangle size={17} />
-                  )}
-                </span>
-                <span className="vault-switcher-item__details">
-                  <strong>{vault.name}</strong>
-                  <span>{vault.path}</span>
-                  <small>
-                    {[
-                      vault.current
-                        ? "Current vault"
-                        : vault.available
-                          ? `Opened ${formatRelativeDate(vault.lastOpenedAt)}`
-                          : "Folder unavailable",
-                      vault.default ? "Built-in guide" : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </small>
-                </span>
-                {switchingId === vault.id ? (
-                  <span className="vault-switcher-item__status">
-                    Switching…
+              <div className="vault-switcher-row" key={vault.id}>
+                <button
+                  type="button"
+                  className="vault-switcher-item"
+                  data-vault-switch-target={
+                    !vault.current && vault.available ? "" : undefined
+                  }
+                  aria-current={vault.current ? "true" : undefined}
+                  disabled={
+                    vault.current || !vault.available || switchingId !== null
+                  }
+                  onClick={() => void switchVault(vault.id)}
+                >
+                  <span className="vault-switcher-item__icon" aria-hidden="true">
+                    {vault.current ? (
+                      <Check size={17} />
+                    ) : vault.available ? (
+                      <FolderOpen size={17} />
+                    ) : (
+                      <AlertTriangle size={17} />
+                    )}
                   </span>
+                  <span className="vault-switcher-item__details">
+                    <strong>{vault.name}</strong>
+                    <span>{vault.path}</span>
+                    <small>
+                      {[
+                        vault.current
+                          ? "Current vault"
+                          : vault.available
+                            ? `Opened ${formatRelativeDate(vault.lastOpenedAt)}`
+                            : "Folder unavailable",
+                        vault.default ? "Built-in guide" : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </small>
+                  </span>
+                  {switchingId === vault.id ? (
+                    <span className="vault-switcher-item__status">
+                      Switching…
+                    </span>
+                  ) : null}
+                </button>
+                {!vault.current && !vault.default ? (
+                  <button
+                    type="button"
+                    className="icon-button icon-button--danger vault-switcher-row__delete"
+                    aria-label={`Remove ${vault.name} from vault list`}
+                    title="Remove vault"
+                    disabled={busy}
+                    onClick={() => {
+                      setPendingDelete(vault);
+                      setTrashFiles(false);
+                    }}
+                  >
+                    <Trash2 aria-hidden="true" size={15} />
+                  </button>
                 ) : null}
-              </button>
+              </div>
             ))}
           </div>
         )}
@@ -189,7 +293,7 @@ export function VaultSwitcherDialog({
         <button
           type="button"
           className="secondary-button"
-          disabled={switchingId !== null}
+          disabled={busy || pendingDelete !== null}
           onClick={() => {
             onClose();
             onChooseFolder();
@@ -201,7 +305,7 @@ export function VaultSwitcherDialog({
         <button
           type="button"
           className="primary-button"
-          disabled={switchingId !== null}
+          disabled={busy || pendingDelete !== null}
           onClick={onClose}
         >
           Done

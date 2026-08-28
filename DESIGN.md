@@ -274,9 +274,14 @@ semantic meaning.
 The activity rail is icon-led and uses an active indicator on the leading edge.
 File rows, tabs, and outline entries share compact hover and selected states.
 Tabs use the editor surface plus a two-pixel moss top edge when active.
+Tabs support direct drag ordering with a quiet full-outline drop target and a
+keyboard equivalent; reordering never changes the underlying file tree.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 The vault switcher is a compact recent-folder list with clear current and
 unavailable states; adding a new folder remains a separate native-picker action.
+Vault removal is a two-step inline confirmation. Removing only metadata is
+separate from the explicit, danger-styled option to move the folder to system
+Trash.
 
 ### Built-in Welcome Vault
 

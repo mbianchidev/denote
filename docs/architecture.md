@@ -103,6 +103,11 @@ vault's tabs and search index, seals an unlocked encrypted source vault before
 discarding its key, and then either opens the target workspace or its password
 screen.
 The built-in guide is always included in this list and labeled separately.
+User vaults can be removed from SQLite only, or moved to the operating system
+Trash before their metadata is deleted. The current vault, built-in guide,
+filesystem and mount roots, shallow system paths, the home folder,
+symlinks/reparse points, and ancestors of Denote's application-data directory
+are rejected as deletion targets.
 
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation
@@ -148,6 +153,16 @@ markers, trailing-whitespace emphasis, and LF/CRLF/CR widgets are decorations
 only; document text and save hashes never include them. Because rendered rich
 Markdown has no stable one-to-one source-line mapping, enabling any guide
 temporarily constrains Markdown editing to source mode.
+
+The rich-text/source preference is stored locally and supplied as the initial
+mode for each Markdown editor instance. A realm observer records only actual
+user mode changes; initial source mode required by unsupported syntax or display
+guides does not overwrite the preference.
+
+Tab order is frontend session state. Drag-and-drop and
+`Alt-Shift-Left/Right` reorder the same tab array used by activation,
+`Ctrl-Tab`, close-next selection, and rendering, so no parallel order model can
+drift.
 
 All CodeMirror surfaces receive one highest-precedence Denote theme extension.
 The extension uses CSS semantic tokens, so editable code blocks, Markdown

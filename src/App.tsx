@@ -55,6 +55,11 @@ import {
   resolveInternalLink,
   slugifyHeading,
 } from "./lib/markdown";
+import {
+  getMarkdownViewMode,
+  saveMarkdownViewMode,
+  type MarkdownViewMode,
+} from "./lib/markdownView";
 import { VaultSearchIndex } from "./lib/search";
 import { isReplaceShortcut, isSearchShortcut } from "./lib/shortcuts";
 import {
@@ -128,6 +133,8 @@ function App() {
   const [editorSettingsOpen, setEditorSettingsOpen] = useState(false);
   const [editorDisplaySettings, setEditorDisplaySettings] =
     useState<EditorDisplaySettings>(() => getEditorDisplaySettings());
+  const [markdownViewMode, setMarkdownViewMode] =
+    useState<MarkdownViewMode>(() => getMarkdownViewMode());
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
@@ -272,6 +279,18 @@ function App() {
         saveEditorDisplaySettings(settings);
         setEditorDisplaySettings(settings);
         setStatus("Editor display settings updated");
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+
+  const updateMarkdownViewMode = useCallback(
+    (mode: MarkdownViewMode) => {
+      try {
+        saveMarkdownViewMode(mode);
+        setMarkdownViewMode(mode);
       } catch (caught) {
         showError(caught);
       }
@@ -510,6 +529,18 @@ function App() {
       }
     },
     [loadWorkspace, setWorkspaceLock],
+  );
+
+  const deleteKnownVault = useCallback(
+    async (vaultId: number, trashFiles: boolean) => {
+      await api.deleteKnownVault(vaultId, trashFiles);
+      setStatus(
+        trashFiles
+          ? "Moved vault folder to system Trash"
+          : "Removed vault from recent list",
+      );
+    },
+    [],
   );
 
   const applyEncryptionSnapshot = useCallback(
@@ -1116,6 +1147,24 @@ function App() {
       setWorkspaceLock,
       beginWorkspaceOperation,
     ],
+  );
+
+  const reorderTabs = useCallback(
+    (paths: string[]) => {
+      commitTabs((current) => {
+        const byPath = new Map(current.map((tab) => [tab.path, tab]));
+        const ordered = paths
+          .map((path) => byPath.get(path))
+          .filter((tab): tab is EditorTab => tab !== undefined);
+        const included = new Set(paths);
+        return [
+          ...ordered,
+          ...current.filter((tab) => !included.has(tab.path)),
+        ];
+      });
+      setStatus("Reordered tabs");
+    },
+    [commitTabs],
   );
 
   const refreshAndReindex = useCallback(async () => {
@@ -2005,6 +2054,7 @@ function App() {
       open={vaultSwitcherOpen}
       onLoad={api.listKnownVaults}
       onSwitch={switchKnownVault}
+      onDelete={deleteKnownVault}
       onChooseFolder={() => void chooseVault()}
       onClose={() => setVaultSwitcherOpen(false)}
     />
@@ -2346,6 +2396,7 @@ function App() {
             disabled={workspaceLocked}
             onActivate={setActivePath}
             onClose={(path) => void closeTab(path)}
+            onReorder={reorderTabs}
           />
           <div className="workspace-actions">
             {activeTab?.kind === "image" ? (
@@ -2494,10 +2545,12 @@ function App() {
                     markdown={activeTab.content}
                     lineEnding={activeTab.lineEnding}
                     displaySettings={editorDisplaySettings}
+                    preferredViewMode={markdownViewMode}
                     readOnly={workspaceLocked}
                     onChange={changeActiveContent}
                     onError={showError}
                     onLinkOpen={(href, text) => void openLink(href, text)}
+                    onViewModeChange={updateMarkdownViewMode}
                     onImageUpload={uploadAttachment}
                   />
                 ) : (

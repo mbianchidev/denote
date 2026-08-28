@@ -10,6 +10,7 @@
 | Close tab | `Command-W` | `Ctrl-W` |
 | Switch tabs | `Ctrl-Tab` | `Ctrl-Tab` |
 | Previous tab | `Ctrl-Shift-Tab` | `Ctrl-Shift-Tab` |
+| Move tab left/right | `Option-Shift-Left/Right` | `Alt-Shift-Left/Right` |
 | Switch vault | `Shift-Command-O` | `Ctrl-Shift-O` |
 
 `Escape` hides the table of contents when it is open. All toolbar and dialog

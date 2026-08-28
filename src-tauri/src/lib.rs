@@ -40,6 +40,7 @@ pub fn run() {
             commands::get_last_vault,
             commands::list_known_vaults,
             commands::open_known_vault,
+            commands::delete_known_vault,
             commands::choose_vault,
             commands::refresh_vault,
             commands::enable_vault_encryption,

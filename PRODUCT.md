@@ -44,11 +44,16 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   overwritten after creation.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
+- Non-current user vaults can be removed from the recent list, with a separate
+  explicit option to move the folder and all contents to system Trash.
 - Every regular file up to 25 MB can be opened and edited.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.
 - Images retain their visual preview and can switch to raw editing.
 - Rich single-pane Markdown editing is the default.
+- The user's rich-text or source-mode choice persists across files and app
+  restarts unless file safety or display guides require source mode.
+- Open tabs can be reordered by drag or keyboard without changing file order.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.
 - SQLite stores local workspace metadata, including open, edit, and save

@@ -20,6 +20,10 @@ Use `Shift-Command-O` on macOS or `Ctrl-Shift-O` on Windows and Linux to open th
 switcher. Denote remembers the 50 most recently opened vaults. Missing folders
 remain listed but disabled.
 
+Non-current user vaults have a remove action. Removing from the list leaves the
+folder untouched. The optional checkbox moves the folder and all contents to the
+operating system Trash. The current vault and built-in guide cannot be removed.
+
 ## First steps
 
 - Create a file or folder from the file-tree toolbar.

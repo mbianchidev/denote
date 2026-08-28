@@ -37,8 +37,10 @@ import {
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
+  viewMode$,
 } from "@mdxeditor/editor";
-import { forwardRef, useMemo, useRef } from "react";
+import { useCellValue } from "@mdxeditor/gurx";
+import { forwardRef, useEffect, useMemo, useRef } from "react";
 import { api } from "../lib/api";
 import {
   createEditorDisplayExtensions,
@@ -57,6 +59,7 @@ import {
   recoverMarkdownLinkTarget,
   restoreMarkdownBoundaryWhitespace,
 } from "../lib/markdown";
+import type { MarkdownViewMode } from "../lib/markdownView";
 import type { FileLineEnding } from "../types";
 
 interface MarkdownEditorProps {
@@ -64,10 +67,12 @@ interface MarkdownEditorProps {
   markdown: string;
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
+  preferredViewMode: MarkdownViewMode;
   readOnly: boolean;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
   onLinkOpen: (href: string, text: string) => void;
+  onViewModeChange: (mode: MarkdownViewMode) => void;
   onImageUpload: (notePath: string, file: File) => Promise<string>;
 }
 
@@ -80,18 +85,23 @@ export const MarkdownEditor = forwardRef<
     markdown,
     lineEnding,
     displaySettings,
+    preferredViewMode,
     readOnly,
     onChange,
     onError,
     onLinkOpen,
+    onViewModeChange,
     onImageUpload,
   },
   ref,
 ) {
   const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
+  const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
   onLinkOpenRef.current = onLinkOpen;
   const forceSource = hasEditorDisplayGuides(displaySettings);
+  const initialViewMode: MarkdownViewMode =
+    sourceFirst || forceSource ? "source" : initialPreferredViewMode;
   const displayExtensions = useMemo(
     () => createEditorDisplayExtensions(displaySettings, lineEnding, false),
     [displaySettings, lineEnding],
@@ -157,7 +167,7 @@ export const MarkdownEditor = forwardRef<
         directiveDescriptors: [AdmonitionDirectiveDescriptor],
       }),
       diffSourcePlugin({
-        viewMode: sourceFirst || forceSource ? "source" : "rich-text",
+        viewMode: initialViewMode,
         diffMarkdown: "",
         readOnlyDiff: false,
         codeMirrorExtensions: [
@@ -177,56 +187,70 @@ export const MarkdownEditor = forwardRef<
               </span>
             </>
           ) : (
-            <DiffSourceToggleWrapper
-              options={["rich-text", "source"]}
-              SourceToolbar={<UndoRedo />}
-            >
-              <UndoRedo />
-              <Separator />
-              <ConditionalContents
-                options={[
-                  {
-                    when: (editor) => {
-                      const node = editor?.rootNode;
-                      return (
-                        $isDirectiveNode(node) &&
-                        ["note", "tip", "danger", "info", "caution"].includes(
-                          node.getMdastNode().name,
-                        )
-                      );
+            <>
+              <ViewModePreferenceObserver
+                initialMode={initialViewMode}
+                onChange={onViewModeChange}
+              />
+              <DiffSourceToggleWrapper
+                options={["rich-text", "source"]}
+                SourceToolbar={<UndoRedo />}
+              >
+                <UndoRedo />
+                <Separator />
+                <ConditionalContents
+                  options={[
+                    {
+                      when: (editor) => {
+                        const node = editor?.rootNode;
+                        return (
+                          $isDirectiveNode(node) &&
+                          ["note", "tip", "danger", "info", "caution"].includes(
+                            node.getMdastNode().name,
+                          )
+                        );
+                      },
+                      contents: () => <ChangeAdmonitionType />,
                     },
-                    contents: () => <ChangeAdmonitionType />,
-                  },
-                  { fallback: () => <BlockTypeSelect /> },
-                ]}
-              />
-              <BoldItalicUnderlineToggles />
-              <CodeToggle />
-              <StrikeThroughSupSubToggles options={["Strikethrough"]} />
-              <HighlightToggle />
-              <Separator />
-              <ListsToggle options={["bullet", "number", "check"]} />
-              <CreateLink />
-              <InsertImage />
-              <Separator />
-              <InsertCodeBlock />
-              <InsertTable />
-              <InsertThematicBreak />
-              <InsertAdmonition />
-              <InsertFrontmatter />
-              <ConditionalContents
-                options={[
-                  {
-                    when: (editor) => editor?.editorType === "codeblock",
-                    contents: () => <ChangeCodeMirrorLanguage />,
-                  },
-                ]}
-              />
-            </DiffSourceToggleWrapper>
+                    { fallback: () => <BlockTypeSelect /> },
+                  ]}
+                />
+                <BoldItalicUnderlineToggles />
+                <CodeToggle />
+                <StrikeThroughSupSubToggles options={["Strikethrough"]} />
+                <HighlightToggle />
+                <Separator />
+                <ListsToggle options={["bullet", "number", "check"]} />
+                <CreateLink />
+                <InsertImage />
+                <Separator />
+                <InsertCodeBlock />
+                <InsertTable />
+                <InsertThematicBreak />
+                <InsertAdmonition />
+                <InsertFrontmatter />
+                <ConditionalContents
+                  options={[
+                    {
+                      when: (editor) => editor?.editorType === "codeblock",
+                      contents: () => <ChangeCodeMirrorLanguage />,
+                    },
+                  ]}
+                />
+              </DiffSourceToggleWrapper>
+            </>
           ),
       }),
     ],
-    [displayExtensions, forceSource, notePath, onImageUpload, sourceFirst],
+    [
+      displayExtensions,
+      forceSource,
+      initialViewMode,
+      notePath,
+      onImageUpload,
+      onViewModeChange,
+      sourceFirst,
+    ],
   );
 
   return (
@@ -303,6 +327,26 @@ export const MarkdownEditor = forwardRef<
     </div>
   );
 });
+
+function ViewModePreferenceObserver({
+  initialMode,
+  onChange,
+}: {
+  initialMode: MarkdownViewMode;
+  onChange: (mode: MarkdownViewMode) => void;
+}) {
+  const mode = useCellValue(viewMode$);
+  const previousMode = useRef(initialMode);
+
+  useEffect(() => {
+    if (mode !== "diff" && mode !== previousMode.current) {
+      previousMode.current = mode;
+      onChange(mode);
+    }
+  }, [mode, onChange]);
+
+  return null;
+}
 
 function renderedLink(
   target: EventTarget | null,

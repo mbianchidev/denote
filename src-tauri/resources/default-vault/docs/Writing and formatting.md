@@ -22,6 +22,11 @@ silently rewrite unsupported syntax.
 Use the toolbar for headings, emphasis, lists, links, images, tables, code
 blocks, thematic breaks, frontmatter, and callouts.
 
+The rich-text/source toggle is a global preference. Your last choice is used for
+the next Markdown file and after restarting Denote. Files with unsupported rich
+syntax and enabled editor display guides still use source mode for safety
+without changing that preference.
+
 ## Callouts
 
 ```markdown

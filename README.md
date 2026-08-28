@@ -18,7 +18,7 @@ the selected folder as the source of truth.
 - ZBSearch full-text search with filename, path, content, tag, type, bookmark,
   and recency filters
 - Current-note and vault-wide find and replace with selectable preview
-- Tabs, bookmarks, recently opened files, and search navigation
+- Reorderable tabs, bookmarks, recently opened files, and search navigation
 - Recent-vault switcher for separate work, music, and personal folders
 - One-click copying of the active file's absolute path
 - File and folder creation, rename, per-folder pinning/custom order, trash, and restore
@@ -73,6 +73,11 @@ Use the vault switcher in the sidebar header, or press
 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> on Windows or Linux. Denote lists
 the 50 most recently opened vault folders and marks unavailable folders without
 discarding their history.
+
+Tabs can be reordered by dragging or with `Alt-Shift-Left/Right`. The Markdown
+rich-text/source choice persists across files and app restarts. Non-current,
+non-default vaults can be removed from the switcher; an explicit option moves
+the vault folder and all files to the operating system Trash.
 
 ## Vault encryption
 

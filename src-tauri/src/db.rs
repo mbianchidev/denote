@@ -499,6 +499,40 @@ pub fn known_vault_path(connection: &Connection, vault_id: i64) -> AppResult<Opt
         .optional()?)
 }
 
+pub fn known_vault(connection: &Connection, vault_id: i64) -> AppResult<Option<KnownVaultRecord>> {
+    Ok(connection
+        .query_row(
+            "SELECT id, name, path, last_opened_at,
+                    CASE WHEN path = (
+                      SELECT value FROM settings WHERE key = 'default_vault'
+                    ) THEN 1 ELSE 0 END
+             FROM vaults
+             WHERE id = ?1",
+            params![vault_id],
+            |row| {
+                Ok(KnownVaultRecord {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    path: row.get(2)?,
+                    last_opened_at: row.get(3)?,
+                    default: row.get::<_, i64>(4)? != 0,
+                })
+            },
+        )
+        .optional()?)
+}
+
+pub fn delete_known_vault(connection: &mut Connection, vault_id: i64, path: &str) -> AppResult<()> {
+    let transaction = connection.transaction()?;
+    transaction.execute("DELETE FROM vaults WHERE id = ?1", params![vault_id])?;
+    transaction.execute(
+        "DELETE FROM settings WHERE key = 'last_vault' AND value = ?1",
+        params![path],
+    )?;
+    transaction.commit()?;
+    Ok(())
+}
+
 pub fn is_default_vault(connection: &Connection, path: &str) -> AppResult<bool> {
     Ok(connection
         .query_row(
@@ -1276,7 +1310,7 @@ mod tests {
         let directory = tempdir().expect("temp directory");
         let db_path = directory.path().join("vaults.sqlite3");
         initialize(&db_path).expect("database initialized");
-        let connection = open(&db_path).expect("database opened");
+        let mut connection = open(&db_path).expect("database opened");
         let work_id = ensure_vault(&connection, "/vaults/work", "work").expect("work vault");
         let music_id = ensure_vault(&connection, "/vaults/music", "music").expect("music vault");
         connection
@@ -1302,6 +1336,16 @@ mod tests {
         );
         assert_eq!(
             known_vault_path(&connection, i64::MAX).expect("missing path"),
+            None
+        );
+        set_last_vault(&connection, "/vaults/work").expect("last vault");
+        delete_known_vault(&mut connection, work_id, "/vaults/work").expect("delete known vault");
+        assert_eq!(
+            known_vault_path(&connection, work_id).expect("deleted path"),
+            None
+        );
+        assert_eq!(
+            get_last_vault(&connection).expect("last vault removed"),
             None
         );
     }

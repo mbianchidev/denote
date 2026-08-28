@@ -1,5 +1,10 @@
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
 use base64::{Engine, engine::general_purpose::STANDARD};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use zeroize::Zeroizing;
@@ -108,6 +113,92 @@ pub fn open_known_vault(state: State<'_, AppState>, vault_id: i64) -> AppResult<
     state.set_active_vault(snapshot.vault_path.clone().into())?;
     populate_encryption_status(&state, &mut snapshot)?;
     Ok(snapshot)
+}
+
+#[tauri::command]
+pub fn delete_known_vault(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    vault_id: i64,
+    trash_files: bool,
+) -> AppResult<()> {
+    let _vault_access = state.write_vault_access()?;
+    let mut connection = db::open(&state.db_path)?;
+    let vault = db::known_vault(&connection, vault_id)?
+        .ok_or_else(|| AppError::NotFound(format!("Vault {vault_id}")))?;
+    if vault.default {
+        return Err(AppError::InvalidData(
+            "The built-in Denote Welcome vault cannot be removed".to_string(),
+        ));
+    }
+    let path = Path::new(&vault.path);
+    if state.active_vault_optional()?.as_deref() == Some(path) {
+        return Err(AppError::InvalidData(
+            "Switch to another vault before removing this one".to_string(),
+        ));
+    }
+    if trash_files {
+        let path = safe_vault_trash_path(&app, path)?;
+        trash::delete(&path).map_err(|error| AppError::Trash(error.to_string()))?;
+    }
+    db::delete_known_vault(&mut connection, vault_id, &vault.path)
+}
+
+fn safe_vault_trash_path(app: &AppHandle, stored_path: &Path) -> AppResult<PathBuf> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|error| AppError::State(format!("Unable to resolve home folder: {error}")))?;
+    let app_data = app.path().app_data_dir().map_err(|error| {
+        AppError::State(format!(
+            "Unable to resolve application-data folder: {error}"
+        ))
+    })?;
+    validate_vault_trash_path(stored_path, &home, &app_data)
+}
+
+fn validate_vault_trash_path(
+    stored_path: &Path,
+    home_path: &Path,
+    app_data_path: &Path,
+) -> AppResult<PathBuf> {
+    let metadata = fs::symlink_metadata(stored_path)?;
+    if metadata_is_link(&metadata) || !metadata.is_dir() {
+        return Err(AppError::InvalidPath(format!(
+            "Vault folder is not a regular directory: {}",
+            stored_path.display()
+        )));
+    }
+    let path = fs::canonicalize(stored_path)?;
+    if path != stored_path || path.parent().is_none() || path.components().count() < 4 {
+        return Err(AppError::InvalidPath(format!(
+            "Vault folder cannot be moved to Trash: {}",
+            stored_path.display()
+        )));
+    }
+    let home = fs::canonicalize(home_path)?;
+    let app_data = fs::canonicalize(app_data_path)?;
+    if path == home || app_data.starts_with(&path) {
+        return Err(AppError::InvalidPath(format!(
+            "Refusing to move a system or application-data folder to Trash: {}",
+            path.display()
+        )));
+    }
+    Ok(path)
+}
+
+fn metadata_is_link(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        return metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    }
+    #[cfg(not(windows))]
+    false
 }
 
 #[tauri::command]
@@ -559,4 +650,50 @@ pub fn save_attachment(
         &data,
         key.as_deref(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn vault_trash_validation_rejects_broad_or_application_paths() {
+        let directory = tempdir().expect("temp directory");
+        let home = directory.path().join("home");
+        let app_data = directory.path().join("application-data");
+        let vault = home.join("vault");
+        fs::create_dir_all(&vault).expect("vault");
+        fs::create_dir_all(&app_data).expect("application data");
+        let home = fs::canonicalize(home).expect("canonical home");
+        let app_data = fs::canonicalize(app_data).expect("canonical application data");
+        let vault = fs::canonicalize(vault).expect("canonical vault");
+
+        assert_eq!(
+            validate_vault_trash_path(&vault, &home, &app_data).expect("safe vault"),
+            vault
+        );
+        assert!(validate_vault_trash_path(&home, &home, &app_data).is_err());
+        assert!(validate_vault_trash_path(directory.path(), &home, &app_data).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn vault_trash_validation_rejects_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("temp directory");
+        let home = directory.path().join("home");
+        let app_data = directory.path().join("application-data");
+        let target = directory.path().join("target");
+        let link = directory.path().join("vault-link");
+        fs::create_dir_all(&home).expect("home");
+        fs::create_dir_all(&app_data).expect("application data");
+        fs::create_dir_all(&target).expect("target");
+        symlink(&target, &link).expect("vault symlink");
+        let home = fs::canonicalize(home).expect("canonical home");
+        let app_data = fs::canonicalize(app_data).expect("canonical application data");
+
+        assert!(validate_vault_trash_path(&link, &home, &app_data).is_err());
+    }
 }

@@ -18,6 +18,8 @@ export const api = {
   listKnownVaults: () => invoke<KnownVault[]>("list_known_vaults"),
   openKnownVault: (vaultId: number) =>
     invoke<WorkspaceSnapshot>("open_known_vault", { vaultId }),
+  deleteKnownVault: (vaultId: number, trashFiles: boolean) =>
+    invoke<void>("delete_known_vault", { vaultId, trashFiles }),
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
   enableVaultEncryption: (password: string) =>

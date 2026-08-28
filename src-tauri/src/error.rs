@@ -25,6 +25,8 @@ pub enum AppError {
     Crypto(String),
     #[error("Clipboard operation failed: {0}")]
     Clipboard(String),
+    #[error("Unable to move vault to system Trash: {0}")]
+    Trash(String),
 }
 
 impl Serialize for AppError {

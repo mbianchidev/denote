@@ -32,6 +32,7 @@ describe("VaultSwitcherDialog", () => {
           },
         ])}
         onSwitch={onSwitch}
+        onDelete={vi.fn()}
         onChooseFolder={vi.fn()}
         onClose={onClose}
       />,
@@ -43,5 +44,46 @@ describe("VaultSwitcherDialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.getByText(/Built-in guide/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Music/ })).toBeDisabled();
+  });
+
+  it("can move a removed vault folder to system Trash", async () => {
+    const user = userEvent.setup();
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    render(
+      <VaultSwitcherDialog
+        open
+        onLoad={vi.fn().mockResolvedValue([
+          {
+            id: 3,
+            name: "Random",
+            path: "/vaults/random",
+            lastOpenedAt: "2026-08-28T10:00:00Z",
+            available: true,
+            current: false,
+            default: false,
+          },
+        ])}
+        onSwitch={vi.fn()}
+        onDelete={onDelete}
+        onChooseFolder={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Remove Random from vault list",
+      }),
+    );
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: /Also move the vault folder to system Trash/i,
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Move folder to Trash" }),
+    );
+
+    expect(onDelete).toHaveBeenCalledWith(3, true);
   });
 });

@@ -14,6 +14,8 @@ raw Base64 editor.
 - Select files in the tree to open tabs.
 - Use `Ctrl-Tab` and `Ctrl-Shift-Tab` to switch tabs.
 - Use `Command-W` or `Ctrl-W` to close the active tab.
+- Drag tabs to reorder them.
+- Use `Alt-Shift-Left/Right` to reorder the focused tab from the keyboard.
 - Use the copy button in the editor toolbar to copy the active absolute path.
 
 ## Organize a folder
@@ -27,5 +29,7 @@ customize order inside the pinned or unpinned section of the current folder.
 Use the sidebar vault switcher or `Shift-Command-O` / `Ctrl-Shift-O`. Denote
 saves pending work, clears tabs and search state, and opens the selected folder.
 An encrypted source vault is sealed before its in-memory key is discarded.
+Non-current user vaults can be removed from the list or moved with all contents
+to the operating system Trash.
 
 [Next: History, trash, and recovery](<History, trash, and recovery.md>)
