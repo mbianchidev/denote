@@ -47,6 +47,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   history.
 - ZBSearch provides local full-text search with filters for tags, filename,
   path, content, file type, bookmarks, and recency.
+- Find and replace works in the current note or across the vault, with a
+  selectable preview before vault-wide changes are applied.
 - The core application stays minimal. Additional capabilities are tracked as
   optional plugins rather than bundled into the first release.
 - No cloud account, synchronization service, telemetry, or remote content

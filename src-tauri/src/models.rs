@@ -98,6 +98,7 @@ pub struct SearchDocument {
     pub path: String,
     pub title: String,
     pub content: String,
+    pub content_hash: String,
     pub tags: Vec<String>,
     pub kind: FileKind,
     pub bookmarked: bool,

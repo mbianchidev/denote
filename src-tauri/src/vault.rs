@@ -545,6 +545,7 @@ pub fn list_search_documents(db_path: &Path, vault_path: &str) -> AppResult<Vec<
             path: relative.clone(),
             title,
             tags,
+            content_hash: hash_content(&content),
             content,
             kind,
             bookmarked: stored.bookmarked,

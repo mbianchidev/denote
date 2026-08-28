@@ -71,6 +71,7 @@ export interface SearchDocument {
   path: string;
   title: string;
   content: string;
+  contentHash: string;
   tags: string[];
   kind: Exclude<FileKind, "folder">;
   bookmarked: boolean;

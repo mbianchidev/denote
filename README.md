@@ -13,6 +13,7 @@ plain UTF-8 files as the source of truth.
 - Local SQLite metadata for open, edit, and save counts
 - ZBSearch full-text search with filename, path, content, tag, type, bookmark,
   and recency filters
+- Current-note and vault-wide find and replace with selectable preview
 - Tabs, bookmarks, recently opened files, and search navigation
 - File and folder creation, rename, reorder, trash, and restore
 - Permanent empty-trash action with explicit confirmation
@@ -42,6 +43,13 @@ type:markdown
 
 Supported filters are `tag:`, `file:`/`filename:`, `path:`/`folder:`,
 `content:`, `type:`, `bookmarked:`, and `recent:Nd`.
+
+## Replace
+
+Press <kbd>Option</kbd>+<kbd>Command</kbd>+<kbd>F</kbd> on macOS or
+<kbd>Ctrl</kbd>+<kbd>H</kbd> on Windows and Linux. Replace can target the
+current note or the entire vault. Vault-wide changes show every affected file,
+occurrence count, and before/after snippet before applying.
 
 ## Callouts
 

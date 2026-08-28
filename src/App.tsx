@@ -14,6 +14,7 @@ import {
   ListTree,
   Pencil,
   RefreshCw,
+  Replace as ReplaceIcon,
   RotateCcw,
   Trash2,
   X,
@@ -30,6 +31,7 @@ import { ActionDialog } from "./components/ActionDialog";
 import { FileTree } from "./components/FileTree";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
+import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { TableOfContents } from "./components/TableOfContents";
 import { Tabs } from "./components/Tabs";
@@ -44,6 +46,13 @@ import {
   slugifyHeading,
 } from "./lib/markdown";
 import { VaultSearchIndex } from "./lib/search";
+import { isReplaceShortcut } from "./lib/shortcuts";
+import {
+  previewReplacements,
+  type ReplaceApplySummary,
+  type ReplacePreview,
+  type ReplaceRequest,
+} from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
 import type {
   EditorTab,
@@ -94,6 +103,7 @@ function App() {
   const [status, setStatus] = useState("Ready");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [replaceOpen, setReplaceOpen] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
     null,
@@ -112,6 +122,7 @@ function App() {
   const saveGenerations = useRef(new Map<string, number>());
   const editQueues = useRef(new Map<string, Promise<boolean>>());
   const attachmentUploads = useRef(new Set<Promise<boolean>>());
+  const criticalOperations = useRef(new Set<Promise<void>>());
   const pendingAttachmentInsertions = useRef(
     new Map<string, Set<PendingAttachmentInsertion>>(),
   );
@@ -605,6 +616,7 @@ function App() {
       return;
     }
     closingWindow.current = true;
+    await Promise.all([...criticalOperations.current]);
     if (await beginWorkspaceOperationRef.current()) {
       try {
         await api.completeExit();
@@ -1154,6 +1166,190 @@ function App() {
     }
   }, [activeTab, showError, workspace]);
 
+  const previewReplace = useCallback(
+    async (request: ReplaceRequest): Promise<ReplacePreview[]> => {
+      if (!workspace) {
+        throw new Error("Open a vault before previewing replacements.");
+      }
+      if (!(await beginWorkspaceOperation())) {
+        throw new Error("Unable to save open notes before building the preview.");
+      }
+      try {
+        if (request.scope === "current") {
+          const tab = tabsRef.current.find(
+            (candidate) => candidate.path === activePathRef.current,
+          );
+          if (!tab || tab.kind === "image") {
+            throw new Error(
+              "Open an editable note before previewing replacements.",
+            );
+          }
+          return previewReplacements(
+            [
+              {
+                path: tab.path,
+                content: tab.content,
+                contentHash: tab.savedHash,
+              },
+            ],
+            request,
+          );
+        }
+        const documents = await api.listSearchDocuments();
+        return previewReplacements(
+          documents
+            .filter(
+              (document) =>
+                document.kind === "markdown" || document.kind === "text",
+            )
+            .map((document) => ({
+              path: document.path,
+              content: document.content,
+              contentHash: document.contentHash,
+            })),
+          request,
+        );
+      } catch (caught) {
+        throw new Error(errorMessage(caught));
+      } finally {
+        setWorkspaceLock(false);
+      }
+    },
+    [beginWorkspaceOperation, setWorkspaceLock, showError, workspace],
+  );
+
+  const applyReplace = useCallback(
+    async (
+      request: ReplaceRequest,
+      previews: ReplacePreview[],
+    ): Promise<ReplaceApplySummary> => {
+      const emptySummary: ReplaceApplySummary = {
+        appliedFiles: 0,
+        failedFiles: previews.length,
+        replacedOccurrences: 0,
+      };
+      if (!workspace) {
+        return emptySummary;
+      }
+      let resolveCriticalOperation: () => void = () => {};
+      const criticalOperation = new Promise<void>((resolve) => {
+        resolveCriticalOperation = resolve;
+      });
+      criticalOperations.current.add(criticalOperation);
+      let appliedFiles = 0;
+      let failedFiles = 0;
+      let replacedOccurrences = 0;
+      const applied = new Map<
+        string,
+        {
+          content: string;
+          contentHash: string;
+          stats: EditorTab["stats"];
+        }
+      >();
+      try {
+        if (!(await beginWorkspaceOperation())) {
+          return emptySummary;
+        }
+        const candidates =
+          request.scope === "current"
+            ? (() => {
+                const previewPath = previews[0]?.path;
+                const tab = tabsRef.current.find(
+                  (candidate) => candidate.path === previewPath,
+                );
+                if (!tab || tab.kind === "image") {
+                  return [];
+                }
+                return previewReplacements(
+                  [
+                    {
+                      path: tab.path,
+                      content: tab.content,
+                      contentHash: tab.savedHash,
+                    },
+                  ],
+                  request,
+                );
+              })()
+            : previews;
+
+        for (const preview of candidates) {
+          try {
+            const outcome = await api.saveNote(
+              preview.path,
+              preview.replacedContent,
+              request.scope === "current"
+                ? "replace in note"
+                : "replace across vault",
+              preview.contentHash,
+            );
+            let stats = outcome.stats;
+            try {
+              stats = await api.recordEdit(preview.path);
+            } catch (caught) {
+              showError(caught);
+            }
+            applied.set(preview.path, {
+              content: preview.replacedContent,
+              contentHash: outcome.contentHash,
+              stats,
+            });
+            appliedFiles += 1;
+            replacedOccurrences += preview.occurrences;
+          } catch (caught) {
+            failedFiles += 1;
+            showError(caught);
+          }
+        }
+
+        commitTabs((current) =>
+          current.map((tab) => {
+            const replacement = applied.get(tab.path);
+            return replacement
+              ? {
+                  ...tab,
+                  content: replacement.content,
+                  savedContent: replacement.content,
+                  savedHash: replacement.contentHash,
+                  stats: replacement.stats,
+                  editRecorded: false,
+                  saveState: "saved",
+                }
+              : tab;
+          }),
+        );
+        const activeReplacement = activePathRef.current
+          ? applied.get(activePathRef.current)
+          : undefined;
+        if (activeReplacement && editorRef.current) {
+          editorRef.current.setMarkdown(
+            calloutsToDirectives(activeReplacement.content),
+          );
+        }
+        await refreshAndReindex();
+        setStatus(
+          `Replaced ${replacedOccurrences} occurrence${
+            replacedOccurrences === 1 ? "" : "s"
+          } in ${appliedFiles} file${appliedFiles === 1 ? "" : "s"}`,
+        );
+        return { appliedFiles, failedFiles, replacedOccurrences };
+      } finally {
+        setWorkspaceLock(false);
+        criticalOperations.current.delete(criticalOperation);
+        resolveCriticalOperation();
+      }
+    },
+    [
+      beginWorkspaceOperation,
+      commitTabs,
+      refreshAndReindex,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
+
   const reloadActiveTab = useCallback(async () => {
     if (!activeTab || workspaceLockedRef.current) {
       return;
@@ -1345,7 +1541,12 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (workspaceLockedRef.current) {
+      if (
+        workspaceLockedRef.current ||
+        replaceOpen ||
+        actionDialog !== null ||
+        historyOpen
+      ) {
         return;
       }
       const modifier = event.metaKey || event.ctrlKey;
@@ -1356,6 +1557,9 @@ function App() {
           () => document.querySelector<HTMLInputElement>(".search-box input")?.focus(),
           0,
         );
+      } else if (isReplaceShortcut(event, navigator.platform)) {
+        event.preventDefault();
+        setReplaceOpen(true);
       } else if (modifier && event.key.toLocaleLowerCase() === "s" && activeTab) {
         event.preventDefault();
         if (activeTab.kind !== "image") {
@@ -1377,7 +1581,17 @@ function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [activePath, activeTab, closeTab, saveTab, showOutline, tabs]);
+  }, [
+    actionDialog,
+    activePath,
+    activeTab,
+    closeTab,
+    historyOpen,
+    replaceOpen,
+    saveTab,
+    showOutline,
+    tabs,
+  ]);
 
   if (!workspace) {
     return (
@@ -1637,6 +1851,18 @@ function App() {
             <button
               type="button"
               className="icon-button"
+              aria-label="Find and replace"
+              title={`Find and replace (${
+                navigator.platform.includes("Mac") ? "⌥⌘F" : "Ctrl+H"
+              })`}
+              disabled={workspaceLocked}
+              onClick={() => setReplaceOpen(true)}
+            >
+              <ReplaceIcon aria-hidden="true" size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
               aria-label="Reload active file from disk"
               title="Reload active file from disk"
               disabled={!activeTab || workspaceLocked}
@@ -1787,6 +2013,15 @@ function App() {
         loading={historyLoading}
         onClose={() => setHistoryOpen(false)}
         onRestore={(revisionId) => void restoreRevision(revisionId)}
+      />
+      <ReplaceDialog
+        open={replaceOpen}
+        currentPath={
+          activeTab && activeTab.kind !== "image" ? activeTab.path : null
+        }
+        onClose={() => setReplaceOpen(false)}
+        onPreview={previewReplace}
+        onApply={applyReplace}
       />
       <ActionDialog
         open={actionDialog !== null}

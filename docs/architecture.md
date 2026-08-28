@@ -46,6 +46,14 @@ substring fallback so mixed-script queries still find local content.
 The index rebuilds when a vault opens and shortly after content or file
 structure changes.
 
+## Replace
+
+Replace previews are calculated from Markdown source rather than rendered
+editor text. Current-note replacement uses the open tab content. Vault-wide
+replacement flushes open tabs first, then previews searchable text documents.
+Each selected file is saved with its preview-time content hash, so files changed
+externally after preview fail individually instead of being overwritten.
+
 ## Editing
 
 MDXEditor provides rich single-pane Markdown editing and a source fallback.
