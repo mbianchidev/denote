@@ -136,6 +136,12 @@ only; document text and save hashes never include them. Because rendered rich
 Markdown has no stable one-to-one source-line mapping, enabling any guide
 temporarily constrains Markdown editing to source mode.
 
+All CodeMirror surfaces receive one highest-precedence Denote theme extension.
+The extension uses CSS semantic tokens, so editable code blocks, Markdown
+source, plain files, gutters, selections, active lines, matching brackets, and
+syntax tokens update immediately when the root theme changes. Static `pre` and
+inline `code` rendering uses the same code-surface tokens.
+
 Autosave waits 800 ms after the latest change. Saves are serialized per note;
 tab close, vault switch, restore, trash, and application close all wait for the
 latest content to reach disk and stop if persistence fails. Before changed

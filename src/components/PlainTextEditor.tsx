@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef } from "react";
 import {
   createEditorDisplayExtensions,
+  denoteCodeMirrorTheme,
 } from "../lib/editorExtensions";
 import type { EditorDisplaySettings } from "../lib/editorDisplay";
 import type { FileLineEnding } from "../types";
@@ -60,6 +61,7 @@ export function PlainTextEditor({
         doc: value,
         extensions: [
           history(),
+          denoteCodeMirrorTheme,
           drawSelection(),
           dropCursor(),
           highlightActiveLine(),

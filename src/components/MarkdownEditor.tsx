@@ -40,7 +40,10 @@ import {
 } from "@mdxeditor/editor";
 import { forwardRef, useMemo, useRef } from "react";
 import { api } from "../lib/api";
-import { createEditorDisplayExtensions } from "../lib/editorExtensions";
+import {
+  createEditorDisplayExtensions,
+  denoteCodeMirrorTheme,
+} from "../lib/editorExtensions";
 import {
   hasEditorDisplayGuides,
   type EditorDisplaySettings,
@@ -130,6 +133,7 @@ export const MarkdownEditor = forwardRef<
       tablePlugin(),
       codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),
       codeMirrorPlugin({
+        codeMirrorExtensions: [denoteCodeMirrorTheme],
         codeBlockLanguages: {
           text: "Plain text",
           bash: "Bash",
@@ -156,7 +160,10 @@ export const MarkdownEditor = forwardRef<
         viewMode: sourceFirst || forceSource ? "source" : "rich-text",
         diffMarkdown: "",
         readOnlyDiff: false,
-        codeMirrorExtensions: displayExtensions,
+        codeMirrorExtensions: [
+          denoteCodeMirrorTheme,
+          ...displayExtensions,
+        ],
       }),
       toolbarPlugin({
         toolbarPosition: "top",

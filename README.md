@@ -22,6 +22,7 @@ the selected folder as the source of truth.
 - File and folder creation, rename, per-folder pinning/custom order, trash, and restore
 - Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks, images, and links
+- Code blocks and syntax highlighting that adapt to dark and light themes
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
 - Persistent editor guides for line numbers, spaces/tabs, line endings, and
@@ -55,6 +56,10 @@ Editor display settings are available from the editor toolbar. The guides are
 visual only and never alter saved text. Plain, binary, and MDX files use the
 source editor directly; Markdown switches from rich editing to source mode while
 any line-number or invisible-character guide is enabled.
+
+Rendered code, editable fenced blocks, Markdown source, and plain-file source
+share the same semantic syntax palette. Theme changes update their backgrounds,
+gutters, selections, cursors, and token colors immediately.
 
 Use the vault switcher in the sidebar header, or press
 <kbd>Shift</kbd>+<kbd>Command</kbd>+<kbd>O</kbd> on macOS and

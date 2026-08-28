@@ -63,6 +63,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   the Denote editor window never becomes a web browser.
 - Persistent editor display settings can show line numbers, spaces and tabs,
   exact line-ending style, and trailing whitespace without modifying content.
+- Code blocks, syntax highlighting, gutters, and selections use complete dark
+  and light palettes rather than a fixed editor theme.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.

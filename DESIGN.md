@@ -283,6 +283,14 @@ unavailable states; adding a new folder remains a separate native-picker action.
 Callouts are tonal boxes inside the document. Semantic color appears in the
 border and low-chroma background; body text keeps normal reading contrast.
 
+### Code Blocks
+
+Code uses a distinct but nearby editor surface in both themes, never a fixed
+light panel inside dark mode. Syntax roles use restrained lavender, moss, amber,
+blue, and neutral ink variants with WCAG AA contrast. Gutters, selections,
+active lines, matching brackets, and editable fenced blocks share the same
+semantic palette.
+
 ### Replace Preview
 
 Find and replace uses a wide modal with paired fields, explicit scope controls,
