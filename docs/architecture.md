@@ -15,6 +15,13 @@ Consistent LF, CRLF, and CR files are normalized in the editor and restored to
 their original line-ending style when saved. Mixed line endings use Base64 so
 no newline information is discarded.
 
+At startup, Rust atomically seeds an embedded **Denote Welcome** folder beside
+the application-data database if that folder does not exist. The complete
+directory is written to a random staging path and renamed into place, so a crash
+cannot expose a partial guide. Existing files are never merged or overwritten.
+The vault is registered as the built-in default, used when no valid last vault
+exists, and its `Welcome.md` page opens after the workspace is ready.
+
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
@@ -95,6 +102,7 @@ save/attachment flush barrier as closing the application, clears the prior
 vault's tabs and search index, seals an unlocked encrypted source vault before
 discarding its key, and then either opens the target workspace or its password
 screen.
+The built-in guide is always included in this list and labeled separately.
 
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation

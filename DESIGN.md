@@ -278,6 +278,13 @@ Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 The vault switcher is a compact recent-folder list with clear current and
 unavailable states; adding a new folder remains a separate native-picker action.
 
+### Built-in Welcome Vault
+
+The first-run content is a real editable vault, not a disposable onboarding
+overlay. Its welcome note demonstrates headings, tags, tasks, tables, callouts,
+code, links, imagery, Unicode, and internal navigation, while the `docs` folder
+provides concise task-based reference pages.
+
 ### Callouts
 
 Callouts are tonal boxes inside the document. Semantic color appears in the

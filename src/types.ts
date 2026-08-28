@@ -53,6 +53,7 @@ export interface KnownVault {
   lastOpenedAt: string;
   available: boolean;
   current: boolean;
+  default: boolean;
 }
 
 export type EncryptionPhase = "encrypting" | "encrypted" | "decrypting";
@@ -67,6 +68,7 @@ export interface EncryptionStatus {
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
+  default: boolean;
   tree: FileNode[];
   bookmarks: NoteListItem[];
   recent: NoteListItem[];

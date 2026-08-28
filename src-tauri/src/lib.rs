@@ -1,6 +1,7 @@
 mod commands;
 mod crypto;
 mod db;
+mod default_vault;
 mod error;
 mod models;
 mod vault;
@@ -17,13 +18,21 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
             db::initialize(&db_path)?;
-            let connection = db::open(&db_path)?;
+            let mut connection = db::open(&db_path)?;
+            db::register_default_vault(
+                &mut connection,
+                &default_vault_path.to_string_lossy(),
+                default_vault::name(),
+            )?;
             let active_vault = db::get_last_vault(&connection)?
                 .and_then(|path| std::fs::canonicalize(path).ok())
-                .filter(|path| path.is_dir());
-            let state = AppState::new(db_path, active_vault);
+                .filter(|path| path.is_dir())
+                .unwrap_or_else(|| default_vault_path.clone());
+            db::set_last_vault(&connection, &active_vault.to_string_lossy())?;
+            let state = AppState::new(db_path, Some(active_vault));
             app.manage(state);
             Ok(())
         })

@@ -71,7 +71,7 @@ pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault
     let _vault_access = state.read_vault_access()?;
     let connection = db::open(&state.db_path)?;
     let current = state.active_vault_optional()?;
-    Ok(db::list_known_vaults(&connection)?
+    let mut vaults = db::list_known_vaults(&connection)?
         .into_iter()
         .map(|vault| {
             let path = std::path::Path::new(&vault.path);
@@ -84,9 +84,12 @@ pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault
                 last_opened_at: vault.last_opened_at,
                 available,
                 current,
+                default: vault.default,
             }
         })
-        .collect())
+        .collect::<Vec<_>>();
+    vaults.sort_by_key(|vault| !vault.current);
+    Ok(vaults)
 }
 
 #[tauri::command]

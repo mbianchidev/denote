@@ -32,6 +32,7 @@ pub struct KnownVaultRecord {
     pub name: String,
     pub path: String,
     pub last_opened_at: String,
+    pub default: bool,
 }
 
 pub struct AppState {
@@ -406,6 +407,42 @@ pub fn ensure_vault(connection: &Connection, path: &str, name: &str) -> AppResul
     Ok(id)
 }
 
+pub fn register_default_vault(
+    connection: &mut Connection,
+    path: &str,
+    name: &str,
+) -> AppResult<i64> {
+    let transaction = connection.transaction()?;
+    let timestamp = now();
+    transaction.execute(
+        r#"
+        INSERT INTO vaults(path, name, created_at, updated_at, last_opened_at)
+        VALUES (?1, ?2, ?3, ?3, ?3)
+        ON CONFLICT(path) DO UPDATE SET
+          name = excluded.name,
+          updated_at = excluded.updated_at
+        "#,
+        params![path, name, timestamp],
+    )?;
+    transaction.execute(
+        r#"
+        INSERT INTO settings(key, value, updated_at)
+        VALUES ('default_vault', ?1, ?2)
+        ON CONFLICT(key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+        "#,
+        params![path, timestamp],
+    )?;
+    let id = transaction.query_row(
+        "SELECT id FROM vaults WHERE path = ?1",
+        params![path],
+        |row| row.get(0),
+    )?;
+    transaction.commit()?;
+    Ok(id)
+}
+
 pub fn set_last_vault(connection: &Connection, path: &str) -> AppResult<()> {
     connection.execute(
         r#"
@@ -432,9 +469,12 @@ pub fn get_last_vault(connection: &Connection) -> AppResult<Option<String>> {
 
 pub fn list_known_vaults(connection: &Connection) -> AppResult<Vec<KnownVaultRecord>> {
     let mut statement = connection.prepare(
-        "SELECT id, name, path, last_opened_at
+        "SELECT id, name, path, last_opened_at,
+                CASE WHEN path = (
+                  SELECT value FROM settings WHERE key = 'default_vault'
+                ) THEN 1 ELSE 0 END AS is_default
          FROM vaults
-         ORDER BY last_opened_at DESC, name COLLATE NOCASE
+         ORDER BY is_default DESC, last_opened_at DESC, name COLLATE NOCASE
          LIMIT 50",
     )?;
     let rows = statement.query_map([], |row| {
@@ -443,6 +483,7 @@ pub fn list_known_vaults(connection: &Connection) -> AppResult<Vec<KnownVaultRec
             name: row.get(1)?,
             path: row.get(2)?,
             last_opened_at: row.get(3)?,
+            default: row.get::<_, i64>(4)? != 0,
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
@@ -456,6 +497,17 @@ pub fn known_vault_path(connection: &Connection, vault_id: i64) -> AppResult<Opt
             |row| row.get(0),
         )
         .optional()?)
+}
+
+pub fn is_default_vault(connection: &Connection, path: &str) -> AppResult<bool> {
+    Ok(connection
+        .query_row(
+            "SELECT value = ?1 FROM settings WHERE key = 'default_vault'",
+            params![path],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?
+        .unwrap_or(false))
 }
 
 pub fn stats_map(connection: &Connection, vault_id: i64) -> AppResult<HashMap<String, NoteStats>> {
@@ -1251,6 +1303,34 @@ mod tests {
         assert_eq!(
             known_vault_path(&connection, i64::MAX).expect("missing path"),
             None
+        );
+    }
+
+    #[test]
+    fn registers_the_default_vault_without_refreshing_its_recent_timestamp() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("default-vault.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let mut connection = open(&db_path).expect("database opened");
+        let vault_id =
+            register_default_vault(&mut connection, "/vaults/denote-welcome", "Denote Welcome")
+                .expect("register default vault");
+        connection
+            .execute(
+                "UPDATE vaults SET last_opened_at = '2026-01-01T00:00:00Z' WHERE id = ?1",
+                params![vault_id],
+            )
+            .expect("set timestamp");
+
+        register_default_vault(&mut connection, "/vaults/denote-welcome", "Denote Welcome")
+            .expect("register existing default vault");
+        let vaults = list_known_vaults(&connection).expect("known vaults");
+
+        assert_eq!(vaults[0].id, vault_id);
+        assert!(vaults[0].default);
+        assert_eq!(vaults[0].last_opened_at, "2026-01-01T00:00:00Z");
+        assert!(
+            is_default_vault(&connection, "/vaults/denote-welcome").expect("default vault status")
         );
     }
 

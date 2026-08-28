@@ -162,11 +162,16 @@ export function VaultSwitcherDialog({
                   <strong>{vault.name}</strong>
                   <span>{vault.path}</span>
                   <small>
-                    {vault.current
-                      ? "Current vault"
-                      : vault.available
-                        ? `Opened ${formatRelativeDate(vault.lastOpenedAt)}`
-                        : "Folder unavailable"}
+                    {[
+                      vault.current
+                        ? "Current vault"
+                        : vault.available
+                          ? `Opened ${formatRelativeDate(vault.lastOpenedAt)}`
+                          : "Folder unavailable",
+                      vault.default ? "Built-in guide" : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </small>
                 </span>
                 {switchingId === vault.id ? (

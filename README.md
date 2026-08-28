@@ -8,6 +8,8 @@ the selected folder as the source of truth.
 
 ## Included
 
+- A built-in **Denote Welcome** vault with a feature-rich welcome page and
+  complete in-app usage guide
 - Rich single-pane Markdown editing with optional source mode
 - Every regular file is editable: UTF-8 as text, binary as reversible Base64
 - Image preview with an explicit raw-edit toggle
@@ -33,6 +35,11 @@ the selected folder as the source of truth.
 
 Files remain in the selected vault. Denote's SQLite database lives in the
 operating system's application-data directory.
+
+On first launch, Denote atomically creates **Denote Welcome** beside its
+application-data database and opens `Welcome.md`. The seed is embedded in the
+desktop app, works offline, and is never applied again while that vault folder
+exists, so edits and deletions are preserved.
 
 Files up to 25 MB can be edited regardless of extension. Invalid UTF-8 is shown
 as Base64; mixed line-ending files also use Base64 to preserve every byte.

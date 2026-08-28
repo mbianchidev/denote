@@ -157,6 +157,7 @@ function App() {
   );
   const indexTimer = useRef<number | null>(null);
   const pendingAnchor = useRef<string | null>(null);
+  const pendingDefaultWelcome = useRef<string | null>(null);
   const activePathRef = useRef<string | null>(activePath);
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
@@ -352,6 +353,13 @@ function App() {
         setEditorSettingsOpen(false);
         setVaultSwitcherOpen(false);
         pendingAnchor.current = null;
+      }
+      if (resetTabs) {
+        const welcome = findNode(snapshot.tree, "Welcome.md");
+        pendingDefaultWelcome.current =
+          snapshot.default && welcome !== null && welcome.kind !== "folder"
+            ? "Welcome.md"
+            : null;
       }
       setIndexing(false);
       setWorkspace(snapshot);
@@ -966,6 +974,19 @@ function App() {
       workspace,
     ],
   );
+
+  useEffect(() => {
+    const welcomePath = pendingDefaultWelcome.current;
+    if (
+      !welcomePath ||
+      !workspace ||
+      (workspace.encryption.enabled && !workspace.encryption.unlocked)
+    ) {
+      return;
+    }
+    pendingDefaultWelcome.current = null;
+    void openFile(welcomePath);
+  }, [openFile, workspace]);
 
   const changeActiveContent = useCallback(
     (content: string) => {

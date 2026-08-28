@@ -19,6 +19,7 @@ describe("VaultSwitcherDialog", () => {
             lastOpenedAt: "2026-08-28T10:00:00Z",
             available: true,
             current: false,
+            default: true,
           },
           {
             id: 2,
@@ -27,6 +28,7 @@ describe("VaultSwitcherDialog", () => {
             lastOpenedAt: "2026-08-27T10:00:00Z",
             available: true,
             current: true,
+            default: false,
           },
         ])}
         onSwitch={onSwitch}
@@ -39,6 +41,7 @@ describe("VaultSwitcherDialog", () => {
 
     expect(onSwitch).toHaveBeenCalledWith(1);
     expect(onClose).toHaveBeenCalledOnce();
+    expect(screen.getByText(/Built-in guide/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Music/ })).toBeDisabled();
   });
 });

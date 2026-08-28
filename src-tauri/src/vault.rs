@@ -959,9 +959,12 @@ fn snapshot(
             }
         }
     }
+    let vault_path = path_to_string(root);
+    let default = db::is_default_vault(connection, &vault_path)?;
     Ok(WorkspaceSnapshot {
-        vault_path: path_to_string(root),
+        vault_path,
         vault_name,
+        default,
         tree,
         bookmarks,
         recent,

@@ -116,6 +116,7 @@ pub struct KnownVault {
     pub last_opened_at: String,
     pub available: bool,
     pub current: bool,
+    pub default: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -132,6 +133,7 @@ pub struct TrashItem {
 pub struct WorkspaceSnapshot {
     pub vault_path: String,
     pub vault_name: String,
+    pub default: bool,
     pub tree: Vec<FileNode>,
     pub bookmarks: Vec<NoteListItem>,
     pub recent: Vec<NoteListItem>,
