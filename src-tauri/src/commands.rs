@@ -1,9 +1,11 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
+use clipboard_rs::{Clipboard, ClipboardContext};
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
@@ -20,6 +22,42 @@ use crate::{
     },
     vault,
 };
+
+#[derive(Clone)]
+pub struct FileClipboard(Arc<Mutex<Result<ClipboardContext, String>>>);
+
+impl FileClipboard {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(
+            ClipboardContext::new().map_err(|error| error.to_string()),
+        )))
+    }
+
+    fn copy_file<F>(&self, stage: F) -> AppResult<()>
+    where
+        F: FnOnce() -> AppResult<PathBuf>,
+    {
+        let clipboard = self
+            .0
+            .lock()
+            .map_err(|_| AppError::Clipboard("File clipboard lock is poisoned".to_string()))?;
+        let clipboard = clipboard
+            .as_ref()
+            .map_err(|error| AppError::Clipboard(error.clone()))?;
+        let staged = stage()?;
+        if let Err(error) = clipboard.set_files(vec![staged.to_string_lossy().into_owned()]) {
+            let _ = vault::remove_staged_clipboard_file(&staged);
+            return Err(AppError::Clipboard(error.to_string()));
+        }
+        if let (Some(parent), Some(cache_root)) =
+            (staged.parent(), staged.parent().and_then(Path::parent))
+            && let Err(error) = vault::remove_other_clipboard_files(cache_root, parent)
+        {
+            eprintln!("Unable to clean prior clipboard attachment files: {error}");
+        }
+        Ok(())
+    }
+}
 
 fn active_key(
     state: &State<'_, AppState>,
@@ -66,7 +104,7 @@ pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<WorkspaceS
     let Some(path) = vault::get_last_vault(&state.db_path)? else {
         return Ok(None);
     };
-    let mut snapshot = vault::open_vault(&state.db_path, &path)?;
+    let mut snapshot = vault::open_cached_vault(&state.db_path, &path)?;
     state.set_active_vault(snapshot.vault_path.clone().into())?;
     populate_encryption_status(&state, &mut snapshot)?;
     Ok(Some(snapshot))
@@ -99,10 +137,12 @@ pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault
 }
 
 #[tauri::command]
-pub fn list_known_vault_files(state: State<'_, AppState>) -> AppResult<KnownVaultFileBatch> {
-    let _vault_access = state.read_vault_access()?;
-    let current = state.active_vault_optional()?;
-    vault::list_known_vault_files(&state.db_path, current.as_deref())
+pub async fn list_known_vault_files(state: State<'_, AppState>) -> AppResult<KnownVaultFileBatch> {
+    let (db_path, current) = {
+        let _vault_access = state.read_vault_access()?;
+        (state.db_path.clone(), state.active_vault_optional()?)
+    };
+    run_blocking(move || vault::list_known_vault_files(&db_path, current.as_deref())).await
 }
 
 #[tauri::command]
@@ -120,7 +160,7 @@ pub fn open_known_vault(state: State<'_, AppState>, vault_id: i64) -> AppResult<
         )));
     }
     seal_active_vault_before_switch(&state)?;
-    let mut snapshot = vault::open_vault(&state.db_path, &path)?;
+    let mut snapshot = vault::open_cached_vault(&state.db_path, &path)?;
     state.set_active_vault(snapshot.vault_path.clone().into())?;
     populate_encryption_status(&state, &mut snapshot)?;
     Ok(snapshot)
@@ -237,12 +277,21 @@ pub async fn choose_vault(
 }
 
 #[tauri::command]
-pub fn refresh_vault(state: State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let mut snapshot = vault::refresh_vault(&state.db_path, &root.to_string_lossy())?;
-    populate_encryption_status(&state, &mut snapshot)?;
-    Ok(snapshot)
+pub async fn refresh_vault(state: State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
+    let (db_path, root, unlocked) = {
+        let _vault_access = state.read_vault_access()?;
+        (
+            state.db_path.clone(),
+            state.active_vault()?,
+            state.vault_is_unlocked()?,
+        )
+    };
+    run_blocking(move || {
+        let mut snapshot = vault::refresh_vault(&db_path, &root.to_string_lossy())?;
+        snapshot.encryption = vault::encryption_status(&snapshot.vault_path, unlocked)?;
+        Ok(snapshot)
+    })
+    .await
 }
 
 fn refreshed_snapshot(state: &State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
@@ -424,6 +473,52 @@ pub fn copy_file_path(app: AppHandle, state: State<'_, AppState>, path: String) 
     app.clipboard()
         .write_text(absolute_path)
         .map_err(|error| AppError::Clipboard(error.to_string()))
+}
+
+#[tauri::command]
+pub fn copy_file_content(app: AppHandle, content: String) -> AppResult<()> {
+    if content.len() > 40 * 1024 * 1024 {
+        return Err(AppError::InvalidData(
+            "File content is larger than the clipboard limit".to_string(),
+        ));
+    }
+    app.clipboard()
+        .write_text(content)
+        .map_err(|error| AppError::Clipboard(error.to_string()))
+}
+
+#[tauri::command]
+pub async fn copy_file_for_attachment(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    file_clipboard: State<'_, FileClipboard>,
+    path: String,
+    content: String,
+    encoding: FileEncoding,
+    line_ending: FileLineEnding,
+) -> AppResult<()> {
+    let root = {
+        let _vault_access = state.read_vault_access()?;
+        state.active_vault()?
+    };
+    let app_cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| AppError::State(format!("Unable to resolve app cache: {error}")))?;
+    let file_clipboard = file_clipboard.inner().clone();
+    run_blocking(move || {
+        file_clipboard.copy_file(|| {
+            vault::stage_clipboard_file(
+                &root.to_string_lossy(),
+                &path,
+                &content,
+                encoding,
+                line_ending,
+                &app_cache_dir,
+            )
+        })
+    })
+    .await
 }
 
 #[tauri::command]
@@ -618,19 +713,41 @@ pub fn restore_revision(
 }
 
 #[tauri::command]
-pub fn list_search_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let key = active_key(&state, &root)?;
-    vault::list_search_documents(&state.db_path, &root.to_string_lossy(), key.as_deref())
+pub async fn list_search_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
+    let (db_path, root, key) = {
+        let _vault_access = state.read_vault_access()?;
+        let root = state.active_vault()?;
+        let key = active_key(&state, &root)?;
+        (state.db_path.clone(), root, key)
+    };
+    run_blocking(move || {
+        vault::list_search_documents(&db_path, &root.to_string_lossy(), key.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn list_editable_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let key = active_key(&state, &root)?;
-    vault::list_editable_documents(&state.db_path, &root.to_string_lossy(), key.as_deref())
+pub async fn list_editable_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
+    let (db_path, root, key) = {
+        let _vault_access = state.read_vault_access()?;
+        let root = state.active_vault()?;
+        let key = active_key(&state, &root)?;
+        (state.db_path.clone(), root, key)
+    };
+    run_blocking(move || {
+        vault::list_editable_documents(&db_path, &root.to_string_lossy(), key.as_deref())
+    })
+    .await
+}
+
+async fn run_blocking<T, F>(operation: F) -> AppResult<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> AppResult<T> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(operation)
+        .await
+        .map_err(|error| AppError::State(format!("Background task failed: {error}")))?
 }
 
 #[tauri::command]

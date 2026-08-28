@@ -43,6 +43,20 @@ export const api = {
   disableVaultEncryption: () =>
     invoke<WorkspaceSnapshot>("disable_vault_encryption"),
   copyFilePath: (path: string) => invoke<void>("copy_file_path", { path }),
+  copyFileContent: (content: string) =>
+    invoke<void>("copy_file_content", { content }),
+  copyFileForAttachment: (
+    path: string,
+    content: string,
+    encoding: FileEncoding,
+    lineEnding: FileLineEnding,
+  ) =>
+    invoke<void>("copy_file_for_attachment", {
+      path,
+      content,
+      encoding,
+      lineEnding,
+    }),
   readNote: (path: string) => invoke<NoteDocument>("read_note", { path }),
   saveNote: (
     path: string,

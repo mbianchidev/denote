@@ -154,7 +154,9 @@ button:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 48px 272px minmax(0, 1fr);
+  grid-template-columns:
+    48px var(--sidebar-width, 272px) 5px
+    minmax(0, 1fr);
   width: 100%;
   height: 100%;
   background: var(--app-bg);
@@ -244,8 +246,35 @@ button:disabled {
   min-width: 0;
   flex-direction: column;
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--border);
   overflow: hidden;
+}
+
+.sidebar-resizer {
+  position: relative;
+  z-index: 5;
+  cursor: col-resize;
+  background: var(--sidebar-bg);
+  touch-action: none;
+}
+
+.sidebar-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  content: "";
+  background: var(--border);
+}
+
+.sidebar-resizer:hover::after,
+.sidebar-resizer:focus-visible::after {
+  background: var(--accent);
+}
+
+.sidebar-resizer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 .sidebar-header {
@@ -329,6 +358,39 @@ button:disabled {
 .file-tree__row[data-selected="true"] {
   color: var(--text-primary);
   background: var(--accent-muted);
+}
+
+.file-tree-context-menu {
+  position: fixed;
+  z-index: 120;
+  display: grid;
+  width: 176px;
+  padding: 5px;
+  color: var(--text-primary);
+  background: var(--editor-raised);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: var(--shadow);
+}
+
+.file-tree-context-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 9px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.file-tree-context-menu button:hover,
+.file-tree-context-menu button:focus-visible {
+  color: var(--text-primary);
+  background: var(--panel-bg);
 }
 
 .file-tree__chevron {
@@ -605,6 +667,37 @@ button:disabled {
   color: var(--text-tertiary);
   font-size: 11px;
   font-weight: 650;
+}
+
+.editor-disabled-modes {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.editor-disabled-modes button {
+  height: 26px;
+  padding: 0 8px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+  background: transparent;
+  border: 0;
+}
+
+.editor-disabled-modes button + button {
+  border-left: 1px solid var(--border);
+}
+
+.editor-disabled-modes button[aria-pressed="true"] {
+  color: var(--text-secondary);
+  background: var(--panel-bg);
+}
+
+.editor-disabled-modes:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
 .denote-editor-content {
@@ -2244,7 +2337,9 @@ kbd {
 
 @media (max-width: 1100px) {
   .app-shell {
-    grid-template-columns: 48px 238px minmax(0, 1fr);
+    grid-template-columns:
+      48px var(--sidebar-width, 238px) 5px
+      minmax(0, 1fr);
   }
 
   .toc-panel {
@@ -2266,7 +2361,9 @@ kbd {
 
 @media (max-width: 860px) {
   .app-shell {
-    grid-template-columns: 44px 210px minmax(0, 1fr);
+    grid-template-columns:
+      44px var(--sidebar-width, 210px) 5px
+      minmax(0, 1fr);
   }
 
   .denote-editor-content,

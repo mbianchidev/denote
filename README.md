@@ -25,8 +25,13 @@ the selected folder as the source of truth.
 - Current-note and vault-wide find and replace with selectable preview
 - Reorderable tabs, bookmarks, recently opened files, and search navigation
 - Recent-vault switcher for separate work, music, and personal folders
-- One-click copying of the active file's absolute path
+- Cached near-instant switching for previously opened vaults, followed by a
+  background disk/search refresh
+- One-click copying of the active file's content, attachment-ready file, or
+  absolute path
 - File and folder creation, rename, per-folder pinning/custom order, trash, and restore
+- Command-N file creation plus file/folder creation from the sidebar context menu
+- Pointer and keyboard resizing for the persistent vault sidebar width
 - Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks, images, and links
 - Code blocks and syntax highlighting that adapt to dark and light themes
@@ -67,7 +72,9 @@ external website. Relative vault links continue to open inside Denote.
 Editor display settings are available from the editor toolbar. The guides are
 visual only and never alter saved text. Plain, binary, and MDX files use the
 source editor directly; Markdown switches from rich editing to source mode while
-any line-number or invisible-character guide is enabled.
+any line-number or invisible-character guide is enabled. Rich/source controls
+remain visible but disabled, with guidance to turn the display guides off before
+switching modes.
 
 Rendered code, editable fenced blocks, Markdown source, and plain-file source
 share the same semantic syntax palette. Theme changes update their backgrounds,
@@ -91,6 +98,17 @@ choice within the vault and restores it after restarting Denote. Non-current,
 non-default vaults can be removed from the switcher; an explicit option moves
 the vault folder and all files to the operating system Trash.
 
+Previously opened vaults use their SQLite-cached file tree so switching does not
+wait for a full folder scan or content index. Denote refreshes the tree and
+search index in the background. Opening a vault for the first time can still
+take longer when its folder is large.
+
+Use the editor toolbar to copy the current in-memory content, copy the active
+file as an attachment, or copy its absolute path. Attachment copy includes
+unsaved edits. For encrypted vaults, Denote creates a permission-restricted
+temporary plaintext file in its application cache; the previous staged copy is
+removed when replaced and stale copies are pruned after 24 hours.
+
 ## Vault encryption
 
 Vault encryption is optional. When enabled, Denote encrypts every vault content
@@ -105,6 +123,9 @@ uses Argon2id. Locking or closing Denote performs a final encryption sweep, and
 interrupted encryption or decryption resumes after the next successful unlock.
 Disabling encryption always decrypts the complete vault before removing the
 encryption manifest.
+
+New ciphertext uses 4 MB authenticated chunks to reduce per-file encryption
+overhead. Existing 1 MB chunk files remain fully supported.
 
 Encryption protects file and revision contents at rest. It intentionally leaves
 filenames, folder names, file sizes, timestamps, customized tag labels/colors,
@@ -143,6 +164,16 @@ Press <kbd>Option</kbd>+<kbd>Command</kbd>+<kbd>F</kbd> on macOS or
 <kbd>Ctrl</kbd>+<kbd>H</kbd> on Windows and Linux. Replace can target the
 current note or the entire vault. Vault-wide changes show every affected file,
 occurrence count, and before/after snippet before applying.
+
+## Create and resize
+
+Press <kbd>Command</kbd>+<kbd>N</kbd> on macOS or
+<kbd>Ctrl</kbd>+<kbd>N</kbd> on Windows and Linux to create a file beside the
+current selection or inside the selected folder. Right-click the file tree,
+folder, or file for contextual **New file** and **New folder** actions.
+
+Drag the divider beside the vault sidebar to resize it. Focus the divider and
+use Left/Right arrows for keyboard resizing; Home resets the default width.
 
 ## Callouts
 

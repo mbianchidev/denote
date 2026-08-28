@@ -42,8 +42,10 @@ one-time recovery codes each have an independent salt and wrapped copy of the
 same data key. Successfully using a recovery code removes its slot from the
 manifest before the vault is unlocked.
 
-File contents use chunked XChaCha20-Poly1305 with 1 MB chunks. Every chunk has a
-nonce derived from a random per-file prefix and its chunk index, and
+File contents use chunked XChaCha20-Poly1305. New files use 4 MB chunks to reduce
+allocation, AEAD, and write-call overhead; existing 1 MB chunk files remain
+readable. Every chunk has a nonce derived from a random per-file prefix and its
+chunk index, and
 authenticates the file header and index as additional data. Streaming
 transforms use the same atomic replacement path as ordinary saves, so large
 files do not need to fit in memory. Existing version-one whole-file ciphertext
@@ -83,6 +85,7 @@ The application-data database stores:
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
 - each note's persisted rich-text/source preference;
+- serialized file-tree caches for previously opened vaults;
 - bookmarks, per-folder pins, and explicit sibling ordering;
 - per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
@@ -111,6 +114,21 @@ filesystem and mount roots, shallow system paths, the home folder,
 symlinks/reparse points, and ancestors of Denote's application-data directory
 are rejected as deletion targets.
 
+A full vault scan serializes the ordered file tree into SQLite. Known-vault open
+commands deserialize that cache, overlay current bookmark/pin/order metadata,
+and return immediately. The frontend releases the switch barrier without
+waiting for content indexing, then performs a generation-guarded full disk scan
+and ZBSearch rebuild in the background. Missing or invalid caches fall back to a
+full scan once and are replaced. Pending filesystem recovery operations also
+force a full scan before a cached tree can be used.
+
+Full tree, search-document, editable-document, and global filename scans run on
+Tauri blocking workers after capturing the active vault/key, so they do not hold
+the global workspace guard or the native UI thread. Each full tree scan reserves
+a per-vault generation in SQLite and updates the cache only if that generation
+is still current, preventing an older concurrent scan from replacing newer
+results.
+
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.
@@ -124,6 +142,9 @@ aggregate content budget.
 The frontend builds an in-memory ZBSearch index. ZBSearch provides ranked,
 typo-tolerant full-text retrieval; Denote applies metadata filters and a Unicode
 substring fallback so mixed-script queries still find local content.
+Index insertion is split into overlapping chunks no larger than roughly 512 KB
+and yields to the webview between batches, including for individual files near
+the 10 MB search limit.
 
 The index rebuilds when a vault opens and shortly after content or file
 structure changes.
@@ -177,7 +198,8 @@ source mode receives the same CodeMirror extensions. Line numbers, whitespace
 markers, trailing-whitespace emphasis, and LF/CRLF/CR widgets are decorations
 only; document text and save hashes never include them. Because rendered rich
 Markdown has no stable one-to-one source-line mapping, enabling any guide
-temporarily constrains Markdown editing to source mode.
+temporarily constrains Markdown editing to source mode. Disabled rich/source
+controls remain visible and point back to the display settings.
 
 The most recent rich-text/source choice remains the default for unseen files.
 Each opened note also stores its own mode in SQLite. The tab carries that mode
@@ -190,6 +212,16 @@ Tab order is frontend session state. Pointer events and
 `Alt-Shift-Left/Right` reorder the same tab array used by activation,
 `Ctrl-Tab`, close-next selection, and rendering, so no parallel order model can
 drift.
+
+The activity rail, resizable vault sidebar, divider, and editor are separate CSS
+grid columns. Sidebar width is clamped to 210–480px, updates continuously during
+pointer drag, supports arrow/Home/End keys through an ARIA separator, and is
+stored in local storage.
+
+Command-N / Control-N resolves the selected folder or selected file's parent and
+uses the existing validated create command. The file tree exposes the same
+parent-resolution logic through a keyboard-operable contextual menu; right-click
+on empty tree space targets the vault root.
 
 All CodeMirror surfaces receive one highest-precedence Denote theme extension.
 The extension uses CSS semantic tokens, so editable code blocks, Markdown
@@ -228,3 +260,15 @@ content security policy only allows local application code plus the image
 sources required for Markdown previews. Encrypted vaults must be unlocked before
 content commands receive a data key, and incomplete encryption state blocks
 ordinary content operations until the resumable transformation finishes.
+
+Clipboard content copy sends the current in-memory text through the native
+clipboard plugin. Attachment copy reconstructs the current file bytes, including
+unsaved edits and original line endings, in a UUID-scoped application-cache
+folder and places that path on the OS file-list clipboard. Encrypted vault copies
+therefore stage plaintext outside the vault with owner-only Unix permissions.
+One application-lifetime clipboard context serializes staging, clipboard update,
+and cleanup so concurrent copies cannot delete the file currently advertised by
+the clipboard. Replacing the clipboard file removes prior staging folders;
+startup and future copies prune entries older than 24 hours. Cache roots reject
+symlinks/reparse points before cleanup, and partial failures remove the new
+private staging directory.

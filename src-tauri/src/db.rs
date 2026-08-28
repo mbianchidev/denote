@@ -17,8 +17,8 @@ use crate::{
     crypto::VaultKey,
     error::{AppError, AppResult},
     models::{
-        FileEncoding, FileLineEnding, MarkdownViewMode, NoteListItem, NoteStats, TagColor,
-        TrashItem,
+        FileEncoding, FileLineEnding, FileNode, MarkdownViewMode, NoteListItem, NoteStats,
+        TagColor, TrashItem,
     },
 };
 
@@ -233,6 +233,19 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           updated_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS workspace_cache (
+          vault_id INTEGER PRIMARY KEY,
+          tree_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS workspace_cache_refresh (
+          vault_id INTEGER PRIMARY KEY,
+          generation INTEGER NOT NULL,
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+
         CREATE INDEX IF NOT EXISTS idx_note_stats_recent
           ON note_stats(vault_id, last_opened_at DESC);
         CREATE INDEX IF NOT EXISTS idx_note_stats_bookmarks
@@ -308,6 +321,14 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (8, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (9, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (10, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -593,6 +614,84 @@ pub fn list_tag_colors(connection: &Connection, vault_id: i64) -> AppResult<Vec<
         })
     })?;
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn workspace_tree_cache(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<Option<Vec<FileNode>>> {
+    let serialized = connection
+        .query_row(
+            "SELECT tree_json FROM workspace_cache WHERE vault_id = ?1",
+            params![vault_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    serialized
+        .map(|serialized| {
+            serde_json::from_str(&serialized).map_err(|error| {
+                AppError::InvalidData(format!("Cached vault tree is invalid: {error}"))
+            })
+        })
+        .transpose()
+}
+
+pub fn begin_workspace_tree_refresh(connection: &mut Connection, vault_id: i64) -> AppResult<i64> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let generation = transaction.query_row(
+        r#"
+        INSERT INTO workspace_cache_refresh(vault_id, generation)
+        VALUES (?1, 1)
+        ON CONFLICT(vault_id) DO UPDATE SET
+          generation = workspace_cache_refresh.generation + 1
+        RETURNING generation
+        "#,
+        params![vault_id],
+        |row| row.get(0),
+    )?;
+    transaction.commit()?;
+    Ok(generation)
+}
+
+pub fn set_workspace_tree_cache_if_current(
+    connection: &mut Connection,
+    vault_id: i64,
+    generation: i64,
+    tree: &[FileNode],
+) -> AppResult<bool> {
+    let serialized = serde_json::to_string(tree).map_err(|error| {
+        AppError::State(format!("Unable to serialize the vault tree cache: {error}"))
+    })?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let current = transaction.query_row(
+        "SELECT generation FROM workspace_cache_refresh WHERE vault_id = ?1",
+        params![vault_id],
+        |row| row.get::<_, i64>(0),
+    )?;
+    if current != generation {
+        transaction.commit()?;
+        return Ok(false);
+    }
+    transaction.execute(
+        r#"
+        INSERT INTO workspace_cache(vault_id, tree_json, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(vault_id) DO UPDATE SET
+          tree_json = excluded.tree_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, serialized, now()],
+    )?;
+    transaction.commit()?;
+    Ok(true)
+}
+
+pub fn clear_workspace_tree_cache(connection: &Connection, vault_id: i64) -> AppResult<()> {
+    connection.execute(
+        "DELETE FROM workspace_cache WHERE vault_id = ?1",
+        params![vault_id],
+    )?;
+    Ok(())
 }
 
 pub fn set_tag_color(
@@ -1492,6 +1591,53 @@ mod tests {
     }
 
     #[test]
+    fn stale_workspace_scans_cannot_replace_a_newer_cache() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("cache-generation.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let mut connection = open(&db_path).expect("database opened");
+        let vault_id = ensure_vault(&connection, "/vaults/work", "work").expect("vault");
+        let older = begin_workspace_tree_refresh(&mut connection, vault_id).expect("older scan");
+        let newer = begin_workspace_tree_refresh(&mut connection, vault_id).expect("newer scan");
+        let older_tree = vec![FileNode {
+            path: "old.md".to_string(),
+            name: "old.md".to_string(),
+            kind: crate::models::FileKind::Markdown,
+            children: Vec::new(),
+            size: 0,
+            modified_at: None,
+            bookmarked: false,
+            pinned: false,
+        }];
+        let newer_tree = vec![FileNode {
+            path: "new.md".to_string(),
+            name: "new.md".to_string(),
+            kind: crate::models::FileKind::Markdown,
+            children: Vec::new(),
+            size: 0,
+            modified_at: None,
+            bookmarked: false,
+            pinned: false,
+        }];
+
+        assert!(
+            !set_workspace_tree_cache_if_current(&mut connection, vault_id, older, &older_tree,)
+                .expect("stale cache write")
+        );
+        assert!(
+            set_workspace_tree_cache_if_current(&mut connection, vault_id, newer, &newer_tree,)
+                .expect("current cache write")
+        );
+        assert_eq!(
+            workspace_tree_cache(&connection, vault_id)
+                .expect("cached tree")
+                .expect("cache exists")[0]
+                .name,
+            "new.md"
+        );
+    }
+
+    #[test]
     fn stores_tag_colors_per_vault() {
         let directory = tempdir().expect("temp directory");
         let db_path = directory.path().join("tag-colors.sqlite3");
@@ -1536,6 +1682,26 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("note view mode migration"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 9",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("workspace cache migration"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 10",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("workspace refresh generation migration"),
             1
         );
     }

@@ -63,4 +63,21 @@ describe("vault search", () => {
 
     expect(results[0]?.document.path).toBe("projects/alpha.md");
   });
+
+  it("indexes large files in bounded chunks without losing content matches", async () => {
+    const index = new VaultSearchIndex();
+    const marker = "needle-after-half-a-megabyte";
+    await index.rebuild([
+      {
+        ...documents[0],
+        path: "large.md",
+        title: "large",
+        content: `${"x".repeat(700_000)} ${marker}`,
+      },
+    ]);
+
+    const results = await index.query(marker);
+
+    expect(results[0]?.document.path).toBe("large.md");
+  });
 });

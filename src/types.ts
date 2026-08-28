@@ -98,6 +98,7 @@ export interface WorkspaceSnapshot {
   recent: NoteListItem[];
   trash: TrashItem[];
   tagColors: TagColor[];
+  fromCache: boolean;
   encryption: EncryptionStatus;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   isGlobalSearchShortcut,
+  isNewFileShortcut,
   isReplaceShortcut,
   isSearchShortcut,
 } from "./shortcuts";
@@ -127,6 +128,28 @@ describe("replace shortcut", () => {
           "Linux x86_64",
         ),
       ).toBe(true);
+    });
+
+    describe("new file shortcut", () => {
+      it("uses Command-N on macOS and Control-N elsewhere", () => {
+        const base = {
+          altKey: false,
+          shiftKey: false,
+          code: "KeyN",
+        };
+        expect(
+          isNewFileShortcut(
+            { ...base, metaKey: true, ctrlKey: false },
+            "MacIntel",
+          ),
+        ).toBe(true);
+        expect(
+          isNewFileShortcut(
+            { ...base, metaKey: false, ctrlKey: true },
+            "Linux x86_64",
+          ),
+        ).toBe(true);
+      });
     });
   });
 });

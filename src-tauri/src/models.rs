@@ -86,7 +86,7 @@ impl MarkdownViewMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileNode {
     pub path: String,
@@ -191,6 +191,7 @@ pub struct WorkspaceSnapshot {
     pub recent: Vec<NoteListItem>,
     pub trash: Vec<TrashItem>,
     pub tag_colors: Vec<TagColor>,
+    pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }
 

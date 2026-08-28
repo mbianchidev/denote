@@ -59,3 +59,21 @@ export function isGlobalSearchShortcut(
         !event.shiftKey &&
         event.code === "KeyP";
 }
+
+export function isNewFileShortcut(
+  event: ShortcutEvent,
+  platform: string,
+): boolean {
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(platform);
+  return isMac
+    ? event.metaKey &&
+        !event.ctrlKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyN"
+    : event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        !event.shiftKey &&
+        event.code === "KeyN";
+}

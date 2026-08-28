@@ -16,13 +16,19 @@ raw Base64 editor.
 - Use `Command-W` or `Ctrl-W` to close the active tab.
 - Drag tabs directly with the pointer to reorder them.
 - Use `Alt-Shift-Left/Right` to reorder the focused tab from the keyboard.
-- Use the copy button in the editor toolbar to copy the active absolute path.
+- Use the editor toolbar to copy content, an attachment-ready file, or the active
+  absolute path. Encrypted vault attachments use a temporary plaintext cache.
 
 ## Organize a folder
 
 The file-tree toolbar can create, rename, pin, reorder, bookmark, and trash
 entries. Pinned files and folders stay above ordinary siblings. Up/down actions
 customize order inside the pinned or unpinned section of the current folder.
+Use `Command-N` / `Ctrl-N` for a new file. Right-click a folder, file, or empty
+tree space for contextual **New file** and **New folder** actions.
+
+Drag the divider beside the file tree to resize the sidebar. Focus it and use
+Left/Right arrows, or press Home to reset the default width.
 
 ## Switch vaults
 
@@ -31,6 +37,10 @@ saves pending work, clears tabs and search state, and opens the selected folder.
 An encrypted source vault is sealed before its in-memory key is discarded.
 Non-current user vaults can be removed from the list or moved with all contents
 to the operating system Trash.
+
+Known vaults open from their cached file tree and become usable immediately.
+Denote refreshes disk changes and search content in the background. A first-time
+vault open can take longer because it creates that cache.
 
 Press `Command-P` or `Ctrl-P` to search filenames across every known available
 vault. Selecting a result switches vaults when necessary and opens the file.

@@ -17,7 +17,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir()?;
+            let app_cache_dir = app.path().app_cache_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
+            if let Err(error) = vault::prune_stale_clipboard_files(&app_cache_dir) {
+                eprintln!("Unable to prune stale clipboard attachment files: {error}");
+            }
+            app.manage(commands::FileClipboard::new());
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
             db::initialize(&db_path)?;
@@ -52,6 +57,8 @@ pub fn run() {
             commands::regenerate_vault_recovery_codes,
             commands::disable_vault_encryption,
             commands::copy_file_path,
+            commands::copy_file_content,
+            commands::copy_file_for_attachment,
             commands::read_note,
             commands::save_note,
             commands::create_entry,

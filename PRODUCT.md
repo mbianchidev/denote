@@ -44,6 +44,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   overwritten after creation.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
+- Previously opened vaults use a cached file tree for immediate switching, then
+  refresh disk state and search content in the background. First-time vault
+  registration may perform the slower complete scan.
 - Non-current user vaults can be removed from the recent list, with a separate
   explicit option to move the folder and all contents to system Trash.
 - Every regular file up to 25 MB can be opened and edited.
@@ -75,12 +78,20 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system
   clipboard from the editor toolbar.
+- The active in-memory content or a native attachment-ready file can also be
+  copied. Encrypted vault attachments use a temporary plaintext cache file.
+- Command-N / Control-N and the file-tree context menu create files or folders
+  relative to the current target.
+- The vault sidebar width is pointer- and keyboard-resizable and persists across
+  launches.
 - Files and folders can be pinned above their siblings and manually ordered
   within the pinned or unpinned section of each parent folder.
 - External links always use the operating system's default browser or handler;
   the Denote editor window never becomes a web browser.
 - Persistent editor display settings can show line numbers, spaces and tabs,
   exact line-ending style, and trailing whitespace without modifying content.
+- Display guides visibly disable rich/source controls and explain that guides
+  must be turned off before mode switching.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
 - Vault encryption is optional and encrypts file contents plus saved revision

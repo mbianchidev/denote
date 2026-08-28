@@ -28,17 +28,24 @@ export class VaultSearchIndex {
   private database: SearchDatabase = create({ schema: SEARCH_SCHEMA });
   private documents: SearchDocument[] = [];
 
+  recordOpen(path: string, lastOpenedAt: string | null): void {
+    this.documents = this.documents.map((document) =>
+      document.path === path ? { ...document, lastOpenedAt } : document,
+    );
+  }
+
   async rebuild(documents: SearchDocument[]): Promise<void> {
     this.documents = documents;
     this.database = create({ schema: SEARCH_SCHEMA });
-    if (documents.length > 0) {
+    for (const batch of searchInsertionBatches(documents)) {
       await insertMultiple(
         this.database,
-        documents.map((document) => ({
+        batch.map((document) => ({
           ...document,
           lastOpenedAt: document.lastOpenedAt ?? "",
         })),
       );
+      await yieldToBrowser();
     }
   }
 
@@ -55,17 +62,27 @@ export class VaultSearchIndex {
         limit: Math.max(100, this.documents.length),
       });
       for (const hit of results.hits) {
-        scores.set(hit.document.path, hit.score);
+        scores.set(
+          hit.document.path,
+          Math.max(scores.get(hit.document.path) ?? 0, hit.score),
+        );
       }
 
       const foldedTerms = parsed.term.toLocaleLowerCase().split(/\s+/);
+      let processedBytes = 0;
       for (const document of this.documents) {
         const haystack =
           `${document.title}\n${document.path}\n${document.content}\n${document.tags.join(" ")}`.toLocaleLowerCase();
         if (foldedTerms.every((term) => haystack.includes(term))) {
           scores.set(document.path, Math.max(scores.get(document.path) ?? 0, 0.1));
         }
+        processedBytes += haystack.length;
+        if (processedBytes >= 512 * 1024) {
+          processedBytes = 0;
+          await yieldToBrowser();
+        }
       }
+
     } else {
       for (const document of this.documents) {
         scores.set(document.path, 0);
@@ -88,6 +105,61 @@ export class VaultSearchIndex {
       )
       .slice(0, 200);
   }
+}
+
+function searchInsertionBatches(documents: SearchDocument[]): SearchDocument[][] {
+  const batches: SearchDocument[][] = [];
+  let batch: SearchDocument[] = [];
+  let bytes = 0;
+  for (const document of documents.flatMap(searchDocumentsForIndex)) {
+    const documentBytes =
+      document.path.length +
+      document.title.length +
+      document.content.length +
+      document.tags.join("").length;
+    if (batch.length > 0 && bytes + documentBytes > 512 * 1024) {
+      batches.push(batch);
+      batch = [];
+      bytes = 0;
+    }
+    batch.push(document);
+    bytes += documentBytes;
+  }
+  if (batch.length > 0) {
+    batches.push(batch);
+  }
+  return batches;
+}
+
+function searchDocumentsForIndex(document: SearchDocument): SearchDocument[] {
+  const metadataBytes =
+    document.path.length +
+    document.title.length +
+    document.tags.join("").length;
+  const contentBytes = Math.max(64 * 1024, 512 * 1024 - metadataBytes);
+  if (document.content.length <= contentBytes) {
+    return [document];
+  }
+  const chunks: SearchDocument[] = [];
+  const overlap = 256;
+  const step = contentBytes - overlap;
+  for (let start = 0; start < document.content.length; start += step) {
+    chunks.push({
+      ...document,
+      content: document.content.slice(start, start + contentBytes),
+    });
+  }
+  return chunks;
+}
+
+function yieldToBrowser(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === "function") {
+      requestAnimationFrame(() => resolve());
+    } else {
+      setTimeout(resolve, 0);
+    }
+  });
 }
 
 export function parseSearchQuery(rawQuery: string): ParsedSearch {

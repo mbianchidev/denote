@@ -208,8 +208,10 @@ export const MarkdownEditor = forwardRef<
             <>
               <UndoRedo />
               <Separator />
+              <DisabledViewModeControls />
+              <Separator />
               <span className="editor-source-mode-label">
-                Source guides enabled
+                Guides lock source mode
               </span>
             </>
           ) : (
@@ -440,6 +442,41 @@ function ViewModePreferenceObserver({
   }, [initialMode, mode, onChange, setMode]);
 
   return null;
+}
+
+function DisabledViewModeControls() {
+  const guidance =
+    "Disable line numbers and invisible-character guides to switch editor modes.";
+  return (
+    <span
+      className="editor-disabled-modes"
+      title={guidance}
+      role="note"
+      tabIndex={0}
+      aria-label={guidance}
+    >
+      <button
+        type="button"
+        disabled
+        aria-label="Rich text mode unavailable while display guides are enabled"
+        aria-describedby="editor-disabled-mode-guidance"
+      >
+        Rich
+      </button>
+      <button
+        type="button"
+        disabled
+        aria-label="Source mode locked while display guides are enabled"
+        aria-describedby="editor-disabled-mode-guidance"
+        aria-pressed="true"
+      >
+        Source
+      </button>
+      <span id="editor-disabled-mode-guidance" className="sr-only">
+        {guidance}
+      </span>
+    </span>
+  );
 }
 
 function renderedLink(

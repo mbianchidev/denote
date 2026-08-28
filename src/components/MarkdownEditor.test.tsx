@@ -108,8 +108,23 @@ describe("MarkdownEditor links", () => {
     );
 
     expect(
-      await screen.findByText("Source guides enabled"),
+      await screen.findByText("Guides lock source mode"),
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Rich text mode unavailable while display guides are enabled",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByTitle(
+        "Disable line numbers and invisible-character guides to switch editor modes.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("note", {
+        name: "Disable line numbers and invisible-character guides to switch editor modes.",
+      }),
+    ).toHaveAttribute("tabindex", "0");
     expect(onViewModeChange).not.toHaveBeenCalled();
   });
 

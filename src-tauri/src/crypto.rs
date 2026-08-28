@@ -21,7 +21,8 @@ const FILE_MAGIC_V1: &[u8; 12] = b"DENOTE-ENC1\0";
 const FILE_MAGIC_V2: &[u8; 12] = b"DENOTE-ENC2\0";
 const FILE_AAD_V1: &[u8] = b"denote-file-v1";
 const FILE_AAD_V2: &[u8] = b"denote-file-v2";
-const FILE_CHUNK_BYTES: usize = 1024 * 1024;
+const LEGACY_FILE_CHUNK_BYTES: usize = 1024 * 1024;
+const FILE_CHUNK_BYTES: usize = 4 * 1024 * 1024;
 const FILE_HEADER_BYTES: usize = FILE_MAGIC_V2.len() + 16 + 4 + 8;
 const MAX_LEGACY_FILE_BYTES: usize = 256 * 1024 * 1024;
 const HISTORY_AAD: &[u8] = b"denote-history-v1";
@@ -295,7 +296,7 @@ pub fn encrypted_file_plaintext_len(header: &[u8], stored_len: u64) -> AppResult
             .try_into()
             .map_err(|_| AppError::Crypto("Invalid file chunk size".to_string()))?,
     ) as usize;
-    if chunk_bytes != FILE_CHUNK_BYTES {
+    if !supported_file_chunk_bytes(chunk_bytes) {
         return Err(AppError::Crypto(
             "Unsupported encrypted file chunk size".to_string(),
         ));
@@ -359,18 +360,33 @@ pub fn encrypt_file_stream<R: Read, W: Write + ?Sized>(
     plaintext_len: u64,
     writer: &mut W,
 ) -> AppResult<()> {
+    encrypt_file_stream_with_chunk_bytes(vault_key, reader, plaintext_len, FILE_CHUNK_BYTES, writer)
+}
+
+fn encrypt_file_stream_with_chunk_bytes<R: Read, W: Write + ?Sized>(
+    vault_key: &[u8; 32],
+    reader: &mut R,
+    plaintext_len: u64,
+    chunk_bytes: usize,
+    writer: &mut W,
+) -> AppResult<()> {
+    if !supported_file_chunk_bytes(chunk_bytes) {
+        return Err(AppError::Crypto(
+            "Unsupported encrypted file chunk size".to_string(),
+        ));
+    }
     let nonce_prefix = random_array::<16>()?;
     let mut header = Vec::with_capacity(FILE_HEADER_BYTES);
     header.extend_from_slice(FILE_MAGIC_V2);
     header.extend_from_slice(&nonce_prefix);
-    header.extend_from_slice(&(FILE_CHUNK_BYTES as u32).to_le_bytes());
+    header.extend_from_slice(&(chunk_bytes as u32).to_le_bytes());
     header.extend_from_slice(&plaintext_len.to_le_bytes());
     writer.write_all(&header)?;
 
-    let chunk_count = plaintext_len.div_ceil(FILE_CHUNK_BYTES as u64).max(1);
+    let chunk_count = plaintext_len.div_ceil(chunk_bytes as u64).max(1);
     let mut remaining = plaintext_len;
     for index in 0..chunk_count {
-        let plaintext_bytes = remaining.min(FILE_CHUNK_BYTES as u64) as usize;
+        let plaintext_bytes = remaining.min(chunk_bytes as u64) as usize;
         let mut chunk = Zeroizing::new(vec![0; plaintext_bytes]);
         reader.read_exact(&mut chunk)?;
         let nonce = file_chunk_nonce(nonce_prefix, index);
@@ -425,7 +441,7 @@ pub fn decrypt_file_stream<R: Read, W: Write + ?Sized>(
             .try_into()
             .map_err(|_| AppError::Crypto("Invalid file chunk size".to_string()))?,
     ) as usize;
-    if chunk_bytes != FILE_CHUNK_BYTES {
+    if !supported_file_chunk_bytes(chunk_bytes) {
         return Err(AppError::Crypto(
             "Unsupported encrypted file chunk size".to_string(),
         ));
@@ -454,6 +470,10 @@ pub fn decrypt_file_stream<R: Read, W: Write + ?Sized>(
         ));
     }
     Ok(())
+}
+
+fn supported_file_chunk_bytes(chunk_bytes: usize) -> bool {
+    matches!(chunk_bytes, LEGACY_FILE_CHUNK_BYTES | FILE_CHUNK_BYTES)
 }
 
 fn file_chunk_nonce(prefix: [u8; 16], index: u64) -> [u8; 24] {
@@ -739,6 +759,26 @@ mod tests {
         );
         assert_eq!(
             decrypt_file_content(&key, &encrypted).expect("decrypt"),
+            plaintext
+        );
+    }
+
+    #[test]
+    fn decrypts_existing_one_megabyte_chunk_files() {
+        let key = [7u8; 32];
+        let plaintext = vec![b'x'; LEGACY_FILE_CHUNK_BYTES + 17];
+        let mut encrypted = Vec::new();
+        encrypt_file_stream_with_chunk_bytes(
+            &key,
+            &mut Cursor::new(&plaintext),
+            plaintext.len() as u64,
+            LEGACY_FILE_CHUNK_BYTES,
+            &mut encrypted,
+        )
+        .expect("legacy chunk encryption");
+
+        assert_eq!(
+            decrypt_file_content(&key, &encrypted).expect("legacy chunk decrypt"),
             plaintext
         );
     }

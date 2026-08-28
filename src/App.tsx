@@ -7,6 +7,7 @@ import {
   Bookmark,
   BookmarkCheck,
   ChevronsUpDown,
+  ClipboardCopy,
   Copy,
   FileCode2,
   FilePlus2,
@@ -15,6 +16,7 @@ import {
   Image as ImageIcon,
   ListTree,
   Pencil,
+  Paperclip,
   Pin,
   PinOff,
   RefreshCw,
@@ -31,12 +33,14 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
 } from "react";
 import { ActivityRail } from "./components/ActivityRail";
 import { ActionDialog } from "./components/ActionDialog";
 import { EncryptionDialog } from "./components/EncryptionDialog";
 import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { FileTree } from "./components/FileTree";
+import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { GlobalSearchDialog } from "./components/GlobalSearchDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
@@ -66,6 +70,7 @@ import { VaultSearchIndex } from "./lib/search";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   isGlobalSearchShortcut,
+  isNewFileShortcut,
   isReplaceShortcut,
   isSearchShortcut,
 } from "./lib/shortcuts";
@@ -76,6 +81,7 @@ import {
   type ReplaceRequest,
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
+import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
   editorDisplaySettingsKey,
   getEditorDisplaySettings,
@@ -147,6 +153,7 @@ function App() {
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => getSidebarWidth());
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
     null,
@@ -155,8 +162,10 @@ function App() {
     [],
   );
   const searchIndex = useRef(new VaultSearchIndex());
+  const searchIndexReady = useRef(false);
   const searchQueryRef = useRef(searchQuery);
   const rebuildRequest = useRef(0);
+  const workspaceRefreshRequest = useRef(0);
   const queryRequest = useRef(0);
   const tabsRef = useRef<EditorTab[]>([]);
   const saveTimers = useRef(new Map<string, number>());
@@ -375,6 +384,7 @@ function App() {
   const rebuildSearchIndex = useCallback(
     async (generation = vaultGeneration.current) => {
       const request = ++rebuildRequest.current;
+      searchIndexReady.current = false;
       setIndexing(true);
       try {
         const batch = await api.listSearchDocuments();
@@ -393,6 +403,7 @@ function App() {
           return;
         }
         searchIndex.current = nextIndex;
+        searchIndexReady.current = true;
         const query = searchQueryRef.current;
         const results = await nextIndex.query(query);
         if (
@@ -425,6 +436,32 @@ function App() {
     [showError],
   );
 
+  const refreshCachedWorkspace = useCallback(
+    async (generation: number) => {
+      const request = ++workspaceRefreshRequest.current;
+      try {
+        const snapshot = await api.refreshVault();
+        if (
+          generation !== vaultGeneration.current ||
+          request !== workspaceRefreshRequest.current
+        ) {
+          return;
+        }
+        setWorkspace(snapshot);
+        await rebuildSearchIndex(generation);
+      } catch (caught) {
+        if (
+          generation === vaultGeneration.current &&
+          request === workspaceRefreshRequest.current
+        ) {
+          setIndexing(false);
+          showError(caught);
+        }
+      }
+    },
+    [rebuildSearchIndex, showError],
+  );
+
   const loadWorkspace = useCallback(
     async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
       const vaultLocked =
@@ -434,8 +471,10 @@ function App() {
         indexTimer.current = null;
       }
       rebuildRequest.current += 1;
+      workspaceRefreshRequest.current += 1;
       queryRequest.current += 1;
       searchIndex.current = new VaultSearchIndex();
+      searchIndexReady.current = false;
       setSearchResults([]);
       if (resetTabs || vaultLocked) {
         setSearchQuery("");
@@ -497,28 +536,45 @@ function App() {
         setStatus(`${snapshot.vaultName} is locked`);
       } else {
         setStatus(`Opened ${snapshot.vaultName}`);
-        await rebuildSearchIndex(vaultGeneration.current);
+        const generation = vaultGeneration.current;
+        if (snapshot.fromCache) {
+          setIndexing(true);
+          void refreshCachedWorkspace(generation);
+        } else {
+          void rebuildSearchIndex(generation);
+        }
       }
     },
-    [commitTabs, rebuildSearchIndex],
+    [commitTabs, rebuildSearchIndex, refreshCachedWorkspace],
   );
 
-  const refreshWorkspace = useCallback(async () => {
+  const refreshWorkspace = useCallback(async (reindex = false) => {
     if (!workspace) {
       return;
     }
     const generation = vaultGeneration.current;
+    const request = ++workspaceRefreshRequest.current;
     try {
       const snapshot = await api.refreshVault();
-      if (generation === vaultGeneration.current) {
+      if (
+        generation === vaultGeneration.current &&
+        request === workspaceRefreshRequest.current
+      ) {
         setWorkspace(snapshot);
+        if (reindex || !searchIndexReady.current) {
+          await rebuildSearchIndex(generation);
+        }
       }
     } catch (caught) {
-      if (generation === vaultGeneration.current) {
+      if (
+        generation === vaultGeneration.current &&
+        request === workspaceRefreshRequest.current
+      ) {
+        setIndexing(false);
         showError(caught);
       }
     }
-  }, [showError, workspace]);
+  }, [rebuildSearchIndex, showError, workspace]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -1097,8 +1153,20 @@ function App() {
         setActivePath(path);
         setSelectedPath(path);
         setStatus(`Opened ${title}`);
-        void refreshWorkspace();
-        scheduleIndexRebuild();
+        setWorkspace((current) =>
+          current
+            ? withRecentlyOpened(
+                current,
+                path,
+                title,
+                tab.stats?.lastOpenedAt ?? null,
+              )
+            : current,
+        );
+        searchIndex.current.recordOpen(
+          path,
+          tab.stats?.lastOpenedAt ?? null,
+        );
       } catch (caught) {
         if (generation === vaultGeneration.current) {
           showError(caught);
@@ -1107,8 +1175,6 @@ function App() {
     },
     [
       commitTabs,
-      refreshWorkspace,
-      scheduleIndexRebuild,
       showError,
       markdownViewMode,
       workspace,
@@ -1310,20 +1376,19 @@ function App() {
     if (!workspace) {
       return;
     }
-    const generation = vaultGeneration.current;
-    await refreshWorkspace();
-    await rebuildSearchIndex(generation);
-  }, [rebuildSearchIndex, refreshWorkspace, workspace]);
+    await refreshWorkspace(true);
+  }, [refreshWorkspace, workspace]);
 
   const createEntry = useCallback(
-    async (directory: boolean) => {
+    async (directory: boolean, parentOverride?: string) => {
       if (!workspace || workspaceLockedRef.current) {
         return;
       }
       const parentPath =
-        selectedNode?.kind === "folder"
+        parentOverride ??
+        (selectedNode?.kind === "folder"
           ? selectedNode.path
-          : selectedPath?.split("/").slice(0, -1).join("/") || "";
+          : selectedPath?.split("/").slice(0, -1).join("/") || "");
       const suggested = directory ? "New folder" : "Untitled.md";
       const entered = await requestText({
         title: directory ? "Create folder" : "Create file",
@@ -1976,6 +2041,50 @@ function App() {
     }
   }, [activeTab, showError]);
 
+  const copyActiveFileContent = useCallback(async () => {
+    if (!activeTab || workspaceLockedRef.current) {
+      return;
+    }
+    try {
+      await api.copyFileContent(activeTab.content);
+      setStatus("Copied file content");
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [activeTab, showError]);
+
+  const copyActiveFileForAttachment = useCallback(async () => {
+    if (!activeTab || workspaceLockedRef.current) {
+      return;
+    }
+    try {
+      await api.copyFileForAttachment(
+        activeTab.path,
+        activeTab.content,
+        activeTab.encoding,
+        activeTab.lineEnding,
+      );
+      setStatus(
+        workspace?.encryption.enabled
+          ? "Copied temporary plaintext file for attachment"
+          : "Copied file for attachment",
+      );
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [activeTab, showError, workspace?.encryption.enabled]);
+
+  const commitSidebarWidth = useCallback(
+    (width: number) => {
+      try {
+        setSidebarWidth(saveSidebarWidth(width));
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+
   const toggleRawEditing = useCallback(() => {
     if (!activePathRef.current) {
       return;
@@ -2142,6 +2251,16 @@ function App() {
         event.preventDefault();
         event.stopPropagation();
         setGlobalSearchOpen(true);
+      } else if (isNewFileShortcut(event, navigator.platform)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!workspace) {
+          showError("Open a vault before creating a file.");
+        } else if (workspace.encryption.enabled && !workspace.encryption.unlocked) {
+          showError("Unlock the vault before creating a file.");
+        } else {
+          void createEntry(false);
+        }
       } else if (isSearchShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -2183,15 +2302,18 @@ function App() {
     activePath,
     activeTab,
     closeTab,
+    createEntry,
     editorSettingsOpen,
     encryptionOpen,
     globalSearchOpen,
     historyOpen,
     replaceOpen,
     saveTab,
+    showError,
     showOutline,
     tabs,
     vaultSwitcherOpen,
+    workspace,
   ]);
 
   const vaultSwitcherDialog = (
@@ -2287,7 +2409,10 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className="app-shell"
+      style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+    >
       <span
         hidden
         aria-hidden="true"
@@ -2460,6 +2585,9 @@ function App() {
                   return next;
                 })
               }
+              onCreate={(parentPath, directory) =>
+                void createEntry(directory, parentPath)
+              }
             />
           </>
         ) : sidebarView === "search" ? (
@@ -2538,6 +2666,11 @@ function App() {
           </div>
         )}
       </aside>
+      <SidebarResizer
+        width={sidebarWidth}
+        onChange={setSidebarWidth}
+        onCommit={commitSidebarWidth}
+      />
       <section
         className="workspace-main"
         id="editor-workspace"
@@ -2580,6 +2713,30 @@ function App() {
                 )}
               </button>
             ) : null}
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Copy active file content"
+              title="Copy active file content"
+              disabled={!activeTab || workspaceLocked}
+              onClick={() => void copyActiveFileContent()}
+            >
+              <ClipboardCopy aria-hidden="true" size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Copy active file for attachment"
+              title={
+                workspace.encryption.enabled
+                  ? "Copy file for attachment using a temporary plaintext copy"
+                  : "Copy active file for attachment"
+              }
+              disabled={!activeTab || workspaceLocked}
+              onClick={() => void copyActiveFileForAttachment()}
+            >
+              <Paperclip aria-hidden="true" size={16} />
+            </button>
             <button
               type="button"
               className="icon-button"
@@ -2858,6 +3015,26 @@ function upsertTagColor(colors: TagColor[], next: TagColor): TagColor[] {
   return [...colors.filter(({ tag }) => tag !== next.tag), next].sort(
     (left, right) => left.tag.localeCompare(right.tag),
   );
+}
+
+function withRecentlyOpened(
+  workspace: WorkspaceSnapshot,
+  path: string,
+  title: string,
+  lastOpenedAt: string | null,
+): WorkspaceSnapshot {
+  return {
+    ...workspace,
+    recent: [
+      {
+        path,
+        title,
+        lastOpenedAt,
+        bookmarked: findNode(workspace.tree, path)?.bookmarked ?? false,
+      },
+      ...workspace.recent.filter((item) => item.path !== path),
+    ].slice(0, 50),
+  };
 }
 
 interface SidebarNoteListProps {

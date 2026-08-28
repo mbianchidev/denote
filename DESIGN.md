@@ -215,10 +215,10 @@ costumes ordinary controls as technical.
 
 ## Layout
 
-The desktop workspace uses a fixed 48px activity rail, a 272px vault sidebar,
-and a flexible editor. The editor may add a 218px outline panel. Below 1100px,
-the outline drops and the document padding tightens; below 860px, the sidebar
-and rail contract again.
+The desktop workspace uses a fixed 48px activity rail, a user-resizable vault
+sidebar that defaults to 272px, a five-pixel divider target, and a flexible
+editor. The editor may add a 218px outline panel. Below 1100px, the outline drops
+and the document padding tightens; below 860px, the rail contracts.
 
 Chrome uses compact 24–42px rows. Document content has substantially more
 vertical space than surrounding controls. The writing column remains centered
@@ -281,6 +281,9 @@ Tabs use the editor surface plus a two-pixel moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a
 keyboard equivalent; reordering never changes the underlying file tree.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
+Right-click creation uses a compact two-action native-style menu adjacent to the
+file-tree target. The sidebar divider is visually one pixel but keeps a larger
+pointer target and exposes arrow-key resizing.
 The vault switcher is a compact recent-folder list with clear current and
 unavailable states; adding a new folder remains a separate native-picker action.
 Vault removal is a two-step inline confirmation. Removing only metadata is
@@ -329,6 +332,8 @@ Line numbers use a quiet gutter. Spaces, tabs, line endings, and trailing
 whitespace are low-contrast source annotations that become prominent only when
 explicitly enabled. The settings dialog uses native checkboxes, applies changes
 immediately, and states that markers never change saved content.
+Rich/source controls remain visible in a disabled segmented state while guides
+force source mode; their tooltip names the setting that restores mode switching.
 
 ### Vault Security
 

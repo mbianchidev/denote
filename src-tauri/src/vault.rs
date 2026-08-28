@@ -4,7 +4,7 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Component, Path, PathBuf},
-    time::UNIX_EPOCH,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use atomic_write_file::AtomicWriteFile;
@@ -32,6 +32,7 @@ const MAX_SEARCH_AGGREGATE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_EDITABLE_AGGREGATE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_GLOBAL_FILE_ENTRIES: usize = 25_000;
+const CLIPBOARD_FILE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 
 pub fn get_last_vault(db_path: &Path) -> AppResult<Option<String>> {
     let connection = db::open(db_path)?;
@@ -46,6 +47,15 @@ pub fn open_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSnapsh
     let (vault_id, vault_name) = ensure_vault(&connection, &root)?;
     db::set_last_vault(&connection, &path_to_string(&root))?;
     snapshot(&mut connection, vault_id, &root, vault_name)
+}
+
+pub fn open_cached_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSnapshot> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, vault_name) = ensure_vault(&connection, &root)?;
+    db::set_last_vault(&connection, &path_to_string(&root))?;
+    cached_snapshot(&mut connection, vault_id, &root, vault_name)
 }
 
 pub fn refresh_vault(db_path: &Path, vault_path: &str) -> AppResult<WorkspaceSnapshot> {
@@ -78,6 +88,166 @@ pub fn absolute_entry_path(vault_path: &str, relative_path: &str) -> AppResult<S
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
     Ok(path_to_string(&path))
+}
+
+pub fn stage_clipboard_file(
+    vault_path: &str,
+    relative_path: &str,
+    content: &str,
+    encoding: FileEncoding,
+    line_ending: FileLineEnding,
+    app_cache_dir: &Path,
+) -> AppResult<PathBuf> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let source = existing_entry(&root, relative_path)?;
+    if !source.is_file() {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a regular file"
+        )));
+    }
+    let bytes = encode_file_content(content, encoding, line_ending)?;
+    if bytes.len() as u64 > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(
+            "File is larger than the 25 MB attachment-copy limit".to_string(),
+        ));
+    }
+    let cache_root = prepare_clipboard_cache_root(app_cache_dir)?;
+    prune_stale_clipboard_files_in_root(&cache_root)?;
+    let staging = cache_root.join(Uuid::new_v4().to_string());
+    create_private_directory(&staging)?;
+    let destination = staging.join(
+        source
+            .file_name()
+            .ok_or_else(|| AppError::InvalidPath(relative_path.to_string()))?,
+    );
+    let write_result = write_private_file(&destination, &bytes);
+    if let Err(error) = write_result {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    Ok(destination)
+}
+
+pub fn prune_stale_clipboard_files(app_cache_dir: &Path) -> AppResult<()> {
+    let cache_root = prepare_clipboard_cache_root(app_cache_dir)?;
+    prune_stale_clipboard_files_in_root(&cache_root)
+}
+
+fn prune_stale_clipboard_files_in_root(cache_root: &Path) -> AppResult<()> {
+    let cutoff = SystemTime::now()
+        .checked_sub(CLIPBOARD_FILE_MAX_AGE)
+        .unwrap_or(UNIX_EPOCH);
+    for entry in fs::read_dir(cache_root)? {
+        let entry = entry?;
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata_is_link(&metadata) {
+            fs::remove_file(entry.path())?;
+            continue;
+        }
+        if metadata.is_dir() && metadata.modified().unwrap_or(UNIX_EPOCH) < cutoff {
+            fs::remove_dir_all(entry.path())?;
+        }
+    }
+    Ok(())
+}
+
+pub fn remove_other_clipboard_files(cache_root: &Path, keep: &Path) -> AppResult<()> {
+    validate_clipboard_cache_root(cache_root)?;
+    for entry in fs::read_dir(cache_root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path == keep {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata_is_link(&metadata) {
+            fs::remove_file(path)?;
+        } else if metadata.is_dir() {
+            fs::remove_dir_all(path)?;
+        }
+    }
+    Ok(())
+}
+
+pub fn remove_staged_clipboard_file(staged: &Path) -> AppResult<()> {
+    let parent = staged
+        .parent()
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(staged)))?;
+    let cache_root = parent
+        .parent()
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(staged)))?;
+    validate_clipboard_cache_root(cache_root)?;
+    let metadata = fs::symlink_metadata(parent)?;
+    if metadata_is_link(&metadata) || !metadata.is_dir() {
+        return Err(AppError::InvalidPath(path_to_string(parent)));
+    }
+    fs::remove_dir_all(parent)?;
+    Ok(())
+}
+
+fn prepare_clipboard_cache_root(app_cache_dir: &Path) -> AppResult<PathBuf> {
+    fs::create_dir_all(app_cache_dir)?;
+    let app_cache_dir = fs::canonicalize(app_cache_dir)?;
+    let cache_root = app_cache_dir.join("clipboard-files");
+    match fs::symlink_metadata(&cache_root) {
+        Ok(metadata) => {
+            if metadata_is_link(&metadata) || !metadata.is_dir() {
+                return Err(AppError::InvalidPath(format!(
+                    "Clipboard cache is not a regular directory: {}",
+                    cache_root.display()
+                )));
+            }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            create_private_directory(&cache_root)?;
+        }
+        Err(error) => return Err(error.into()),
+    }
+    validate_clipboard_cache_root(&cache_root)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&cache_root, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(cache_root)
+}
+
+fn validate_clipboard_cache_root(cache_root: &Path) -> AppResult<()> {
+    let metadata = fs::symlink_metadata(cache_root)?;
+    if metadata_is_link(&metadata) || !metadata.is_dir() {
+        return Err(AppError::InvalidPath(format!(
+            "Clipboard cache is not a regular directory: {}",
+            cache_root.display()
+        )));
+    }
+    Ok(())
+}
+
+fn create_private_directory(path: &Path) -> AppResult<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        let mut builder = fs::DirBuilder::new();
+        builder.mode(0o700).create(path)?;
+    }
+    #[cfg(not(unix))]
+    fs::create_dir(path)?;
+    Ok(())
+}
+
+fn write_private_file(path: &Path, bytes: &[u8]) -> AppResult<()> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    Ok(())
 }
 
 pub fn encrypt_vault_contents(
@@ -1101,10 +1271,53 @@ fn snapshot(
     vault_name: String,
 ) -> AppResult<WorkspaceSnapshot> {
     reconcile_pending_operations(connection, vault_id, root)?;
+    let refresh_generation = db::begin_workspace_tree_refresh(connection, vault_id)?;
     let stats = db::stats_map(connection, vault_id)?;
     let placements = db::entry_placement_map(connection, vault_id)?;
-    let tag_colors = db::list_tag_colors(connection, vault_id)?;
     let tree = scan_directory(root, root, &stats, &placements, 0)?;
+    match db::set_workspace_tree_cache_if_current(connection, vault_id, refresh_generation, &tree) {
+        Ok(true) => {}
+        Ok(false) => eprintln!("Skipped a stale vault tree cache write"),
+        Err(error) => eprintln!("Unable to cache the vault tree: {error}"),
+    }
+    snapshot_with_tree(connection, vault_id, root, vault_name, tree, false)
+}
+
+fn cached_snapshot(
+    connection: &mut Connection,
+    vault_id: i64,
+    root: &Path,
+    vault_name: String,
+) -> AppResult<WorkspaceSnapshot> {
+    if !db::pending_file_operations(connection, vault_id)?.is_empty() {
+        return snapshot(connection, vault_id, root, vault_name);
+    }
+    let cached = match db::workspace_tree_cache(connection, vault_id) {
+        Ok(cached) => cached,
+        Err(error) => {
+            eprintln!("Discarding an invalid vault tree cache: {error}");
+            db::clear_workspace_tree_cache(connection, vault_id)?;
+            None
+        }
+    };
+    let Some(mut tree) = cached else {
+        return snapshot(connection, vault_id, root, vault_name);
+    };
+    let stats = db::stats_map(connection, vault_id)?;
+    let placements = db::entry_placement_map(connection, vault_id)?;
+    refresh_cached_tree_metadata(&mut tree, &stats, &placements);
+    snapshot_with_tree(connection, vault_id, root, vault_name, tree, true)
+}
+
+fn snapshot_with_tree(
+    connection: &mut Connection,
+    vault_id: i64,
+    root: &Path,
+    vault_name: String,
+    tree: Vec<FileNode>,
+    from_cache: bool,
+) -> AppResult<WorkspaceSnapshot> {
+    let tag_colors = db::list_tag_colors(connection, vault_id)?;
     let (mut bookmarks, mut recent) = db::note_lists(connection, vault_id)?;
     bookmarks.retain(|item| existing_entry(root, &item.path).is_ok());
     recent.retain(|item| existing_entry(root, &item.path).is_ok());
@@ -1131,6 +1344,7 @@ fn snapshot(
         recent,
         trash,
         tag_colors,
+        from_cache,
         encryption: Default::default(),
     })
 }
@@ -1303,6 +1517,34 @@ fn scan_directory(
             });
         }
     }
+    sort_file_nodes(&mut nodes, placements);
+    Ok(nodes)
+}
+
+fn refresh_cached_tree_metadata(
+    nodes: &mut Vec<FileNode>,
+    stats: &HashMap<String, crate::models::NoteStats>,
+    placements: &HashMap<String, db::EntryPlacement>,
+) {
+    for node in nodes.iter_mut() {
+        node.pinned = placements
+            .get(&node.path)
+            .map(|placement| placement.pinned)
+            .unwrap_or(false);
+        if node.kind == FileKind::Folder {
+            node.bookmarked = false;
+            refresh_cached_tree_metadata(&mut node.children, stats, placements);
+        } else {
+            node.bookmarked = stats
+                .get(&node.path)
+                .map(|value| value.bookmarked)
+                .unwrap_or(false);
+        }
+    }
+    sort_file_nodes(nodes, placements);
+}
+
+fn sort_file_nodes(nodes: &mut [FileNode], placements: &HashMap<String, db::EntryPlacement>) {
     nodes.sort_by(|left, right| {
         let left_position = placements
             .get(&left.path)
@@ -1321,7 +1563,6 @@ fn scan_directory(
             })
             .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
     });
-    Ok(nodes)
 }
 
 fn ensure_vault(connection: &Connection, root: &Path) -> AppResult<(i64, String)> {
@@ -2492,6 +2733,110 @@ mod tests {
                 .expect("renamed note")
                 .view_mode,
             Some(MarkdownViewMode::Source)
+        );
+    }
+
+    #[test]
+    fn cached_vault_open_returns_immediately_then_refreshes_from_disk() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("one.md"), "one").expect("first file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let initial = open_vault(&db_path, vault_path.to_str().unwrap()).expect("initial scan");
+        assert!(!initial.from_cache);
+        fs::write(vault_path.join("two.md"), "two").expect("external file");
+
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached open");
+        assert!(cached.from_cache);
+        assert!(cached.tree.iter().all(|node| node.name != "two.md"));
+
+        let refreshed =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh scan");
+        assert!(!refreshed.from_cache);
+        assert!(refreshed.tree.iter().any(|node| node.name == "two.md"));
+
+        let updated =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("updated cache");
+        assert!(updated.from_cache);
+        assert!(updated.tree.iter().any(|node| node.name == "two.md"));
+    }
+
+    #[test]
+    fn stages_current_editor_content_as_a_clipboard_file() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let cache_path = directory.path().join("cache");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "saved").expect("saved file");
+
+        let staged = stage_clipboard_file(
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "unsaved\ntext",
+            FileEncoding::Utf8,
+            FileLineEnding::Crlf,
+            &cache_path,
+        )
+        .expect("staged clipboard file");
+
+        assert_eq!(staged.file_name().unwrap(), "note.md");
+        assert_eq!(fs::read(&staged).expect("staged bytes"), b"unsaved\r\ntext");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                fs::metadata(&staged)
+                    .expect("file metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            assert_eq!(
+                fs::metadata(staged.parent().unwrap())
+                    .expect("directory metadata")
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o700
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clipboard_staging_rejects_a_symlinked_cache_root() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let app_cache = directory.path().join("cache");
+        let outside = directory.path().join("outside");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::create_dir(&app_cache).expect("app cache");
+        fs::create_dir(&outside).expect("outside directory");
+        fs::write(vault_path.join("note.md"), "saved").expect("saved file");
+        fs::write(outside.join("keep.txt"), "keep").expect("outside sentinel");
+        symlink(&outside, app_cache.join("clipboard-files")).expect("cache symlink");
+
+        assert!(
+            stage_clipboard_file(
+                vault_path.to_str().unwrap(),
+                "note.md",
+                "plaintext",
+                FileEncoding::Utf8,
+                FileLineEnding::Lf,
+                &app_cache,
+            )
+            .is_err()
+        );
+        assert_eq!(
+            fs::read_to_string(outside.join("keep.txt")).expect("sentinel remains"),
+            "keep"
         );
     }
 
