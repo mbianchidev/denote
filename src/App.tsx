@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Replace as ReplaceIcon,
   RotateCcw,
+  Settings2,
   ShieldCheck,
   Trash2,
   X,
@@ -34,9 +35,11 @@ import {
 import { ActivityRail } from "./components/ActivityRail";
 import { ActionDialog } from "./components/ActionDialog";
 import { EncryptionDialog } from "./components/EncryptionDialog";
+import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { FileTree } from "./components/FileTree";
 import { HistoryDialog } from "./components/HistoryDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
+import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { TableOfContents } from "./components/TableOfContents";
@@ -60,6 +63,12 @@ import {
   type ReplaceRequest,
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
+import {
+  editorDisplaySettingsKey,
+  getEditorDisplaySettings,
+  saveEditorDisplaySettings,
+  type EditorDisplaySettings,
+} from "./lib/editorDisplay";
 import type {
   EditorTab,
   FileNode,
@@ -110,6 +119,9 @@ function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [replaceOpen, setReplaceOpen] = useState(false);
+  const [editorSettingsOpen, setEditorSettingsOpen] = useState(false);
+  const [editorDisplaySettings, setEditorDisplaySettings] =
+    useState<EditorDisplaySettings>(() => getEditorDisplaySettings());
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
@@ -238,12 +250,26 @@ function App() {
         : [],
     [activeTab],
   );
+  const editorDisplayKey = editorDisplaySettingsKey(editorDisplaySettings);
 
   const showError = useCallback((value: unknown) => {
     const message = errorMessage(value);
     setError(message);
     setStatus("Action failed");
   }, []);
+
+  const updateEditorDisplaySettings = useCallback(
+    (settings: EditorDisplaySettings) => {
+      try {
+        saveEditorDisplaySettings(settings);
+        setEditorDisplaySettings(settings);
+        setStatus("Editor display settings updated");
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
 
   const rebuildSearchIndex = useCallback(
     async (generation = vaultGeneration.current) => {
@@ -316,6 +342,7 @@ function App() {
         setHistoryRevisions([]);
         setReplaceOpen(false);
         setEncryptionOpen(false);
+        setEditorSettingsOpen(false);
         pendingAnchor.current = null;
       }
       setIndexing(false);
@@ -1849,6 +1876,7 @@ function App() {
         workspaceLockedRef.current ||
         replaceOpen ||
         encryptionOpen ||
+        editorSettingsOpen ||
         actionDialog !== null ||
         historyOpen
       ) {
@@ -1891,6 +1919,7 @@ function App() {
     activePath,
     activeTab,
     closeTab,
+    editorSettingsOpen,
     encryptionOpen,
     historyOpen,
     replaceOpen,
@@ -2297,6 +2326,18 @@ function App() {
             <button
               type="button"
               className="icon-button"
+              aria-label="Open editor display settings"
+              title="Editor display settings"
+              aria-haspopup="dialog"
+              aria-expanded={editorSettingsOpen}
+              disabled={workspaceLocked}
+              onClick={() => setEditorSettingsOpen(true)}
+            >
+              <Settings2 aria-hidden="true" size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
               aria-label={`${
                 showOutline &&
                 activeTab?.kind === "markdown" &&
@@ -2356,9 +2397,11 @@ function App() {
                   activeTab.encoding === "utf8" &&
                   !activeTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
                   <MarkdownEditor
-                    key={`${activeTab.path}:${activeTab.editorRevision}`}
+                    key={`${activeTab.path}:${activeTab.editorRevision}:${editorDisplayKey}`}
                     notePath={activeTab.path}
                     markdown={activeTab.content}
+                    lineEnding={activeTab.lineEnding}
+                    displaySettings={editorDisplaySettings}
                     readOnly={workspaceLocked}
                     onChange={changeActiveContent}
                     onError={showError}
@@ -2373,19 +2416,16 @@ function App() {
                         will not be saved.
                       </div>
                     ) : null}
-                    <textarea
-                      className={`plain-text-editor${
-                        activeTab.encoding === "base64"
-                          ? " plain-text-editor--binary"
-                          : ""
-                      }`}
-                      aria-label={`Edit ${activeTab.title}`}
+                    <PlainTextEditor
+                      key={`${activeTab.path}:${activeTab.editorRevision}`}
+                      ariaLabel={`Edit ${activeTab.title}`}
                       value={activeTab.content}
                       readOnly={workspaceLocked}
                       spellCheck={activeTab.encoding === "utf8"}
-                      onChange={(event) =>
-                        changeActiveContent(event.currentTarget.value)
-                      }
+                      binary={activeTab.encoding === "base64"}
+                      lineEnding={activeTab.lineEnding}
+                      displaySettings={editorDisplaySettings}
+                      onChange={changeActiveContent}
                     />
                   </>
                 )}
@@ -2474,6 +2514,12 @@ function App() {
         onClose={() => setReplaceOpen(false)}
         onPreview={previewReplace}
         onApply={applyReplace}
+      />
+      <EditorSettingsDialog
+        open={editorSettingsOpen}
+        settings={editorDisplaySettings}
+        onChange={updateEditorDisplaySettings}
+        onClose={() => setEditorSettingsOpen(false)}
       />
       <EncryptionDialog
         open={encryptionOpen}

@@ -23,6 +23,8 @@ the selected folder as the source of truth.
 - Table of contents, task lists, tables, code blocks, images, and links
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
+- Persistent editor guides for line numbers, spaces/tabs, line endings, and
+  trailing whitespace
 - Dark mode by default with persistent light mode
 - Optional password-based vault encryption with ten one-time recovery codes
 - A typed host contract for separately shipped optional plugins
@@ -43,6 +45,11 @@ Notes containing raw HTML, footnotes, or math open in source mode by default so
 unsupported rich-editor transforms cannot silently rewrite that syntax.
 If another application changes an open note, Denote rejects the stale autosave
 instead of overwriting the external edit.
+
+Editor display settings are available from the editor toolbar. The guides are
+visual only and never alter saved text. Plain, binary, and MDX files use the
+source editor directly; Markdown switches from rich editing to source mode while
+any line-number or invisible-character guide is enabled.
 
 ## Vault encryption
 

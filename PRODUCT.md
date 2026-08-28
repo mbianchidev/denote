@@ -57,6 +57,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   clipboard from the editor toolbar.
 - Files and folders can be pinned above their siblings and manually ordered
   within the pinned or unpinned section of each parent folder.
+- Persistent editor display settings can show line numbers, spaces and tabs,
+  exact line-ending style, and trailing whitespace without modifying content.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.

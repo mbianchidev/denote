@@ -542,6 +542,14 @@ button:disabled {
   overflow-y: hidden;
 }
 
+.editor-source-mode-label {
+  margin-right: auto;
+  padding: 0 4px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 .denote-editor-content {
   width: min(100%, 820px);
   min-height: 100%;
@@ -647,25 +655,108 @@ button:disabled {
   background: var(--editor-raised);
 }
 
-.plain-text-editor {
+.plain-code-editor {
   width: min(100%, 820px);
   min-height: 0;
   flex: 1;
   margin: 0 auto;
-  padding: 56px 66px 140px;
-  color: var(--text-primary);
-  line-height: 1.7;
-  resize: none;
+  overflow: hidden;
   background: var(--editor-bg);
-  border: 0;
+}
+
+.plain-code-editor .cm-editor {
+  height: 100%;
+}
+
+.plain-code-editor .cm-scroller {
+  overflow: auto;
+  font-family: inherit;
+  line-height: 1.7;
+}
+
+.plain-code-editor .cm-content {
+  min-height: 100%;
+  padding: 56px 66px 140px;
+  caret-color: var(--accent-strong);
+}
+
+.plain-code-editor .cm-line {
+  padding: 0;
+}
+
+.plain-code-editor .cm-editor.cm-focused {
   outline: 0;
 }
 
-.plain-text-editor--binary {
+.plain-code-editor .cm-gutters,
+.mdxeditor-source-editor .cm-gutters {
+  color: var(--text-tertiary);
+  background: var(--editor-raised);
+  border-right: 1px solid var(--border);
+}
+
+.markdown-editor-shell:not(.editor-display--line-numbers)
+  .mdxeditor-source-editor
+  .cm-gutters {
+  display: none;
+}
+
+.plain-code-editor .cm-activeLine,
+.plain-code-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--panel-bg) 48%, transparent);
+}
+
+.plain-code-editor .cm-selectionBackground,
+.plain-code-editor .cm-content ::selection {
+  background: color-mix(in srgb, var(--accent) 34%, transparent) !important;
+}
+
+.plain-code-editor .cm-cursor {
+  border-left-color: var(--accent-strong);
+}
+
+.cm-highlightSpace,
+.cm-highlightTab {
+  opacity: 0.65;
+}
+
+.cm-trailingSpace {
+  background: color-mix(in srgb, var(--danger) 28%, transparent);
+}
+
+.cm-line-ending {
+  margin-inline-start: 0.4em;
+  color: var(--text-tertiary);
+  font-size: 0.72em;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  user-select: none;
+}
+
+.plain-code-editor--binary .cm-scroller {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.55;
   letter-spacing: 0.02em;
+}
+
+.plain-code-editor .cm-editor,
+.mdxeditor-source-editor .cm-editor {
+  color: var(--text-primary);
+  background: var(--editor-bg);
+}
+
+.mdxeditor-source-editor .cm-content {
+  caret-color: var(--accent-strong);
+}
+
+.mdxeditor-source-editor .cm-activeLine,
+.mdxeditor-source-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--panel-bg) 48%, transparent);
+}
+
+.mdxeditor-source-editor .cm-cursor {
+  border-left-color: var(--accent-strong);
 }
 
 .binary-editor-notice {
@@ -1324,6 +1415,65 @@ kbd {
   padding: 12px 18px 18px;
 }
 
+.editor-settings-dialog {
+  width: min(500px, calc(100vw - 48px));
+}
+
+.editor-settings-dialog__body {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.editor-settings-dialog__body > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.editor-settings-list {
+  display: grid;
+  border-top: 1px solid var(--border);
+}
+
+.editor-setting {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 13px 2px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.editor-setting input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.editor-setting > span {
+  display: grid;
+  gap: 3px;
+}
+
+.editor-setting strong {
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.editor-setting small {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.editor-settings-dialog__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 18px 18px;
+}
+
 .encryption-dialog {
   width: min(520px, calc(100vw - 48px));
 }
@@ -1648,7 +1798,7 @@ kbd {
   }
 
   .denote-editor-content,
-  .plain-text-editor {
+  .plain-code-editor .cm-content {
     padding-inline: 42px;
   }
 }
@@ -1659,7 +1809,7 @@ kbd {
   }
 
   .denote-editor-content,
-  .plain-text-editor {
+  .plain-code-editor .cm-content {
     padding: 42px 28px 120px;
   }
 

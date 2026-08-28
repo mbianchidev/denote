@@ -40,6 +40,11 @@ import {
 } from "@mdxeditor/editor";
 import { forwardRef, useMemo, useRef } from "react";
 import { api } from "../lib/api";
+import { createEditorDisplayExtensions } from "../lib/editorExtensions";
+import {
+  hasEditorDisplayGuides,
+  type EditorDisplaySettings,
+} from "../lib/editorDisplay";
 import {
   calloutsToDirectives,
   captureMarkdownBoundaryWhitespace,
@@ -47,10 +52,13 @@ import {
   hasUnsupportedRichMarkdown,
   restoreMarkdownBoundaryWhitespace,
 } from "../lib/markdown";
+import type { FileLineEnding } from "../types";
 
 interface MarkdownEditorProps {
   notePath: string;
   markdown: string;
+  lineEnding: FileLineEnding;
+  displaySettings: EditorDisplaySettings;
   readOnly: boolean;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
@@ -63,8 +71,10 @@ export const MarkdownEditor = forwardRef<
   MarkdownEditorProps
 >(function MarkdownEditor(
   {
-  notePath,
-  markdown,
+    notePath,
+    markdown,
+    lineEnding,
+    displaySettings,
     readOnly,
     onChange,
     onError,
@@ -74,6 +84,11 @@ export const MarkdownEditor = forwardRef<
   ref,
 ) {
   const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
+  const forceSource = hasEditorDisplayGuides(displaySettings);
+  const displayExtensions = useMemo(
+    () => createEditorDisplayExtensions(displaySettings, lineEnding, false),
+    [displaySettings, lineEnding],
+  );
   const boundaryWhitespace = useRef(
     captureMarkdownBoundaryWhitespace(markdown),
   ).current;
@@ -126,68 +141,82 @@ export const MarkdownEditor = forwardRef<
         directiveDescriptors: [AdmonitionDirectiveDescriptor],
       }),
       diffSourcePlugin({
-        viewMode: sourceFirst ? "source" : "rich-text",
+        viewMode: sourceFirst || forceSource ? "source" : "rich-text",
         diffMarkdown: "",
         readOnlyDiff: false,
+        codeMirrorExtensions: displayExtensions,
       }),
       toolbarPlugin({
         toolbarPosition: "top",
-        toolbarContents: () => (
-          <DiffSourceToggleWrapper
-            options={["rich-text", "source"]}
-            SourceToolbar={<UndoRedo />}
-          >
-            <UndoRedo />
-            <Separator />
-            <ConditionalContents
-              options={[
-                {
-                  when: (editor) => {
-                    const node = editor?.rootNode;
-                    return (
-                      $isDirectiveNode(node) &&
-                      ["note", "tip", "danger", "info", "caution"].includes(
-                        node.getMdastNode().name,
-                      )
-                    );
+        toolbarContents: () =>
+          forceSource ? (
+            <>
+              <UndoRedo />
+              <Separator />
+              <span className="editor-source-mode-label">
+                Source guides enabled
+              </span>
+            </>
+          ) : (
+            <DiffSourceToggleWrapper
+              options={["rich-text", "source"]}
+              SourceToolbar={<UndoRedo />}
+            >
+              <UndoRedo />
+              <Separator />
+              <ConditionalContents
+                options={[
+                  {
+                    when: (editor) => {
+                      const node = editor?.rootNode;
+                      return (
+                        $isDirectiveNode(node) &&
+                        ["note", "tip", "danger", "info", "caution"].includes(
+                          node.getMdastNode().name,
+                        )
+                      );
+                    },
+                    contents: () => <ChangeAdmonitionType />,
                   },
-                  contents: () => <ChangeAdmonitionType />,
-                },
-                { fallback: () => <BlockTypeSelect /> },
-              ]}
-            />
-            <BoldItalicUnderlineToggles />
-            <CodeToggle />
-            <StrikeThroughSupSubToggles options={["Strikethrough"]} />
-            <HighlightToggle />
-            <Separator />
-            <ListsToggle options={["bullet", "number", "check"]} />
-            <CreateLink />
-            <InsertImage />
-            <Separator />
-            <InsertCodeBlock />
-            <InsertTable />
-            <InsertThematicBreak />
-            <InsertAdmonition />
-            <InsertFrontmatter />
-            <ConditionalContents
-              options={[
-                {
-                  when: (editor) => editor?.editorType === "codeblock",
-                  contents: () => <ChangeCodeMirrorLanguage />,
-                },
-              ]}
-            />
-          </DiffSourceToggleWrapper>
-        ),
+                  { fallback: () => <BlockTypeSelect /> },
+                ]}
+              />
+              <BoldItalicUnderlineToggles />
+              <CodeToggle />
+              <StrikeThroughSupSubToggles options={["Strikethrough"]} />
+              <HighlightToggle />
+              <Separator />
+              <ListsToggle options={["bullet", "number", "check"]} />
+              <CreateLink />
+              <InsertImage />
+              <Separator />
+              <InsertCodeBlock />
+              <InsertTable />
+              <InsertThematicBreak />
+              <InsertAdmonition />
+              <InsertFrontmatter />
+              <ConditionalContents
+                options={[
+                  {
+                    when: (editor) => editor?.editorType === "codeblock",
+                    contents: () => <ChangeCodeMirrorLanguage />,
+                  },
+                ]}
+              />
+            </DiffSourceToggleWrapper>
+          ),
       }),
     ],
-    [notePath, onImageUpload, sourceFirst],
+    [displayExtensions, forceSource, notePath, onImageUpload, sourceFirst],
   );
 
   return (
     <div
-      className="markdown-editor-shell"
+      className={`markdown-editor-shell${
+        displaySettings.showLineNumbers
+          ? " editor-display--line-numbers"
+          : ""
+      }`}
       onKeyDownCapture={(event) => {
         if (event.key !== "Enter") {
           return;

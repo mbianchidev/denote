@@ -293,6 +293,13 @@ Binary files use the plain monospace editor with a persistent warning strip
 that names Base64 as the reversible representation and explains save
 validation.
 
+### Editor Display Guides
+
+Line numbers use a quiet gutter. Spaces, tabs, line endings, and trailing
+whitespace are low-contrast source annotations that become prominent only when
+explicitly enabled. The settings dialog uses native checkboxes, applies changes
+immediately, and states that markers never change saved content.
+
 ### Vault Security
 
 The locked vault replaces the workspace with one focused unlock surface and

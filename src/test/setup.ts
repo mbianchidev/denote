@@ -11,3 +11,11 @@ HTMLDialogElement.prototype.showModal = function showModal() {
 HTMLDialogElement.prototype.close = function close() {
   this.open = false;
 };
+
+Range.prototype.getClientRects = function getClientRects() {
+  return [] as unknown as DOMRectList;
+};
+
+Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
+  return new DOMRect();
+};
