@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
 import userEvent from "@testing-library/user-event";
-import { createRef } from "react";
+import { createRef, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { MarkdownEditor } from "./MarkdownEditor";
@@ -181,4 +181,64 @@ describe("MarkdownEditor links", () => {
     expect(changed).toMatch(/^#guide(?:\n|$)/);
     expect(changed).not.toMatch(/^\\#guide/);
   });
+
+  it("restores each file's selected mode when changing files", async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <ViewModeNavigationHarness />
+      </StrictMode>,
+    );
+
+    await user.click(
+      await screen.findByRole("radio", { name: "Source mode" }),
+    );
+    expect(screen.getByTestId("preferred-view-mode")).toHaveTextContent("source");
+
+    await user.click(screen.getByRole("button", { name: "Open second file" }));
+    expect(
+      await screen.findByRole("radio", { name: "Rich text", checked: true }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open first file" }));
+    expect(
+      await screen.findByRole("radio", { name: "Source mode", checked: true }),
+    ).toBeInTheDocument();
+  });
 });
+
+function ViewModeNavigationHarness() {
+  const [path, setPath] = useState("one.md");
+  const [modes, setModes] = useState<Record<string, "rich-text" | "source">>({
+    "one.md": "rich-text",
+    "two.md": "rich-text",
+  });
+  const mode = modes[path];
+  return (
+    <>
+      <button type="button" onClick={() => setPath("one.md")}>
+        Open first file
+      </button>
+      <button type="button" onClick={() => setPath("two.md")}>
+        Open second file
+      </button>
+      <output data-testid="preferred-view-mode">{mode}</output>
+      <MarkdownEditor
+        key={path}
+        notePath={path}
+        markdown={`# ${path}`}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode={mode}
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={(nextMode) =>
+          setModes((current) => ({ ...current, [path]: nextMode }))
+        }
+        onImageUpload={vi.fn()}
+      />
+    </>
+  );
+}

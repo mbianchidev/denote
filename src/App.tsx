@@ -38,6 +38,7 @@ import { EncryptionDialog } from "./components/EncryptionDialog";
 import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { FileTree } from "./components/FileTree";
 import { HistoryDialog } from "./components/HistoryDialog";
+import { GlobalSearchDialog } from "./components/GlobalSearchDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
@@ -63,7 +64,11 @@ import {
 } from "./lib/markdownView";
 import { VaultSearchIndex } from "./lib/search";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
-import { isReplaceShortcut, isSearchShortcut } from "./lib/shortcuts";
+import {
+  isGlobalSearchShortcut,
+  isReplaceShortcut,
+  isSearchShortcut,
+} from "./lib/shortcuts";
 import {
   previewReplacements,
   type ReplaceApplySummary,
@@ -87,6 +92,7 @@ import type {
   FileNode,
   HeadingItem,
   HistoryRevision,
+  KnownVaultFile,
   SearchResult,
   SidebarView,
   TagColor,
@@ -140,6 +146,7 @@ function App() {
     useState<MarkdownViewMode>(() => getMarkdownViewMode());
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
     null,
@@ -156,6 +163,8 @@ function App() {
   const saveQueues = useRef(new Map<string, Promise<boolean>>());
   const saveGenerations = useRef(new Map<string, number>());
   const editQueues = useRef(new Map<string, Promise<boolean>>());
+  const viewModeQueues = useRef(new Map<string, Promise<boolean>>());
+  const viewModeWrites = useRef(new Set<Promise<boolean>>());
   const attachmentUploads = useRef(new Set<Promise<boolean>>());
   const criticalOperations = useRef(new Set<Promise<void>>());
   const pendingAttachmentInsertions = useRef(
@@ -168,6 +177,10 @@ function App() {
   const indexTimer = useRef<number | null>(null);
   const pendingAnchor = useRef<string | null>(null);
   const pendingDefaultWelcome = useRef<string | null>(null);
+  const pendingWorkspaceFile = useRef<{
+    vaultPath: string;
+    path: string;
+  } | null>(null);
   const activePathRef = useRef<string | null>(activePath);
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
@@ -297,15 +310,40 @@ function App() {
   );
 
   const updateMarkdownViewMode = useCallback(
-    (mode: MarkdownViewMode) => {
+    (path: string, mode: MarkdownViewMode) => {
       try {
         saveMarkdownViewMode(mode);
         setMarkdownViewMode(mode);
+        commitTabs((current) =>
+          current.map((tab) => (tab.path === path ? { ...tab, viewMode: mode } : tab)),
+        );
+        const generation = vaultGeneration.current;
+        const previous =
+          viewModeQueues.current.get(path) ?? Promise.resolve(true);
+        const write = previous
+          .then(() => api.setNoteViewMode(path, mode))
+          .then(() => true)
+          .catch((caught) => {
+            if (generation === vaultGeneration.current) {
+              showError(caught);
+            } else {
+              console.error(`Unable to save the view mode for ${path}:`, caught);
+            }
+            return false;
+          });
+        viewModeQueues.current.set(path, write);
+        viewModeWrites.current.add(write);
+        void write.finally(() => {
+          viewModeWrites.current.delete(write);
+          if (viewModeQueues.current.get(path) === write) {
+            viewModeQueues.current.delete(path);
+          }
+        });
       } catch (caught) {
         showError(caught);
       }
     },
-    [showError],
+    [commitTabs, showError],
   );
 
   const updateTagColor = useCallback(
@@ -407,12 +445,22 @@ function App() {
         setEncryptionOpen(false);
         setEditorSettingsOpen(false);
         setVaultSwitcherOpen(false);
+        setGlobalSearchOpen(false);
         pendingAnchor.current = null;
       }
       if (resetTabs) {
+        if (
+          pendingWorkspaceFile.current &&
+          pendingWorkspaceFile.current.vaultPath !== snapshot.vaultPath
+        ) {
+          pendingWorkspaceFile.current = null;
+        }
         const welcome = findNode(snapshot.tree, "Welcome.md");
         pendingDefaultWelcome.current =
-          snapshot.default && welcome !== null && welcome.kind !== "folder"
+          !pendingWorkspaceFile.current &&
+          snapshot.default &&
+          welcome !== null &&
+          welcome.kind !== "folder"
             ? "Welcome.md"
             : null;
       }
@@ -440,6 +488,8 @@ function App() {
         }
         saveQueues.current.clear();
         editQueues.current.clear();
+        viewModeQueues.current.clear();
+        viewModeWrites.current.clear();
         commitTabs(() => []);
         setActivePath(null);
       }
@@ -545,7 +595,7 @@ function App() {
   }, [loadWorkspace, setWorkspaceLock, showError]);
 
   const switchKnownVault = useCallback(
-    async (vaultId: number) => {
+    async (vaultId: number, filePath?: string) => {
       if (workspaceLockedRef.current) {
         throw new Error("Workspace is busy. Try switching vaults again.");
       }
@@ -557,8 +607,21 @@ function App() {
           );
         }
         const snapshot = await api.openKnownVault(vaultId);
+        const pendingFile = filePath
+          ? { vaultPath: snapshot.vaultPath, path: filePath }
+          : null;
+        if (pendingFile) {
+          pendingWorkspaceFile.current = pendingFile;
+        }
         vaultGeneration.current += 1;
-        await loadWorkspace(snapshot, true);
+        try {
+          await loadWorkspace(snapshot, true);
+        } catch (caught) {
+          if (pendingWorkspaceFile.current === pendingFile) {
+            pendingWorkspaceFile.current = null;
+          }
+          throw caught;
+        }
       } finally {
         setInitializing(false);
         setWorkspaceLock(false);
@@ -845,8 +908,15 @@ function App() {
       if (uploads.some((succeeded) => !succeeded)) {
         return false;
       }
+      const viewModes = await Promise.all([...viewModeWrites.current]);
+      if (viewModes.some((saved) => !saved)) {
+        return false;
+      }
       setWorkspaceLock(true);
-      if (attachmentUploads.current.size > 0) {
+      if (
+        attachmentUploads.current.size > 0 ||
+        viewModeWrites.current.size > 0
+      ) {
         setWorkspaceLock(false);
         continue;
       }
@@ -991,6 +1061,7 @@ function App() {
                 savedHash: document.contentHash,
                 encoding: document.encoding,
                 lineEnding: document.lineEnding,
+                viewMode: document.viewMode ?? markdownViewMode,
                 imageDataUrl,
                 rawEditing: false,
                 editorRevision: 0,
@@ -1007,6 +1078,7 @@ function App() {
                 savedHash: document.contentHash,
                 encoding: document.encoding,
                 lineEnding: document.lineEnding,
+                viewMode: document.viewMode ?? markdownViewMode,
                 rawEditing: false,
                 editorRevision: 0,
                 stats: document.stats,
@@ -1038,11 +1110,42 @@ function App() {
       refreshWorkspace,
       scheduleIndexRebuild,
       showError,
+      markdownViewMode,
       workspace,
     ],
   );
 
+  const openKnownVaultFile = useCallback(
+    async (file: KnownVaultFile) => {
+      if (file.current && workspace) {
+        if (workspace.encryption.enabled && !workspace.encryption.unlocked) {
+          pendingWorkspaceFile.current = {
+            vaultPath: workspace.vaultPath,
+            path: file.path,
+          };
+          return;
+        }
+        await openFile(file.path);
+        return;
+      }
+      await switchKnownVault(file.vaultId, file.path);
+    },
+    [openFile, switchKnownVault, workspace],
+  );
+
   useEffect(() => {
+    const pendingFile = pendingWorkspaceFile.current;
+    if (
+      pendingFile &&
+      workspace &&
+      !workspaceLocked &&
+      pendingFile.vaultPath === workspace.vaultPath &&
+      (!workspace.encryption.enabled || workspace.encryption.unlocked)
+    ) {
+      pendingWorkspaceFile.current = null;
+      void openFile(pendingFile.path);
+      return;
+    }
     const welcomePath = pendingDefaultWelcome.current;
     if (
       !welcomePath ||
@@ -1053,7 +1156,7 @@ function App() {
     }
     pendingDefaultWelcome.current = null;
     void openFile(welcomePath);
-  }, [openFile, workspace]);
+  }, [openFile, workspace, workspaceLocked]);
 
   const changeActiveContent = useCallback(
     (content: string) => {
@@ -2020,6 +2123,7 @@ function App() {
         encryptionOpen ||
         editorSettingsOpen ||
         vaultSwitcherOpen ||
+        globalSearchOpen ||
         actionDialog !== null ||
         historyOpen
       ) {
@@ -2034,6 +2138,10 @@ function App() {
         event.preventDefault();
         event.stopPropagation();
         setVaultSwitcherOpen(true);
+      } else if (isGlobalSearchShortcut(event, navigator.platform)) {
+        event.preventDefault();
+        event.stopPropagation();
+        setGlobalSearchOpen(true);
       } else if (isSearchShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -2077,6 +2185,7 @@ function App() {
     closeTab,
     editorSettingsOpen,
     encryptionOpen,
+    globalSearchOpen,
     historyOpen,
     replaceOpen,
     saveTab,
@@ -2093,6 +2202,14 @@ function App() {
       onDelete={deleteKnownVault}
       onChooseFolder={() => void chooseVault()}
       onClose={() => setVaultSwitcherOpen(false)}
+    />
+  );
+  const globalSearchDialog = (
+    <GlobalSearchDialog
+      open={globalSearchOpen}
+      onLoad={api.listKnownVaultFiles}
+      onOpen={openKnownVaultFile}
+      onClose={() => setGlobalSearchOpen(false)}
     />
   );
 
@@ -2123,6 +2240,7 @@ function App() {
           onShowRecentVaults={() => setVaultSwitcherOpen(true)}
         />
         {vaultSwitcherDialog}
+        {globalSearchDialog}
       </>
     );
   }
@@ -2163,6 +2281,7 @@ function App() {
           }
         />
         {vaultSwitcherDialog}
+        {globalSearchDialog}
       </>
     );
   }
@@ -2582,13 +2701,15 @@ function App() {
                     markdown={activeTab.content}
                     lineEnding={activeTab.lineEnding}
                     displaySettings={editorDisplaySettings}
-                    preferredViewMode={markdownViewMode}
+                    preferredViewMode={activeTab.viewMode}
                     readOnly={workspaceLocked}
                     tagColors={tagColorMap}
                     onChange={changeActiveContent}
                     onError={showError}
                     onLinkOpen={(href, text) => void openLink(href, text)}
-                    onViewModeChange={updateMarkdownViewMode}
+                    onViewModeChange={(mode) =>
+                      updateMarkdownViewMode(activeTab.path, mode)
+                    }
                     onImageUpload={uploadAttachment}
                   />
                 ) : (
@@ -2707,6 +2828,7 @@ function App() {
         onClose={() => setEditorSettingsOpen(false)}
       />
       {vaultSwitcherDialog}
+      {globalSearchDialog}
       <EncryptionDialog
         open={encryptionOpen}
         encryption={workspace.encryption}

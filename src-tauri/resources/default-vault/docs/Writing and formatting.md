@@ -25,10 +25,11 @@ blocks, thematic breaks, frontmatter, and callouts.
 Long documents scroll directly in the editor; you do not need to move the caret
 to reveal content below the current viewport.
 
-The rich-text/source toggle is a global preference. Your last choice is used for
-the next Markdown file and after restarting Denote. Files with unsupported rich
-syntax and enabled editor display guides still use source mode for safety
-without changing that preference.
+Each Markdown file remembers its own rich-text/source choice within the current
+vault and restores it after restarting Denote. Your most recent choice is the
+default for files without a saved preference. Files with unsupported rich syntax
+and enabled editor display guides still use source mode for safety without
+changing the saved choice.
 
 ## Tags
 

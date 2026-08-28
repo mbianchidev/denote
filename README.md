@@ -18,6 +18,8 @@ the selected folder as the source of truth.
 - Local SQLite metadata for open, edit, and save counts
 - ZBSearch full-text search with filename, path, content, tag, type, bookmark,
   and recency filters
+- Command-P / Control-P filename-only quick open across all known available
+  vaults
 - Rendered hashtags use consistent colored pills across the vault, with an
   accessible color picker beside each active document tag
 - Current-note and vault-wide find and replace with selectable preview
@@ -83,8 +85,9 @@ Use the vault switcher in the sidebar header, or press
 the 50 most recently opened vault folders and marks unavailable folders without
 discarding their history.
 
-Tabs can be reordered by dragging or with `Alt-Shift-Left/Right`. The Markdown
-rich-text/source choice persists across files and app restarts. Non-current,
+Tabs can be reordered with direct pointer dragging or
+`Alt-Shift-Left/Right`. Each Markdown file remembers its own rich-text/source
+choice within the vault and restores it after restarting Denote. Non-current,
 non-default vaults can be removed from the switcher; an explicit option moves
 the vault folder and all files to the operating system Trash.
 
@@ -127,6 +130,12 @@ type:markdown
 
 Supported filters are `tag:`, `file:`/`filename:`, `path:`/`folder:`,
 `content:`, `type:`, `bookmarked:`, and `recent:Nd`.
+
+Press <kbd>Command</kbd>+<kbd>P</kbd> on macOS or
+<kbd>Ctrl</kbd>+<kbd>P</kbd> on Windows and Linux for global quick open.
+This searches filenames only across every known available vault. Choosing a
+result safely switches vaults when needed, then opens the file; encrypted target
+vaults request an unlock first.
 
 ## Replace
 

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { isReplaceShortcut, isSearchShortcut } from "./shortcuts";
+import {
+  isGlobalSearchShortcut,
+  isReplaceShortcut,
+  isSearchShortcut,
+} from "./shortcuts";
 
 describe("replace shortcut", () => {
   it("uses physical key codes so macOS Option does not change detection", () => {
@@ -92,5 +96,37 @@ describe("replace shortcut", () => {
         "MacIntel",
       ),
     ).toBe(false);
+  });
+
+  describe("global search shortcut", () => {
+    it("uses Command-P on macOS", () => {
+      expect(
+        isGlobalSearchShortcut(
+          {
+            ctrlKey: false,
+            metaKey: true,
+            altKey: false,
+            shiftKey: false,
+            code: "KeyP",
+          },
+          "MacIntel",
+        ),
+      ).toBe(true);
+    });
+
+    it("uses Control-P on Windows and Linux", () => {
+      expect(
+        isGlobalSearchShortcut(
+          {
+            ctrlKey: true,
+            metaKey: false,
+            altKey: false,
+            shiftKey: false,
+            code: "KeyP",
+          },
+          "Linux x86_64",
+        ),
+      ).toBe(true);
+    });
   });
 });

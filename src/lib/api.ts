@@ -6,6 +6,7 @@ import type {
   DocumentBatch,
   EncryptionSetupResult,
   KnownVault,
+  KnownVaultFileBatch,
   NoteDocument,
   NoteStats,
   RecoveryCodesResult,
@@ -13,10 +14,13 @@ import type {
   TagColor,
   WorkspaceSnapshot,
 } from "../types";
+import type { MarkdownViewMode } from "./markdownView";
 
 export const api = {
   getLastVault: () => invoke<WorkspaceSnapshot | null>("get_last_vault"),
   listKnownVaults: () => invoke<KnownVault[]>("list_known_vaults"),
+  listKnownVaultFiles: () =>
+    invoke<KnownVaultFileBatch>("list_known_vault_files"),
   openKnownVault: (vaultId: number) =>
     invoke<WorkspaceSnapshot>("open_known_vault", { vaultId }),
   deleteKnownVault: (vaultId: number, trashFiles: boolean) =>
@@ -82,6 +86,8 @@ export const api = {
     invoke<void>("set_entry_pinned", { path, pinned }),
   setTagColor: (tag: string, color: string) =>
     invoke<TagColor>("set_tag_color", { tag, color }),
+  setNoteViewMode: (path: string, mode: MarkdownViewMode) =>
+    invoke<void>("set_note_view_mode", { path, mode }),
   listHistory: (path: string) =>
     invoke<HistoryRevision[]>("list_history", { path }),
   restoreRevision: (path: string, revisionId: number) =>

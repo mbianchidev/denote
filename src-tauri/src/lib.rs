@@ -39,6 +39,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_last_vault,
             commands::list_known_vaults,
+            commands::list_known_vault_files,
             commands::open_known_vault,
             commands::delete_known_vault,
             commands::choose_vault,
@@ -64,6 +65,7 @@ pub fn run() {
             commands::set_entry_order,
             commands::set_entry_pinned,
             commands::set_tag_color,
+            commands::set_note_view_mode,
             commands::list_history,
             commands::restore_revision,
             commands::list_search_documents,

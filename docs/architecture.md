@@ -82,6 +82,7 @@ The application-data database stores:
 
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
+- each note's persisted rich-text/source preference;
 - bookmarks, per-folder pins, and explicit sibling ordering;
 - per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
@@ -132,6 +133,14 @@ CodeMirror find handlers and focus the vault search field. The macOS
 Option-Command-F and Windows/Linux Control-H replace shortcuts are evaluated
 separately and remain unchanged.
 
+Command-P on macOS and Control-P on Windows/Linux opens a separate filename-only
+quick search. Rust walks up to 25,000 regular files across the 50 trusted
+SQLite-known vault roots, skips unavailable vaults, symlinks, and each internal
+`.denote` folder, and never reads file contents. Selecting a result uses its
+trusted vault ID, runs the ordinary save-and-seal switch barrier, and opens the
+relative path after the target vault is ready. If that vault is encrypted, the
+path remains pending until unlock.
+
 ## Replace
 
 Replace previews are calculated from Markdown source rather than rendered
@@ -170,12 +179,14 @@ only; document text and save hashes never include them. Because rendered rich
 Markdown has no stable one-to-one source-line mapping, enabling any guide
 temporarily constrains Markdown editing to source mode.
 
-The rich-text/source preference is stored locally and supplied as the initial
-mode for each Markdown editor instance. A realm observer records only actual
-user mode changes; initial source mode required by unsupported syntax or display
-guides does not overwrite the preference.
+The most recent rich-text/source choice remains the default for unseen files.
+Each opened note also stores its own mode in SQLite. The tab carries that mode
+through navigation, and a post-initialization realm write prevents MDXEditor's
+previous global cell value from leaking into the next file. A realm observer
+records only actual user mode changes; initial source mode required by
+unsupported syntax or display guides does not overwrite either preference.
 
-Tab order is frontend session state. Drag-and-drop and
+Tab order is frontend session state. Pointer events and
 `Alt-Shift-Left/Right` reorder the same tab array used by activation,
 `Ctrl-Tab`, close-next selection, and rendering, so no parallel order model can
 drift.

@@ -1,5 +1,10 @@
 import { FileImage, FileText, X } from "lucide-react";
-import { useState, type DragEvent, type KeyboardEvent } from "react";
+import {
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type PointerEvent,
+} from "react";
 import type { EditorTab } from "../types";
 
 interface TabsProps {
@@ -21,6 +26,45 @@ export function Tabs({
 }: TabsProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const pointerDrag = useRef<{ path: string; pointerId: number } | null>(null);
+
+  const clearPointerDrag = () => {
+    pointerDrag.current = null;
+    setDraggedPath(null);
+    setDropTargetPath(null);
+  };
+
+  const targetPathAtPointer = (event: PointerEvent): string | null =>
+    document
+      .elementFromPoint?.(event.clientX, event.clientY)
+      ?.closest<HTMLElement>(".tab")
+      ?.dataset.tabDropPath ?? null;
+
+  const updatePointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = pointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    event.preventDefault();
+    const target = targetPathAtPointer(event);
+    setDropTargetPath(target && target !== drag.path ? target : null);
+  };
+
+  const finishPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
+    const drag = pointerDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+    const target = targetPathAtPointer(event);
+    if (target && target !== drag.path) {
+      event.preventDefault();
+      onReorder(moveTab(tabs, drag.path, target));
+    }
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    clearPointerDrag();
+  };
 
   const moveFocus = (event: KeyboardEvent, index: number) => {
     if (
@@ -57,7 +101,12 @@ export function Tabs({
   };
 
   return (
-    <div className="tabs" role="tablist" aria-label="Open files">
+    <div
+      className="tabs"
+      role="tablist"
+      aria-label="Open files"
+      data-reordering={draggedPath !== null}
+    >
       {tabs.map((tab, index) => {
         const Icon = tab.kind === "image" ? FileImage : FileText;
         return (
@@ -66,46 +115,8 @@ export function Tabs({
             data-active={tab.path === activePath}
             data-dragging={draggedPath === tab.path}
             data-drop-target={dropTargetPath === tab.path}
-            draggable={!disabled}
+            data-tab-drop-path={tab.path}
             key={tab.path}
-            onDragStart={(event) => {
-              if (
-                (event.target as HTMLElement).closest(".tab__close")
-              ) {
-                event.preventDefault();
-                return;
-              }
-              event.dataTransfer.effectAllowed = "move";
-              event.dataTransfer.setData("text/x-denote-tab", tab.path);
-              setDraggedPath(tab.path);
-            }}
-            onDragOver={(event) => {
-              if (draggedPath && draggedPath !== tab.path) {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-                setDropTargetPath(tab.path);
-              }
-            }}
-            onDragLeave={() => {
-              if (dropTargetPath === tab.path) {
-                setDropTargetPath(null);
-              }
-            }}
-            onDrop={(event: DragEvent<HTMLDivElement>) => {
-              event.preventDefault();
-              const source =
-                draggedPath ||
-                event.dataTransfer.getData("text/x-denote-tab");
-              if (source && source !== tab.path) {
-                onReorder(moveTab(tabs, source, tab.path));
-              }
-              setDraggedPath(null);
-              setDropTargetPath(null);
-            }}
-            onDragEnd={() => {
-              setDraggedPath(null);
-              setDropTargetPath(null);
-            }}
           >
             <button
               type="button"
@@ -117,6 +128,20 @@ export function Tabs({
               aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
               title="Drag to reorder. Use Alt+Shift+Left or Right from the keyboard."
               disabled={disabled}
+              onPointerDown={(event) => {
+                if (event.button === 0 && !disabled) {
+                  pointerDrag.current = {
+                    path: tab.path,
+                    pointerId: event.pointerId,
+                  };
+                  setDraggedPath(tab.path);
+                  setDropTargetPath(null);
+                  event.currentTarget.setPointerCapture?.(event.pointerId);
+                }
+              }}
+              onPointerMove={updatePointerDrag}
+              onPointerUp={finishPointerDrag}
+              onPointerCancel={clearPointerDrag}
               onClick={() => onActivate(tab.path)}
               onKeyDown={(event) => moveFocus(event, index)}
             >

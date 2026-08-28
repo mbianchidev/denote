@@ -55,9 +55,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   the caret to reveal later content.
 - Hashtags render as colored pills in rich mode. Each normalized tag has one
   stable default or user-selected color within its vault.
-- The user's rich-text or source-mode choice persists across files and app
-  restarts unless file safety or display guides require source mode.
-- Open tabs can be reordered by drag or keyboard without changing file order.
+- Each Markdown file keeps its own rich-text or source-mode choice within its
+  vault and restores it after app restarts unless file safety or display guides
+  require source mode.
+- Open tabs can be reordered by direct pointer drag or keyboard without changing
+  file order.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
@@ -67,6 +69,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, content, file type, bookmarks, and recency.
 - The standard Command-F / Control-F shortcut opens vault search; platform
   replace shortcuts remain distinct.
+- Command-P / Control-P opens a filename-only quick search across all known
+  available vaults and switches vaults before opening a selected result.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system

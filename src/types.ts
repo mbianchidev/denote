@@ -1,3 +1,5 @@
+import type { MarkdownViewMode } from "./lib/markdownView";
+
 export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
 export type FileEncoding = "utf8" | "base64";
 export type FileLineEnding = "lf" | "crlf" | "cr";
@@ -29,6 +31,7 @@ export interface NoteDocument {
   contentHash: string;
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
+  viewMode: MarkdownViewMode | null;
   stats: NoteStats;
 }
 
@@ -54,6 +57,22 @@ export interface KnownVault {
   available: boolean;
   current: boolean;
   default: boolean;
+}
+
+export interface KnownVaultFile {
+  vaultId: number;
+  vaultName: string;
+  path: string;
+  fileName: string;
+  current: boolean;
+  default: boolean;
+}
+
+export interface KnownVaultFileBatch {
+  files: KnownVaultFile[];
+  skippedVaultCount: number;
+  skippedEntryCount: number;
+  truncated: boolean;
 }
 
 export interface TagColor {
@@ -145,6 +164,7 @@ export interface EditorTab {
   savedHash?: string;
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
+  viewMode: MarkdownViewMode;
   stats?: NoteStats;
   imageDataUrl?: string;
   rawEditing: boolean;

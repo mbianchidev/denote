@@ -15,8 +15,11 @@ use zeroize::Zeroizing;
 
 use crate::{
     crypto::VaultKey,
-    error::AppResult,
-    models::{FileEncoding, FileLineEnding, NoteListItem, NoteStats, TagColor, TrashItem},
+    error::{AppError, AppResult},
+    models::{
+        FileEncoding, FileLineEnding, MarkdownViewMode, NoteListItem, NoteStats, TagColor,
+        TrashItem,
+    },
 };
 
 pub const HISTORY_LIMIT: i64 = 10;
@@ -161,6 +164,7 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           last_edited_at TEXT,
           last_saved_at TEXT,
           is_bookmarked INTEGER NOT NULL DEFAULT 0,
+          view_mode TEXT CHECK (view_mode IN ('rich-text', 'source')),
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           PRIMARY KEY (vault_id, path),
@@ -275,6 +279,13 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    let added_note_view_mode = !column_exists(&migration, "note_stats", "view_mode")?;
+    if added_note_view_mode {
+        migration.execute(
+            "ALTER TABLE note_stats ADD COLUMN view_mode TEXT CHECK (view_mode IN ('rich-text', 'source'))",
+            [],
+        )?;
+    }
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
         [],
@@ -293,6 +304,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (7, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (8, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -481,6 +496,17 @@ pub fn get_last_vault(connection: &Connection) -> AppResult<Option<String>> {
 }
 
 pub fn list_known_vaults(connection: &Connection) -> AppResult<Vec<KnownVaultRecord>> {
+    list_known_vaults_with_limit(connection, 50)
+}
+
+pub fn list_all_known_vaults(connection: &Connection) -> AppResult<Vec<KnownVaultRecord>> {
+    list_known_vaults_with_limit(connection, -1)
+}
+
+fn list_known_vaults_with_limit(
+    connection: &Connection,
+    limit: i64,
+) -> AppResult<Vec<KnownVaultRecord>> {
     let mut statement = connection.prepare(
         "SELECT id, name, path, last_opened_at,
                 CASE WHEN path = (
@@ -488,9 +514,9 @@ pub fn list_known_vaults(connection: &Connection) -> AppResult<Vec<KnownVaultRec
                 ) THEN 1 ELSE 0 END AS is_default
          FROM vaults
          ORDER BY is_default DESC, last_opened_at DESC, name COLLATE NOCASE
-         LIMIT 50",
+         LIMIT ?1",
     )?;
-    let rows = statement.query_map([], |row| {
+    let rows = statement.query_map(params![limit], |row| {
         Ok(KnownVaultRecord {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -718,6 +744,50 @@ pub fn set_bookmark(
           updated_at = excluded.updated_at
         "#,
         params![vault_id, path, i64::from(bookmarked), timestamp],
+    )?;
+    Ok(())
+}
+
+pub fn get_note_view_mode(
+    connection: &Connection,
+    vault_id: i64,
+    path: &str,
+) -> AppResult<Option<MarkdownViewMode>> {
+    let value = connection
+        .query_row(
+            "SELECT view_mode FROM note_stats WHERE vault_id = ?1 AND path = ?2",
+            params![vault_id, path],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()?
+        .flatten();
+    value
+        .map(|value| {
+            MarkdownViewMode::from_str(&value).ok_or_else(|| {
+                AppError::InvalidData(format!("Invalid saved Markdown view mode: {value}"))
+            })
+        })
+        .transpose()
+}
+
+pub fn set_note_view_mode(
+    connection: &Connection,
+    vault_id: i64,
+    path: &str,
+    mode: MarkdownViewMode,
+) -> AppResult<()> {
+    let timestamp = now();
+    connection.execute(
+        r#"
+        INSERT INTO note_stats(
+          vault_id, path, view_mode, created_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?4)
+        ON CONFLICT(vault_id, path) DO UPDATE SET
+          view_mode = excluded.view_mode,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, path, mode.as_str(), timestamp],
     )?;
     Ok(())
 }
@@ -1395,6 +1465,33 @@ mod tests {
     }
 
     #[test]
+    fn global_search_can_read_all_known_vault_rows() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("all-vaults.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let connection = open(&db_path).expect("database opened");
+        for index in 0..51 {
+            ensure_vault(
+                &connection,
+                &format!("/vaults/{index}"),
+                &format!("vault-{index}"),
+            )
+            .expect("known vault");
+        }
+
+        assert_eq!(
+            list_known_vaults(&connection).expect("recent vaults").len(),
+            50
+        );
+        assert_eq!(
+            list_all_known_vaults(&connection)
+                .expect("all known vaults")
+                .len(),
+            51
+        );
+    }
+
+    #[test]
     fn stores_tag_colors_per_vault() {
         let directory = tempdir().expect("temp directory");
         let db_path = directory.path().join("tag-colors.sqlite3");
@@ -1429,6 +1526,16 @@ mod tests {
                     |row| row.get::<_, i64>(0)
                 )
                 .expect("tag color migration"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 8",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .expect("note view mode migration"),
             1
         );
     }

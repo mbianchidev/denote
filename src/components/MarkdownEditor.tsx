@@ -34,13 +34,20 @@ import {
   listsPlugin,
   markdownShortcutPlugin,
   quotePlugin,
+  realmPlugin,
   tablePlugin,
   thematicBreakPlugin,
   toolbarPlugin,
   viewMode$,
 } from "@mdxeditor/editor";
-import { useCellValue } from "@mdxeditor/gurx";
-import { forwardRef, useEffect, useMemo, useRef } from "react";
+import { useCellValue, usePublisher } from "@mdxeditor/gurx";
+import {
+  forwardRef,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+} from "react";
 import { api } from "../lib/api";
 import {
   createEditorDisplayExtensions,
@@ -69,6 +76,12 @@ import {
   type TagColorMap,
 } from "../lib/tagColors";
 import type { FileLineEnding } from "../types";
+
+const initialViewModePlugin = realmPlugin<{ mode: MarkdownViewMode }>({
+  postInit(realm, params) {
+    realm.pub(viewMode$, params?.mode ?? "rich-text");
+  },
+});
 
 interface MarkdownEditorProps {
   notePath: string;
@@ -187,6 +200,7 @@ export const MarkdownEditor = forwardRef<
           ...displayExtensions,
         ],
       }),
+      initialViewModePlugin({ mode: initialViewMode }),
       toolbarPlugin({
         toolbarPosition: "top",
         toolbarContents: () =>
@@ -405,14 +419,25 @@ function ViewModePreferenceObserver({
   onChange: (mode: MarkdownViewMode) => void;
 }) {
   const mode = useCellValue(viewMode$);
+  const setMode = usePublisher(viewMode$);
   const previousMode = useRef(initialMode);
+  const initialized = useRef(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!initialized.current) {
+      if (mode !== initialMode) {
+        setMode(initialMode);
+        return;
+      }
+      initialized.current = true;
+      previousMode.current = mode;
+      return;
+    }
     if (mode !== "diff" && mode !== previousMode.current) {
       previousMode.current = mode;
       onChange(mode);
     }
-  }, [mode, onChange]);
+  }, [initialMode, mode, onChange, setMode]);
 
   return null;
 }

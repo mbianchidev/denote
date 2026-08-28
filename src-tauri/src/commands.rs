@@ -15,7 +15,8 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
-        KnownVault, NoteDocument, RecoveryCodesResult, SaveOutcome, TagColor, WorkspaceSnapshot,
+        KnownVault, KnownVaultFileBatch, MarkdownViewMode, NoteDocument, RecoveryCodesResult,
+        SaveOutcome, TagColor, WorkspaceSnapshot,
     },
     vault,
 };
@@ -98,14 +99,24 @@ pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault
 }
 
 #[tauri::command]
+pub fn list_known_vault_files(state: State<'_, AppState>) -> AppResult<KnownVaultFileBatch> {
+    let _vault_access = state.read_vault_access()?;
+    let current = state.active_vault_optional()?;
+    vault::list_known_vault_files(&state.db_path, current.as_deref())
+}
+
+#[tauri::command]
 pub fn open_known_vault(state: State<'_, AppState>, vault_id: i64) -> AppResult<WorkspaceSnapshot> {
     let _vault_access = state.write_vault_access()?;
     let connection = db::open(&state.db_path)?;
     let path = db::known_vault_path(&connection, vault_id)?
         .ok_or_else(|| AppError::NotFound(format!("Vault {vault_id}")))?;
-    if !std::path::Path::new(&path).is_dir() {
+    let metadata = fs::symlink_metadata(&path).map_err(|error| {
+        AppError::NotFound(format!("Vault folder is unavailable: {path} ({error})"))
+    })?;
+    if metadata_is_link(&metadata) || !metadata.is_dir() {
         return Err(AppError::NotFound(format!(
-            "Vault folder is unavailable: {path}"
+            "Vault folder is unavailable or unsafe: {path}"
         )));
     }
     seal_active_vault_before_switch(&state)?;
@@ -562,6 +573,17 @@ pub fn set_tag_color(
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::set_tag_color(&state.db_path, &root.to_string_lossy(), &tag, &color)
+}
+
+#[tauri::command]
+pub fn set_note_view_mode(
+    state: State<'_, AppState>,
+    path: String,
+    mode: MarkdownViewMode,
+) -> AppResult<()> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::set_note_view_mode(&state.db_path, &root.to_string_lossy(), &path, mode)
 }
 
 #[tauri::command]

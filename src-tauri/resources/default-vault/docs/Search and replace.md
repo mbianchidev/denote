@@ -26,6 +26,13 @@ Supported filters:
 Automatic indexing reads up to 10 MB per file and stops at a 64 MB aggregate
 content budget.
 
+## Global filename search
+
+Press `Command-P` on macOS or `Ctrl-P` on Windows and Linux. This quick-open
+dialog searches filenames only across all known available vaults. It does not
+search paths, tags, or file contents. Use the arrow keys and Enter to open a
+result.
+
 ## Replace
 
 Use `Option-Command-F` on macOS or `Ctrl-H` on Windows and Linux. Replace can

@@ -21,7 +21,8 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
-        NoteDocument, SaveOutcome, SearchDocument, TagColor, WorkspaceSnapshot,
+        KnownVaultFile, KnownVaultFileBatch, MarkdownViewMode, NoteDocument, SaveOutcome,
+        SearchDocument, TagColor, WorkspaceSnapshot,
     },
 };
 
@@ -30,6 +31,7 @@ const MAX_SEARCH_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_SEARCH_AGGREGATE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_EDITABLE_AGGREGATE_BYTES: usize = 256 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+const MAX_GLOBAL_FILE_ENTRIES: usize = 25_000;
 
 pub fn get_last_vault(db_path: &Path) -> AppResult<Option<String>> {
     let connection = db::open(db_path)?;
@@ -253,6 +255,7 @@ pub fn read_note(
         content,
         encoding,
         line_ending,
+        view_mode: db::get_note_view_mode(&connection, vault_id, relative_path)?,
         stats,
     })
 }
@@ -595,6 +598,25 @@ pub fn set_tag_color(
     Ok(TagColor { tag, color })
 }
 
+pub fn set_note_view_mode(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    mode: MarkdownViewMode,
+) -> AppResult<()> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let path = existing_entry(&root, relative_path)?;
+    if !path.is_file() {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a regular file"
+        )));
+    }
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::set_note_view_mode(&connection, vault_id, relative_path, mode)
+}
+
 pub fn record_edit(
     db_path: &Path,
     vault_path: &str,
@@ -739,7 +761,128 @@ pub fn restore_revision(
         content: restored,
         encoding: restored_encoding,
         line_ending: restored_line_ending,
+        view_mode: db::get_note_view_mode(&connection, vault_id, relative_path)?,
         stats: db::get_stats(&connection, vault_id, relative_path)?,
+    })
+}
+
+pub fn list_known_vault_files(
+    db_path: &Path,
+    active_vault: Option<&Path>,
+) -> AppResult<KnownVaultFileBatch> {
+    let connection = db::open(db_path)?;
+    let vaults = db::list_all_known_vaults(&connection)?;
+    let active_vault = active_vault.map(fs::canonicalize).transpose()?;
+    let mut files = Vec::new();
+    let mut skipped_vault_count = 0;
+    let mut skipped_entry_count = 0;
+    let mut truncated = false;
+
+    'vaults: for vault in vaults {
+        let stored_metadata = match fs::symlink_metadata(&vault.path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                skipped_vault_count += 1;
+                eprintln!("Skipping unavailable vault {}: {error}", vault.path);
+                continue;
+            }
+        };
+        if metadata_is_link(&stored_metadata) || !stored_metadata.is_dir() {
+            skipped_vault_count += 1;
+            eprintln!(
+                "Skipping non-regular global-search vault root: {}",
+                vault.path
+            );
+            continue;
+        }
+        let root = match canonical_vault(&vault.path) {
+            Ok(root) => root,
+            Err(error) => {
+                skipped_vault_count += 1;
+                eprintln!("Skipping unavailable vault {}: {error}", vault.path);
+                continue;
+            }
+        };
+        let current = active_vault.as_deref() == Some(root.as_path());
+        let walker = WalkDir::new(&root)
+            .follow_links(false)
+            .max_depth(65)
+            .into_iter()
+            .filter_entry(|entry| {
+                entry.depth() == 0
+                    || !entry.file_type().is_dir()
+                    || !entry
+                        .file_name()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(".denote")
+            });
+        for entry in walker {
+            if files.len() >= MAX_GLOBAL_FILE_ENTRIES {
+                truncated = true;
+                break 'vaults;
+            }
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    skipped_entry_count += 1;
+                    eprintln!("Skipping unreadable global-search entry: {error}");
+                    continue;
+                }
+            };
+            if entry.depth() == 0 || !entry.file_type().is_file() {
+                continue;
+            }
+            let metadata = match fs::symlink_metadata(entry.path()) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    skipped_entry_count += 1;
+                    eprintln!(
+                        "Skipping unreadable global-search metadata {}: {error}",
+                        entry.path().display()
+                    );
+                    continue;
+                }
+            };
+            if metadata_is_link(&metadata) {
+                continue;
+            }
+            let relative = match relative_string(&root, entry.path()) {
+                Ok(relative) => relative,
+                Err(error) => {
+                    skipped_entry_count += 1;
+                    eprintln!(
+                        "Skipping invalid global-search path {}: {error}",
+                        entry.path().display()
+                    );
+                    continue;
+                }
+            };
+            files.push(KnownVaultFile {
+                vault_id: vault.id,
+                vault_name: vault.name.clone(),
+                path: relative,
+                file_name: entry.file_name().to_string_lossy().into_owned(),
+                current,
+                default: vault.default,
+            });
+        }
+    }
+    files.sort_by(|left, right| {
+        left.file_name
+            .to_lowercase()
+            .cmp(&right.file_name.to_lowercase())
+            .then_with(|| {
+                left.vault_name
+                    .to_lowercase()
+                    .cmp(&right.vault_name.to_lowercase())
+            })
+            .then_with(|| left.path.cmp(&right.path))
+    });
+    Ok(KnownVaultFileBatch {
+        files,
+        skipped_vault_count,
+        skipped_entry_count,
+        truncated,
     })
 }
 
@@ -2242,6 +2385,113 @@ mod tests {
                 tag: "guide".to_string(),
                 color: "#a1b2c3".to_string(),
             }]
+        );
+    }
+
+    #[test]
+    fn lists_file_names_across_known_vaults_without_internal_metadata() {
+        let directory = tempdir().expect("temp directory");
+        let work = directory.path().join("work");
+        let music = directory.path().join("music");
+        fs::create_dir_all(work.join("projects")).expect("work folders");
+        fs::create_dir_all(work.join(".denote")).expect("internal folder");
+        fs::create_dir_all(music.join("songs")).expect("music folders");
+        fs::write(work.join("projects/Atlas.md"), "work").expect("work file");
+        fs::write(work.join(".denote/private.md"), "hidden").expect("hidden file");
+        fs::write(music.join("songs/Set list.md"), "music").expect("music file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        let connection = db::open(&db_path).expect("database opened");
+        db::ensure_vault(&connection, work.to_str().unwrap(), "Work").expect("work vault");
+        db::ensure_vault(&connection, music.to_str().unwrap(), "Music").expect("music vault");
+
+        let batch = list_known_vault_files(&db_path, Some(&work)).expect("global file inventory");
+
+        assert_eq!(batch.files.len(), 2);
+        assert!(
+            batch
+                .files
+                .iter()
+                .any(|file| file.file_name == "Atlas.md" && file.current)
+        );
+        assert!(
+            batch
+                .files
+                .iter()
+                .any(|file| file.file_name == "Set list.md" && !file.current)
+        );
+        assert!(
+            batch
+                .files
+                .iter()
+                .all(|file| !file.path.starts_with(".denote"))
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn global_file_search_rejects_symlinked_vault_roots() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("temp directory");
+        let outside = directory.path().join("outside");
+        let linked = directory.path().join("linked-vault");
+        fs::create_dir(&outside).expect("outside directory");
+        fs::write(outside.join("private.md"), "private").expect("outside file");
+        symlink(&outside, &linked).expect("vault symlink");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        let connection = db::open(&db_path).expect("database opened");
+        db::ensure_vault(&connection, linked.to_str().unwrap(), "Linked")
+            .expect("linked vault record");
+
+        let batch = list_known_vault_files(&db_path, None).expect("global file inventory");
+
+        assert!(batch.files.is_empty());
+        assert_eq!(batch.skipped_vault_count, 1);
+    }
+
+    #[test]
+    fn persists_note_view_mode_through_reopen_and_rename() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "# Note").expect("note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        assert_eq!(
+            read_note(&db_path, vault_path.to_str().unwrap(), "note.md")
+                .expect("initial note")
+                .view_mode,
+            None
+        );
+        set_note_view_mode(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            MarkdownViewMode::Source,
+        )
+        .expect("save view mode");
+        assert_eq!(
+            read_note(&db_path, vault_path.to_str().unwrap(), "note.md")
+                .expect("reopened note")
+                .view_mode,
+            Some(MarkdownViewMode::Source)
+        );
+
+        let renamed = rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "note.md",
+            "renamed.md",
+        )
+        .expect("rename note");
+        assert_eq!(
+            read_note(&db_path, vault_path.to_str().unwrap(), &renamed)
+                .expect("renamed note")
+                .view_mode,
+            Some(MarkdownViewMode::Source)
         );
     }
 

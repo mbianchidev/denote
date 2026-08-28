@@ -5,6 +5,7 @@
 | Action | macOS | Windows / Linux |
 | --- | --- | --- |
 | Search vault | `Command-F` | `Ctrl-F` |
+| Search filenames in all vaults | `Command-P` | `Ctrl-P` |
 | Find and replace | `Option-Command-F` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
 | Close tab | `Command-W` | `Ctrl-W` |

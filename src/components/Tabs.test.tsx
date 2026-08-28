@@ -13,6 +13,7 @@ const tabs: EditorTab[] = [
     savedContent: "",
     encoding: "utf8",
     lineEnding: "lf",
+    viewMode: "rich-text",
     rawEditing: false,
     editorRevision: 0,
     editRecorded: false,
@@ -26,6 +27,7 @@ const tabs: EditorTab[] = [
     savedContent: "",
     encoding: "utf8",
     lineEnding: "lf",
+    viewMode: "rich-text",
     rawEditing: false,
     editorRevision: 0,
     editRecorded: false,
@@ -83,5 +85,40 @@ describe("Tabs", () => {
       "two.md",
       "one.md",
     ]);
+  });
+
+  it("reorders tabs with pointer dragging", () => {
+    const onReorder = vi.fn();
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={onReorder}
+      />,
+    );
+
+    const first = screen.getByRole("tab", { name: /one\.md/i });
+    const secondContainer = screen
+      .getByRole("tab", { name: /two\.md/i })
+      .closest(".tab");
+    expect(secondContainer).not.toBeNull();
+    const originalElementFromPoint = document.elementFromPoint;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => secondContainer),
+    });
+
+    fireEvent.pointerDown(first, { button: 0, pointerId: 1 });
+    fireEvent.pointerMove(first, { clientX: 200, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(first, { clientX: 200, clientY: 10, pointerId: 1 });
+
+    expect(onReorder).toHaveBeenCalledWith(["two.md", "one.md"]);
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: originalElementFromPoint,
+    });
   });
 });

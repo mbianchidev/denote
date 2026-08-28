@@ -62,6 +62,30 @@ impl FileEncoding {
     }
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum MarkdownViewMode {
+    RichText,
+    Source,
+}
+
+impl MarkdownViewMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::RichText => "rich-text",
+            Self::Source => "source",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "rich-text" => Some(Self::RichText),
+            "source" => Some(Self::Source),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileNode {
@@ -95,6 +119,7 @@ pub struct NoteDocument {
     pub content_hash: String,
     pub encoding: FileEncoding,
     pub line_ending: FileLineEnding,
+    pub view_mode: Option<MarkdownViewMode>,
     pub stats: NoteStats,
 }
 
@@ -117,6 +142,26 @@ pub struct KnownVault {
     pub available: bool,
     pub current: bool,
     pub default: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownVaultFile {
+    pub vault_id: i64,
+    pub vault_name: String,
+    pub path: String,
+    pub file_name: String,
+    pub current: bool,
+    pub default: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownVaultFileBatch {
+    pub files: Vec<KnownVaultFile>,
+    pub skipped_vault_count: usize,
+    pub skipped_entry_count: usize,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
