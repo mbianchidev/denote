@@ -18,6 +18,7 @@ import {
   restoreTocMarkers,
   resolveInternalLink,
   nextHeadingSlug,
+  normalizeBareSpaceLinkDestinations,
   slugifyHeading,
 } from "./markdown";
 
@@ -237,6 +238,16 @@ describe("markdown utilities", () => {
         "about:blank",
       ),
     ).toBeNull();
+  });
+
+  it("normalizes legacy internal links with bare spaces outside code", () => {
+    expect(
+      normalizeBareSpaceLinkDestinations(
+        "---\ntemplate: \"[Meta](Optional plugins.md)\"\n---\n[Next](Optional plugins.md)\n\\[Escaped](Optional plugins.md)\n\\\\[Actual](Optional plugins.md)\n`[Code](Optional plugins.md)`\n```md\n[Code](Optional plugins.md)\n```\n- item\n\n    [Nested](Optional plugins.md)\n[Title](path.md \"Title\")\n[Web](https://example.com/a b)",
+      ),
+    ).toBe(
+      "---\ntemplate: \"[Meta](Optional plugins.md)\"\n---\n[Next](<Optional plugins.md>)\n\\[Escaped](Optional plugins.md)\n\\\\[Actual](<Optional plugins.md>)\n`[Code](Optional plugins.md)`\n```md\n[Code](Optional plugins.md)\n```\n- item\n\n    [Nested](<Optional plugins.md>)\n[Title](path.md \"Title\")\n[Web](https://example.com/a b)",
+    );
   });
 
   it("routes syntax unsupported by the rich editor to source mode", () => {

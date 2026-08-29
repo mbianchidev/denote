@@ -81,6 +81,7 @@ import {
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
   nextHeadingSlug,
+  normalizeBareSpaceLinkDestinations,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
@@ -200,6 +201,10 @@ export const MarkdownEditor = forwardRef<
   },
   ref,
 ) {
+  const editorMarkdown = useMemo(
+    () => normalizeBareSpaceLinkDestinations(markdown),
+    [markdown],
+  );
   const [sourceFirst] = useState(() => hasUnsupportedRichMarkdown(markdown));
   const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
@@ -211,8 +216,6 @@ export const MarkdownEditor = forwardRef<
   const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
   const [activeViewMode, setActiveViewMode] =
     useState<MarkdownViewMode>(initialViewMode);
-  const latestSerializedMarkdownRef = useRef(markdown);
-  latestSerializedMarkdownRef.current = markdown;
   const displayExtensions = useMemo(
     () => [
       ...createEditorDisplayExtensions(displaySettings, lineEnding, false),
@@ -407,7 +410,7 @@ export const MarkdownEditor = forwardRef<
         }
         return;
       }
-      const source = calloutsToDirectives(latestSerializedMarkdownRef.current);
+      const source = calloutsToDirectives(editorMarkdown);
       if (view.state.doc.toString() !== source) {
         const anchor = Math.min(view.state.selection.main.head, source.length);
         view.dispatch({
@@ -419,7 +422,7 @@ export const MarkdownEditor = forwardRef<
     };
     timer = window.setTimeout(sync, 0);
     return () => window.clearTimeout(timer);
-  }, [activeViewMode, notePath]);
+  }, [activeViewMode, editorMarkdown, notePath]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -504,7 +507,7 @@ export const MarkdownEditor = forwardRef<
         if (event.key !== "Enter") {
           return;
         }
-        const link = renderedLink(event.target, markdown);
+        const link = renderedLink(event.target, editorMarkdown);
         if (!link) {
           return;
         }
@@ -513,7 +516,7 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
       onClickCapture={(event) => {
-        const link = renderedLink(event.target, markdown);
+        const link = renderedLink(event.target, editorMarkdown);
         if (!link) {
           return;
         }
@@ -533,7 +536,7 @@ export const MarkdownEditor = forwardRef<
         if (event.button !== 1) {
           return;
         }
-        const link = renderedLink(event.target, markdown);
+        const link = renderedLink(event.target, editorMarkdown);
         if (!link) {
           return;
         }
@@ -544,7 +547,7 @@ export const MarkdownEditor = forwardRef<
     >
       <MDXEditor
         ref={ref}
-        markdown={calloutsToDirectives(markdown)}
+        markdown={calloutsToDirectives(editorMarkdown)}
         plugins={plugins}
         className="denote-editor-root mdxeditor-full-height"
         contentEditableClassName="denote-editor-content"
@@ -560,7 +563,6 @@ export const MarkdownEditor = forwardRef<
               activeViewModeRef.current,
             );
             tocMarkersRef.current = markerUpdate.snapshot;
-            latestSerializedMarkdownRef.current = markerUpdate.markdown;
             onChange(
               restoreMarkdownBoundaryWhitespace(
                 markerUpdate.markdown,

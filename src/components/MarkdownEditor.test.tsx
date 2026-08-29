@@ -91,6 +91,49 @@ describe("MarkdownEditor links", () => {
     );
   });
 
+  it("renders legacy internal links with bare spaces", async () => {
+    const user = userEvent.setup();
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="docs/Keyboard shortcuts.md"
+        markdown="[Next: Optional plugins](Optional plugins.md)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Next: Optional plugins" }),
+    );
+
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "Optional plugins.md",
+      "Next: Optional plugins",
+    );
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    await waitFor(() =>
+      expect(
+        EditorView.findFromDOM(
+          document.querySelector<HTMLElement>(
+            ".mdxeditor-source-editor .cm-editor",
+          )!,
+        )?.state.doc.toString(),
+      ).toContain("(<Optional plugins.md>)"),
+    );
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    expect(
+      await screen.findByRole("link", { name: "Next: Optional plugins" }),
+    ).toBeInTheDocument();
+  });
+
   it("preserves selected rich text when opening the link dialog", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

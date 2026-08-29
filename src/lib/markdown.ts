@@ -428,6 +428,83 @@ export function recoverMarkdownLinkTarget(
     : null;
 }
 
+export function normalizeBareSpaceLinkDestinations(markdown: string): string {
+  if (!/\[[^\]\n]+\]\([^()\n]*\s+[^()\n]*\)/.test(markdown)) {
+    return markdown;
+  }
+  const ranges = protectedMarkdownRanges(markdown);
+  let normalized = "";
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    normalized += normalizeBareSpaceLinks(markdown.slice(cursor, start));
+    normalized += markdown.slice(start, end);
+    cursor = end;
+  }
+  return normalized + normalizeBareSpaceLinks(markdown.slice(cursor));
+}
+
+function normalizeBareSpaceLinks(value: string): string {
+  return value.replace(
+    /(\[[^\]\n]+\])\(([^()\n]+)\)/g,
+    (
+      match,
+      label: string,
+      rawTarget: string,
+      offset: number,
+      source: string,
+    ) => {
+      const target = rawTarget.trim();
+      if (
+        isEscapedAt(source, offset) ||
+        !/\s/.test(target) ||
+        /[<>"']/.test(target) ||
+        /^[a-z][a-z0-9+.-]*:/i.test(target) ||
+        target.startsWith("//")
+      ) {
+        return match;
+      }
+      return `${label}(<${target}>)`;
+    },
+  );
+}
+
+function protectedMarkdownRanges(markdown: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  const frontmatter = markdown.match(
+    /^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1(?=\r?\n|$)/,
+  );
+  if (frontmatter) {
+    ranges.push([0, frontmatter[0].length]);
+  }
+  const root = markdownRoot(markdown);
+  if (root) {
+    visitMarkdownAst(root, (node) => {
+      if (!["code", "inlineCode", "html"].includes(node.type)) {
+        return;
+      }
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) {
+        ranges.push([start, end]);
+      }
+    });
+  }
+  return mergeRanges(ranges);
+}
+
+function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
+  const merged: Array<[number, number]> = [];
+  for (const range of ranges.sort((left, right) => left[0] - right[0])) {
+    const previous = merged[merged.length - 1];
+    if (previous && range[0] <= previous[1]) {
+      previous[1] = Math.max(previous[1], range[1]);
+    } else {
+      merged.push([...range]);
+    }
+  }
+  return merged;
+}
+
 function syntheticRelativeHref(value: string): string {
   return decodedLinkTarget(value)
     .replace(/^https?:\/\//i, "")
