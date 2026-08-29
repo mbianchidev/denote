@@ -249,7 +249,7 @@ conflicting files are reported instead of being changed silently.
 ## Development
 
 Install the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-for your operating system, Node.js 20 or newer, and stable Rust.
+for your operating system, Node.js 24.15 or newer, and stable Rust.
 
 ```bash
 npm install

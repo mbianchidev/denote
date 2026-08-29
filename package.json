@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -18,14 +21,14 @@
     "@codemirror/language-data": "^6.5.2",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.9",
-    "@lexical/hashtag": "^0.48.0",
-    "@lexical/react": "^0.48.0",
+    "@lexical/hashtag": "0.49.0",
+    "@lexical/react": "0.49.0",
     "@lezer/highlight": "^1.2.3",
     "@mdxeditor/editor": "^4.2.3",
     "@mdxeditor/gurx": "^1.2.4",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
-    "lucide-react": "^1.34.0",
+    "lucide-react": "^1.37.0",
     "mdast-util-from-markdown": "^2.0.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
@@ -34,15 +37,33 @@
   "devDependencies": {
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^7.0.1",
-    "@testing-library/react": "^16.3.2",
+    "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",
     "@types/node": "^26.4.0",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "@vitejs/plugin-react": "^4.6.0",
-    "jsdom": "^29.1.1",
-    "typescript": "~5.8.3",
-    "vite": "^7.0.4",
+    "@vitejs/plugin-react": "^6.1.1",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2",
     "vitest": "^4.1.11"
+  },
+  "overrides": {
+    "@lexical/hashtag": "$@lexical/hashtag",
+    "@lexical/react": "$@lexical/react",
+    "@mdxeditor/editor": {
+      "@lexical/clipboard": "$@lexical/react",
+      "@lexical/extension": "$@lexical/react",
+      "@lexical/history": "$@lexical/react",
+      "@lexical/link": "$@lexical/react",
+      "@lexical/list": "$@lexical/react",
+      "@lexical/markdown": "$@lexical/react",
+      "@lexical/plain-text": "$@lexical/react",
+      "@lexical/react": "$@lexical/react",
+      "@lexical/rich-text": "$@lexical/react",
+      "@lexical/selection": "$@lexical/react",
+      "@lexical/utils": "$@lexical/react",
+      "lexical": "$@lexical/react"
+    }
   }
 }
