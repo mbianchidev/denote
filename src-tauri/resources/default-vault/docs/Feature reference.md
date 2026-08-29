@@ -95,6 +95,8 @@ more detail and examples.
   stable suffixes for duplicate headings.
 - Normalize HTTP(S) protocols, confirm unknown domains, and manage exact or
   wildcard domain permissions in Settings.
+- Fade link-navigation failures automatically instead of leaving a persistent
+  error banner.
 - Open every unique HTTP(S) link in the active file from the toolbar or command
   palette, pausing the queue when a domain needs approval.
 - Open email, telephone, hostless local file, and confirmed custom application

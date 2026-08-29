@@ -12,6 +12,7 @@ import {
   findMarkdownHeadingLine,
   findMarkdownTagMatch,
   hasUnsupportedRichMarkdown,
+  markdownEditorSource,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
@@ -31,6 +32,16 @@ describe("markdown utilities", () => {
       ":::caution\nBack up the vault.\n\nThen continue.\n:::",
     );
     expect(directivesToCallouts(directive)).toBe(source);
+  });
+
+  it("prepares the exact source parsed by the rich editor", () => {
+    expect(
+      markdownEditorSource(
+        ">![info]\n> Open [the next page](Optional plugins.md).",
+      ),
+    ).toBe(
+      ":::info\nOpen [the next page](<Optional plugins.md>).\n:::",
+    );
   });
 
   it("extracts mixed-language tags without treating headings as tags", () => {

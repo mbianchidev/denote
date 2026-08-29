@@ -134,8 +134,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   must be turned off before mode switching.
 - Markdown parser failures expose line and column details, force a temporary
   source fallback without changing the vault preference, highlight the failing
-  line, and provide keyboard-accessible error navigation. Errors clear when the
-  active file changes.
+  line, and provide keyboard-accessible error navigation. Errors remain scoped
+  to their file and hide when another file is active; link failures fade
+  automatically.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
 - Rich fenced blocks and source files recognize common JavaScript/TypeScript

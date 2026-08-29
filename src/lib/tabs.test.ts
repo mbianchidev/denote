@@ -9,6 +9,8 @@ import {
   rekeyTabNavigation,
   restoreTabHistoryTarget,
   tabHistoryTarget,
+  tabReferencedPaths,
+  tabsReferencePath,
   tabsInVisualOrder,
 } from "./tabs";
 
@@ -71,6 +73,23 @@ describe("tab placement", () => {
     });
     expect(placeOpenedTab([restored], "two.md", tab("four.md"))[0]
       .navigationHistory).toEqual(["one.md", "two.md", "four.md"]);
+  });
+
+  it("retains file errors for paths reachable through tab history", () => {
+    const current = {
+      ...tab("three.md"),
+      navigationHistory: ["one.md", "two.md", "three.md"],
+      navigationIndex: 2,
+    };
+
+    expect(tabReferencedPaths([current, tab("four.md")])).toEqual([
+      "three.md",
+      "one.md",
+      "two.md",
+      "four.md",
+    ]);
+    expect(tabsReferencePath([current], "one.md")).toBe(true);
+    expect(tabsReferencePath([current], "missing.md")).toBe(false);
   });
 
   it("can swap an already-open history target without deleting either tab", () => {

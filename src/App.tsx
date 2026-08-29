@@ -35,6 +35,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -67,6 +68,12 @@ import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
 import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
+import {
+  appErrorsReducer,
+  INITIAL_APP_ERRORS,
+  markdownAppErrorForPath,
+  visibleAppError,
+} from "./lib/appErrors";
 import { BUILD_INFO } from "./lib/buildInfo";
 import {
   allowExternalDomain,
@@ -80,6 +87,7 @@ import {
 import {
   extractHeadings,
   extractTags,
+  markdownEditorSource,
   nextHeadingSlug,
   recoverMarkdownLinkTarget,
   resolveInternalLink,
@@ -111,6 +119,8 @@ import {
   removeTabNavigationPaths,
   restoreTabHistoryTarget,
   tabHistoryTarget,
+  tabReferencedPaths,
+  tabsReferencePath,
   tabsInVisualOrder,
 } from "./lib/tabs";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
@@ -147,6 +157,7 @@ import {
   isLocalFileUrl,
   isWebLink,
 } from "./lib/links";
+import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
 import type {
   EditorTab,
   FileNode,
@@ -190,17 +201,6 @@ interface LinkRewriteSave {
   lineEnding: EditorTab["lineEnding"];
 }
 
-interface AppErrorState {
-  message: string;
-  kind: "generic" | "markdown";
-  path?: string;
-  location?: {
-    line: number;
-    column: number;
-  };
-  navigationRequest: number;
-}
-
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -220,7 +220,10 @@ function App() {
   const [searchLocationFocusRequest, setSearchLocationFocusRequest] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [indexing, setIndexing] = useState(false);
-  const [error, setError] = useState<AppErrorState | null>(null);
+  const [errors, dispatchErrors] = useReducer(
+    appErrorsReducer,
+    INITIAL_APP_ERRORS,
+  );
   const [status, setStatus] = useState("Ready");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -251,6 +254,7 @@ function App() {
     headings: HeadingItem[];
   } | null>(null);
   const documentAnalysisGeneration = useRef(0);
+  const errorSequence = useRef(0);
   const [headingNavigation, setHeadingNavigation] = useState<{
     path: string;
     anchor: string;
@@ -405,6 +409,28 @@ function App() {
     [activePath, tabs],
   );
   const activeFileTab = activeTab?.placeholder ? null : activeTab;
+  const activeMarkdownSource =
+    activeFileTab?.kind === "markdown" && activeFileTab.encoding === "utf8"
+      ? markdownErrorSourceIdentity(
+          markdownEditorSource(activeFileTab.content),
+        )
+      : null;
+  const activeMarkdownError = markdownAppErrorForPath(
+    errors,
+    activePath,
+    activeMarkdownSource,
+  );
+  const visibleError = visibleAppError(
+    errors,
+    activePath,
+    activeMarkdownSource,
+  );
+  const visibleErrorId = visibleError?.id ?? null;
+  const dismissVisibleError = useCallback(() => {
+    if (visibleErrorId !== null) {
+      dispatchErrors({ type: "dismiss", id: visibleErrorId });
+    }
+  }, [visibleErrorId]);
   const activeNode = useMemo(
     () => (workspace ? findNode(workspace.tree, activeFileTab?.path ?? null) : null),
     [activeFileTab?.path, workspace],
@@ -532,25 +558,49 @@ function App() {
 
   const showError = useCallback((value: unknown) => {
     const message = errorMessage(value);
-    setError({
-      message,
-      kind: "generic",
-      navigationRequest: 0,
+    dispatchErrors({
+      type: "show-global",
+      error: {
+        id: ++errorSequence.current,
+        message,
+        kind: "generic",
+      },
     });
     setStatus("Action failed");
   }, []);
 
+  const showLinkError = useCallback((value: unknown) => {
+    const message = errorMessage(value);
+    dispatchErrors({
+      type: "show-link",
+      error: {
+        id: ++errorSequence.current,
+        message,
+        kind: "link",
+      },
+    });
+    setStatus("Link failed");
+  }, []);
+
   const showMarkdownError = useCallback(
     (path: string, diagnostic: MarkdownEditorDiagnostic) => {
+      if (!tabsReferencePath(tabsRef.current, path)) {
+        return;
+      }
       const location = diagnostic.location ?? undefined;
-      setError({
-        message: location
-          ? `Line ${location.line}, column ${location.column}: ${diagnostic.message}`
-          : diagnostic.message,
-        kind: "markdown",
-        path,
-        location,
-        navigationRequest: 0,
+      dispatchErrors({
+        type: "show-markdown",
+        error: {
+          id: ++errorSequence.current,
+          message: location
+            ? `Line ${location.line}, column ${location.column}: ${diagnostic.message}`
+            : diagnostic.message,
+          kind: "markdown",
+          path,
+          source: markdownErrorSourceIdentity(diagnostic.source),
+          location,
+          navigationRequest: 0,
+        },
       });
       setStatus("Markdown error");
     },
@@ -558,9 +608,7 @@ function App() {
   );
 
   const clearMarkdownError = useCallback((path: string) => {
-    setError((current) =>
-      current?.kind === "markdown" && current.path === path ? null : current,
-    );
+    dispatchErrors({ type: "clear-markdown", path });
   }, []);
 
   const updateEditorDisplaySettings = useCallback(
@@ -843,6 +891,7 @@ function App() {
       searchIndexReady.current = false;
       setSearchResults([]);
       if (resetTabs || vaultLocked) {
+        dispatchErrors({ type: "clear-all" });
         setSearchQuery("");
         setHistoryOpen(false);
         setHistoryRevisions([]);
@@ -980,12 +1029,6 @@ function App() {
 
   useEffect(() => {
     activePathRef.current = activePath;
-  }, [activePath]);
-
-  useEffect(() => {
-    setError((current) =>
-      current?.path && current.path !== activePath ? null : current,
-    );
   }, [activePath]);
 
   const activateTab = useCallback((path: string) => {
@@ -1609,6 +1652,7 @@ function App() {
       path: string,
       anchor: string | null | undefined,
       request: number,
+      transientErrors: boolean,
     ) => {
       if (!workspace || workspaceLockedRef.current) {
         return;
@@ -1627,8 +1671,9 @@ function App() {
       const replacePath = activePathRef.current;
       const node = findNode(workspace.tree, path);
       const kind = node?.kind ?? kindFromPath(path);
+      const reportError = transientErrors ? showLinkError : showError;
       if (kind === "folder") {
-        showError(`Unable to find ${path}`);
+        reportError(`Unable to find ${path}`);
         return;
       }
       const title = node?.name ?? path.split("/").slice(-1)[0] ?? path;
@@ -1659,6 +1704,10 @@ function App() {
             tabsRef.current.some((candidate) => candidate.groupId === group.id),
           ),
         );
+        dispatchErrors({
+          type: "retain-markdown-paths",
+          paths: tabReferencedPaths(tabsRef.current),
+        });
         if (replacePath) {
           cancelPendingPath(replacePath);
         }
@@ -1682,7 +1731,7 @@ function App() {
         );
       } catch (caught) {
         if (generation === vaultGeneration.current) {
-          showError(caught);
+          reportError(caught);
         }
       } finally {
         if (workspaceOperationStarted) {
@@ -1699,15 +1748,20 @@ function App() {
       readEditorTab,
       setWorkspaceLock,
       showError,
+      showLinkError,
       workspace,
     ],
   );
 
   const openFile = useCallback(
-    (path: string, anchor?: string | null): Promise<void> => {
+    (
+      path: string,
+      anchor?: string | null,
+      transientErrors = false,
+    ): Promise<void> => {
       const request = ++openFileRequest.current;
       const operation = openFileQueue.current.then(() =>
-        openFileNow(path, anchor, request),
+        openFileNow(path, anchor, request, transientErrors),
       );
       openFileQueue.current = operation;
       return operation;
@@ -2053,6 +2107,10 @@ function App() {
         );
         const remaining = currentTabs.filter((tab) => !closing.has(tab.path));
         commitTabs(() => remaining);
+        dispatchErrors({
+          type: "retain-markdown-paths",
+          paths: tabReferencedPaths(remaining),
+        });
         for (const path of closing) {
           cancelPendingPath(path);
         }
@@ -2525,6 +2583,11 @@ function App() {
           };
         }),
       );
+      dispatchErrors({
+        type: "rekey-markdown-prefix",
+        oldPath,
+        newPath,
+      });
       for (const tab of affectedTabs) {
         const path = replacePrefix(tab.path);
         if (kindFromPath(path) === "image") {
@@ -2676,6 +2739,11 @@ function App() {
             };
           }),
         );
+        dispatchErrors({
+          type: "rekey-markdown-prefix",
+          oldPath: node.path,
+          newPath,
+        });
         for (const tab of affectedTabs) {
           const path = replacePrefix(tab.path);
           if (kindFromPath(path) === "image") {
@@ -2802,6 +2870,10 @@ function App() {
           .filter((tab) => !isAffected(tab.path))
           .map((tab) => removeTabNavigationPaths(tab, isAffected)),
       );
+      dispatchErrors({
+        type: "remove-markdown-prefix",
+        path: node.path,
+      });
       commitTabGroups((current) =>
         current.filter((group) =>
           tabsRef.current.some((tab) => tab.groupId === group.id),
@@ -3462,7 +3534,7 @@ function App() {
         }
       }
       if (failed > 0) {
-        showError(
+        showLinkError(
           `Opened ${opened} external link${
             opened === 1 ? "" : "s"
           }; ${failed} failed.`,
@@ -3473,7 +3545,7 @@ function App() {
         );
       }
     },
-    [showError],
+    [showLinkError],
   );
 
   const allowPendingExternalLink = useCallback(
@@ -3505,7 +3577,7 @@ function App() {
       try {
         await api.openExternalUri(pending.url);
       } catch (caught) {
-        showError(caught);
+        showLinkError(caught);
       }
     },
     [
@@ -3513,7 +3585,7 @@ function App() {
       pendingExternalLink,
       openWebLinksWithPolicy,
       persistExternalDomainPolicy,
-      showError,
+      showLinkError,
     ],
   );
 
@@ -3528,7 +3600,7 @@ function App() {
         const normalizedTarget = externalLinkTarget(target);
         if (/^file:/i.test(normalizedTarget)) {
           if (!isLocalFileUrl(normalizedTarget)) {
-            showError("Remote file URLs are not allowed.");
+            showLinkError("Remote file URLs are not allowed.");
             return;
           }
           await openPath(fileUrlToPath(normalizedTarget));
@@ -3537,7 +3609,7 @@ function App() {
         if (isWebLink(normalizedTarget)) {
           const domain = externalDomain(normalizedTarget);
           if (!domain) {
-            showError(`Invalid external link: ${target}`);
+            showLinkError(`Invalid external link: ${target}`);
             return;
           }
           if (!isExternalDomainAllowed(externalDomainPolicy, domain)) {
@@ -3559,7 +3631,7 @@ function App() {
         }
         if (hasUriScheme(normalizedTarget)) {
           if (isBlockedExternalScheme(normalizedTarget)) {
-            showError(
+            showLinkError(
               `External protocol is not allowed: ${
                 normalizedTarget.split(":", 1)[0]
               }`,
@@ -3589,12 +3661,12 @@ function App() {
             .map((node) => node.path),
         );
         if (!resolved) {
-          showError(`Link target not found: ${normalizedTarget}`);
+          showLinkError(`Link target not found: ${normalizedTarget}`);
           return;
         }
-        await openFile(resolved.path, resolved.anchor);
+        await openFile(resolved.path, resolved.anchor, true);
       } catch (caught) {
-        showError(caught);
+        showLinkError(caught);
       }
     },
     [
@@ -3603,7 +3675,7 @@ function App() {
       externalDomainPolicy,
       openFile,
       openWebLinksWithPolicy,
-      showError,
+      showLinkError,
     ],
   );
 
@@ -3676,15 +3748,10 @@ function App() {
   }, [activeFileTab?.path]);
 
   const navigateToEditorError = useCallback(() => {
-    setError((current) =>
-      current?.location
-        ? {
-            ...current,
-            navigationRequest: current.navigationRequest + 1,
-          }
-        : current,
-    );
-  }, []);
+    if (activePath) {
+      dispatchErrors({ type: "navigate-markdown", path: activePath });
+    }
+  }, [activePath]);
 
   useEffect(() => {
     if (!headingNavigation) {
@@ -3707,7 +3774,7 @@ function App() {
         setHeadingNavigation((current) =>
           current === headingNavigation ? null : current,
         );
-        showError(`Heading not found: #${headingNavigation.anchor}`);
+        showLinkError(`Heading not found: #${headingNavigation.anchor}`);
         return;
       }
       attempt += 1;
@@ -3715,7 +3782,7 @@ function App() {
     };
     timer = window.setTimeout(navigate, 0);
     return () => window.clearTimeout(timer);
-  }, [activePath, headingNavigation, revealHeading, showError]);
+  }, [activePath, headingNavigation, revealHeading, showLinkError]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -4407,10 +4474,14 @@ function App() {
   );
   const errorBanner = (
     <ErrorBanner
-      message={error?.message ?? null}
-      onDismiss={() => setError(null)}
+      key={visibleErrorId ?? "empty"}
+      message={visibleError?.message ?? null}
+      transient={visibleError?.kind === "link"}
+      onDismiss={dismissVisibleError}
       onNavigate={
-        error?.location && error.path === activePath
+        visibleError?.kind === "markdown" &&
+        visibleError.location &&
+        visibleError.path === activePath
           ? navigateToEditorError
           : undefined
       }
@@ -4977,15 +5048,9 @@ function App() {
                     displaySettings={editorDisplaySettings}
                     preferredViewMode={markdownViewMode}
                     readOnly={workspaceLocked}
-                    errorLocation={
-                      error?.path === activeFileTab.path
-                        ? error.location
-                        : undefined
-                    }
+                    errorLocation={activeMarkdownError?.location}
                     errorNavigationRequest={
-                      error?.path === activeFileTab.path
-                        ? error.navigationRequest
-                        : 0
+                     activeMarkdownError?.navigationRequest ?? 0
                     }
                     tagColors={tagColorMap}
                     onChange={changeActiveContent}

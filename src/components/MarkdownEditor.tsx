@@ -72,15 +72,16 @@ import { denoteHashtagPlugin } from "../lib/hashtagPlugin";
 import { shouldOpenLinkOnClick } from "../lib/links";
 import {
   locateMarkdownError,
+  markdownErrorSourceIdentity,
   type MarkdownErrorLocation,
 } from "../lib/markdownErrors";
 import {
-  calloutsToDirectives,
   applyTocMarkerViewChange,
   captureTocMarkers,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
+  markdownEditorSource,
   nextHeadingSlug,
   normalizeBareSpaceLinkDestinations,
   recoverMarkdownLinkTarget,
@@ -206,6 +207,7 @@ export const MarkdownEditor = forwardRef<
     () => normalizeBareSpaceLinkDestinations(markdown),
     [markdown],
   );
+  const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
   const [sourceFirst] = useState(() => hasUnsupportedRichMarkdown(markdown));
   const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
@@ -396,7 +398,7 @@ export const MarkdownEditor = forwardRef<
         }
         return;
       }
-      const source = calloutsToDirectives(editorMarkdown);
+      const source = editorSource;
       if (view.state.doc.toString() !== source) {
         const anchor = Math.min(view.state.selection.main.head, source.length);
         view.dispatch({
@@ -408,7 +410,7 @@ export const MarkdownEditor = forwardRef<
     };
     timer = window.setTimeout(sync, 0);
     return () => window.clearTimeout(timer);
-  }, [activeViewMode, editorMarkdown, notePath]);
+  }, [activeViewMode, editorSource, notePath]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -533,7 +535,7 @@ export const MarkdownEditor = forwardRef<
     >
       <MDXEditor
         ref={ref}
-        markdown={calloutsToDirectives(editorMarkdown)}
+        markdown={editorSource}
         plugins={plugins}
         className="denote-editor-root mdxeditor-full-height"
         contentEditableClassName="denote-editor-content"
@@ -558,10 +560,18 @@ export const MarkdownEditor = forwardRef<
           }
         }}
         onError={({ error, source }) => {
+          const documentSource =
+            markdownErrorSourceIdentity(source) ===
+            markdownErrorSourceIdentity(editorSource)
+              ? markdown
+              : restoreMarkdownBoundaryWhitespace(
+                  directivesToCallouts(source),
+                  boundaryWhitespace,
+                );
           const diagnostic = {
             message: error,
             source,
-            location: locateMarkdownError(source, error),
+            location: locateMarkdownError(documentSource, error),
           };
           if (onMarkdownError) {
             onMarkdownError(diagnostic);

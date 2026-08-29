@@ -105,7 +105,8 @@ reference definitions in eligible Markdown files.
 
 If Markdown parsing fails, the error banner identifies the line and column.
 Denote opens source mode without changing the vault preference, highlights the
-line and character, and provides **Navigate to error**. Opening another file
-clears that error.
+line and character, and provides **Navigate to error**. The error stays with that
+file, hides while another file is active, and clears when fixed or dismissed.
+Link-navigation errors fade automatically.
 
 [Next: Search and replace](<Search and replace.md>)

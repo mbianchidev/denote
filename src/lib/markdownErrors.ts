@@ -18,11 +18,6 @@ export function locateMarkdownError(
   source: string,
   message: string,
 ): MarkdownErrorLocation | null {
-  const explicit = explicitLocation(message);
-  if (explicit) {
-    return explicit;
-  }
-
   try {
     fromMarkdown(source, { extensions: [mdxJsx(), mdxMd()] });
   } catch (caught) {
@@ -47,18 +42,36 @@ export function locateMarkdownError(
     }
   }
 
-  return null;
+  return explicitLocation(message);
+}
+
+export function markdownErrorSourceIdentity(source: string): string {
+  return source.trim();
 }
 
 function explicitLocation(message: string): MarkdownErrorLocation | null {
-  const lineAndColumn =
-    message.match(/\bline\s+(\d+)\s*,?\s*column\s+(\d+)\b/i) ??
-    message.match(/\((\d+):(\d+)\)\s*$/);
-  if (!lineAndColumn) {
-    return null;
+  const lineAndColumn = message.match(
+    /\bline\s+(\d+)\s*,?\s*column\s+(\d+)\b/i,
+  );
+  if (lineAndColumn) {
+    return parsedLocation(lineAndColumn[1], lineAndColumn[2]);
   }
-  const line = Number.parseInt(lineAndColumn[1], 10);
-  const column = Number.parseInt(lineAndColumn[2], 10);
+
+  const compact = message.match(/(?:\bat\s+|\()(\d+):(\d+)\)?(?:\s|$)/i);
+  if (compact) {
+    return parsedLocation(compact[1], compact[2]);
+  }
+
+  const lineOnly = message.match(/\bline\s+(\d+)\b/i);
+  return lineOnly ? parsedLocation(lineOnly[1], "1") : null;
+}
+
+function parsedLocation(
+  lineValue: string,
+  columnValue: string,
+): MarkdownErrorLocation | null {
+  const line = Number.parseInt(lineValue, 10);
+  const column = Number.parseInt(columnValue, 10);
   return line > 0 && column > 0 ? { line, column } : null;
 }
 

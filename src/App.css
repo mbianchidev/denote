@@ -1350,6 +1350,28 @@ button.tag-chip:active,
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
 }
 
+.error-banner--transient {
+  animation: error-banner-fade 4s ease-in forwards;
+}
+
+@keyframes error-banner-fade {
+  0%,
+  72% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .error-banner--transient {
+    animation: none;
+  }
+}
+
 .error-banner__actions {
   display: flex;
   flex: none;

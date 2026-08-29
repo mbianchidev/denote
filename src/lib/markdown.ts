@@ -15,6 +15,7 @@ export function calloutsToDirectives(markdown: string): string {
       output.push(lines[index]);
       continue;
     }
+
     fence = updateFence(lines[index], fence);
     if (fence || isFenceLine(lines[index])) {
       output.push(lines[index]);
@@ -56,6 +57,10 @@ export function calloutsToDirectives(markdown: string): string {
   }
 
   return output.join("\n");
+}
+
+export function markdownEditorSource(markdown: string): string {
+  return calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown));
 }
 
 export function directivesToCallouts(markdown: string): string {

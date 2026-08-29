@@ -310,6 +310,89 @@ describe("MarkdownEditor links", () => {
     await waitFor(() => expect(onMarkdownErrorCleared).toHaveBeenCalledOnce());
   });
 
+  it("reports the original line when the parser trims boundary whitespace", async () => {
+    const onMarkdownError = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="broken.md"
+        markdown={"\n# Heading\n\n<1bad>\n"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onMarkdownError={onMarkdownError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onMarkdownError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          location: { line: 4, column: 2 },
+        }),
+      ),
+    );
+  });
+
+  it("reports original coordinates after rich Markdown transformations", async () => {
+    const onCalloutError = vi.fn();
+    const { unmount } = render(
+      <MarkdownEditor
+        notePath="callout.md"
+        markdown={">![info]\n> Message\n\n<1bad>"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onMarkdownError={onCalloutError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onCalloutError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          location: { line: 4, column: 2 },
+        }),
+      ),
+    );
+
+    unmount();
+    const onLinkError = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="link.md"
+        markdown={"[x](a b) <1bad>"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onMarkdownError={onLinkError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onLinkError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          location: { line: 1, column: 11 },
+        }),
+      ),
+    );
+  });
+
   it("adds stable IDs to rendered headings for anchor navigation", async () => {
     class ImmediateImage {
       onload: (() => void) | null = null;

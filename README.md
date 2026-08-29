@@ -227,8 +227,9 @@ Supported filters are `tag:`, `file:`/`filename:`, `path:`/`folder:`,
 
 If Markdown cannot be parsed, Denote reports the line and column, switches to
 source safely without changing the vault-wide mode preference, highlights the
-line and character, and offers **Navigate to error**. Navigating to another file
-clears the stale error.
+line and character, and offers **Navigate to error**. The error stays attached
+to that file: switching files hides it, returning shows it again, and fixing or
+dismissing it clears it. Link-navigation failures use a short fading alert.
 
 Press <kbd>Command</kbd>+<kbd>P</kbd> on macOS or
 <kbd>Ctrl</kbd>+<kbd>P</kbd> on Windows and Linux for the command palette.
