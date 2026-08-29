@@ -286,6 +286,9 @@ open document. Named tab groups use a compact labeled header, disclosure icon,
 and count rather than a separate panel. Collapsing a group preserves access to
 its active tab. The tab context menu keeps group actions and bulk close commands
 in one keyboard-operable surface.
+Back and forward arrows sit immediately beside the tab strip. They act on the
+active tab's file history, remain disabled when no destination exists, and never
+look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
@@ -304,6 +307,11 @@ assigned shortcut on the trailing edge. File rows lead with the filename, keep
 vault identity visible, and relegate the relative path to quiet metadata. Arrow
 keys skip unavailable commands; Enter runs or opens the active result. A
 file-only scope remains available without opening a second dialog.
+
+External web navigation uses a compact confirmation dialog that states the exact
+domain and full destination. The primary choices are explicit: allow that domain
+or allow all external domains. Settings show exact trusted domains as removable
+rows, or one `*` row when wildcard trust is enabled.
 
 ### Built-in Welcome Vault
 

@@ -39,4 +39,10 @@ use complete dark and light palettes.
 restores open files, order, named groups, collapsed state, and the active file.
 Turn it off here when a vault should always open with an empty tab strip.
 
+## External domains
+
+The same Settings dialog lists domains approved for HTTP and HTTPS links. Remove
+an exact domain at any time. If `*` is shown, every external web domain is
+allowed; remove it or clear permissions to restore confirmation prompts.
+
 [Next: Keyboard shortcuts](<Keyboard shortcuts.md>)

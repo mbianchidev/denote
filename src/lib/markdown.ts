@@ -260,10 +260,11 @@ export function resolveInternalLink(
     return null;
   }
 
-  const decoded = decodeURIComponent(href);
-  const [rawPath, anchor] = decoded.split("#", 2);
+  const [encodedPath, encodedAnchor] = href.split("#", 2);
+  const rawPath = decodeURIComponent(encodedPath);
+  const anchor = encodedAnchor ? decodeURIComponent(encodedAnchor) : null;
   if (!rawPath) {
-    return { path: currentPath, anchor: anchor || null };
+    return { path: currentPath, anchor };
   }
   const base = rawPath.startsWith("/")
     ? []
@@ -284,12 +285,18 @@ export function resolveInternalLink(
   const candidates = /\.[^/]+$/.test(candidate)
     ? [candidate]
     : [candidate, `${candidate}.md`, `${candidate}.markdown`, `${candidate}.txt`];
-  const path = availablePaths.find((available) =>
-    candidates.some(
-      (value) => value.toLocaleLowerCase() === available.toLocaleLowerCase(),
-    ),
-  );
-  return path ? { path, anchor: anchor || null } : null;
+  const exact = new Set(availablePaths);
+  const folded = new Map<string, string | null>();
+  for (const available of availablePaths) {
+    const key = available.toLocaleLowerCase();
+    folded.set(key, folded.has(key) ? null : available);
+  }
+  const path =
+    candidates.find((candidate) => exact.has(candidate)) ??
+    candidates
+      .map((candidate) => folded.get(candidate.toLocaleLowerCase()))
+      .find((candidate): candidate is string => typeof candidate === "string");
+  return path ? { path, anchor } : null;
 }
 
 export function recoverMarkdownLinkTarget(
@@ -298,19 +305,29 @@ export function recoverMarkdownLinkTarget(
   renderedHref: string,
 ): string | null {
   const normalizedText = linkText.trim();
+  const sanitizedSchemeTargets: string[] = [];
   const pattern =
     /\[([^\]]+)\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
   for (const match of markdown.matchAll(pattern)) {
     const text = match[1].replace(/[*_`~]/g, "").trim();
     const target = match[2].replace(/^<|>$/g, "");
-    if (text !== normalizedText || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+    if (text !== normalizedText) {
+      continue;
+    }
+    if (
+      /^[a-z][a-z0-9+.-]*:/i.test(target) &&
+      renderedHref === "about:blank"
+    ) {
+      sanitizedSchemeTargets.push(target);
       continue;
     }
     if (normalizedRenderedHref(target) === normalizedRenderedHref(renderedHref)) {
       return target;
     }
   }
-  return null;
+  return sanitizedSchemeTargets.length === 1
+    ? sanitizedSchemeTargets[0]
+    : null;
 }
 
 export function hasUnsupportedRichMarkdown(markdown: string): boolean {

@@ -299,3 +299,19 @@ pub struct DocumentBatch {
     pub skipped_count: usize,
     pub truncated: bool,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LinkRewriteBatch {
+    pub documents: Vec<SearchDocument>,
+    pub available_paths: Vec<String>,
+    pub skipped_count: usize,
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveEntryResult {
+    pub path: String,
+    pub rewrite_token: String,
+}

@@ -67,8 +67,17 @@ source mode so Denote preserves the escape exactly.
 Paste or insert an image to save it beside the note in an `assets` folder.
 Relative image paths stay portable.
 
-HTTP, HTTPS, email, and telephone links open in the operating system's default
-browser or handler. Denote never becomes a web browser. Use Command-click or
-Control-click to follow relative vault links while editing.
+Links without a protocol open inside the vault relative to the current note.
+`Optional plugins.md` means a file in the same folder;
+`../assets/orbit.svg` moves up one folder and opens the image.
+
+HTTP and HTTPS links open in the operating system browser after confirmation for
+an unknown domain. Choose **Allow domain** or **Allow all external domains**;
+manage permissions later in **Settings**. Email, telephone, hostless local file,
+and confirmed custom application protocols use their operating system handlers.
+Remote file hosts are blocked.
+
+Renaming or moving a file/folder updates relative inline links, images, and
+reference definitions in eligible Markdown files.
 
 [Next: Search and replace](<Search and replace.md>)

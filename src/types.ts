@@ -169,6 +169,15 @@ export interface DocumentBatch {
   truncated: boolean;
 }
 
+export interface LinkRewriteBatch extends DocumentBatch {
+  availablePaths: string[];
+}
+
+export interface MoveEntryResult {
+  path: string;
+  rewriteToken: string;
+}
+
 export interface SearchResult {
   document: SearchDocument;
   score: number;
@@ -186,6 +195,8 @@ export interface EditorTab {
   lineEnding: FileLineEnding;
   placeholder: boolean;
   groupId: string | null;
+  navigationHistory?: string[];
+  navigationIndex?: number;
   stats?: NoteStats;
   imageDataUrl?: string;
   rawEditing: boolean;

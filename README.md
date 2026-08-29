@@ -28,6 +28,8 @@ the selected folder as the source of truth.
 - Current-tab file navigation, explicit Command-T/Control-T blank tabs, named
   collapsible groups, reorderable tabs, bulk tab closing, bookmarks, recent
   files, and search navigation
+- Per-tab back/forward file history with branching and move/delete-safe path
+  updates
 - Per-vault restoration of the last open files, order, groups, collapsed state,
   and active file, enabled by default and configurable in editor settings
 - Recent-vault switcher for separate work, music, and personal folders
@@ -36,7 +38,8 @@ the selected folder as the source of truth.
 - One-click copying of the active file's content, attachment-ready file, or
   absolute path
 - File and folder creation, context-menu rename/move/trash, cross-folder drag,
-  per-folder pinning/custom order, trash, and restore
+  automatic relative Markdown-link rewrites, per-folder pinning/custom order,
+  trash, and restore
 - Command-N file creation plus file/folder creation from the sidebar context menu
 - Pointer and keyboard resizing for the persistent vault sidebar width
 - Permanent empty-trash action with explicit confirmation
@@ -75,9 +78,14 @@ unsupported rich-editor transforms cannot silently rewrite that syntax.
 If another application changes an open note, Denote rejects the stale autosave
 instead of overwriting the external edit.
 
-HTTP, HTTPS, email, and telephone links always open through the operating
-system's default application. Denote never navigates its editor window to an
-external website. Relative vault links continue to open inside Denote.
+Links without a protocol always resolve inside the vault relative to the current
+file, including `../` paths and image files. HTTP and HTTPS schemes are
+normalized to lowercase before opening. Unknown web domains require confirmation
+before Denote uses the operating system browser; allow one exact domain or all
+domains, then manage the list in **Settings**. Email, telephone, hostless local
+`file:///`, and confirmed custom `app-name://` links use the operating system
+handler. Remote file hosts and dangerous schemes such as `javascript:`, `data:`,
+and `vbscript:` are blocked.
 
 Editor settings are available from the editor toolbar. Font size applies
 immediately to rich text, Markdown source, programming files, plain text, and
@@ -117,6 +125,10 @@ per vault in editor settings. Each vault also remembers one rich-text/source
 choice for all Markdown files. Non-current, non-default vaults can be removed
 from the switcher; an explicit option moves the vault folder and all files to
 the operating system Trash.
+
+Each tab keeps its own navigation history. Use the back and forward arrows beside
+the tabs to revisit files opened in that tab. Opening a new file after going back
+discards only that tab's forward branch.
 
 Previously opened vaults use their SQLite-cached file tree so switching does not
 wait for a full folder scan or content index. Denote refreshes the tree and
@@ -200,7 +212,9 @@ use Left/Right arrows for keyboard resizing; Home resets the default width.
 Right-click a file or folder to rename it, move it to another folder, or move it
 to trash. Drag files and folders directly onto a folder, or onto empty tree space
 for the vault root. The context menu's **Move to folder…** action is the keyboard
-equivalent.
+equivalent. After a rename or move, Denote updates relative inline links, images,
+and reference definitions in small UTF-8 Markdown files. Large, unreadable, or
+conflicting files are reported instead of being changed silently.
 
 ## Callouts
 

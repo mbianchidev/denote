@@ -7,6 +7,8 @@ import type {
   EncryptionSetupResult,
   KnownVault,
   KnownVaultFileBatch,
+  LinkRewriteBatch,
+  MoveEntryResult,
   NoteDocument,
   NoteStats,
   RecoveryCodesResult,
@@ -46,6 +48,8 @@ export const api = {
   copyFilePath: (path: string) => invoke<void>("copy_file_path", { path }),
   copyFileContent: (content: string) =>
     invoke<void>("copy_file_content", { content }),
+  openExternalUri: (uri: string) =>
+    invoke<void>("open_external_uri", { uri }),
   copyFileForAttachment: (
     path: string,
     content: string,
@@ -86,9 +90,11 @@ export const api = {
       directory,
     }),
   renameEntry: (path: string, newName: string) =>
-    invoke<string>("rename_entry", { path, newName }),
+    invoke<MoveEntryResult>("rename_entry", { path, newName }),
   moveEntry: (path: string, targetParentPath: string) =>
-    invoke<string>("move_entry", { path, targetParentPath }),
+    invoke<MoveEntryResult>("move_entry", { path, targetParentPath }),
+  finishLinkRewrite: (rewriteToken: string) =>
+    invoke<void>("finish_link_rewrite", { rewriteToken }),
   trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
   restoreTrashItem: (itemId: number) =>
     invoke<string>("restore_trash_item", { itemId }),
@@ -120,6 +126,8 @@ export const api = {
     invoke<DocumentBatch>("list_search_documents"),
   listEditableDocuments: () =>
     invoke<DocumentBatch>("list_editable_documents"),
+  listLinkRewriteDocuments: () =>
+    invoke<LinkRewriteBatch>("list_link_rewrite_documents"),
   readImageDataUrl: (imageSource: string, notePath?: string) =>
     invoke<string>("read_image_data_url", {
       notePath: notePath ?? null,

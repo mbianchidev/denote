@@ -256,6 +256,23 @@ metadata path rekeying. The frontend flushes affected tabs first and rewrites
 their paths after the move. Pointer capture plus coordinate hit-testing drives
 folder/root drop targets; **Move to folder…** is the keyboard alternative.
 
+After a successful rename or move, Rust returns a bounded batch containing only
+UTF-8 `.md` and `.markdown` files up to 1 MB each and 32 MB total. A bundled Web
+Worker parses those files and rewrites inline links, images, and reference
+definitions by resolving against pre-move source paths and recalculating paths
+after both source and target moves. MDX is excluded. Updated files use ordinary
+hash-checked saves and revision history; oversized, unreadable, truncated, or
+conflicting rewrites are surfaced without reverting the completed filesystem
+move. A dedicated cross-process link-rewrite lease starts before the filesystem
+move and remains held through those saves, preventing another Denote process
+from interleaving a second topology change.
+
+Each open tab keeps an in-memory path history and cursor. Ordinary navigation
+appends after the cursor and truncates its forward branch. Back/forward loads use
+the same serialized save barrier as file selection. Rename/move rekeys history
+paths, while trash removes invalid entries. Session persistence intentionally
+stores only the current tab layout, not transient navigation history.
+
 All CodeMirror surfaces receive one highest-precedence Denote theme extension.
 The extension uses CSS semantic tokens, so editable code blocks, Markdown
 source, plain files, gutters, selections, active lines, matching brackets, and
@@ -285,13 +302,16 @@ preserving ACLs, DOS attributes, and alternate data streams.
 ## Security
 
 Filesystem operations run through dedicated Tauri commands rather than a broad
-frontend filesystem permission. External URLs and file paths use the official
-Tauri opener plugin. Copying a file path resolves the selected entry inside the
-canonical vault boundary before the native clipboard plugin writes its absolute
-path. Editor anchor clicks are prevented at the capture boundary; HTTP, HTTPS,
-mailto, and tel targets are passed to the operating system opener, file URLs use
-the associated desktop application, and relative vault links stay in Denote.
-Unsupported URI schemes are rejected instead of navigating the webview. The
+frontend filesystem permission. Copying a file path resolves the selected entry
+inside the canonical vault boundary before the native clipboard plugin writes
+its absolute path. Every no-scheme link resolves relative to the current note and
+stays inside the vault. Hostless local `file:///` links use the associated
+desktop application; remote file hosts are rejected.
+HTTP(S) schemes are normalized to lowercase and unknown exact domains require
+confirmation; trust is local-only and can be exact or wildcard. Mail, telephone,
+and custom `scheme://` links use a native validator and opener, with custom
+schemes requiring one-time confirmation. `javascript`, `data`, `vbscript`,
+`blob`, `about`, and `file` are blocked from that generic URI command. The
 content security policy only allows local application code plus the image
 sources required for Markdown previews. Encrypted vaults must be unlocked before
 content commands receive a data key, and incomplete encryption state blocks

@@ -76,6 +76,38 @@ describe("markdown utilities", () => {
         "projects/plan.md",
       ]),
     ).toEqual({ path: "home.md", anchor: "Overview" });
+    expect(
+      resolveInternalLink("docs/Guide.md", "../assets/orbit.svg", [
+        "docs/Guide.md",
+        "assets/orbit.svg",
+      ]),
+    ).toEqual({ path: "assets/orbit.svg", anchor: null });
+    expect(
+      resolveInternalLink("docs/Guide.md", "Optional plugins.md", [
+        "docs/Guide.md",
+        "docs/Optional plugins.md",
+      ]),
+    ).toEqual({ path: "docs/Optional plugins.md", anchor: null });
+    expect(
+      resolveInternalLink("docs/Guide.md", "../reference/a%23b.md", [
+        "docs/Guide.md",
+        "reference/a#b.md",
+      ]),
+    ).toEqual({ path: "reference/a#b.md", anchor: null });
+    expect(
+      resolveInternalLink("Guide.md", "foo.md", [
+        "Guide.md",
+        "Foo.md",
+        "foo.md",
+      ]),
+    ).toEqual({ path: "foo.md", anchor: null });
+    expect(
+      resolveInternalLink("Guide.md", "FOO.md", [
+        "Guide.md",
+        "Foo.md",
+        "foo.md",
+      ]),
+    ).toBeNull();
   });
 
   it("does not transform callout examples inside fenced code", () => {
@@ -108,6 +140,27 @@ describe("markdown utilities", () => {
         "https://notes/plan.md/",
       ),
     ).toBe("notes/plan.md");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[App](my-app://open/item)",
+        "App",
+        "about:blank",
+      ),
+    ).toBe("my-app://open/item");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[File](file:///tmp/note.md)",
+        "File",
+        "about:blank",
+      ),
+    ).toBe("file:///tmp/note.md");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[Open](file:///tmp/one.md) [Open](file:///tmp/two.md)",
+        "Open",
+        "about:blank",
+      ),
+    ).toBeNull();
   });
 
   it("routes syntax unsupported by the rich editor to source mode", () => {

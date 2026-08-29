@@ -21,6 +21,8 @@ raw Base64 editor.
 - Right-click a tab to create or rename a group, move the tab between groups, or
   close all/others/left/right.
 - Collapse or expand a named group from its group header.
+- Use the back and forward arrows to revisit files navigated within the active
+  tab. Opening a new file after going back replaces only that forward branch.
 - Denote reopens the previous session's files, order, groups, collapsed state,
   and active file by default. Disable this per vault in **Editor display
   settings**.
@@ -38,7 +40,9 @@ trash actions.
 
 Drag a file or folder onto another folder to move it there, or onto empty tree
 space to move it to the vault root. Use **Move to folder…** from the context menu
-for the keyboard-accessible equivalent.
+for the keyboard-accessible equivalent. Denote then updates relative inline
+links, images, and reference definitions in eligible Markdown files. It reports
+large, unreadable, or conflicting files that could not be rewritten.
 
 Drag the divider beside the file tree to resize the sidebar. Focus it and use
 Left/Right arrows, or press Home to reset the default width.

@@ -50,14 +50,125 @@ export function placeOpenedTab(
     ? tabs.findIndex((tab) => tab.path === activePath)
     : -1;
   if (activeIndex < 0) {
-    return tabsInVisualOrder([...tabs, opened]);
+    return tabsInVisualOrder([
+      ...tabs,
+      {
+        ...opened,
+        navigationHistory: [opened.path],
+        navigationIndex: 0,
+      },
+    ]);
   }
+  const navigation = pushTabNavigation(tabs[activeIndex], opened.path);
   const next = [...tabs];
   next.splice(activeIndex, 1, {
     ...opened,
     groupId: next[activeIndex].groupId,
+    ...navigation,
   });
   return tabsInVisualOrder(next);
+}
+
+export function tabHistoryTarget(
+  tab: EditorTab,
+  direction: -1 | 1,
+): { path: string; index: number } | null {
+  const navigation = tabNavigation(tab);
+  const index = navigation.navigationIndex + direction;
+  const path = navigation.navigationHistory[index];
+  return path ? { path, index } : null;
+}
+
+export function restoreTabHistoryTarget(
+  current: EditorTab,
+  opened: EditorTab,
+  index: number,
+): EditorTab {
+  const navigation = tabNavigation(current);
+  return {
+    ...opened,
+    groupId: current.groupId,
+    navigationHistory: navigation.navigationHistory,
+    navigationIndex: index,
+  };
+}
+
+export function rekeyTabNavigation(
+  tab: EditorTab,
+  replacePath: (path: string) => string,
+): EditorTab {
+  const navigation = tabNavigation(tab);
+  return {
+    ...tab,
+    navigationHistory: navigation.navigationHistory.map(replacePath),
+    navigationIndex: navigation.navigationIndex,
+  };
+}
+
+export function removeTabNavigationPaths(
+  tab: EditorTab,
+  remove: (path: string) => boolean,
+): EditorTab {
+  const navigation = tabNavigation(tab);
+  const history = navigation.navigationHistory.filter((path) => !remove(path));
+  const retainedThroughCursor = navigation.navigationHistory
+    .slice(0, navigation.navigationIndex + 1)
+    .filter((path) => !remove(path)).length;
+  return {
+    ...tab,
+    navigationHistory: history,
+    navigationIndex: Math.max(
+      Math.min(retainedThroughCursor - 1, history.length - 1),
+      0,
+    ),
+  };
+}
+
+function pushTabNavigation(
+  tab: EditorTab,
+  path: string,
+): Pick<EditorTab, "navigationHistory" | "navigationIndex"> {
+  const navigation = tabNavigation(tab);
+  const history = navigation.navigationHistory.slice(
+    0,
+    navigation.navigationIndex + 1,
+  );
+  if (history[history.length - 1] !== path) {
+    history.push(path);
+  }
+  return {
+    navigationHistory: history,
+    navigationIndex: history.length - 1,
+  };
+}
+
+function tabNavigation(
+  tab: EditorTab,
+): Required<
+  Pick<EditorTab, "navigationHistory" | "navigationIndex">
+> {
+  const history = [
+    ...(tab.navigationHistory?.filter((path) => path.length > 0) ??
+      (tab.placeholder ? [] : [tab.path])),
+  ];
+  if (history.length === 0) {
+    return { navigationHistory: [], navigationIndex: -1 };
+  }
+  let index = Math.min(
+    Math.max(tab.navigationIndex ?? history.length - 1, 0),
+    history.length - 1,
+  );
+  if (history[index] !== tab.path) {
+    const existing = history.lastIndexOf(tab.path);
+    if (existing >= 0) {
+      index = existing;
+    } else {
+      history.splice(index + 1);
+      history.push(tab.path);
+      index = history.length - 1;
+    }
+  }
+  return { navigationHistory: history, navigationIndex: index };
 }
 
 export function buildTabSessionState(

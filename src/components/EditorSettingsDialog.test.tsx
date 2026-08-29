@@ -15,8 +15,12 @@ describe("EditorSettingsDialog", () => {
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
         onChange={onChange}
         onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -40,8 +44,12 @@ describe("EditorSettingsDialog", () => {
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
         onChange={vi.fn()}
         onRestoreTabsChange={onRestoreTabsChange}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -62,8 +70,12 @@ describe("EditorSettingsDialog", () => {
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
         onChange={onChange}
         onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -87,8 +99,12 @@ describe("EditorSettingsDialog", () => {
         disabled
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
         onChange={vi.fn()}
         onRestoreTabsChange={onRestoreTabsChange}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -99,5 +115,33 @@ describe("EditorSettingsDialog", () => {
     expect(restore).toBeDisabled();
     await user.click(restore);
     expect(onRestoreTabsChange).not.toHaveBeenCalled();
+  });
+
+  it("lists and removes allowed external domains", async () => {
+    const user = userEvent.setup();
+    const onRemoveExternalDomain = vi.fn();
+    render(
+      <EditorSettingsDialog
+        open
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={["example.com"]}
+        allowAllExternalDomains={false}
+        onChange={vi.fn()}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={onRemoveExternalDomain}
+        onClearExternalDomains={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("example.com")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", {
+        name: "Remove external domain example.com",
+      }),
+    );
+    expect(onRemoveExternalDomain).toHaveBeenCalledWith("example.com");
   });
 });

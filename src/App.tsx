@@ -1,8 +1,10 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { openPath, openUrl } from "@tauri-apps/plugin-opener";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   ArrowUp,
   Bookmark,
   BookmarkCheck,
@@ -43,6 +45,7 @@ import {
 } from "./components/CommandPalette";
 import { EncryptionDialog } from "./components/EncryptionDialog";
 import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
+import { ExternalLinkDialog } from "./components/ExternalLinkDialog";
 import { FileTree } from "./components/FileTree";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
@@ -58,12 +61,24 @@ import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
 import {
+  allowExternalDomain,
+  DEFAULT_EXTERNAL_DOMAIN_POLICY,
+  externalDomain,
+  getExternalDomainPolicy,
+  isExternalDomainAllowed,
+  saveExternalDomainPolicy,
+  type ExternalDomainPolicy,
+} from "./lib/externalDomains";
+import {
   extractHeadings,
   extractTags,
   recoverMarkdownLinkTarget,
   resolveInternalLink,
   slugifyHeading,
 } from "./lib/markdown";
+import {
+  computeLinkRewriteUpdates,
+} from "./lib/linkRewriteWorker";
 import {
   getMarkdownViewMode,
   saveMarkdownViewMode,
@@ -78,6 +93,10 @@ import {
   MAX_TAB_SESSION_TABS,
   moveTabInLayout,
   placeOpenedTab,
+  rekeyTabNavigation,
+  removeTabNavigationPaths,
+  restoreTabHistoryTarget,
+  tabHistoryTarget,
   tabsInVisualOrder,
 } from "./lib/tabs";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
@@ -110,7 +129,9 @@ import {
 import {
   externalLinkTarget,
   hasUriScheme,
-  isExternalLink,
+  isBlockedExternalScheme,
+  isLocalFileUrl,
+  isWebLink,
 } from "./lib/links";
 import type {
   EditorTab,
@@ -148,6 +169,13 @@ interface PendingAttachmentInsertion {
   settle: (succeeded: boolean) => void;
 }
 
+interface LinkRewriteSave {
+  content: string;
+  outcome: Awaited<ReturnType<typeof api.saveNote>>;
+  encoding: EditorTab["encoding"];
+  lineEnding: EditorTab["lineEnding"];
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -175,6 +203,17 @@ function App() {
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [externalDomainPolicy, setExternalDomainPolicy] =
+    useState<ExternalDomainPolicy>(() => getExternalDomainPolicy());
+  const [pendingExternalLink, setPendingExternalLink] = useState<{
+    url: string;
+    kind: "domain" | "protocol";
+    subject: string;
+  } | null>(null);
+  const [headingNavigation, setHeadingNavigation] = useState<{
+    path: string;
+    anchor: string;
+  } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => getSidebarWidth());
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
@@ -213,7 +252,6 @@ function App() {
     async () => true,
   );
   const indexTimer = useRef<number | null>(null);
-  const pendingAnchor = useRef<string | null>(null);
   const pendingDefaultWelcome = useRef<string | null>(null);
   const pendingWorkspaceFile = useRef<{
     vaultPath: string;
@@ -408,6 +446,41 @@ function App() {
     },
     [editorDisplaySettings, updateEditorDisplaySettings],
   );
+  const persistExternalDomainPolicy = useCallback(
+    (policy: ExternalDomainPolicy) => {
+      try {
+        const saved = saveExternalDomainPolicy(policy);
+        setExternalDomainPolicy(saved);
+        return saved;
+      } catch (caught) {
+        showError(caught);
+        return null;
+      }
+    },
+    [showError],
+  );
+  const removeExternalDomain = useCallback(
+    (domain: string) => {
+      const next =
+        domain === "*"
+          ? { ...externalDomainPolicy, allowAll: false }
+          : {
+              ...externalDomainPolicy,
+              domains: externalDomainPolicy.domains.filter(
+                (candidate) => candidate !== domain,
+              ),
+            };
+      if (persistExternalDomainPolicy(next)) {
+        setStatus("External domain permissions updated");
+      }
+    },
+    [externalDomainPolicy, persistExternalDomainPolicy],
+  );
+  const clearExternalDomains = useCallback(() => {
+    if (persistExternalDomainPolicy(DEFAULT_EXTERNAL_DOMAIN_POLICY)) {
+      setStatus("External domain permissions cleared");
+    }
+  }, [persistExternalDomainPolicy]);
 
   const updateRestoreTabs = useCallback(
     (enabled: boolean) => {
@@ -634,7 +707,8 @@ function App() {
         setEditorSettingsOpen(false);
         setVaultSwitcherOpen(false);
         setCommandPaletteOpen(false);
-        pendingAnchor.current = null;
+        setPendingExternalLink(null);
+        setHeadingNavigation(null);
       }
       if (resetTabs) {
         if (
@@ -1340,6 +1414,8 @@ function App() {
               lineEnding: document.lineEnding,
               placeholder: false,
               groupId: null,
+              navigationHistory: [path],
+              navigationIndex: 0,
               imageDataUrl,
               rawEditing: false,
               editorRevision: 0,
@@ -1359,6 +1435,8 @@ function App() {
             lineEnding: document.lineEnding,
             placeholder: false,
             groupId: null,
+            navigationHistory: [path],
+            navigationIndex: 0,
             rawEditing: false,
             editorRevision: 0,
             stats: document.stats,
@@ -1382,7 +1460,9 @@ function App() {
       }
       const existing = tabsRef.current.find((tab) => tab.path === path);
       if (existing) {
-        pendingAnchor.current = anchor ?? null;
+        setHeadingNavigation(
+          anchor ? { path, anchor } : null,
+        );
         activateTab(path);
         return;
       }
@@ -1412,7 +1492,9 @@ function App() {
         ) {
           return;
         }
-        pendingAnchor.current = anchor ?? null;
+        setHeadingNavigation(
+          anchor ? { path, anchor } : null,
+        );
         commitTabs((current) => placeOpenedTab(current, replacePath, tab));
         commitTabGroups((current) =>
           current.filter((group) =>
@@ -1473,6 +1555,132 @@ function App() {
       return operation;
     },
     [openFileNow],
+  );
+
+  const navigateTabHistory = useCallback(
+    (direction: -1 | 1): Promise<void> => {
+      const request = ++openFileRequest.current;
+      const operation = openFileQueue.current.then(async () => {
+        if (!workspace || workspaceLockedRef.current) {
+          return;
+        }
+        const current = tabsRef.current.find(
+          (tab) => tab.path === activePathRef.current,
+        );
+        if (!current || current.placeholder) {
+          return;
+        }
+        const target = tabHistoryTarget(current, direction);
+        if (!target || request !== openFileRequest.current) {
+          return;
+        }
+        const node = findNode(workspace.tree, target.path);
+        const kind = node?.kind ?? kindFromPath(target.path);
+        if (kind === "folder") {
+          return;
+        }
+        const title =
+          node?.name ??
+          target.path.split("/").slice(-1)[0] ??
+          target.path;
+        const generation = vaultGeneration.current;
+        let workspaceOperationStarted = false;
+        try {
+          if (!(await beginWorkspaceOperation())) {
+            return;
+          }
+          workspaceOperationStarted = true;
+          if (request !== openFileRequest.current) {
+            return;
+          }
+          const latestCurrent = tabsRef.current.find(
+            (tab) => tab.path === current.path,
+          );
+          if (!latestCurrent) {
+            return;
+          }
+          const existing = tabsRef.current.find(
+            (tab) => tab.path === target.path,
+          );
+          const opened = restoreTabHistoryTarget(
+            latestCurrent,
+            existing ?? (await readEditorTab(target.path, kind, title)),
+            target.index,
+          );
+          if (
+            generation !== vaultGeneration.current ||
+            request !== openFileRequest.current
+          ) {
+            return;
+          }
+          if (existing) {
+            const displaced = placeOpenedTab(
+              [existing],
+              existing.path,
+              latestCurrent,
+            )[0];
+            commitTabs((tabs) =>
+              tabsInVisualOrder(
+                tabs.map((tab) =>
+                  tab.path === current.path
+                    ? opened
+                    : tab.path === existing.path
+                      ? displaced
+                      : tab,
+                ),
+              ),
+            );
+            cancelPendingPath(existing.path);
+          } else {
+            commitTabs((tabs) =>
+              tabsInVisualOrder(
+                tabs.map((tab) =>
+                  tab.path === current.path ? opened : tab,
+                ),
+              ),
+            );
+          }
+          cancelPendingPath(current.path);
+          activePathRef.current = target.path;
+          setActivePath(target.path);
+          setSelectedPath(target.path);
+          setStatus(`Opened ${title}`);
+          setWorkspace((value) =>
+            value
+              ? withRecentlyOpened(
+                  value,
+                  target.path,
+                  title,
+                  opened.stats?.lastOpenedAt ?? null,
+                )
+              : value,
+          );
+          searchIndex.current.recordOpen(
+            target.path,
+            opened.stats?.lastOpenedAt ?? null,
+          );
+        } catch (caught) {
+          if (generation === vaultGeneration.current) {
+            showError(caught);
+          }
+        } finally {
+          if (workspaceOperationStarted) {
+            setWorkspaceLock(false);
+          }
+        }
+      });
+      openFileQueue.current = operation;
+      return operation;
+    },
+    [
+      beginWorkspaceOperation,
+      cancelPendingPath,
+      commitTabs,
+      readEditorTab,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
   );
 
   useEffect(() => {
@@ -1961,6 +2169,62 @@ function App() {
     await refreshWorkspace(true);
   }, [refreshWorkspace, workspace]);
 
+  const rewriteLinksForMove = useCallback(
+    async (oldPath: string, newPath: string) => {
+      const batch = await api.listLinkRewriteDocuments();
+      const updates = new Map<string, LinkRewriteSave>();
+      const failures: string[] = [];
+      const rewrites = await computeLinkRewriteUpdates(
+        batch.documents,
+        oldPath,
+        newPath,
+        batch.availablePaths,
+      );
+      const documentsByPath = new Map(
+        batch.documents.map((document) => [document.path, document]),
+      );
+      for (const rewrite of rewrites) {
+        const document = documentsByPath.get(rewrite.path);
+        if (!document) {
+          failures.push(rewrite.path);
+          continue;
+        }
+        try {
+          const outcome = await api.saveNote(
+            document.path,
+            rewrite.content,
+            document.encoding,
+            document.lineEnding,
+            "update links after move",
+            document.contentHash,
+          );
+          updates.set(document.path, {
+            content: rewrite.content,
+            outcome,
+            encoding: document.encoding,
+            lineEnding: document.lineEnding,
+          });
+        } catch (caught) {
+          console.error(
+            `Unable to update links in ${document.path}:`,
+            caught,
+          );
+          failures.push(document.path);
+        }
+      }
+      return {
+        updates,
+        incomplete:
+          batch.truncated ||
+          batch.skippedCount > 0 ||
+          failures.length > 0,
+        skippedCount: batch.skippedCount,
+        failedCount: failures.length,
+      };
+    },
+    [],
+  );
+
   const createEntry = useCallback(
     async (directory: boolean, parentOverride?: string) => {
       if (!workspace || workspaceLockedRef.current) {
@@ -2041,12 +2305,35 @@ function App() {
           return;
         }
       }
-      const newPath = await api.renameEntry(node.path, newName);
+      const movedEntry = await api.renameEntry(node.path, newName);
+      const newPath = movedEntry.path;
       const oldPath = node.path;
       const replacePrefix = (path: string) =>
         path === oldPath || path.startsWith(`${oldPath}/`)
           ? `${newPath}${path.slice(oldPath.length)}`
           : path;
+      let linkUpdates = new Map<string, LinkRewriteSave>();
+      let linksIncomplete = false;
+      try {
+        const rewritten = await rewriteLinksForMove(oldPath, newPath);
+        linkUpdates = rewritten.updates;
+        linksIncomplete = rewritten.incomplete;
+        if (linksIncomplete) {
+          showError(
+            `Renamed ${node.name}, but some linked files could not be updated (${rewritten.failedCount} failed, ${rewritten.skippedCount} skipped).`,
+          );
+        }
+      } catch (caught) {
+        linksIncomplete = true;
+        showError(caught);
+      } finally {
+        try {
+          await api.finishLinkRewrite(movedEntry.rewriteToken);
+        } catch (caught) {
+          linksIncomplete = true;
+          showError(caught);
+        }
+      }
       commitTabs((current) =>
         current.map((tab) => {
           if (tab.placeholder) {
@@ -2054,11 +2341,23 @@ function App() {
           }
           const path = replacePrefix(tab.path);
           const renamedKind = kindFromPath(path);
+          const update = linkUpdates.get(path);
+          const moved = rekeyTabNavigation(tab, replacePrefix);
           return {
-            ...tab,
+            ...moved,
             path,
             title: path.split("/").slice(-1)[0] ?? path,
             kind: renamedKind,
+            content: update?.content ?? moved.content,
+            savedContent: update?.content ?? moved.savedContent,
+            savedHash: update?.outcome.contentHash ?? moved.savedHash,
+            encoding: update?.encoding ?? moved.encoding,
+            lineEnding: update?.lineEnding ?? moved.lineEnding,
+            stats: update?.outcome.stats ?? moved.stats,
+            editorRevision:
+              moved.editorRevision + (update ? 1 : 0),
+            editRecorded: update ? false : moved.editRecorded,
+            saveState: update ? "saved" : moved.saveState,
             rawEditing:
               renamedKind === "image" && tab.kind === "image"
                 ? tab.rawEditing
@@ -2092,12 +2391,23 @@ function App() {
           }
         }
       }
-      setActivePath((current) => (current ? replacePrefix(current) : current));
+      setActivePath((current) => {
+        const next = current ? replacePrefix(current) : current;
+        activePathRef.current = next;
+        return next;
+      });
       setSelectedPath(newPath);
       for (const tab of affectedTabs) {
         cancelPendingPath(tab.path);
       }
       await refreshAndReindex();
+      if (!linksIncomplete && linkUpdates.size > 0) {
+        setStatus(
+          `Renamed ${node.name} and updated ${linkUpdates.size} linked file${
+            linkUpdates.size === 1 ? "" : "s"
+          }`,
+        );
+      }
     } catch (caught) {
       showError(caught);
     } finally {
@@ -2110,6 +2420,7 @@ function App() {
     flushTab,
     refreshAndReindex,
     requestText,
+    rewriteLinksForMove,
     setWorkspaceLock,
     showError,
     workspace,
@@ -2146,11 +2457,34 @@ function App() {
             return;
           }
         }
-        const newPath = await api.moveEntry(node.path, targetParentPath);
+        const movedEntry = await api.moveEntry(node.path, targetParentPath);
+        const newPath = movedEntry.path;
         const replacePrefix = (path: string) =>
           path === node.path || path.startsWith(`${node.path}/`)
             ? `${newPath}${path.slice(node.path.length)}`
             : path;
+        let linkUpdates = new Map<string, LinkRewriteSave>();
+        let linksIncomplete = false;
+        try {
+          const rewritten = await rewriteLinksForMove(node.path, newPath);
+          linkUpdates = rewritten.updates;
+          linksIncomplete = rewritten.incomplete;
+          if (linksIncomplete) {
+            showError(
+              `Moved ${node.name}, but some linked files could not be updated (${rewritten.failedCount} failed, ${rewritten.skippedCount} skipped).`,
+            );
+          }
+        } catch (caught) {
+          linksIncomplete = true;
+          showError(caught);
+        } finally {
+          try {
+            await api.finishLinkRewrite(movedEntry.rewriteToken);
+          } catch (caught) {
+            linksIncomplete = true;
+            showError(caught);
+          }
+        }
         commitTabs((current) =>
           current.map((tab) => {
             if (tab.placeholder) {
@@ -2158,11 +2492,23 @@ function App() {
             }
             const path = replacePrefix(tab.path);
             const movedKind = kindFromPath(path);
+            const update = linkUpdates.get(path);
+            const moved = rekeyTabNavigation(tab, replacePrefix);
             return {
-              ...tab,
+              ...moved,
               path,
               title: path.split("/").slice(-1)[0] ?? path,
               kind: movedKind,
+              content: update?.content ?? moved.content,
+              savedContent: update?.content ?? moved.savedContent,
+              savedHash: update?.outcome.contentHash ?? moved.savedHash,
+              encoding: update?.encoding ?? moved.encoding,
+              lineEnding: update?.lineEnding ?? moved.lineEnding,
+              stats: update?.outcome.stats ?? moved.stats,
+              editorRevision:
+                moved.editorRevision + (update ? 1 : 0),
+              editRecorded: update ? false : moved.editRecorded,
+              saveState: update ? "saved" : moved.saveState,
               rawEditing:
                 movedKind === "image" && tab.kind === "image"
                   ? tab.rawEditing
@@ -2209,7 +2555,15 @@ function App() {
           setExpandedPaths((current) => new Set(current).add(targetParentPath));
         }
         await refreshAndReindex();
-        setStatus(`Moved ${node.name}`);
+        if (!linksIncomplete) {
+          setStatus(
+            linkUpdates.size > 0
+              ? `Moved ${node.name} and updated ${linkUpdates.size} linked file${
+                  linkUpdates.size === 1 ? "" : "s"
+                }`
+              : `Moved ${node.name}`,
+          );
+        }
       } catch (caught) {
         showError(caught);
       } finally {
@@ -2223,6 +2577,7 @@ function App() {
       commitTabs,
       flushTab,
       refreshAndReindex,
+      rewriteLinksForMove,
       setWorkspaceLock,
       showError,
       workspace,
@@ -2284,7 +2639,11 @@ function App() {
       await api.trashEntry(node.path);
       const isAffected = (path: string) =>
         path === node.path || path.startsWith(`${node.path}/`);
-      commitTabs((current) => current.filter((tab) => !isAffected(tab.path)));
+      commitTabs((current) =>
+        current
+          .filter((tab) => !isAffected(tab.path))
+          .map((tab) => removeTabNavigationPaths(tab, isAffected)),
+      );
       commitTabGroups((current) =>
         current.filter((group) =>
           tabsRef.current.some((tab) => tab.groupId === group.id),
@@ -2911,6 +3270,35 @@ function App() {
     ],
   );
 
+  const allowPendingExternalLink = useCallback(
+    async (allowAll: boolean) => {
+      const pending = pendingExternalLink;
+      if (!pending) {
+        return;
+      }
+      if (pending.kind === "domain") {
+        const policy = allowAll
+          ? { ...externalDomainPolicy, allowAll: true }
+          : allowExternalDomain(externalDomainPolicy, pending.subject);
+        if (!persistExternalDomainPolicy(policy)) {
+          return;
+        }
+      }
+      setPendingExternalLink(null);
+      try {
+        await api.openExternalUri(pending.url);
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [
+      externalDomainPolicy,
+      pendingExternalLink,
+      persistExternalDomainPolicy,
+      showError,
+    ],
+  );
+
   const openLink = useCallback(
     async (href: string, linkText = "") => {
       if (!activeTab || !href) {
@@ -2919,27 +3307,62 @@ function App() {
       try {
         const target =
           recoverMarkdownLinkTarget(activeTab.content, linkText, href) ?? href;
-        if (isExternalLink(target)) {
-          await openUrl(externalLinkTarget(target));
+        const normalizedTarget = externalLinkTarget(target);
+        if (/^file:/i.test(normalizedTarget)) {
+          if (!isLocalFileUrl(normalizedTarget)) {
+            showError("Remote file URLs are not allowed.");
+            return;
+          }
+          await openPath(fileUrlToPath(normalizedTarget));
           return;
         }
-        if (target.startsWith("file://")) {
-          await openPath(fileUrlToPath(target));
+        if (isWebLink(normalizedTarget)) {
+          const domain = externalDomain(normalizedTarget);
+          if (!domain) {
+            showError(`Invalid external link: ${target}`);
+            return;
+          }
+          if (!isExternalDomainAllowed(externalDomainPolicy, domain)) {
+            setPendingExternalLink({
+              url: normalizedTarget,
+              kind: "domain",
+              subject: domain,
+            });
+            return;
+          }
+          await api.openExternalUri(normalizedTarget);
           return;
         }
-        if (hasUriScheme(target)) {
-          showError(`Unsupported link protocol: ${target.split(":", 1)[0]}`);
+        if (hasUriScheme(normalizedTarget)) {
+          if (isBlockedExternalScheme(normalizedTarget)) {
+            showError(
+              `External protocol is not allowed: ${
+                normalizedTarget.split(":", 1)[0]
+              }`,
+            );
+            return;
+          }
+          const scheme = normalizedTarget.split(":", 1)[0];
+          if (scheme === "mailto" || scheme === "tel") {
+            await api.openExternalUri(normalizedTarget);
+          } else {
+            setPendingExternalLink({
+              url: normalizedTarget,
+              kind: "protocol",
+              subject: scheme,
+            });
+          }
           return;
         }
         const resolved = resolveInternalLink(
           activeTab.path,
-          target,
+          normalizedTarget,
           allFiles
             .filter((node) => node.kind !== "folder")
             .map((node) => node.path),
         );
         if (!resolved) {
-          showError(`Link target not found: ${target}`);
+          showError(`Link target not found: ${normalizedTarget}`);
           return;
         }
         await openFile(resolved.path, resolved.anchor);
@@ -2947,7 +3370,7 @@ function App() {
         showError(caught);
       }
     },
-    [activeTab, allFiles, openFile, showError],
+    [activeTab, allFiles, externalDomainPolicy, openFile, showError],
   );
 
   const navigateToHeading = useCallback((heading: HeadingItem) => {
@@ -2969,16 +3392,25 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!activePath || !pendingAnchor.current) {
+    if (!headingNavigation) {
       return;
     }
-    const anchor = pendingAnchor.current;
-    pendingAnchor.current = null;
+    if (activePath !== headingNavigation.path) {
+      setHeadingNavigation(null);
+      return;
+    }
     const timer = window.setTimeout(() => {
-      navigateToHeading({ depth: 1, text: anchor, slug: slugifyHeading(anchor) });
+      navigateToHeading({
+        depth: 1,
+        text: headingNavigation.anchor,
+        slug: slugifyHeading(headingNavigation.anchor),
+      });
+      setHeadingNavigation((current) =>
+        current === headingNavigation ? null : current,
+      );
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [activePath, navigateToHeading]);
+  }, [activePath, headingNavigation, navigateToHeading]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -2988,6 +3420,7 @@ function App() {
         editorSettingsOpen ||
         vaultSwitcherOpen ||
         commandPaletteOpen ||
+        pendingExternalLink !== null ||
         actionDialog !== null ||
         historyOpen;
       const zoom = editorZoomShortcut(event, navigator.platform);
@@ -3101,6 +3534,7 @@ function App() {
     encryptionOpen,
     focusVaultSearch,
     historyOpen,
+    pendingExternalLink,
     replaceOpen,
     saveTab,
     showError,
@@ -3120,6 +3554,10 @@ function App() {
   const activeTabIndex = orderedTabs.findIndex(
     (tab) => tab.path === activePath,
   );
+  const backHistoryTarget = activeTab ? tabHistoryTarget(activeTab, -1) : null;
+  const forwardHistoryTarget = activeTab
+    ? tabHistoryTarget(activeTab, 1)
+    : null;
   const activeGroup = activeTab?.groupId
     ? tabGroups.find((group) => group.id === activeTab.groupId) ?? null
     : null;
@@ -3147,6 +3585,22 @@ function App() {
       shortcut: `${commandKey}P`,
       kind: "file-search",
       keywords: ["open", "quick"],
+    },
+    {
+      id: "navigation.back",
+      title: "Go back in current tab",
+      description: "Open the previous file visited in this tab.",
+      category: "Navigation",
+      disabled: backHistoryTarget === null,
+      run: () => navigateTabHistory(-1),
+    },
+    {
+      id: "navigation.forward",
+      title: "Go forward in current tab",
+      description: "Open the next file visited in this tab.",
+      category: "Navigation",
+      disabled: forwardHistoryTarget === null,
+      run: () => navigateTabHistory(1),
     },
     {
       id: "vault.search",
@@ -3531,7 +3985,7 @@ function App() {
     },
     {
       id: "editor.settings",
-      title: "Open editor settings",
+      title: "Open settings",
       description: "Change font size, guides, and session restore.",
       category: "Editor",
       disabled: !workspaceReady,
@@ -3993,6 +4447,26 @@ function App() {
             onMoveToGroup={moveTabToGroup}
           />
           <div className="workspace-actions">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Go back in current tab"
+              title="Go back in current tab"
+              disabled={backHistoryTarget === null || workspaceLocked}
+              onClick={() => void navigateTabHistory(-1)}
+            >
+              <ArrowLeft aria-hidden="true" size={16} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Go forward in current tab"
+              title="Go forward in current tab"
+              disabled={forwardHistoryTarget === null || workspaceLocked}
+              onClick={() => void navigateTabHistory(1)}
+            >
+              <ArrowRight aria-hidden="true" size={16} />
+            </button>
             {activeFileTab?.kind === "image" ? (
               <button
                 type="button"
@@ -4087,8 +4561,8 @@ function App() {
             <button
               type="button"
               className="icon-button"
-              aria-label="Open editor settings"
-              title="Editor settings"
+              aria-label="Open settings"
+              title="Settings"
               aria-haspopup="dialog"
               aria-expanded={editorSettingsOpen}
               disabled={workspaceLocked}
@@ -4301,9 +4775,22 @@ function App() {
         disabled={workspaceLocked}
         settings={editorDisplaySettings}
         restoreTabs={workspace.restoreTabs}
+        externalDomains={externalDomainPolicy.domains}
+        allowAllExternalDomains={externalDomainPolicy.allowAll}
         onChange={updateEditorDisplaySettings}
         onRestoreTabsChange={updateRestoreTabs}
+        onRemoveExternalDomain={removeExternalDomain}
+        onClearExternalDomains={clearExternalDomains}
         onClose={() => setEditorSettingsOpen(false)}
+      />
+      <ExternalLinkDialog
+        open={pendingExternalLink !== null}
+        kind={pendingExternalLink?.kind ?? "domain"}
+        subject={pendingExternalLink?.subject ?? ""}
+        url={pendingExternalLink?.url ?? ""}
+        onAllow={() => void allowPendingExternalLink(false)}
+        onAllowAll={() => void allowPendingExternalLink(true)}
+        onCancel={() => setPendingExternalLink(null)}
       />
       {vaultSwitcherDialog}
       {commandPalette}

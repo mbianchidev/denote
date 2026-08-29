@@ -35,6 +35,8 @@ more detail and examples.
 - Pin entries above siblings.
 - Reorder pinned and ordinary siblings independently.
 - Copy active content, an attachment-ready file, or the absolute file path.
+- Update relative Markdown links automatically after file/folder rename or move,
+  with explicit reporting for skipped or conflicting files.
 
 ## Tabs and groups
 
@@ -51,6 +53,7 @@ more detail and examples.
 - Reopen the last session's files, order, groups, collapsed state, and active
   file by default.
 - Disable session restore per vault in **Editor settings**.
+- Navigate backward and forward through each tab's independent file history.
 
 ## Markdown and source editing
 
@@ -76,9 +79,13 @@ more detail and examples.
 - Render tags as colored pills in rich mode.
 - Assign stable default colors and editable per-vault color overrides.
 - Search a tag by selecting its document tag pill.
-- Follow relative vault links inside Denote.
-- Open HTTP, HTTPS, email, telephone, and file links through the operating
-  system; Denote never becomes a browser.
+- Resolve no-protocol links relative to the current file inside Denote,
+  including parent paths such as `../assets/image.svg`.
+- Normalize HTTP(S) protocols, confirm unknown domains, and manage exact or
+  wildcard domain permissions in Settings.
+- Open email, telephone, hostless local file, and confirmed custom application
+  protocols through the operating system; block remote file hosts and dangerous
+  schemes.
 - Navigate headings through the table of contents.
 
 ## Search and replace

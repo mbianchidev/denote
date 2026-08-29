@@ -5,6 +5,10 @@ import {
   buildTabSessionState,
   moveTabInLayout,
   placeOpenedTab,
+  removeTabNavigationPaths,
+  rekeyTabNavigation,
+  restoreTabHistoryTarget,
+  tabHistoryTarget,
   tabsInVisualOrder,
 } from "./tabs";
 
@@ -43,6 +47,81 @@ describe("tab placement", () => {
         tab("three.md"),
       )[0].groupId,
     ).toBe("work");
+  });
+
+  it("tracks per-tab back and forward history", () => {
+    const first = placeOpenedTab([], null, tab("one.md"))[0];
+    const second = placeOpenedTab([first], "one.md", tab("two.md"))[0];
+    const third = placeOpenedTab([second], "two.md", tab("three.md"))[0];
+
+    expect(third.navigationHistory).toEqual([
+      "one.md",
+      "two.md",
+      "three.md",
+    ]);
+    expect(tabHistoryTarget(third, -1)).toEqual({
+      path: "two.md",
+      index: 1,
+    });
+
+    const restored = restoreTabHistoryTarget(third, tab("two.md"), 1);
+    expect(tabHistoryTarget(restored, 1)).toEqual({
+      path: "three.md",
+      index: 2,
+    });
+    expect(placeOpenedTab([restored], "two.md", tab("four.md"))[0]
+      .navigationHistory).toEqual(["one.md", "two.md", "four.md"]);
+  });
+
+  it("can swap an already-open history target without deleting either tab", () => {
+    const current = {
+      ...tab("two.md"),
+      navigationHistory: ["one.md", "two.md"],
+      navigationIndex: 1,
+    };
+    const existing = tab("one.md");
+    const navigated = restoreTabHistoryTarget(current, existing, 0);
+    const displaced = placeOpenedTab([existing], existing.path, current)[0];
+
+    expect([navigated.path, displaced.path]).toEqual(["one.md", "two.md"]);
+    expect(navigated.navigationIndex).toBe(0);
+    expect(tabHistoryTarget(navigated, 1)?.path).toBe("two.md");
+  });
+
+  it("rekeys paths inside tab navigation history", () => {
+    const current = {
+      ...tab("docs/two.md"),
+      navigationHistory: ["one.md", "docs/two.md", "docs/three.md"],
+      navigationIndex: 1,
+    };
+    expect(
+      rekeyTabNavigation(current, (path) =>
+        path.startsWith("docs/") ? `guide/${path.slice(5)}` : path,
+      ).navigationHistory,
+    ).toEqual(["one.md", "guide/two.md", "guide/three.md"]);
+  });
+
+  it("removes deleted files from tab navigation history", () => {
+    const current = {
+      ...tab("three.md"),
+      navigationHistory: ["one.md", "deleted/two.md", "three.md"],
+      navigationIndex: 2,
+    };
+    expect(
+      removeTabNavigationPaths(current, (path) =>
+        path.startsWith("deleted/"),
+      ).navigationHistory,
+    ).toEqual(["one.md", "three.md"]);
+    expect(
+      removeTabNavigationPaths(
+        {
+          ...tab("a.md"),
+          navigationHistory: ["a.md", "b.md", "deleted/c.md", "a.md"],
+          navigationIndex: 0,
+        },
+        (path) => path.startsWith("deleted/"),
+      ).navigationIndex,
+    ).toBe(0);
   });
 
   it("fills an explicit blank tab and appends only when no tab is active", () => {

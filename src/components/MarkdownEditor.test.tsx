@@ -35,7 +35,7 @@ describe("MarkdownEditor links", () => {
     );
   });
 
-  it("keeps ordinary relative-link clicks available for editing", async () => {
+  it("routes ordinary relative-link clicks through vault navigation", async () => {
     const onLinkOpen = vi.fn();
     render(
       <MarkdownEditor
@@ -55,9 +55,6 @@ describe("MarkdownEditor links", () => {
     const link = await screen.findByRole("link", { name: "Plan" });
 
     expect(fireEvent.click(link)).toBe(false);
-    expect(onLinkOpen).not.toHaveBeenCalled();
-
-    fireEvent.click(link, { metaKey: true });
     expect(onLinkOpen).toHaveBeenCalledWith("notes/plan.md", "Plan");
   });
 

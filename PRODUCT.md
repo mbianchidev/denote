@@ -68,6 +68,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   pointer or keyboard.
 - Tabs can be organized into named collapsible groups. Their context menu can
   close all, other, left, or right tabs, and move tabs between groups.
+- Each tab maintains an independent back/forward file-navigation history. New
+  navigation after going back truncates that tab's forward branch.
 - Each vault restores its last real file tabs, order, group membership, group
   names, collapse state, and active file by default. This setting is optional
   per vault; temporary blank tabs are never persisted.
@@ -99,8 +101,15 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Files and folders can move between folders by pointer drag or the
   keyboard-accessible context action. Rename and trash are also available from
   the file-tree context menu.
-- External links always use the operating system's default browser or handler;
-  the Denote editor window never becomes a web browser.
+- Renaming or moving a file/folder updates relative inline links, images, and
+  reference definitions in eligible Markdown files; skipped or conflicting
+  rewrites are surfaced.
+- No-protocol links always resolve relative to the current file inside the vault.
+- HTTP(S) links normalize protocol case and require confirmation for unknown
+  exact domains. Users can allow one domain or all domains and manage that list
+  in Settings.
+- Email, telephone, file, and confirmed custom application protocols use the
+  operating system handler; dangerous URI schemes remain blocked.
 - Persistent editor settings include a 12–24 px font size shared by rich and
   source editors plus line numbers, spaces and tabs, exact line-ending style,
   and trailing whitespace without modifying content.

@@ -23,6 +23,7 @@ pub fn run() {
                 eprintln!("Unable to prune stale clipboard attachment files: {error}");
             }
             app.manage(commands::FileClipboard::new());
+            app.manage(commands::LinkRewriteLeases::new());
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
             db::initialize(&db_path)?;
@@ -59,11 +60,13 @@ pub fn run() {
             commands::copy_file_path,
             commands::copy_file_content,
             commands::copy_file_for_attachment,
+            commands::open_external_uri,
             commands::read_note,
             commands::save_note,
             commands::create_entry,
             commands::rename_entry,
             commands::move_entry,
+            commands::finish_link_rewrite,
             commands::trash_entry,
             commands::restore_trash_item,
             commands::empty_trash,
@@ -80,6 +83,7 @@ pub fn run() {
             commands::restore_revision,
             commands::list_search_documents,
             commands::list_editable_documents,
+            commands::list_link_rewrite_documents,
             commands::read_image_data_url,
             commands::save_attachment,
         ])

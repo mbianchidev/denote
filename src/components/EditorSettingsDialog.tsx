@@ -1,4 +1,4 @@
-import { RotateCcw, Settings2, X } from "lucide-react";
+import { RotateCcw, Settings2, Trash2, X } from "lucide-react";
 import { useEffect, useRef, type RefObject } from "react";
 import {
   DEFAULT_EDITOR_DISPLAY_SETTINGS,
@@ -13,8 +13,12 @@ interface EditorSettingsDialogProps {
   disabled: boolean;
   settings: EditorDisplaySettings;
   restoreTabs: boolean;
+  externalDomains: string[];
+  allowAllExternalDomains: boolean;
   onChange: (settings: EditorDisplaySettings) => void;
   onRestoreTabsChange: (enabled: boolean) => void;
+  onRemoveExternalDomain: (domain: string) => void;
+  onClearExternalDomains: () => void;
   onClose: () => void;
 }
 
@@ -23,8 +27,12 @@ export function EditorSettingsDialog({
   disabled,
   settings,
   restoreTabs,
+  externalDomains,
+  allowAllExternalDomains,
   onChange,
   onRestoreTabsChange,
+  onRemoveExternalDomain,
+  onClearExternalDomains,
   onClose,
 }: EditorSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -85,14 +93,14 @@ export function EditorSettingsDialog({
         <div>
           <span className="dialog-kicker">
             <Settings2 aria-hidden="true" size={15} />
-            Editor
+            Denote
           </span>
-          <h2 id="editor-settings-title">Editor settings</h2>
+          <h2 id="editor-settings-title">Settings</h2>
         </div>
         <button
           type="button"
           className="icon-button"
-          aria-label="Close editor settings"
+          aria-label="Close settings"
           onClick={onClose}
         >
           <X aria-hidden="true" size={18} />
@@ -186,6 +194,66 @@ export function EditorSettingsDialog({
             onChange={onRestoreTabsChange}
           />
         </div>
+        <section
+          className="external-domain-settings"
+          aria-labelledby="external-domain-settings-title"
+        >
+          <div>
+            <h3 id="external-domain-settings-title">
+              Allowed external domains
+            </h3>
+            <p>
+              Unknown HTTP and HTTPS domains require confirmation before Denote
+              opens them.
+            </p>
+          </div>
+          {allowAllExternalDomains ? (
+            <div className="external-domain-setting">
+              <code>*</code>
+              <span>All external domains</span>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Remove all-domain permission"
+                disabled={disabled}
+                onClick={() => onRemoveExternalDomain("*")}
+              >
+                <Trash2 aria-hidden="true" size={14} />
+              </button>
+            </div>
+          ) : externalDomains.length > 0 ? (
+            <div className="external-domain-settings__list">
+              {externalDomains.map((domain) => (
+                <div className="external-domain-setting" key={domain}>
+                  <code>{domain}</code>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    aria-label={`Remove external domain ${domain}`}
+                    disabled={disabled}
+                    onClick={() => onRemoveExternalDomain(domain)}
+                  >
+                    <Trash2 aria-hidden="true" size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="external-domain-settings__empty">
+              No external domains are allowed yet.
+            </p>
+          )}
+          {(allowAllExternalDomains || externalDomains.length > 0) ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={disabled}
+              onClick={onClearExternalDomains}
+            >
+              Clear external domain permissions
+            </button>
+          ) : null}
+        </section>
       </div>
 
       <footer className="editor-settings-dialog__actions">
@@ -198,7 +266,7 @@ export function EditorSettingsDialog({
           }
         >
           <RotateCcw aria-hidden="true" size={14} />
-          Reset
+          Reset editor
         </button>
         <button type="button" className="primary-button" onClick={onClose}>
           Done

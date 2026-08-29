@@ -21,8 +21,8 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
-        KnownVaultFile, KnownVaultFileBatch, MarkdownViewMode, NoteDocument, SaveOutcome,
-        SearchDocument, TabSessionState, TagColor, WorkspaceSnapshot,
+        KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, NoteDocument,
+        SaveOutcome, SearchDocument, TabSessionState, TagColor, WorkspaceSnapshot,
     },
 };
 
@@ -30,6 +30,8 @@ const MAX_EDIT_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_SEARCH_BYTES: u64 = 10 * 1024 * 1024;
 const MAX_SEARCH_AGGREGATE_BYTES: usize = 64 * 1024 * 1024;
 const MAX_EDITABLE_AGGREGATE_BYTES: usize = 256 * 1024 * 1024;
+const MAX_LINK_REWRITE_BYTES: u64 = 1024 * 1024;
+const MAX_LINK_REWRITE_AGGREGATE_BYTES: usize = 32 * 1024 * 1024;
 const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
 const MAX_GLOBAL_FILE_ENTRIES: usize = 25_000;
 const CLIPBOARD_FILE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -1167,8 +1169,10 @@ pub fn list_search_documents(
         vault_path,
         MAX_SEARCH_BYTES,
         MAX_SEARCH_AGGREGATE_BYTES,
+        false,
         vault_key,
     )
+    .map(|(batch, _)| batch)
 }
 
 pub fn list_editable_documents(
@@ -1181,8 +1185,31 @@ pub fn list_editable_documents(
         vault_path,
         MAX_EDIT_BYTES,
         MAX_EDITABLE_AGGREGATE_BYTES,
+        false,
         vault_key,
     )
+    .map(|(batch, _)| batch)
+}
+
+pub fn list_link_rewrite_documents(
+    db_path: &Path,
+    vault_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<LinkRewriteBatch> {
+    let (batch, available_paths) = list_documents(
+        db_path,
+        vault_path,
+        MAX_LINK_REWRITE_BYTES,
+        MAX_LINK_REWRITE_AGGREGATE_BYTES,
+        true,
+        vault_key,
+    )?;
+    Ok(LinkRewriteBatch {
+        documents: batch.documents,
+        available_paths,
+        skipped_count: batch.skipped_count,
+        truncated: batch.truncated,
+    })
 }
 
 fn list_documents(
@@ -1190,8 +1217,9 @@ fn list_documents(
     vault_path: &str,
     max_bytes: u64,
     max_aggregate_bytes: usize,
+    markdown_only: bool,
     vault_key: Option<&[u8; 32]>,
-) -> AppResult<DocumentBatch> {
+) -> AppResult<(DocumentBatch, Vec<String>)> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let connection = db::open(db_path)?;
@@ -1201,6 +1229,7 @@ fn list_documents(
     let mut skipped_count = 0;
     let mut loaded_bytes: usize = 0;
     let mut truncated = false;
+    let mut available_paths = Vec::new();
 
     let walker = WalkDir::new(&root)
         .follow_links(false)
@@ -1247,7 +1276,21 @@ fn list_documents(
         if metadata_is_link(&symlink_metadata) || !entry.file_type().is_file() {
             continue;
         }
+        available_paths.push(relative.clone());
         let kind = kind_for_path(entry.path());
+        if markdown_only
+            && (kind != FileKind::Markdown
+                || entry
+                    .path()
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("mdx")))
+        {
+            continue;
+        }
+        if markdown_only && truncated {
+            continue;
+        }
         let plaintext_len = match file_plaintext_len(entry.path()) {
             Ok(length) => length,
             Err(error) => {
@@ -1268,9 +1311,20 @@ fn list_documents(
                 continue;
             }
         };
+        if bytes.len() as u64 > max_bytes {
+            skipped_count += 1;
+            continue;
+        }
         let (content, encoding, line_ending) = decode_file_content(&bytes);
+        if markdown_only && encoding != FileEncoding::Utf8 {
+            skipped_count += 1;
+            continue;
+        }
         if loaded_bytes.saturating_add(content.len()) > max_aggregate_bytes {
             truncated = true;
+            if markdown_only {
+                continue;
+            }
             break;
         }
         loaded_bytes += content.len();
@@ -1298,11 +1352,14 @@ fn list_documents(
             last_opened_at: stored.last_opened_at,
         });
     }
-    Ok(DocumentBatch {
-        documents,
-        skipped_count,
-        truncated,
-    })
+    Ok((
+        DocumentBatch {
+            documents,
+            skipped_count,
+            truncated,
+        },
+        available_paths,
+    ))
 }
 
 pub fn read_image_data_url(
@@ -2536,10 +2593,18 @@ fn atomic_write_with(
 }
 
 fn acquire_vault_lock(root: &Path, exclusive: bool) -> AppResult<fs::File> {
+    acquire_named_vault_lock(root, "vault.lock", exclusive)
+}
+
+pub(crate) fn acquire_link_rewrite_lock(root: &Path) -> AppResult<fs::File> {
+    acquire_named_vault_lock(root, "link-rewrite.lock", true)
+}
+
+fn acquire_named_vault_lock(root: &Path, lock_name: &str, exclusive: bool) -> AppResult<fs::File> {
     let lock_directory = root.join(".denote").join("locks");
     ensure_no_symlinks(root, &lock_directory, true)?;
     fs::create_dir_all(&lock_directory)?;
-    let lock_path = lock_directory.join("vault.lock");
+    let lock_path = lock_directory.join(lock_name);
     ensure_no_symlinks(root, &lock_path, true)?;
     let file = fs::OpenOptions::new()
         .create(true)
@@ -2760,6 +2825,13 @@ mod tests {
 
     fn list_editable_documents(db_path: &Path, vault_path: &str) -> AppResult<DocumentBatch> {
         super::list_editable_documents(db_path, vault_path, None)
+    }
+
+    fn list_link_rewrite_documents(
+        db_path: &Path,
+        vault_path: &str,
+    ) -> AppResult<LinkRewriteBatch> {
+        super::list_link_rewrite_documents(db_path, vault_path, None)
     }
 
     fn read_image_data_url(
@@ -3523,6 +3595,37 @@ mod tests {
         assert_eq!(batch.skipped_count, 1);
         assert_eq!(batch.documents.len(), 1);
         assert_eq!(batch.documents[0].path, "visible.txt");
+    }
+
+    #[test]
+    fn link_rewrite_documents_only_include_small_markdown_files() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("note.md"), "[link](other.md)").expect("markdown");
+        fs::write(vault_path.join("note.mdx"), "{value}").expect("mdx");
+        fs::write(vault_path.join("note.txt"), "plain").expect("plain text");
+        fs::write(vault_path.join("invalid.md"), [0xff]).expect("invalid markdown");
+        fs::write(
+            vault_path.join("large.md"),
+            vec![b'a'; (MAX_LINK_REWRITE_BYTES + 1) as usize],
+        )
+        .expect("large markdown");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let batch = list_link_rewrite_documents(&db_path, vault_path.to_str().unwrap())
+            .expect("link rewrite documents");
+        assert_eq!(
+            batch
+                .documents
+                .iter()
+                .map(|document| document.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["note.md"]
+        );
+        assert_eq!(batch.skipped_count, 2);
+        assert_eq!(batch.available_paths.len(), 5);
     }
 
     #[test]

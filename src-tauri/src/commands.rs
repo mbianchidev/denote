@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -6,9 +7,12 @@ use std::{
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clipboard_rs::{Clipboard, ClipboardContext};
+use fs2::FileExt as Fs2FileExt;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
+use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::{
@@ -17,14 +21,44 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
-        KnownVault, KnownVaultFileBatch, MarkdownViewMode, NoteDocument, RecoveryCodesResult,
-        SaveOutcome, TabSessionState, TagColor, WorkspaceSnapshot,
+        KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, MoveEntryResult,
+        NoteDocument, RecoveryCodesResult, SaveOutcome, TabSessionState, TagColor,
+        WorkspaceSnapshot,
     },
     vault,
 };
 
 #[derive(Clone)]
 pub struct FileClipboard(Arc<Mutex<Result<ClipboardContext, String>>>);
+
+#[derive(Clone)]
+pub struct LinkRewriteLeases(Arc<Mutex<HashMap<String, fs::File>>>);
+
+impl LinkRewriteLeases {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(HashMap::new())))
+    }
+
+    fn hold(&self, file: fs::File) -> AppResult<String> {
+        let token = Uuid::new_v4().to_string();
+        self.0
+            .lock()
+            .map_err(|_| AppError::State("Link rewrite lock is poisoned".to_string()))?
+            .insert(token.clone(), file);
+        Ok(token)
+    }
+
+    fn release(&self, token: &str) -> AppResult<()> {
+        let lease = self
+            .0
+            .lock()
+            .map_err(|_| AppError::State("Link rewrite lock is poisoned".to_string()))?
+            .remove(token)
+            .ok_or_else(|| AppError::State("Link rewrite lock is not active".to_string()))?;
+        Fs2FileExt::unlock(&lease)?;
+        Ok(())
+    }
+}
 
 impl FileClipboard {
     pub fn new() -> Self {
@@ -482,9 +516,63 @@ pub fn copy_file_content(app: AppHandle, content: String) -> AppResult<()> {
             "File content is larger than the clipboard limit".to_string(),
         ));
     }
+
     app.clipboard()
         .write_text(content)
         .map_err(|error| AppError::Clipboard(error.to_string()))
+}
+
+#[tauri::command]
+pub fn open_external_uri(app: AppHandle, uri: String) -> AppResult<()> {
+    let normalized = normalize_external_uri(&uri)?;
+    app.opener()
+        .open_url(normalized, None::<String>)
+        .map_err(|error| AppError::State(format!("Unable to open external link: {error}")))
+}
+
+fn normalize_external_uri(uri: &str) -> AppResult<String> {
+    let uri = uri.trim();
+    if uri.chars().any(char::is_control) {
+        return Err(AppError::InvalidData(
+            "External links cannot contain control characters".to_string(),
+        ));
+    }
+    let (scheme, target) = uri
+        .split_once(':')
+        .ok_or_else(|| AppError::InvalidData("External link is missing a protocol".to_string()))?;
+    if scheme.is_empty()
+        || !scheme.chars().enumerate().all(|(index, character)| {
+            if index == 0 {
+                character.is_ascii_alphabetic()
+            } else {
+                character.is_ascii_alphanumeric() || matches!(character, '+' | '-' | '.')
+            }
+        })
+    {
+        return Err(AppError::InvalidData(
+            "External link has an invalid protocol".to_string(),
+        ));
+    }
+    let scheme = scheme.to_ascii_lowercase();
+    if matches!(
+        scheme.as_str(),
+        "javascript" | "data" | "vbscript" | "blob" | "about" | "file"
+    ) {
+        return Err(AppError::InvalidData(format!(
+            "External protocol is not allowed: {scheme}"
+        )));
+    }
+    let valid_target = match scheme.as_str() {
+        "http" | "https" => target.starts_with("//") && target.len() > 2,
+        "mailto" | "tel" => !target.is_empty(),
+        _ => target.starts_with("//") && target.len() > 2,
+    };
+    if !valid_target {
+        return Err(AppError::InvalidData(format!(
+            "External link is invalid for protocol {scheme}"
+        )));
+    }
+    Ok(format!("{scheme}:{target}"))
 }
 
 #[tauri::command]
@@ -583,28 +671,48 @@ pub fn create_entry(
 #[tauri::command]
 pub fn rename_entry(
     state: State<'_, AppState>,
+    leases: State<'_, LinkRewriteLeases>,
     path: String,
     new_name: String,
-) -> AppResult<String> {
+) -> AppResult<MoveEntryResult> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
-    vault::rename_entry(&state.db_path, &root.to_string_lossy(), &path, &new_name)
+    let lease = vault::acquire_link_rewrite_lock(&root)?;
+    let path = vault::rename_entry(&state.db_path, &root.to_string_lossy(), &path, &new_name)?;
+    Ok(MoveEntryResult {
+        path,
+        rewrite_token: leases.hold(lease)?,
+    })
 }
 
 #[tauri::command]
 pub fn move_entry(
     state: State<'_, AppState>,
+    leases: State<'_, LinkRewriteLeases>,
     path: String,
     target_parent_path: String,
-) -> AppResult<String> {
+) -> AppResult<MoveEntryResult> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
-    vault::move_entry(
+    let lease = vault::acquire_link_rewrite_lock(&root)?;
+    let path = vault::move_entry(
         &state.db_path,
         &root.to_string_lossy(),
         &path,
         &target_parent_path,
-    )
+    )?;
+    Ok(MoveEntryResult {
+        path,
+        rewrite_token: leases.hold(lease)?,
+    })
+}
+
+#[tauri::command]
+pub fn finish_link_rewrite(
+    leases: State<'_, LinkRewriteLeases>,
+    rewrite_token: String,
+) -> AppResult<()> {
+    leases.release(&rewrite_token)
 }
 
 #[tauri::command]
@@ -769,6 +877,22 @@ pub async fn list_editable_documents(state: State<'_, AppState>) -> AppResult<Do
     .await
 }
 
+#[tauri::command]
+pub async fn list_link_rewrite_documents(
+    state: State<'_, AppState>,
+) -> AppResult<LinkRewriteBatch> {
+    let (db_path, root, key) = {
+        let _vault_access = state.read_vault_access()?;
+        let root = state.active_vault()?;
+        let key = active_key(&state, &root)?;
+        (state.db_path.clone(), root, key)
+    };
+    run_blocking(move || {
+        vault::list_link_rewrite_documents(&db_path, &root.to_string_lossy(), key.as_deref())
+    })
+    .await
+}
+
 async fn run_blocking<T, F>(operation: F) -> AppResult<T>
 where
     T: Send + 'static,
@@ -835,6 +959,22 @@ pub fn save_attachment(
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn normalizes_and_validates_external_uri_protocols() {
+        assert_eq!(
+            normalize_external_uri("Https://Google.com/Path").expect("https URI"),
+            "https://Google.com/Path"
+        );
+        assert_eq!(
+            normalize_external_uri("my-app://open/item").expect("custom URI"),
+            "my-app://open/item"
+        );
+        assert!(normalize_external_uri("notes/file.md").is_err());
+        assert!(normalize_external_uri("javascript:alert(1)").is_err());
+        assert!(normalize_external_uri("file:///tmp/note.md").is_err());
+        assert!(normalize_external_uri("my-app:open").is_err());
+    }
 
     #[test]
     fn vault_trash_validation_rejects_broad_or_application_paths() {
