@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   calloutsToDirectives,
@@ -119,10 +121,101 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("# Supported\n\n**Markdown**")).toBe(false);
   });
 
+  it("keeps valid angle-bracket link destinations in rich mode", () => {
+    expect(
+      hasUnsupportedRichMarkdown(
+        "[Getting started](<docs/Getting started.md>)\n\n[outer [inner]](<docs/My file.md>)",
+      ),
+    ).toBe(false);
+    expect(hasUnsupportedRichMarkdown("Use <kbd>Ctrl</kbd> here.")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<https://example.com>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<user@example.com>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<123@example.com>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<!DOCTYPE html>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<input disabled")).toBe(true);
+    expect(hasUnsupportedRichMarkdown(`${"<a".repeat(1_000)}>`)).toBe(true);
+    expect(hasUnsupportedRichMarkdown("\\[x](<input disabled>)")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("[x\\](<input disabled>)")).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown("[outer [inner](url)](<input disabled>)"),
+    ).toBe(true);
+    expect(hasUnsupportedRichMarkdown("[x\n\n](<input disabled>)")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("[x](<input\n disabled>)")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("[x](<foo<bar>)")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("![<kbd>Ctrl</kbd>](key.png)")).toBe(
+      true,
+    );
+    expect(
+      hasUnsupportedRichMarkdown("![<https://example.com>](key.png)"),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "![Diagram with [source](<docs/My source.md>)](diagram.png)",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "![foo `]( ` <kbd>bar</kbd>](image.png)",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown("![foo ` <kbd>bar</kbd>](image.png)"),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown('![<span data-x="[">x</span>](img.png)'),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown("[![alt](image.png)](<docs/My file.md>)"),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "[![alt](<unsafe image path>)](safe.md)",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown("[`foo ](<kbd>)`](safe.md)"),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown('[x](safe.md "title ](<kbd>)")'),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "[![`]](<u>)`][ref\\]]](u)\n\n[ref\\]]: image.png",
+      ),
+    ).toBe(true);
+    expect(hasUnsupportedRichMarkdown('[x](url "title ]( text")')).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown('---\npattern: "]("\n---\n\nBody'),
+    ).toBe(false);
+    expect(hasUnsupportedRichMarkdown("`literal <input disabled>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("paragraph\n    <input disabled>")).toBe(
+      true,
+    );
+  });
+
+  it("keeps every embedded guide page compatible with rich mode", () => {
+    const root = join(process.cwd(), "src-tauri/resources/default-vault");
+    for (const path of markdownFiles(root)) {
+      expect(hasUnsupportedRichMarkdown(readFileSync(path, "utf8")), path).toBe(
+        false,
+      );
+    }
+  });
+
   it("restores Markdown boundary whitespace removed by the editor", () => {
     const boundary = captureMarkdownBoundaryWhitespace("\n# Title\r\n\r\n");
     expect(restoreMarkdownBoundaryWhitespace("# Changed", boundary)).toBe(
       "\n# Changed\r\n\r\n",
     );
   });
+
+  function markdownFiles(directory: string): string[] {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        return markdownFiles(path);
+      }
+      return entry.isFile() && entry.name.endsWith(".md") ? [path] : [];
+    });
+  }
 });

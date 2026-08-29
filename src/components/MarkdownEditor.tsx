@@ -142,7 +142,7 @@ export const MarkdownEditor = forwardRef<
   },
   ref,
 ) {
-  const sourceFirst = useRef(hasUnsupportedRichMarkdown(markdown)).current;
+  const [sourceFirst] = useState(() => hasUnsupportedRichMarkdown(markdown));
   const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);

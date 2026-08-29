@@ -1,3 +1,4 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
 import type { HeadingItem } from "../types";
 import { normalizeTag } from "./tagColors";
 
@@ -317,13 +318,174 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
     /\[\^[^\]]+\]/.test(markdown) ||
     /<!--[\s\S]*?-->/.test(markdown) ||
-    /<\/?[a-z][^>]*>/i.test(markdown) ||
+    containsUnsafeAngleSyntax(markdown) ||
     /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
     /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown) ||
     /\\#(?=[\p{L}\p{N}\p{M}_/-])/u.test(markdown)
   );
 }
+
+interface MarkdownAstNode {
+  type: string;
+  url?: string;
+  children?: MarkdownAstNode[];
+  position?: {
+    start: { offset?: number };
+    end: { offset?: number };
+  };
+}
+
+function containsUnsafeAngleSyntax(markdown: string): boolean {
+  const candidates = [
+    ...markdown.matchAll(/<\/?[a-z][^<>]*>/gi),
+    ...markdown.matchAll(/<![a-z][^<>]*>/gi),
+    ...markdown.matchAll(
+      /<(?:https?:\/\/|mailto:|tel:|[^<>\s]+@)[^<>\n]*>/gi,
+    ),
+    ...markdown.matchAll(/<[a-z][^<>\n]*(?=\n|$)/gi),
+  ];
+  if (candidates.length === 0) {
+    return false;
+  }
+  try {
+    const allowedRanges = new Set<string>();
+    visitMarkdownAst(fromMarkdown(markdown), (node) => {
+      if (node.type !== "link") {
+        return;
+      }
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start === undefined || end === undefined) {
+        return;
+      }
+      const range = angleLinkDestinationRange(markdown, node, start, end);
+      if (range) {
+        allowedRanges.add(`${range[0]}:${range[1]}`);
+      }
+    });
+    return candidates.some(
+      (candidate) =>
+        candidate.index === undefined ||
+        !allowedRanges.has(
+          `${candidate.index}:${candidate.index + candidate[0].length}`,
+        ),
+    );
+  } catch {
+    return true;
+  }
+}
+
+function angleLinkDestinationRange(
+  markdown: string,
+  node: MarkdownAstNode,
+  start: number,
+  end: number,
+): [number, number] | null {
+  const source = markdown.slice(start, end);
+  if (!source.startsWith("[")) {
+    return null;
+  }
+  const ignoredRanges: Array<[number, number]> = [];
+  collectLinkLabelIgnoredRanges(node, start, ignoredRanges);
+  ignoredRanges.sort((left, right) => left[0] - right[0]);
+  let ignoredIndex = 0;
+  let depth = 1;
+  for (let index = 1; index < source.length - 1; index += 1) {
+    const ignored = ignoredRanges[ignoredIndex];
+    if (ignored && index >= ignored[0]) {
+      if (index < ignored[1]) {
+        index = ignored[1] - 1;
+        continue;
+      }
+      ignoredIndex += 1;
+    }
+    const character = source[index];
+    if (
+      (character !== "[" && character !== "]") ||
+      isEscapedAt(source, index)
+    ) {
+      continue;
+    }
+    if (character === "[") {
+      depth += 1;
+      continue;
+    }
+    depth -= 1;
+    if (depth !== 0 || source[index + 1] !== "(") {
+      continue;
+    }
+    let destinationStart = index + 2;
+    while (
+      source[destinationStart] === " " ||
+      source[destinationStart] === "\t"
+    ) {
+      destinationStart += 1;
+    }
+    if (source[destinationStart] !== "<") {
+      return null;
+    }
+    const destinationEnd = source.indexOf(">", destinationStart + 1);
+    if (
+      destinationEnd < 0 ||
+      source.slice(destinationStart + 1, destinationEnd).includes("\n")
+    ) {
+      return null;
+    }
+    const destination = source.slice(destinationStart + 1, destinationEnd);
+    if (node.url !== undefined && destination !== node.url) {
+      return null;
+    }
+    return [start + destinationStart, start + destinationEnd + 1];
+  }
+  return null;
+}
+
+function collectLinkLabelIgnoredRanges(
+  node: MarkdownAstNode,
+  linkStart: number,
+  ranges: Array<[number, number]>,
+) {
+  for (const child of node.children ?? []) {
+    const start = child.position?.start.offset;
+    const end = child.position?.end.offset;
+    if (
+      start !== undefined &&
+      end !== undefined &&
+      (child.type === "inlineCode" ||
+        child.type === "html" ||
+        child.type === "image" ||
+        child.type === "imageReference")
+    ) {
+      ranges.push([start - linkStart, end - linkStart]);
+      continue;
+    }
+    collectLinkLabelIgnoredRanges(child, linkStart, ranges);
+  }
+}
+
+function isEscapedAt(value: string, index: number): boolean {
+  let backslashes = 0;
+  for (
+    let cursor = index - 1;
+    cursor >= 0 && value[cursor] === "\\";
+    cursor -= 1
+  ) {
+    backslashes += 1;
+  }
+  return backslashes % 2 === 1;
+}
+
+function visitMarkdownAst(
+  node: MarkdownAstNode,
+  visit: (node: MarkdownAstNode) => void,
+) {
+  visit(node);
+  for (const child of node.children ?? []) {
+    visitMarkdownAst(child, visit);
+  }
+}
+
 
 export interface MarkdownBoundaryWhitespace {
   leading: string;
