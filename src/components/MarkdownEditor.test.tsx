@@ -220,6 +220,35 @@ describe("MarkdownEditor links", () => {
     expect(
       await screen.findByRole("radio", { name: "Source mode", checked: true }),
     ).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    );
+    expect(screen.getByTestId("preferred-view-mode")).toHaveTextContent(
+      "rich-text",
+    );
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open second file" }));
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open first file" }));
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
   });
 
   it("copies a rich code block from its inline button", async () => {

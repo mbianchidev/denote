@@ -40,12 +40,10 @@ import {
   toolbarPlugin,
   viewMode$,
 } from "@mdxeditor/editor";
-import { useCellValue, usePublisher } from "@mdxeditor/gurx";
 import { EditorView } from "@codemirror/view";
 import {
   forwardRef,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -81,7 +79,29 @@ import {
 } from "../lib/tagColors";
 import type { FileLineEnding } from "../types";
 
-const initialViewModePlugin = realmPlugin<{ mode: MarkdownViewMode }>({
+const viewModePreferencePlugin = realmPlugin<{
+  mode: MarkdownViewMode;
+  onChange: (mode: MarkdownViewMode) => void;
+}>({
+  init(realm, params) {
+    let ready = false;
+    let previousMode = params?.mode ?? "rich-text";
+    realm.sub(realm.pipe(viewMode$), (mode) => {
+      if (!ready) {
+        if (mode !== "diff") {
+          previousMode = mode;
+        }
+        return;
+      }
+      if (mode !== "diff" && mode !== previousMode) {
+        previousMode = mode;
+        params?.onChange(mode);
+      }
+    });
+    queueMicrotask(() => {
+      ready = true;
+    });
+  },
   postInit(realm, params) {
     realm.pub(viewMode$, params?.mode ?? "rich-text");
   },
@@ -204,7 +224,10 @@ export const MarkdownEditor = forwardRef<
           ...displayExtensions,
         ],
       }),
-      initialViewModePlugin({ mode: initialViewMode }),
+      viewModePreferencePlugin({
+        mode: initialViewMode,
+        onChange: onViewModeChange,
+      }),
       toolbarPlugin({
         toolbarPosition: "top",
         toolbarContents: () =>
@@ -220,10 +243,6 @@ export const MarkdownEditor = forwardRef<
             </>
           ) : (
             <>
-              <ViewModePreferenceObserver
-                initialMode={initialViewMode}
-                onChange={onViewModeChange}
-              />
               <DiffSourceToggleWrapper
                 options={["rich-text", "source"]}
                 SourceToolbar={<UndoRedo />}
@@ -416,37 +435,6 @@ function applyInlineTagColor(
   const style = tagColorStyle(resolveTagColor(tag, colors));
   element.dataset.tag = tag;
   element.style.setProperty("--tag-color", style["--tag-color"]);
-}
-
-function ViewModePreferenceObserver({
-  initialMode,
-  onChange,
-}: {
-  initialMode: MarkdownViewMode;
-  onChange: (mode: MarkdownViewMode) => void;
-}) {
-  const mode = useCellValue(viewMode$);
-  const setMode = usePublisher(viewMode$);
-  const previousMode = useRef(initialMode);
-  const initialized = useRef(false);
-
-  useLayoutEffect(() => {
-    if (!initialized.current) {
-      if (mode !== initialMode) {
-        setMode(initialMode);
-        return;
-      }
-      initialized.current = true;
-      previousMode.current = mode;
-      return;
-    }
-    if (mode !== "diff" && mode !== previousMode.current) {
-      previousMode.current = mode;
-      onChange(mode);
-    }
-  }, [initialMode, mode, onChange, setMode]);
-
-  return null;
 }
 
 function DisabledViewModeControls() {
