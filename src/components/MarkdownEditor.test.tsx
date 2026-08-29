@@ -63,6 +63,32 @@ describe("MarkdownEditor links", () => {
     expect(onLinkOpen).toHaveBeenCalledWith("notes/plan.md", "Plan");
   });
 
+  it("preserves file anchors when routing internal links", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="Start.md"
+        markdown={"[link](welcome.md#what-is-denote)"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "link" }));
+
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "welcome.md#what-is-denote",
+      "link",
+    );
+  });
+
   it("recovers angle-bracket internal links with spaces", async () => {
     const onLinkOpen = vi.fn();
     render(

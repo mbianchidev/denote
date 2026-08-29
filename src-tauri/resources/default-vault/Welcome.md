@@ -5,6 +5,7 @@
 #welcome #denote #getting-started
 
 <!-- toc -->
+- [What is Denote](#what-is-denote)
 - [Try a little of everything](#try-a-little-of-everything)
 - [Syntax highlighting](#syntax-highlighting)
 - [Read the guide](#read-the-guide)
@@ -14,6 +15,8 @@
 >![info]
 > This ordinary local folder is your built-in guide. Edit it, encrypt it, move it,
 > or delete it. Denote never replaces your changes.
+
+## What is Denote
 
 Denote is a file-native workspace for Markdown, text, images, and any other
 regular file. Your files remain the source of truth.
@@ -85,8 +88,9 @@ nested-path, source-code, link, rename, and move fixtures.
 ## Test heading navigation
 
 Use the generated table of contents at the top of this page, or follow
-[Try a little of everything](#try-a-little-of-everything) to verify same-file
-heading navigation.
+[What is Denote](welcome.md#what-is-denote) to verify case-insensitive file and
+heading navigation. [Try a little of everything](#try-a-little-of-everything)
+tests a same-file-only anchor.
 
 ---
 

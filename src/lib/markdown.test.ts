@@ -124,6 +124,13 @@ describe("markdown utilities", () => {
 
   it("resolves relative internal links and anchors", () => {
     expect(
+      resolveInternalLink(
+        "Start.md",
+        "welcome.md#what-is-denote",
+        ["Start.md", "Welcome.md"],
+      ),
+    ).toEqual({ path: "Welcome.md", anchor: "what-is-denote" });
+    expect(
       resolveInternalLink("projects/plan.md", "../home#Overview", [
         "home.md",
         "projects/plan.md",
@@ -161,6 +168,12 @@ describe("markdown utilities", () => {
         "foo.md",
       ]),
     ).toBeNull();
+    expect(
+      findMarkdownHeadingLine(
+        "# Welcome\n\n## What is Denote",
+        "what-is-denote",
+      ),
+    ).toBe(3);
   });
 
   it("does not transform callout examples inside fenced code", () => {
