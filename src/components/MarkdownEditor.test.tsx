@@ -63,6 +63,34 @@ describe("MarkdownEditor links", () => {
     expect(onLinkOpen).toHaveBeenCalledWith("notes/plan.md", "Plan");
   });
 
+  it("recovers angle-bracket internal links with spaces", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="docs/Keyboard shortcuts.md"
+        markdown="[Next: Optional plugins](<Optional plugins.md>)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Next: Optional plugins" }),
+    );
+
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "Optional plugins.md",
+      "Next: Optional plugins",
+    );
+  });
+
   it("preserves selected rich text when opening the link dialog", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

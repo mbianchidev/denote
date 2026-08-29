@@ -183,6 +183,41 @@ describe("markdown utilities", () => {
     ).toBe("notes/plan.md");
     expect(
       recoverMarkdownLinkTarget(
+        "[Next: Optional plugins](<Optional plugins.md>)",
+        "Next: Optional plugins",
+        "https://Optional plugins.md",
+      ),
+    ).toBe("Optional plugins.md");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[Next: Optional plugins](<Optional plugins.md>)",
+        "Next: Optional plugins",
+        "https://Optional%20plugins.md/",
+      ),
+    ).toBe("Optional plugins.md");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[Open](example.com/foo%2Fbar) [Open](https://example.com/foo/bar)",
+        "Open",
+        "https://example.com/foo/bar",
+      ),
+    ).toBe("https://example.com/foo/bar");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[Open](example.com/foo%2Fbar) [Open](example.com/foo/bar)",
+        "Open",
+        "https://example.com/foo/bar",
+      ),
+    ).toBe("example.com/foo/bar");
+    expect(
+      recoverMarkdownLinkTarget(
+        "[Next](<Optional plugins.md>) [Next](<Optional plugins.md>)",
+        "Next",
+        "https://Optional plugins.md",
+      ),
+    ).toBe("Optional plugins.md");
+    expect(
+      recoverMarkdownLinkTarget(
         "[App](my-app://open/item)",
         "App",
         "about:blank",

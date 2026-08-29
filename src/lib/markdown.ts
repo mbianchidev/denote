@@ -393,7 +393,8 @@ export function recoverMarkdownLinkTarget(
   renderedHref: string,
 ): string | null {
   const normalizedText = linkText.trim();
-  const sanitizedSchemeTargets: string[] = [];
+  const sanitizedSchemeTargets = new Set<string>();
+  const syntheticRelativeTargets = new Set<string>();
   const pattern =
     /\[([^\]]+)\]\(\s*(<[^>]+>|[^\s)]+)(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*\)/g;
   for (const match of markdown.matchAll(pattern)) {
@@ -406,16 +407,39 @@ export function recoverMarkdownLinkTarget(
       /^[a-z][a-z0-9+.-]*:/i.test(target) &&
       renderedHref === "about:blank"
     ) {
-      sanitizedSchemeTargets.push(target);
+      sanitizedSchemeTargets.add(target);
       continue;
     }
     if (normalizedRenderedHref(target) === normalizedRenderedHref(renderedHref)) {
       return target;
     }
+    if (
+      !/^[a-z][a-z0-9+.-]*:/i.test(target) &&
+      syntheticRelativeHref(renderedHref) === decodedLinkTarget(target)
+    ) {
+      syntheticRelativeTargets.add(target);
+    }
   }
-  return sanitizedSchemeTargets.length === 1
-    ? sanitizedSchemeTargets[0]
+  if (syntheticRelativeTargets.size === 1) {
+    return [...syntheticRelativeTargets][0];
+  }
+  return sanitizedSchemeTargets.size === 1
+    ? [...sanitizedSchemeTargets][0]
     : null;
+}
+
+function syntheticRelativeHref(value: string): string {
+  return decodedLinkTarget(value)
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/$/, "");
+}
+
+function decodedLinkTarget(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 export interface TocMarkerSnapshot {
