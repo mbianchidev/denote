@@ -140,6 +140,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and light palettes rather than a fixed editor theme.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live
   code document rather than only visible lines.
+- About Denote exposes the packaged semantic version and immutable Git commit
+  hash from both the activity rail and command palette.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.

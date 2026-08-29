@@ -2,6 +2,7 @@ import {
   Bookmark,
   Clock3,
   Files,
+  Info,
   Moon,
   Search,
   Sun,
@@ -14,6 +15,7 @@ interface ActivityRailProps {
   activeView: SidebarView;
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
+  onAbout: () => void;
   onThemeToggle: () => void;
 }
 
@@ -33,6 +35,7 @@ export function ActivityRail({
   activeView,
   theme,
   onViewChange,
+  onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
   return (
@@ -61,6 +64,15 @@ export function ActivityRail({
           </button>
         ))}
       </div>
+      <button
+        className="icon-button activity-rail__button"
+        type="button"
+        aria-label="About Denote"
+        title="About Denote"
+        onClick={onAbout}
+      >
+        <Info aria-hidden="true" size={19} strokeWidth={1.8} />
+      </button>
       <button
         className="icon-button activity-rail__button"
         type="button"

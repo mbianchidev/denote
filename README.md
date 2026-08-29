@@ -63,6 +63,7 @@ the selected folder as the source of truth.
 - Markdown parser errors with line/column reporting, highlighted source, and a
   **Navigate to error** action
 - Dark mode by default with persistent light mode
+- About Denote dialog with the packaged version and exact Git commit hash
 - Optional password-based vault encryption with ten one-time recovery codes
 - A typed host contract for separately shipped optional plugins
 

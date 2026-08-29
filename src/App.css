@@ -2138,6 +2138,65 @@ kbd {
   width: min(500px, calc(100vw - 48px));
 }
 
+.about-dialog {
+  width: min(460px, calc(100vw - 48px));
+}
+
+.about-dialog__body {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+}
+
+.about-dialog__body > p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.about-dialog__body dl {
+  display: grid;
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.about-dialog__body dl > div {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel-bg);
+}
+
+.about-dialog__body dt {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.about-dialog__body dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.about-dialog__commit code {
+  overflow-wrap: anywhere;
+}
+
+.about-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 18px 18px;
+  border-top: 1px solid var(--border);
+}
+
 .editor-settings-dialog__body {
   display: grid;
   gap: 16px;

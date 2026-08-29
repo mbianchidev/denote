@@ -40,6 +40,7 @@ import {
   type CSSProperties,
 } from "react";
 import { ActivityRail } from "./components/ActivityRail";
+import { AboutDialog } from "./components/AboutDialog";
 import { ActionDialog } from "./components/ActionDialog";
 import {
   CommandPalette,
@@ -66,6 +67,7 @@ import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
 import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
+import { BUILD_INFO } from "./lib/buildInfo";
 import {
   allowExternalDomain,
   DEFAULT_EXTERNAL_DOMAIN_POLICY,
@@ -231,6 +233,7 @@ function App() {
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [externalDomainPolicy, setExternalDomainPolicy] =
     useState<ExternalDomainPolicy>(() => getExternalDomainPolicy());
   const [pendingExternalLink, setPendingExternalLink] = useState<{
@@ -3722,6 +3725,7 @@ function App() {
         editorSettingsOpen ||
         vaultSwitcherOpen ||
         commandPaletteOpen ||
+        aboutOpen ||
         pendingExternalLink !== null ||
         actionDialog !== null ||
         historyOpen;
@@ -3824,6 +3828,7 @@ function App() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [
     actionDialog,
+    aboutOpen,
     activePath,
     activeFileTab,
     activateTab,
@@ -4303,6 +4308,13 @@ function App() {
       run: () => setEditorSettingsOpen(true),
     },
     {
+      id: "app.about",
+      title: "About Denote",
+      description: "Show the artifact version and Git commit.",
+      category: "Application",
+      run: () => setAboutOpen(true),
+    },
+    {
       id: "editor.zoom-in",
       title: "Increase editor text size",
       description: "Increase the persistent editor font size.",
@@ -4386,6 +4398,13 @@ function App() {
       onClose={() => setCommandPaletteOpen(false)}
     />
   );
+  const aboutDialog = (
+    <AboutDialog
+      open={aboutOpen}
+      buildInfo={BUILD_INFO}
+      onClose={() => setAboutOpen(false)}
+    />
+  );
   const errorBanner = (
     <ErrorBanner
       message={error?.message ?? null}
@@ -4414,6 +4433,7 @@ function App() {
         />
         {vaultSwitcherDialog}
         {commandPalette}
+        {aboutDialog}
       </>
     );
   }
@@ -4443,6 +4463,7 @@ function App() {
         />
         {vaultSwitcherDialog}
         {commandPalette}
+        {aboutDialog}
       </>
     );
   }
@@ -4469,6 +4490,7 @@ function App() {
         activeView={sidebarView}
         theme={theme}
         onViewChange={setSidebarView}
+        onAbout={() => setAboutOpen(true)}
         onThemeToggle={() =>
           setTheme((current) => (current === "dark" ? "light" : "dark"))
         }
@@ -5125,6 +5147,7 @@ function App() {
       />
       {vaultSwitcherDialog}
       {commandPalette}
+      {aboutDialog}
       <EncryptionDialog
         open={encryptionOpen}
         encryption={workspace.encryption}

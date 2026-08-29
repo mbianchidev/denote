@@ -130,6 +130,8 @@ more detail and examples.
 ## Appearance and accessibility
 
 - Use dark mode by default or persistent light mode.
+- Open **About Denote** from the activity rail or command palette to inspect the
+  packaged version and full Git commit.
 - Scale editor text without scaling application chrome.
 - Adapt code blocks and syntax colors to the active theme.
 - Resize the vault sidebar by pointer or keyboard.

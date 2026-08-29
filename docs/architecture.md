@@ -3,6 +3,10 @@
 Denote is a Tauri v2 desktop application with a React 19 and TypeScript
 frontend plus a Rust native core.
 
+Vite injects the package version and full `git rev-parse HEAD` SHA as compile-time
+constants. The About dialog therefore reports the exact desktop artifact build,
+not a later runtime checkout or mutable environment value.
+
 ## Data boundaries
 
 The selected vault is the content boundary. Every regular file up to 25 MB can
