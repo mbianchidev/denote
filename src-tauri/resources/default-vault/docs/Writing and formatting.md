@@ -22,6 +22,11 @@ silently rewrite unsupported syntax.
 Use the toolbar for headings, emphasis, lists, links, images, tables, code
 blocks, thematic breaks, frontmatter, and callouts.
 
+Press `Command-K` on macOS or `Ctrl-K` on Windows and Linux to create a link.
+Rich mode opens the link dialog and preserves highlighted text as the anchor.
+Source mode wraps highlighted text as `[text]()` or inserts `[]()` with the
+caret ready for the label.
+
 Long documents scroll directly in the editor; you do not need to move the caret
 to reveal content below the current viewport.
 
@@ -76,6 +81,11 @@ an unknown domain. Choose **Allow domain** or **Allow all external domains**;
 manage permissions later in **Settings**. Email, telephone, hostless local file,
 and confirmed custom application protocols use their operating system handlers.
 Remote file hosts are blocked.
+
+When the active file contains web links, choose **Open all external links** in
+the editor toolbar or command palette. Denote deduplicates destinations, opens
+trusted domains in order, and pauses at each unknown domain until you allow or
+cancel the remaining queue.
 
 Renaming or moving a file/folder updates relative inline links, images, and
 reference definitions in eligible Markdown files.

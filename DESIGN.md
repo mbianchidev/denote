@@ -311,14 +311,18 @@ file-only scope remains available without opening a second dialog.
 External web navigation uses a compact confirmation dialog that states the exact
 domain and full destination. The primary choices are explicit: allow that domain
 or allow all external domains. Settings show exact trusted domains as removable
-rows, or one `*` row when wildcard trust is enabled.
+rows, or one `*` row when wildcard trust is enabled. The editor toolbar exposes
+one compact open-all action only when the active file contains browser links;
+the same trust dialog pauses and resumes its ordered queue.
 
 ### Built-in Welcome Vault
 
 The first-run content is a real editable vault, not a disposable onboarding
 overlay. Its welcome note demonstrates headings, tags, tasks, tables, callouts,
 code, links, imagery, Unicode, and internal navigation, while the `docs` folder
-provides concise task-based reference pages.
+provides concise task-based reference pages. A `test` folder deliberately uses
+Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
+source code so edge cases remain easy to exercise.
 
 ### Callouts
 
@@ -349,11 +353,12 @@ validation.
 ### Editor Settings
 
 Editor text size uses a compact 12–24 px range with minus/plus controls and a
-tabular numeric value. It changes the document and source surfaces, not
-application chrome. Line numbers use a quiet gutter. Spaces, tabs, line endings,
-and trailing whitespace are low-contrast source annotations that become
-prominent only when explicitly enabled. The settings dialog applies changes
-immediately and states that markers never change saved content.
+tabular numeric value. A two-choice radio group controls two- or four-space Tab
+indentation. Both settings change document and source surfaces, not application
+chrome. Line numbers use a quiet gutter. Spaces, tabs, line endings, and trailing
+whitespace are low-contrast source annotations that become prominent only when
+explicitly enabled. The settings dialog applies changes immediately and states
+that markers never change saved content.
 Rich/source controls remain visible in a disabled segmented state while guides
 force source mode; their tooltip names the setting that restores mode switching.
 

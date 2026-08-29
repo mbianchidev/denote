@@ -9,7 +9,7 @@ the selected folder as the source of truth.
 ## Included
 
 - A built-in **Denote Welcome** vault with a feature-rich welcome page and
-  complete in-app usage guide
+  complete in-app usage guide plus multilingual edge-case fixtures
 - Rich single-pane Markdown editing with optional source mode and independent
   scrolling for long files
 - Every regular file is editable: UTF-8 as text, binary as reversible Base64
@@ -45,6 +45,10 @@ the selected folder as the source of truth.
 - Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks with rich-mode copy buttons,
   images, and links
+- Command-K / Control-K link creation that wraps rich-text selections or inserts
+  Markdown link syntax directly in source mode
+- One action to open every unique HTTP(S) link in the active file through the
+  existing external-domain trust flow
 - Code blocks and syntax highlighting that adapt to dark and light themes
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
@@ -52,6 +56,7 @@ the selected folder as the source of truth.
   zoom shortcuts
 - Persistent editor guides for line numbers, spaces/tabs, line endings, and
   trailing whitespace
+- Persistent two- or four-space Tab indentation across source and code editors
 - Dark mode by default with persistent light mode
 - Optional password-based vault encryption with ten one-time recovery codes
 - A typed host contract for separately shipped optional plugins
@@ -63,6 +68,11 @@ On first launch, Denote atomically creates **Denote Welcome** beside its
 application-data database and opens `Welcome.md`. The seed is embedded in the
 desktop app, works offline, and is never applied again while that vault folder
 exists, so edits and deletions are preserved.
+
+The guide also includes a `test` folder with Japanese, Russian, mixed-script,
+emoji, punctuation, nested-path, link, and source-code fixtures. Existing
+unencrypted Welcome vaults receive this folder once without replacing any
+existing `test` entry; encrypted guide vaults receive it after decryption.
 
 Files up to 25 MB can be edited regardless of extension. Invalid UTF-8 is shown
 as Base64; mixed line-ending files also use Base64 to preserve every byte.
@@ -90,11 +100,14 @@ and `vbscript:` are blocked.
 Editor settings are available from the editor toolbar. Font size applies
 immediately to rich text, Markdown source, programming files, plain text, and
 Base64 editors, and persists across launches. Use `Command/Ctrl +`, `-`, or `0`
-to increase, decrease, or reset it. Display guides are visual only and never
-alter saved text. Plain, binary, and MDX files use the source editor directly;
-Markdown switches from rich editing to source mode while any line-number or
-invisible-character guide is enabled. Rich/source controls remain visible but
-disabled, with guidance to turn the display guides off before switching modes.
+to increase, decrease, or reset it. Choose two- or four-space indentation for
+Tab in Markdown source, plain/programming editors, and rich fenced code blocks.
+Press Escape then Tab to move focus out of a CodeMirror editor. Display guides
+are visual only and never alter saved text. Plain, binary, and MDX files use the
+source editor directly; Markdown switches from rich editing to source mode while
+any line-number or invisible-character guide is enabled. Rich/source controls
+remain visible but disabled, with guidance to turn the display guides off before
+switching modes.
 
 Rendered code, editable fenced blocks, Markdown source, and plain-file source
 share the same semantic syntax palette. Theme changes update their backgrounds,
@@ -129,6 +142,13 @@ the operating system Trash.
 Each tab keeps its own navigation history. Use the back and forward arrows beside
 the tabs to revisit files opened in that tab. Opening a new file after going back
 discards only that tab's forward branch.
+
+Use `Command-K` / `Ctrl-K` to create a link. Rich mode opens the link dialog and
+keeps highlighted text as the anchor. Source mode immediately wraps highlighted
+text as `[text]()` or inserts `[]()` with the caret ready for typing. When the
+active file contains HTTP(S) links, use **Open all external links** in the editor
+toolbar or command palette. URLs are deduplicated, trusted domains open directly,
+and unknown domains pause the queue for confirmation.
 
 Previously opened vaults use their SQLite-cached file tree so switching does not
 wait for a full folder scan or content index. Denote refreshes the tree and

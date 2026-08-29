@@ -783,6 +783,25 @@ button:disabled {
   overflow-y: hidden;
 }
 
+.editor-toolbar-button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  place-items: center;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.editor-toolbar-button:hover,
+.editor-toolbar-button:focus-visible {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
 .editor-source-mode-label {
   margin-right: auto;
   padding: 0 4px;
@@ -2017,6 +2036,44 @@ kbd {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+}
+
+.editor-tab-setting {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0 2px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.editor-tab-setting legend {
+  padding: 0;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.editor-tab-setting p {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.editor-tab-setting > div {
+  display: flex;
+  gap: 16px;
+}
+
+.editor-tab-setting label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.editor-tab-setting input {
+  accent-color: var(--accent);
 }
 
 .editor-settings-list {

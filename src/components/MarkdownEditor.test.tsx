@@ -58,6 +58,58 @@ describe("MarkdownEditor links", () => {
     expect(onLinkOpen).toHaveBeenCalledWith("notes/plan.md", "Plan");
   });
 
+  it("preserves selected rich text when opening the link dialog", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="Example text"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const paragraph = await screen.findByText("Example text");
+    const contentEditable = paragraph.closest<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    expect(contentEditable).not.toBeNull();
+    contentEditable!.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(paragraph.firstChild as Text, 0);
+    range.setEnd(paragraph.firstChild as Text, 7);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent(document, new Event("selectionchange"));
+
+    const createLink = screen.getByRole("button", { name: "Create link" });
+    fireEvent.pointerDown(createLink);
+    await user.click(createLink);
+    const urlInput = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[name="url"]',
+      );
+      expect(input).not.toBeNull();
+      return input!;
+    });
+    await user.type(urlInput, "https://example.com");
+    await user.click(screen.getByRole("button", { name: "Set URL" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.stringContaining("[Example](https://example.com) text"),
+      ),
+    );
+  });
+
   it("reports source-mode preference changes", async () => {
     const user = userEvent.setup();
     const onViewModeChange = vi.fn();

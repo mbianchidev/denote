@@ -11,6 +11,7 @@
 | Create blank tab | `Command-T` | `Ctrl-T` |
 | Find and replace | `Option-Command-F` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
+| Create or edit link | `Command-K` | `Ctrl-K` |
 | Close tab | `Command-W` | `Ctrl-W` |
 | Increase editor text | `Command-+` | `Ctrl-+` |
 | Decrease editor text | `Command--` | `Ctrl--` |
@@ -26,7 +27,9 @@ Enter to run the active result.
 
 `Escape` hides the table of contents when it is open. The sidebar divider uses
 Left/Right arrows and Home/End. File-tree context menus use arrow keys and
-Escape. Tab context menus expose bulk close and group actions. All toolbar and
-dialog actions are keyboard reachable and use visible focus indicators.
+Escape. Press Escape then Tab to move focus out of a source/code editor when Tab
+is configured to indent. Tab context menus expose bulk close and group actions.
+All toolbar and dialog actions are keyboard reachable and use visible focus
+indicators.
 
 [Next: Optional plugins](<Optional plugins.md>)

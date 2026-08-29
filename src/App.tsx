@@ -11,6 +11,7 @@ import {
   ChevronsUpDown,
   ClipboardCopy,
   Copy,
+  ExternalLink as ExternalLinkIcon,
   FileCode2,
   FilePlus2,
   FolderPlus,
@@ -209,7 +210,16 @@ function App() {
     url: string;
     kind: "domain" | "protocol";
     subject: string;
+    remainingUrls: string[];
+    opened: number;
+    failed: number;
   } | null>(null);
+  const [activeWebLinkResult, setActiveWebLinkResult] = useState<{
+    path: string;
+    content: string;
+    links: string[];
+  } | null>(null);
+  const linkExtractionGeneration = useRef(0);
   const [headingNavigation, setHeadingNavigation] = useState<{
     path: string;
     anchor: string;
@@ -404,6 +414,77 @@ function App() {
         : [],
     [activeFileTab],
   );
+  const activeWebLinks =
+    activeFileTab &&
+    activeWebLinkResult?.path === activeFileTab.path &&
+    activeWebLinkResult.content === activeFileTab.content
+      ? activeWebLinkResult.links
+      : [];
+  useEffect(() => {
+    const generation = ++linkExtractionGeneration.current;
+    setActiveWebLinkResult(null);
+    if (!activeFileTab || activeFileTab.encoding !== "utf8") {
+      return;
+    }
+
+    let worker: Worker | null = null;
+    const timer = window.setTimeout(() => {
+      try {
+        worker = new Worker(
+          new URL("./workers/linkExtraction.worker.ts", import.meta.url),
+          { type: "module" },
+        );
+        worker.onmessage = (
+          event: MessageEvent<{ links?: string[]; error?: string }>,
+        ) => {
+          worker?.terminate();
+          worker = null;
+          if (generation !== linkExtractionGeneration.current) {
+            return;
+          }
+          if (event.data.error) {
+            console.error(
+              `Unable to extract links from ${activeFileTab.path}: ${event.data.error}`,
+            );
+            return;
+          }
+          setActiveWebLinkResult({
+            path: activeFileTab.path,
+            content: activeFileTab.content,
+            links: event.data.links ?? [],
+          });
+        };
+        worker.onerror = (event) => {
+          worker?.terminate();
+          worker = null;
+          if (generation !== linkExtractionGeneration.current) {
+            return;
+          }
+          console.error(
+            `Unable to extract links from ${activeFileTab.path}: ${event.message}`,
+          );
+        };
+        worker.postMessage({ markdown: activeFileTab.content });
+      } catch (caught) {
+        console.error(
+          `Unable to extract links from ${activeFileTab.path}:`,
+          caught,
+        );
+      }
+    }, 200);
+
+    return () => {
+      if (generation === linkExtractionGeneration.current) {
+        linkExtractionGeneration.current += 1;
+      }
+      window.clearTimeout(timer);
+      worker?.terminate();
+    };
+  }, [
+    activeFileTab?.content,
+    activeFileTab?.encoding,
+    activeFileTab?.path,
+  ]);
   const tagColorMap = useMemo<TagColorMap>(
     () =>
       Object.fromEntries(
@@ -3270,21 +3351,80 @@ function App() {
     ],
   );
 
+  const openWebLinksWithPolicy = useCallback(
+    async (
+      urls: string[],
+      policy: ExternalDomainPolicy,
+      progress = { opened: 0, failed: 0 },
+    ) => {
+      let { opened, failed } = progress;
+      for (let index = 0; index < urls.length; index += 1) {
+        const url = externalLinkTarget(urls[index]);
+        const domain = externalDomain(url);
+        if (!domain) {
+          failed += 1;
+          continue;
+        }
+        if (!isExternalDomainAllowed(policy, domain)) {
+          setPendingExternalLink({
+            url,
+            kind: "domain",
+            subject: domain,
+            remainingUrls: urls.slice(index + 1),
+            opened,
+            failed,
+          });
+          return;
+        }
+        try {
+          await api.openExternalUri(url);
+          opened += 1;
+        } catch (caught) {
+          failed += 1;
+          console.error(`Unable to open ${url}:`, caught);
+        }
+      }
+      if (failed > 0) {
+        showError(
+          `Opened ${opened} external link${
+            opened === 1 ? "" : "s"
+          }; ${failed} failed.`,
+        );
+      } else if (opened > 0) {
+        setStatus(
+          `Opened ${opened} external link${opened === 1 ? "" : "s"}`,
+        );
+      }
+    },
+    [showError],
+  );
+
   const allowPendingExternalLink = useCallback(
     async (allowAll: boolean) => {
       const pending = pendingExternalLink;
       if (!pending) {
         return;
       }
+      let policy = externalDomainPolicy;
       if (pending.kind === "domain") {
-        const policy = allowAll
+        const nextPolicy = allowAll
           ? { ...externalDomainPolicy, allowAll: true }
           : allowExternalDomain(externalDomainPolicy, pending.subject);
-        if (!persistExternalDomainPolicy(policy)) {
+        const saved = persistExternalDomainPolicy(nextPolicy);
+        if (!saved) {
           return;
         }
+        policy = saved;
       }
       setPendingExternalLink(null);
+      if (pending.kind === "domain") {
+        await openWebLinksWithPolicy(
+          [pending.url, ...pending.remainingUrls],
+          policy,
+          { opened: pending.opened, failed: pending.failed },
+        );
+        return;
+      }
       try {
         await api.openExternalUri(pending.url);
       } catch (caught) {
@@ -3294,6 +3434,7 @@ function App() {
     [
       externalDomainPolicy,
       pendingExternalLink,
+      openWebLinksWithPolicy,
       persistExternalDomainPolicy,
       showError,
     ],
@@ -3327,10 +3468,16 @@ function App() {
               url: normalizedTarget,
               kind: "domain",
               subject: domain,
+              remainingUrls: [],
+              opened: 0,
+              failed: 0,
             });
             return;
           }
-          await api.openExternalUri(normalizedTarget);
+          await openWebLinksWithPolicy(
+            [normalizedTarget],
+            externalDomainPolicy,
+          );
           return;
         }
         if (hasUriScheme(normalizedTarget)) {
@@ -3350,6 +3497,9 @@ function App() {
               url: normalizedTarget,
               kind: "protocol",
               subject: scheme,
+              remainingUrls: [],
+              opened: 0,
+              failed: 0,
             });
           }
           return;
@@ -3370,7 +3520,14 @@ function App() {
         showError(caught);
       }
     },
-    [activeTab, allFiles, externalDomainPolicy, openFile, showError],
+    [
+      activeTab,
+      allFiles,
+      externalDomainPolicy,
+      openFile,
+      openWebLinksWithPolicy,
+      showError,
+    ],
   );
 
   const navigateToHeading = useCallback((heading: HeadingItem) => {
@@ -3945,6 +4102,15 @@ function App() {
       category: "Clipboard",
       disabled: activeFileTab === null,
       run: copyActiveFilePath,
+    },
+    {
+      id: "links.open-all",
+      title: "Open all external links",
+      description: "Open every unique web link in the current file.",
+      category: "Navigation",
+      disabled: activeWebLinks.length === 0,
+      run: () =>
+        openWebLinksWithPolicy(activeWebLinks, externalDomainPolicy),
     },
     {
       id: "file.history",
@@ -4538,6 +4704,25 @@ function App() {
             >
               <Copy aria-hidden="true" size={16} />
             </button>
+            {activeWebLinks.length > 0 ? (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Open all external links"
+                title={`Open all ${activeWebLinks.length} external link${
+                  activeWebLinks.length === 1 ? "" : "s"
+                }`}
+                disabled={workspaceLocked}
+                onClick={() =>
+                  void openWebLinksWithPolicy(
+                    activeWebLinks,
+                    externalDomainPolicy,
+                  )
+                }
+              >
+                <ExternalLinkIcon aria-hidden="true" size={16} />
+              </button>
+            ) : null}
             <button
               type="button"
               className="icon-button"

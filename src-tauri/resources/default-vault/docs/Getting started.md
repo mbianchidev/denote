@@ -8,7 +8,8 @@ A vault is any folder you choose. Denote reads and writes the files in place; it
 does not upload them or move them into a proprietary database.
 
 The built-in **Denote Welcome** vault is created once and is otherwise ordinary.
-Your edits are never replaced.
+Your edits are never replaced. Its `test` folder provides Japanese, Russian,
+mixed-script, emoji, punctuation, nested-path, link, and code fixtures.
 
 ## Create or open a vault
 

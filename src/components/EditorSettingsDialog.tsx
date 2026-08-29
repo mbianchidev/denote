@@ -52,7 +52,7 @@ export function EditorSettingsDialog({
   }, [open]);
 
   const updateGuide = (
-    key: Exclude<keyof EditorDisplaySettings, "fontSize">,
+    key: Exclude<keyof EditorDisplaySettings, "fontSize" | "tabSize">,
     enabled: boolean,
   ) => {
     onChange({ ...settings, [key]: enabled });
@@ -72,7 +72,8 @@ export function EditorSettingsDialog({
       DEFAULT_EDITOR_DISPLAY_SETTINGS.showLineEndings &&
     settings.highlightTrailingWhitespace ===
       DEFAULT_EDITOR_DISPLAY_SETTINGS.highlightTrailingWhitespace &&
-    settings.fontSize === DEFAULT_EDITOR_DISPLAY_SETTINGS.fontSize;
+    settings.fontSize === DEFAULT_EDITOR_DISPLAY_SETTINGS.fontSize &&
+    settings.tabSize === DEFAULT_EDITOR_DISPLAY_SETTINGS.tabSize;
 
   return (
     <dialog
@@ -150,6 +151,29 @@ export function EditorSettingsDialog({
               +
             </button>
           </div>
+          <fieldset className="editor-tab-setting" disabled={disabled}>
+            <legend>Tab indentation</legend>
+            <p>Choose how many spaces Tab inserts in source and code editors.</p>
+            <div>
+              {([2, 4] as const).map((size) => (
+                <label key={size}>
+                  <input
+                    type="radio"
+                    name="editor-tab-size"
+                    value={size}
+                    checked={settings.tabSize === size}
+                    onChange={() =>
+                      onChange({
+                        ...settings,
+                        tabSize: size,
+                      })
+                    }
+                  />
+                  {size} spaces
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
         <p>
           Display guides are visual only and never change saved content.

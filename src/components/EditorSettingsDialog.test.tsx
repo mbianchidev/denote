@@ -90,6 +90,32 @@ describe("EditorSettingsDialog", () => {
     });
   });
 
+  it("changes source indentation between two and four spaces", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <EditorSettingsDialog
+        open
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
+        onChange={onChange}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("radio", { name: "2 spaces" }));
+    expect(onChange).toHaveBeenCalledWith({
+      ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      tabSize: 2,
+    });
+  });
+
   it("blocks preference changes while the workspace is busy", async () => {
     const user = userEvent.setup();
     const onRestoreTabsChange = vi.fn();

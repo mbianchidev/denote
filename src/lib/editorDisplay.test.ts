@@ -42,7 +42,16 @@ describe("editor display settings", () => {
       hasEditorDisplayGuides({
         ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
         fontSize: 20,
+        tabSize: 2,
       }),
     ).toBe(false);
+  });
+
+  it("persists a two- or four-space tab size", () => {
+    saveEditorDisplaySettings({
+      ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      tabSize: 2,
+    });
+    expect(getEditorDisplaySettings().tabSize).toBe(2);
   });
 });

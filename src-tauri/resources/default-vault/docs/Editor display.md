@@ -14,6 +14,12 @@ the surrounding application controls.
 Use `Command-+`, `Command--`, and `Command-0` on macOS, or `Ctrl-+`, `Ctrl--`,
 and `Ctrl-0` on Windows and Linux, to increase, decrease, or reset the size.
 
+## Tab indentation
+
+Choose two or four spaces. Pressing Tab uses that width in Markdown source,
+plain and programming files, and fenced code blocks in rich mode. Press Escape
+then Tab when you want to move keyboard focus out of a CodeMirror editor.
+
 ## Display guides
 
 The settings can show:

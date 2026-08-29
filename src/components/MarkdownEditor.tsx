@@ -7,7 +7,6 @@ import {
   ChangeCodeMirrorLanguage,
   CodeToggle,
   ConditionalContents,
-  CreateLink,
   DiffSourceToggleWrapper,
   HighlightToggle,
   InsertAdmonition,
@@ -33,6 +32,7 @@ import {
   linkPlugin,
   listsPlugin,
   markdownShortcutPlugin,
+  openLinkEditDialog$,
   quotePlugin,
   realmPlugin,
   tablePlugin,
@@ -40,7 +40,9 @@ import {
   toolbarPlugin,
   viewMode$,
 } from "@mdxeditor/editor";
+import { usePublisher } from "@mdxeditor/gurx";
 import { EditorView } from "@codemirror/view";
+import { Link2 } from "lucide-react";
 import {
   forwardRef,
   useEffect,
@@ -53,7 +55,9 @@ import { createPortal } from "react-dom";
 import { api, errorMessage } from "../lib/api";
 import {
   createEditorDisplayExtensions,
+  createEditorTabExtensions,
   denoteCodeMirrorTheme,
+  markdownLinkKeymap,
 } from "../lib/editorExtensions";
 import {
   hasEditorDisplayGuides,
@@ -154,6 +158,10 @@ export const MarkdownEditor = forwardRef<
     () => createEditorDisplayExtensions(displaySettings, lineEnding, false),
     [displaySettings, lineEnding],
   );
+  const tabExtensions = useMemo(
+    () => createEditorTabExtensions(displaySettings),
+    [displaySettings],
+  );
   const boundaryWhitespace = useRef(
     captureMarkdownBoundaryWhitespace(markdown),
   ).current;
@@ -192,7 +200,7 @@ export const MarkdownEditor = forwardRef<
       tablePlugin(),
       codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),
       codeMirrorPlugin({
-        codeMirrorExtensions: [denoteCodeMirrorTheme],
+        codeMirrorExtensions: [denoteCodeMirrorTheme, ...tabExtensions],
         codeBlockLanguages: {
           text: "Plain text",
           bash: "Bash",
@@ -221,6 +229,7 @@ export const MarkdownEditor = forwardRef<
         readOnlyDiff: false,
         codeMirrorExtensions: [
           denoteCodeMirrorTheme,
+          markdownLinkKeymap,
           ...displayExtensions,
         ],
       }),
@@ -272,7 +281,7 @@ export const MarkdownEditor = forwardRef<
                 <HighlightToggle />
                 <Separator />
                 <ListsToggle options={["bullet", "number", "check"]} />
-                <CreateLink />
+                <CreateLinkPreservingSelection />
                 <InsertImage />
                 <Separator />
                 <InsertCodeBlock />
@@ -301,6 +310,7 @@ export const MarkdownEditor = forwardRef<
       onImageUpload,
       onViewModeChange,
       sourceFirst,
+      tabExtensions,
     ],
   );
 
@@ -326,6 +336,7 @@ export const MarkdownEditor = forwardRef<
         }
       }
     });
+
     observer.observe(shell, {
       childList: true,
       subtree: true,
@@ -410,6 +421,22 @@ export const MarkdownEditor = forwardRef<
     </div>
   );
 });
+
+function CreateLinkPreservingSelection() {
+  const openLinkDialog = usePublisher(openLinkEditDialog$);
+  return (
+    <button
+      type="button"
+      className="editor-toolbar-button"
+      aria-label="Create link"
+      title="Create link (Command-K / Ctrl-K)"
+      onPointerDown={(event) => event.preventDefault()}
+      onClick={() => openLinkDialog()}
+    >
+      <Link2 aria-hidden="true" size={16} />
+    </button>
+  );
+}
 
 const EMPTY_TAG_COLORS: TagColorMap = {};
 

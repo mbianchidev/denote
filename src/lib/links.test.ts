@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   externalLinkTarget,
+  extractWebLinks,
   hasUriScheme,
   isBlockedExternalScheme,
   isExternalLink,
@@ -39,5 +40,33 @@ describe("external link routing", () => {
     expect(shouldOpenLinkOnClick("file:///tmp/note.pdf", false)).toBe(true);
     expect(shouldOpenLinkOnClick("notes/plan.md", false)).toBe(true);
     expect(shouldOpenLinkOnClick("notes/plan.md", true)).toBe(true);
+  });
+
+  it("extracts unique browser links from Markdown", () => {
+    expect(
+      extractWebLinks(
+        "[One](Https://example.com/a) [Again](https://example.com/a) [Two](http://example.org) [Reference][docs] [Local](note.md)\n\n[docs]: HTTPS://docs.example.com/start",
+      ),
+    ).toEqual([
+      "https://example.com/a",
+      "http://example.org",
+      "https://docs.example.com/start",
+    ]);
+  });
+
+  it("uses the first matching reference definition", () => {
+    expect(
+      extractWebLinks(
+        "[Docs][docs]\n\n[docs]: https://first.example/path\n[docs]: https://ignored.example/path",
+      ),
+    ).toEqual(["https://first.example/path"]);
+  });
+
+  it("keeps inline and reference links in document order", () => {
+    expect(
+      extractWebLinks(
+        "[First][first] [Second](https://second.example)\n\n[first]: https://first.example",
+      ),
+    ).toEqual(["https://first.example", "https://second.example"]);
   });
 });

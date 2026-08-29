@@ -1,8 +1,15 @@
+import { indentWithTab } from "@codemirror/commands";
 import {
   HighlightStyle,
+  indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
-import { Prec, type Extension, type Range } from "@codemirror/state";
+import {
+  EditorState,
+  Prec,
+  type Extension,
+  type Range,
+} from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -13,6 +20,8 @@ import {
   highlightTrailingWhitespace,
   highlightWhitespace,
   lineNumbers,
+  keymap,
+  type Command,
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import type { FileLineEnding } from "../types";
@@ -112,7 +121,7 @@ export function createEditorDisplayExtensions(
   lineEnding: FileLineEnding,
   includeLineNumbers = true,
 ): Extension[] {
-  const extensions: Extension[] = [];
+  const extensions: Extension[] = createEditorTabExtensions(settings);
   if (settings.showLineNumbers && includeLineNumbers) {
     extensions.push(lineNumbers());
   }
@@ -127,6 +136,41 @@ export function createEditorDisplayExtensions(
   }
   return extensions;
 }
+
+export function createEditorTabExtensions(
+  settings: EditorDisplaySettings,
+): Extension[] {
+  const indentation = " ".repeat(settings.tabSize);
+  return [
+    EditorState.tabSize.of(settings.tabSize),
+    indentUnit.of(indentation),
+    keymap.of([indentWithTab]),
+  ];
+}
+
+export const insertMarkdownLink: Command = (view) => {
+  if (view.state.readOnly) {
+    return false;
+  }
+  const selection = view.state.selection.main;
+  const selected = view.state.doc.sliceString(selection.from, selection.to);
+  const text = selected
+    .replace(/\\/g, "\\\\")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]");
+  const insert = selected ? `[${text}]()` : "[]()";
+  const cursor = selection.from + (selected ? text.length + 3 : 1);
+  view.dispatch({
+    changes: { from: selection.from, to: selection.to, insert },
+    selection: { anchor: cursor },
+    scrollIntoView: true,
+  });
+  return true;
+};
+
+export const markdownLinkKeymap: Extension = Prec.highest(
+  keymap.of([{ key: "Mod-k", run: insertMarkdownLink }]),
+);
 
 class LineEndingWidget extends WidgetType {
   constructor(private readonly label: string) {

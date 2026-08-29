@@ -4,6 +4,7 @@ export interface EditorDisplaySettings {
   showLineEndings: boolean;
   highlightTrailingWhitespace: boolean;
   fontSize: number;
+  tabSize: 2 | 4;
 }
 
 export const MIN_EDITOR_FONT_SIZE = 12;
@@ -16,6 +17,7 @@ export const DEFAULT_EDITOR_DISPLAY_SETTINGS: EditorDisplaySettings = {
   showLineEndings: false,
   highlightTrailingWhitespace: false,
   fontSize: DEFAULT_EDITOR_FONT_SIZE,
+  tabSize: 4,
 };
 
 const STORAGE_KEY = "denote-editor-display";
@@ -33,6 +35,7 @@ export function getEditorDisplaySettings(): EditorDisplaySettings {
       showLineEndings: parsed.showLineEndings === true,
       highlightTrailingWhitespace: parsed.highlightTrailingWhitespace === true,
       fontSize: normalizeEditorFontSize(parsed.fontSize),
+      tabSize: parsed.tabSize === 2 ? 2 : 4,
     };
   } catch {
     return { ...DEFAULT_EDITOR_DISPLAY_SETTINGS };
@@ -47,6 +50,7 @@ export function saveEditorDisplaySettings(
     JSON.stringify({
       ...settings,
       fontSize: normalizeEditorFontSize(settings.fontSize),
+      tabSize: settings.tabSize === 2 ? 2 : 4,
     }),
   );
 }
@@ -80,7 +84,10 @@ export function editorDisplaySettingsKey(
     settings.showWhitespace,
     settings.showLineEndings,
     settings.highlightTrailingWhitespace,
+    settings.tabSize === 2 ? "2" : "4",
   ]
-    .map((enabled) => (enabled ? "1" : "0"))
+    .map((value) =>
+      typeof value === "string" ? value : value ? "1" : "0",
+    )
     .join("");
 }

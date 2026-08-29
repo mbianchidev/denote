@@ -22,6 +22,11 @@ cannot expose a partial guide. Existing files are never merged or overwritten.
 The vault is registered as the built-in default, used when no valid last vault
 exists, and its `Welcome.md` page opens after the workspace is ready.
 
+A versioned marker under `.denote/fixtures` adds the multilingual `test` folder
+once to older unencrypted Welcome vaults. Existing `test` entries are preserved,
+symlinks are never traversed, and encrypted vaults defer the addition until the
+encryption manifest is removed.
+
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
@@ -202,12 +207,16 @@ clamped 12–24 px CSS custom property sizes rich Markdown, Markdown source,
 programming files, plain text, and binary Base64 while leaving workspace chrome
 unchanged. Command/Control `+`, `-`, and `0` update the same persisted setting.
 Plain text, binary Base64, and MDX source use a shared CodeMirror surface.
-Markdown source mode receives the same CodeMirror extensions. Line numbers,
-whitespace markers, trailing-whitespace emphasis, and LF/CRLF/CR widgets are
-decorations only; document text and save hashes never include them. Because
-rendered rich Markdown has no stable one-to-one source-line mapping, enabling any
-guide temporarily constrains Markdown editing to source mode. Disabled
-rich/source controls remain visible and point back to the display settings.
+Markdown source mode receives the same CodeMirror extensions. A persisted
+two/four-space setting configures CodeMirror's tab width, indentation unit, and
+Tab command for Markdown source, plain/programming files, and rich fenced code
+blocks; CodeMirror's Escape-then-Tab behavior still provides a keyboard exit.
+Line numbers, whitespace markers, trailing-whitespace emphasis, and LF/CRLF/CR
+widgets are decorations only; document text and save hashes never include them.
+Because rendered rich Markdown has no stable one-to-one source-line mapping,
+enabling any guide temporarily constrains Markdown editing to source mode.
+Disabled rich/source controls remain visible and point back to the display
+settings.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every
@@ -238,6 +247,19 @@ Plain UTF-8 files remain source-only. The frontend resolves their filenames
 against CodeMirror's language catalog and asynchronously reconfigures a language
 compartment, so JavaScript, TypeScript, Python, and other recognized programming
 or markup files receive syntax highlighting without remounting the editor.
+
+Markdown source mode registers a highest-precedence Command-K / Control-K
+CodeMirror command. It wraps a range as `[selected text]()` or inserts `[]()` at
+a caret without opening a dialog. Rich mode uses MDXEditor's link dialog and
+prevents toolbar pointer focus from collapsing the active Lexical selection.
+
+After a short edit debounce, a cancellable Web Worker parses the active UTF-8
+document into MDAST to collect and deduplicate inline, autolink, and referenced
+HTTP(S) destinations without blocking editor keystrokes. The open-all action
+passes them sequentially through the same exact-domain/wildcard policy as
+ordinary clicks. Encountering an unknown domain stores the remaining queue in
+dialog state; approval resumes it and cancellation discards it. Individual
+native-open failures are counted and do not stop later trusted URLs.
 
 The activity rail, resizable vault sidebar, divider, and editor are separate CSS
 grid columns. Sidebar width is clamped to 210–480px, updates continuously during

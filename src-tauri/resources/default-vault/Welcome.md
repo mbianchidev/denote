@@ -16,8 +16,10 @@ regular file. Your files remain the source of truth.
 - [x] Open a note in a tab
 - [ ] Press `Command-F` or `Ctrl-F` and search for `tag:guide`
 - [ ] Press `Command-P` or `Ctrl-P`, run a command, then find a filename
+- [ ] Highlight words and press `Command-K` or `Ctrl-K` to create a link
 - [ ] Pin a page in the file tree
-- [ ] Open **Editor settings**, change text size, and show spaces or line endings
+- [ ] Open **Editor settings**, change text size and Tab indentation
+- [ ] Open this page's external links together from the editor toolbar
 - [ ] Edit this checklist and wait for autosave
 - [ ] Open **History** and restore an earlier revision
 
@@ -26,6 +28,7 @@ regular file. Your files remain the source of truth.
 | Rich Markdown | This page |
 | Internal links | [Getting started](<docs/Getting started.md>) |
 | External links | [Denote on GitHub](https://github.com/mbianchidev/denote) |
+| Edge cases | The multilingual `test` folder |
 | Images | The orbit above |
 | Callouts | The information and warning boxes |
 | Code themes | The block below |
@@ -51,6 +54,9 @@ const activeVault = vaults.find((vault) => vault === "music");
 8. [Editor display](<docs/Editor display.md>)
 9. [Keyboard shortcuts](<docs/Keyboard shortcuts.md>)
 10. [Optional plugins](<docs/Optional plugins.md>)
+
+Explore the `test` folder for Japanese, Russian, mixed-script, emoji, punctuation,
+nested-path, source-code, link, rename, and move fixtures.
 
 ---
 

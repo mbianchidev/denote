@@ -19,3 +19,11 @@ Range.prototype.getClientRects = function getClientRects() {
 Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
   return new DOMRect();
 };
+
+class ResizeObserverStub implements ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+globalThis.ResizeObserver = ResizeObserverStub;

@@ -42,6 +42,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Every installation includes an offline Denote Welcome vault with an editable
   feature tour and task-focused documentation; seeded files are never
   overwritten after creation.
+- The Welcome vault includes a one-time, non-destructive `test` folder covering
+  Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
+  highlighted source files.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
 - Previously opened vaults use a cached file tree for immediate switching, then
@@ -108,11 +111,16 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - HTTP(S) links normalize protocol case and require confirmation for unknown
   exact domains. Users can allow one domain or all domains and manage that list
   in Settings.
+- The active file can open every unique HTTP(S) link in one queued action that
+  pauses at each untrusted domain and resumes after approval.
 - Email, telephone, file, and confirmed custom application protocols use the
   operating system handler; dangerous URI schemes remain blocked.
+- Command-K / Control-K preserves selected rich text in the link dialog and
+  inserts editable Markdown link syntax directly in source mode.
 - Persistent editor settings include a 12–24 px font size shared by rich and
-  source editors plus line numbers, spaces and tabs, exact line-ending style,
-  and trailing whitespace without modifying content.
+  source editors, two- or four-space Tab indentation, line numbers, spaces and
+  tabs, exact line-ending style, and trailing whitespace without modifying
+  content.
 - Command/Control `+`, `-`, and `0` increase, decrease, and reset editor text
   size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides

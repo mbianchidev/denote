@@ -60,7 +60,10 @@ more detail and examples.
 - Use rich single-pane Markdown editing or source mode.
 - Keep one rich/source preference for every Markdown file in each vault.
 - Set a persistent editor font size from 12 to 24 px.
+- Choose two- or four-space Tab indentation for every source/code editor.
 - Increase, decrease, or reset editor text with Command/Control `+`, `-`, or `0`.
+- Create links with `Command-K` / `Ctrl-K`: rich mode keeps selected anchor text
+  in its dialog; source mode inserts Markdown syntax directly.
 - Autosave after editing.
 - Keep the previous ten changed revisions.
 - Render headings, emphasis, lists, task lists, quotes, tables, thematic breaks,
@@ -83,6 +86,8 @@ more detail and examples.
   including parent paths such as `../assets/image.svg`.
 - Normalize HTTP(S) protocols, confirm unknown domains, and manage exact or
   wildcard domain permissions in Settings.
+- Open every unique HTTP(S) link in the active file from the toolbar or command
+  palette, pausing the queue when a domain needs approval.
 - Open email, telephone, hostless local file, and confirmed custom application
   protocols through the operating system; block remote file hosts and dangerous
   schemes.
@@ -110,6 +115,8 @@ more detail and examples.
 - Reject autosave when another application changed the file.
 - Journal rename, move, trash, and restore operations for crash recovery.
 - Preserve Unix extended attributes and Windows file metadata during saves.
+- Use the built-in `test` folder for multilingual, Unicode-path, link, move,
+  rename, and syntax-highlighting edge cases.
 
 ## Appearance and accessibility
 
