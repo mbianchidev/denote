@@ -4,6 +4,13 @@
 
 #welcome #denote #getting-started
 
+<!-- toc -->
+- [Try a little of everything](#try-a-little-of-everything)
+- [Syntax highlighting](#syntax-highlighting)
+- [Read the guide](#read-the-guide)
+- [Test heading navigation](#test-heading-navigation)
+<!-- /toc -->
+
 >![info]
 > This ordinary local folder is your built-in guide. Edit it, encrypt it, move it,
 > or delete it. Denote never replaces your changes.
@@ -20,6 +27,7 @@ regular file. Your files remain the source of truth.
 - [ ] Pin a page in the file tree
 - [ ] Open **Editor settings**, change text size and Tab indentation
 - [ ] Open this page's external links together from the editor toolbar
+- [ ] Use the table of contents above to jump between headings
 - [ ] Edit this checklist and wait for autosave
 - [ ] Open **History** and restore an earlier revision
 
@@ -33,9 +41,25 @@ regular file. Your files remain the source of truth.
 | Callouts | The information and warning boxes |
 | Code themes | The block below |
 
-```typescript
+## Syntax highlighting
+
+JavaScript and TypeScript fences accept both long names and common `js` / `ts`
+aliases. PHP, Java, and other common languages use the same adaptive palette.
+
+```js
 const vaults = ["work", "music", "random"];
+```
+
+```typescript
 const activeVault = vaults.find((vault) => vault === "music");
+```
+
+```php
+<?php echo "Denote"; ?>
+```
+
+```java
+record Note(String title) {}
 ```
 
 >![warning]
@@ -57,6 +81,12 @@ const activeVault = vaults.find((vault) => vault === "music");
 
 Explore the `test` folder for Japanese, Russian, mixed-script, emoji, punctuation,
 nested-path, source-code, link, rename, and move fixtures.
+
+## Test heading navigation
+
+Use the generated table of contents at the top of this page, or follow
+[Try a little of everything](#try-a-little-of-everything) to verify same-file
+heading navigation.
 
 ---
 

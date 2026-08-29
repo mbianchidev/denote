@@ -278,6 +278,9 @@ Plain UTF-8 files remain source-only. The frontend resolves their filenames
 against CodeMirror's language catalog and asynchronously reconfigures a language
 compartment, so JavaScript, TypeScript, Python, and other recognized programming
 or markup files receive syntax highlighting without remounting the editor.
+Rich fenced blocks share a central catalog of common aliases, including `js`,
+`ts`, PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell, web, data, and
+configuration formats, and autoload the same CodeMirror language support.
 
 Markdown source mode registers a highest-precedence Command-K / Control-K
 CodeMirror command. It wraps a range as `[selected text]()` or inserts `[]()` at

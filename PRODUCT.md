@@ -138,6 +138,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   active file changes.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
+- Rich fenced blocks and source files recognize common JavaScript/TypeScript
+  aliases plus PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell,
+  web, data, and configuration languages.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live
   code document rather than only visible lines.
 - About Denote exposes the packaged semantic version and immutable Git commit

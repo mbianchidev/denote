@@ -55,6 +55,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { api, errorMessage } from "../lib/api";
+import { CODE_BLOCK_LANGUAGES } from "../lib/codeBlockLanguages";
 import {
   createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
@@ -272,22 +273,7 @@ export const MarkdownEditor = forwardRef<
       codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),
       codeMirrorPlugin({
         codeMirrorExtensions: [denoteCodeMirrorTheme, ...tabExtensions],
-        codeBlockLanguages: {
-          text: "Plain text",
-          bash: "Bash",
-          css: "CSS",
-          html: "HTML",
-          javascript: "JavaScript",
-          json: "JSON",
-          jsx: "JSX",
-          markdown: "Markdown",
-          python: "Python",
-          rust: "Rust",
-          sql: "SQL",
-          tsx: "TSX",
-          typescript: "TypeScript",
-          yaml: "YAML",
-        },
+        codeBlockLanguages: CODE_BLOCK_LANGUAGES,
         autoLoadLanguageSupport: true,
       }),
       frontmatterPlugin(),

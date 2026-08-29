@@ -6,6 +6,10 @@ describe("source language detection", () => {
     expect(sourceLanguageName("src/app.js")).toBe("JavaScript");
     expect(sourceLanguageName("src/app.ts")).toBe("TypeScript");
     expect(sourceLanguageName("script.py")).toBe("Python");
+    expect(sourceLanguageName("public/index.php")).toBe("PHP");
+    expect(sourceLanguageName("src/Main.java")).toBe("Java");
+    expect(sourceLanguageName("src/main.cpp")).toBe("C++");
+    expect(sourceLanguageName("src/main.go")).toBe("Go");
   });
 
   it("leaves unsupported files as plain text", () => {

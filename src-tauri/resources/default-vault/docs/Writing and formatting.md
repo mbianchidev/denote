@@ -45,6 +45,11 @@ Programming and markup files outside Markdown use the source editor. Recognized
 extensions such as `.js`, `.ts`, `.py`, `.rs`, `.json`, and many others load
 CodeMirror syntax highlighting automatically.
 
+Rich fenced blocks support common aliases and languages including `js`,
+`javascript`, `ts`, `typescript`, `php`, `java`, C/C++, C#, Go, Python, Ruby,
+Kotlin, Swift, Scala, shells, HTML/XML, CSS/SCSS/LESS, JSON, YAML, TOML, SQL,
+Markdown, and Dockerfiles.
+
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.
 

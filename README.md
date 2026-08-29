@@ -52,7 +52,9 @@ the selected folder as the source of truth.
 - File and same-page heading anchors with retrying rich/source navigation
 - One action to open every unique HTTP(S) link in the active file through the
   existing external-domain trust flow
-- Code blocks and syntax highlighting that adapt to dark and light themes
+- Code blocks and source files with adaptive highlighting for JavaScript,
+  TypeScript, PHP, Java, C/C++, C#, Go, Python, Ruby, Kotlin, Swift, Scala,
+  shells, web formats, and more
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
 - Persistent 12–24 px editor font sizing with Command/Control `+`, `-`, and `0`

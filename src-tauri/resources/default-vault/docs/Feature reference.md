@@ -74,6 +74,9 @@ more detail and examples.
 - Copy rich-mode fenced code blocks from their inline **Copy** button.
 - Highlight supported programming and markup files by filename in the source
   editor.
+- Highlight rich fenced blocks for JavaScript, TypeScript, PHP, Java, C/C++,
+  C#, Go, Python, Ruby, Kotlin, Swift, Scala, shells, web, data, and config
+  languages.
 - Preserve mixed Unicode scripts and emoji in one file.
 - Open unsupported rich syntax such as MDX, raw HTML, footnotes, math, reference
   definitions, and escaped hashtags in source mode for safety.
