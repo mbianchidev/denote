@@ -1,6 +1,7 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { HeadingItem } from "../types";
 import { normalizeTag } from "./tagColors";
+import type { MarkdownViewMode } from "./markdownView";
 
 const CALLOUT_TYPES = "warning|info|danger|note|tip|caution";
 
@@ -318,7 +319,8 @@ export function slugifyHeading(value: string): string {
     .replace(/[^\p{L}\p{N}\s-]/gu, "")
     .trim()
     .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 export function nextHeadingSlug(value: string, usedSlugs: Set<string>): string {
@@ -416,11 +418,146 @@ export function recoverMarkdownLinkTarget(
     : null;
 }
 
+export interface TocMarkerSnapshot {
+  blocks: Array<{
+    links: string[];
+    items: string[];
+    listOrdinal: number;
+    itemOrdinal: number;
+    rootListCount: number;
+    rootItemCount: number;
+    previousContext: string | null;
+    nextContext: string | null;
+  }>;
+}
+
+export function captureTocMarkers(markdown: string): TocMarkerSnapshot {
+  return { blocks: validTocBlocks(markdown).map((block) => block.snapshot) };
+}
+
+export function restoreTocMarkers(
+  markdown: string,
+  snapshot: TocMarkerSnapshot,
+): string {
+  if (
+    snapshot.blocks.length === 0 ||
+    /^<!-- \/?toc -->\r?$/m.test(markdown)
+  ) {
+    return markdown;
+  }
+  const lists = rootMarkdownLists(markdown);
+  const claimed: ClaimedListRange[] = [];
+  const insertions: Array<{ start: number; end: number }> = [];
+  for (const block of snapshot.blocks) {
+    let index = -1;
+    let startItem = 0;
+    let endItem = 0;
+    const ordinalCandidate = lists[block.listOrdinal];
+    const ordinalItemCount = listItems(ordinalCandidate?.node).length;
+    if (
+      ordinalCandidate &&
+      isListRangeAvailable(
+        claimed,
+        block.listOrdinal,
+        0,
+        ordinalItemCount,
+      ) &&
+      ((lists.length === block.rootListCount &&
+        (sameLinks(markdownListLinks(ordinalCandidate.node), block.links) ||
+          lists.length === 1)) ||
+        sameTocContext(ordinalCandidate, block))
+    ) {
+      index = block.listOrdinal;
+      endItem = ordinalItemCount;
+    }
+    if (index < 0) {
+      const exactMatches = lists
+        .map((list, candidateIndex) => ({ list, candidateIndex }))
+        .filter(
+          ({ list, candidateIndex }) =>
+            isListRangeAvailable(
+              claimed,
+              candidateIndex,
+              0,
+              listItems(list.node).length,
+            ) &&
+            verifiedTocMatch(list, block),
+        );
+      if (exactMatches.length === 1) {
+        index = exactMatches[0].candidateIndex;
+        endItem = listItems(exactMatches[0].list.node).length;
+      }
+    }
+    if (index < 0) {
+      const contextMatches = lists
+        .map((list, candidateIndex) => ({ list, candidateIndex }))
+        .filter(
+          ({ list, candidateIndex }) =>
+            isListRangeAvailable(
+              claimed,
+              candidateIndex,
+              0,
+              listItems(list.node).length,
+            ) && sameTocContext(list, block),
+        );
+      if (contextMatches.length === 1) {
+        index = contextMatches[0].candidateIndex;
+        endItem = listItems(contextMatches[0].list.node).length;
+      }
+    }
+    let start = lists[index]?.node.position?.start.offset;
+    let end = lists[index]?.node.position?.end.offset;
+    if (
+      index < 0 &&
+      rootListItemCount(lists) >= block.rootItemCount
+    ) {
+      const segment = matchingTocSegments(lists, block, claimed).sort(
+        (left, right) =>
+          Math.abs(left.itemOrdinal - block.itemOrdinal) -
+            Math.abs(right.itemOrdinal - block.itemOrdinal) ||
+          left.itemOrdinal - right.itemOrdinal,
+      )[0];
+      if (segment) {
+        index = segment.listIndex;
+        start = segment.start;
+        end = segment.end;
+        startItem = segment.startItem;
+        endItem = segment.endItem;
+      }
+    }
+    if (index < 0 || start === undefined || end === undefined) {
+      continue;
+    }
+    claimed.push({ listIndex: index, startItem, endItem });
+    insertions.push({ start, end });
+  }
+  let restored = markdown;
+  for (const insertion of insertions.sort((left, right) => right.start - left.start)) {
+    restored = `${restored.slice(0, insertion.start)}<!-- toc -->\n${restored.slice(
+      insertion.start,
+      insertion.end,
+    )}\n<!-- /toc -->${restored.slice(insertion.end)}`;
+  }
+  return restored;
+}
+
+export function applyTocMarkerViewChange(
+  markdown: string,
+  snapshot: TocMarkerSnapshot,
+  viewMode: MarkdownViewMode,
+): { markdown: string; snapshot: TocMarkerSnapshot } {
+  if (viewMode === "source") {
+    return { markdown, snapshot: captureTocMarkers(markdown) };
+  }
+  const restored = restoreTocMarkers(markdown, snapshot);
+  return { markdown: restored, snapshot: captureTocMarkers(restored) };
+}
+
 export function hasUnsupportedRichMarkdown(markdown: string): boolean {
   return (
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
     /\[\^[^\]]+\]/.test(markdown) ||
-    /<!--[\s\S]*?-->/.test(markdown) ||
+    containsUnsupportedHtmlComment(markdown) ||
     containsUnsafeAngleSyntax(markdown) ||
     /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
@@ -429,9 +566,365 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
   );
 }
 
+function containsUnsupportedHtmlComment(markdown: string): boolean {
+  const allowedMarkers = new Set(
+    validTocBlocks(markdown).flatMap((block) =>
+      block.markerRanges.map(([start, end]) => `${start}:${end}`),
+    ),
+  );
+  const root = markdownRoot(markdown);
+  if (!root) {
+    return /<!--/.test(markdown);
+  }
+  let unsupported = false;
+  visitMarkdownAst(root, (node) => {
+    if (
+      node.type === "html" &&
+      node.value?.startsWith("<!--")
+    ) {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (
+        start === undefined ||
+        end === undefined ||
+        !allowedMarkers.has(`${start}:${end}`)
+      ) {
+        unsupported = true;
+      }
+    }
+  });
+  return unsupported;
+}
+
+interface TocBlock {
+  snapshot: TocMarkerSnapshot["blocks"][number];
+  markerRanges: Array<[number, number]>;
+}
+
+interface RootMarkdownList {
+  node: MarkdownAstNode;
+  previousContext: string | null;
+  nextContext: string | null;
+}
+
+function validTocBlocks(markdown: string): TocBlock[] {
+  const root = markdownRoot(markdown);
+  if (!root) {
+    return [];
+  }
+  const rootLists = rootMarkdownLists(markdown, root);
+  const blocks: TocBlock[] = [];
+  const markerPattern =
+    /^<!-- toc -->\r?\n([\s\S]*?)^<!-- \/toc -->\r?(?=\n|$)/gm;
+  for (const match of markdown.matchAll(markerPattern)) {
+    const bodyRoot = markdownRoot(match[1]);
+    const bodyChildren = bodyRoot?.children ?? [];
+    if (bodyChildren.length !== 1 || bodyChildren[0].type !== "list") {
+      continue;
+    }
+    if (!isLinkOnlyTocList(bodyChildren[0])) {
+      continue;
+    }
+    const links = markdownListLinks(bodyChildren[0]);
+    if (links.length === 0) {
+      continue;
+    }
+    const blockStart = match.index ?? 0;
+    const closingOffset = match[0].lastIndexOf("<!-- /toc -->");
+    const bodyStart = blockStart + match[0].indexOf(match[1]);
+    const bodyEnd = blockStart + closingOffset;
+    const listOrdinal = rootLists.findIndex((list) => {
+      const start = list.node.position?.start.offset;
+      const end = list.node.position?.end.offset;
+      return (
+        start !== undefined &&
+        end !== undefined &&
+        start >= bodyStart &&
+        end <= bodyEnd
+      );
+    });
+    if (listOrdinal < 0) {
+      continue;
+    }
+    const list = rootLists[listOrdinal];
+    blocks.push({
+      snapshot: {
+        links,
+        items: listItemFingerprints(bodyChildren[0]),
+        listOrdinal,
+        itemOrdinal: rootLists
+          .slice(0, listOrdinal)
+          .reduce(
+            (count, candidate) => count + listItems(candidate.node).length,
+            0,
+          ),
+        rootListCount: rootLists.length,
+        rootItemCount: rootListItemCount(rootLists),
+        previousContext: list.previousContext,
+        nextContext: list.nextContext,
+      },
+      markerRanges: [
+        [blockStart, blockStart + "<!-- toc -->".length],
+        [
+          blockStart + closingOffset,
+          blockStart + closingOffset + "<!-- /toc -->".length,
+        ],
+      ],
+    });
+  }
+  return blocks;
+}
+
+function markdownRoot(markdown: string): MarkdownAstNode | null {
+  try {
+    return fromMarkdown(markdown) as MarkdownAstNode;
+  } catch {
+    return null;
+  }
+}
+
+function rootMarkdownLists(
+  markdown: string,
+  parsedRoot = markdownRoot(markdown),
+): RootMarkdownList[] {
+  const children = parsedRoot?.children ?? [];
+  return children.flatMap((node, index) =>
+    node.type === "list"
+      ? [
+          {
+            node,
+            previousContext: neighboringBlockSignature(children, index, -1),
+            nextContext: neighboringBlockSignature(children, index, 1),
+          },
+        ]
+      : [],
+  );
+}
+
+function neighboringBlockSignature(
+  children: MarkdownAstNode[],
+  index: number,
+  direction: -1 | 1,
+): string | null {
+  for (
+    let candidate = index + direction;
+    candidate >= 0 && candidate < children.length;
+    candidate += direction
+  ) {
+    if (isTocMarkerNode(children[candidate])) {
+      continue;
+    }
+    return markdownBlockSignature(children[candidate]);
+  }
+  return null;
+}
+
+function isTocMarkerNode(node: MarkdownAstNode): boolean {
+  return (
+    node.type === "html" &&
+    (node.value === "<!-- toc -->" || node.value === "<!-- /toc -->")
+  );
+}
+
+function markdownBlockSignature(node: MarkdownAstNode): string {
+  return `${node.type}:${markdownAstText(node).trim().slice(0, 256)}:${markdownListLinks(
+    node,
+  ).join("\u0000")}`;
+}
+
+function markdownAstText(node: MarkdownAstNode): string {
+  if (typeof node.value === "string") {
+    return node.value;
+  }
+  if (typeof node.alt === "string") {
+    return node.alt;
+  }
+  return (node.children ?? []).map(markdownAstText).join("");
+}
+
+function sameTocContext(
+  candidate: RootMarkdownList,
+  block: TocMarkerSnapshot["blocks"][number],
+): boolean {
+  const hasContext =
+    block.previousContext !== null || block.nextContext !== null;
+  return (
+    hasContext &&
+    candidate.previousContext === block.previousContext &&
+    candidate.nextContext === block.nextContext
+  );
+}
+
+function verifiedTocMatch(
+  candidate: RootMarkdownList,
+  block: TocMarkerSnapshot["blocks"][number],
+): boolean {
+  const linksMatch = sameLinks(markdownListLinks(candidate.node), block.links);
+  const hasContext =
+    block.previousContext !== null || block.nextContext !== null;
+  return linksMatch && (!hasContext || sameTocContext(candidate, block));
+}
+
+function markdownListLinks(list: MarkdownAstNode): string[] {
+  const links: string[] = [];
+  visitMarkdownAst(list, (node) => {
+    if (node.type === "link" && node.url) {
+      links.push(node.url);
+    }
+  });
+  return links;
+}
+
+function listItemFingerprints(list: MarkdownAstNode): string[] {
+  return listItems(list).map(
+      (item) =>
+        `${markdownAstText(item).trim()}\u0001${markdownListLinks(item).join(
+          "\u0000",
+        )}`,
+  );
+}
+
+interface ClaimedListRange {
+  listIndex: number;
+  startItem: number;
+  endItem: number;
+}
+
+function matchingTocSegments(
+  lists: RootMarkdownList[],
+  block: TocMarkerSnapshot["blocks"][number],
+  claimed: ClaimedListRange[],
+): Array<{
+  listIndex: number;
+  start: number;
+  end: number;
+  startItem: number;
+  endItem: number;
+  itemOrdinal: number;
+}> {
+  const matches: Array<{
+    listIndex: number;
+    start: number;
+    end: number;
+    startItem: number;
+    endItem: number;
+    itemOrdinal: number;
+  }> = [];
+  let precedingItems = 0;
+  for (const [listIndex, list] of lists.entries()) {
+    const items = listItems(list.node);
+    const fingerprints = listItemFingerprints(list.node);
+    for (
+      let startIndex = 0;
+      startIndex + block.items.length <= fingerprints.length;
+      startIndex += 1
+    ) {
+      if (
+        !isListRangeAvailable(
+          claimed,
+          listIndex,
+          startIndex,
+          startIndex + block.items.length,
+        ) ||
+        !block.items.every(
+          (fingerprint, offset) =>
+            fingerprint === fingerprints[startIndex + offset],
+        )
+      ) {
+        continue;
+      }
+      const first = items[startIndex]?.position?.start.offset;
+      const last =
+        items[startIndex + block.items.length - 1]?.position?.end.offset;
+      if (first !== undefined && last !== undefined) {
+        matches.push({
+          listIndex,
+          start: first,
+          end: last,
+          startItem: startIndex,
+          endItem: startIndex + block.items.length,
+          itemOrdinal: precedingItems + startIndex,
+        });
+      }
+    }
+    precedingItems += items.length;
+  }
+  return matches;
+}
+
+function listItems(list?: MarkdownAstNode): MarkdownAstNode[] {
+  return (list?.children ?? []).filter((child) => child.type === "listItem");
+}
+
+function rootListItemCount(lists: RootMarkdownList[]): number {
+  return lists.reduce(
+    (count, list) => count + listItems(list.node).length,
+    0,
+  );
+}
+
+function isListRangeAvailable(
+  claimed: ClaimedListRange[],
+  listIndex: number,
+  startItem: number,
+  endItem: number,
+): boolean {
+  return !claimed.some(
+    (range) =>
+      range.listIndex === listIndex &&
+      startItem < range.endItem &&
+      endItem > range.startItem,
+  );
+}
+
+function isLinkOnlyTocList(list: MarkdownAstNode): boolean {
+  return (
+    list.type === "list" &&
+    (list.children?.length ?? 0) > 0 &&
+    (list.children ?? []).every(isLinkOnlyTocItem)
+  );
+}
+
+function isLinkOnlyTocItem(item: MarkdownAstNode): boolean {
+  if (item.type !== "listItem") {
+    return false;
+  }
+  let linkParagraphs = 0;
+  for (const child of item.children ?? []) {
+    if (child.type === "list") {
+      if (!isLinkOnlyTocList(child)) {
+        return false;
+      }
+      continue;
+    }
+    if (child.type !== "paragraph") {
+      return false;
+    }
+    const contents = child.children ?? [];
+    if (
+      contents.length !== 1 ||
+      contents[0].type !== "link" ||
+      !contents[0].url
+    ) {
+      return false;
+    }
+    linkParagraphs += 1;
+  }
+  return linkParagraphs === 1;
+}
+
+function sameLinks(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((link, index) => link === right[index])
+  );
+}
+
 interface MarkdownAstNode {
   type: string;
   url?: string;
+  value?: string;
+  alt?: string | null;
   children?: MarkdownAstNode[];
   position?: {
     start: { offset?: number };

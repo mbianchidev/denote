@@ -2,7 +2,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  applyTocMarkerViewChange,
   calloutsToDirectives,
+  captureTocMarkers,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   extractHeadings,
@@ -13,8 +15,10 @@ import {
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
+  restoreTocMarkers,
   resolveInternalLink,
   nextHeadingSlug,
+  slugifyHeading,
 } from "./markdown";
 
 describe("markdown utilities", () => {
@@ -203,12 +207,199 @@ describe("markdown utilities", () => {
   it("routes syntax unsupported by the rich editor to source mode", () => {
     expect(hasUnsupportedRichMarkdown("Text[^1]\n\n[^1]: Footnote")).toBe(true);
     expect(hasUnsupportedRichMarkdown("<!-- keep this comment -->")).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<!-- toc -->\n- [Guide](#guide)\n<!-- /toc -->",
+      ),
+    ).toBe(false);
+    expect(hasUnsupportedRichMarkdown("<!-- toc -->")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("prefix <!-- toc --> suffix")).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<!-- TOC -->\n- [Guide](#guide)\n<!-- /TOC -->",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<!-- toc -->\n- plain text\n<!-- /toc -->",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<!-- toc -->\n- [Guide](#guide)\n- plain text\n<!-- /toc -->",
+      ),
+    ).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<!-- toc extra -->")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("`<!-- toc -->`")).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown("```md\n<!-- toc -->\n```"),
+    ).toBe(false);
     expect(hasUnsupportedRichMarkdown("Use <kbd>Ctrl</kbd> here.")).toBe(true);
     expect(hasUnsupportedRichMarkdown("[guide]: ./guide.md")).toBe(true);
     expect(hasUnsupportedRichMarkdown("It costs $5 and then $10 total.")).toBe(
       false,
     );
     expect(hasUnsupportedRichMarkdown("# Supported\n\n**Markdown**")).toBe(false);
+  });
+
+  it("normalizes generated emoji heading fragments", () => {
+    expect(slugifyHeading("⚡ TL;DR - The quick reference")).toBe(
+      "tldr-the-quick-reference",
+    );
+    expect(slugifyHeading("-tldr---the-quick-reference")).toBe(
+      "tldr-the-quick-reference",
+    );
+  });
+
+  it("restores TOC markers around normalized rich-editor lists", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n  - [Two](#two)\n<!-- /toc -->\n\n# One\n\n## Two";
+    const snapshot = captureTocMarkers(source);
+    const restored = restoreTocMarkers(
+      "* [One](#one)\n  * [Two](#two)\n\n# One\n\n## Two",
+      snapshot,
+    );
+
+    expect(restored).toContain(
+      "<!-- toc -->\n* [One](#one)\n  * [Two](#two)\n<!-- /toc -->",
+    );
+  });
+
+  it("restores duplicate TOC lists by verified position and context", () => {
+    const source =
+      "- [Same](#same)\n\nContext\n\n<!-- toc -->\n- [Same](#same)\n<!-- /toc -->\n\n# After";
+    const restored = restoreTocMarkers(
+      "* [Same](#same)\n\nContext\n\n* [Same](#same)\n\n# After",
+      captureTocMarkers(source),
+    );
+
+    expect(restored).toMatch(
+      /^\* \[Same\]\(#same\)\n\nContext\n\n<!-- toc -->/,
+    );
+  });
+
+  it("does not wrap an unrelated list after the TOC is deleted", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# After\n\n- [Other](#other)";
+    const edited = "# After\n\n* [Other](#other)";
+
+    expect(restoreTocMarkers(edited, captureTocMarkers(source))).toBe(edited);
+  });
+
+  it("does not restore markers removed explicitly in source mode", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# One";
+    const edited = "* [One](#one)\n\n# One";
+
+    const sourceUpdate = applyTocMarkerViewChange(
+      edited,
+      captureTocMarkers(source),
+      "source",
+    );
+    expect(sourceUpdate.markdown).toBe(edited);
+    expect(sourceUpdate.snapshot.blocks).toHaveLength(0);
+    expect(
+      applyTocMarkerViewChange(
+        edited,
+        sourceUpdate.snapshot,
+        "rich-text",
+      ).markdown,
+    ).toBe(edited);
+  });
+
+  it("preserves an unchanged TOC when adjacent content changes", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# Original";
+    const edited = "* [One](#one)\n\n# Renamed";
+
+    expect(restoreTocMarkers(edited, captureTocMarkers(source))).toContain(
+      "<!-- toc -->\n* [One](#one)\n<!-- /toc -->",
+    );
+  });
+
+  it("refreshes rich snapshots after TOC and context edits", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# Original";
+    const linkEdit = applyTocMarkerViewChange(
+      "* [One](#two)\n\n# Original",
+      captureTocMarkers(source),
+      "rich-text",
+    );
+    const contextEdit = applyTocMarkerViewChange(
+      "* [One](#two)\n\n# Renamed",
+      linkEdit.snapshot,
+      "rich-text",
+    );
+
+    expect(linkEdit.markdown).toContain("<!-- toc -->");
+    expect(contextEdit.markdown).toContain("<!-- toc -->");
+    expect(contextEdit.markdown).toContain("<!-- /toc -->");
+  });
+
+  it("preserves edited links in a TOC-only document", () => {
+    const source = "<!-- toc -->\n- [One](#one)\n<!-- /toc -->";
+
+    expect(
+      restoreTocMarkers("* [Two](#two)", captureTocMarkers(source)),
+    ).toBe("<!-- toc -->\n* [Two](#two)\n<!-- /toc -->");
+  });
+
+  it("restores a TOC that merges with an adjacent list", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n- ordinary";
+
+    expect(
+      restoreTocMarkers(
+        "* [One](#one)\n\n* ordinary",
+        captureTocMarkers(source),
+      ),
+    ).toBe("<!-- toc -->\n* [One](#one)\n<!-- /toc -->\n\n* ordinary");
+  });
+
+  it("restores multiple TOCs merged into one list", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n<!-- toc -->\n- [Two](#two)\n<!-- /toc -->";
+
+    expect(
+      restoreTocMarkers(
+        "* [One](#one)\n\n* [Two](#two)",
+        captureTocMarkers(source),
+      ),
+    ).toBe(
+      "<!-- toc -->\n* [One](#one)\n<!-- /toc -->\n\n<!-- toc -->\n* [Two](#two)\n<!-- /toc -->",
+    );
+  });
+
+  it("restores identical merged TOCs in their original order", () => {
+    const source =
+      "<!-- toc -->\n- [Same](#same)\n<!-- /toc -->\n\n<!-- toc -->\n- [Same](#same)\n<!-- /toc -->";
+
+    expect(
+      restoreTocMarkers(
+        "* [Same](#same)\n\n* [Same](#same)",
+        captureTocMarkers(source),
+      ).match(/<!-- toc -->/g),
+    ).toHaveLength(2);
+  });
+
+  it("does not migrate a deleted TOC onto identical ordinary content", () => {
+    const source =
+      "- [Same](#same)\n\n<!-- toc -->\n- [Same](#same)\n<!-- /toc -->";
+    const edited = "* [Same](#same)";
+
+    expect(restoreTocMarkers(edited, captureTocMarkers(source))).toBe(edited);
+  });
+
+  it("ignores comment-like text while restoring structural markers", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# One";
+    const restored = restoreTocMarkers(
+      "* [One](#one)\n\n`<!--`\n\n# One",
+      captureTocMarkers(source),
+    );
+
+    expect(restored).toContain("<!-- toc -->");
+    expect(restored).toContain("`<!--`");
   });
 
   it("keeps valid angle-bracket link destinations in rich mode", () => {

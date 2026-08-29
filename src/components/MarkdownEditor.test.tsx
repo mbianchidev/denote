@@ -1,4 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
+import { undo } from "@codemirror/commands";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
 import userEvent from "@testing-library/user-event";
 import { createRef, StrictMode, useState } from "react";
@@ -314,6 +316,65 @@ describe("MarkdownEditor links", () => {
     const headings = await screen.findAllByRole("heading", { level: 1 });
     expect(headings[0]).toHaveAttribute("id", "quoted");
     expect(headings[1]).toHaveAttribute("id", "normal");
+  });
+
+  it("renders and preserves comment-delimited table of contents blocks", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "<!-- toc -->\n- [TL;DR - The quick reference](#-tldr---the-quick-reference)\n- [Communication](#-communication)\n<!-- /toc -->\n\n# ⚡ TL;DR - The quick reference\n\n# 💬 Communication\n\nEdit me"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "TL;DR - The quick reference" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Communication" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+    const paragraph = screen.getByText("Edit me");
+    await user.click(paragraph);
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    await user.keyboard("x");
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.stringContaining("<!-- toc -->"),
+      ),
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.stringContaining("<!-- /toc -->"),
+    );
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    const sourceEditor = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        ".mdxeditor-source-editor .cm-editor",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const sourceView = EditorView.findFromDOM(sourceEditor);
+    expect(sourceView?.state.doc.toString()).toContain("<!-- toc -->");
+    expect(sourceView?.state.doc.toString()).toContain("<!-- /toc -->");
+    expect(sourceView ? undo(sourceView) : true).toBe(false);
   });
 
   it("renders repeated Markdown tags as chips with one shared vault color", async () => {

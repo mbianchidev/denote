@@ -42,6 +42,7 @@ import {
   viewMode$,
 } from "@mdxeditor/editor";
 import { usePublisher } from "@mdxeditor/gurx";
+import { Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { Link2 } from "lucide-react";
 import {
@@ -74,6 +75,8 @@ import {
 } from "../lib/markdownErrors";
 import {
   calloutsToDirectives,
+  applyTocMarkerViewChange,
+  captureTocMarkers,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
@@ -95,6 +98,7 @@ const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
   onChange: (mode: MarkdownViewMode) => void;
   onErrorCleared?: () => void;
+  onModeChange?: (mode: MarkdownViewMode) => void;
 }>({
   init(realm, params) {
     let ready = false;
@@ -102,6 +106,9 @@ const viewModePreferencePlugin = realmPlugin<{
     let hadProcessingError = false;
     let previousMode = params?.mode ?? "rich-text";
     realm.sub(realm.pipe(viewMode$), (mode) => {
+      if (mode !== "diff") {
+        params?.onModeChange?.(mode);
+      }
       if (!ready) {
         if (mode !== "diff") {
           previousMode = mode;
@@ -201,6 +208,11 @@ export const MarkdownEditor = forwardRef<
   const forceSource = hasEditorDisplayGuides(displaySettings);
   const initialViewMode: MarkdownViewMode =
     sourceFirst || forceSource ? "source" : initialPreferredViewMode;
+  const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
+  const [activeViewMode, setActiveViewMode] =
+    useState<MarkdownViewMode>(initialViewMode);
+  const latestSerializedMarkdownRef = useRef(markdown);
+  latestSerializedMarkdownRef.current = markdown;
   const displayExtensions = useMemo(
     () => [
       ...createEditorDisplayExtensions(displaySettings, lineEnding, false),
@@ -215,6 +227,12 @@ export const MarkdownEditor = forwardRef<
   const boundaryWhitespace = useRef(
     captureMarkdownBoundaryWhitespace(markdown),
   ).current;
+  const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(
+    null,
+  );
+  if (tocMarkersRef.current === null) {
+    tocMarkersRef.current = captureTocMarkers(markdown);
+  }
   const plugins = useMemo(
     () => [
       headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4, 5, 6] }),
@@ -287,6 +305,10 @@ export const MarkdownEditor = forwardRef<
         mode: initialViewMode,
         onChange: onViewModeChange,
         onErrorCleared: onMarkdownErrorCleared,
+        onModeChange: (mode) => {
+          activeViewModeRef.current = mode;
+          setActiveViewMode(mode);
+        },
       }),
       toolbarPlugin({
         toolbarPosition: "top",
@@ -365,6 +387,39 @@ export const MarkdownEditor = forwardRef<
       tabExtensions,
     ],
   );
+
+  useEffect(() => {
+    if (activeViewMode !== "source") {
+      return;
+    }
+    const shell = shellRef.current;
+    if (!shell) {
+      return;
+    }
+    let attempt = 0;
+    let timer = 0;
+    const sync = () => {
+      const view = sourceEditorView(shell);
+      if (!view) {
+        if (attempt < 20) {
+          attempt += 1;
+          timer = window.setTimeout(sync, 20);
+        }
+        return;
+      }
+      const source = calloutsToDirectives(latestSerializedMarkdownRef.current);
+      if (view.state.doc.toString() !== source) {
+        const anchor = Math.min(view.state.selection.main.head, source.length);
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: source },
+          selection: { anchor },
+          annotations: Transaction.addToHistory.of(false),
+        });
+      }
+    };
+    timer = window.setTimeout(sync, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeViewMode, notePath]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -499,9 +554,16 @@ export const MarkdownEditor = forwardRef<
         spellCheck
         onChange={(value, initialNormalize) => {
           if (!initialNormalize) {
+            const markerUpdate = applyTocMarkerViewChange(
+              restoreRichTextTagSyntax(directivesToCallouts(value)),
+              tocMarkersRef.current!,
+              activeViewModeRef.current,
+            );
+            tocMarkersRef.current = markerUpdate.snapshot;
+            latestSerializedMarkdownRef.current = markerUpdate.markdown;
             onChange(
               restoreMarkdownBoundaryWhitespace(
-                restoreRichTextTagSyntax(directivesToCallouts(value)),
+                markerUpdate.markdown,
                 boundaryWhitespace,
               ),
             );

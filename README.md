@@ -45,6 +45,8 @@ the selected folder as the source of truth.
 - Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks with rich-mode copy buttons,
   images, and links
+- Generated `<!-- toc -->` / `<!-- /toc -->` link lists render in Rich mode
+  while their exact markers survive Rich and Source edits
 - Command-K / Control-K link creation that wraps rich-text selections or inserts
   Markdown link syntax directly in source mode
 - File and same-page heading anchors with retrying rich/source navigation
@@ -88,6 +90,9 @@ round-tripped through the rich Markdown renderer.
 
 Notes containing raw HTML, footnotes, or math open in source mode by default so
 unsupported rich-editor transforms cannot silently rewrite that syntax.
+Canonical paired TOC marker comments are the only HTML-comment exception: the
+block must contain one link-only Markdown list. Lone, altered, mixed-content, or
+other comments remain source-only.
 If another application changes an open note, Denote rejects the stale autosave
 instead of overwriting the external edit.
 

@@ -341,6 +341,13 @@ source code so edge cases remain easy to exercise.
 Callouts are tonal boxes inside the document. Semantic color appears in the
 border and low-chroma background; body text keeps normal reading contrast.
 
+### Generated Tables of Contents
+
+Canonical comment-delimited TOCs render as ordinary nested link lists so they
+remain calm, readable, and keyboard operable. Marker comments stay invisible in
+Rich mode but remain present in Source and saved Markdown. Other comments do not
+receive this exception.
+
 ### Code Blocks
 
 Code uses a distinct but nearby editor surface in both themes, never a fixed

@@ -191,6 +191,16 @@ MDXEditor provides rich single-pane Markdown editing and a source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
 
+Exact paired `<!-- toc -->` and `<!-- /toc -->` marker lines are accepted only
+around one root link-only list, including nested link-only items. MDXEditor
+omits comments from its rich tree, so Denote snapshots list/item order, link
+fingerprints, and neighboring block context, then restores only verified marker
+boundaries after Rich serialization. Snapshots refresh after each edit.
+Switching to Source synchronizes the latest marker-preserving Markdown through a
+non-history CodeMirror transaction; subsequent Source edits replace or
+invalidate the snapshot so explicit marker deletion remains authoritative.
+Other HTML comments stay source-only.
+
 Rendered headings receive deterministic Unicode-aware IDs; duplicates add
 numeric suffixes. Internal fragment navigation retries while a newly opened
 editor renders, highlights the rich heading when available, and otherwise

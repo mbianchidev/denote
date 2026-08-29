@@ -59,6 +59,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   language support when the language catalog recognizes them.
 - Images retain their visual preview and can switch to raw editing.
 - Rich single-pane Markdown editing is the default.
+- Canonical `<!-- toc -->` / `<!-- /toc -->` blocks containing link-only
+  Markdown lists render in Rich mode while retaining their generator markers
+  through Rich and Source edits. Other comments remain source-only.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.
 - Hashtags render as colored pills in rich mode. Each normalized tag has one

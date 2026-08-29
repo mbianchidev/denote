@@ -22,6 +22,11 @@ silently rewrite unsupported syntax.
 Use the toolbar for headings, emphasis, lists, links, images, tables, code
 blocks, thematic breaks, frontmatter, and callouts.
 
+Generated tables of contents using exact `<!-- toc -->` and `<!-- /toc -->`
+marker lines render as linked lists in Rich mode. Every item must be a link;
+nested link-only lists are supported. Denote preserves those markers after Rich
+edits and when switching to Source. Other HTML comments remain source-only.
+
 Press `Command-K` on macOS or `Ctrl-K` on Windows and Linux to create a link.
 Rich mode opens the link dialog and preserves highlighted text as the anchor.
 Source mode wraps highlighted text as `[text]()` or inserts `[]()` with the
