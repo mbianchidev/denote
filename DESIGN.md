@@ -298,9 +298,12 @@ Vault removal is a two-step inline confirmation. Removing only metadata is
 separate from the explicit, danger-styled option to move the folder to system
 Trash.
 
-Global quick open is a single filename field above a dense listbox. Each row
-leads with the filename, keeps vault identity visible, and relegates the relative
-path to quiet metadata. Arrow keys move the active row while Enter opens it.
+The command palette is one searchable listbox for commands and filenames. Command
+rows lead with a command mark, keep category and description quiet, and align an
+assigned shortcut on the trailing edge. File rows lead with the filename, keep
+vault identity visible, and relegate the relative path to quiet metadata. Arrow
+keys skip unavailable commands; Enter runs or opens the active result. A
+file-only scope remains available without opening a second dialog.
 
 ### Built-in Welcome Vault
 
@@ -335,12 +338,14 @@ Binary files use the plain monospace editor with a persistent warning strip
 that names Base64 as the reversible representation and explains save
 validation.
 
-### Editor Display Guides
+### Editor Settings
 
-Line numbers use a quiet gutter. Spaces, tabs, line endings, and trailing
-whitespace are low-contrast source annotations that become prominent only when
-explicitly enabled. The settings dialog uses native checkboxes, applies changes
-immediately, and states that markers never change saved content.
+Editor text size uses a compact 12–24 px range with minus/plus controls and a
+tabular numeric value. It changes the document and source surfaces, not
+application chrome. Line numbers use a quiet gutter. Spaces, tabs, line endings,
+and trailing whitespace are low-contrast source annotations that become
+prominent only when explicitly enabled. The settings dialog applies changes
+immediately and states that markers never change saved content.
 Rich/source controls remain visible in a disabled segmented state while guides
 force source mode; their tooltip names the setting that restores mode switching.
 

@@ -55,8 +55,9 @@ Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
 
-Press `Command-P` or `Ctrl-P` to search filenames across every known available
-vault. Selecting a result switches vaults when necessary and opens the file.
-Encrypted target vaults ask for an unlock before opening the pending result.
+Press `Command-P` or `Ctrl-P` to open the command palette. Type a filename
+directly, or choose **Find file across vaults**, to search every known available
+vault. Selecting a file switches vaults when necessary and opens it. Encrypted
+target vaults ask for an unlock before opening the pending result.
 
 [Next: History, trash, and recovery](<History, trash, and recovery.md>)

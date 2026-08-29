@@ -13,6 +13,7 @@ describe("editor display extensions", () => {
     expect(
       createEditorDisplayExtensions(
         {
+          ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
           showLineNumbers: true,
           showWhitespace: true,
           showLineEndings: true,

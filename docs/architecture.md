@@ -155,14 +155,17 @@ CodeMirror find handlers and focus the vault search field. The macOS
 Option-Command-F and Windows/Linux Control-H replace shortcuts are evaluated
 separately and remain unchanged.
 
-Command-P on macOS and Control-P on Windows/Linux opens a separate filename-only
-quick search. Rust walks up to 25,000 regular files across the 50 trusted
-SQLite-known vault roots, skips unavailable vaults, symlinks, and each internal
-`.denote` folder, and never reads file contents. Selecting a result uses its
-trusted vault ID, runs the ordinary save-and-seal switch barrier, and opens the
-relative path after the target vault is ready. If that vault is encrypted, the
-path remains pending until unlock. An explicitly selected global-search result
-takes precedence over restoring that vault's previous tab session.
+Command-P on macOS and Control-P on Windows/Linux opens a unified command
+palette. The frontend contributes contextual action descriptors with labels,
+categories, keywords, disabled state, and shortcut text. The same input also
+filters filename results, while a dedicated command switches to a file-only
+view. Rust walks up to 25,000 regular files across the 50 trusted SQLite-known
+vault roots, skips unavailable vaults, symlinks, and each internal `.denote`
+folder, and never reads file contents. Selecting a file uses its trusted vault
+ID, runs the ordinary save-and-seal switch barrier, and opens the relative path
+after the target vault is ready. If that vault is encrypted, the path remains
+pending until unlock. An explicitly selected palette file takes precedence over
+restoring that vault's previous tab session.
 
 ## Replace
 
@@ -194,14 +197,17 @@ colors cover tags without an override. CSS mixes the chosen color into the
 current theme surface while retaining normal theme text, keeping dark and light
 contrast stable.
 
-Editor display preferences are stored locally and applied immediately. Plain
-text, binary Base64, and MDX source use a shared CodeMirror surface. Markdown
-source mode receives the same CodeMirror extensions. Line numbers, whitespace
-markers, trailing-whitespace emphasis, and LF/CRLF/CR widgets are decorations
-only; document text and save hashes never include them. Because rendered rich
-Markdown has no stable one-to-one source-line mapping, enabling any guide
-temporarily constrains Markdown editing to source mode. Disabled rich/source
-controls remain visible and point back to the display settings.
+Editor display preferences are stored locally and applied immediately. A
+clamped 12–24 px CSS custom property sizes rich Markdown, Markdown source,
+programming files, plain text, and binary Base64 while leaving workspace chrome
+unchanged. Command/Control `+`, `-`, and `0` update the same persisted setting.
+Plain text, binary Base64, and MDX source use a shared CodeMirror surface.
+Markdown source mode receives the same CodeMirror extensions. Line numbers,
+whitespace markers, trailing-whitespace emphasis, and LF/CRLF/CR widgets are
+decorations only; document text and save hashes never include them. Because
+rendered rich Markdown has no stable one-to-one source-line mapping, enabling any
+guide temporarily constrains Markdown editing to source mode. Disabled
+rich/source controls remain visible and point back to the display settings.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every

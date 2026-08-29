@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  isGlobalSearchShortcut,
+  editorZoomShortcut,
+  isCommandPaletteShortcut,
   isNewFileShortcut,
   isNewTabShortcut,
   isReplaceShortcut,
@@ -100,10 +101,10 @@ describe("replace shortcut", () => {
     ).toBe(false);
   });
 
-  describe("global search shortcut", () => {
+  describe("command palette shortcut", () => {
     it("uses Command-P on macOS", () => {
       expect(
-        isGlobalSearchShortcut(
+        isCommandPaletteShortcut(
           {
             ctrlKey: false,
             metaKey: true,
@@ -118,7 +119,7 @@ describe("replace shortcut", () => {
 
     it("uses Control-P on Windows and Linux", () => {
       expect(
-        isGlobalSearchShortcut(
+        isCommandPaletteShortcut(
           {
             ctrlKey: true,
             metaKey: false,
@@ -171,6 +172,96 @@ describe("replace shortcut", () => {
               "Win32",
             ),
           ).toBe(true);
+        });
+      });
+
+      describe("editor zoom shortcuts", () => {
+        it("supports zoom in, out, and reset on macOS", () => {
+          const base = {
+            ctrlKey: false,
+            metaKey: true,
+            altKey: false,
+            shiftKey: false,
+          };
+          expect(
+            editorZoomShortcut({ ...base, code: "Equal", shiftKey: true }, "MacIntel"),
+          ).toBe("in");
+          expect(editorZoomShortcut({ ...base, code: "Minus" }, "MacIntel")).toBe(
+            "out",
+          );
+          expect(editorZoomShortcut({ ...base, code: "Digit0" }, "MacIntel")).toBe(
+            "reset",
+          );
+        });
+
+        it("uses Control on Windows and Linux", () => {
+          expect(
+            editorZoomShortcut(
+              {
+                ctrlKey: true,
+                metaKey: false,
+                altKey: false,
+                shiftKey: false,
+                code: "NumpadAdd",
+              },
+              "Win32",
+            ),
+          ).toBe("in");
+        });
+
+        it("uses produced keys on non-US keyboard layouts", () => {
+          expect(
+            editorZoomShortcut(
+              {
+                ctrlKey: false,
+                metaKey: true,
+                altKey: false,
+                shiftKey: false,
+                code: "BracketRight",
+                key: "+",
+              },
+              "MacIntel",
+            ),
+          ).toBe("in");
+          expect(
+            editorZoomShortcut(
+              {
+                ctrlKey: false,
+                metaKey: true,
+                altKey: false,
+                shiftKey: false,
+                code: "Slash",
+                key: "-",
+              },
+              "MacIntel",
+            ),
+          ).toBe("out");
+          expect(
+            editorZoomShortcut(
+              {
+                ctrlKey: false,
+                metaKey: true,
+                altKey: false,
+                shiftKey: true,
+                code: "Digit0",
+                key: "0",
+              },
+              "MacIntel",
+            ),
+          ).toBe("reset");
+          expect(
+            editorZoomShortcut(
+              {
+                ctrlKey: false,
+                metaKey: true,
+                altKey: false,
+                shiftKey: false,
+                code: "Digit0",
+                key: "à",
+              },
+              "MacIntel",
+            ),
+          ).toBeNull();
         });
       });
     });

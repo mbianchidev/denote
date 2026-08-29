@@ -20,8 +20,8 @@ the selected folder as the source of truth.
 - Local SQLite metadata for open, edit, and save counts
 - ZBSearch full-text search with filename, path, content, tag, type, bookmark,
   and recency filters
-- Command-P / Control-P filename-only quick open across all known available
-  vaults
+- Command-P / Control-P command palette with contextual actions, visible
+  shortcuts, and filename-only search across all known available vaults
 - Rendered hashtags use consistent colored pills across the vault, with an
   accessible color picker beside each active document tag
 - Current-note and vault-wide find and replace with selectable preview
@@ -45,6 +45,8 @@ the selected folder as the source of truth.
 - Code blocks and syntax highlighting that adapt to dark and light themes
 - `>![info]`, `>![warning]`, and `>![danger]` callout blocks
 - Mixed Unicode scripts and emoji in the same document
+- Persistent 12–24 px editor font sizing with Command/Control `+`, `-`, and `0`
+  zoom shortcuts
 - Persistent editor guides for line numbers, spaces/tabs, line endings, and
   trailing whitespace
 - Dark mode by default with persistent light mode
@@ -77,12 +79,14 @@ HTTP, HTTPS, email, and telephone links always open through the operating
 system's default application. Denote never navigates its editor window to an
 external website. Relative vault links continue to open inside Denote.
 
-Editor display settings are available from the editor toolbar. The guides are
-visual only and never alter saved text. Plain, binary, and MDX files use the
-source editor directly; Markdown switches from rich editing to source mode while
-any line-number or invisible-character guide is enabled. Rich/source controls
-remain visible but disabled, with guidance to turn the display guides off before
-switching modes.
+Editor settings are available from the editor toolbar. Font size applies
+immediately to rich text, Markdown source, programming files, plain text, and
+Base64 editors, and persists across launches. Use `Command/Ctrl +`, `-`, or `0`
+to increase, decrease, or reset it. Display guides are visual only and never
+alter saved text. Plain, binary, and MDX files use the source editor directly;
+Markdown switches from rich editing to source mode while any line-number or
+invisible-character guide is enabled. Rich/source controls remain visible but
+disabled, with guidance to turn the display guides off before switching modes.
 
 Rendered code, editable fenced blocks, Markdown source, and plain-file source
 share the same semantic syntax palette. Theme changes update their backgrounds,
@@ -169,10 +173,12 @@ Supported filters are `tag:`, `file:`/`filename:`, `path:`/`folder:`,
 `content:`, `type:`, `bookmarked:`, and `recent:Nd`.
 
 Press <kbd>Command</kbd>+<kbd>P</kbd> on macOS or
-<kbd>Ctrl</kbd>+<kbd>P</kbd> on Windows and Linux for global quick open.
-This searches filenames only across every known available vault. Choosing a
-result safely switches vaults when needed, then opens the file; encrypted target
-vaults request an unlock first.
+<kbd>Ctrl</kbd>+<kbd>P</kbd> on Windows and Linux for the command palette.
+It lists available commands, shows each assigned shortcut, and filters by title,
+description, category, and keywords. Type a filename directly, or choose
+**Find file across vaults**, to search filenames only across every known
+available vault. Choosing a file safely switches vaults when needed; encrypted
+targets request an unlock first.
 
 ## Replace
 

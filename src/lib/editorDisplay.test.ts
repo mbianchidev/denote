@@ -30,4 +30,19 @@ describe("editor display settings", () => {
     expect(getEditorDisplaySettings()).toEqual(settings);
     expect(hasEditorDisplayGuides(settings)).toBe(true);
   });
+
+  it("persists and clamps the editor font size without enabling guides", () => {
+    saveEditorDisplaySettings({
+      ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      fontSize: 40,
+    });
+
+    expect(getEditorDisplaySettings().fontSize).toBe(24);
+    expect(
+      hasEditorDisplayGuides({
+        ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+        fontSize: 20,
+      }),
+    ).toBe(false);
+  });
 });

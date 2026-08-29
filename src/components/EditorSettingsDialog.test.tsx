@@ -53,6 +53,31 @@ describe("EditorSettingsDialog", () => {
     expect(onRestoreTabsChange).toHaveBeenCalledWith(false);
   });
 
+  it("changes the persistent editor font size", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <EditorSettingsDialog
+        open
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        onChange={onChange}
+        onRestoreTabsChange={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Increase editor font size" }),
+    );
+
+    expect(onChange).toHaveBeenCalledWith({
+      ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      fontSize: 17,
+    });
+  });
+
   it("blocks preference changes while the workspace is busy", async () => {
     const user = userEvent.setup();
     const onRestoreTabsChange = vi.fn();

@@ -80,8 +80,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, content, file type, bookmarks, and recency.
 - The standard Command-F / Control-F shortcut opens vault search; platform
   replace shortcuts remain distinct.
-- Command-P / Control-P opens a filename-only quick search across all known
-  available vaults and switches vaults before opening a selected result.
+- Command-P / Control-P opens a unified command palette containing contextual
+  application actions and their assigned shortcuts. Typing a filename directly
+  retains filename-only search across all known available vaults and switches
+  vaults before opening a selected result.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system
@@ -99,8 +101,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   the file-tree context menu.
 - External links always use the operating system's default browser or handler;
   the Denote editor window never becomes a web browser.
-- Persistent editor display settings can show line numbers, spaces and tabs,
-  exact line-ending style, and trailing whitespace without modifying content.
+- Persistent editor settings include a 12–24 px font size shared by rich and
+  source editors plus line numbers, spaces and tabs, exact line-ending style,
+  and trailing whitespace without modifying content.
+- Command/Control `+`, `-`, and `0` increase, decrease, and reset editor text
+  size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides
   must be turned off before mode switching.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark

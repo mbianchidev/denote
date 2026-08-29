@@ -2,6 +2,9 @@ import { RotateCcw, Settings2, X } from "lucide-react";
 import { useEffect, useRef, type RefObject } from "react";
 import {
   DEFAULT_EDITOR_DISPLAY_SETTINGS,
+  MAX_EDITOR_FONT_SIZE,
+  MIN_EDITOR_FONT_SIZE,
+  normalizeEditorFontSize,
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
 
@@ -40,13 +43,28 @@ export function EditorSettingsDialog({
     }
   }, [open]);
 
-  const update = (
-    key: keyof EditorDisplaySettings,
+  const updateGuide = (
+    key: Exclude<keyof EditorDisplaySettings, "fontSize">,
     enabled: boolean,
   ) => {
     onChange({ ...settings, [key]: enabled });
   };
-  const atDefaults = Object.values(settings).every((enabled) => !enabled);
+  const updateFontSize = (fontSize: number) => {
+    onChange({
+      ...settings,
+      fontSize: normalizeEditorFontSize(fontSize),
+    });
+  };
+  const atDefaults =
+    settings.showLineNumbers ===
+      DEFAULT_EDITOR_DISPLAY_SETTINGS.showLineNumbers &&
+    settings.showWhitespace ===
+      DEFAULT_EDITOR_DISPLAY_SETTINGS.showWhitespace &&
+    settings.showLineEndings ===
+      DEFAULT_EDITOR_DISPLAY_SETTINGS.showLineEndings &&
+    settings.highlightTrailingWhitespace ===
+      DEFAULT_EDITOR_DISPLAY_SETTINGS.highlightTrailingWhitespace &&
+    settings.fontSize === DEFAULT_EDITOR_DISPLAY_SETTINGS.fontSize;
 
   return (
     <dialog
@@ -69,7 +87,7 @@ export function EditorSettingsDialog({
             <Settings2 aria-hidden="true" size={15} />
             Editor
           </span>
-          <h2 id="editor-settings-title">Display settings</h2>
+          <h2 id="editor-settings-title">Editor settings</h2>
         </div>
         <button
           type="button"
@@ -82,32 +100,74 @@ export function EditorSettingsDialog({
       </header>
 
       <div className="editor-settings-dialog__body">
+        <div className="editor-font-setting">
+          <label htmlFor="editor-font-size">
+            <strong>Editor font size</strong>
+            <small>Applies to rich text and source editors.</small>
+          </label>
+          <div className="editor-font-setting__controls">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Decrease editor font size"
+              disabled={disabled || settings.fontSize <= MIN_EDITOR_FONT_SIZE}
+              onClick={() => updateFontSize(settings.fontSize - 1)}
+            >
+              −
+            </button>
+            <input
+              ref={firstInputRef}
+              id="editor-font-size"
+              type="range"
+              min={MIN_EDITOR_FONT_SIZE}
+              max={MAX_EDITOR_FONT_SIZE}
+              step={1}
+              value={settings.fontSize}
+              disabled={disabled}
+              aria-label="Editor font size"
+              onChange={(event) =>
+                updateFontSize(Number(event.currentTarget.value))
+              }
+            />
+            <output htmlFor="editor-font-size" aria-live="polite">
+              {settings.fontSize}px
+            </output>
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Increase editor font size"
+              disabled={disabled || settings.fontSize >= MAX_EDITOR_FONT_SIZE}
+              onClick={() => updateFontSize(settings.fontSize + 1)}
+            >
+              +
+            </button>
+          </div>
+        </div>
         <p>
-          These guides are visual only and never change saved content. Markdown
-          uses source mode while any guide is enabled.
+          Display guides are visual only and never change saved content.
+          Markdown uses source mode while any guide is enabled.
         </p>
         <div className="editor-settings-list">
           <SettingCheckbox
-            inputRef={firstInputRef}
             checked={settings.showLineNumbers}
             label="Show line numbers"
             description="Display a numbered gutter beside each source line."
             disabled={disabled}
-            onChange={(enabled) => update("showLineNumbers", enabled)}
+            onChange={(enabled) => updateGuide("showLineNumbers", enabled)}
           />
           <SettingCheckbox
             checked={settings.showWhitespace}
             label="Show spaces and tabs"
             description="Render spaces as dots and tabs as arrows."
             disabled={disabled}
-            onChange={(enabled) => update("showWhitespace", enabled)}
+            onChange={(enabled) => updateGuide("showWhitespace", enabled)}
           />
           <SettingCheckbox
             checked={settings.showLineEndings}
             label="Show line endings"
             description="Mark each displayed newline with LF, CRLF, or CR."
             disabled={disabled}
-            onChange={(enabled) => update("showLineEndings", enabled)}
+            onChange={(enabled) => updateGuide("showLineEndings", enabled)}
           />
           <SettingCheckbox
             checked={settings.highlightTrailingWhitespace}
@@ -115,7 +175,7 @@ export function EditorSettingsDialog({
             description="Emphasize spaces or tabs immediately before a line ending."
             disabled={disabled}
             onChange={(enabled) =>
-              update("highlightTrailingWhitespace", enabled)
+              updateGuide("highlightTrailingWhitespace", enabled)
             }
           />
           <SettingCheckbox

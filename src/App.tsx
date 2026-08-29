@@ -37,12 +37,15 @@ import {
 } from "react";
 import { ActivityRail } from "./components/ActivityRail";
 import { ActionDialog } from "./components/ActionDialog";
+import {
+  CommandPalette,
+  type CommandPaletteCommand,
+} from "./components/CommandPalette";
 import { EncryptionDialog } from "./components/EncryptionDialog";
 import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { FileTree } from "./components/FileTree";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
-import { GlobalSearchDialog } from "./components/GlobalSearchDialog";
 import { MarkdownEditor } from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
@@ -79,7 +82,8 @@ import {
 } from "./lib/tabs";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
-  isGlobalSearchShortcut,
+  editorZoomShortcut,
+  isCommandPaletteShortcut,
   isNewFileShortcut,
   isNewTabShortcut,
   isReplaceShortcut,
@@ -94,8 +98,12 @@ import {
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
+  DEFAULT_EDITOR_FONT_SIZE,
   editorDisplaySettingsKey,
   getEditorDisplaySettings,
+  MAX_EDITOR_FONT_SIZE,
+  MIN_EDITOR_FONT_SIZE,
+  normalizeEditorFontSize,
   saveEditorDisplaySettings,
   type EditorDisplaySettings,
 } from "./lib/editorDisplay";
@@ -166,7 +174,7 @@ function App() {
     useState<MarkdownViewMode>(() => getMarkdownViewMode());
   const [encryptionOpen, setEncryptionOpen] = useState(false);
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
-  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => getSidebarWidth());
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
@@ -314,6 +322,10 @@ function App() {
     [activePath, tabs],
   );
   const activeFileTab = activeTab?.placeholder ? null : activeTab;
+  const activeNode = useMemo(
+    () => (workspace ? findNode(workspace.tree, activeFileTab?.path ?? null) : null),
+    [activeFileTab?.path, workspace],
+  );
   const selectedNode = useMemo(
     () => (workspace ? findNode(workspace.tree, selectedPath) : null),
     [selectedPath, workspace],
@@ -372,14 +384,29 @@ function App() {
   const updateEditorDisplaySettings = useCallback(
     (settings: EditorDisplaySettings) => {
       try {
-        saveEditorDisplaySettings(settings);
-        setEditorDisplaySettings(settings);
-        setStatus("Editor display settings updated");
+        const normalized = {
+          ...settings,
+          fontSize: normalizeEditorFontSize(settings.fontSize),
+        };
+        saveEditorDisplaySettings(normalized);
+        setEditorDisplaySettings(normalized);
+        setStatus("Editor settings updated");
       } catch (caught) {
         showError(caught);
       }
     },
     [showError],
+  );
+  const updateEditorFontSize = useCallback(
+    (fontSize: number) => {
+      const normalized = normalizeEditorFontSize(fontSize);
+      updateEditorDisplaySettings({
+        ...editorDisplaySettings,
+        fontSize: normalized,
+      });
+      setStatus(`Editor font size ${normalized}px`);
+    },
+    [editorDisplaySettings, updateEditorDisplaySettings],
   );
 
   const updateRestoreTabs = useCallback(
@@ -606,7 +633,7 @@ function App() {
         setEncryptionOpen(false);
         setEditorSettingsOpen(false);
         setVaultSwitcherOpen(false);
-        setGlobalSearchOpen(false);
+        setCommandPaletteOpen(false);
         pendingAnchor.current = null;
       }
       if (resetTabs) {
@@ -2296,50 +2323,60 @@ function App() {
     }
   }, [selectedNode, trashNode]);
 
-  const toggleBookmark = useCallback(async () => {
+  const toggleBookmarkForNode = useCallback(async (node: FileNode | null) => {
     if (
       !workspace ||
-      !selectedNode ||
-      selectedNode.kind === "folder" ||
+      !node ||
+      node.kind === "folder" ||
       workspaceLockedRef.current
     ) {
       return;
     }
     try {
-      await api.setBookmark(selectedNode.path, !selectedNode.bookmarked);
+      await api.setBookmark(node.path, !node.bookmarked);
       await refreshAndReindex();
     } catch (caught) {
       showError(caught);
     }
-  }, [refreshAndReindex, selectedNode, showError, workspace]);
+  }, [refreshAndReindex, showError, workspace]);
 
-  const togglePinned = useCallback(async () => {
-    if (!workspace || !selectedNode || workspaceLockedRef.current) {
+  const toggleBookmark = useCallback(
+    async () => toggleBookmarkForNode(selectedNode),
+    [selectedNode, toggleBookmarkForNode],
+  );
+
+  const togglePinnedNode = useCallback(async (node: FileNode | null) => {
+    if (!workspace || !node || workspaceLockedRef.current) {
       return;
     }
     try {
-      const pinned = !selectedNode.pinned;
-      await api.setEntryPinned(selectedNode.path, pinned);
+      const pinned = !node.pinned;
+      await api.setEntryPinned(node.path, pinned);
       await refreshWorkspace();
       setStatus(pinned ? "Pinned to top of folder" : "Unpinned from folder");
     } catch (caught) {
       showError(caught);
     }
-  }, [refreshWorkspace, selectedNode, showError, workspace]);
+  }, [refreshWorkspace, showError, workspace]);
 
-  const moveSelected = useCallback(
-    async (direction: -1 | 1) => {
-      if (!workspace || !selectedNode || workspaceLockedRef.current) {
+  const togglePinned = useCallback(
+    async () => togglePinnedNode(selectedNode),
+    [selectedNode, togglePinnedNode],
+  );
+
+  const moveNodeInOrder = useCallback(
+    async (node: FileNode | null, direction: -1 | 1) => {
+      if (!workspace || !node || workspaceLockedRef.current) {
         return;
       }
-      const siblings = findSiblings(workspace.tree, selectedNode.path);
-      const index = siblings.findIndex((node) => node.path === selectedNode.path);
+      const siblings = findSiblings(workspace.tree, node.path);
+      const index = siblings.findIndex((candidate) => candidate.path === node.path);
       const destination = index + direction;
       if (
         index < 0 ||
         destination < 0 ||
         destination >= siblings.length ||
-        siblings[destination].pinned !== selectedNode.pinned
+        siblings[destination].pinned !== node.pinned
       ) {
         return;
       }
@@ -2356,7 +2393,12 @@ function App() {
         showError(caught);
       }
     },
-    [refreshWorkspace, selectedNode, showError, workspace],
+    [refreshWorkspace, showError, workspace],
+  );
+
+  const moveSelected = useCallback(
+    async (direction: -1 | 1) => moveNodeInOrder(selectedNode, direction),
+    [moveNodeInOrder, selectedNode],
   );
 
   const restoreTrash = useCallback(
@@ -2918,6 +2960,14 @@ function App() {
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
+  const focusVaultSearch = useCallback(() => {
+    setSidebarView("search");
+    window.setTimeout(
+      () => document.querySelector<HTMLInputElement>(".search-box input")?.focus(),
+      0,
+    );
+  }, []);
+
   useEffect(() => {
     if (!activePath || !pendingAnchor.current) {
       return;
@@ -2932,15 +2982,42 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (
-        workspaceLockedRef.current ||
+      const modalOpen =
         replaceOpen ||
         encryptionOpen ||
         editorSettingsOpen ||
         vaultSwitcherOpen ||
-        globalSearchOpen ||
+        commandPaletteOpen ||
         actionDialog !== null ||
-        historyOpen
+        historyOpen;
+      const zoom = editorZoomShortcut(event, navigator.platform);
+      const paletteShortcut = isCommandPaletteShortcut(
+        event,
+        navigator.platform,
+      );
+      if (zoom) {
+        event.preventDefault();
+        event.stopPropagation();
+        updateEditorFontSize(
+          zoom === "in"
+            ? editorDisplaySettings.fontSize + 1
+            : zoom === "out"
+              ? editorDisplaySettings.fontSize - 1
+              : DEFAULT_EDITOR_FONT_SIZE,
+        );
+        return;
+      }
+      if (paletteShortcut) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!workspaceLockedRef.current && !modalOpen) {
+          setCommandPaletteOpen(true);
+        }
+        return;
+      }
+      if (
+        workspaceLockedRef.current ||
+        modalOpen
       ) {
         return;
       }
@@ -2966,10 +3043,6 @@ function App() {
         } else {
           createNewTab();
         }
-      } else if (isGlobalSearchShortcut(event, navigator.platform)) {
-        event.preventDefault();
-        event.stopPropagation();
-        setGlobalSearchOpen(true);
       } else if (isNewFileShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -2983,11 +3056,7 @@ function App() {
       } else if (isSearchShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
-        setSidebarView("search");
-        window.setTimeout(
-          () => document.querySelector<HTMLInputElement>(".search-box input")?.focus(),
-          0,
-        );
+        focusVaultSearch();
       } else if (isReplaceShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -3026,18 +3095,511 @@ function App() {
     closeTab,
     createNewTab,
     createEntry,
+    commandPaletteOpen,
+    editorDisplaySettings.fontSize,
     editorSettingsOpen,
     encryptionOpen,
-    globalSearchOpen,
+    focusVaultSearch,
     historyOpen,
     replaceOpen,
     saveTab,
     showError,
     showOutline,
     tabs,
+    updateEditorFontSize,
     vaultSwitcherOpen,
     workspace,
   ]);
+
+  const macOS = /Mac|iPhone|iPad|iPod/i.test(navigator.platform);
+  const commandKey = macOS ? "⌘" : "Ctrl+";
+  const workspaceReady =
+    workspace !== null &&
+    (!workspace.encryption.enabled || workspace.encryption.unlocked);
+  const orderedTabs = tabsInVisualOrder(tabs);
+  const activeTabIndex = orderedTabs.findIndex(
+    (tab) => tab.path === activePath,
+  );
+  const activeGroup = activeTab?.groupId
+    ? tabGroups.find((group) => group.id === activeTab.groupId) ?? null
+    : null;
+  const activeSiblings =
+    workspace && activeNode ? findSiblings(workspace.tree, activeNode.path) : [];
+  const activeNodeIndex = activeNode
+    ? activeSiblings.findIndex((node) => node.path === activeNode.path)
+    : -1;
+  const canMoveActiveUp =
+    activeNodeIndex > 0 &&
+    activeSiblings[activeNodeIndex - 1]?.pinned === activeNode?.pinned;
+  const canMoveActiveDown =
+    activeNodeIndex >= 0 &&
+    activeNodeIndex < activeSiblings.length - 1 &&
+    activeSiblings[activeNodeIndex + 1]?.pinned === activeNode?.pinned;
+  const activeFileEditable =
+    activeFileTab !== null &&
+    (activeFileTab.kind !== "image" || activeFileTab.rawEditing);
+  const commandPaletteCommands: CommandPaletteCommand[] = [
+    {
+      id: "file.find",
+      title: "Find file across vaults",
+      description: "Search known vaults by filename.",
+      category: "Navigation",
+      shortcut: `${commandKey}P`,
+      kind: "file-search",
+      keywords: ["open", "quick"],
+    },
+    {
+      id: "vault.search",
+      title: "Search current vault",
+      description: "Search note contents, tags, names, and metadata.",
+      category: "Navigation",
+      shortcut: `${commandKey}F`,
+      disabled: !workspaceReady,
+      run: focusVaultSearch,
+    },
+    {
+      id: "vault.switch",
+      title: "Switch vault",
+      description: "Choose from known vaults.",
+      category: "Vault",
+      shortcut: macOS ? "⇧⌘O" : "Ctrl+Shift+O",
+      run: () => setVaultSwitcherOpen(true),
+    },
+    {
+      id: "vault.open",
+      title: "Open vault folder",
+      description: "Add or open a local folder as a vault.",
+      category: "Vault",
+      run: chooseVault,
+    },
+    {
+      id: "vault.refresh",
+      title: "Refresh current vault",
+      description: "Rescan files and rebuild search.",
+      category: "Vault",
+      disabled: !workspaceReady,
+      run: refreshAndReindex,
+    },
+    {
+      id: "view.files",
+      title: "Show files",
+      description: "Open the file-tree sidebar.",
+      category: "View",
+      disabled: !workspaceReady,
+      run: () => setSidebarView("files"),
+    },
+    {
+      id: "view.search",
+      title: "Show vault search",
+      description: "Open and focus the search sidebar.",
+      category: "View",
+      disabled: !workspaceReady,
+      run: focusVaultSearch,
+    },
+    {
+      id: "view.bookmarks",
+      title: "Show bookmarks",
+      description: "Open bookmarked files.",
+      category: "View",
+      disabled: !workspaceReady,
+      run: () => setSidebarView("bookmarks"),
+    },
+    {
+      id: "view.recent",
+      title: "Show recent files",
+      description: "Open recently viewed files.",
+      category: "View",
+      disabled: !workspaceReady,
+      run: () => setSidebarView("recent"),
+    },
+    {
+      id: "view.trash",
+      title: "Show trash",
+      description: "Open deleted files that can be restored.",
+      category: "View",
+      disabled: !workspaceReady,
+      run: () => setSidebarView("trash"),
+    },
+    {
+      id: "file.new",
+      title: "Create new file",
+      description: "Create a file beside the current selection.",
+      category: "File",
+      shortcut: `${commandKey}N`,
+      disabled: !workspaceReady,
+      run: () => createEntry(false),
+    },
+    {
+      id: "folder.new",
+      title: "Create new folder",
+      description: "Create a folder beside the current selection.",
+      category: "File",
+      disabled: !workspaceReady,
+      run: () => createEntry(true),
+    },
+    {
+      id: "tab.new",
+      title: "Create blank tab",
+      description: "Open an empty slot for the next file.",
+      category: "Tab",
+      shortcut: `${commandKey}T`,
+      disabled: !workspaceReady,
+      run: createNewTab,
+    },
+    {
+      id: "tab.close",
+      title: "Close current tab",
+      description: "Save and close the active tab.",
+      category: "Tab",
+      shortcut: `${commandKey}W`,
+      disabled: activePath === null,
+      run: () => (activePath ? closeTab(activePath) : undefined),
+    },
+    {
+      id: "tab.next",
+      title: "Switch to next tab",
+      description: "Activate the next open tab.",
+      category: "Tab",
+      shortcut: "Ctrl+Tab",
+      disabled: activeTabIndex < 0 || orderedTabs.length < 2,
+      run: () => {
+        if (activeTabIndex >= 0 && orderedTabs.length > 1) {
+          activateTab(orderedTabs[(activeTabIndex + 1) % orderedTabs.length].path);
+        }
+      },
+    },
+    {
+      id: "tab.previous",
+      title: "Switch to previous tab",
+      description: "Activate the previous open tab.",
+      category: "Tab",
+      shortcut: "Ctrl+Shift+Tab",
+      disabled: activeTabIndex < 0 || orderedTabs.length < 2,
+      run: () => {
+        if (activeTabIndex >= 0 && orderedTabs.length > 1) {
+          activateTab(
+            orderedTabs[
+              (activeTabIndex - 1 + orderedTabs.length) % orderedTabs.length
+            ].path,
+          );
+        }
+      },
+    },
+    {
+      id: "tab.move-left",
+      title: "Move current tab left",
+      description: "Reorder the active tab one position left.",
+      category: "Tab",
+      shortcut: macOS ? "⌥⇧←" : "Alt+Shift+Left",
+      disabled: activeTabIndex <= 0,
+      run: () => {
+        if (activePath && activeTabIndex > 0) {
+          reorderTabs(activePath, orderedTabs[activeTabIndex - 1].path);
+        }
+      },
+    },
+    {
+      id: "tab.move-right",
+      title: "Move current tab right",
+      description: "Reorder the active tab one position right.",
+      category: "Tab",
+      shortcut: macOS ? "⌥⇧→" : "Alt+Shift+Right",
+      disabled:
+        activeTabIndex < 0 || activeTabIndex >= orderedTabs.length - 1,
+      run: () => {
+        if (
+          activePath &&
+          activeTabIndex >= 0 &&
+          activeTabIndex < orderedTabs.length - 1
+        ) {
+          reorderTabs(activePath, orderedTabs[activeTabIndex + 1].path);
+        }
+      },
+    },
+    {
+      id: "tab.close-others",
+      title: "Close other tabs",
+      description: "Keep only the active tab.",
+      category: "Tab",
+      disabled: activePath === null || tabs.length < 2,
+      run: () =>
+        closeTabs(
+          orderedTabs
+            .filter((tab) => tab.path !== activePath)
+            .map((tab) => tab.path),
+        ),
+    },
+    {
+      id: "tab.close-left",
+      title: "Close tabs to the left",
+      description: "Close every tab before the active tab.",
+      category: "Tab",
+      disabled: activeTabIndex <= 0,
+      run: () =>
+        closeTabs(
+          orderedTabs.slice(0, Math.max(activeTabIndex, 0)).map((tab) => tab.path),
+        ),
+    },
+    {
+      id: "tab.close-right",
+      title: "Close tabs to the right",
+      description: "Close every tab after the active tab.",
+      category: "Tab",
+      disabled:
+        activeTabIndex < 0 || activeTabIndex >= orderedTabs.length - 1,
+      run: () =>
+        closeTabs(orderedTabs.slice(activeTabIndex + 1).map((tab) => tab.path)),
+    },
+    {
+      id: "tab.close-all",
+      title: "Close all tabs",
+      description: "Save and close every open tab.",
+      category: "Tab",
+      disabled: tabs.length === 0,
+      run: () => closeTabs(orderedTabs.map((tab) => tab.path)),
+    },
+    {
+      id: "tab.group-create",
+      title: "Create group for current tab",
+      description: "Create and name a collapsible tab group.",
+      category: "Tab",
+      disabled:
+        activePath === null ||
+        activeGroup !== null ||
+        tabGroups.length >= MAX_TAB_SESSION_GROUPS,
+      run: () => (activePath ? createTabGroup(activePath) : undefined),
+    },
+    {
+      id: "tab.group-rename",
+      title: "Rename current tab group",
+      description: "Change the active tab group's name.",
+      category: "Tab",
+      disabled: activeGroup === null,
+      run: () =>
+        activeGroup ? renameTabGroup(activeGroup.id) : undefined,
+    },
+    {
+      id: "tab.group-remove",
+      title: "Remove current tab from group",
+      description: "Keep the tab open outside its group.",
+      category: "Tab",
+      disabled: activePath === null || activeGroup === null,
+      run: () => {
+        if (activePath) {
+          moveTabToGroup(activePath, null);
+        }
+      },
+    },
+    {
+      id: "file.save",
+      title: "Save current file",
+      description: "Save active editor content immediately.",
+      category: "File",
+      shortcut: `${commandKey}S`,
+      disabled: !activeFileEditable,
+      run: () =>
+        activeFileTab
+          ? saveTab(activeFileTab.path, activeFileTab.content, "manual save")
+          : undefined,
+    },
+    {
+      id: "file.rename",
+      title: "Rename current file",
+      description: "Rename the active file in its folder.",
+      category: "File",
+      disabled: activeNode === null,
+      run: () => (activeNode ? renameNode(activeNode) : undefined),
+    },
+    {
+      id: "file.move",
+      title: "Move current file to folder",
+      description: "Move the active file elsewhere in this vault.",
+      category: "File",
+      disabled: activeNode === null,
+      run: () => (activeNode ? requestMoveNode(activeNode) : undefined),
+    },
+    {
+      id: "file.move-up",
+      title: "Move current file up",
+      description: "Change its custom order among sibling files.",
+      category: "File",
+      disabled: !canMoveActiveUp,
+      run: () => moveNodeInOrder(activeNode, -1),
+    },
+    {
+      id: "file.move-down",
+      title: "Move current file down",
+      description: "Change its custom order among sibling files.",
+      category: "File",
+      disabled: !canMoveActiveDown,
+      run: () => moveNodeInOrder(activeNode, 1),
+    },
+    {
+      id: "file.pin",
+      title: activeNode?.pinned ? "Unpin current file" : "Pin current file",
+      description: "Change whether the active file stays above its siblings.",
+      category: "File",
+      disabled: activeNode === null,
+      run: () => togglePinnedNode(activeNode),
+    },
+    {
+      id: "file.bookmark",
+      title: activeNode?.bookmarked
+        ? "Remove current file bookmark"
+        : "Bookmark current file",
+      description: "Change the active file's bookmark.",
+      category: "File",
+      disabled: activeNode === null || activeNode.kind === "folder",
+      run: () => toggleBookmarkForNode(activeNode),
+    },
+    {
+      id: "file.trash",
+      title: "Move current file to trash",
+      description: "Move the active file to Denote Trash.",
+      category: "File",
+      disabled: activeNode === null,
+      run: () => (activeNode ? trashNode(activeNode) : undefined),
+    },
+    {
+      id: "file.reload",
+      title: "Reload current file from disk",
+      description: "Discard editor state after confirmation if needed.",
+      category: "File",
+      disabled: activeFileTab === null,
+      run: reloadActiveTab,
+    },
+    {
+      id: "file.copy-content",
+      title: "Copy current file content",
+      description: "Copy the in-memory content to the clipboard.",
+      category: "Clipboard",
+      disabled: activeFileTab === null,
+      run: copyActiveFileContent,
+    },
+    {
+      id: "file.copy-attachment",
+      title: "Copy current file for attachment",
+      description: "Copy a native attachment-ready file.",
+      category: "Clipboard",
+      disabled: activeFileTab === null,
+      run: copyActiveFileForAttachment,
+    },
+    {
+      id: "file.copy-path",
+      title: "Copy current file path",
+      description: "Copy the absolute path to the clipboard.",
+      category: "Clipboard",
+      disabled: activeFileTab === null,
+      run: copyActiveFilePath,
+    },
+    {
+      id: "file.history",
+      title: "Open current file history",
+      description: "View and restore saved revisions.",
+      category: "File",
+      disabled: activeFileTab === null,
+      run: openHistory,
+    },
+    {
+      id: "editor.replace",
+      title: "Find and replace",
+      description: "Replace text in the current file or vault.",
+      category: "Editor",
+      shortcut: macOS ? "⌥⌘F" : "Ctrl+H",
+      disabled: !workspaceReady,
+      run: () => setReplaceOpen(true),
+    },
+    {
+      id: "editor.image-mode",
+      title: activeFileTab?.rawEditing
+        ? "Preview current image"
+        : "Edit current image as raw file",
+      description: "Switch between image preview and Base64 editing.",
+      category: "Editor",
+      disabled: activeFileTab?.kind !== "image",
+      run: toggleRawEditing,
+    },
+    {
+      id: "editor.outline",
+      title: showOutline ? "Hide document outline" : "Show document outline",
+      description: "Toggle the Markdown table of contents.",
+      category: "View",
+      disabled:
+        activeFileTab?.kind !== "markdown" ||
+        activeFileTab.encoding !== "utf8",
+      run: () => setShowOutline((current) => !current),
+    },
+    {
+      id: "editor.settings",
+      title: "Open editor settings",
+      description: "Change font size, guides, and session restore.",
+      category: "Editor",
+      disabled: !workspaceReady,
+      run: () => setEditorSettingsOpen(true),
+    },
+    {
+      id: "editor.zoom-in",
+      title: "Increase editor text size",
+      description: "Increase the persistent editor font size.",
+      category: "Editor",
+      shortcut: `${commandKey}+`,
+      disabled: editorDisplaySettings.fontSize >= MAX_EDITOR_FONT_SIZE,
+      run: () => updateEditorFontSize(editorDisplaySettings.fontSize + 1),
+    },
+    {
+      id: "editor.zoom-out",
+      title: "Decrease editor text size",
+      description: "Decrease the persistent editor font size.",
+      category: "Editor",
+      shortcut: `${commandKey}−`,
+      disabled: editorDisplaySettings.fontSize <= MIN_EDITOR_FONT_SIZE,
+      run: () => updateEditorFontSize(editorDisplaySettings.fontSize - 1),
+    },
+    {
+      id: "editor.zoom-reset",
+      title: "Reset editor text size",
+      description: `Return to ${DEFAULT_EDITOR_FONT_SIZE}px.`,
+      category: "Editor",
+      shortcut: `${commandKey}0`,
+      disabled: editorDisplaySettings.fontSize === DEFAULT_EDITOR_FONT_SIZE,
+      run: () => updateEditorFontSize(DEFAULT_EDITOR_FONT_SIZE),
+    },
+    {
+      id: "vault.encryption",
+      title: "Manage vault encryption",
+      description: "Enable, lock, or change encryption settings.",
+      category: "Vault",
+      disabled: !workspaceReady,
+      run: () => setEncryptionOpen(true),
+    },
+    {
+      id: "vault.lock",
+      title: "Lock encrypted vault",
+      description: "Save, encrypt, and close the current vault content.",
+      category: "Vault",
+      disabled:
+        workspace === null ||
+        !workspace.encryption.enabled ||
+        !workspace.encryption.unlocked,
+      run: lockEncryptedVault,
+    },
+    {
+      id: "trash.empty",
+      title: "Empty trash permanently",
+      description: "Permanently delete every item in Denote Trash.",
+      category: "Vault",
+      disabled: !workspaceReady || (workspace?.trash.length ?? 0) === 0,
+      run: emptyTrash,
+    },
+    {
+      id: "appearance.theme",
+      title: `Switch to ${theme === "dark" ? "light" : "dark"} mode`,
+      description: "Change the application color theme.",
+      category: "Appearance",
+      run: () =>
+        setTheme((current) => (current === "dark" ? "light" : "dark")),
+    },
+  ];
 
   const vaultSwitcherDialog = (
     <VaultSwitcherDialog
@@ -3049,12 +3611,14 @@ function App() {
       onClose={() => setVaultSwitcherOpen(false)}
     />
   );
-  const globalSearchDialog = (
-    <GlobalSearchDialog
-      open={globalSearchOpen}
-      onLoad={api.listKnownVaultFiles}
-      onOpen={openKnownVaultFile}
-      onClose={() => setGlobalSearchOpen(false)}
+  const commandPalette = (
+    <CommandPalette
+      open={commandPaletteOpen}
+      commands={commandPaletteCommands}
+      onLoadFiles={api.listKnownVaultFiles}
+      onOpenFile={openKnownVaultFile}
+      onCommandError={showError}
+      onClose={() => setCommandPaletteOpen(false)}
     />
   );
 
@@ -3085,7 +3649,7 @@ function App() {
           onShowRecentVaults={() => setVaultSwitcherOpen(true)}
         />
         {vaultSwitcherDialog}
-        {globalSearchDialog}
+        {commandPalette}
       </>
     );
   }
@@ -3126,7 +3690,7 @@ function App() {
           }
         />
         {vaultSwitcherDialog}
-        {globalSearchDialog}
+        {commandPalette}
       </>
     );
   }
@@ -3134,7 +3698,12 @@ function App() {
   return (
     <div
       className="app-shell"
-      style={{ "--sidebar-width": `${sidebarWidth}px` } as CSSProperties}
+      style={
+        {
+          "--sidebar-width": `${sidebarWidth}px`,
+          "--editor-font-size": `${editorDisplaySettings.fontSize}px`,
+        } as CSSProperties
+      }
     >
       <span
         hidden
@@ -3518,8 +4087,8 @@ function App() {
             <button
               type="button"
               className="icon-button"
-              aria-label="Open editor display settings"
-              title="Editor display settings"
+              aria-label="Open editor settings"
+              title="Editor settings"
               aria-haspopup="dialog"
               aria-expanded={editorSettingsOpen}
               disabled={workspaceLocked}
@@ -3737,7 +4306,7 @@ function App() {
         onClose={() => setEditorSettingsOpen(false)}
       />
       {vaultSwitcherDialog}
-      {globalSearchDialog}
+      {commandPalette}
       <EncryptionDialog
         open={encryptionOpen}
         encryption={workspace.encryption}

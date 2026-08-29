@@ -2,8 +2,21 @@
 
 #guide #editor
 
-Open **Editor display settings** from the editor toolbar. Preferences persist
-across launches and can show:
+Open **Editor settings** from the editor toolbar. Preferences persist across
+launches.
+
+## Text size
+
+Choose an editor font size from 12 to 24 px. It applies immediately to rich
+Markdown, source mode, programming files, plain text, and Base64 without scaling
+the surrounding application controls.
+
+Use `Command-+`, `Command--`, and `Command-0` on macOS, or `Ctrl-+`, `Ctrl--`,
+and `Ctrl-0` on Windows and Linux, to increase, decrease, or reset the size.
+
+## Display guides
+
+The settings can show:
 
 - line numbers;
 - spaces as dots and tabs as arrows;
@@ -19,6 +32,8 @@ invisible-character guides before switching modes.
 
 Code blocks, syntax tokens, gutters, selections, cursors, and matching brackets
 use complete dark and light palettes.
+
+## Session restore
 
 **Reopen tabs from the last session** is enabled by default for each vault. It
 restores open files, order, named groups, collapsed state, and the active file.

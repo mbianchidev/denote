@@ -26,12 +26,16 @@ Supported filters:
 Automatic indexing reads up to 10 MB per file and stops at a 64 MB aggregate
 content budget.
 
-## Global filename search
+## Command palette and filename search
 
-Press `Command-P` on macOS or `Ctrl-P` on Windows and Linux. This quick-open
-dialog searches filenames only across all known available vaults. It does not
-search paths, tags, or file contents. Use the arrow keys and Enter to open a
-result.
+Press `Command-P` on macOS or `Ctrl-P` on Windows and Linux. The command palette
+lists all available actions and shows shortcuts where assigned. Search commands
+by name, description, category, or keyword.
+
+Type a filename directly to include filename matches from all known available
+vaults, or choose **Find file across vaults** for a file-only list. File matching
+does not search paths, tags, or content. Use the arrow keys and Enter to run a
+command or open a file.
 
 ## Replace
 

@@ -1,6 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { PlainTextEditor } from "./PlainTextEditor";
 
 describe("PlainTextEditor", () => {
@@ -15,6 +16,7 @@ describe("PlainTextEditor", () => {
         filePath="note.txt"
         lineEnding="crlf"
         displaySettings={{
+          ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
           showLineNumbers: true,
           showWhitespace: true,
           showLineEndings: true,
@@ -45,12 +47,7 @@ describe("PlainTextEditor", () => {
         binary={false}
         filePath="source.ts"
         lineEnding="lf"
-        displaySettings={{
-          showLineNumbers: false,
-          showWhitespace: false,
-          showLineEndings: false,
-          highlightTrailingWhitespace: false,
-        }}
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         onChange={onChange}
       />,
     );
@@ -72,12 +69,7 @@ describe("PlainTextEditor", () => {
       binary: false,
       filePath: "restored.js",
       lineEnding: "lf" as const,
-      displaySettings: {
-        showLineNumbers: false,
-        showWhitespace: false,
-        showLineEndings: false,
-        highlightTrailingWhitespace: false,
-      },
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
       onChange: vi.fn(),
     };
     const { rerender } = render(

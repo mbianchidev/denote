@@ -9,8 +9,8 @@ more detail and examples.
 
 - Open any local folder as a vault.
 - Switch among known work, music, personal, or other vaults.
-- Use `Command-P` / `Ctrl-P` to search filenames across all known available
-  vaults.
+- Use `Command-P` / `Ctrl-P` to open a command palette containing contextual
+  actions, visible shortcuts, and filenames from all known available vaults.
 - Remove non-current vaults from the recent list.
 - Optionally move a removed vault folder to operating-system Trash.
 - Open the built-in **Denote Welcome** vault at any time.
@@ -50,12 +50,14 @@ more detail and examples.
   context menu.
 - Reopen the last session's files, order, groups, collapsed state, and active
   file by default.
-- Disable session restore per vault in **Editor display settings**.
+- Disable session restore per vault in **Editor settings**.
 
 ## Markdown and source editing
 
 - Use rich single-pane Markdown editing or source mode.
 - Keep one rich/source preference for every Markdown file in each vault.
+- Set a persistent editor font size from 12 to 24 px.
+- Increase, decrease, or reset editor text with Command/Control `+`, `-`, or `0`.
 - Autosave after editing.
 - Keep the previous ten changed revisions.
 - Render headings, emphasis, lists, task lists, quotes, tables, thematic breaks,
@@ -84,7 +86,10 @@ more detail and examples.
 - Open current-vault search with `Command-F` / `Ctrl-F`.
 - Search content with ZBSearch plus Unicode substring fallback.
 - Filter by tag, filename, path, content, type, bookmark, or recency.
-- Open filename-only global quick open with `Command-P` / `Ctrl-P`.
+- Open the command palette with `Command-P` / `Ctrl-P`.
+- Filter commands by title, category, description, or keyword.
+- Type a filename directly or enter the file-only palette view; paths, tags, and
+  content remain excluded from global filename matching.
 - Find and replace in the current file.
 - Preview selectable replacements across the vault.
 - Reject stale replacements when files changed after preview.
@@ -102,6 +107,7 @@ more detail and examples.
 ## Appearance and accessibility
 
 - Use dark mode by default or persistent light mode.
+- Scale editor text without scaling application chrome.
 - Adapt code blocks and syntax colors to the active theme.
 - Resize the vault sidebar by pointer or keyboard.
 - Show optional line numbers, spaces/tabs, exact line endings, and trailing

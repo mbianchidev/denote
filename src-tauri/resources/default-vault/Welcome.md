@@ -15,8 +15,9 @@ regular file. Your files remain the source of truth.
 
 - [x] Open a note in a tab
 - [ ] Press `Command-F` or `Ctrl-F` and search for `tag:guide`
+- [ ] Press `Command-P` or `Ctrl-P`, run a command, then find a filename
 - [ ] Pin a page in the file tree
-- [ ] Open **Editor display settings** and show spaces or line endings
+- [ ] Open **Editor settings**, change text size, and show spaces or line endings
 - [ ] Edit this checklist and wait for autosave
 - [ ] Open **History** and restore an earlier revision
 
