@@ -213,28 +213,102 @@ function isTagBoundary(characters: string[], index: number): boolean {
 }
 
 export function extractHeadings(markdown: string): HeadingItem[] {
-  const headings: HeadingItem[] = [];
-  let inFence = false;
-  for (const line of markdown.split("\n")) {
-    if (/^\s*(```|~~~)/.test(line)) {
-      inFence = !inFence;
-      continue;
-    }
-    if (inFence) {
-      continue;
-    }
-    const match = line.match(/^(#{1,6})\s+(.+?)\s*#*\s*$/);
-    if (!match) {
-      continue;
-    }
-    const text = match[2].replace(/[*_`~[\]]/g, "").trim();
-    headings.push({
-      depth: match[1].length,
-      text,
-      slug: slugifyHeading(text),
-    });
+  return markdownHeadingRecords(markdown).map(({ heading }) => heading);
+}
+
+export function findMarkdownHeadingLine(
+  markdown: string,
+  anchor: string,
+): number | null {
+  const slug = slugifyHeading(anchor);
+  try {
+    const usedSlugs = new Set<string>();
+    let matchedLine: number | null = null;
+    visitHeadingNodes(
+      fromMarkdown(markdown) as unknown as HeadingAstNode,
+      (heading) => {
+        if (
+          matchedLine === null &&
+          nextHeadingSlug(markdownNodeText(heading).trim(), usedSlugs) === slug
+        ) {
+          matchedLine = heading.position?.start.line ?? null;
+        }
+      },
+    );
+    return matchedLine;
+  } catch {
+    return (
+      markdownHeadingRecords(markdown).find(
+        ({ heading }) => heading.slug === slug,
+      )?.line ?? null
+    );
   }
-  return headings;
+}
+
+function markdownHeadingRecords(
+  markdown: string,
+): Array<{ heading: HeadingItem; line: number }> {
+  try {
+    const headings: Array<{ heading: HeadingItem; line: number }> = [];
+    const usedSlugs = new Set<string>();
+    visitHeadingNodes(
+      fromMarkdown(markdown) as unknown as HeadingAstNode,
+      (heading) => {
+        const text = markdownNodeText(heading).trim();
+        headings.push({
+          line: heading.position?.start.line ?? 1,
+          heading: {
+            depth: heading.depth ?? 1,
+            text,
+            slug: nextHeadingSlug(text, usedSlugs),
+          },
+        });
+      },
+    );
+    return headings;
+  } catch {
+    return [];
+  }
+}
+
+interface HeadingAstNode {
+  type: string;
+  depth?: number;
+  value?: string;
+  alt?: string | null;
+  children?: HeadingAstNode[];
+  position?: {
+    start: {
+      line: number;
+    };
+  };
+}
+
+function visitHeadingNodes(
+  node: HeadingAstNode,
+  callback: (heading: HeadingAstNode) => void,
+) {
+  if (node.type === "heading") {
+    callback(node);
+  }
+  for (const child of node.children ?? []) {
+    visitHeadingNodes(child, callback);
+  }
+}
+
+function markdownNodeText(node: HeadingAstNode): string {
+  if (typeof node.value === "string") {
+    return node.type === "html"
+      ? node.value.replace(/<[^>]*>/g, "")
+      : node.value;
+  }
+  if (typeof node.alt === "string") {
+    return node.alt;
+  }
+  if (node.type === "break") {
+    return " ";
+  }
+  return (node.children ?? []).map(markdownNodeText).join("");
 }
 
 export function slugifyHeading(value: string): string {
@@ -245,6 +319,18 @@ export function slugifyHeading(value: string): string {
     .trim()
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
+}
+
+export function nextHeadingSlug(value: string, usedSlugs: Set<string>): string {
+  const base = slugifyHeading(value) || "section";
+  let candidate = base;
+  let suffix = 0;
+  while (usedSlugs.has(candidate)) {
+    suffix += 1;
+    candidate = `${base}-${suffix}`;
+  }
+  usedSlugs.add(candidate);
+  return candidate;
 }
 
 export function resolveInternalLink(

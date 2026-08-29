@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "./editorDisplay";
 import {
   createEditorDisplayExtensions,
+  createEditorDiagnosticExtensions,
   createEditorTabExtensions,
   denoteCodeMirrorTheme,
   insertMarkdownLink,
+  setEditorDiagnostic,
 } from "./editorExtensions";
 import { EditorState } from "@codemirror/state";
 import { EditorView, runScopeHandlers } from "@codemirror/view";
@@ -117,6 +119,28 @@ describe("editor display extensions", () => {
       ),
     ).toBe(true);
     expect(view.state.doc.toString()).toBe("  line");
+    view.destroy();
+  });
+
+  it("highlights a Markdown parser line and character", () => {
+    const parent = document.createElement("div");
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: "first\nsecond",
+        extensions: createEditorDiagnosticExtensions(),
+      }),
+    });
+    view.dispatch({
+      effects: setEditorDiagnostic.of({ line: 2, column: 2 }),
+    });
+
+    expect(view.dom.querySelector(".cm-diagnostic-line")).toHaveTextContent(
+      "second",
+    );
+    expect(
+      view.dom.querySelector(".cm-diagnostic-character"),
+    ).toHaveTextContent("e");
     view.destroy();
   });
 });

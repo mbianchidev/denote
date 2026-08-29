@@ -24,6 +24,32 @@ interface ParsedSearch {
   recentDays?: number;
 }
 
+export interface SearchFilters {
+  tags: string[];
+  filenames: string[];
+  paths: string[];
+  content: string[];
+  kinds: string[];
+  bookmarked?: boolean;
+  recentDays?: number;
+}
+
+export interface SearchRequest {
+  query: string;
+  location: string;
+  filters: SearchFilters;
+}
+
+export function createEmptySearchFilters(): SearchFilters {
+  return {
+    tags: [],
+    filenames: [],
+    paths: [],
+    content: [],
+    kinds: [],
+  };
+}
+
 export class VaultSearchIndex {
   private database: SearchDatabase = create({ schema: SEARCH_SCHEMA });
   private documents: SearchDocument[] = [];
@@ -49,8 +75,22 @@ export class VaultSearchIndex {
     }
   }
 
-  async query(rawQuery: string): Promise<SearchResult[]> {
-    const parsed = parseSearchQuery(rawQuery);
+  async query(request: string | SearchRequest): Promise<SearchResult[]> {
+    const searchRequest: SearchRequest =
+      typeof request === "string"
+        ? {
+            query: request,
+            location: "*",
+            filters: createEmptySearchFilters(),
+          }
+        : request;
+    const parsed = mergeSearchFilters(
+      parseSearchQuery(searchRequest.query),
+      searchRequest.filters,
+    );
+    const scopedDocuments = this.documents.filter((document) =>
+      matchesSearchLocation(document.path, searchRequest.location),
+    );
     const scores = new Map<string, number>();
 
     if (parsed.term) {
@@ -70,7 +110,7 @@ export class VaultSearchIndex {
 
       const foldedTerms = parsed.term.toLocaleLowerCase().split(/\s+/);
       let processedBytes = 0;
-      for (const document of this.documents) {
+      for (const document of scopedDocuments) {
         const haystack =
           `${document.title}\n${document.path}\n${document.content}\n${document.tags.join(" ")}`.toLocaleLowerCase();
         if (foldedTerms.every((term) => haystack.includes(term))) {
@@ -84,12 +124,12 @@ export class VaultSearchIndex {
       }
 
     } else {
-      for (const document of this.documents) {
+      for (const document of scopedDocuments) {
         scores.set(document.path, 0);
       }
     }
 
-    return this.documents
+    return scopedDocuments
       .filter((document) => scores.has(document.path))
       .filter((document) => matchesFilters(document, parsed))
       .map((document) => ({
@@ -215,6 +255,79 @@ export function parseSearchQuery(rawQuery: string): ParsedSearch {
   }
   parsed.term = terms.join(" ").trim();
   return parsed;
+}
+
+export function matchesSearchLocation(path: string, rawLocation: string): boolean {
+  const location = rawLocation.trim().replace(/\\/g, "/");
+  if (!location || location === "*") {
+    return true;
+  }
+  const hasWildcard = /[*?]/.test(location);
+  if (!hasWildcard) {
+    return path.replace(/\\/g, "/") === location;
+  }
+  const target = location.includes("/")
+    ? path.replace(/\\/g, "/")
+    : path.split(/[\\/]/).slice(-1)[0] ?? path;
+  return globExpression(location).test(target);
+}
+
+function globExpression(pattern: string): RegExp {
+  let expression = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === "*") {
+      if (pattern[index + 1] === "*") {
+        if (pattern[index + 2] === "/") {
+          expression += "(?:.*/)?";
+          index += 2;
+        } else {
+          expression += ".*";
+          index += 1;
+        }
+      } else {
+        expression += "[^/]*";
+      }
+    } else if (character === "?") {
+      expression += "[^/]";
+    } else {
+      expression += character.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
+    }
+  }
+  return new RegExp(`${expression}$`, "iu");
+}
+
+function mergeSearchFilters(
+  parsed: ParsedSearch,
+  filters: SearchFilters,
+): ParsedSearch {
+  return {
+    ...parsed,
+    tags: [
+      ...parsed.tags,
+      ...filters.tags.map((tag) =>
+        tag.replace(/^#/, "").trim().toLocaleLowerCase(),
+      ),
+    ].filter(Boolean),
+    filenames: [
+      ...parsed.filenames,
+      ...filters.filenames.map((value) => value.trim().toLocaleLowerCase()),
+    ].filter(Boolean),
+    paths: [
+      ...parsed.paths,
+      ...filters.paths.map((value) => value.trim().toLocaleLowerCase()),
+    ].filter(Boolean),
+    content: [
+      ...parsed.content,
+      ...filters.content.map((value) => value.trim().toLocaleLowerCase()),
+    ].filter(Boolean),
+    kinds: [
+      ...parsed.kinds,
+      ...filters.kinds.map((value) => value.trim().toLocaleLowerCase()),
+    ].filter(Boolean),
+    bookmarked: filters.bookmarked ?? parsed.bookmarked,
+    recentDays: filters.recentDays ?? parsed.recentDays,
+  };
 }
 
 function matchesFilters(document: SearchDocument, parsed: ParsedSearch): boolean {

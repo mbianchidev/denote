@@ -7,6 +7,8 @@ import {
 import {
   EditorState,
   Prec,
+  StateEffect,
+  StateField,
   type Extension,
   type Range,
 } from "@codemirror/state";
@@ -26,6 +28,7 @@ import {
 import { tags } from "@lezer/highlight";
 import type { FileLineEnding } from "../types";
 import type { EditorDisplaySettings } from "./editorDisplay";
+import type { MarkdownErrorLocation } from "./markdownErrors";
 
 export const denoteCodeMirrorTheme: Extension = [
   Prec.highest(
@@ -146,6 +149,58 @@ export function createEditorTabExtensions(
     indentUnit.of(indentation),
     keymap.of([indentWithTab]),
   ];
+}
+
+export const setEditorDiagnostic =
+  StateEffect.define<MarkdownErrorLocation | null>();
+
+const editorDiagnosticField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(decorations, transaction) {
+    let next = decorations.map(transaction.changes);
+    for (const effect of transaction.effects) {
+      if (effect.is(setEditorDiagnostic)) {
+        next = diagnosticDecorations(transaction.state, effect.value);
+      }
+    }
+    return next;
+  },
+  provide: (field) => EditorView.decorations.from(field),
+});
+
+export function createEditorDiagnosticExtensions(): Extension[] {
+  return [editorDiagnosticField];
+}
+
+function diagnosticDecorations(
+  state: EditorState,
+  location: MarkdownErrorLocation | null,
+): DecorationSet {
+  if (!location) {
+    return Decoration.none;
+  }
+  const line = state.doc.line(
+    Math.max(1, Math.min(location.line, state.doc.lines)),
+  );
+  const character = Math.min(
+    line.to,
+    line.from + Math.max(0, location.column - 1),
+  );
+  const decorations: Range<Decoration>[] = [
+    Decoration.line({
+      class: "cm-diagnostic-line",
+      attributes: { "data-error-line": String(location.line) },
+    }).range(line.from),
+  ];
+  if (character < line.to) {
+    decorations.push(
+      Decoration.mark({ class: "cm-diagnostic-character" }).range(
+        character,
+        character + 1,
+      ),
+    );
+  }
+  return Decoration.set(decorations, true);
 }
 
 export const insertMarkdownLink: Command = (view) => {

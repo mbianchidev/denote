@@ -75,6 +75,8 @@ more detail and examples.
 - Preserve mixed Unicode scripts and emoji in one file.
 - Open unsupported rich syntax such as MDX, raw HTML, footnotes, math, reference
   definitions, and escaped hashtags in source mode for safety.
+- Report Markdown parser line/column details, highlight the failing source
+  position, and expose **Navigate to error** without changing the saved mode.
 
 ## Tags, links, and navigation
 
@@ -84,6 +86,8 @@ more detail and examples.
 - Search a tag by selecting its document tag pill.
 - Resolve no-protocol links relative to the current file inside Denote,
   including parent paths such as `../assets/image.svg`.
+- Navigate file and same-file `#heading` anchors in rich or source mode, including
+  stable suffixes for duplicate headings.
 - Normalize HTTP(S) protocols, confirm unknown domains, and manage exact or
   wildcard domain permissions in Settings.
 - Open every unique HTTP(S) link in the active file from the toolbar or command
@@ -95,9 +99,12 @@ more detail and examples.
 
 ## Search and replace
 
-- Open current-vault search with `Command-F` / `Ctrl-F`.
+- Open search with `Command-F` / `Ctrl-F` and the active file selected as the
+  location.
+- Use `*`, exact paths, `*.html`, or path globs to choose where to search.
 - Search content with ZBSearch plus Unicode substring fallback.
-- Filter by tag, filename, path, content, type, bookmark, or recency.
+- Open visual filters for tag, filename, path, content, type, bookmark, or
+  recency; inline filters remain supported.
 - Open the command palette with `Command-P` / `Ctrl-P`.
 - Filter commands by title, category, description, or keyword.
 - Type a filename directly or enter the file-only palette view; paths, tags, and

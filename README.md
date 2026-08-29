@@ -18,8 +18,8 @@ the selected folder as the source of truth.
 - Image preview with an explicit raw-edit toggle
 - Autosave and the previous 10 changed revisions per note
 - Local SQLite metadata for open, edit, and save counts
-- ZBSearch full-text search with filename, path, content, tag, type, bookmark,
-  and recency filters
+- ZBSearch full-text search with a separate file/path glob, keyboard-accessible
+  visual filters for filename, path, content, tag, type, bookmark, and recency
 - Command-P / Control-P command palette with contextual actions, visible
   shortcuts, and filename-only search across all known available vaults
 - Rendered hashtags use consistent colored pills across the vault, with an
@@ -47,6 +47,7 @@ the selected folder as the source of truth.
   images, and links
 - Command-K / Control-K link creation that wraps rich-text selections or inserts
   Markdown link syntax directly in source mode
+- File and same-page heading anchors with retrying rich/source navigation
 - One action to open every unique HTTP(S) link in the active file through the
   existing external-domain trust flow
 - Code blocks and syntax highlighting that adapt to dark and light themes
@@ -57,6 +58,8 @@ the selected folder as the source of truth.
 - Persistent editor guides for line numbers, spaces/tabs, line endings, and
   trailing whitespace
 - Persistent two- or four-space Tab indentation across source and code editors
+- Markdown parser errors with line/column reporting, highlighted source, and a
+  **Navigate to error** action
 - Dark mode by default with persistent light mode
 - Optional password-based vault encryption with ten one-time recovery codes
 - A typed host contract for separately shipped optional plugins
@@ -96,6 +99,11 @@ domains, then manage the list in **Settings**. Email, telephone, hostless local
 `file:///`, and confirmed custom `app-name://` links use the operating system
 handler. Remote file hosts and dangerous schemes such as `javascript:`, `data:`,
 and `vbscript:` are blocked.
+
+Heading fragments remain inside Denote. A link such as
+`[About](Welcome.md#what-is-denote)` opens the file and highlights the matching
+heading; `[#section](#section)` works in the current file. Duplicate heading
+anchors receive stable `-1`, `-2`, and later suffixes.
 
 Editor settings are available from the editor toolbar. Font size applies
 immediately to rich text, Markdown source, programming files, plain text, and
@@ -192,8 +200,13 @@ filesystem snapshots, or storage history that already existed.
 ## Search
 
 Press <kbd>Command</kbd>+<kbd>F</kbd> on macOS or
-<kbd>Ctrl</kbd>+<kbd>F</kbd> on Windows and Linux. Search uses ZBSearch locally.
-Filters can be combined with ordinary terms:
+<kbd>Ctrl</kbd>+<kbd>F</kbd> on Windows and Linux. Search uses ZBSearch locally
+and selects the active file in **Where to search**. Replace it with `*` for the
+whole vault, an exact relative path for one file, or a glob such as `*.html`.
+
+The separate search-text field accepts ordinary terms. Open **Filters** for
+keyboard-accessible tag, file type, recency, bookmark, filename, path, and
+content controls. Inline filter syntax remains available:
 
 ```text
 release notes tag:work file:"project atlas" path:projects
@@ -203,6 +216,11 @@ type:markdown
 
 Supported filters are `tag:`, `file:`/`filename:`, `path:`/`folder:`,
 `content:`, `type:`, `bookmarked:`, and `recent:Nd`.
+
+If Markdown cannot be parsed, Denote reports the line and column, switches to
+source safely without changing the vault-wide mode preference, highlights the
+line and character, and offers **Navigate to error**. Navigating to another file
+clears the stale error.
 
 Press <kbd>Command</kbd>+<kbd>P</kbd> on macOS or
 <kbd>Ctrl</kbd>+<kbd>P</kbd> on Windows and Linux for the command palette.

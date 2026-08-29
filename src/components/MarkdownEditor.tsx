@@ -32,6 +32,7 @@ import {
   linkPlugin,
   listsPlugin,
   markdownShortcutPlugin,
+  markdownProcessingError$,
   openLinkEditDialog$,
   quotePlugin,
   realmPlugin,
@@ -54,10 +55,12 @@ import {
 import { createPortal } from "react-dom";
 import { api, errorMessage } from "../lib/api";
 import {
+  createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
   createEditorTabExtensions,
   denoteCodeMirrorTheme,
   markdownLinkKeymap,
+  setEditorDiagnostic,
 } from "../lib/editorExtensions";
 import {
   hasEditorDisplayGuides,
@@ -66,10 +69,15 @@ import {
 import { denoteHashtagPlugin } from "../lib/hashtagPlugin";
 import { shouldOpenLinkOnClick } from "../lib/links";
 import {
+  locateMarkdownError,
+  type MarkdownErrorLocation,
+} from "../lib/markdownErrors";
+import {
   calloutsToDirectives,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
+  nextHeadingSlug,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
@@ -86,9 +94,12 @@ import type { FileLineEnding } from "../types";
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
   onChange: (mode: MarkdownViewMode) => void;
+  onErrorCleared?: () => void;
 }>({
   init(realm, params) {
     let ready = false;
+    let forcingSource = false;
+    let hadProcessingError = false;
     let previousMode = params?.mode ?? "rich-text";
     realm.sub(realm.pipe(viewMode$), (mode) => {
       if (!ready) {
@@ -99,15 +110,37 @@ const viewModePreferencePlugin = realmPlugin<{
       }
       if (mode !== "diff" && mode !== previousMode) {
         previousMode = mode;
-        params?.onChange(mode);
+        if (!forcingSource) {
+          params?.onChange(mode);
+        }
       }
+    });
+    realm.sub(realm.pipe(markdownProcessingError$), (error) => {
+      if (!error) {
+        if (hadProcessingError) {
+          hadProcessingError = false;
+          params?.onErrorCleared?.();
+        }
+        return;
+      }
+      hadProcessingError = true;
+      forcingSource = true;
+      realm.pub(viewMode$, "source");
+      queueMicrotask(() => {
+        forcingSource = false;
+      });
     });
     queueMicrotask(() => {
       ready = true;
     });
   },
   postInit(realm, params) {
-    realm.pub(viewMode$, params?.mode ?? "rich-text");
+    realm.pub(
+      viewMode$,
+      realm.getValue(markdownProcessingError$)
+        ? "source"
+        : (params?.mode ?? "rich-text"),
+    );
   },
 });
 
@@ -118,12 +151,22 @@ interface MarkdownEditorProps {
   displaySettings: EditorDisplaySettings;
   preferredViewMode: MarkdownViewMode;
   readOnly: boolean;
+  errorLocation?: MarkdownErrorLocation;
+  errorNavigationRequest?: number;
   tagColors?: TagColorMap;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
+  onMarkdownError?: (diagnostic: MarkdownEditorDiagnostic) => void;
+  onMarkdownErrorCleared?: () => void;
   onLinkOpen: (href: string, text: string) => void;
   onViewModeChange: (mode: MarkdownViewMode) => void;
   onImageUpload: (notePath: string, file: File) => Promise<string>;
+}
+
+export interface MarkdownEditorDiagnostic {
+  message: string;
+  source: string;
+  location: MarkdownErrorLocation | null;
 }
 
 export const MarkdownEditor = forwardRef<
@@ -137,9 +180,13 @@ export const MarkdownEditor = forwardRef<
     displaySettings,
     preferredViewMode,
     readOnly,
+    errorLocation,
+    errorNavigationRequest = 0,
     tagColors = EMPTY_TAG_COLORS,
     onChange,
     onError,
+    onMarkdownError,
+    onMarkdownErrorCleared,
     onLinkOpen,
     onViewModeChange,
     onImageUpload,
@@ -155,7 +202,10 @@ export const MarkdownEditor = forwardRef<
   const initialViewMode: MarkdownViewMode =
     sourceFirst || forceSource ? "source" : initialPreferredViewMode;
   const displayExtensions = useMemo(
-    () => createEditorDisplayExtensions(displaySettings, lineEnding, false),
+    () => [
+      ...createEditorDisplayExtensions(displaySettings, lineEnding, false),
+      ...createEditorDiagnosticExtensions(),
+    ],
     [displaySettings, lineEnding],
   );
   const tabExtensions = useMemo(
@@ -236,6 +286,7 @@ export const MarkdownEditor = forwardRef<
       viewModePreferencePlugin({
         mode: initialViewMode,
         onChange: onViewModeChange,
+        onErrorCleared: onMarkdownErrorCleared,
       }),
       toolbarPlugin({
         toolbarPosition: "top",
@@ -308,6 +359,7 @@ export const MarkdownEditor = forwardRef<
       initialViewMode,
       notePath,
       onImageUpload,
+      onMarkdownErrorCleared,
       onViewModeChange,
       sourceFirst,
       tabExtensions,
@@ -320,6 +372,7 @@ export const MarkdownEditor = forwardRef<
       return;
     }
     applyInlineTagColors(shell, tagColors);
+    applyHeadingAnchors(shell);
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === "characterData") {
@@ -335,15 +388,54 @@ export const MarkdownEditor = forwardRef<
           }
         }
       }
+      applyHeadingAnchors(shell);
     });
 
     observer.observe(shell, {
+      attributes: true,
+      attributeFilter: ["alt"],
       childList: true,
       subtree: true,
       characterData: true,
     });
     return () => observer.disconnect();
   }, [tagColors]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) {
+      return;
+    }
+    if (!errorLocation) {
+      sourceEditorView(shell)?.dispatch({
+        effects: setEditorDiagnostic.of(null),
+      });
+      return;
+    }
+    let attempt = 0;
+    let timer = 0;
+    const reveal = () => {
+      if (
+        revealSourceLocation(
+          shell,
+          errorLocation,
+          errorNavigationRequest > 0,
+        ) ||
+        attempt >= 20
+      ) {
+        return;
+      }
+      attempt += 1;
+      timer = window.setTimeout(reveal, 30);
+    };
+    timer = window.setTimeout(reveal, 0);
+    return () => window.clearTimeout(timer);
+  }, [
+    errorLocation?.column,
+    errorLocation?.line,
+    errorNavigationRequest,
+    notePath,
+  ]);
 
   return (
     <div
@@ -415,7 +507,18 @@ export const MarkdownEditor = forwardRef<
             );
           }
         }}
-        onError={({ error }) => onError(error)}
+        onError={({ error, source }) => {
+          const diagnostic = {
+            message: error,
+            source,
+            location: locateMarkdownError(source, error),
+          };
+          if (onMarkdownError) {
+            onMarkdownError(diagnostic);
+          } else {
+            onError(error);
+          }
+        }}
       />
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
@@ -439,6 +542,68 @@ function CreateLinkPreservingSelection() {
 }
 
 const EMPTY_TAG_COLORS: TagColorMap = {};
+
+function applyHeadingAnchors(root: HTMLElement) {
+  const usedSlugs = new Set<string>();
+  for (const heading of root.querySelectorAll<HTMLElement>(
+    ".denote-editor-content h1, .denote-editor-content h2, .denote-editor-content h3, .denote-editor-content h4, .denote-editor-content h5, .denote-editor-content h6",
+  )) {
+    heading.id = nextHeadingSlug(renderedHeadingText(heading), usedSlugs);
+  }
+}
+
+function renderedHeadingText(heading: HTMLElement): string {
+  return [...heading.childNodes].map(renderedNodeText).join("");
+}
+
+function renderedNodeText(node: Node): string {
+  if (node instanceof Text) {
+    return node.data;
+  }
+  if (node instanceof HTMLImageElement) {
+    return node.alt;
+  }
+  return [...node.childNodes].map(renderedNodeText).join("");
+}
+
+function revealSourceLocation(
+  shell: HTMLElement,
+  location: MarkdownErrorLocation,
+  focus: boolean,
+): boolean {
+  const editorElement = shell.querySelector<HTMLElement>(
+    ".mdxeditor-source-editor .cm-editor",
+  );
+  const view = editorElement ? EditorView.findFromDOM(editorElement) : null;
+  if (!view) {
+    return false;
+  }
+  const line = view.state.doc.line(
+    Math.max(1, Math.min(location.line, view.state.doc.lines)),
+  );
+  const anchor = Math.min(
+    line.to,
+    line.from + Math.max(0, location.column - 1),
+  );
+  view.dispatch({
+    selection: { anchor },
+    effects: [
+      setEditorDiagnostic.of(location),
+      EditorView.scrollIntoView(anchor, { y: "center" }),
+    ],
+  });
+  if (focus) {
+    view.focus();
+  }
+  return true;
+}
+
+function sourceEditorView(shell: HTMLElement): EditorView | null {
+  const editorElement = shell.querySelector<HTMLElement>(
+    ".mdxeditor-source-editor .cm-editor",
+  );
+  return editorElement ? EditorView.findFromDOM(editorElement) : null;
+}
 
 function applyInlineTagColors(root: HTMLElement, colors: TagColorMap) {
   for (const element of root.querySelectorAll<HTMLElement>(

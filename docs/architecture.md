@@ -153,12 +153,16 @@ and yields to the webview between batches, including for individual files near
 the 10 MB search limit.
 
 The index rebuilds when a vault opens and shortly after content or file
-structure changes.
+structure changes. Search requests keep text, a location glob, and visual filter
+state separate. `*` includes every indexed document; glob matching without a
+slash targets basenames (`*.html`), while path patterns and exact relative paths
+match the full vault-relative path. Existing inline filters are merged with the
+visual filter model before result scoring and filtering.
 
 Command-F on macOS and Control-F on Windows/Linux are captured before browser or
-CodeMirror find handlers and focus the vault search field. The macOS
-Option-Command-F and Windows/Linux Control-H replace shortcuts are evaluated
-separately and remain unchanged.
+CodeMirror find handlers, set the active file as the location, and select that
+field. The macOS Option-Command-F and Windows/Linux Control-H replace shortcuts
+are evaluated separately and remain unchanged.
 
 Command-P on macOS and Control-P on Windows/Linux opens a unified command
 palette. The frontend contributes contextual action descriptors with labels,
@@ -186,6 +190,19 @@ externally after preview fail individually instead of being overwritten.
 MDXEditor provides rich single-pane Markdown editing and a source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
+
+Rendered headings receive deterministic Unicode-aware IDs; duplicates add
+numeric suffixes. Internal fragment navigation retries while a newly opened
+editor renders, highlights the rich heading when available, and otherwise
+selects the matching Markdown heading line in CodeMirror source.
+
+MDX parser messages discard their underlying positional cause, so Denote
+replays the MDX JSX/Markdown tokenizer against the reported source to recover a
+verified line and column. A stable CodeMirror StateField receives diagnostics
+without remounting the editor. Parse failures temporarily select source mode
+without writing the vault-wide preference; the error banner can scroll, select,
+and focus the marked position. Error state is keyed to the active path and is
+discarded when file navigation changes that path.
 
 The editor opts into MDXEditor's full-height flex chain so its rich-text wrapper
 owns vertical overflow. Source and plain-file CodeMirror instances keep their

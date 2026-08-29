@@ -75,6 +75,9 @@ Relative image paths stay portable.
 Links without a protocol open inside the vault relative to the current note.
 `Optional plugins.md` means a file in the same folder;
 `../assets/orbit.svg` moves up one folder and opens the image.
+Append a heading fragment to navigate inside a file:
+`Welcome.md#what-is-denote`. A fragment such as `#images-and-links` navigates
+within the current file.
 
 HTTP and HTTPS links open in the operating system browser after confirmation for
 an unknown domain. Choose **Allow domain** or **Allow all external domains**;
@@ -89,5 +92,10 @@ cancel the remaining queue.
 
 Renaming or moving a file/folder updates relative inline links, images, and
 reference definitions in eligible Markdown files.
+
+If Markdown parsing fails, the error banner identifies the line and column.
+Denote opens source mode without changing the vault preference, highlights the
+line and character, and provides **Navigate to error**. Opening another file
+clears that error.
 
 [Next: Search and replace](<Search and replace.md>)

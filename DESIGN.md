@@ -308,12 +308,24 @@ vault identity visible, and relegate the relative path to quiet metadata. Arrow
 keys skip unavailable commands; Enter runs or opens the active result. A
 file-only scope remains available without opening a second dialog.
 
+Vault search separates **Where to search** from search text. The location field
+uses compact helper copy for `*`, exact paths, and globs such as `*.html`.
+**Filters** is an ordinary disclosure button with visible state and a contained,
+scrollable form for tags, types, recency, bookmarks, filename, path, and content.
+Command-F / Control-F selects the active file path so typing immediately replaces
+the scope rather than editing it character by character.
+
 External web navigation uses a compact confirmation dialog that states the exact
 domain and full destination. The primary choices are explicit: allow that domain
 or allow all external domains. Settings show exact trusted domains as removable
 rows, or one `*` row when wildcard trust is enabled. The editor toolbar exposes
 one compact open-all action only when the active file contains browser links;
 the same trust dialog pauses and resumes its ordered queue.
+
+Recoverable editor errors use the existing danger banner with a text-labeled
+**Navigate to error** action before the dismiss control. The source editor marks
+the full failing line and underlines the precise character; anchor destinations
+use a short moss outline instead of a persistent selection color.
 
 ### Built-in Welcome Vault
 

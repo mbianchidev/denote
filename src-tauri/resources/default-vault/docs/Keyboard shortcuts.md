@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | Open command palette | `Command-P` | `Ctrl-P` |
 | Find file across vaults | Open the command palette and type a filename | Open the command palette and type a filename |
-| Search vault | `Command-F` | `Ctrl-F` |
+| Search current file | `Command-F` | `Ctrl-F` |
 | Create file | `Command-N` | `Ctrl-N` |
 | Create blank tab | `Command-T` | `Ctrl-T` |
 | Find and replace | `Option-Command-F` | `Ctrl-H` |
@@ -24,6 +24,9 @@
 The command palette lists assigned shortcuts beside their commands. Type a
 command name, category, description, keyword, or filename; use Up/Down and
 Enter to run the active result.
+
+The search shortcut selects the active file in **Where to search**. Type `*` to
+search the vault or a pattern such as `*.html` to limit file types.
 
 `Escape` hides the table of contents when it is open. The sidebar divider uses
 Left/Right arrows and Home/End. File-tree context menus use arrow keys and

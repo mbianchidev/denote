@@ -1,11 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
 import userEvent from "@testing-library/user-event";
 import { createRef, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { api } from "../lib/api";
-import { MarkdownEditor } from "./MarkdownEditor";
+import {
+  MarkdownEditor,
+  type MarkdownEditorDiagnostic,
+} from "./MarkdownEditor";
 
 describe("MarkdownEditor links", () => {
   it("routes an ordinary external-link click through the host opener", async () => {
@@ -176,6 +179,141 @@ describe("MarkdownEditor links", () => {
       }),
     ).toHaveAttribute("tabindex", "0");
     expect(onViewModeChange).not.toHaveBeenCalled();
+  });
+
+  it("reports and highlights the exact Markdown parser location", async () => {
+    const onViewModeChange = vi.fn();
+    const onMarkdownError = vi.fn();
+    const onMarkdownErrorCleared = vi.fn();
+    const editorRef = createRef<MDXEditorMethods>();
+
+    function Harness() {
+      const [diagnostic, setDiagnostic] =
+        useState<MarkdownEditorDiagnostic | null>(null);
+      return (
+        <MarkdownEditor
+          ref={editorRef}
+          notePath="broken.md"
+          markdown={"# Heading\n\n<1bad>"}
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          errorLocation={diagnostic?.location ?? undefined}
+          onChange={vi.fn()}
+          onError={vi.fn()}
+          onMarkdownError={(nextDiagnostic) => {
+            onMarkdownError(nextDiagnostic);
+            setDiagnostic(nextDiagnostic);
+          }}
+          onMarkdownErrorCleared={onMarkdownErrorCleared}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={onViewModeChange}
+          onImageUpload={vi.fn()}
+        />
+      );
+    }
+
+    const { container } = render(<Harness />);
+
+    await waitFor(() =>
+      expect(onMarkdownError).toHaveBeenCalledWith(
+        expect.objectContaining({
+          location: { line: 3, column: 2 },
+        }),
+      ),
+    );
+    await waitFor(() =>
+      expect(container.querySelector(".cm-diagnostic-line")).toHaveTextContent(
+        "<1bad>",
+      ),
+    );
+    expect(
+      screen.getByRole("radio", { name: "Source mode" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(onViewModeChange).not.toHaveBeenCalled();
+
+    act(() => editorRef.current?.setMarkdown("# Fixed"));
+    await waitFor(() => expect(onMarkdownErrorCleared).toHaveBeenCalledOnce());
+  });
+
+  it("adds stable IDs to rendered headings for anchor navigation", async () => {
+    class ImmediateImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal("Image", ImmediateImage);
+    try {
+      render(
+        <MarkdownEditor
+          notePath="note.md"
+          markdown={
+            "# What is Denote?\n\n## What is Denote?\n\n### ![Diagram](https://example.com/anchor-diagram.png)"
+          }
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={vi.fn()}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+
+      expect(await screen.findByRole("heading", { level: 1 })).toHaveAttribute(
+        "id",
+        "what-is-denote",
+      );
+      expect(screen.getByRole("heading", { level: 2 })).toHaveAttribute(
+        "id",
+        "what-is-denote-1",
+      );
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { level: 3 })).toHaveAttribute(
+          "id",
+          "diagram",
+        ),
+      );
+      screen
+        .getByRole("img", { name: "Diagram" })
+        .setAttribute("alt", "Updated diagram");
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { level: 3 })).toHaveAttribute(
+          "id",
+          "updated-diagram",
+        ),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("anchors nested rendered headings without shifting later IDs", async () => {
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"> # Quoted\n\n# Normal"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const headings = await screen.findAllByRole("heading", { level: 1 });
+    expect(headings[0]).toHaveAttribute("id", "quoted");
+    expect(headings[1]).toHaveAttribute("id", "normal");
   });
 
   it("renders repeated Markdown tags as chips with one shared vault color", async () => {

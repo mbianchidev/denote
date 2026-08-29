@@ -81,10 +81,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - SQLite stores local workspace metadata, including open, edit, and save
   counters, bookmarks, recent activity, ordering, tag color overrides, trash
   records, and revision history.
-- ZBSearch provides local full-text search with filters for tags, filename,
-  path, content, file type, bookmarks, and recency.
-- The standard Command-F / Control-F shortcut opens vault search; platform
-  replace shortcuts remain distinct.
+- ZBSearch provides local full-text search with a separate location glob and
+  visual filters for tags, filename, path, content, file type, bookmarks, and
+  recency.
+- Command-F / Control-F opens search with the active file selected in the
+  location field. `*` searches the vault and patterns such as `*.html` limit
+  results by filename; platform replace shortcuts remain distinct.
 - Command-P / Control-P opens a unified command palette containing contextual
   application actions and their assigned shortcuts. Typing a filename directly
   retains filename-only search across all known available vaults and switches
@@ -108,6 +110,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.
 - No-protocol links always resolve relative to the current file inside the vault.
+- File and same-file `#heading` fragments navigate to stable rendered heading
+  anchors or the matching Markdown source line.
 - HTTP(S) links normalize protocol case and require confirmation for unknown
   exact domains. Users can allow one domain or all domains and manage that list
   in Settings.
@@ -125,6 +129,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides
   must be turned off before mode switching.
+- Markdown parser failures expose line and column details, force a temporary
+  source fallback without changing the vault preference, highlight the failing
+  line, and provide keyboard-accessible error navigation. Errors clear when the
+  active file changes.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live

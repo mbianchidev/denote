@@ -30,6 +30,8 @@
     "@tauri-apps/plugin-opener": "^2",
     "lucide-react": "^1.37.0",
     "mdast-util-from-markdown": "^2.0.3",
+    "micromark-extension-mdx-jsx": "^3.0.2",
+    "micromark-extension-mdx-md": "^2.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zbsearch": "^4.0.0"

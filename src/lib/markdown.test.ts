@@ -7,12 +7,14 @@ import {
   directivesToCallouts,
   extractHeadings,
   extractTags,
+  findMarkdownHeadingLine,
   findMarkdownTagMatch,
   hasUnsupportedRichMarkdown,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   resolveInternalLink,
+  nextHeadingSlug,
 } from "./markdown";
 
 describe("markdown utilities", () => {
@@ -67,6 +69,41 @@ describe("markdown utilities", () => {
       { depth: 1, text: "One", slug: "one" },
       { depth: 2, text: "Two", slug: "two" },
     ]);
+  });
+
+  it("creates stable duplicate anchors and finds their source lines", () => {
+    expect(extractHeadings("# Same\n\n## Same")).toEqual([
+      { depth: 1, text: "Same", slug: "same" },
+      { depth: 2, text: "Same", slug: "same-1" },
+    ]);
+    expect(findMarkdownHeadingLine("# Same\n\n## Same", "same-1")).toBe(3);
+    expect(
+      findMarkdownHeadingLine("> # Quoted\n\n# Normal", "normal"),
+    ).toBe(3);
+    expect(
+      findMarkdownHeadingLine(":::note\nbody\n:::\n# Target", "target"),
+    ).toBe(4);
+    expect(
+      extractHeadings("# Foo\n\n## Foo\n\n### Foo-1").map(
+        (heading) => heading.slug,
+      ),
+    ).toEqual(["foo", "foo-1", "foo-1-1"]);
+    expect(extractHeadings("# [Guide](guide.md)")[0]).toMatchObject({
+      text: "Guide",
+      slug: "guide",
+    });
+    expect(extractHeadings("> # Same\n\n# Same\n\nSetext\n---")).toEqual([
+      { depth: 1, text: "Same", slug: "same" },
+      { depth: 1, text: "Same", slug: "same-1" },
+      { depth: 2, text: "Setext", slug: "setext" },
+    ]);
+  });
+
+  it("allocates globally unique heading slugs", () => {
+    const used = new Set<string>();
+    expect(nextHeadingSlug("Foo", used)).toBe("foo");
+    expect(nextHeadingSlug("Foo", used)).toBe("foo-1");
+    expect(nextHeadingSlug("Foo-1", used)).toBe("foo-1-1");
   });
 
   it("resolves relative internal links and anchors", () => {

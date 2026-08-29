@@ -1,6 +1,8 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { forceParsing, syntaxTree } from "@codemirror/language";
+import { EditorView } from "@codemirror/view";
 import {
   ArrowDown,
   ArrowLeft,
@@ -28,7 +30,6 @@ import {
   Settings2,
   ShieldCheck,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   useCallback,
@@ -46,11 +47,15 @@ import {
 } from "./components/CommandPalette";
 import { EncryptionDialog } from "./components/EncryptionDialog";
 import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
+import { ErrorBanner } from "./components/ErrorBanner";
 import { ExternalLinkDialog } from "./components/ExternalLinkDialog";
 import { FileTree } from "./components/FileTree";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
-import { MarkdownEditor } from "./components/MarkdownEditor";
+import {
+  MarkdownEditor,
+  type MarkdownEditorDiagnostic,
+} from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
@@ -73,6 +78,7 @@ import {
 import {
   extractHeadings,
   extractTags,
+  nextHeadingSlug,
   recoverMarkdownLinkTarget,
   resolveInternalLink,
   slugifyHeading,
@@ -85,7 +91,12 @@ import {
   saveMarkdownViewMode,
   type MarkdownViewMode,
 } from "./lib/markdownView";
-import { VaultSearchIndex } from "./lib/search";
+import {
+  createEmptySearchFilters,
+  VaultSearchIndex,
+  type SearchFilters,
+  type SearchRequest,
+} from "./lib/search";
 import { sourceLanguageName } from "./lib/sourceLanguage";
 import {
   applyTabSessionLayout,
@@ -177,6 +188,17 @@ interface LinkRewriteSave {
   lineEnding: EditorTab["lineEnding"];
 }
 
+interface AppErrorState {
+  message: string;
+  kind: "generic" | "markdown";
+  path?: string;
+  location?: {
+    line: number;
+    column: number;
+  };
+  navigationRequest: number;
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -189,9 +211,14 @@ function App() {
   const [activePath, setActivePath] = useState<string | null>(null);
   const [showOutline, setShowOutline] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchLocation, setSearchLocation] = useState("*");
+  const [searchFilters, setSearchFilters] = useState<SearchFilters>(() =>
+    createEmptySearchFilters(),
+  );
+  const [searchLocationFocusRequest, setSearchLocationFocusRequest] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [indexing, setIndexing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AppErrorState | null>(null);
   const [status, setStatus] = useState("Ready");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -214,12 +241,13 @@ function App() {
     opened: number;
     failed: number;
   } | null>(null);
-  const [activeWebLinkResult, setActiveWebLinkResult] = useState<{
+  const [activeDocumentAnalysis, setActiveDocumentAnalysis] = useState<{
     path: string;
     content: string;
     links: string[];
+    headings: HeadingItem[];
   } | null>(null);
-  const linkExtractionGeneration = useRef(0);
+  const documentAnalysisGeneration = useRef(0);
   const [headingNavigation, setHeadingNavigation] = useState<{
     path: string;
     anchor: string;
@@ -234,7 +262,11 @@ function App() {
   );
   const searchIndex = useRef(new VaultSearchIndex());
   const searchIndexReady = useRef(false);
-  const searchQueryRef = useRef(searchQuery);
+  const searchRequestRef = useRef<SearchRequest>({
+    query: searchQuery,
+    location: searchLocation,
+    filters: searchFilters,
+  });
   const rebuildRequest = useRef(0);
   const workspaceRefreshRequest = useRef(0);
   const queryRequest = useRef(0);
@@ -396,15 +428,6 @@ function App() {
         siblings[index + 1].pinned === selectedNode.pinned,
     };
   }, [selectedNode, workspace]);
-  const headings = useMemo(
-    () =>
-      activeFileTab &&
-      activeFileTab.kind === "markdown" &&
-      activeFileTab.encoding === "utf8"
-        ? extractHeadings(activeFileTab.content)
-        : [],
-    [activeFileTab],
-  );
   const tags = useMemo(
     () =>
       activeFileTab &&
@@ -414,15 +437,20 @@ function App() {
         : [],
     [activeFileTab],
   );
-  const activeWebLinks =
+  const analysisMatchesActiveFile =
     activeFileTab &&
-    activeWebLinkResult?.path === activeFileTab.path &&
-    activeWebLinkResult.content === activeFileTab.content
-      ? activeWebLinkResult.links
+    activeDocumentAnalysis?.path === activeFileTab.path &&
+    activeDocumentAnalysis.content === activeFileTab.content;
+  const headings =
+    analysisMatchesActiveFile && activeFileTab.kind === "markdown"
+      ? activeDocumentAnalysis.headings
       : [];
+  const activeWebLinks = analysisMatchesActiveFile
+    ? activeDocumentAnalysis.links
+    : [];
   useEffect(() => {
-    const generation = ++linkExtractionGeneration.current;
-    setActiveWebLinkResult(null);
+    const generation = ++documentAnalysisGeneration.current;
+    setActiveDocumentAnalysis(null);
     if (!activeFileTab || activeFileTab.encoding !== "utf8") {
       return;
     }
@@ -435,11 +463,15 @@ function App() {
           { type: "module" },
         );
         worker.onmessage = (
-          event: MessageEvent<{ links?: string[]; error?: string }>,
+          event: MessageEvent<{
+            links?: string[];
+            headings?: HeadingItem[];
+            error?: string;
+          }>,
         ) => {
           worker?.terminate();
           worker = null;
-          if (generation !== linkExtractionGeneration.current) {
+          if (generation !== documentAnalysisGeneration.current) {
             return;
           }
           if (event.data.error) {
@@ -448,16 +480,17 @@ function App() {
             );
             return;
           }
-          setActiveWebLinkResult({
+          setActiveDocumentAnalysis({
             path: activeFileTab.path,
             content: activeFileTab.content,
             links: event.data.links ?? [],
+            headings: event.data.headings ?? [],
           });
         };
         worker.onerror = (event) => {
           worker?.terminate();
           worker = null;
-          if (generation !== linkExtractionGeneration.current) {
+          if (generation !== documentAnalysisGeneration.current) {
             return;
           }
           console.error(
@@ -474,8 +507,8 @@ function App() {
     }, 200);
 
     return () => {
-      if (generation === linkExtractionGeneration.current) {
-        linkExtractionGeneration.current += 1;
+      if (generation === documentAnalysisGeneration.current) {
+        documentAnalysisGeneration.current += 1;
       }
       window.clearTimeout(timer);
       worker?.terminate();
@@ -496,8 +529,35 @@ function App() {
 
   const showError = useCallback((value: unknown) => {
     const message = errorMessage(value);
-    setError(message);
+    setError({
+      message,
+      kind: "generic",
+      navigationRequest: 0,
+    });
     setStatus("Action failed");
+  }, []);
+
+  const showMarkdownError = useCallback(
+    (path: string, diagnostic: MarkdownEditorDiagnostic) => {
+      const location = diagnostic.location ?? undefined;
+      setError({
+        message: location
+          ? `Line ${location.line}, column ${location.column}: ${diagnostic.message}`
+          : diagnostic.message,
+        kind: "markdown",
+        path,
+        location,
+        navigationRequest: 0,
+      });
+      setStatus("Markdown error");
+    },
+    [],
+  );
+
+  const clearMarkdownError = useCallback((path: string) => {
+    setError((current) =>
+      current?.kind === "markdown" && current.path === path ? null : current,
+    );
   }, []);
 
   const updateEditorDisplaySettings = useCallback(
@@ -706,12 +766,12 @@ function App() {
         }
         searchIndex.current = nextIndex;
         searchIndexReady.current = true;
-        const query = searchQueryRef.current;
-        const results = await nextIndex.query(query);
+        const searchRequest = searchRequestRef.current;
+        const results = await nextIndex.query(searchRequest);
         if (
           generation === vaultGeneration.current &&
           request === rebuildRequest.current &&
-          query === searchQueryRef.current
+          searchRequest === searchRequestRef.current
         ) {
           setSearchResults(results);
           if (batch.skippedCount > 0 || batch.truncated) {
@@ -916,11 +976,13 @@ function App() {
   }, [theme]);
 
   useEffect(() => {
-    searchQueryRef.current = searchQuery;
-  }, [searchQuery]);
+    activePathRef.current = activePath;
+  }, [activePath]);
 
   useEffect(() => {
-    activePathRef.current = activePath;
+    setError((current) =>
+      current?.path && current.path !== activePath ? null : current,
+    );
   }, [activePath]);
 
   const activateTab = useCallback((path: string) => {
@@ -987,16 +1049,28 @@ function App() {
   useEffect(() => {
     let cancelled = false;
     const request = ++queryRequest.current;
+    const searchRequest: SearchRequest = {
+      query: searchQuery,
+      location: searchLocation,
+      filters: searchFilters,
+    };
+    searchRequestRef.current = searchRequest;
     void (async () => {
-      const results = await searchIndex.current.query(searchQuery);
-      if (!cancelled && request === queryRequest.current) {
+      const index = searchIndex.current;
+      const results = await index.query(searchRequest);
+      if (
+        !cancelled &&
+        request === queryRequest.current &&
+        searchRequest === searchRequestRef.current &&
+        index === searchIndex.current
+      ) {
         setSearchResults(results);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [searchQuery]);
+  }, [searchFilters, searchLocation, searchQuery]);
 
   const chooseVault = useCallback(async () => {
     if (workspaceLockedRef.current) {
@@ -3530,21 +3604,82 @@ function App() {
     ],
   );
 
+  const revealHeading = useCallback(
+    (anchor: string): boolean => {
+      const slug = slugifyHeading(anchor);
+      const sourceEditorElement = document.querySelector<HTMLElement>(
+        ".editor-pane .mdxeditor-source-editor .cm-editor",
+      );
+      const sourceView = sourceEditorElement
+        ? EditorView.findFromDOM(sourceEditorElement)
+        : null;
+      if (
+        sourceView &&
+        activeFileTab?.kind === "markdown" &&
+        activeFileTab.encoding === "utf8"
+      ) {
+        const range = sourceHeadingRange(sourceView, slug);
+        if (!range) {
+          return false;
+        }
+        sourceView.dispatch({
+          selection: { anchor: range.from, head: range.to },
+          effects: EditorView.scrollIntoView(range.from, { y: "center" }),
+        });
+        sourceView.focus();
+        return true;
+      }
+      const candidates = document.querySelectorAll<HTMLElement>(
+        ".denote-editor-content h1, .denote-editor-content h2, .denote-editor-content h3, .denote-editor-content h4, .denote-editor-content h5, .denote-editor-content h6",
+      );
+      const target = [...candidates].find(
+        (element) =>
+          element.closest<HTMLElement>(".mdxeditor-rich-text-editor")?.style
+            .display !== "none" &&
+          (element.id === slug ||
+            slugifyHeading(element.textContent ?? "") === slug),
+      );
+      if (target) {
+        const previousTabIndex = target.getAttribute("tabindex");
+        target.tabIndex = -1;
+        target.classList.add("denote-heading-target");
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        target.focus({ preventScroll: true });
+        window.setTimeout(() => {
+          target.classList.remove("denote-heading-target");
+          if (previousTabIndex === null) {
+            target.removeAttribute("tabindex");
+          } else {
+            target.setAttribute("tabindex", previousTabIndex);
+          }
+        }, 1_600);
+        return true;
+      }
+      return false;
+    },
+    [activeFileTab],
+  );
+
   const navigateToHeading = useCallback((heading: HeadingItem) => {
-    const candidates = document.querySelectorAll<HTMLElement>(
-      ".denote-editor-content h1, .denote-editor-content h2, .denote-editor-content h3, .denote-editor-content h4, .denote-editor-content h5, .denote-editor-content h6",
-    );
-    const target = [...candidates].find(
-      (element) => slugifyHeading(element.textContent ?? "") === heading.slug,
-    );
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, []);
+    if (activePath) {
+      setHeadingNavigation({ path: activePath, anchor: heading.slug });
+    }
+  }, [activePath]);
 
   const focusVaultSearch = useCallback(() => {
+    setSearchLocation(activeFileTab?.path ?? "*");
     setSidebarView("search");
-    window.setTimeout(
-      () => document.querySelector<HTMLInputElement>(".search-box input")?.focus(),
-      0,
+    setSearchLocationFocusRequest((current) => current + 1);
+  }, [activeFileTab?.path]);
+
+  const navigateToEditorError = useCallback(() => {
+    setError((current) =>
+      current?.location
+        ? {
+            ...current,
+            navigationRequest: current.navigationRequest + 1,
+          }
+        : current,
     );
   }, []);
 
@@ -3556,18 +3691,28 @@ function App() {
       setHeadingNavigation(null);
       return;
     }
-    const timer = window.setTimeout(() => {
-      navigateToHeading({
-        depth: 1,
-        text: headingNavigation.anchor,
-        slug: slugifyHeading(headingNavigation.anchor),
-      });
-      setHeadingNavigation((current) =>
-        current === headingNavigation ? null : current,
-      );
-    }, 80);
+    let attempt = 0;
+    let timer = 0;
+    const navigate = () => {
+      if (revealHeading(headingNavigation.anchor)) {
+        setHeadingNavigation((current) =>
+          current === headingNavigation ? null : current,
+        );
+        return;
+      }
+      if (attempt >= 200) {
+        setHeadingNavigation((current) =>
+          current === headingNavigation ? null : current,
+        );
+        showError(`Heading not found: #${headingNavigation.anchor}`);
+        return;
+      }
+      attempt += 1;
+      timer = window.setTimeout(navigate, 50);
+    };
+    timer = window.setTimeout(navigate, 0);
     return () => window.clearTimeout(timer);
-  }, [activePath, headingNavigation, navigateToHeading]);
+  }, [activePath, headingNavigation, revealHeading, showError]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -3761,8 +3906,8 @@ function App() {
     },
     {
       id: "vault.search",
-      title: "Search current vault",
-      description: "Search note contents, tags, names, and metadata.",
+      title: "Search current file",
+      description: "Open search with the active file selected as its location.",
       category: "Navigation",
       shortcut: `${commandKey}F`,
       disabled: !workspaceReady,
@@ -3805,7 +3950,7 @@ function App() {
       description: "Open and focus the search sidebar.",
       category: "View",
       disabled: !workspaceReady,
-      run: focusVaultSearch,
+      run: () => setSidebarView("search"),
     },
     {
       id: "view.bookmarks",
@@ -4241,6 +4386,17 @@ function App() {
       onClose={() => setCommandPaletteOpen(false)}
     />
   );
+  const errorBanner = (
+    <ErrorBanner
+      message={error?.message ?? null}
+      onDismiss={() => setError(null)}
+      onNavigate={
+        error?.location && error.path === activePath
+          ? navigateToEditorError
+          : undefined
+      }
+    />
+  );
 
   if (!workspace) {
     return (
@@ -4250,19 +4406,7 @@ function App() {
           aria-hidden="true"
           dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
         />
-        {error ? (
-          <div className="error-banner" role="alert">
-            <span>{error}</span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Dismiss error"
-              onClick={() => setError(null)}
-            >
-              <X aria-hidden="true" size={16} />
-            </button>
-          </div>
-        ) : null}
+        {errorBanner}
         <Welcome
           loading={initializing}
           onChooseVault={chooseVault}
@@ -4282,19 +4426,7 @@ function App() {
           aria-hidden="true"
           dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
         />
-        {error ? (
-          <div className="error-banner" role="alert">
-            <span>{error}</span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Dismiss error"
-              onClick={() => setError(null)}
-            >
-              <X aria-hidden="true" size={16} />
-            </button>
-          </div>
-        ) : null}
+        {errorBanner}
         <VaultUnlockScreen
           vaultName={workspace.vaultName}
           theme={theme}
@@ -4511,10 +4643,15 @@ function App() {
         ) : sidebarView === "search" ? (
           <SearchPanel
             query={searchQuery}
+            location={searchLocation}
+            filters={searchFilters}
+            focusLocationRequest={searchLocationFocusRequest}
             results={searchResults}
             searching={indexing}
             tagColors={tagColorMap}
             onQueryChange={setSearchQuery}
+            onLocationChange={setSearchLocation}
+            onFiltersChange={setSearchFilters}
             onOpenResult={(path) => void openFile(path)}
           />
         ) : sidebarView === "bookmarks" ? (
@@ -4788,19 +4925,7 @@ function App() {
             </button>
           </div>
         </header>
-        {error ? (
-          <div className="error-banner" role="alert">
-            <span>{error}</span>
-            <button
-              type="button"
-              className="icon-button"
-              aria-label="Dismiss error"
-              onClick={() => setError(null)}
-            >
-              <X aria-hidden="true" size={16} />
-            </button>
-          </div>
-        ) : null}
+        {errorBanner}
         <div className="editor-layout">
           <main className="editor-pane">
             {activeTab?.placeholder ? (
@@ -4830,9 +4955,25 @@ function App() {
                     displaySettings={editorDisplaySettings}
                     preferredViewMode={markdownViewMode}
                     readOnly={workspaceLocked}
+                    errorLocation={
+                      error?.path === activeFileTab.path
+                        ? error.location
+                        : undefined
+                    }
+                    errorNavigationRequest={
+                      error?.path === activeFileTab.path
+                        ? error.navigationRequest
+                        : 0
+                    }
                     tagColors={tagColorMap}
                     onChange={changeActiveContent}
                     onError={showError}
+                    onMarkdownError={(diagnostic) =>
+                      showMarkdownError(activeFileTab.path, diagnostic)
+                    }
+                    onMarkdownErrorCleared={() =>
+                      clearMarkdownError(activeFileTab.path)
+                    }
                     onLinkOpen={(href, text) => void openLink(href, text)}
                     onViewModeChange={updateMarkdownViewMode}
                     onImageUpload={uploadAttachment}
@@ -4877,7 +5018,12 @@ function App() {
                         key={tag}
                         onActivate={() => {
                           setSidebarView("search");
-                          setSearchQuery(`tag:${tag}`);
+                          setSearchLocation("*");
+                          setSearchQuery("");
+                          setSearchFilters({
+                            ...createEmptySearchFilters(),
+                            tags: [tag],
+                          });
                         }}
                         onColorChange={(changedTag, color) =>
                           void updateTagColor(changedTag, color)
@@ -5178,3 +5324,32 @@ function formatRelativeDate(value: string): string {
 }
 
 export default App;
+
+function sourceHeadingRange(
+  view: EditorView,
+  targetSlug: string,
+): { from: number; to: number } | null {
+  forceParsing(view, view.state.doc.length, 20);
+  const ranges: Array<{ from: number; to: number }> = [];
+  syntaxTree(view.state).iterate({
+    enter(node) {
+      if (/^(?:ATXHeading|SetextHeading)/.test(node.name)) {
+        ranges.push({ from: node.from, to: node.to });
+        return false;
+      }
+    },
+  });
+  const usedSlugs = new Set<string>();
+  for (const range of ranges) {
+    const heading = extractHeadings(
+      view.state.doc.sliceString(range.from, range.to),
+    )[0];
+    if (
+      heading &&
+      nextHeadingSlug(heading.text, usedSlugs) === targetSlug
+    ) {
+      return range;
+    }
+  }
+  return null;
+}
