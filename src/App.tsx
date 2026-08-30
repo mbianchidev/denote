@@ -6349,6 +6349,7 @@ function App() {
         onClearExternalDomains={clearExternalDomains}
         onEnablePlugin={pluginController.enable}
         onDisablePlugin={pluginController.disable}
+        onDisableAllPlugins={pluginController.disableAll}
         onClearPluginData={pluginController.clearData}
         onClearPluginCredentials={pluginController.clearCredentials}
         onUpdatePluginSettings={pluginController.updateSettings}

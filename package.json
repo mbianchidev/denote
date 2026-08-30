@@ -14,6 +14,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "build:plugins": "tsx scripts/build-plugins.ts",
+    "create:plugin": "tsx scripts/create-plugin.ts",
     "package:plugins": "npm run build:plugins && tsx scripts/package-plugins.ts",
     "preview": "vite preview",
     "test": "vitest run",

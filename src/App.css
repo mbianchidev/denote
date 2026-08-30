@@ -2685,6 +2685,13 @@ kbd {
   font-size: 14px;
 }
 
+.plugin-settings__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .plugin-settings__header p {
   margin-top: 4px;
   color: var(--text-secondary);

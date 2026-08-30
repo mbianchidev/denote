@@ -32,8 +32,18 @@ npm run check:plugins
 Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must
 not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
-`packages/plugins/reference/` as the contract example; it is not bundled into
+`packages/plugins/denote.reference/` as the contract example; it is not bundled into
 the Denote application.
+
+Create a complete package skeleton and draft catalog entry with:
+
+```bash
+npm run create:plugin -- denote.example "Example plugin" productivity
+```
+
+The scaffold includes the manifest, required guide sections, icon, package
+metadata, and SDK entrypoint. Implement and test it entirely inside that folder
+before packaging.
 
 Build the independently downloadable plugin artifacts and update catalog
 integrity metadata with:

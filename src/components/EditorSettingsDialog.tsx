@@ -26,6 +26,7 @@ interface EditorSettingsDialogProps {
   onClearExternalDomains: () => void;
   onEnablePlugin: (pluginId: string, permissions: string[]) => Promise<void>;
   onDisablePlugin: (pluginId: string) => Promise<void>;
+  onDisableAllPlugins: () => Promise<void>;
   onClearPluginData: (pluginId: string) => Promise<void>;
   onClearPluginCredentials: (pluginId: string) => Promise<void>;
   onUpdatePluginSettings: (
@@ -52,6 +53,7 @@ export function EditorSettingsDialog({
   onClearExternalDomains,
   onEnablePlugin,
   onDisablePlugin,
+  onDisableAllPlugins,
   onClearPluginData,
   onClearPluginCredentials,
   onUpdatePluginSettings,
@@ -328,6 +330,7 @@ export function EditorSettingsDialog({
           busyPluginIds={busyPluginIds}
           onEnable={onEnablePlugin}
           onDisable={onDisablePlugin}
+          onDisableAll={onDisableAllPlugins}
           onClearData={onClearPluginData}
           onClearCredentials={onClearPluginCredentials}
           onUpdateSettings={onUpdatePluginSettings}

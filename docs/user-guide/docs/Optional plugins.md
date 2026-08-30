@@ -16,6 +16,10 @@ downloaded executable package. It never deletes notes or other user-authored
 content. Plugin settings, generated data, and saved credentials have separate,
 clearly described cleanup controls.
 
+If a plugin is behaving badly, use **Disable all plugins** in the same settings
+section. The editor remains usable while plugin workers start, and a crashing
+plugin is stopped and removed automatically.
+
 Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
 keychain. Plugins cannot read Denote credentials or another plugin's entries.

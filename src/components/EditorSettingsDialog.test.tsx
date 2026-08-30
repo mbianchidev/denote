@@ -10,6 +10,7 @@ const pluginProps = {
   busyPluginIds: new Set<string>(),
   onEnablePlugin: vi.fn(),
   onDisablePlugin: vi.fn(),
+  onDisableAllPlugins: vi.fn(),
   onClearPluginData: vi.fn(),
   onClearPluginCredentials: vi.fn(),
   onUpdatePluginSettings: vi.fn(),

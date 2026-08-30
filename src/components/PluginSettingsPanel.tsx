@@ -40,6 +40,7 @@ interface PluginSettingsPanelProps {
   busyPluginIds: ReadonlySet<string>;
   onEnable: (pluginId: string, permissions: string[]) => Promise<void>;
   onDisable: (pluginId: string) => Promise<void>;
+  onDisableAll: () => Promise<void>;
   onClearData: (pluginId: string) => Promise<void>;
   onClearCredentials: (pluginId: string) => Promise<void>;
   onUpdateSettings: (
@@ -55,6 +56,7 @@ export function PluginSettingsPanel({
   busyPluginIds,
   onEnable,
   onDisable,
+  onDisableAll,
   onClearData,
   onClearCredentials,
   onUpdateSettings,
@@ -143,6 +145,15 @@ export function PluginSettingsPanel({
             enable it. Disabling stops the plugin and deletes its package.
           </p>
         </div>
+        {plugins.some((plugin) => plugin.enabled) ? (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void onDisableAll().catch(onError)}
+          >
+            Disable all plugins
+          </button>
+        ) : null}
       </header>
 
       <div className="plugin-settings__filters">

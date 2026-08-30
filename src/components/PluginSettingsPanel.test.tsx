@@ -32,6 +32,7 @@ function props(overrides: Partial<Parameters<typeof PluginSettingsPanel>[0]> = {
     busyPluginIds: new Set<string>(),
     onEnable: vi.fn().mockResolvedValue(undefined),
     onDisable: vi.fn().mockResolvedValue(undefined),
+    onDisableAll: vi.fn().mockResolvedValue(undefined),
     onClearData: vi.fn().mockResolvedValue(undefined),
     onClearCredentials: vi.fn().mockResolvedValue(undefined),
     onUpdateSettings: vi.fn().mockResolvedValue(undefined),
@@ -105,6 +106,25 @@ describe("PluginSettingsPanel", () => {
     await user.click(screen.getByRole("button", { name: "Delete saved data" }));
     await user.click(screen.getByRole("button", { name: "Delete data" }));
     expect(onClearData).toHaveBeenCalledWith("denote.reference");
+  });
+
+  it("offers a recovery action that disables every active plugin", async () => {
+    const user = userEvent.setup();
+    const onDisableAll = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [plugin({ enabled: true, status: "enabled" })],
+          onDisableAll,
+        })}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Disable all plugins" }),
+    );
+
+    expect(onDisableAll).toHaveBeenCalledOnce();
   });
 
   it("exposes the in-app usage guide before enablement", async () => {

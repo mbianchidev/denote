@@ -510,11 +510,15 @@ impl PluginManager {
                 self.save_state(&state)?;
             } else if enabled.contains(plugin_id) {
                 if !self.install_dir(catalog).is_dir() {
+                    if plugin_root.exists() {
+                        self.remove_package(plugin_id)?;
+                    }
                     let mut state = self.state()?;
                     state.enabled.remove(plugin_id);
                     state.errors.insert(
                         plugin_id.clone(),
-                        "Enabled plugin package is missing and must be enabled again.".to_string(),
+                        "The catalog version changed or the package is missing. Review permissions and enable the plugin again."
+                            .to_string(),
                     );
                     self.save_state(&state)?;
                 }
@@ -1368,5 +1372,65 @@ mod tests {
                 .and_then(|storage| storage.get("value")),
             Some(&Value::String("kept".to_string()))
         );
+    }
+
+    #[test]
+    fn catalog_version_change_disables_plugin_and_removes_old_code() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let catalog = catalog();
+        let manager = manager(catalog.clone(), &data, &cache);
+        let old_package = manager
+            .plugin_root(&catalog.manifest.id)
+            .join("0.0.9")
+            .join("dist");
+        fs::create_dir_all(&old_package).expect("old package");
+        fs::write(old_package.join("index.js"), "old code").expect("old code");
+        manager
+            .state()
+            .expect("state")
+            .enabled
+            .insert(catalog.manifest.id.clone());
+
+        manager.reconcile_packages().expect("reconcile");
+
+        let state = manager.state().expect("state");
+        assert!(!state.enabled.contains(&catalog.manifest.id));
+        assert!(state.errors.contains_key(&catalog.manifest.id));
+        assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+    }
+
+    #[test]
+    fn rejects_link_entries_in_plugin_archives() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let mut catalog = catalog();
+        let encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut builder = Builder::new(encoder);
+        let manifest = serde_json::to_vec(&catalog.manifest).expect("manifest");
+        append(&mut builder, "plugin.json", &manifest);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header.set_size(0);
+        header.set_mode(0o777);
+        header.set_cksum();
+        builder
+            .append_link(&mut header, "dist/index.js", "../../outside")
+            .expect("link");
+        let bytes = builder
+            .into_inner()
+            .expect("archive")
+            .finish()
+            .expect("gzip");
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+
+        let error = manager
+            .install_package(&catalog, &bytes)
+            .expect_err("link archive");
+
+        assert!(error.to_string().contains("cannot contain links"));
+        assert!(!manager.install_dir(&catalog).exists());
     }
 }

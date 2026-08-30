@@ -26,7 +26,7 @@ Every plugin contains:
 Run `npm run check:plugins` to validate manifests, required documentation,
 package layout, declared runtime dependencies, type safety, import boundaries,
 and the real `dist/` entrypoint produced for each package. The reference package
-at `packages/plugins/reference/` exercises this contract without adding a
+at `packages/plugins/denote.reference/` exercises this contract without adding a
 production feature.
 
 ## Host lifecycle
@@ -63,6 +63,15 @@ cleanup. Permissions must be approved before download. Permission tokens include
 their complete manifest payload, so network-host or other permission changes
 require approval again.
 
+The manager also provides **Disable all plugins** as a recovery action. Plugin
+workers start after the core editor is usable, activation is time-limited, and a
+worker crash automatically terminates that runtime and removes its package.
+
+Catalog version changes never execute an old package under new metadata. On the
+next Denote start, the old package is removed and the plugin is disabled with an
+actionable message. Re-enabling downloads the new artifact and requires approval
+of its complete permission payload.
+
 Downloaded JavaScript runs in a dedicated module worker created from the
 verified package. The worker has no DOM or Tauri API object. Its host bridge
 exposes only approved services, plugin-scoped state, keychain access, and
@@ -98,3 +107,38 @@ committing.
 The repository reference plugin is the end-to-end fixture. Its independently
 downloadable artifact is stored under `plugin-artifacts/`, while only catalog
 metadata enters the desktop bundle.
+
+## Publication and governance
+
+The initial catalog is first-party only. A plugin artifact is publishable when:
+
+- its source is contained in one `packages/plugins/<plugin-id>/` directory;
+- manifest, guide, package, type, import-boundary, and artifact checks pass;
+- frontend and native tests pass on macOS, Windows, and Linux;
+- dependency review reports no unresolved high-severity vulnerability;
+- the committed archive exactly matches built source;
+- its catalog entry pins an immutable repository commit and SHA-256 digest;
+- requested permissions are minimal and accurately explained in the guide;
+- accessibility, privacy, failure, disablement, and data-cleanup behavior are
+  reviewed by a Denote maintainer.
+
+`@denote/plugin-sdk` follows semantic versioning. Additive compatible changes
+retain the API major version. Breaking context, manifest, lifecycle, or
+capability changes increment `compatibility.apiVersion`, document migration,
+and keep the prior host contract for a stated deprecation window before removal.
+
+A vulnerable or compromised artifact is removed from its hosting ref when
+possible, recorded in the plugin issue, and blocked in the next catalog update.
+Already installed packages with missing, changed, or incompatible catalog
+metadata are disabled and deleted at startup. Third-party publishers remain out
+of scope until publisher signing and a remotely enforceable revocation channel
+are designed and reviewed.
+
+Plugins do not receive telemetry APIs by default. Any future telemetry
+capability must be separately permissioned, disclosed in the guide, honor
+Denote's global privacy settings, avoid note content and secrets, and remain off
+until the user opts in.
+
+Plugin proposals use `.github/ISSUE_TEMPLATE/plugin.yml`. The host API, SDK,
+catalog, and native installer require maintainer review; each plugin owns its
+manifest, guide, tests, artifact, migrations, and support lifecycle.

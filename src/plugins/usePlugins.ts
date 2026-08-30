@@ -14,6 +14,7 @@ export interface PluginController {
   refresh: () => Promise<void>;
   enable: (pluginId: string, approvedPermissions: string[]) => Promise<void>;
   disable: (pluginId: string) => Promise<void>;
+  disableAll: () => Promise<void>;
   clearData: (pluginId: string) => Promise<void>;
   clearCredentials: (pluginId: string) => Promise<void>;
   updateSettings: (
@@ -165,6 +166,19 @@ export function usePlugins(
     [refresh, withBusy],
   );
 
+  const disableAll = useCallback(async () => {
+    const runtime = runtimeRef.current;
+    if (runtime) {
+      await runtime.stopAll().catch(reportError);
+    }
+    for (const plugin of plugins) {
+      if (plugin.enabled) {
+        await api.disablePlugin(plugin.catalog.manifest.id);
+      }
+    }
+    await refresh();
+  }, [plugins, refresh, reportError]);
+
   const clearCredentials = useCallback(
     async (pluginId: string) => {
       await withBusy(pluginId, async () => {
@@ -204,6 +218,7 @@ export function usePlugins(
     refresh,
     enable,
     disable,
+    disableAll,
     clearData,
     clearCredentials,
     updateSettings,
