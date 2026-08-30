@@ -1,8 +1,8 @@
 # Writing and formatting
 
-Markdown files use a rich editor in each pane. Files containing MDX, raw HTML,
-footnotes, math, or reference definitions stay in source mode so Denote cannot
-silently rewrite unsupported syntax.
+Markdown files use a rich editor in each pane. Files containing MDX, unsupported
+raw HTML, footnotes, math, or reference definitions stay in source mode so
+Denote cannot silently rewrite unsupported syntax.
 
 ## Common Markdown
 
@@ -26,6 +26,23 @@ be a link; nested link-only lists are supported. Denote preserves those markers
 after Rich edits and when switching to Source. Other HTML comments remain
 locked to source mode. A line containing `---` renders as a full-width thematic
 separator.
+
+Well-formed disclosure sections are the supported raw HTML exception. Put
+`<details>` and `</details>` on their own lines, followed immediately by one
+plain `<summary>` line. Markdown inside the expanded section renders normally.
+
+```markdown
+<details>
+<summary>Show the example</summary>
+
+This can include **Markdown**, lists, links, and code.
+
+</details>
+```
+
+Add `open` as the only supported attribute when the section should start
+expanded: `<details open>`. Other attributes, nested raw HTML, and malformed
+disclosure blocks stay in source mode.
 
 ````markdown
 <!-- toc -->

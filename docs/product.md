@@ -70,6 +70,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Markdown lists render as tables of contents in Rich mode while
   retaining their generator markers through Rich and Source edits. Other
   comments remain locked to source mode.
+- Well-formed `<details>` blocks with a plain `<summary>` line render as native,
+  keyboard-operable disclosure sections while preserving Markdown content
+  inside. Other raw HTML remains source-only.
 - Markdown thematic breaks render as consistent full-width document separators.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.

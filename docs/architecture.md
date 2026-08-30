@@ -217,12 +217,16 @@ Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
-For `.md`, MDXEditor's HTML/JSX processing is suppressed so CommonMark/GFM owns
-autolinks, indented code, raw HTML, comparisons, hearts, and placeholders. A
-high-priority standard-HTML visitor imports HTML tokens as literal text and
-inherits surrounding formatting; canonical TOC comments remain structural
-markers. Serializer escapes are reconciled against the previous source only
-after Rich edits. Unsupported raw HTML remains locked to lossless source mode.
+For `.md`, MDXEditor's HTML/JSX processing is normally suppressed so
+CommonMark/GFM owns autolinks, indented code, raw HTML, comparisons, hearts, and
+placeholders. A high-priority standard-HTML visitor imports HTML tokens as
+literal text and inherits surrounding formatting; canonical TOC comments remain
+structural markers. Well-formed top-level `<details>` blocks are the restricted
+exception: Denote validates the exact `details`/`summary` tag shape, escapes
+unrelated angle syntax, and enables MDXEditor's native generic HTML nodes for
+that document. Attributes other than boolean `open`, nested raw HTML, malformed
+blocks, and other raw HTML remain locked to lossless source mode. Serializer
+escapes are reconciled against the previous source only after Rich edits.
 `.mdx` and `.jsx` bypass the rich editor and use non-executing JSX-highlighted
 source editing.
 

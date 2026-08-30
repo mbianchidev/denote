@@ -86,6 +86,7 @@ more detail and examples.
   Markdown text; keep `.mdx` and `.jsx` as non-executing JSX-highlighted source.
 - Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists as tables of
   contents and preserve their generator markers across Rich and Source edits.
+- Render safe `<details>` / `<summary>` disclosure blocks with Markdown content.
 - Render `>![info]`, `>![warning]`, and `>![danger]` as callout boxes.
 - Copy rich-mode fenced code blocks from their inline **Copy** button.
 - Highlight supported programming and markup files by filename in the source
@@ -94,8 +95,8 @@ more detail and examples.
   C#, Go, Python, Ruby, Kotlin, Swift, Scala, shells, web, data, and config
   languages.
 - Preserve mixed Unicode scripts and emoji in one file.
-- Open unsupported rich syntax such as MDX, raw HTML, footnotes, math, reference
-  definitions, and escaped hashtags in locked source mode for safety.
+- Open unsupported rich syntax such as MDX, other raw HTML, footnotes, math,
+  reference definitions, and escaped hashtags in locked source mode for safety.
 - Report Markdown parser line/column details, highlight the failing source
   position, and expose **Navigate to error** without changing the saved mode.
 

@@ -784,6 +784,162 @@ describe("MarkdownEditor links", () => {
     expect(sourceView ? undo(sourceView) : true).toBe(false);
   });
 
+  it("renders details and summary elements with Markdown content", async () => {
+    const editorRef = createRef<MDXEditorMethods>();
+    const { container } = render(
+      <MarkdownEditor
+        ref={editorRef}
+        notePath="details.md"
+        markdown={
+          "<details>\n<summary>More information</summary>\n\nHidden **Markdown** content.\n\n</details>"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const details = await waitFor(() => {
+      const element = container.querySelector("details");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(details.querySelector("summary")).toHaveTextContent(
+      "More information",
+    );
+    expect(details.firstElementChild?.tagName).toBe("SUMMARY");
+    await userEvent.click(details.querySelector("summary")!);
+    expect(details).toHaveAttribute("open");
+    expect(details.querySelector("strong")).toHaveTextContent("Markdown");
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(editorRef.current?.getMarkdown()).toContain("<details>");
+    expect(editorRef.current?.getMarkdown()).toContain("<summary>");
+  });
+
+  it("keeps serialized details in rich mode after a controlled update", async () => {
+    const props = {
+      notePath: "details.md",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor
+        {...props}
+        markdown={
+          "<details>\n<summary>More information</summary>\n\nHidden **Markdown**.\n\n</details>"
+        }
+      />,
+    );
+
+    rerender(
+      <MarkdownEditor
+        {...props}
+        markdown={
+          "<details>\n  <summary>\n    More information\n  </summary>\n\n  Hidden **Markdown**.\n</details>"
+        }
+      />,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector("details")).not.toBeNull(),
+    );
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("reinitializes HTML support when details are added", async () => {
+    const user = userEvent.setup();
+    const props = {
+      notePath: "details.md",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor {...props} markdown="Plain text" />,
+    );
+
+    await user.click(
+      await screen.findByRole("radio", { name: "Source mode" }),
+    );
+    const sourceEditor = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const sourceView = EditorView.findFromDOM(sourceEditor)!;
+    sourceView.focus();
+    rerender(
+      <MarkdownEditor
+        {...props}
+        markdown={
+          "<details>\n<summary>New disclosure</summary>\n\nHidden.\n\n</details>"
+        }
+      />,
+    );
+
+    expect(
+      await screen.findByRole("radio", { name: "Source mode" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(container.querySelector(".cm-editor")).toBe(sourceEditor);
+    expect(sourceView.hasFocus).toBe(true);
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    await waitFor(() =>
+      expect(container.querySelector("details")).not.toBeNull(),
+    );
+  });
+
+  it("keeps mixed details and unsupported HTML syntax in source mode", async () => {
+    const onMarkdownError = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="mixed-details.md"
+        markdown={
+          "<details>\n<summary>Links</summary>\n\n<https://example.com>\n\n</details>"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onMarkdownError={onMarkdownError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Source mode locked for source-only Markdown syntax",
+      }),
+    ).toBeInTheDocument();
+    expect(onMarkdownError).not.toHaveBeenCalled();
+  });
+
   it("renders indented generated TOCs and thematic breaks in rich mode", async () => {
     const { container } = render(
       <MarkdownEditor

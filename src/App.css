@@ -1019,6 +1019,39 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
+.denote-editor-content details {
+  margin: 1.35em 0;
+  overflow: hidden;
+  background: var(--editor-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.denote-editor-content summary {
+  padding: 9px 12px;
+  color: var(--text-primary);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.denote-editor-content summary:focus-visible {
+  outline-offset: -3px;
+}
+
+.denote-editor-content summary > p {
+  display: inline;
+  margin: 0;
+}
+
+.denote-editor-content details[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.denote-editor-content details > :not(summary) {
+  margin-right: 14px;
+  margin-left: 14px;
+}
+
 .denote-editor-content h1,
 .denote-editor-content h2,
 .denote-editor-content h3,

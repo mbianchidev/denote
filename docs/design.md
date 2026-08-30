@@ -360,6 +360,13 @@ Canonical comment-delimited TOCs render as tables of contents with ordinary
 nested links. Marker comments stay invisible in Rich mode but remain present in
 Source and saved Markdown. Other comments do not receive this exception.
 
+### Disclosure sections
+
+Markdown `<details>` blocks render as native disclosure sections with a compact
+`<summary>` row, visible keyboard focus, and a quiet raised surface. Expanded
+content keeps ordinary document typography and spacing rather than becoming a
+nested card.
+
 ### Code Blocks
 
 Code uses a distinct but nearby editor surface in both themes, never a fixed

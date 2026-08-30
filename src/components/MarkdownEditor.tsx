@@ -1,4 +1,5 @@
 import {
+  $createGenericHTMLNode,
   $isDirectiveNode,
   AdmonitionDirectiveDescriptor,
   addImportVisitor$,
@@ -49,10 +50,11 @@ import { EditorView } from "@codemirror/view";
 import {
   $createParagraphNode,
   $createTextNode,
+  $isElementNode,
   $isRootNode,
 } from "lexical";
 import { Link2 } from "lucide-react";
-import type { Html } from "mdast";
+import type { Html, Paragraph, Parent } from "mdast";
 import {
   forwardRef,
   useEffect,
@@ -94,6 +96,7 @@ import {
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
+  hasSupportedDetailsMarkdown,
   markdownEditorSource,
   nextHeadingSlug,
   normalizeBareSpaceLinkDestinations,
@@ -179,7 +182,19 @@ const viewModePreferencePlugin = realmPlugin<{
 const standardMarkdownHtmlVisitor: MdastImportVisitor<Html> = {
   testNode: "html",
   visitNode({ mdastNode, actions, lexicalParent }) {
-    if (/^<!-- \/?toc -->$/.test(mdastNode.value.trim())) {
+    const value = mdastNode.value.trim();
+    if (/^<!-- \/?toc -->$/.test(value)) {
+      return;
+    }
+    const summary = /^<summary>([^<>\r\n]*)<\/summary>$/.exec(value);
+    if (summary) {
+      const summaryNode = $createGenericHTMLNode(
+        "summary",
+        "mdxJsxFlowElement",
+        [],
+      );
+      summaryNode.append($createTextNode(summary[1]));
+      actions.addAndStepInto(summaryNode);
       return;
     }
     const text = $createTextNode(mdastNode.value);
@@ -197,9 +212,49 @@ const standardMarkdownHtmlVisitor: MdastImportVisitor<Html> = {
   priority: 100,
 };
 
+interface MdxSummaryElement {
+  type: "mdxJsxTextElement";
+  name: "summary";
+  attributes: [];
+  children: Parent["children"];
+}
+
+const detailsSummaryParagraphVisitor: MdastImportVisitor<Paragraph> = {
+  testNode(node) {
+    if (node.type !== "paragraph" || node.children.length !== 1) {
+      return false;
+    }
+    const child = node.children[0] as unknown as Partial<MdxSummaryElement>;
+    return (
+      child.type === "mdxJsxTextElement" &&
+      child.name === "summary" &&
+      Array.isArray(child.attributes) &&
+      child.attributes.length === 0 &&
+      Array.isArray(child.children)
+    );
+  },
+  visitNode({ mdastNode, actions, lexicalParent }) {
+    if (!$isElementNode(lexicalParent)) {
+      throw new Error("Summary must be imported into an element node.");
+    }
+    const summary = mdastNode.children[0] as unknown as MdxSummaryElement;
+    const summaryNode = $createGenericHTMLNode(
+      "summary",
+      "mdxJsxFlowElement",
+      [],
+    );
+    lexicalParent.append(summaryNode);
+    actions.visitChildren(summary as unknown as Parent, summaryNode);
+  },
+  priority: 200,
+};
+
 const standardMarkdownCompatibilityPlugin = realmPlugin({
   init(realm) {
-    realm.pub(addImportVisitor$, standardMarkdownHtmlVisitor);
+    realm.pub(addImportVisitor$, [
+      detailsSummaryParagraphVisitor,
+      standardMarkdownHtmlVisitor,
+    ]);
   },
 });
 
@@ -260,6 +315,7 @@ export const MarkdownEditor = forwardRef<
   );
   const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
   const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
+  const renderDetails = hasSupportedDetailsMarkdown(markdown);
   const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
@@ -274,6 +330,12 @@ export const MarkdownEditor = forwardRef<
   const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
   const [activeViewMode, setActiveViewMode] =
     useState<MarkdownViewMode>(initialViewMode);
+  const desiredHtmlProcessing = renderDetails && !detectedSourceOnly;
+  const [htmlProcessing, setHtmlProcessing] = useState(
+    desiredHtmlProcessing,
+  );
+  const realmInitialViewModeRef = useRef(initialViewMode);
+  const realmInitialViewMode = realmInitialViewModeRef.current;
   const sourceOnly =
     detectedSourceOnly &&
     !(
@@ -285,6 +347,22 @@ export const MarkdownEditor = forwardRef<
   sourceForcedRef.current = forceSource;
   const searchForcedSourceRef = useRef(false);
   const handledSearchRequest = useRef(0);
+  useEffect(() => {
+    if (
+      activeViewMode === "rich-text" &&
+      htmlProcessing !== desiredHtmlProcessing
+    ) {
+      realmInitialViewModeRef.current = forceSource
+        ? "source"
+        : activeViewMode;
+      setHtmlProcessing(desiredHtmlProcessing);
+    }
+  }, [
+    activeViewMode,
+    desiredHtmlProcessing,
+    forceSource,
+    htmlProcessing,
+  ]);
   const sourceLock = useMemo(
     () =>
       sourceOnly
@@ -381,7 +459,7 @@ export const MarkdownEditor = forwardRef<
         directiveDescriptors: [AdmonitionDirectiveDescriptor],
       }),
       diffSourcePlugin({
-        viewMode: initialViewMode,
+        viewMode: realmInitialViewMode,
         diffMarkdown: "",
         readOnlyDiff: false,
         codeMirrorExtensions: [
@@ -392,7 +470,7 @@ export const MarkdownEditor = forwardRef<
       }),
       standardMarkdownCompatibilityPlugin(),
       viewModePreferencePlugin({
-        mode: initialViewMode,
+        mode: realmInitialViewMode,
         isSourceForced: () => sourceForcedRef.current,
         suppressPersistence: () => searchForcedSourceRef.current,
         onChange: onViewModeChange,
@@ -482,6 +560,7 @@ export const MarkdownEditor = forwardRef<
       sourceLock,
       forceSource,
       initialViewMode,
+      realmInitialViewMode,
       notePath,
       onError,
       onImageUpload,
@@ -648,6 +727,26 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
       onClickCapture={(event) => {
+        const target =
+          event.target instanceof Element ? event.target : null;
+        const requestedRichMode =
+          target?.closest<HTMLButtonElement>(
+            'button[aria-label="Rich text"]',
+          ) ?? null;
+        if (
+          requestedRichMode &&
+          activeViewMode === "source" &&
+          htmlProcessing !== desiredHtmlProcessing
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          realmInitialViewModeRef.current = "rich-text";
+          activeViewModeRef.current = "rich-text";
+          setActiveViewMode("rich-text");
+          onViewModeChange("rich-text");
+          setHtmlProcessing(desiredHtmlProcessing);
+          return;
+        }
         const link = renderedLink(event.target, editorMarkdown);
         if (!link) {
           return;
@@ -678,6 +777,7 @@ export const MarkdownEditor = forwardRef<
       }}
     >
       <MDXEditor
+        key={htmlProcessing ? "details-html" : "standard-markdown"}
         ref={ref}
         markdown={editorSource}
         plugins={plugins}
@@ -685,7 +785,7 @@ export const MarkdownEditor = forwardRef<
         contentEditableClassName="denote-editor-content"
         placeholder="Start writing…"
         readOnly={readOnly}
-        suppressHtmlProcessing
+        suppressHtmlProcessing={!htmlProcessing}
         trim={false}
         spellCheck
         onChange={(value, initialNormalize) => {
