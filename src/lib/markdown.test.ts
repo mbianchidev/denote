@@ -322,20 +322,20 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("Use <kbd>Ctrl</kbd> here.")).toBe(true);
     expect(
       hasUnsupportedRichMarkdown(
-        "Discovery for <100k accounts\n\nThanks <3\n\nUse <account-slug>\n\nPlatform <platform aws/azure>",
+        "Mock threshold <42 units\n\nMarker <7\n\nUse <mock-key>\n\nMode <mode alpha/beta>",
       ),
     ).toBe(false);
     expect(
-      hasUnsupportedRichMarkdown("<account-slug>\ncontinued explanation"),
+      hasUnsupportedRichMarkdown("<mock-key>\ncontinued explanation"),
     ).toBe(true);
     expect(
       hasUnsupportedRichMarkdown('<custom-element data-x="1">'),
     ).toBe(true);
-    expect(hasUnsupportedRichMarkdown("<account [slug]>")).toBe(true);
-    expect(hasUnsupportedRichMarkdown("<1[slug]>")).toBe(true);
-    expect(hasUnsupportedRichMarkdown("<é[slug]>")).toBe(true);
-    expect(hasUnsupportedRichMarkdown("\\<100k")).toBe(true);
-    expect(hasUnsupportedRichMarkdown("\\\\<100k")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<mock [key]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<1[key]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<é[key]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("\\<42")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("\\\\<42")).toBe(true);
     expect(hasUnsupportedRichMarkdown("[guide]: ./guide.md")).toBe(true);
     expect(hasUnsupportedRichMarkdown("It costs $5 and then $10 total.")).toBe(
       false,
@@ -344,12 +344,8 @@ describe("markdown utilities", () => {
   });
 
   it("normalizes generated emoji heading fragments", () => {
-    expect(slugifyHeading("⚡ TL;DR - The quick reference")).toBe(
-      "tldr-the-quick-reference",
-    );
-    expect(slugifyHeading("-tldr---the-quick-reference")).toBe(
-      "tldr-the-quick-reference",
-    );
+    expect(slugifyHeading("⚡ Mock overview")).toBe("mock-overview");
+    expect(slugifyHeading("-mock-overview")).toBe("mock-overview");
   });
 
   it("restores TOC markers around normalized rich-editor lists", () => {

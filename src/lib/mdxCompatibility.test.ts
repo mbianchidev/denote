@@ -11,9 +11,9 @@ function parse(markdown: string) {
 }
 
 describe("MDX standard Markdown compatibility", () => {
-  it("treats comparisons, hearts, and placeholder spans as text", () => {
+  it("treats comparisons and placeholder spans as text", () => {
     const source =
-      "Discovery for <100k accounts\n\nThanks <3\n\nCommand <account-slug or example acme.example.com>";
+      "Mock threshold <42 units\n\nMarker <7\n\nToken <mock-key or example sample.invalid>";
     expect(parse(source).children).toHaveLength(3);
   });
 
@@ -23,7 +23,7 @@ describe("MDX standard Markdown compatibility", () => {
 
   it("handles angle text at block and list-item starts", () => {
     expect(() =>
-      parse("<account-slug>\n\n- <3\n\ncontinued"),
+      parse("<mock-key>\n\n- <7\n\ncontinued"),
     ).not.toThrow();
   });
 
@@ -34,7 +34,7 @@ describe("MDX standard Markdown compatibility", () => {
   });
 
   it("preserves formatting and soft continuations on angle-leading lines", () => {
-    const source = "<account-slug> **bold**\ncontinuation";
+    const source = "<mock-key> **bold**\ncontinuation";
     expect(
       restoreStandardMarkdownAngles(
         toMarkdown(parse(source)).trimEnd(),
@@ -44,29 +44,29 @@ describe("MDX standard Markdown compatibility", () => {
   });
 
   it("leaves indented angle text as code blocks", () => {
-    expect(parse("    <account-slug>").children[0]?.type).toBe("code");
-    const list = parse("- item\n\n      <account-slug>").children[0];
+    expect(parse("    <mock-key>").children[0]?.type).toBe("code");
+    const list = parse("- item\n\n      <mock-key>").children[0];
     expect(JSON.stringify(list)).toContain('"type":"code"');
   });
 
   it("restores serializer escapes without changing literal angle text", () => {
     expect(
       restoreStandardMarkdownAngles(
-        "Discovery for \\<100k accounts\n\nCommand \\<account-slug>",
-        "Discovery for <100k accounts\n\nCommand <account-slug>",
+        "Mock threshold \\<42 units\n\nToken \\<mock-key>",
+        "Mock threshold <42 units\n\nToken <mock-key>",
       ),
-    ).toBe("Discovery for <100k accounts\n\nCommand <account-slug>");
+    ).toBe("Mock threshold <42 units\n\nToken <mock-key>");
     expect(
-      restoreStandardMarkdownAngles("New value: \\<100k", "Before"),
-    ).toBe("New value: <100k");
+      restoreStandardMarkdownAngles("New value: \\<42", "Before"),
+    ).toBe("New value: <42");
     expect(
-      restoreStandardMarkdownAngles("New slash: \\\\<100k", "Before"),
-    ).toBe("New slash: \\\\<100k");
+      restoreStandardMarkdownAngles("New slash: \\\\<42", "Before"),
+    ).toBe("New slash: \\\\<42");
     expect(
       restoreStandardMarkdownAngles(
-        String.raw`Use \\\<account-slug>`,
-        "Use <account-slug>",
+        String.raw`Use \\\<mock-key>`,
+        "Use <mock-key>",
       ),
-    ).toBe(String.raw`Use \\<account-slug>`);
+    ).toBe(String.raw`Use \\<mock-key>`);
   });
 });

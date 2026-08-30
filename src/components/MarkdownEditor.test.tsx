@@ -394,9 +394,9 @@ describe("MarkdownEditor links", () => {
     const onMarkdownError = vi.fn();
     const { container } = render(
       <MarkdownEditor
-        notePath="commands.md"
+        notePath="mock-note.md"
         markdown={
-          "Discovery for <100k accounts\n\nThanks <3\n\nCommand <account-slug or example acme.example.com>\n\n**Use <account-slug> here**\n\nEdit me"
+          "Mock threshold <42 units\n\nMarker <7\n\nToken <mock-key or example sample.invalid>\n\n**Use <mock-key> here**\n\nEdit me"
         }
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -418,13 +418,13 @@ describe("MarkdownEditor links", () => {
       expect(element).not.toBeNull();
       return element!;
     });
-    expect(richContent).toHaveTextContent("Discovery for <100k accounts");
-    expect(richContent).toHaveTextContent("Thanks <3");
+    expect(richContent).toHaveTextContent("Mock threshold <42 units");
+    expect(richContent).toHaveTextContent("Marker <7");
     expect(richContent).toHaveTextContent(
-      "Command <account-slug or example acme.example.com>",
+      "Token <mock-key or example sample.invalid>",
     );
     expect(richContent.querySelector("strong")).toHaveTextContent(
-      "Use <account-slug> here",
+      "Use <mock-key> here",
     );
     expect(
       screen.getByRole("radio", { name: "Rich text" }),
@@ -437,8 +437,8 @@ describe("MarkdownEditor links", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalled());
     const saved =
       onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? "";
-    expect(saved).toContain("<100k");
-    expect(saved).toContain("<account-slug");
+    expect(saved).toContain("<42");
+    expect(saved).toContain("<mock-key");
   });
 
   it("keeps raw HTML images locked to lossless source mode", async () => {
@@ -617,7 +617,7 @@ describe("MarkdownEditor links", () => {
       <MarkdownEditor
         notePath="note.md"
         markdown={
-          "<!-- toc -->\n- [TL;DR - The quick reference](#-tldr---the-quick-reference)\n- [Communication](#-communication)\n<!-- /toc -->\n\n# ⚡ TL;DR - The quick reference\n\n# 💬 Communication\n\nEdit me"
+          "<!-- toc -->\n- [Mock overview](#-mock-overview)\n- [Sample details](#-sample-details)\n<!-- /toc -->\n\n# ⚡ Mock overview\n\n# 🧪 Sample details\n\nEdit me"
         }
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -632,9 +632,11 @@ describe("MarkdownEditor links", () => {
     );
 
     expect(
-      await screen.findByRole("link", { name: "TL;DR - The quick reference" }),
+      await screen.findByRole("link", { name: "Mock overview" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Communication" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Sample details" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("radio", { name: "Rich text" }),
     ).toHaveAttribute("aria-checked", "true");
@@ -672,9 +674,9 @@ describe("MarkdownEditor links", () => {
   it("renders indented generated TOCs and thematic breaks in rich mode", async () => {
     const { container } = render(
       <MarkdownEditor
-        notePath="work-with-me.md"
+        notePath="mock-handbook.md"
         markdown={
-          "<!-- toc -->\n  - [TL;DR - The quick reference](#-tldr---the-quick-reference)\n  - [First Time Working Together?](#-first-time-working-together)\n  - [Communication](#-communication)\n<!-- /toc -->\n\n---\n\n# ⚡ TL;DR - The quick reference\n\n## 🤝 First Time Working Together?\n\n## 💬 Communication"
+          "<!-- toc -->\n  - [Mock overview](#-mock-overview)\n  - [Synthetic setup](#-synthetic-setup)\n  - [Sample details](#-sample-details)\n<!-- /toc -->\n\n---\n\n# ⚡ Mock overview\n\n## 🧪 Synthetic setup\n\n## 📋 Sample details"
         }
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -689,12 +691,14 @@ describe("MarkdownEditor links", () => {
     );
 
     expect(
-      await screen.findByRole("link", { name: "TL;DR - The quick reference" }),
+      await screen.findByRole("link", { name: "Mock overview" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("link", { name: "First Time Working Together?" }),
+      screen.getByRole("link", { name: "Synthetic setup" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Communication" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "Sample details" }),
+    ).toBeInTheDocument();
     expect(
       await screen.findByRole("list", { name: "Table of contents" }),
     ).toHaveClass("denote-generated-toc");
