@@ -97,8 +97,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id 2>/dev/null)"; then
-            is_draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .draft)"
+          # Draft releases are not reachable through /releases/tags/{tag}, so the
+          # release list is filtered by tag name instead.
+          find_release() {
+            gh api "repos/${GITHUB_REPOSITORY}/releases?per_page=100" \
+              --jq '[.[] | select(.tag_name == env.GITHUB_REF_NAME)][0] // empty | "\(.id) \(.draft)"'
+          }
+          release="$(find_release)"
+          if [[ -n "$release" ]]; then
+            release_id="${release%% *}"
+            is_draft="${release##* }"
             if [[ "$is_draft" != "true" ]]; then
               echo "::error::Release ${GITHUB_REF_NAME} is already published."
               exit 1
@@ -117,7 +125,12 @@ jobs:
               release_args+=(--prerelease)
             fi
             gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
-            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id)"
+            release="$(find_release)"
+            if [[ -z "$release" ]]; then
+              echo "::error::Could not resolve the draft release for ${GITHUB_REF_NAME}."
+              exit 1
+            fi
+            release_id="${release%% *}"
           fi
           echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
 
