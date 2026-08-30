@@ -988,9 +988,20 @@ describe("MarkdownEditor links", () => {
         />,
       );
 
-      expect(
-        await screen.findByRole("img", { name: "Orbiting note" }),
-      ).toHaveAttribute("src", "data:image/svg+xml;base64,PHN2Zy8+");
+      const image = await screen.findByRole("img", {
+        name: "Orbiting note",
+      });
+      expect(image).toHaveAttribute(
+        "src",
+        "data:image/svg+xml;base64,PHN2Zy8+",
+      );
+      await waitFor(() => {
+        expect(image).not.toHaveAttribute("width");
+        expect(image).not.toHaveAttribute("height");
+        expect(
+          image.closest('[data-editor-block-type="image"]'),
+        ).toHaveClass("denote-image-block");
+      });
       expect(readImage).toHaveBeenCalledWith(
         "assets/orbit.svg",
         "notes/orbits.md",

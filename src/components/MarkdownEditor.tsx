@@ -516,15 +516,17 @@ export const MarkdownEditor = forwardRef<
     applyTagPills(shell, tagColors);
     applyHeadingAnchors(shell);
     applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
+    normalizeRenderedImageDimensions(shell);
     const observer = new MutationObserver(() => {
       applyTagPills(shell, tagColors);
       applyHeadingAnchors(shell);
       applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
+      normalizeRenderedImageDimensions(shell);
     });
 
     observer.observe(shell, {
       attributes: true,
-      attributeFilter: ["alt"],
+      attributeFilter: ["alt", "height", "width"],
       childList: true,
       subtree: true,
       characterData: true,
@@ -712,6 +714,22 @@ function applyHeadingAnchors(root: HTMLElement) {
     ".denote-editor-content h1, .denote-editor-content h2, .denote-editor-content h3, .denote-editor-content h4, .denote-editor-content h5, .denote-editor-content h6",
   )) {
     heading.id = nextHeadingSlug(renderedHeadingText(heading), usedSlugs);
+  }
+}
+
+function normalizeRenderedImageDimensions(root: HTMLElement) {
+  for (const image of root.querySelectorAll<HTMLImageElement>(
+    'img[width="inherit"], img[height="inherit"]',
+  )) {
+    image
+      .closest<HTMLElement>('[data-editor-block-type="image"]')
+      ?.classList.add("denote-image-block");
+    if (image.getAttribute("width") === "inherit") {
+      image.removeAttribute("width");
+    }
+    if (image.getAttribute("height") === "inherit") {
+      image.removeAttribute("height");
+    }
   }
 }
 

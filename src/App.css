@@ -998,6 +998,11 @@ button:disabled {
   border-radius: 5px;
 }
 
+.denote-editor-content .denote-image-block {
+  display: block;
+  width: 100%;
+}
+
 .denote-editor-content table {
   width: 100%;
   margin: 1.4em 0;
