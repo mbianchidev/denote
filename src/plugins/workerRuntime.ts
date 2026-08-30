@@ -16,6 +16,7 @@ interface Runtime {
   moduleUrl: string;
   bootstrapUrl: string;
   commands: Map<string, PluginCommandContribution>;
+  permissions: Set<string>;
   pending: Map<
     string,
     {
@@ -94,6 +95,11 @@ export class PluginWorkerRuntime {
       moduleUrl,
       bootstrapUrl,
       commands: new Map(),
+      permissions: new Set(
+        plugin.catalog.manifest.permissions.map(
+          (permission) => permission.capability,
+        ),
+      ),
       pending: new Map(),
     };
     this.runtimes.set(pluginId, runtime);
@@ -104,8 +110,8 @@ export class PluginWorkerRuntime {
       const error = new Error(
         event.message || `Plugin ${pluginId} worker crashed.`,
       );
+      this.terminate(pluginId);
       this.onError(pluginId, error);
-      this.rejectPending(runtime, error);
     });
 
     try {
@@ -171,14 +177,25 @@ export class PluginWorkerRuntime {
         if (event.data.type === "activated") {
           window.clearTimeout(timeout);
           runtime.worker.removeEventListener("message", listener);
+          runtime.worker.removeEventListener("error", errorListener);
           resolve();
         } else if (event.data.type === "activation-error") {
           window.clearTimeout(timeout);
           runtime.worker.removeEventListener("message", listener);
+          runtime.worker.removeEventListener("error", errorListener);
           reject(new Error(event.data.error));
         }
       };
+      const errorListener = (event: ErrorEvent) => {
+        window.clearTimeout(timeout);
+        runtime.worker.removeEventListener("message", listener);
+        runtime.worker.removeEventListener("error", errorListener);
+        reject(
+          new Error(event.message || `Plugin ${pluginId} worker failed to load.`),
+        );
+      };
       runtime.worker.addEventListener("message", listener);
+      runtime.worker.addEventListener("error", errorListener);
     });
   }
 
@@ -192,11 +209,15 @@ export class PluginWorkerRuntime {
     }
     switch (message.type) {
       case "register-command": {
-        if (!message.id.startsWith(`${pluginId}.`)) {
-          this.onError(
-            pluginId,
-            new Error(`Plugin command ${message.id} must use the ${pluginId}. prefix.`),
+        if (
+          !runtime.permissions.has("commands") ||
+          !message.id.startsWith(`${pluginId}.`)
+        ) {
+          const error = new Error(
+            `Plugin ${pluginId} attempted an unauthorized command registration.`,
           );
+          this.terminate(pluginId);
+          this.onError(pluginId, error);
           return;
         }
         runtime.commands.set(message.id, {
@@ -219,6 +240,7 @@ export class PluginWorkerRuntime {
         this.settle(runtime, message.requestId, message.error);
         return;
       case "runtime-error":
+        this.terminate(pluginId);
         this.onError(pluginId, new Error(message.error));
         return;
       case "log":
@@ -392,6 +414,9 @@ if (permissions.has("commands")) {
     register(command) {
       if (!command || typeof command.id !== "string" || typeof command.title !== "string" || typeof command.run !== "function") {
         throw new Error("Invalid command registration.");
+      }
+      if (!command.id.startsWith(pluginId + ".")) {
+        throw new Error("Plugin command IDs must use the " + pluginId + ". prefix.");
       }
       if (commandHandlers.has(command.id)) {
         throw new Error("Command " + command.id + " is already registered.");

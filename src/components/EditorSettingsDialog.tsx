@@ -17,22 +17,22 @@ interface EditorSettingsDialogProps {
   restoreTabs: boolean;
   externalDomains: string[];
   allowAllExternalDomains: boolean;
-  plugins?: PluginView[];
-  pluginsLoading?: boolean;
-  busyPluginIds?: ReadonlySet<string>;
+  plugins: PluginView[];
+  pluginsLoading: boolean;
+  busyPluginIds: ReadonlySet<string>;
   onChange: (settings: EditorDisplaySettings) => void;
   onRestoreTabsChange: (enabled: boolean) => void;
   onRemoveExternalDomain: (domain: string) => void;
   onClearExternalDomains: () => void;
-  onEnablePlugin?: (pluginId: string, permissions: string[]) => Promise<void>;
-  onDisablePlugin?: (pluginId: string) => Promise<void>;
-  onClearPluginData?: (pluginId: string) => Promise<void>;
-  onClearPluginCredentials?: (pluginId: string) => Promise<void>;
-  onUpdatePluginSettings?: (
+  onEnablePlugin: (pluginId: string, permissions: string[]) => Promise<void>;
+  onDisablePlugin: (pluginId: string) => Promise<void>;
+  onClearPluginData: (pluginId: string) => Promise<void>;
+  onClearPluginCredentials: (pluginId: string) => Promise<void>;
+  onUpdatePluginSettings: (
     pluginId: string,
     settings: Record<string, unknown>,
   ) => Promise<void>;
-  onPluginError?: (error: unknown) => void;
+  onPluginError: (error: unknown) => void;
   onClose: () => void;
 }
 
@@ -43,19 +43,19 @@ export function EditorSettingsDialog({
   restoreTabs,
   externalDomains,
   allowAllExternalDomains,
-  plugins = [],
-  pluginsLoading = false,
-  busyPluginIds = new Set(),
+  plugins,
+  pluginsLoading,
+  busyPluginIds,
   onChange,
   onRestoreTabsChange,
   onRemoveExternalDomain,
   onClearExternalDomains,
-  onEnablePlugin = async () => {},
-  onDisablePlugin = async () => {},
-  onClearPluginData = async () => {},
-  onClearPluginCredentials = async () => {},
-  onUpdatePluginSettings = async () => {},
-  onPluginError = (error) => console.error(error),
+  onEnablePlugin,
+  onDisablePlugin,
+  onClearPluginData,
+  onClearPluginCredentials,
+  onUpdatePluginSettings,
+  onPluginError,
   onClose,
 }: EditorSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);

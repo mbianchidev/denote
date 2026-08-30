@@ -108,6 +108,10 @@ try {
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       const sizeBytes = statSync(temporaryArtifact).size;
       writeFileSync(committedArtifact, bytes);
+      entry.manifest = manifest;
+      entry.guide = normalizeText(
+        readFileSync(join(pluginDirectory, manifest.documentation), "utf8"),
+      );
       entry.artifact = {
         url: `https://raw.githubusercontent.com/mbianchidev/denote/${artifactRef}/plugin-artifacts/${artifactName}`,
         sha256,

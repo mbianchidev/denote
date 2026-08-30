@@ -66,6 +66,10 @@ export function PluginSettingsPanel({
     "all" | "enabled" | "disabled"
   >("all");
   const [pendingEnable, setPendingEnable] = useState<string | null>(null);
+  const [pendingCleanup, setPendingCleanup] = useState<{
+    pluginId: string;
+    kind: "data" | "credentials";
+  } | null>(null);
   const [drafts, setDrafts] = useState<
     Record<string, Record<string, unknown>>
   >({});
@@ -213,6 +217,9 @@ export function PluginSettingsPanel({
                   const permissions = manifest.permissions.map(
                     (permission) => permission.capability,
                   );
+                  const permissionTokens = manifest.permissions.map((permission) =>
+                    JSON.stringify(permission),
+                  );
                   const settingDefinitions =
                     manifest.settings?.properties ?? {};
                   const draft = drafts[pluginId] ?? plugin.settings;
@@ -336,7 +343,7 @@ export function PluginSettingsPanel({
                               className="primary-button"
                               disabled={busy}
                               onClick={() =>
-                                void onEnable(pluginId, permissions)
+                                void onEnable(pluginId, permissionTokens)
                                   .then(() => setPendingEnable(null))
                                   .catch(onError)
                               }
@@ -375,7 +382,10 @@ export function PluginSettingsPanel({
                                 className="secondary-button"
                                 disabled={busy}
                                 onClick={() =>
-                                  void onClearData(pluginId).catch(onError)
+                                  setPendingCleanup({
+                                    pluginId,
+                                    kind: "data",
+                                  })
                                 }
                               >
                                 <Trash2 aria-hidden="true" size={13} />
@@ -387,7 +397,10 @@ export function PluginSettingsPanel({
                                   className="secondary-button"
                                   disabled={busy}
                                   onClick={() =>
-                                    void onClearCredentials(pluginId).catch(onError)
+                                    setPendingCleanup({
+                                      pluginId,
+                                      kind: "credentials",
+                                    })
                                   }
                                 >
                                   <Trash2 aria-hidden="true" size={13} />
@@ -398,6 +411,46 @@ export function PluginSettingsPanel({
                           ) : null}
                         </div>
                       )}
+                      {pendingCleanup?.pluginId === pluginId ? (
+                        <section
+                          className="plugin-card__permission-confirm"
+                          aria-labelledby={`${pluginId}-cleanup-title`}
+                        >
+                          <h6 id={`${pluginId}-cleanup-title`}>
+                            Delete plugin {pendingCleanup.kind}?
+                          </h6>
+                          <p>
+                            This does not delete notes or other user-authored
+                            vault content.
+                          </p>
+                          <div>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              disabled={busy}
+                              onClick={() => setPendingCleanup(null)}
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="button"
+                              className="danger-button"
+                              disabled={busy}
+                              onClick={() => {
+                                const cleanup =
+                                  pendingCleanup.kind === "data"
+                                    ? onClearData(pluginId)
+                                    : onClearCredentials(pluginId);
+                                void cleanup
+                                  .then(() => setPendingCleanup(null))
+                                  .catch(onError);
+                              }}
+                            >
+                              Delete {pendingCleanup.kind}
+                            </button>
+                          </div>
+                        </section>
+                      ) : null}
                     </article>
                   );
                 })}

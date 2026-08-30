@@ -38,8 +38,12 @@ export function usePlugins(
 
   useEffect(() => {
     let cancelled = false;
-    const runtime = new PluginWorkerRuntime(setCommands, (_pluginId, error) => {
+    const runtime = new PluginWorkerRuntime(setCommands, (pluginId, error) => {
       reportError(error);
+      void api
+        .disablePlugin(pluginId)
+        .then(refresh)
+        .catch(reportError);
     });
     runtimeRef.current = runtime;
     void api

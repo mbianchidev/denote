@@ -71,6 +71,28 @@ not invoke any workspace mutation. Workspace writes, clipboard writes, and
 process execution are withheld during activation and issued only inside a
 host-dispatched user action after permission checks.
 
+The native plugin manager embeds only `packages/plugins/catalog.json`. Plugin
+artifacts remain separate repository files and are downloaded over HTTPS after
+approval. The native core verifies the catalog size and SHA-256 digest before
+extracting a gzip-compressed tar archive. Extraction rejects absolute paths,
+parent traversal, symlinks, hard links, and special files. The packaged manifest
+must match the catalog ID, version, API version, and permission payload. A
+same-filesystem rename commits the staged package atomically.
+
+Downloaded entrypoints are read only for prepared or enabled plugins and passed
+to a blob-backed module worker. The worker has no DOM or direct Tauri bindings.
+Messages are scoped to the plugin ID by the host; plugin code cannot choose the
+ID used for native storage or keychain calls. Command contributions require the
+plugin ID prefix and disappear when the worker terminates.
+
+Plugin state lives in `plugins/state.json` under application data. Package code
+lives under `plugins/packages/<plugin-id>/<version>/`; transient downloads use
+application cache. Startup removes orphaned downloads and packages for disabled,
+unknown, missing, or incompatible plugins. Settings and generated state are
+namespaced separately and retained by default when code is disabled. Credential
+keys are tracked only to support explicit cleanup; credential values live in
+the operating-system keychain.
+
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored
 name when necessary. Empty Trash permanently removes both hidden files and

@@ -11,6 +11,7 @@ use atomic_write_file::AtomicWriteFile;
 use flate2::read::GzDecoder;
 use keyring::Entry;
 use reqwest::blocking::Client;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -24,6 +25,7 @@ const CATALOG_JSON: &str = include_str!("../../packages/plugins/catalog.json");
 const MAX_PLUGIN_PACKAGE_BYTES: usize = 25 * 1024 * 1024;
 const MAX_PLUGIN_ENTRYPOINT_BYTES: u64 = 5 * 1024 * 1024;
 const KEYCHAIN_SERVICE_PREFIX: &str = "dev.denote.plugin";
+const PLUGIN_API_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -180,9 +182,12 @@ impl PluginManager {
             .iter()
             .map(|catalog| {
                 let plugin_id = &catalog.manifest.id;
+                let compatibility_error = compatibility_error(&catalog.manifest);
                 let enabled = state.enabled.contains(plugin_id);
                 let installed = self.install_dir(catalog).is_dir();
-                let status = if prepared.contains_key(plugin_id) {
+                let status = if compatibility_error.is_some() {
+                    "incompatible"
+                } else if prepared.contains_key(plugin_id) {
                     "installing"
                 } else if enabled && installed {
                     "enabled"
@@ -197,7 +202,7 @@ impl PluginManager {
                     catalog: catalog.clone(),
                     status: status.to_string(),
                     enabled,
-                    error: state.errors.get(plugin_id).cloned(),
+                    error: compatibility_error.or_else(|| state.errors.get(plugin_id).cloned()),
                     approved_permissions: state
                         .approved_permissions
                         .get(plugin_id)
@@ -222,7 +227,10 @@ impl PluginManager {
     ) -> AppResult<InstalledPlugin> {
         let _operation = self.begin_operation(plugin_id)?;
         let catalog = self.catalog_entry(plugin_id)?.clone();
-        let requested = permission_names(&catalog.manifest);
+        if let Some(error) = compatibility_error(&catalog.manifest) {
+            return Err(AppError::Plugin(error));
+        }
+        let requested = permission_tokens(&catalog.manifest)?;
         let approved: BTreeSet<String> = approved_permissions.into_iter().collect();
         if approved != requested {
             return Err(AppError::Plugin(format!(
@@ -487,11 +495,20 @@ impl PluginManager {
     }
 
     fn reconcile_packages(&self) -> AppResult<()> {
+        self.prune_transient_paths()?;
         let enabled = self.state()?.enabled.clone();
         for catalog in &self.inner.catalog {
             let plugin_id = &catalog.manifest.id;
             let plugin_root = self.plugin_root(plugin_id);
-            if enabled.contains(plugin_id) {
+            if let Some(error) = compatibility_error(&catalog.manifest) {
+                if plugin_root.exists() {
+                    self.remove_package(plugin_id)?;
+                }
+                let mut state = self.state()?;
+                state.enabled.remove(plugin_id);
+                state.errors.insert(plugin_id.clone(), error);
+                self.save_state(&state)?;
+            } else if enabled.contains(plugin_id) {
                 if !self.install_dir(catalog).is_dir() {
                     let mut state = self.state()?;
                     state.enabled.remove(plugin_id);
@@ -503,6 +520,56 @@ impl PluginManager {
                 }
             } else if plugin_root.exists() {
                 self.remove_package(plugin_id)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn prune_transient_paths(&self) -> AppResult<()> {
+        let cache_dir = self.inner.app_cache_dir.join("plugin-downloads");
+        if cache_dir.exists() {
+            for entry in fs::read_dir(&cache_dir)? {
+                let path = entry?.path();
+                if path.is_dir() {
+                    fs::remove_dir_all(path)?;
+                } else {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
+        let packages_dir = self.inner.app_data_dir.join("plugins").join("packages");
+        fs::create_dir_all(&packages_dir)?;
+        let known: BTreeSet<&str> = self
+            .inner
+            .catalog
+            .iter()
+            .map(|entry| entry.manifest.id.as_str())
+            .collect();
+        for entry in fs::read_dir(&packages_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if !known.contains(name.as_ref()) {
+                if path.is_dir() {
+                    remove_directory_atomically(&path)?;
+                } else {
+                    fs::remove_file(path)?;
+                }
+            } else if path.is_dir() {
+                for child in fs::read_dir(&path)? {
+                    let child = child?;
+                    let child_name = child.file_name();
+                    let child_name = child_name.to_string_lossy();
+                    if child_name.starts_with(".staging-") || child_name.starts_with(".removing-") {
+                        let child_path = child.path();
+                        if child_path.is_dir() {
+                            fs::remove_dir_all(child_path)?;
+                        } else {
+                            fs::remove_file(child_path)?;
+                        }
+                    }
+                }
             }
         }
         Ok(())
@@ -525,7 +592,7 @@ impl PluginManager {
             )));
         };
         if let Some(permission) = permission
-            && !permissions.contains(permission)
+            && !has_permission(self.catalog_entry(plugin_id)?, permissions, permission)?
         {
             return Err(AppError::Plugin(format!(
                 "Plugin {plugin_id} lacks {permission} permission"
@@ -820,12 +887,87 @@ fn validate_relative_path(path: &str) -> AppResult<()> {
     validate_archive_path(Path::new(path))
 }
 
-fn permission_names(manifest: &PluginManifest) -> BTreeSet<String> {
+fn permission_tokens(manifest: &PluginManifest) -> AppResult<BTreeSet<String>> {
     manifest
         .permissions
         .iter()
-        .map(|permission| permission.capability.clone())
+        .map(|permission| {
+            serde_json::to_string(permission).map_err(|error| {
+                AppError::Plugin(format!(
+                    "Unable to encode {} permission: {error}",
+                    permission.capability
+                ))
+            })
+        })
         .collect()
+}
+
+fn has_permission(
+    catalog: &PluginCatalogEntry,
+    approved: &BTreeSet<String>,
+    capability: &str,
+) -> AppResult<bool> {
+    let Some(permission) = catalog
+        .manifest
+        .permissions
+        .iter()
+        .find(|permission| permission.capability == capability)
+    else {
+        return Ok(false);
+    };
+    Ok(
+        approved.contains(&serde_json::to_string(permission).map_err(|error| {
+            AppError::Plugin(format!("Unable to encode {capability} permission: {error}"))
+        })?),
+    )
+}
+
+fn compatibility_error(manifest: &PluginManifest) -> Option<String> {
+    if manifest.compatibility.api_version != PLUGIN_API_VERSION {
+        return Some(format!(
+            "Plugin {} requires API version {}, but Denote provides {}.",
+            manifest.id, manifest.compatibility.api_version, PLUGIN_API_VERSION
+        ));
+    }
+    let host = match Version::parse(env!("CARGO_PKG_VERSION")) {
+        Ok(version) => version,
+        Err(error) => {
+            return Some(format!("Denote has an invalid host version: {error}."));
+        }
+    };
+    let minimum = match Version::parse(&manifest.compatibility.minimum_denote_version) {
+        Ok(version) => version,
+        Err(error) => {
+            return Some(format!(
+                "Plugin {} has an invalid minimum Denote version: {error}.",
+                manifest.id
+            ));
+        }
+    };
+    if host < minimum {
+        return Some(format!(
+            "Plugin {} requires Denote {} or newer.",
+            manifest.id, manifest.compatibility.minimum_denote_version
+        ));
+    }
+    if let Some(maximum_value) = manifest.compatibility.maximum_denote_version.as_deref() {
+        let maximum = match Version::parse(maximum_value) {
+            Ok(version) => version,
+            Err(error) => {
+                return Some(format!(
+                    "Plugin {} has an invalid maximum Denote version: {error}.",
+                    manifest.id
+                ));
+            }
+        };
+        if host >= maximum {
+            return Some(format!(
+                "Plugin {} requires a Denote version below {}.",
+                manifest.id, maximum_value
+            ));
+        }
+    }
+    None
 }
 
 fn default_settings(manifest: &PluginManifest) -> Value {

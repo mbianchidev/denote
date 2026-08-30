@@ -49,10 +49,26 @@ runtime, and removes the downloaded package. Disabling calls the plugin's
 deactivation hook, disposes registrations, unloads execution, and deletes the
 package even when an earlier cleanup step fails.
 
-The current foundation defines and tests these host contracts. Native package
-download/storage, isolated execution, permission UI, OS keychain integration,
-and the settings plugin manager still need concrete implementations before any
-production plugin ships.
+The native host downloads HTTPS artifacts into application cache, enforces the
+catalog byte count and SHA-256 digest, rejects links and traversal during
+extraction, validates the packaged manifest, and atomically moves the verified
+package into application data. Failed or interrupted enablement removes staging
+content. Disablement terminates the worker before atomically removing package
+code.
+
+The Settings dialog contains the searchable, category-grouped plugin manager.
+It shows catalog metadata, requested permissions, status, in-app guides,
+declarative settings, enable/disable controls, and explicit data or credential
+cleanup. Permissions must be approved before download. Permission tokens include
+their complete manifest payload, so network-host or other permission changes
+require approval again.
+
+Downloaded JavaScript runs in a dedicated module worker created from the
+verified package. The worker has no DOM or Tauri API object. Its host bridge
+exposes only approved services, plugin-scoped state, keychain access, and
+registered contributions. Worker crashes trigger termination and package
+removal. Enabled workers restart from verified installed packages when Denote
+starts.
 
 ## Security and data boundaries
 
@@ -61,6 +77,8 @@ production plugin ships.
   secure-storage access require declared host capabilities.
 - Secure-storage access is plugin-scoped. The host-provided API exposes no
   plugin ID argument, preventing a plugin from selecting another namespace.
+- macOS uses Keychain Services, Windows uses Credential Manager, and Linux uses
+  Secret Service through the cross-platform native keyring implementation.
 - Secrets must use the OS-backed keychain implementation, never manifests,
   settings, logs, caches, packages, or telemetry.
 - Enabling a plugin must not mutate vault content. Content changes require an
@@ -76,3 +94,7 @@ locked. Plugins must use host APIs rather than reading decrypted temporary
 files. A future Git plugin may stage ciphertext only, include
 `.denote/encryption.json`, and run the host encryption preflight before
 committing.
+
+The repository reference plugin is the end-to-end fixture. Its independently
+downloadable artifact is stored under `plugin-artifacts/`, while only catalog
+metadata enters the desktop bundle.

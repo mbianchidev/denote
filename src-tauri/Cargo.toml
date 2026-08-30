@@ -47,6 +47,7 @@ reqwest = { version = "0.13.4", default-features = false, features = ["blocking"
 tar = "0.4.46"
 flate2 = "1.1.10"
 keyring = "4.2.0"
+semver = "1.0.27"
 
 [dev-dependencies]
 tempfile = "3.27.0"

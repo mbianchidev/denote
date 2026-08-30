@@ -9,7 +9,9 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PLUGIN_GUIDE_SECTIONS,
+  assertValidPluginCatalogEntry,
   assertValidPluginManifest,
+  type PluginCatalogEntry,
   type PluginManifest,
 } from "@denote/plugin-sdk";
 
@@ -17,6 +19,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "packages", "plugins");
 const requireArtifacts = process.argv.includes("--artifacts");
 const errors: string[] = [];
+const catalog = readCatalog();
 const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => join(pluginsRoot, entry.name))
@@ -59,6 +62,16 @@ function validatePlugin(pluginDirectory: string): void {
     errors.push(`${label}: ${errorMessage(error)}`);
     return;
   }
+  const catalogEntry = catalog.find(
+    (entry) => entry.manifest.id === manifest.id,
+  );
+  if (!catalogEntry) {
+    errors.push(`${label} is missing from packages/plugins/catalog.json.`);
+  } else if (
+    stableStringify(catalogEntry.manifest) !== stableStringify(manifest)
+  ) {
+    errors.push(`${label} manifest does not match its catalog metadata.`);
+  }
 
   const packageValue = readJson(packagePath, label);
   if (packageValue === null) {
@@ -80,6 +93,13 @@ function validatePlugin(pluginDirectory: string): void {
     errors.push(`${label} is missing ${manifest.documentation}.`);
   } else {
     validateGuide(documentationPath, label);
+    if (
+      catalogEntry &&
+      normalizeText(catalogEntry.guide) !==
+        normalizeText(readFileSync(documentationPath, "utf8"))
+    ) {
+      errors.push(`${label} guide does not match its catalog guide.`);
+    }
   }
   const requiredPaths = [manifest.icon];
   requiredPaths.push(
@@ -263,6 +283,47 @@ function errorMessage(error: unknown): string {
 
 function dependencyNames(value: unknown): string[] {
   return isRecord(value) ? Object.keys(value) : [];
+}
+
+function readCatalog(): PluginCatalogEntry[] {
+  const path = join(pluginsRoot, "catalog.json");
+  const value = readJson(path, "packages/plugins/catalog.json");
+  if (!Array.isArray(value)) {
+    errors.push("packages/plugins/catalog.json must be an array.");
+    return [];
+  }
+  const entries: PluginCatalogEntry[] = [];
+  for (const [index, entry] of value.entries()) {
+    try {
+      assertValidPluginCatalogEntry(entry);
+      entries.push(entry);
+    } catch (error) {
+      errors.push(`catalog[${index}]: ${errorMessage(error)}`);
+    }
+  }
+  return entries;
+}
+
+function stableStringify(value: unknown): string {
+  return JSON.stringify(sortValue(value));
+}
+
+function sortValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortValue);
+  }
+  if (isRecord(value)) {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, sortValue(child)]),
+    );
+  }
+  return value;
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\r\n/g, "\n").trim();
 }
 
 function dependencyName(specifier: string): string {

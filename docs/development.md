@@ -35,6 +35,18 @@ not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
 `packages/plugins/reference/` as the contract example; it is not bundled into
 the Denote application.
 
+Build the independently downloadable plugin artifacts and update catalog
+integrity metadata with:
+
+```bash
+npm run package:plugins
+```
+
+Commit the resulting files under `plugin-artifacts/` with the matching catalog
+change. CI rebuilds every plugin, validates the real entrypoint, checks the
+committed archive contents, and verifies its catalog size and SHA-256 digest on
+all supported platforms.
+
 ## Build a desktop bundle
 
 ```bash

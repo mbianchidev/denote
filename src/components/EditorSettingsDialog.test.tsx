@@ -4,6 +4,18 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { EditorSettingsDialog } from "./EditorSettingsDialog";
 
+const pluginProps = {
+  plugins: [],
+  pluginsLoading: false,
+  busyPluginIds: new Set<string>(),
+  onEnablePlugin: vi.fn(),
+  onDisablePlugin: vi.fn(),
+  onClearPluginData: vi.fn(),
+  onClearPluginCredentials: vi.fn(),
+  onUpdatePluginSettings: vi.fn(),
+  onPluginError: vi.fn(),
+};
+
 describe("EditorSettingsDialog", () => {
   it("applies display settings immediately", async () => {
     const user = userEvent.setup();
@@ -11,6 +23,7 @@ describe("EditorSettingsDialog", () => {
 
     render(
       <EditorSettingsDialog
+        {...pluginProps}
         open
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -40,6 +53,7 @@ describe("EditorSettingsDialog", () => {
     const onRestoreTabsChange = vi.fn();
     render(
       <EditorSettingsDialog
+        {...pluginProps}
         open
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -66,6 +80,7 @@ describe("EditorSettingsDialog", () => {
     const onChange = vi.fn();
     render(
       <EditorSettingsDialog
+        {...pluginProps}
         open
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -95,6 +110,7 @@ describe("EditorSettingsDialog", () => {
     const onChange = vi.fn();
     render(
       <EditorSettingsDialog
+        {...pluginProps}
         open
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -121,6 +137,7 @@ describe("EditorSettingsDialog", () => {
     const onRestoreTabsChange = vi.fn();
     render(
       <EditorSettingsDialog
+        {...pluginProps}
         open
         disabled
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -148,6 +165,7 @@ describe("EditorSettingsDialog", () => {
     const onRemoveExternalDomain = vi.fn();
     render(
       <EditorSettingsDialog
+        {...pluginProps}
         open
         disabled={false}
         settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
@@ -169,5 +187,32 @@ describe("EditorSettingsDialog", () => {
       }),
     );
     expect(onRemoveExternalDomain).toHaveBeenCalledWith("example.com");
+  });
+
+  it("opens the plugin manager inside settings", async () => {
+    const user = userEvent.setup();
+    render(
+      <EditorSettingsDialog
+        {...pluginProps}
+        open
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
+        onChange={vi.fn()}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Plugins" }));
+
+    expect(
+      screen.getByRole("heading", { name: "Plugins" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("No plugins match these filters.")).toBeInTheDocument();
   });
 });
