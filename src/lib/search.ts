@@ -1,6 +1,6 @@
 import { create, insertMultiple, search } from "zbsearch";
-import type { SearchDocument, SearchResult } from "../types";
-import { findEarliestCaseInsensitiveMatch } from "./textMatch";
+import type { SearchDocument, SearchMatch, SearchResult } from "../types";
+import { findCaseInsensitiveMatches } from "./textMatch";
 
 const SEARCH_SCHEMA = {
   path: "string",
@@ -11,6 +11,8 @@ const SEARCH_SCHEMA = {
   bookmarked: "boolean",
   lastOpenedAt: "string",
 } as const;
+
+const MAX_SEARCH_RESULTS = 200;
 
 type SearchDatabase = ReturnType<typeof create<typeof SEARCH_SCHEMA>>;
 
@@ -136,25 +138,41 @@ export class VaultSearchIndex {
       }
     }
 
-    return scopedDocuments
+    const rankedDocuments = scopedDocuments
       .filter((document) => scores.has(document.path))
       .filter((document) => matchesFilters(document, parsed))
       .map((document) => ({
         document,
         score: scores.get(document.path) ?? 0,
-        snippet: createSnippet(document, parsed.term),
       }))
       .sort(
         (left, right) =>
           right.score - left.score ||
           compareRecent(right.document, left.document) ||
           left.document.title.localeCompare(right.document.title),
-      )
-      .slice(0, 200)
-      .map((result) => ({
-        ...result,
-        match: findContentMatch(result.document.content, parsed),
-      }));
+      );
+    const results: SearchResult[] = [];
+    for (const result of rankedDocuments) {
+      const matches = findContentMatches(
+        result.document.content,
+        parsed,
+        MAX_SEARCH_RESULTS - results.length,
+      );
+      const resultMatches: Array<SearchMatch | null> =
+        matches.length > 0 ? matches : [null];
+      for (const [matchIndex, match] of resultMatches.entries()) {
+        results.push({
+          ...result,
+          snippet: createSnippet(result.document, match),
+          match,
+          occurrence: match ? matchIndex + 1 : null,
+        });
+        if (results.length >= MAX_SEARCH_RESULTS) {
+          return results;
+        }
+      }
+    }
+    return results;
   }
 }
 
@@ -391,28 +409,34 @@ function matchesFilters(document: SearchDocument, parsed: ParsedSearch): boolean
   return true;
 }
 
-function createSnippet(document: SearchDocument, term: string): string {
+function createSnippet(
+  document: SearchDocument,
+  match: SearchMatch | null,
+): string {
   const compact = document.content.replace(/\s+/g, " ").trim();
   if (!compact) {
     return "Empty note";
   }
-  if (!term) {
+  if (!match) {
     return compact.slice(0, 180);
   }
-  const firstTerm = term.toLocaleLowerCase().split(/\s+/)[0];
-  const index = compact.toLocaleLowerCase().indexOf(firstTerm);
-  if (index < 0) {
-    return compact.slice(0, 180);
-  }
-  const start = Math.max(0, index - 70);
-  const end = Math.min(compact.length, index + firstTerm.length + 110);
-  return `${start > 0 ? "…" : ""}${compact.slice(start, end)}${end < compact.length ? "…" : ""}`;
+  const start = Math.max(0, match.from - 70);
+  const end = Math.min(document.content.length, match.to + 110);
+  const snippet = document.content
+    .slice(start, end)
+    .replace(/\s+/g, " ")
+    .trim();
+  return `${start > 0 ? "…" : ""}${snippet}${end < document.content.length ? "…" : ""}`;
 }
 
-function findContentMatch(
+function findContentMatches(
   content: string,
   parsed: ParsedSearch,
-): { from: number; to: number } | null {
+  limit: number,
+): SearchMatch[] {
+  if (limit <= 0) {
+    return [];
+  }
   const candidates = [
     parsed.term,
     ...parsed.term.split(/\s+/),
@@ -420,7 +444,32 @@ function findContentMatch(
   ]
     .map((candidate) => candidate.trim())
     .filter(Boolean);
-  return findEarliestCaseInsensitiveMatch(content, candidates);
+  const uniqueCandidates = [
+    ...new Map(
+      candidates.map((candidate) => [candidate.toLocaleLowerCase(), candidate]),
+    ).values(),
+  ];
+  const uniqueMatches = new Map<string, SearchMatch>();
+  for (const candidate of uniqueCandidates) {
+    for (const match of findCaseInsensitiveMatches(content, candidate, limit)) {
+      uniqueMatches.set(`${match.from}:${match.to}`, match);
+    }
+  }
+  const sortedMatches = [...uniqueMatches.values()].sort(
+    (left, right) =>
+      left.from - right.from || right.to - right.from - (left.to - left.from),
+  );
+  const matches: SearchMatch[] = [];
+  for (const match of sortedMatches) {
+    const previous = matches[matches.length - 1];
+    if (!previous || match.from >= previous.to) {
+      matches.push(match);
+      if (matches.length >= limit) {
+        break;
+      }
+    }
+  }
+  return matches;
 }
 
 function compareRecent(left: SearchDocument, right: SearchDocument): number {

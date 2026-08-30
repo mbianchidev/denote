@@ -183,10 +183,12 @@ visual filter model before result scoring and filtering.
 
 Command-F on macOS and Control-F on Windows/Linux are captured before browser or
 CodeMirror find handlers, set the active file as the location, and focus the
-search-text field. Search results retain the first exact content-match range so
-opening a result can select and center that term in the active rich-text or
-source editor. Command-H on macOS and Control-H on Windows/Linux open replace;
-the macOS native application menu omits its conflicting default Hide item.
+search-text field. Search expands each ranked file into one result per exact
+content-match range, so every result can select and center its specific term in
+the active rich-text or source editor. Metadata-only matches remain single
+file-level results. Command-H on macOS and Control-H on Windows/Linux open
+replace; the macOS native application menu omits its conflicting default Hide
+item.
 
 Command-P on macOS and Control-P on Windows/Linux opens a unified command
 palette. The frontend contributes contextual action descriptors with labels,

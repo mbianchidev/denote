@@ -112,10 +112,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   visual filters for tags, filename, path, content, file type, bookmarks, and
   recency.
 - Command-F / Control-F opens search with the active file selected in the
-  location field and keyboard focus in the search-text field. Search results
-  navigate to their first matching term. `*` searches the vault and patterns
-  such as `*.html` limit results by filename; platform replace shortcuts remain
-  distinct.
+  location field and keyboard focus in the search-text field. Every content
+  occurrence has its own result and navigates to that exact term. `*` searches
+  the vault and patterns such as `*.html` limit results by filename; platform
+  replace shortcuts remain distinct.
 - Command-P / Control-P opens a unified command palette containing contextual
   application actions and their assigned shortcuts. Typing a filename directly
   retains filename-only search across all known available vaults and switches

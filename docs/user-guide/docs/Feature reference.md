@@ -127,6 +127,8 @@ more detail and examples.
   location.
 - Use `*`, exact paths, `*.html`, or path globs to choose where to search.
 - Search content with ZBSearch plus Unicode substring fallback.
+- See every matching content occurrence as a separate result that opens its exact
+  position in the file.
 - Open visual filters for tag, filename, path, content, type, bookmark, or
   recency; inline filters remain supported.
 - Open the command palette with `Command-P` / `Ctrl-P`.

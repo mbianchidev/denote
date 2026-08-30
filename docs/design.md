@@ -322,8 +322,8 @@ uses compact helper copy for `*`, exact paths, and globs such as `*.html`.
 **Filters** is an ordinary disclosure button with visible state and a contained,
 scrollable form for tags, types, recency, bookmarks, filename, path, and content.
 Command-F / Control-F keeps the active file path as the scope and moves keyboard
-focus to the search-text field. Search-result controls open the file and select
-the first matching term in the editor.
+focus to the search-text field. Every matching content occurrence has its own
+result control, which opens the file and selects that exact term in the editor.
 
 External web navigation uses a compact confirmation dialog that states the exact
 domain and full destination. The primary choices are explicit: allow that domain
