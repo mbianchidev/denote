@@ -33,10 +33,14 @@ more detail and examples.
 - Pin entries above siblings.
 - Reorder pinned and ordinary siblings independently.
 - Copy active content, an attachment-ready file, or the absolute file path.
+- Duplicate files with a non-conflicting sibling name.
+- Bookmark, copy a path, open version history, open in a new tab, or reveal a
+  file from its context menu or the focused-file three-dot menu.
+- Recursively expand every folder or collapse the complete file tree.
 - Update relative Markdown links automatically after file/folder rename or move,
   with explicit reporting for skipped or conflicting files.
 
-## Tabs and groups
+## Tabs, groups, and panes
 
 - File selection navigates in the active tab.
 - Create a blank tab with `Command-T` / `Ctrl-T` or the rightmost plus button.
@@ -52,10 +56,20 @@ more detail and examples.
   file by default.
 - Disable session restore per vault in **Editor settings**.
 - Navigate backward and forward through each tab's independent file history.
+- Open up to four independently focusable and resizable panes.
+- Use horizontal, vertical, grid, and mirrored or rotated asymmetric layouts.
+- Move live tabs between panes without losing unsaved edits.
+- Close a pane by merging its tabs into a neighbor.
+- Scope file selection, links, search, commands, history, and toolbar actions to
+  the focused pane.
+- Restore the pane layout, resize fractions, assignments, focus, and per-pane
+  active files with the tab session.
 
 ## Markdown and source editing
 
-- Use rich single-pane Markdown editing or source mode.
+- Use rich Markdown editing or source mode independently in each pane.
+- Switch an individual file between default write mode and non-editable read
+  mode.
 - Keep one rich/source preference for every Markdown file in each vault.
 - Set a persistent editor font size from 12 to 24 px.
 - Choose two- or four-space Tab indentation for every source/code editor.

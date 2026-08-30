@@ -1802,6 +1802,9 @@ mod tests {
                 collapsed: true,
             }],
             active_path: Some("two.md".to_string()),
+            panes: None,
+            layout: None,
+            focused_pane_id: None,
         };
 
         save_tab_session(&mut connection, vault_id, &session).expect("save tab session");
@@ -1811,6 +1814,93 @@ mod tests {
         assert_eq!(
             get_tab_session(&connection, vault_id).expect("tab session"),
             Some(session)
+        );
+    }
+
+    #[test]
+    fn stores_multi_pane_sessions_per_vault() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("pane-session.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let mut connection = open(&db_path).expect("database opened");
+        let vault_id = ensure_vault(&connection, "/vaults/work", "work").expect("vault");
+        let session = crate::models::TabSessionState {
+            tabs: vec![
+                crate::models::TabSessionTab {
+                    path: "one.md".to_string(),
+                    group_id: None,
+                },
+                crate::models::TabSessionTab {
+                    path: "two.md".to_string(),
+                    group_id: None,
+                },
+            ],
+            groups: Vec::new(),
+            active_path: Some("two.md".to_string()),
+            panes: Some(vec![
+                crate::models::TabSessionPane {
+                    id: "pane-1".to_string(),
+                    tabs: vec![crate::models::TabSessionTab {
+                        path: "one.md".to_string(),
+                        group_id: None,
+                    }],
+                    groups: Vec::new(),
+                    active_path: Some("one.md".to_string()),
+                },
+                crate::models::TabSessionPane {
+                    id: "pane-2".to_string(),
+                    tabs: vec![crate::models::TabSessionTab {
+                        path: "two.md".to_string(),
+                        group_id: None,
+                    }],
+                    groups: Vec::new(),
+                    active_path: Some("two.md".to_string()),
+                },
+            ]),
+            layout: Some(crate::models::PaneLayout {
+                kind: crate::models::PaneLayoutKind::LeftStack,
+                sizes: vec![0.6, 0.4, 0.5, 0.5],
+            }),
+            focused_pane_id: Some("pane-2".to_string()),
+        };
+
+        save_tab_session(&mut connection, vault_id, &session).expect("save pane session");
+
+        assert_eq!(
+            get_tab_session(&connection, vault_id).expect("pane session"),
+            Some(session)
+        );
+    }
+
+    #[test]
+    fn reads_legacy_tab_session_json_as_a_single_pane_session() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("legacy-session.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let connection = open(&db_path).expect("database opened");
+        let vault_id = ensure_vault(&connection, "/vaults/work", "work").expect("vault");
+        connection
+            .execute(
+                "INSERT INTO tab_sessions(vault_id, state_json, updated_at) VALUES (?1, ?2, ?3)",
+                params![
+                    vault_id,
+                    r#"{"tabs":[{"path":"one.md","groupId":null}],"groups":[],"activePath":"one.md"}"#,
+                    now()
+                ],
+            )
+            .expect("legacy session row");
+
+        let session = get_tab_session(&connection, vault_id)
+            .expect("legacy session")
+            .expect("session exists");
+
+        assert_eq!(session.tabs.len(), 1);
+        assert!(session.panes.is_none());
+        assert!(session.layout.is_none());
+        assert!(session.focused_pane_id.is_none());
+        assert_eq!(
+            serde_json::to_string(&session).expect("serialized"),
+            r#"{"tabs":[{"path":"one.md","groupId":null}],"groups":[],"activePath":"one.md"}"#
         );
     }
 

@@ -139,3 +139,70 @@ export function isNewTabShortcut(
         !event.shiftKey &&
         event.code === "KeyT";
 }
+
+function hasPrimaryModifier(event: ShortcutEvent, platform: string): boolean {
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(platform);
+  return isMac
+    ? event.metaKey && !event.ctrlKey
+    : event.ctrlKey && !event.metaKey;
+}
+
+export function isSplitPaneShortcut(
+  event: ShortcutEvent,
+  platform: string,
+): boolean {
+  return (
+    hasPrimaryModifier(event, platform) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    event.code === "Backslash"
+  );
+}
+
+export function isClosePaneShortcut(
+  event: ShortcutEvent,
+  platform: string,
+): boolean {
+  return (
+    hasPrimaryModifier(event, platform) &&
+    !event.altKey &&
+    event.shiftKey &&
+    event.code === "Backslash"
+  );
+}
+
+export type PaneFocusShortcut =
+  | { kind: "index"; index: number }
+  | { kind: "step"; direction: -1 | 1 };
+
+export function paneFocusShortcut(
+  event: ShortcutEvent,
+  platform: string,
+): PaneFocusShortcut | null {
+  if (
+    event.code === "F6" &&
+    !event.ctrlKey &&
+    !event.metaKey &&
+    !event.altKey
+  ) {
+    return { kind: "step", direction: event.shiftKey ? -1 : 1 };
+  }
+  const isMac = /Mac|iPhone|iPad|iPod/i.test(platform);
+  if (
+    !hasPrimaryModifier(event, platform) ||
+    (isMac ? !event.altKey || event.shiftKey : event.altKey || !event.shiftKey)
+  ) {
+    return null;
+  }
+  const digit = /^Digit([1-4])$/.exec(event.code);
+  if (digit) {
+    return { kind: "index", index: Number(digit[1]) - 1 };
+  }
+  if (isMac && (event.code === "ArrowRight" || event.code === "ArrowDown")) {
+    return { kind: "step", direction: 1 };
+  }
+  if (isMac && (event.code === "ArrowLeft" || event.code === "ArrowUp")) {
+    return { kind: "step", direction: -1 };
+  }
+  return null;
+}

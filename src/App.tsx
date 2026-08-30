@@ -33,6 +33,7 @@ import {
   Settings2,
   ShieldCheck,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   useCallback,
@@ -59,6 +60,8 @@ import {
   FileActionsDropdown,
   type FileActionHandlers,
 } from "./components/FileActionsMenu";
+import { PaneControls } from "./components/PaneControls";
+import { PaneResizer } from "./components/PaneResizer";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
 import {
@@ -116,20 +119,48 @@ import {
 } from "./lib/search";
 import { sourceLanguageName } from "./lib/sourceLanguage";
 import {
-  applyTabSessionLayout,
-  buildTabSessionState,
   MAX_TAB_SESSION_GROUPS,
   MAX_TAB_SESSION_TABS,
   moveTabInLayout,
   placeOpenedTab,
+  placeTabInGroup,
   rekeyTabNavigation,
-  removeTabsForPaths,
   restoreTabHistoryTarget,
   tabHistoryTarget,
   tabReferencedPaths,
   tabsReferencePath,
   tabsInVisualOrder,
 } from "./lib/tabs";
+import {
+  addPane,
+  applyPaneSessionState,
+  buildPaneSessionState,
+  closePane,
+  createPaneWorkspace,
+  findPaneByGroup,
+  findPaneByPath,
+  focusedPaneOf,
+  layoutsForPaneCount,
+  MAX_PANES,
+  movePaneTab,
+  normalizePaneLayout,
+  PANE_LAYOUT_LABELS,
+  paneAccessibleLabel,
+  paneAreas,
+  paneGroupOffset,
+  paneGroups,
+  paneLayoutTracks,
+  paneSeparators,
+  paneTabs,
+  prunePaneGroups,
+  removePaneTabs,
+  resizePaneLayout,
+  setPaneActivePath,
+  setPaneLayoutKind,
+  updatePane,
+  upgradeTabSession,
+  type PaneWorkspaceState,
+} from "./lib/panes";
 import {
   insertWorkspaceNode,
   removeWorkspacePath,
@@ -140,11 +171,14 @@ import {
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   editorZoomShortcut,
+  isClosePaneShortcut,
   isCommandPaletteShortcut,
   isNewFileShortcut,
   isNewTabShortcut,
   isReplaceShortcut,
   isSearchShortcut,
+  isSplitPaneShortcut,
+  paneFocusShortcut,
 } from "./lib/shortcuts";
 import {
   previewReplacements,
@@ -178,11 +212,13 @@ import type {
   HeadingItem,
   HistoryRevision,
   KnownVaultFile,
+  PaneLayoutKind,
   SearchResult,
   SidebarView,
   TabGroup,
   TabSessionState,
   TagColor,
+  WorkspacePane,
   WorkspaceSnapshot,
 } from "./types";
 
@@ -222,9 +258,9 @@ function App() {
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
-  const [tabs, setTabs] = useState<EditorTab[]>([]);
-  const [tabGroups, setTabGroups] = useState<TabGroup[]>([]);
-  const [activePath, setActivePath] = useState<string | null>(null);
+  const [paneState, setPaneState] = useState<PaneWorkspaceState>(() =>
+    createPaneWorkspace(),
+  );
   const [showOutline, setShowOutline] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLocation, setSearchLocation] = useState("*");
@@ -324,9 +360,11 @@ function App() {
     vaultPath: string;
     path: string;
   } | null>(null);
-  const activePathRef = useRef<string | null>(activePath);
-  const openFileRequest = useRef(0);
+  const activePathRef = useRef<string | null>(null);
+  const paneStateRef = useRef<PaneWorkspaceState>(paneState);
+  const openFileRequests = useRef(new Map<string, number>());
   const openFileQueue = useRef<Promise<void>>(Promise.resolve());
+  const paneResizeBase = useRef<PaneWorkspaceState["layout"] | null>(null);
   const newTabSequence = useRef(0);
   const tabGroupSequence = useRef(0);
   const vaultGeneration = useRef(0);
@@ -339,22 +377,76 @@ function App() {
   );
   const actionDialogReturnFocus = useRef<HTMLElement | null>(null);
 
+  const commitPaneState = useCallback(
+    (updater: (current: PaneWorkspaceState) => PaneWorkspaceState) => {
+      const updated = updater(paneStateRef.current);
+      if (updated === paneStateRef.current) {
+        return;
+      }
+      const panes =
+        updated.panes.length > 0
+          ? updated.panes.map(prunePaneGroups)
+          : createPaneWorkspace().panes;
+      const next: PaneWorkspaceState = {
+        panes,
+        layout: normalizePaneLayout(updated.layout, panes.length),
+        focusedPaneId: panes.some((pane) => pane.id === updated.focusedPaneId)
+          ? updated.focusedPaneId
+          : panes[0].id,
+      };
+      paneStateRef.current = next;
+      tabsRef.current = paneTabs(next.panes);
+      tabGroupsRef.current = paneGroups(next.panes);
+      activePathRef.current = focusedPaneOf(next).activePath;
+      setPaneState(next);
+    },
+    [],
+  );
+  const commitPanes = useCallback(
+    (updater: (current: WorkspacePane[]) => WorkspacePane[]) => {
+      commitPaneState((current) => ({
+        ...current,
+        panes: updater(current.panes),
+      }));
+    },
+    [commitPaneState],
+  );
   const commitTabs = useCallback(
     (updater: (current: EditorTab[]) => EditorTab[]) => {
-      const next = updater(tabsRef.current);
-      tabsRef.current = next;
-      setTabs(next);
+      commitPanes((panes) =>
+        panes.map((pane) => {
+          const tabs = updater(pane.tabs);
+          const unchanged =
+            tabs.length === pane.tabs.length &&
+            tabs.every((tab, index) => tab === pane.tabs[index]);
+          return unchanged ? pane : { ...pane, tabs };
+        }),
+      );
     },
+    [commitPanes],
+  );
+  const nextOpenRequest = useCallback((paneId: string) => {
+    const next = (openFileRequests.current.get(paneId) ?? 0) + 1;
+    openFileRequests.current.set(paneId, next);
+    return next;
+  }, []);
+  const openRequestCurrent = useCallback(
+    (paneId: string, request: number) =>
+      (openFileRequests.current.get(paneId) ?? 0) === request,
     [],
   );
-  const commitTabGroups = useCallback(
-    (updater: (current: TabGroup[]) => TabGroup[]) => {
-      const next = updater(tabGroupsRef.current);
-      tabGroupsRef.current = next;
-      setTabGroups(next);
-    },
-    [],
-  );
+  const invalidateOpenRequests = useCallback(() => {
+    const paneIds = new Set([
+      ...openFileRequests.current.keys(),
+      ...paneStateRef.current.panes.map((pane) => pane.id),
+    ]);
+    for (const paneId of paneIds) {
+      openFileRequests.current.set(
+        paneId,
+        (openFileRequests.current.get(paneId) ?? 0) + 1,
+      );
+    }
+  }, []);
   const setWorkspaceLock = useCallback((locked: boolean) => {
     workspaceLockedRef.current = locked;
     setWorkspaceLocked(locked);
@@ -422,6 +514,13 @@ function App() {
     window.setTimeout(() => returnFocus?.focus(), 0);
   }, []);
 
+  const panes = paneState.panes;
+  const paneLayout = paneState.layout;
+  const focusedPaneId = paneState.focusedPaneId;
+  const focusedPane = focusedPaneOf(paneState);
+  const tabs = focusedPane.tabs;
+  const tabGroups = focusedPane.groups;
+  const activePath = focusedPane.activePath;
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
     [activePath, tabs],
@@ -433,11 +532,6 @@ function App() {
           markdownEditorSource(activeFileTab.content),
         )
       : null;
-  const activeMarkdownError = markdownAppErrorForPath(
-    errors,
-    activePath,
-    activeMarkdownSource,
-  );
   const visibleError = visibleAppError(
     errors,
     activePath,
@@ -905,7 +999,7 @@ function App() {
       if (resetTabs) {
         finishActionDialog(null);
       }
-      openFileRequest.current += 1;
+      invalidateOpenRequests();
       const vaultLocked =
         snapshot.encryption.enabled && !snapshot.encryption.unlocked;
       if (indexTimer.current) {
@@ -990,9 +1084,8 @@ function App() {
           window.clearTimeout(tabSessionTimer.current);
           tabSessionTimer.current = null;
         }
-        commitTabs(() => []);
-        commitTabGroups(() => []);
-        setActivePath(null);
+        commitPaneState(() => createPaneWorkspace());
+        openFileRequests.current.clear();
       }
       if (snapshot.markdownViewMode === null) {
         queueVaultViewModeWrite(
@@ -1015,9 +1108,9 @@ function App() {
       }
     },
     [
-      commitTabs,
-      commitTabGroups,
+      commitPaneState,
       finishActionDialog,
+      invalidateOpenRequests,
       queueVaultViewModeWrite,
       rebuildSearchIndex,
       refreshCachedWorkspace,
@@ -1060,43 +1153,186 @@ function App() {
     activePathRef.current = activePath;
   }, [activePath]);
 
-  const activateTab = useCallback((path: string) => {
-    openFileRequest.current += 1;
-    activePathRef.current = path;
-    setActivePath(path);
-    const tab = tabsRef.current.find((candidate) => candidate.path === path);
-    setSelectedPath(tab?.placeholder ? null : path);
-  }, []);
+  const activateTab = useCallback(
+    (path: string) => {
+      const pane = findPaneByPath(paneStateRef.current.panes, path);
+      if (!pane) {
+        return;
+      }
+      nextOpenRequest(pane.id);
+      commitPaneState((current) => ({
+        ...current,
+        focusedPaneId: pane.id,
+        panes: setPaneActivePath(current.panes, pane.id, path),
+      }));
+      const tab = pane.tabs.find((candidate) => candidate.path === path);
+      setSelectedPath(tab?.placeholder ? null : path);
+    },
+    [commitPaneState, nextOpenRequest],
+  );
 
-  const createNewTab = useCallback(() => {
-    if (tabsRef.current.length >= MAX_TAB_SESSION_TABS) {
-      showError(`A vault can have up to ${MAX_TAB_SESSION_TABS} open tabs.`);
+  const focusPane = useCallback(
+    (paneId: string) => {
+      const current = paneStateRef.current;
+      if (current.focusedPaneId === paneId) {
+        return;
+      }
+      const pane = current.panes.find((candidate) => candidate.id === paneId);
+      if (!pane) {
+        return;
+      }
+      commitPaneState((state) => ({ ...state, focusedPaneId: paneId }));
+      const active = pane.tabs.find((tab) => tab.path === pane.activePath);
+      setSelectedPath(active && !active.placeholder ? active.path : null);
+    },
+    [commitPaneState],
+  );
+
+  const focusPaneAtIndex = useCallback(
+    (index: number) => {
+      const pane = paneStateRef.current.panes[index];
+      if (!pane) {
+        return;
+      }
+      focusPane(pane.id);
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(
+            `[data-pane-id="${CSS.escape(pane.id)}"] .tab__activate, [data-pane-id="${CSS.escape(pane.id)}"] .tab-new`,
+          )
+          ?.focus();
+      }, 0);
+    },
+    [focusPane],
+  );
+
+  const stepFocusedPane = useCallback(
+    (direction: -1 | 1) => {
+      const current = paneStateRef.current;
+      if (current.panes.length < 2) {
+        return;
+      }
+      const index = current.panes.findIndex(
+        (pane) => pane.id === current.focusedPaneId,
+      );
+      focusPaneAtIndex(
+        (index + direction + current.panes.length) % current.panes.length,
+      );
+    },
+    [focusPaneAtIndex],
+  );
+
+  const addWorkspacePane = useCallback(() => {
+    if (paneStateRef.current.panes.length >= MAX_PANES) {
+      showError(`Denote supports up to ${MAX_PANES} panes.`);
       return;
     }
-    const path = `denote:new-tab:${++newTabSequence.current}`;
-    const tab: EditorTab = {
-      path,
-      title: "New tab",
-      kind: "text",
-      content: "",
-      savedContent: "",
-      encoding: "utf8",
-      lineEnding: "lf",
-      placeholder: true,
-      groupId: null,
-      rawEditing: false,
-      readOnly: false,
-      editorRevision: 0,
-      editRecorded: false,
-      saveState: "saved",
-    };
-    openFileRequest.current += 1;
-    commitTabs((current) => [...current, tab]);
-    activePathRef.current = path;
-    setActivePath(path);
+    commitPaneState((current) => addPane(current));
     setSelectedPath(null);
-    setStatus("New tab");
-  }, [commitTabs, showError]);
+    setStatus(`Added pane ${paneStateRef.current.panes.length}`);
+    window.setTimeout(() => {
+      document
+        .querySelector<HTMLElement>(
+          `[data-pane-id="${CSS.escape(paneStateRef.current.focusedPaneId)}"] .tab-new`,
+        )
+        ?.focus();
+    }, 0);
+  }, [commitPaneState, showError]);
+
+  const closeWorkspacePane = useCallback(
+    (paneId: string) => {
+      const current = paneStateRef.current;
+      if (current.panes.length <= 1) {
+        return;
+      }
+      const closing = current.panes.find((pane) => pane.id === paneId);
+      const moved = closing?.tabs.length ?? 0;
+      commitPaneState((state) => closePane(state, paneId));
+      setStatus(
+        moved > 0
+          ? `Closed pane and kept ${moved} tab${moved === 1 ? "" : "s"}`
+          : "Closed pane",
+      );
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLElement>(
+            `[data-pane-id="${CSS.escape(paneStateRef.current.focusedPaneId)}"] .tab__activate, [data-pane-id="${CSS.escape(paneStateRef.current.focusedPaneId)}"] .tab-new`,
+          )
+          ?.focus();
+      }, 0);
+    },
+    [commitPaneState],
+  );
+
+  const changePaneLayout = useCallback(
+    (kind: PaneLayoutKind) => {
+      commitPaneState((current) => setPaneLayoutKind(current, kind));
+      setStatus(`${PANE_LAYOUT_LABELS[kind]} layout`);
+    },
+    [commitPaneState],
+  );
+
+  const resizePane = useCallback(
+    (groupIndex: number, index: number, delta: number) => {
+      const base = paneResizeBase.current ?? paneStateRef.current.layout;
+      paneResizeBase.current = base;
+      commitPaneState((current) => ({
+        ...current,
+        layout: resizePaneLayout(
+          base,
+          current.panes.length,
+          groupIndex,
+          index,
+          delta,
+        ),
+      }));
+    },
+    [commitPaneState],
+  );
+
+  const finishPaneResize = useCallback(() => {
+    paneResizeBase.current = null;
+  }, []);
+
+  const createNewTab = useCallback(
+    (targetPaneId?: string) => {
+      if (tabsRef.current.length >= MAX_TAB_SESSION_TABS) {
+        showError(`A vault can have up to ${MAX_TAB_SESSION_TABS} open tabs.`);
+        return;
+      }
+      const paneId = targetPaneId ?? paneStateRef.current.focusedPaneId;
+      const path = `denote:new-tab:${++newTabSequence.current}`;
+      const tab: EditorTab = {
+        path,
+        title: "New tab",
+        kind: "text",
+        content: "",
+        savedContent: "",
+        encoding: "utf8",
+        lineEnding: "lf",
+        placeholder: true,
+        groupId: null,
+        rawEditing: false,
+        readOnly: false,
+        editorRevision: 0,
+        editRecorded: false,
+        saveState: "saved",
+      };
+      nextOpenRequest(paneId);
+      commitPaneState((current) => ({
+        ...current,
+        focusedPaneId: paneId,
+        panes: updatePane(current.panes, paneId, (pane) => ({
+          ...pane,
+          tabs: [...pane.tabs, tab],
+          activePath: path,
+        })),
+      }));
+      setSelectedPath(null);
+      setStatus("New tab");
+    },
+    [commitPaneState, nextOpenRequest, showError],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1720,13 +1956,14 @@ function App() {
     async (
       path: string,
       anchor: string | null | undefined,
+      paneId: string,
       request: number,
       transientErrors: boolean,
     ) => {
       if (!workspace || workspaceLockedRef.current) {
         return;
       }
-      if (request !== openFileRequest.current) {
+      if (!openRequestCurrent(paneId, request)) {
         return;
       }
       const existing = tabsRef.current.find((tab) => tab.path === path);
@@ -1737,7 +1974,13 @@ function App() {
         activateTab(path);
         return;
       }
-      const replacePath = activePathRef.current;
+      const targetPane = paneStateRef.current.panes.find(
+        (pane) => pane.id === paneId,
+      );
+      if (!targetPane) {
+        return;
+      }
+      const replacePath = targetPane.activePath;
       const node = findNode(workspace.tree, path);
       const kind = node?.kind ?? kindFromPath(path);
       const reportError = transientErrors ? showLinkError : showError;
@@ -1754,25 +1997,28 @@ function App() {
           return;
         }
         workspaceOperationStarted = true;
-        if (request !== openFileRequest.current) {
+        if (!openRequestCurrent(paneId, request)) {
           return;
         }
         const tab = await readEditorTab(path, kind, title);
         if (
           generation !== vaultGeneration.current ||
-          request !== openFileRequest.current
+          !openRequestCurrent(paneId, request)
         ) {
           return;
         }
         setHeadingNavigation(
           anchor ? { path, anchor } : null,
         );
-        commitTabs((current) => placeOpenedTab(current, replacePath, tab));
-        commitTabGroups((current) =>
-          current.filter((group) =>
-            tabsRef.current.some((candidate) => candidate.groupId === group.id),
-          ),
-        );
+        commitPaneState((current) => ({
+          ...current,
+          focusedPaneId: paneId,
+          panes: updatePane(current.panes, paneId, (pane) => ({
+            ...pane,
+            tabs: placeOpenedTab(pane.tabs, replacePath, tab),
+            activePath: path,
+          })),
+        }));
         dispatchErrors({
           type: "retain-markdown-paths",
           paths: tabReferencedPaths(tabsRef.current),
@@ -1780,8 +2026,6 @@ function App() {
         if (replacePath) {
           cancelPendingPath(replacePath);
         }
-        activePathRef.current = path;
-        setActivePath(path);
         setSelectedPath(path);
         setStatus(`Opened ${title}`);
         setWorkspace((current) =>
@@ -1809,11 +2053,11 @@ function App() {
       }
     },
     [
-      commitTabGroups,
-      commitTabs,
       activateTab,
       beginWorkspaceOperation,
       cancelPendingPath,
+      commitPaneState,
+      openRequestCurrent,
       readEditorTab,
       setWorkspaceLock,
       showError,
@@ -1822,20 +2066,36 @@ function App() {
     ],
   );
 
+  const openFileInPane = useCallback(
+    (
+      path: string,
+      paneId: string,
+      anchor?: string | null,
+      transientErrors = false,
+    ): Promise<void> => {
+      const request = nextOpenRequest(paneId);
+      const operation = openFileQueue.current.then(() =>
+        openFileNow(path, anchor, paneId, request, transientErrors),
+      );
+      openFileQueue.current = operation;
+      return operation;
+    },
+    [nextOpenRequest, openFileNow],
+  );
+
   const openFile = useCallback(
     (
       path: string,
       anchor?: string | null,
       transientErrors = false,
-    ): Promise<void> => {
-      const request = ++openFileRequest.current;
-      const operation = openFileQueue.current.then(() =>
-        openFileNow(path, anchor, request, transientErrors),
-      );
-      openFileQueue.current = operation;
-      return operation;
-    },
-    [openFileNow],
+    ): Promise<void> =>
+      openFileInPane(
+        path,
+        paneStateRef.current.focusedPaneId,
+        anchor,
+        transientErrors,
+      ),
+    [openFileInPane],
   );
 
   const openFileInNewTab = useCallback(
@@ -1854,19 +2114,31 @@ function App() {
 
   const navigateTabHistory = useCallback(
     (direction: -1 | 1): Promise<void> => {
-      const request = ++openFileRequest.current;
+      const paneId = paneStateRef.current.focusedPaneId;
+      const request = nextOpenRequest(paneId);
       const operation = openFileQueue.current.then(async () => {
         if (!workspace || workspaceLockedRef.current) {
           return;
         }
-        const current = tabsRef.current.find(
-          (tab) => tab.path === activePathRef.current,
+        const pane = paneStateRef.current.panes.find(
+          (candidate) => candidate.id === paneId,
         );
-        if (!current || current.placeholder) {
+        const current = pane?.tabs.find(
+          (tab) => tab.path === pane.activePath,
+        );
+        if (!pane || !current || current.placeholder) {
           return;
         }
         const target = tabHistoryTarget(current, direction);
-        if (!target || request !== openFileRequest.current) {
+        if (!target || !openRequestCurrent(paneId, request)) {
+          return;
+        }
+        const otherPane = findPaneByPath(
+          paneStateRef.current.panes,
+          target.path,
+        );
+        if (otherPane && otherPane.id !== paneId) {
+          activateTab(target.path);
           return;
         }
         const node = findNode(workspace.tree, target.path);
@@ -1885,16 +2157,19 @@ function App() {
             return;
           }
           workspaceOperationStarted = true;
-          if (request !== openFileRequest.current) {
+          if (!openRequestCurrent(paneId, request)) {
             return;
           }
-          const latestCurrent = tabsRef.current.find(
+          const latestPane = paneStateRef.current.panes.find(
+            (candidate) => candidate.id === paneId,
+          );
+          const latestCurrent = latestPane?.tabs.find(
             (tab) => tab.path === current.path,
           );
-          if (!latestCurrent) {
+          if (!latestPane || !latestCurrent) {
             return;
           }
-          const existing = tabsRef.current.find(
+          const existing = latestPane.tabs.find(
             (tab) => tab.path === target.path,
           );
           const opened = restoreTabHistoryTarget(
@@ -1904,40 +2179,34 @@ function App() {
           );
           if (
             generation !== vaultGeneration.current ||
-            request !== openFileRequest.current
+            !openRequestCurrent(paneId, request)
           ) {
             return;
           }
-          if (existing) {
-            const displaced = placeOpenedTab(
-              [existing],
-              existing.path,
-              latestCurrent,
-            )[0];
-            commitTabs((tabs) =>
-              tabsInVisualOrder(
-                tabs.map((tab) =>
+          const displaced = existing
+            ? placeOpenedTab([existing], existing.path, latestCurrent)[0]
+            : null;
+          commitPaneState((state) => ({
+            ...state,
+            focusedPaneId: paneId,
+            panes: updatePane(state.panes, paneId, (candidate) => ({
+              ...candidate,
+              tabs: tabsInVisualOrder(
+                candidate.tabs.map((tab) =>
                   tab.path === current.path
                     ? opened
-                    : tab.path === existing.path
+                    : displaced && existing && tab.path === existing.path
                       ? displaced
                       : tab,
                 ),
               ),
-            );
+              activePath: target.path,
+            })),
+          }));
+          if (existing) {
             cancelPendingPath(existing.path);
-          } else {
-            commitTabs((tabs) =>
-              tabsInVisualOrder(
-                tabs.map((tab) =>
-                  tab.path === current.path ? opened : tab,
-                ),
-              ),
-            );
           }
           cancelPendingPath(current.path);
-          activePathRef.current = target.path;
-          setActivePath(target.path);
           setSelectedPath(target.path);
           setStatus(`Opened ${title}`);
           setWorkspace((value) =>
@@ -1968,9 +2237,12 @@ function App() {
       return operation;
     },
     [
+      activateTab,
       beginWorkspaceOperation,
       cancelPendingPath,
-      commitTabs,
+      commitPaneState,
+      nextOpenRequest,
+      openRequestCurrent,
       readEditorTab,
       setWorkspaceLock,
       showError,
@@ -1990,18 +2262,26 @@ function App() {
     }
     pendingTabSession.current = null;
     const generation = vaultGeneration.current;
-    const request = ++openFileRequest.current;
+    const upgraded = upgradeTabSession(session);
+    const requests = new Map(
+      upgraded.panes.map((pane) => [pane.id, nextOpenRequest(pane.id)]),
+    );
+    const stale = () =>
+      generation !== vaultGeneration.current ||
+      [...requests].some(([paneId, request]) => !openRequestCurrent(paneId, request));
     void (async () => {
       await acquireWorkspaceLock();
       try {
         const restored: EditorTab[] = [];
-        for (const saved of session.tabs) {
-          if (
-            generation !== vaultGeneration.current ||
-            request !== openFileRequest.current
-          ) {
+        const seen = new Set<string>();
+        for (const saved of upgraded.panes.flatMap((pane) => pane.tabs)) {
+          if (stale()) {
             return;
           }
+          if (seen.has(saved.path)) {
+            continue;
+          }
+          seen.add(saved.path);
           const node = findNode(workspace.tree, saved.path);
           const kind = node?.kind ?? kindFromPath(saved.path);
           if (kind === "folder") {
@@ -2010,29 +2290,23 @@ function App() {
           const title =
             node?.name ?? saved.path.split("/").slice(-1)[0] ?? saved.path;
           try {
-            restored.push({
-              ...(await readEditorTab(saved.path, kind, title)),
-              groupId: saved.groupId,
-            });
+            restored.push(await readEditorTab(saved.path, kind, title));
           } catch (caught) {
             console.warn(`Unable to restore ${saved.path}:`, caught);
           }
         }
-        if (
-          generation !== vaultGeneration.current ||
-          request !== openFileRequest.current
-        ) {
+        if (stale()) {
           return;
         }
-        const layout = applyTabSessionLayout(restored, session);
-        commitTabs(() => layout.tabs);
-        commitTabGroups(() => layout.groups);
-        const activePath = layout.activePath;
-        activePathRef.current = activePath;
-        setActivePath(activePath);
+        const restoredState = applyPaneSessionState(restored, session);
+        commitPaneState(() => restoredState);
+        const activePath = focusedPaneOf(restoredState).activePath;
         setSelectedPath(activePath);
         setStatus(
-          `Restored ${restored.length} tab${restored.length === 1 ? "" : "s"}`,
+          `Restored ${restored.length} tab${restored.length === 1 ? "" : "s"}` +
+            (restoredState.panes.length > 1
+              ? ` in ${restoredState.panes.length} panes`
+              : ""),
         );
       } catch (caught) {
         showError(caught);
@@ -2043,8 +2317,9 @@ function App() {
     })();
   }, [
     acquireWorkspaceLock,
-    commitTabGroups,
-    commitTabs,
+    commitPaneState,
+    nextOpenRequest,
+    openRequestCurrent,
     readEditorTab,
     setWorkspaceLock,
     showError,
@@ -2095,10 +2370,10 @@ function App() {
     void openFile(welcomePath);
   }, [openFile, workspace, workspaceLocked]);
 
-  const changeActiveContent = useCallback(
-    (content: string) => {
+  const changeTabContent = useCallback(
+    (path: string, content: string) => {
       const currentTab = tabsRef.current.find(
-        (candidate) => candidate.path === activePath,
+        (candidate) => candidate.path === path,
       );
       if (
         !currentTab ||
@@ -2107,7 +2382,6 @@ function App() {
       ) {
         return;
       }
-      const path = currentTab.path;
       const pendingInsertions = pendingAttachmentInsertions.current.get(path);
       if (workspaceLockedRef.current && !pendingInsertions) {
         return;
@@ -2171,7 +2445,7 @@ function App() {
       }, 800);
       saveTimers.current.set(path, timer);
     },
-    [activePath, commitTabs, saveTab, showError],
+    [commitTabs, saveTab, showError],
   );
 
   const closeTabs = useCallback(
@@ -2180,40 +2454,34 @@ function App() {
       if (closing.size === 0 || workspaceLockedRef.current) {
         return;
       }
-      openFileRequest.current += 1;
+      invalidateOpenRequests();
       try {
         if (!(await beginWorkspaceOperation())) {
           return;
         }
-        const currentTabs = tabsRef.current;
-        const activeIndex = currentTabs.findIndex(
-          (tab) => tab.path === activePathRef.current,
-        );
-        const remaining = currentTabs.filter((tab) => !closing.has(tab.path));
-        commitTabs(() => remaining);
+        const closedActivePath =
+          activePathRef.current && closing.has(activePathRef.current)
+            ? activePathRef.current
+            : null;
+        commitPaneState((current) => ({
+          ...current,
+          panes: removePaneTabs(
+            current.panes,
+            (path) => closing.has(path),
+            false,
+          ).panes,
+        }));
         dispatchErrors({
           type: "retain-markdown-paths",
-          paths: tabReferencedPaths(remaining),
+          paths: tabReferencedPaths(tabsRef.current),
         });
         for (const path of closing) {
           cancelPendingPath(path);
         }
-        commitTabGroups((current) =>
-          current.filter((group) =>
-            remaining.some((tab) => tab.groupId === group.id),
-          ),
-        );
-        if (
-          activePathRef.current &&
-          closing.has(activePathRef.current)
-        ) {
-          const nextPath =
-            remaining[Math.min(Math.max(activeIndex, 0), remaining.length - 1)]
-              ?.path ?? null;
-          activePathRef.current = nextPath;
-          setActivePath(nextPath);
+        if (closedActivePath) {
+          const nextPath = activePathRef.current;
           setSelectedPath(
-            remaining.find((tab) => tab.path === nextPath)?.placeholder
+            tabsRef.current.find((tab) => tab.path === nextPath)?.placeholder
               ? null
               : nextPath,
           );
@@ -2240,8 +2508,8 @@ function App() {
     [
       beginWorkspaceOperation,
       cancelPendingPath,
-      commitTabGroups,
-      commitTabs,
+      commitPaneState,
+      invalidateOpenRequests,
       setWorkspaceLock,
       showError,
     ],
@@ -2252,79 +2520,106 @@ function App() {
     [closeTabs],
   );
 
+  const moveTabToPane = useCallback(
+    (path: string, paneId: string, beforePath: string | null = null) => {
+      const current = paneStateRef.current;
+      const source = findPaneByPath(current.panes, path);
+      const targetIndex = current.panes.findIndex(
+        (pane) => pane.id === paneId,
+      );
+      if (!source || targetIndex < 0 || source.id === paneId) {
+        return;
+      }
+      nextOpenRequest(source.id);
+      nextOpenRequest(paneId);
+      commitPaneState((state) => ({
+        ...state,
+        focusedPaneId: paneId,
+        panes: movePaneTab(state.panes, path, paneId, beforePath),
+      }));
+      const title =
+        tabsRef.current.find((tab) => tab.path === path)?.title ?? path;
+      setStatus(`Moved ${title} to pane ${targetIndex + 1}`);
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-tab-path="${CSS.escape(path)}"]`,
+          )
+          ?.focus();
+      }, 0);
+    },
+    [commitPaneState, nextOpenRequest],
+  );
+
   const reorderTabs = useCallback(
     (sourcePath: string, targetPath: string) => {
+      const panes = paneStateRef.current.panes;
+      const source = findPaneByPath(panes, sourcePath);
+      const target = findPaneByPath(panes, targetPath);
+      if (!source || !target) {
+        return;
+      }
+      if (source.id !== target.id) {
+        moveTabToPane(sourcePath, target.id, targetPath);
+        return;
+      }
       const sourceGroupId =
-        tabsRef.current.find((tab) => tab.path === sourcePath)?.groupId ?? null;
+        source.tabs.find((tab) => tab.path === sourcePath)?.groupId ?? null;
       const targetGroupId =
-        tabsRef.current.find((tab) => tab.path === targetPath)?.groupId ?? null;
-      commitTabs((current) =>
-        moveTabInLayout(current, sourcePath, targetPath),
-      );
-      commitTabGroups((current) =>
-        current
-          .map((group) =>
+        source.tabs.find((tab) => tab.path === targetPath)?.groupId ?? null;
+      commitPanes((current) =>
+        updatePane(current, source.id, (pane) => ({
+          ...pane,
+          tabs: moveTabInLayout(pane.tabs, sourcePath, targetPath),
+          groups: pane.groups.map((group) =>
             sourceGroupId !== targetGroupId && group.id === targetGroupId
               ? { ...group, collapsed: false }
               : group,
-          )
-          .filter((group) =>
-            tabsRef.current.some((tab) => tab.groupId === group.id),
           ),
+        })),
       );
       setStatus("Reordered tabs");
     },
-    [commitTabGroups, commitTabs],
+    [commitPanes, moveTabToPane],
   );
 
   const toggleTabGroup = useCallback(
     (groupId: string) => {
-      commitTabGroups((current) =>
-        current.map((group) =>
-          group.id === groupId
-            ? { ...group, collapsed: !group.collapsed }
-            : group,
-        ),
+      const pane = findPaneByGroup(paneStateRef.current.panes, groupId);
+      if (!pane) {
+        return;
+      }
+      commitPanes((current) =>
+        updatePane(current, pane.id, (candidate) => ({
+          ...candidate,
+          groups: candidate.groups.map((group) =>
+            group.id === groupId
+              ? { ...group, collapsed: !group.collapsed }
+              : group,
+          ),
+        })),
       );
     },
-    [commitTabGroups],
+    [commitPanes],
   );
 
   const moveTabToGroup = useCallback(
     (path: string, groupId: string | null) => {
-      commitTabs((current) => {
-        const index = current.findIndex((tab) => tab.path === path);
-        if (index < 0) {
-          return current;
-        }
-        const target = { ...current[index], groupId };
-        const remaining = current.filter((tab) => tab.path !== path);
-        if (!groupId) {
-          remaining.splice(Math.min(index, remaining.length), 0, target);
-          return tabsInVisualOrder(remaining);
-        }
-        const lastGroupIndex = remaining.reduce(
-          (last, tab, tabIndex) => (tab.groupId === groupId ? tabIndex : last),
-          -1,
-        );
-        remaining.splice(
-          lastGroupIndex >= 0 ? lastGroupIndex + 1 : remaining.length,
-          0,
-          target,
-        );
-        return tabsInVisualOrder(remaining);
-      });
-      commitTabGroups((current) =>
-        current
-          .map((group) =>
+      const pane = findPaneByPath(paneStateRef.current.panes, path);
+      if (!pane) {
+        return;
+      }
+      commitPanes((current) =>
+        updatePane(current, pane.id, (candidate) => ({
+          ...candidate,
+          tabs: placeTabInGroup(candidate.tabs, path, groupId),
+          groups: candidate.groups.map((group) =>
             group.id === groupId ? { ...group, collapsed: false } : group,
-          )
-          .filter((group) =>
-            tabsRef.current.some((tab) => tab.groupId === group.id),
           ),
+        })),
       );
     },
-    [commitTabGroups, commitTabs],
+    [commitPanes],
   );
 
   const createTabGroup = useCallback(
@@ -2348,12 +2643,18 @@ function App() {
         showError("Tab group names must be 64 characters or fewer.");
         return;
       }
+      const pane = findPaneByPath(paneStateRef.current.panes, path);
+      if (!pane) {
+        return;
+      }
       const groupId = `group-${Date.now()}-${++tabGroupSequence.current}`;
-      commitTabGroups((current) => [
-        ...current,
-        { id: groupId, name, collapsed: false },
-      ]);
-      moveTabToGroup(path, groupId);
+      commitPanes((current) =>
+        updatePane(current, pane.id, (candidate) => ({
+          ...candidate,
+          tabs: placeTabInGroup(candidate.tabs, path, groupId),
+          groups: [...candidate.groups, { id: groupId, name, collapsed: false }],
+        })),
+      );
       window.setTimeout(() => {
         document
           .querySelector<HTMLButtonElement>(
@@ -2362,7 +2663,7 @@ function App() {
           ?.focus();
       }, 0);
     },
-    [commitTabGroups, moveTabToGroup, requestText, showError],
+    [commitPanes, requestText, showError],
   );
 
   const renameTabGroup = useCallback(
@@ -2386,13 +2687,16 @@ function App() {
         showError("Tab group names must be 64 characters or fewer.");
         return;
       }
-      commitTabGroups((current) =>
-        current.map((candidate) =>
-          candidate.id === groupId ? { ...candidate, name } : candidate,
-        ),
+      commitPanes((current) =>
+        current.map((pane) => ({
+          ...pane,
+          groups: pane.groups.map((candidate) =>
+            candidate.id === groupId ? { ...candidate, name } : candidate,
+          ),
+        })),
       );
     },
-    [commitTabGroups, requestText, showError],
+    [commitPanes, requestText, showError],
   );
 
   const persistTabSession = useCallback((): Promise<boolean> => {
@@ -2405,11 +2709,7 @@ function App() {
     }
     const generation = vaultGeneration.current;
     const vaultPath = workspace.vaultPath;
-    const session = buildTabSessionState(
-      tabsRef.current,
-      tabGroupsRef.current,
-      activePathRef.current,
-    );
+    const session = buildPaneSessionState(paneStateRef.current);
     const write = tabSessionWrite.current
       .then(() => api.saveTabSession(session))
       .then(() => true)
@@ -2432,15 +2732,20 @@ function App() {
   const tabLayoutKey = useMemo(
     () =>
       JSON.stringify({
-        tabs: tabs.map(({ path, placeholder, groupId }) => ({
-          path,
-          placeholder,
-          groupId,
+        panes: panes.map((pane) => ({
+          id: pane.id,
+          tabs: pane.tabs.map(({ path, placeholder, groupId }) => ({
+            path,
+            placeholder,
+            groupId,
+          })),
+          groups: pane.groups,
+          activePath: pane.activePath,
         })),
-        groups: tabGroups,
-        activePath,
+        layout: paneLayout,
+        focusedPaneId,
       }),
-    [activePath, tabGroups, tabs],
+    [focusedPaneId, paneLayout, panes],
   );
 
   useEffect(() => {
@@ -2622,7 +2927,7 @@ function App() {
     if (!newName || newName === node.name) {
       return;
     }
-    openFileRequest.current += 1;
+    invalidateOpenRequests();
     try {
       if (!(await beginWorkspaceOperation())) {
         return;
@@ -2729,11 +3034,12 @@ function App() {
           }
         }
       }
-      setActivePath((current) => {
-        const next = current ? replacePrefix(current) : current;
-        activePathRef.current = next;
-        return next;
-      });
+      commitPanes((current) =>
+        current.map((pane) => ({
+          ...pane,
+          activePath: pane.activePath ? replacePrefix(pane.activePath) : null,
+        })),
+      );
       setSelectedPath(newPath);
       for (const tab of affectedTabs) {
         cancelPendingPath(tab.path);
@@ -2754,8 +3060,10 @@ function App() {
   }, [
     cancelPendingPath,
     beginWorkspaceOperation,
+    commitPanes,
     commitTabs,
     flushTab,
+    invalidateOpenRequests,
     refreshAndReindex,
     requestText,
     rewriteLinksForMove,
@@ -2780,7 +3088,7 @@ function App() {
         return;
       }
       try {
-        openFileRequest.current += 1;
+        invalidateOpenRequests();
         if (!(await beginWorkspaceOperation())) {
           return;
         }
@@ -2885,11 +3193,12 @@ function App() {
             }
           }
         }
-        setActivePath((current) => {
-          const next = current ? replacePrefix(current) : current;
-          activePathRef.current = next;
-          return next;
-        });
+        commitPanes((current) =>
+          current.map((pane) => ({
+            ...pane,
+            activePath: pane.activePath ? replacePrefix(pane.activePath) : null,
+          })),
+        );
         setSelectedPath(newPath);
         for (const tab of affectedTabs) {
           cancelPendingPath(tab.path);
@@ -2916,9 +3225,10 @@ function App() {
     [
       beginWorkspaceOperation,
       cancelPendingPath,
-      commitTabGroups,
+      commitPanes,
       commitTabs,
       flushTab,
+      invalidateOpenRequests,
       refreshAndReindex,
       rewriteLinksForMove,
       setWorkspaceLock,
@@ -2976,40 +3286,31 @@ function App() {
     let mutationStarted = false;
     let trashed = false;
     try {
-      openFileRequest.current += 1;
+      invalidateOpenRequests();
       if (!(await beginEntryMutation(expectedGeneration, isAffected))) {
         return;
       }
       mutationStarted = true;
       const trashItem = await api.trashEntry(node.path);
-      const currentTabs = tabsRef.current;
-      const removal = removeTabsForPaths(
-        currentTabs,
-        activePathRef.current,
-        isAffected,
-      );
-      const remainingTabs = removal.tabs;
-      commitTabs((current) =>
-        current === currentTabs ? remainingTabs : current,
-      );
+      const activeWasAffected =
+        activePathRef.current !== null && isAffected(activePathRef.current);
+      let removedPaths: string[] = [];
+      commitPaneState((current) => {
+        const removal = removePaneTabs(current.panes, isAffected);
+        removedPaths = removal.removedPaths;
+        return { ...current, panes: removal.panes };
+      });
       dispatchErrors({
         type: "remove-markdown-prefix",
         path: node.path,
       });
-      commitTabGroups((current) =>
-        current.filter((group) =>
-          remainingTabs.some((tab) => tab.groupId === group.id),
-        ),
-      );
-      for (const path of removal.removedPaths) {
+      for (const path of removedPaths) {
         cancelPendingPath(path);
       }
-      if (activePathRef.current && isAffected(activePathRef.current)) {
-        const nextPath = removal.activePath;
-        activePathRef.current = nextPath;
-        setActivePath(nextPath);
+      if (activeWasAffected) {
+        const nextPath = activePathRef.current;
         setSelectedPath(
-          remainingTabs.find((tab) => tab.path === nextPath)?.placeholder
+          tabsRef.current.find((tab) => tab.path === nextPath)?.placeholder
             ? null
             : nextPath,
         );
@@ -3057,8 +3358,8 @@ function App() {
   }, [
     beginEntryMutation,
     cancelPendingPath,
-    commitTabGroups,
-    commitTabs,
+    commitPaneState,
+    invalidateOpenRequests,
     requestConfirmation,
     scheduleIndexRebuild,
     selectedPath,
@@ -3905,14 +4206,18 @@ function App() {
     ],
   );
 
-  const openLink = useCallback(
-    async (href: string, linkText = "") => {
-      if (!activeTab || !href) {
+  const openLinkFromTab = useCallback(
+    async (sourceTab: EditorTab | null, href: string, linkText = "") => {
+      if (!sourceTab || !href) {
         return;
       }
+      const sourcePane = findPaneByPath(
+        paneStateRef.current.panes,
+        sourceTab.path,
+      );
       try {
         const target =
-          recoverMarkdownLinkTarget(activeTab.content, linkText, href) ?? href;
+          recoverMarkdownLinkTarget(sourceTab.content, linkText, href) ?? href;
         const normalizedTarget = externalLinkTarget(target);
         if (/^file:/i.test(normalizedTarget)) {
           if (!isLocalFileUrl(normalizedTarget)) {
@@ -3970,7 +4275,7 @@ function App() {
           return;
         }
         const resolved = resolveInternalLink(
-          activeTab.path,
+          sourceTab.path,
           normalizedTarget,
           allFiles
             .filter((node) => node.kind !== "folder")
@@ -3980,16 +4285,20 @@ function App() {
           showLinkError(`Link target not found: ${normalizedTarget}`);
           return;
         }
-        await openFile(resolved.path, resolved.anchor, true);
+        await openFileInPane(
+          resolved.path,
+          sourcePane?.id ?? paneStateRef.current.focusedPaneId,
+          resolved.anchor,
+          true,
+        );
       } catch (caught) {
         showLinkError(caught);
       }
     },
     [
-      activeTab,
       allFiles,
       externalDomainPolicy,
-      openFile,
+      openFileInPane,
       openWebLinksWithPolicy,
       showLinkError,
     ],
@@ -3999,7 +4308,7 @@ function App() {
     (anchor: string): boolean => {
       const slug = slugifyHeading(anchor);
       const sourceEditorElement = document.querySelector<HTMLElement>(
-        ".editor-pane .mdxeditor-source-editor .cm-editor",
+        '.workspace-pane[data-focused="true"] .mdxeditor-source-editor .cm-editor',
       );
       const sourceView = sourceEditorElement
         ? EditorView.findFromDOM(sourceEditorElement)
@@ -4020,8 +4329,14 @@ function App() {
         sourceView.focus();
         return true;
       }
+      const focusedPaneSelector = '.workspace-pane[data-focused="true"]';
       const candidates = document.querySelectorAll<HTMLElement>(
-        ".denote-editor-content h1, .denote-editor-content h2, .denote-editor-content h3, .denote-editor-content h4, .denote-editor-content h5, .denote-editor-content h6",
+        [1, 2, 3, 4, 5, 6]
+          .map(
+            (depth) =>
+              `${focusedPaneSelector} .denote-editor-content h${depth}`,
+          )
+          .join(", "),
       );
       const target = [...candidates].find(
         (element) =>
@@ -4144,6 +4459,7 @@ function App() {
         return;
       }
       const modifier = event.metaKey || event.ctrlKey;
+      const paneShortcut = paneFocusShortcut(event, navigator.platform);
       if (
         modifier &&
         event.shiftKey &&
@@ -4152,6 +4468,29 @@ function App() {
         event.preventDefault();
         event.stopPropagation();
         setVaultSwitcherOpen(true);
+      } else if (isSplitPaneShortcut(event, navigator.platform)) {
+        event.preventDefault();
+        event.stopPropagation();
+        addWorkspacePane();
+      } else if (isClosePaneShortcut(event, navigator.platform)) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeWorkspacePane(paneStateRef.current.focusedPaneId);
+      } else if (paneShortcut) {
+        const canRunPaneShortcut =
+          paneShortcut.kind === "index"
+            ? paneShortcut.index < paneStateRef.current.panes.length
+            : paneStateRef.current.panes.length > 1;
+        if (!canRunPaneShortcut) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        if (paneShortcut.kind === "index") {
+          focusPaneAtIndex(paneShortcut.index);
+        } else {
+          stepFocusedPane(paneShortcut.direction);
+        }
       } else if (isNewTabShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -4215,8 +4554,12 @@ function App() {
     activePath,
     activeFileTab,
     activateTab,
+    addWorkspacePane,
     closeTab,
+    closeWorkspacePane,
     createNewTab,
+    focusPaneAtIndex,
+    stepFocusedPane,
     createEntry,
     commandPaletteOpen,
     editorDisplaySettings.fontSize,
@@ -4267,6 +4610,17 @@ function App() {
     activeFileTab !== null &&
     !activeFileTab.readOnly &&
     (activeFileTab.kind !== "image" || activeFileTab.rawEditing);
+  const focusedPaneIndex = panes.findIndex(
+    (pane) => pane.id === focusedPaneId,
+  );
+  const paneAreaList = paneAreas(paneLayout.kind, panes.length);
+  const paneSeparatorList = paneSeparators(paneLayout.kind, panes.length);
+  const paneTracks = paneLayoutTracks(
+    paneLayout,
+    panes.length,
+    "var(--pane-gap)",
+  );
+  const splitPaneShortcut = macOS ? "⌘\\" : "Ctrl+\\";
   const fileActionHandlers: FileActionHandlers = {
     onDuplicate: (node) => void duplicateNode(node),
     onBookmark: (node) => void toggleBookmarkForNode(node),
@@ -4400,7 +4754,7 @@ function App() {
       category: "Tab",
       shortcut: `${commandKey}T`,
       disabled: !workspaceReady,
-      run: createNewTab,
+      run: () => createNewTab(),
     },
     {
       id: "tab.close",
@@ -4546,6 +4900,64 @@ function App() {
         }
       },
     },
+    {
+      id: "pane.split",
+      title: "Split editor into a new pane",
+      description: "Open another pane beside the focused pane.",
+      category: "Pane",
+      shortcut: splitPaneShortcut,
+      disabled: !workspaceReady || panes.length >= MAX_PANES,
+      run: addWorkspacePane,
+    },
+    {
+      id: "pane.close",
+      title: "Close focused pane",
+      description: "Keep its tabs by moving them into a neighbouring pane.",
+      category: "Pane",
+      shortcut: macOS ? "⇧⌘\\" : "Ctrl+Shift+\\",
+      disabled: panes.length < 2,
+      run: () => closeWorkspacePane(focusedPaneId),
+    },
+    {
+      id: "pane.focus-next",
+      title: "Focus next pane",
+      description: "Move keyboard focus to the next editor pane.",
+      category: "Pane",
+      shortcut: "F6",
+      disabled: panes.length < 2,
+      run: () => stepFocusedPane(1),
+    },
+    {
+      id: "pane.focus-previous",
+      title: "Focus previous pane",
+      description: "Move keyboard focus to the previous editor pane.",
+      category: "Pane",
+      shortcut: "Shift+F6",
+      disabled: panes.length < 2,
+      run: () => stepFocusedPane(-1),
+    },
+    {
+      id: "pane.move-tab",
+      title: "Move current tab to the next pane",
+      description: "Keep unsaved edits and continue in another pane.",
+      category: "Pane",
+      disabled: activePath === null || panes.length < 2,
+      run: () => {
+        const target = panes[(focusedPaneIndex + 1) % panes.length];
+        if (activePath && target) {
+          moveTabToPane(activePath, target.id);
+        }
+      },
+    },
+    ...layoutsForPaneCount(panes.length)
+      .filter((kind) => kind !== paneLayout.kind)
+      .map((kind) => ({
+        id: `pane.layout.${kind}`,
+        title: `Use the ${PANE_LAYOUT_LABELS[kind].toLocaleLowerCase()} layout`,
+        description: `Arrange ${panes.length} panes as ${PANE_LAYOUT_LABELS[kind].toLocaleLowerCase()}.`,
+        category: "Pane",
+        run: () => changePaneLayout(kind),
+      })),
     {
       id: "file.save",
       title: "Save current file",
@@ -4902,6 +5314,127 @@ function App() {
     );
   }
 
+  const renderPaneSurface = (pane: WorkspacePane) => {
+    const paneTab = pane.tabs.find((tab) => tab.path === pane.activePath) ?? null;
+    if (paneTab?.placeholder) {
+      return (
+        <div className="editor-empty">
+          <div className="editor-empty__mark">+</div>
+          <h2>New tab</h2>
+          <p>Choose a file from the sidebar to open it in this tab.</p>
+        </div>
+      );
+    }
+    if (!paneTab) {
+      return (
+        <div className="editor-empty">
+          <div className="editor-empty__mark">D</div>
+          <h2>
+            {panes.length > 1 ? "This pane is empty." : "Your vault is ready."}
+          </h2>
+          <p>
+            Open a note from the sidebar or press{" "}
+            <kbd>{macOS ? "⌘" : "Ctrl"}F</kbd> to search.
+          </p>
+        </div>
+      );
+    }
+    const paneReadOnly = workspaceLocked || (paneTab.readOnly ?? false);
+    const paneMarkdownError =
+      paneTab.kind === "markdown" && paneTab.encoding === "utf8"
+        ? markdownAppErrorForPath(
+            errors,
+            paneTab.path,
+            markdownErrorSourceIdentity(markdownEditorSource(paneTab.content)),
+          )
+        : null;
+    return (
+      <>
+        {paneTab.kind === "image" && !paneTab.rawEditing ? (
+          <figure className="image-viewer">
+            <img src={paneTab.imageDataUrl} alt={paneTab.title} />
+            <figcaption>{paneTab.path}</figcaption>
+          </figure>
+        ) : paneTab.kind === "markdown" &&
+          paneTab.encoding === "utf8" &&
+          !paneTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
+          <MarkdownEditor
+            key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}`}
+            notePath={paneTab.path}
+            markdown={paneTab.content}
+            lineEnding={paneTab.lineEnding}
+            displaySettings={editorDisplaySettings}
+            preferredViewMode={markdownViewMode}
+            readOnly={paneReadOnly}
+            errorLocation={paneMarkdownError?.location}
+            errorNavigationRequest={paneMarkdownError?.navigationRequest ?? 0}
+            tagColors={tagColorMap}
+            onChange={(content) => changeTabContent(paneTab.path, content)}
+            onError={showError}
+            onMarkdownError={(diagnostic) =>
+              showMarkdownError(paneTab.path, diagnostic)
+            }
+            onMarkdownErrorCleared={() => clearMarkdownError(paneTab.path)}
+            onLinkOpen={(href, text) =>
+              void openLinkFromTab(paneTab, href, text)
+            }
+            onViewModeChange={updateMarkdownViewMode}
+            onImageUpload={uploadAttachment}
+          />
+        ) : (
+          <>
+            {paneTab.encoding === "base64" ? (
+              <div className="binary-editor-notice" role="note">
+                Binary file shown as reversible Base64. Invalid Base64 will not
+                be saved.
+              </div>
+            ) : null}
+            <PlainTextEditor
+              key={`${paneTab.path}:${paneTab.editorRevision}`}
+              ariaLabel={`${paneTab.readOnly ? "Read" : "Edit"} ${paneTab.title}`}
+              value={paneTab.content}
+              readOnly={paneReadOnly}
+              spellCheck={
+                paneTab.encoding === "utf8" &&
+                sourceLanguageName(paneTab.path) === null
+              }
+              binary={paneTab.encoding === "base64"}
+              filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
+              lineEnding={paneTab.lineEnding}
+              displaySettings={editorDisplaySettings}
+              onChange={(content) => changeTabContent(paneTab.path, content)}
+              onError={showError}
+            />
+          </>
+        )}
+        {pane.id === focusedPaneId && tags.length > 0 ? (
+          <div className="document-tags" aria-label="Document tags">
+            {tags.map((tag) => (
+              <TagChip
+                tag={tag}
+                color={resolveTagColor(tag, tagColorMap)}
+                editable
+                key={tag}
+                onActivate={() => {
+                  setSidebarView("search");
+                  setSearchLocation("*");
+                  setSearchQuery("");
+                  setSearchFilters({
+                    ...createEmptySearchFilters(),
+                    tags: [tag],
+                  });
+                }}
+                onColorChange={(changedTag, color) =>
+                  void updateTagColor(changedTag, color)
+                }
+              />
+            ))}
+          </div>
+        ) : null}
+      </>
+    );
+  };
+
   return (
     <div
       className="app-shell"
@@ -5163,25 +5696,6 @@ function App() {
                 <button
                   type="button"
                   className="icon-button"
-                  aria-label={
-                    activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
-                  }
-                  title={
-                    activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
-                  }
-                  aria-pressed={activeFileTab?.readOnly ?? false}
-                  disabled={!activeFileTab || workspaceLocked}
-                  onClick={toggleReadMode}
-                >
-                  {activeFileTab?.readOnly ? (
-                    <Pencil aria-hidden="true" size={16} />
-                  ) : (
-                    <BookOpen aria-hidden="true" size={16} />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  className="icon-button"
                   aria-label="Refresh trash"
                   onClick={() => void refreshWorkspace()}
                 >
@@ -5222,7 +5736,7 @@ function App() {
         onChange={setSidebarWidth}
         onCommit={commitSidebarWidth}
       />
-      <section
+      <main
         className="workspace-main"
         id="editor-workspace"
         tabIndex={-1}
@@ -5230,21 +5744,15 @@ function App() {
         aria-busy={workspaceLocked}
       >
         <header className="workspace-topbar">
-          <Tabs
-            tabs={tabs}
-            groups={tabGroups}
-            activePath={activePath}
+          <PaneControls
+            layout={paneLayout.kind}
+            paneCount={panes.length}
             disabled={workspaceLocked}
-            onActivate={activateTab}
-            onClose={(path) => void closeTab(path)}
-            onCloseMany={(paths) => void closeTabs(paths)}
-            onReorder={reorderTabs}
-            onNewTab={createNewTab}
-            onToggleGroup={toggleTabGroup}
-            onCreateGroup={(path) => void createTabGroup(path)}
-            onRenameGroup={(groupId) => void renameTabGroup(groupId)}
-            onMoveToGroup={moveTabToGroup}
+            splitShortcut={splitPaneShortcut}
+            onLayoutChange={changePaneLayout}
+            onAddPane={addWorkspacePane}
           />
+          <span className="workspace-topbar__spacer" />
           <div className="workspace-actions">
             <button
               type="button"
@@ -5379,6 +5887,25 @@ function App() {
             <button
               type="button"
               className="icon-button"
+              aria-label={
+                activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
+              }
+              title={
+                activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
+              }
+              aria-pressed={activeFileTab?.readOnly ?? false}
+              disabled={!activeFileTab || workspaceLocked}
+              onClick={toggleReadMode}
+            >
+              {activeFileTab?.readOnly ? (
+                <Pencil aria-hidden="true" size={16} />
+              ) : (
+                <BookOpen aria-hidden="true" size={16} />
+              )}
+            </button>
+            <button
+              type="button"
+              className="icon-button"
               aria-label="Open settings"
               title="Settings"
               aria-haspopup="dialog"
@@ -5428,120 +5955,108 @@ function App() {
         </header>
         {errorBanner}
         <div className="editor-layout">
-          <main className="editor-pane">
-            {activeTab?.placeholder ? (
-              <div className="editor-empty">
-                <div className="editor-empty__mark">+</div>
-                <h2>New tab</h2>
-                <p>Choose a file from the sidebar to open it in this tab.</p>
-              </div>
-            ) : activeFileTab ? (
-              <>
-                {activeFileTab.kind === "image" && !activeFileTab.rawEditing ? (
-                  <figure className="image-viewer">
-                    <img
-                      src={activeFileTab.imageDataUrl}
-                      alt={activeFileTab.title}
+          <div
+            className="pane-grid"
+            data-layout={paneLayout.kind}
+            data-pane-count={panes.length}
+            style={{
+              gridTemplateColumns: paneTracks.columns,
+              gridTemplateRows: paneTracks.rows,
+            }}
+          >
+            {panes.map((pane, index) => {
+              const area = paneAreaList[index];
+              const focused = pane.id === focusedPaneId;
+              return (
+                <section
+                  key={pane.id}
+                  className="workspace-pane"
+                  role="group"
+                  aria-label={paneAccessibleLabel(panes, pane.id)}
+                  data-pane-id={pane.id}
+                  data-focused={focused}
+                  style={{
+                    gridColumn: `${area.columnStart} / ${area.columnEnd}`,
+                    gridRow: `${area.rowStart} / ${area.rowEnd}`,
+                  }}
+                  onFocusCapture={() => focusPane(pane.id)}
+                  onPointerDownCapture={() => focusPane(pane.id)}
+                >
+                  <div className="workspace-pane__header">
+                    <Tabs
+                      tabs={pane.tabs}
+                      groups={pane.groups}
+                      activePath={pane.activePath}
+                      disabled={workspaceLocked}
+                      label={`Open files in pane ${index + 1}`}
+                      paneTargets={panes
+                        .filter((candidate) => candidate.id !== pane.id)
+                        .map((candidate) => ({
+                          id: candidate.id,
+                          label: `pane ${
+                            panes.findIndex(
+                              (entry) => entry.id === candidate.id,
+                            ) + 1
+                          }`,
+                        }))}
+                      onActivate={activateTab}
+                      onClose={(path) => void closeTab(path)}
+                      onCloseMany={(paths) => void closeTabs(paths)}
+                      onReorder={reorderTabs}
+                      onNewTab={() => createNewTab(pane.id)}
+                      onToggleGroup={toggleTabGroup}
+                      onCreateGroup={(path) => void createTabGroup(path)}
+                      onRenameGroup={(groupId) => void renameTabGroup(groupId)}
+                      onMoveToGroup={moveTabToGroup}
+                      onMoveToPane={moveTabToPane}
                     />
-                    <figcaption>{activeFileTab.path}</figcaption>
-                  </figure>
-                ) : activeFileTab.kind === "markdown" &&
-                  activeFileTab.encoding === "utf8" &&
-                  !activeFileTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
-                  <MarkdownEditor
-                    key={`${activeFileTab.path}:${activeFileTab.editorRevision}:${editorDisplayKey}`}
-                    notePath={activeFileTab.path}
-                    markdown={activeFileTab.content}
-                    lineEnding={activeFileTab.lineEnding}
-                    displaySettings={editorDisplaySettings}
-                    preferredViewMode={markdownViewMode}
-                    readOnly={workspaceLocked || (activeFileTab.readOnly ?? false)}
-                    errorLocation={activeMarkdownError?.location}
-                    errorNavigationRequest={
-                     activeMarkdownError?.navigationRequest ?? 0
-                    }
-                    tagColors={tagColorMap}
-                    onChange={changeActiveContent}
-                    onError={showError}
-                    onMarkdownError={(diagnostic) =>
-                      showMarkdownError(activeFileTab.path, diagnostic)
-                    }
-                    onMarkdownErrorCleared={() =>
-                      clearMarkdownError(activeFileTab.path)
-                    }
-                    onLinkOpen={(href, text) => void openLink(href, text)}
-                    onViewModeChange={updateMarkdownViewMode}
-                    onImageUpload={uploadAttachment}
-                  />
-                ) : (
-                  <>
-                    {activeFileTab.encoding === "base64" ? (
-                      <div className="binary-editor-notice" role="note">
-                        Binary file shown as reversible Base64. Invalid Base64
-                        will not be saved.
-                      </div>
+                    {panes.length > 1 ? (
+                      <button
+                        type="button"
+                        className="icon-button pane-close"
+                        aria-label={`Close pane ${index + 1}`}
+                        title={`Close pane ${index + 1}`}
+                        disabled={workspaceLocked}
+                        onClick={() => closeWorkspacePane(pane.id)}
+                      >
+                        <X aria-hidden="true" size={14} />
+                      </button>
                     ) : null}
-                    <PlainTextEditor
-                      key={`${activeFileTab.path}:${activeFileTab.editorRevision}`}
-                      ariaLabel={`${
-                        activeFileTab.readOnly ? "Read" : "Edit"
-                      } ${activeFileTab.title}`}
-                      value={activeFileTab.content}
-                      readOnly={workspaceLocked || (activeFileTab.readOnly ?? false)}
-                      spellCheck={
-                        activeFileTab.encoding === "utf8" &&
-                        sourceLanguageName(activeFileTab.path) === null
-                      }
-                      binary={activeFileTab.encoding === "base64"}
-                      filePath={
-                        activeFileTab.encoding === "utf8"
-                          ? activeFileTab.path
-                          : null
-                      }
-                      lineEnding={activeFileTab.lineEnding}
-                      displaySettings={editorDisplaySettings}
-                      onChange={changeActiveContent}
-                      onError={showError}
-                    />
-                  </>
-                )}
-                {tags.length > 0 ? (
-                  <div className="document-tags" aria-label="Document tags">
-                    {tags.map((tag) => (
-                      <TagChip
-                        tag={tag}
-                        color={resolveTagColor(tag, tagColorMap)}
-                        editable
-                        key={tag}
-                        onActivate={() => {
-                          setSidebarView("search");
-                          setSearchLocation("*");
-                          setSearchQuery("");
-                          setSearchFilters({
-                            ...createEmptySearchFilters(),
-                            tags: [tag],
-                          });
-                        }}
-                        onColorChange={(changedTag, color) =>
-                          void updateTagColor(changedTag, color)
-                        }
-                      />
-                    ))}
                   </div>
-                ) : null}
-              </>
-            ) : (
-              <div className="editor-empty">
-                <div className="editor-empty__mark">D</div>
-                <h2>Your vault is ready.</h2>
-                <p>
-                  Open a note from the sidebar or press{" "}
-                  <kbd>{navigator.platform.includes("Mac") ? "⌘" : "Ctrl"}F</kbd>{" "}
-                  to search.
-                </p>
-              </div>
-            )}
-          </main>
+                  <div className="editor-pane">{renderPaneSurface(pane)}</div>
+                </section>
+              );
+            })}
+            {paneSeparatorList.map((separator) => (
+              <PaneResizer
+                key={`${separator.groupIndex}:${separator.index}:${separator.axis}`}
+                label={`Resize panes ${
+                  separator.axis === "x" ? "horizontally" : "vertically"
+                } (${separator.index + 1})`}
+                orientation={
+                  separator.axis === "x" ? "vertical" : "horizontal"
+                }
+                value={
+                  paneLayout.sizes[
+                    paneGroupOffset(
+                      paneLayout.kind,
+                      panes.length,
+                      separator.groupIndex,
+                    ) + separator.index
+                  ] ?? 0.5
+                }
+                disabled={workspaceLocked}
+                style={{
+                  gridColumn: `${separator.columnStart} / ${separator.columnEnd}`,
+                  gridRow: `${separator.rowStart} / ${separator.rowEnd}`,
+                }}
+                onResize={(delta) =>
+                  resizePane(separator.groupIndex, separator.index, delta)
+                }
+                onResizeEnd={finishPaneResize}
+              />
+            ))}
+          </div>
           {showOutline &&
           activeFileTab?.kind === "markdown" &&
           activeFileTab.encoding === "utf8" ? (
@@ -5554,6 +6069,9 @@ function App() {
         <footer className="status-bar">
           <span>{activeFileTab?.path ?? activeTab?.title ?? workspace.vaultPath}</span>
           <span className="status-bar__spacer" />
+          {panes.length > 1 ? (
+            <span>{`Pane ${focusedPaneIndex + 1} of ${panes.length}`}</span>
+          ) : null}
           {activeFileTab ? (
             <>
               <span>
@@ -5577,7 +6095,7 @@ function App() {
         <span className="sr-only" role="status" aria-live="polite">
           {status}
         </span>
-      </section>
+      </main>
       <HistoryDialog
         open={historyOpen}
         title={historyTarget?.title ?? "Note"}

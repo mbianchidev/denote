@@ -9,7 +9,7 @@ import {
 function file(path: string): FileNode {
   return {
     path,
-    name: path.split("/").at(-1) ?? path,
+    name: path.split("/").slice(-1)[0] ?? path,
     kind: "markdown",
     children: [],
     size: 8,

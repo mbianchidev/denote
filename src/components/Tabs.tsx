@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Columns2,
   FileImage,
   FileText,
   FolderPlus,
@@ -21,11 +22,18 @@ import { createPortal } from "react-dom";
 import { tabsInVisualOrder } from "../lib/tabs";
 import type { EditorTab, TabGroup } from "../types";
 
+export interface TabPaneTarget {
+  id: string;
+  label: string;
+}
+
 interface TabsProps {
   tabs: EditorTab[];
   groups: TabGroup[];
   activePath: string | null;
   disabled: boolean;
+  label?: string;
+  paneTargets?: TabPaneTarget[];
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
   onCloseMany: (paths: string[]) => void;
@@ -35,6 +43,7 @@ interface TabsProps {
   onCreateGroup: (path: string) => void;
   onRenameGroup: (groupId: string) => void;
   onMoveToGroup: (path: string, groupId: string | null) => void;
+  onMoveToPane?: (path: string, paneId: string) => void;
 }
 
 export function Tabs({
@@ -42,6 +51,8 @@ export function Tabs({
   groups,
   activePath,
   disabled,
+  label = "Open files",
+  paneTargets = [],
   onActivate,
   onClose,
   onCloseMany,
@@ -51,6 +62,7 @@ export function Tabs({
   onCreateGroup,
   onRenameGroup,
   onMoveToGroup,
+  onMoveToPane,
 }: TabsProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
@@ -360,7 +372,7 @@ export function Tabs({
       <div
         className="tabs"
         role="tablist"
-        aria-label="Open files"
+        aria-label={label}
         data-reordering={draggedPath !== null}
       >
         {renderedTabs}
@@ -460,6 +472,27 @@ export function Tabs({
                     }
                   />
                 ))}
+              {onMoveToPane && paneTargets.length > 0 ? (
+                <>
+                  <div
+                    className="tab-context-menu__separator"
+                    role="separator"
+                  />
+                  {paneTargets.map((pane) => (
+                    <MenuButton
+                      key={pane.id}
+                      icon={<Columns2 aria-hidden="true" size={14} />}
+                      label={`Move to ${pane.label}`}
+                      onClick={() =>
+                        runMenuAction(() => {
+                          onMoveToPane(menuTab.path, pane.id);
+                          focusTabAfterLayoutChange(menuTab.path);
+                        })
+                      }
+                    />
+                  ))}
+                </>
+              ) : null}
             </div>,
             document.body,
           )

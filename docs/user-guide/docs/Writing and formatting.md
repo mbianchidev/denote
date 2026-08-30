@@ -1,6 +1,6 @@
 # Writing and formatting
 
-Markdown files use a rich single-pane editor. Files containing MDX, raw HTML,
+Markdown files use a rich editor in each pane. Files containing MDX, raw HTML,
 footnotes, math, or reference definitions stay in source mode so Denote cannot
 silently rewrite unsupported syntax.
 

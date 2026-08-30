@@ -1,8 +1,4 @@
-import type {
-  EditorTab,
-  TabGroup,
-  TabSessionState,
-} from "../types";
+import type { EditorTab } from "../types";
 
 export const MAX_TAB_SESSION_TABS = 100;
 export const MAX_TAB_SESSION_GROUPS = 50;
@@ -83,6 +79,33 @@ export function placeOpenedTab(
   return tabsInVisualOrder(next);
 }
 
+export function placeTabInGroup(
+  tabs: EditorTab[],
+  path: string,
+  groupId: string | null,
+): EditorTab[] {
+  const index = tabs.findIndex((tab) => tab.path === path);
+  if (index < 0) {
+    return tabs;
+  }
+  const target = { ...tabs[index], groupId };
+  const remaining = tabs.filter((tab) => tab.path !== path);
+  if (!groupId) {
+    remaining.splice(Math.min(index, remaining.length), 0, target);
+    return tabsInVisualOrder(remaining);
+  }
+  const lastGroupIndex = remaining.reduce(
+    (last, tab, tabIndex) => (tab.groupId === groupId ? tabIndex : last),
+    -1,
+  );
+  remaining.splice(
+    lastGroupIndex >= 0 ? lastGroupIndex + 1 : remaining.length,
+    0,
+    target,
+  );
+  return tabsInVisualOrder(remaining);
+}
+
 export function tabHistoryTarget(
   tab: EditorTab,
   direction: -1 | 1,
@@ -138,34 +161,6 @@ export function removeTabNavigationPaths(
   };
 }
 
-export function removeTabsForPaths(
-  tabs: EditorTab[],
-  activePath: string | null,
-  remove: (path: string) => boolean,
-): {
-  tabs: EditorTab[];
-  removedPaths: string[];
-  activePath: string | null;
-} {
-  const activeIndex = tabs.findIndex((tab) => tab.path === activePath);
-  const removedPaths = tabs
-    .filter((tab) => remove(tab.path))
-    .map((tab) => tab.path);
-  const remaining = tabs
-    .filter((tab) => !remove(tab.path))
-    .map((tab) => removeTabNavigationPaths(tab, remove));
-  return {
-    tabs: remaining,
-    removedPaths,
-    activePath:
-      activePath && remove(activePath)
-        ? (remaining[
-            Math.min(Math.max(activeIndex, 0), remaining.length - 1)
-          ]?.path ?? null)
-        : activePath,
-  };
-}
-
 function pushTabNavigation(
   tab: EditorTab,
   path: string,
@@ -211,58 +206,4 @@ function tabNavigation(
     }
   }
   return { navigationHistory: history, navigationIndex: index };
-}
-
-export function buildTabSessionState(
-  tabs: EditorTab[],
-  groups: TabGroup[],
-  activePath: string | null,
-): TabSessionState {
-  const realTabs = tabsInVisualOrder(tabs).filter((tab) => !tab.placeholder);
-  const groupIds = new Set(
-    realTabs
-      .map((tab) => tab.groupId)
-      .filter((groupId): groupId is string => groupId !== null),
-  );
-  return {
-    tabs: realTabs.map((tab) => ({
-      path: tab.path,
-      groupId: tab.groupId,
-    })),
-    groups: groups.filter((group) => groupIds.has(group.id)),
-    activePath:
-      activePath && realTabs.some((tab) => tab.path === activePath)
-        ? activePath
-        : null,
-  };
-}
-
-export function applyTabSessionLayout(
-  loadedTabs: EditorTab[],
-  session: TabSessionState,
-): {
-  tabs: EditorTab[];
-  groups: TabGroup[];
-  activePath: string | null;
-} {
-  const loadedByPath = new Map(loadedTabs.map((tab) => [tab.path, tab]));
-  const tabs = tabsInVisualOrder(
-    session.tabs.flatMap((saved) => {
-      const tab = loadedByPath.get(saved.path);
-      return tab ? [{ ...tab, groupId: saved.groupId }] : [];
-    }),
-  );
-  const groupIds = new Set(
-    tabs
-      .map((tab) => tab.groupId)
-      .filter((groupId): groupId is string => groupId !== null),
-  );
-  return {
-    tabs,
-    groups: session.groups.filter((group) => groupIds.has(group.id)),
-    activePath:
-      session.activePath && tabs.some((tab) => tab.path === session.activePath)
-        ? session.activePath
-        : (tabs[0]?.path ?? null),
-  };
 }

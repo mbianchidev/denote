@@ -187,12 +187,73 @@ pub struct TabSessionTab {
     pub group_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PaneLayoutKind {
+    Single,
+    Horizontal,
+    Vertical,
+    Grid,
+    LeftStack,
+    RightStack,
+    TopStack,
+    BottomStack,
+}
+
+impl PaneLayoutKind {
+    pub fn supports_pane_count(self, pane_count: usize) -> bool {
+        match self {
+            Self::Single => pane_count == 1,
+            Self::Horizontal | Self::Vertical => (2..=MAX_SESSION_PANES).contains(&pane_count),
+            Self::Grid => pane_count == 4,
+            Self::LeftStack | Self::RightStack | Self::TopStack | Self::BottomStack => {
+                pane_count == 3
+            }
+        }
+    }
+
+    pub fn size_count(self, pane_count: usize) -> usize {
+        match self {
+            Self::Single => 0,
+            Self::Horizontal | Self::Vertical => pane_count,
+            _ => 4,
+        }
+    }
+}
+
+pub const MAX_SESSION_PANES: usize = 4;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PaneLayout {
+    pub kind: PaneLayoutKind,
+    pub sizes: Vec<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TabSessionPane {
+    pub id: String,
+    #[serde(default)]
+    pub tabs: Vec<TabSessionTab>,
+    #[serde(default)]
+    pub groups: Vec<TabGroup>,
+    #[serde(default)]
+    pub active_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct TabSessionState {
     pub tabs: Vec<TabSessionTab>,
     pub groups: Vec<TabGroup>,
     pub active_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub panes: Option<Vec<TabSessionPane>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<PaneLayout>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub focused_pane_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

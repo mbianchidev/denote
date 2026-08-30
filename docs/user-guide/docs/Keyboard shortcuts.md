@@ -7,6 +7,10 @@
 | Search current file | `Command-F` | `Ctrl-F` |
 | Create file | `Command-N` | `Ctrl-N` |
 | Create blank tab | `Command-T` | `Ctrl-T` |
+| Add editor pane | `Command-\` | `Ctrl-\` |
+| Close focused pane | `Shift-Command-\` | `Ctrl-Shift-\` |
+| Focus next / previous pane | `F6` / `Shift-F6` | `F6` / `Shift-F6` |
+| Focus pane 1–4 | `Option-Command-1..4` | `Ctrl-Shift-1..4` |
 | Find and replace | `Option-Command-F` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
 | Create or edit link | `Command-K` | `Ctrl-K` |
@@ -26,10 +30,11 @@ Enter to run the active result.
 The search shortcut selects the active file in **Where to search**. Type `*` to
 search the vault or a pattern such as `*.html` to limit file types.
 
-`Escape` hides the table of contents when it is open. The sidebar divider uses
-Left/Right arrows and Home/End. File-tree context menus use arrow keys and
+`Escape` hides the table of contents when it is open. Sidebar and pane dividers
+use arrow keys and Home. File-tree context menus use arrow keys and
 Escape. Press Escape then Tab to move focus out of a source/code editor when Tab
-is configured to indent. Tab context menus expose bulk close and group actions.
+is configured to indent. Tab context menus expose bulk close, group, and
+cross-pane actions.
 All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
 

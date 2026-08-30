@@ -367,4 +367,65 @@ describe("Tabs", () => {
 
     expect(onCloseMany).toHaveBeenCalledWith(["two.md"]);
   });
+  it("moves a tab to another pane from the tab context menu", async () => {
+    const user = userEvent.setup();
+    const onMoveToPane = vi.fn();
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        groups={[]}
+        label="Open files in pane 1"
+        paneTargets={[{ id: "pane-2", label: "pane 2" }]}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseMany={vi.fn()}
+        onReorder={vi.fn()}
+        onNewTab={vi.fn()}
+        onToggleGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onMoveToGroup={vi.fn()}
+        onMoveToPane={onMoveToPane}
+      />,
+    );
+
+    expect(
+      screen.getByRole("tablist", { name: "Open files in pane 1" }),
+    ).toBeInTheDocument();
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /one\.md/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Move to pane 2" }),
+    );
+
+    expect(onMoveToPane).toHaveBeenCalledWith("one.md", "pane-2");
+  });
+
+  it("omits pane moves when the workspace has a single pane", async () => {
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        groups={[]}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseMany={vi.fn()}
+        onReorder={vi.fn()}
+        onNewTab={vi.fn()}
+        onToggleGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onMoveToGroup={vi.fn()}
+        onMoveToPane={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("tab", { name: /one\.md/i }));
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: /Move to pane/ }),
+    ).not.toBeInTheDocument();
+  });
 });
