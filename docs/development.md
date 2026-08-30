@@ -50,13 +50,12 @@ git push origin v0.2.0
 ```
 
 Tags must use semantic versions and point to a commit on `main`. The release
-workflow validates the tag against every version source, creates a draft GitHub
-Release, builds Linux x64, Windows x64, macOS Apple Silicon, and macOS Intel
-bundles, uploads them, and publishes the release only after all builds succeed.
+workflow validates the tag against every version source and builds every
+platform before it creates a GitHub Release. It stages Linux AppImage, Debian,
+and RPM packages, macOS Apple Silicon and Intel disk images, and Windows MSI and
+NSIS installers, then publishes them together with generated release notes.
 
-If a release run fails after the tag is pushed, run the **Release** workflow
-manually and provide the existing tag. The workflow checks out that tagged
-source, reuses its draft release, and resumes the platform builds without moving
-or recreating the tag. Restore a deleted tag at its original release commit
-before retrying. If failed attempts left multiple drafts for one tag, delete the
-stale duplicates first; the workflow refuses to choose between them.
+If a release run fails, run the **Release** workflow manually and provide the
+existing tag. Incomplete draft releases are replaced automatically after every
+platform bundle succeeds. Restore a deleted tag at its original release commit
+before retrying.

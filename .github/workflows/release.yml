@@ -15,7 +15,7 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
@@ -29,10 +29,42 @@ jobs:
       source_sha: ${{ steps.source.outputs.sha }}
 
     steps:
+      - name: Resolve release tag
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          resolve_tag_commit() {
+            local object_type object_sha
+            if ! read -r object_type object_sha < <(
+              gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+                --jq '[.object.type, .object.sha] | @tsv'
+            ); then
+              echo "::error::Release tag ${RELEASE_TAG} does not exist. Push the tag before running a release." >&2
+              return 1
+            fi
+            while [[ "$object_type" == "tag" ]]; do
+              read -r object_type object_sha < <(
+                gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" \
+                  --jq '[.object.type, .object.sha] | @tsv'
+              )
+            done
+            if [[ "$object_type" != "commit" ]]; then
+              echo "::error::Release tag ${RELEASE_TAG} does not point to a commit." >&2
+              return 1
+            fi
+            printf '%s\n' "$object_sha"
+          }
+
+          source_sha="$(resolve_tag_commit)"
+          echo "sha=${source_sha}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ steps.source.outputs.sha }}
+          persist-credentials: false
 
       - name: Verify tag commit is on main
         shell: bash
@@ -42,11 +74,6 @@ jobs:
             echo "::error::Release tags must point to a commit on main."
             exit 1
           fi
-
-      - name: Read source revision
-        id: source
-        shell: bash
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux dependencies
         run: |
@@ -100,69 +127,9 @@ jobs:
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml
 
-  create-release:
-    name: Create draft release
-    needs: validate
-    runs-on: ubuntu-22.04
-    outputs:
-      release_id: ${{ steps.release.outputs.release_id }}
-
-    steps:
-      - name: Create or reuse draft
-        id: release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          # Draft releases are not reachable through /releases/tags/{tag}, so the
-          # complete release list is filtered by tag name instead.
-          find_releases() {
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
-              jq -s --arg tag "$RELEASE_TAG" \
-                '[.[][] | select(.tag_name == $tag)]'
-          }
-          releases="$(find_releases)"
-          release_count="$(jq 'length' <<< "$releases")"
-          if (( release_count > 1 )); then
-            echo "::error::Multiple releases exist for ${RELEASE_TAG}. Delete the stale duplicates before retrying."
-            jq -r '.[] | "::error::\(.html_url)"' <<< "$releases"
-            exit 1
-          fi
-          if (( release_count == 1 )); then
-            release_id="$(jq -r '.[0].id' <<< "$releases")"
-            is_draft="$(jq -r '.[0].draft' <<< "$releases")"
-            if [[ "$is_draft" != "true" ]]; then
-              echo "::error::Release ${RELEASE_TAG} is already published."
-              exit 1
-            fi
-            echo "Reusing draft release ${RELEASE_TAG}."
-          else
-            version="${RELEASE_TAG#v}"
-            release_args=(
-              --repo "$GITHUB_REPOSITORY"
-              --verify-tag
-              --draft
-              --generate-notes
-              --title "Denote ${version}"
-            )
-            if [[ "$version" == *-* ]]; then
-              release_args+=(--prerelease)
-            fi
-            gh release create "$RELEASE_TAG" "${release_args[@]}"
-            releases="$(find_releases)"
-            if [[ "$(jq 'length' <<< "$releases")" != "1" ]]; then
-              echo "::error::Could not resolve the draft release for ${RELEASE_TAG}."
-              exit 1
-            fi
-            release_id="$(jq -r '.[0].id' <<< "$releases")"
-          fi
-          echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
-
   build:
     name: ${{ matrix.name }}
-    needs:
-      - validate
-      - create-release
+    needs: validate
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -171,20 +138,25 @@ jobs:
           - name: Linux x64
             platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
+            artifact: linux-x64
           - name: macOS Apple Silicon
             platform: macos-latest
             target: aarch64-apple-darwin
+            artifact: macos-aarch64
           - name: macOS Intel
             platform: macos-latest
             target: x86_64-apple-darwin
+            artifact: macos-x64
           - name: Windows x64
             platform: windows-latest
             target: x86_64-pc-windows-msvc
+            artifact: windows-x64
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.source_sha }}
+          persist-credentials: false
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -222,28 +194,195 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build and upload bundles
+      - name: Build bundles
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
-          GITHUB_TOKEN: ${{ github.token }}
           DENOTE_COMMIT_HASH: ${{ needs.validate.outputs.source_sha }}
           DENOTE_BUILD_DIRTY: "false"
         with:
-          releaseId: ${{ needs.create-release.outputs.release_id }}
           args: --target ${{ matrix.target }}
           retryAttempts: 2
           uploadUpdaterJson: false
 
+      - name: Stage AppImage
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-appimage
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+      - name: Stage Debian package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-deb
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+      - name: Stage RPM package
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-rpm
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/rpm/*.rpm
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+      - name: Stage macOS disk image
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-dmg
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+      - name: Stage Windows MSI
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-msi
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
+      - name: Stage Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-nsis
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: true
+
   publish:
     name: Publish release
     needs:
-      - create-release
+      - validate
       - build
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
-      - name: Publish completed release
+      - name: Download platform bundles
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: denote-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create release with all bundles
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
-        run: gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+        shell: bash
+        run: |
+          mapfile -d '' assets < <(find release-assets -type f -print0 | sort -z)
+          if (( ${#assets[@]} == 0 )); then
+            echo "::error::No release bundles were downloaded."
+            exit 1
+          fi
+
+          duplicate_names="$(
+            find release-assets -type f -printf '%f\n' |
+              sort |
+              uniq -d
+          )"
+          if [[ -n "$duplicate_names" ]]; then
+            echo "::error::Release bundles must have unique filenames."
+            while IFS= read -r name; do
+              echo "::error::${name}"
+            done <<< "$duplicate_names"
+            exit 1
+          fi
+
+          find_releases() {
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+              jq -s --arg tag "$RELEASE_TAG" \
+                '[.[][] | select(.tag_name == $tag)]'
+          }
+
+          resolve_tag_commit() {
+            local object_type object_sha
+            read -r object_type object_sha < <(
+              gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
+                --jq '[.object.type, .object.sha] | @tsv'
+            )
+            while [[ "$object_type" == "tag" ]]; do
+              read -r object_type object_sha < <(
+                gh api "repos/${GITHUB_REPOSITORY}/git/tags/${object_sha}" \
+                  --jq '[.object.type, .object.sha] | @tsv'
+              )
+            done
+            if [[ "$object_type" != "commit" ]]; then
+              echo "::error::Release tag ${RELEASE_TAG} does not point to a commit." >&2
+              return 1
+            fi
+            printf '%s\n' "$object_sha"
+          }
+
+          assert_tag_unchanged() {
+            local current_tag_sha
+            current_tag_sha="$(resolve_tag_commit)"
+            if [[ "$current_tag_sha" != "$SOURCE_SHA" ]]; then
+              echo "::error::Release tag ${RELEASE_TAG} moved during the build."
+              echo "::error::Built ${SOURCE_SHA}, but the tag now points to ${current_tag_sha}."
+              return 1
+            fi
+          }
+
+          assert_tag_unchanged
+
+          releases="$(find_releases)"
+          release_count="$(jq 'length' <<< "$releases")"
+          if (( release_count > 1 )); then
+            echo "::error::Multiple releases exist for ${RELEASE_TAG}."
+            jq -r '.[] | "::error::\(.html_url)"' <<< "$releases"
+            exit 1
+          fi
+          if (( release_count == 1 )); then
+            release_id="$(jq -r '.[0].id' <<< "$releases")"
+            is_draft="$(jq -r '.[0].draft' <<< "$releases")"
+            if [[ "$is_draft" != "true" ]]; then
+              echo "Release ${RELEASE_TAG} is already published."
+              exit 0
+            fi
+            echo "Replacing incomplete draft release ${RELEASE_TAG}."
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          fi
+
+          version="${RELEASE_TAG#v}"
+          version_without_build="${version%%+*}"
+          release_args=(
+            --repo "$GITHUB_REPOSITORY"
+            --verify-tag
+            --draft
+            --generate-notes
+            --title "Denote ${version}"
+          )
+          if [[ "$version_without_build" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          gh release create "$RELEASE_TAG" "${assets[@]}" "${release_args[@]}"
+
+          releases="$(find_releases)"
+          if [[ "$(jq 'length' <<< "$releases")" != "1" ]]; then
+            echo "::error::Could not resolve the completed draft release for ${RELEASE_TAG}."
+            exit 1
+          fi
+          release_id="$(jq -r '.[0].id' <<< "$releases")"
+          if ! assert_tag_unchanged; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+            exit 1
+          fi
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${release_id}" -F draft=false
