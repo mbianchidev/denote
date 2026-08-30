@@ -118,6 +118,7 @@ import {
   type SearchRequest,
 } from "./lib/search";
 import { sourceLanguageName } from "./lib/sourceLanguage";
+import { welcomePageTarget } from "./lib/welcomePage";
 import {
   MAX_TAB_SESSION_GROUPS,
   MAX_TAB_SESSION_TABS,
@@ -372,7 +373,7 @@ function App() {
     async () => true,
   );
   const indexTimer = useRef<number | null>(null);
-  const pendingDefaultWelcome = useRef<string | null>(null);
+  const pendingWelcomePage = useRef<string | null>(null);
   const pendingWorkspaceFile = useRef<{
     vaultPath: string;
     path: string;
@@ -1049,7 +1050,6 @@ function App() {
         ) {
           pendingWorkspaceFile.current = null;
         }
-        const welcome = findNode(snapshot.tree, "Welcome.md");
         const hasPendingWorkspaceFile =
           pendingWorkspaceFile.current?.vaultPath === snapshot.vaultPath;
         pendingTabSession.current =
@@ -1057,15 +1057,13 @@ function App() {
             ? (snapshot.tabSession ?? null)
             : null;
         restoringTabSession.current = pendingTabSession.current !== null;
-        pendingDefaultWelcome.current =
-          !pendingWorkspaceFile.current &&
-          snapshot.restoreTabs &&
-          snapshot.tabSession === null &&
-          snapshot.default &&
-          welcome !== null &&
-          welcome.kind !== "folder"
-            ? "Welcome.md"
-            : null;
+        pendingWelcomePage.current = welcomePageTarget(
+          {
+            effectivePath: snapshot.welcomePage.effectivePath,
+            hasTabSession: snapshot.tabSession !== null,
+          },
+          hasPendingWorkspaceFile,
+        );
       }
       setIndexing(false);
       const vaultViewMode =
@@ -2375,7 +2373,7 @@ function App() {
       void openFile(pendingFile.path);
       return;
     }
-    const welcomePath = pendingDefaultWelcome.current;
+    const welcomePath = pendingWelcomePage.current;
     if (
       !welcomePath ||
       !workspace ||
@@ -2383,7 +2381,7 @@ function App() {
     ) {
       return;
     }
-    pendingDefaultWelcome.current = null;
+    pendingWelcomePage.current = null;
     void openFile(welcomePath);
   }, [openFile, workspace, workspaceLocked]);
 
@@ -3412,9 +3410,22 @@ function App() {
       );
       setWorkspace((current) =>
         current?.vaultPath === expectedVaultPath
-          ? {
-              ...current,
-              tree: removeWorkspacePath(current.tree, node.path),
+          ? (() => {
+              const tree = removeWorkspacePath(current.tree, node.path);
+              const customPath =
+                current.welcomePage.customPath &&
+                isAffected(current.welcomePage.customPath)
+                  ? null
+                  : current.welcomePage.customPath;
+              return {
+                ...current,
+                tree,
+                welcomePage: {
+                  customPath,
+                  effectivePath:
+                    customPath ??
+                    defaultWelcomePagePath(tree, current.default),
+                },
               bookmarks: current.bookmarks.filter(
                 (item) => !isAffected(item.path),
               ),
@@ -3425,7 +3436,8 @@ function App() {
                 trashItem,
                 ...current.trash.filter((item) => item.id !== trashItem.id),
               ],
-            }
+              };
+            })()
           : current,
       );
       searchIndex.current.removePaths(isAffected);
@@ -3541,6 +3553,55 @@ function App() {
       showError(caught);
     }
   }, [refreshAndReindex, showError, workspace]);
+
+  const setWelcomePageForNode = useCallback(
+    async (node: FileNode | null) => {
+      if (
+        !workspace ||
+        workspaceLockedRef.current ||
+        (node !== null && node.kind !== "markdown")
+      ) {
+        return;
+      }
+      const vaultPath = workspace.vaultPath;
+      const generation = vaultGeneration.current;
+      let workspaceOperationStarted = false;
+      try {
+        if (!(await beginWorkspaceOperation())) {
+          return;
+        }
+        workspaceOperationStarted = true;
+        const welcomePage = await api.setWelcomePagePath(node?.path ?? null);
+        if (generation !== vaultGeneration.current) {
+          return;
+        }
+        setWorkspace((current) =>
+          current?.vaultPath === vaultPath
+            ? { ...current, welcomePage }
+            : current,
+        );
+        setStatus(
+          node
+            ? `${node.name} is the vault welcome page`
+            : welcomePage.effectivePath
+              ? `Using ${welcomePage.effectivePath} as the vault welcome page`
+              : "Vault welcome page cleared",
+        );
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        if (workspaceOperationStarted) {
+          setWorkspaceLock(false);
+        }
+      }
+    },
+    [
+      beginWorkspaceOperation,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
 
   const toggleBookmark = useCallback(
     async () => toggleBookmarkForNode(selectedNode),
@@ -4711,12 +4772,17 @@ function App() {
   );
   const splitPaneShortcut = macOS ? "⌘\\" : "Ctrl+\\";
   const fileActionHandlers: FileActionHandlers = {
+    welcomePage: workspace?.welcomePage ?? {
+      customPath: null,
+      effectivePath: null,
+    },
     onDuplicate: (node) => void duplicateNode(node),
     onBookmark: (node) => void toggleBookmarkForNode(node),
     onCopyPath: (node) => void copyNodePath(node),
     onOpenHistory: (node) => void openHistoryForNode(node),
     onOpenInNewTab: (node) => void openFileInNewTab(node.path),
     onReveal: (node) => void revealNode(node),
+    onSetWelcomePage: (node) => void setWelcomePageForNode(node),
     onRename: (node) => void renameNode(node),
     onMove: (node) => void requestMoveNode(node),
     onDelete: (node) => void trashNode(node),
@@ -6350,6 +6416,19 @@ function findNode(nodes: FileNode[], path: string | null): FileNode | null {
         return nested;
       }
     }
+  }
+  return null;
+}
+
+function defaultWelcomePagePath(
+  tree: FileNode[],
+  defaultVault: boolean,
+): string | null {
+  if (findNode(tree, ".denote.md")?.kind === "markdown") {
+    return ".denote.md";
+  }
+  if (defaultVault && findNode(tree, "Welcome.md")?.kind === "markdown") {
+    return "Welcome.md";
   }
   return null;
 }

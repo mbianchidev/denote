@@ -13,6 +13,10 @@ const DEFAULT_VAULT_NAME: &str = "Denote Welcome";
 const TEST_FIXTURE_MARKER: &str = ".denote/fixtures/test-v1";
 const SEED_FILES: &[(&str, &[u8])] = &[
     (
+        ".denote.md",
+        include_bytes!("../../docs/user-guide/Welcome.md"),
+    ),
+    (
         "Welcome.md",
         include_bytes!("../../docs/user-guide/Welcome.md"),
     ),
@@ -281,6 +285,7 @@ mod tests {
 
         let vault = ensure(directory.path()).expect("default vault");
         let welcome = vault.join("Welcome.md");
+        let vault_welcome = vault.join(".denote.md");
         for (relative_path, content) in SEED_FILES.iter().chain(TEST_FILES) {
             assert_eq!(
                 fs::read(vault.join(relative_path)).expect("seeded file"),
@@ -288,6 +293,10 @@ mod tests {
             );
         }
         let initial = fs::read_to_string(&welcome).expect("welcome");
+        assert_eq!(
+            fs::read_to_string(&vault_welcome).expect("vault welcome"),
+            initial
+        );
         assert!(initial.contains(">![info]"));
         assert!(initial.contains("```typescript"));
         assert!(vault.join("docs/Keyboard shortcuts.md").is_file());
@@ -319,6 +328,7 @@ mod tests {
             fs::read_to_string(resolved.join("Welcome.md")).expect("welcome"),
             "Existing guide"
         );
+        assert!(!resolved.join(".denote.md").exists());
     }
 
     #[test]

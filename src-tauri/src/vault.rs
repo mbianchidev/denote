@@ -23,7 +23,7 @@ use crate::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
         KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES, MarkdownViewMode,
         NoteDocument, SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab,
-        TagColor, TrashItem, WorkspaceSnapshot,
+        TagColor, TrashItem, WelcomePagePreference, WorkspaceSnapshot,
     },
 };
 
@@ -38,6 +38,8 @@ const MAX_GLOBAL_FILE_ENTRIES: usize = 25_000;
 const CLIPBOARD_FILE_MAX_AGE: Duration = Duration::from_secs(24 * 60 * 60);
 const MAX_TAB_SESSION_TABS: usize = 100;
 const MAX_TAB_SESSION_GROUPS: usize = 50;
+const DEFAULT_WELCOME_PAGE: &str = ".denote.md";
+const LEGACY_GUIDE_WELCOME_PAGE: &str = "Welcome.md";
 
 pub fn get_last_vault(db_path: &Path) -> AppResult<Option<String>> {
     let connection = db::open(db_path)?;
@@ -612,6 +614,7 @@ pub fn rename_entry(
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
     let source = existing_entry(&root, relative_path)?;
+    let is_directory = source.is_dir();
     let safe_name = validate_name(new_name)?;
     let parent = source
         .parent()
@@ -630,7 +633,7 @@ pub fn rename_entry(
         relative_path,
         &new_relative,
         None,
-        source.is_dir(),
+        is_directory,
     )?;
     if let Err(error) = rename_no_replace(&source, &destination) {
         db::cancel_file_operation(&connection, &operation_id)?;
@@ -641,6 +644,7 @@ pub fn rename_entry(
         vault_id,
         relative_path,
         &new_relative,
+        is_directory,
         Some(&operation_id),
     ) {
         return Err(rollback_operation(
@@ -663,6 +667,7 @@ pub fn move_entry(
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
     let source = existing_entry(&root, relative_path)?;
+    let is_directory = source.is_dir();
     let target_parent = if target_parent_path.is_empty() {
         root.clone()
     } else {
@@ -702,7 +707,7 @@ pub fn move_entry(
         relative_path,
         &new_relative,
         None,
-        source.is_dir(),
+        is_directory,
     )?;
     if let Err(error) = rename_no_replace(&source, &destination) {
         db::cancel_file_operation(&connection, &operation_id)?;
@@ -713,6 +718,7 @@ pub fn move_entry(
         vault_id,
         relative_path,
         &new_relative,
+        is_directory,
         Some(&operation_id),
     ) {
         return Err(rollback_operation(
@@ -937,6 +943,32 @@ pub fn set_restore_tabs(db_path: &Path, vault_path: &str, enabled: bool) -> AppR
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     db::set_restore_tabs(&connection, vault_id, enabled)
+}
+
+pub fn set_welcome_page_path(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: Option<&str>,
+) -> AppResult<WelcomePagePreference> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    if let Some(relative_path) = relative_path {
+        let path = existing_entry(&root, relative_path)?;
+        if !path.is_file() || kind_for_path(&path) != FileKind::Markdown {
+            return Err(AppError::UnsupportedFile(
+                "Only Markdown files can be used as a vault welcome page".to_string(),
+            ));
+        }
+    }
+    db::set_welcome_page_path(&connection, vault_id, relative_path)?;
+    welcome_page_preference(
+        &connection,
+        vault_id,
+        &root,
+        db::is_default_vault(&connection, &path_to_string(&root))?,
+    )
 }
 
 pub fn save_tab_session(
@@ -1576,6 +1608,7 @@ fn snapshot_with_tree(
     }
     let vault_path = path_to_string(root);
     let default = db::is_default_vault(connection, &vault_path)?;
+    let welcome_page = welcome_page_preference(connection, vault_id, root, default)?;
     Ok(WorkspaceSnapshot {
         vault_path,
         vault_name,
@@ -1588,9 +1621,39 @@ fn snapshot_with_tree(
         markdown_view_mode,
         restore_tabs,
         tab_session,
+        welcome_page,
         from_cache,
         encryption: Default::default(),
     })
+}
+
+fn welcome_page_preference(
+    connection: &Connection,
+    vault_id: i64,
+    root: &Path,
+    default: bool,
+) -> AppResult<WelcomePagePreference> {
+    let custom_path = db::get_welcome_page_path(connection, vault_id)?;
+    let effective_path = custom_path.clone().or_else(|| {
+        if welcome_candidate_exists(root, DEFAULT_WELCOME_PAGE) {
+            Some(DEFAULT_WELCOME_PAGE.to_string())
+        } else if default && welcome_candidate_exists(root, LEGACY_GUIDE_WELCOME_PAGE) {
+            Some(LEGACY_GUIDE_WELCOME_PAGE.to_string())
+        } else {
+            None
+        }
+    });
+    Ok(WelcomePagePreference {
+        custom_path,
+        effective_path,
+    })
+}
+
+fn welcome_candidate_exists(root: &Path, relative_path: &str) -> bool {
+    match fs::symlink_metadata(root.join(relative_path)) {
+        Ok(_) => true,
+        Err(error) => error.kind() != std::io::ErrorKind::NotFound,
+    }
 }
 
 fn validate_tab_session(session: &TabSessionState) -> AppResult<()> {
@@ -1767,6 +1830,7 @@ fn reconcile_pending_operations(
                     vault_id,
                     &operation.source_path,
                     &operation.destination_path,
+                    operation.is_directory,
                     Some(&operation.id),
                 )?,
                 "trash" => {
@@ -3535,6 +3599,132 @@ mod tests {
     }
 
     #[test]
+    fn resolves_and_maintains_a_custom_welcome_page() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("denote.sqlite3");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("docs")).expect("vault directory");
+        fs::write(vault_path.join(".denote.md"), "# Default").expect("default welcome");
+        fs::write(vault_path.join("docs/Start.md"), "# Start").expect("custom welcome");
+        fs::write(vault_path.join("plain.txt"), "Plain").expect("plain text");
+        db::initialize(&db_path).expect("database initialized");
+
+        let initial = open_vault(&db_path, vault_path.to_str().unwrap()).expect("initial vault");
+        assert_eq!(initial.welcome_page.custom_path, None);
+        assert_eq!(
+            initial.welcome_page.effective_path,
+            Some(".denote.md".to_string())
+        );
+
+        let selected = set_welcome_page_path(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            Some("docs/Start.md"),
+        )
+        .expect("set welcome page");
+        assert_eq!(selected.custom_path, Some("docs/Start.md".to_string()));
+        assert_eq!(selected.effective_path, selected.custom_path);
+
+        assert!(
+            set_welcome_page_path(&db_path, vault_path.to_str().unwrap(), Some("plain.txt"),)
+                .is_err()
+        );
+
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "docs/Start.md",
+            "Start.txt",
+        )
+        .expect("rename welcome extension");
+        assert_eq!(
+            refresh_vault(&db_path, vault_path.to_str().unwrap())
+                .expect("renamed extension")
+                .welcome_page
+                .custom_path,
+            None
+        );
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "docs/Start.txt",
+            "Start.md",
+        )
+        .expect("restore welcome extension");
+        set_welcome_page_path(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            Some("docs/Start.md"),
+        )
+        .expect("restore welcome page");
+
+        rename_entry(&db_path, vault_path.to_str().unwrap(), "docs", "guide")
+            .expect("rename welcome folder");
+        assert_eq!(
+            refresh_vault(&db_path, vault_path.to_str().unwrap())
+                .expect("renamed vault")
+                .welcome_page
+                .custom_path,
+            Some("guide/Start.md".to_string())
+        );
+
+        trash_entry(&db_path, vault_path.to_str().unwrap(), "guide/Start.md")
+            .expect("trash welcome page");
+        let cleared = refresh_vault(&db_path, vault_path.to_str().unwrap())
+            .expect("cleared welcome page")
+            .welcome_page;
+        assert_eq!(cleared.custom_path, None);
+        assert_eq!(cleared.effective_path, Some(".denote.md".to_string()));
+    }
+
+    #[test]
+    fn does_not_fall_back_when_a_custom_welcome_page_disappears() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("denote.sqlite3");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join(".denote.md"), "# Default").expect("default welcome");
+        fs::write(vault_path.join("Start.md"), "# Start").expect("custom welcome");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        set_welcome_page_path(&db_path, vault_path.to_str().unwrap(), Some("Start.md"))
+            .expect("set welcome page");
+
+        fs::remove_file(vault_path.join("Start.md")).expect("remove custom welcome");
+
+        let welcome_page = refresh_vault(&db_path, vault_path.to_str().unwrap())
+            .expect("refresh vault")
+            .welcome_page;
+        assert_eq!(welcome_page.custom_path, Some("Start.md".to_string()));
+        assert_eq!(welcome_page.effective_path, welcome_page.custom_path);
+    }
+
+    #[test]
+    fn preserves_the_legacy_welcome_page_for_the_builtin_vault() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("denote.sqlite3");
+        let vault_path = directory.path().join("Denote Welcome");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("Welcome.md"), "# Welcome").expect("legacy welcome");
+        db::initialize(&db_path).expect("database initialized");
+        let mut connection = db::open(&db_path).expect("database opened");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        db::register_default_vault(
+            &mut connection,
+            canonical_vault_path.to_str().unwrap(),
+            "Denote Welcome",
+        )
+        .expect("register default vault");
+
+        let snapshot = open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        assert_eq!(
+            snapshot.welcome_page.effective_path,
+            Some("Welcome.md".to_string())
+        );
+    }
+
+    #[test]
     fn cached_vault_open_returns_immediately_then_refreshes_from_disk() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -3546,11 +3736,17 @@ mod tests {
         let initial = open_vault(&db_path, vault_path.to_str().unwrap()).expect("initial scan");
         assert!(!initial.from_cache);
         fs::write(vault_path.join("two.md"), "two").expect("external file");
+        fs::write(vault_path.join(".denote.md"), "# Welcome").expect("welcome file");
 
         let cached =
             open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached open");
         assert!(cached.from_cache);
         assert!(cached.tree.iter().all(|node| node.name != "two.md"));
+        assert!(cached.tree.iter().all(|node| node.name != ".denote.md"));
+        assert_eq!(
+            cached.welcome_page.effective_path,
+            Some(".denote.md".to_string())
+        );
 
         let refreshed =
             refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh scan");

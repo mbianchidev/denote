@@ -31,7 +31,7 @@ import {
 
 const CONTEXT_MENU_WIDTH = 184;
 const CONTEXT_MENU_COMPACT_HEIGHT = 92;
-const CONTEXT_MENU_ENTRY_HEIGHT = 430;
+const CONTEXT_MENU_ENTRY_HEIGHT = 502;
 
 interface FileTreeProps {
   nodes: FileNode[];

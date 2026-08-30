@@ -267,6 +267,13 @@ pub struct TrashItem {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct WelcomePagePreference {
+    pub custom_path: Option<String>,
+    pub effective_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
     pub vault_path: String,
     pub vault_name: String,
@@ -279,6 +286,7 @@ pub struct WorkspaceSnapshot {
     pub markdown_view_mode: Option<MarkdownViewMode>,
     pub restore_tabs: bool,
     pub tab_session: Option<TabSessionState>,
+    pub welcome_page: WelcomePagePreference,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }

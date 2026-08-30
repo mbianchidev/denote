@@ -153,7 +153,8 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           updated_at TEXT NOT NULL,
           last_opened_at TEXT NOT NULL,
           markdown_view_mode TEXT CHECK (markdown_view_mode IN ('rich-text', 'source')),
-          restore_tabs INTEGER NOT NULL DEFAULT 1
+          restore_tabs INTEGER NOT NULL DEFAULT 1,
+          welcome_page_path TEXT
         );
 
         CREATE TABLE IF NOT EXISTS note_stats (
@@ -322,6 +323,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    let added_welcome_page_path = !column_exists(&migration, "vaults", "welcome_page_path")?;
+    if added_welcome_page_path {
+        migration.execute("ALTER TABLE vaults ADD COLUMN welcome_page_path TEXT", [])?;
+    }
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (3, CURRENT_TIMESTAMP)",
         [],
@@ -360,6 +365,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (12, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (13, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -954,6 +963,26 @@ pub fn set_restore_tabs(connection: &Connection, vault_id: i64, enabled: bool) -
     Ok(())
 }
 
+pub fn get_welcome_page_path(connection: &Connection, vault_id: i64) -> AppResult<Option<String>> {
+    Ok(connection.query_row(
+        "SELECT welcome_page_path FROM vaults WHERE id = ?1",
+        params![vault_id],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn set_welcome_page_path(
+    connection: &Connection,
+    vault_id: i64,
+    path: Option<&str>,
+) -> AppResult<()> {
+    connection.execute(
+        "UPDATE vaults SET welcome_page_path = ?1, updated_at = ?2 WHERE id = ?3",
+        params![path, now(), vault_id],
+    )?;
+    Ok(())
+}
+
 pub fn get_tab_session(
     connection: &Connection,
     vault_id: i64,
@@ -1310,6 +1339,7 @@ pub fn trash_metadata(
             now()
         ],
     )?;
+    clear_welcome_page_for_path_tx(&transaction, vault_id, original_path)?;
     rekey_content_metadata_tx(&transaction, vault_id, original_path, trash_path)?;
     finish_file_operation_tx(&transaction, operation_id)?;
     let item_id = transaction.last_insert_rowid();
@@ -1425,10 +1455,11 @@ pub fn rename_metadata(
     vault_id: i64,
     old_path: &str,
     new_path: &str,
+    is_directory: bool,
     operation_id: Option<&str>,
 ) -> AppResult<()> {
     let transaction = connection.transaction()?;
-    rename_metadata_tx(&transaction, vault_id, old_path, new_path)?;
+    rename_metadata_tx(&transaction, vault_id, old_path, new_path, is_directory)?;
     finish_file_operation_tx(&transaction, operation_id)?;
     transaction.commit()?;
     Ok(())
@@ -1439,9 +1470,69 @@ fn rename_metadata_tx(
     vault_id: i64,
     old_path: &str,
     new_path: &str,
+    is_directory: bool,
 ) -> AppResult<()> {
     delete_content_metadata_tx(transaction, vault_id, new_path)?;
     rekey_content_metadata_tx(transaction, vault_id, old_path, new_path)?;
+    if is_directory || is_markdown_path(new_path) {
+        rekey_welcome_page_path_tx(transaction, vault_id, old_path, new_path)?;
+    } else {
+        clear_welcome_page_for_path_tx(transaction, vault_id, old_path)?;
+    }
+    Ok(())
+}
+
+fn is_markdown_path(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "md" | "markdown" | "mdx"
+            )
+        })
+}
+
+fn rekey_welcome_page_path_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        UPDATE vaults
+        SET welcome_page_path = ?1 || substr(welcome_page_path, length(?2) + 1),
+            updated_at = ?3
+        WHERE id = ?4
+          AND (
+            welcome_page_path = ?2
+            OR substr(welcome_page_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![new_path, old_path, now(), vault_id],
+    )?;
+    Ok(())
+}
+
+fn clear_welcome_page_for_path_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        UPDATE vaults
+        SET welcome_page_path = NULL, updated_at = ?1
+        WHERE id = ?2
+          AND (
+            welcome_page_path = ?3
+            OR substr(welcome_page_path, 1, length(?3) + 1) = ?3 || '/'
+          )
+        "#,
+        params![now(), vault_id, path],
+    )?;
     Ok(())
 }
 
@@ -1814,6 +1905,43 @@ mod tests {
         assert_eq!(
             get_tab_session(&connection, vault_id).expect("tab session"),
             Some(session)
+        );
+    }
+
+    #[test]
+    fn stores_welcome_page_paths_per_vault() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("welcome-page.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let connection = open(&db_path).expect("database opened");
+        let work_id = ensure_vault(&connection, "/vaults/work", "work").expect("work vault");
+        let notes_id = ensure_vault(&connection, "/vaults/notes", "notes").expect("notes vault");
+
+        set_welcome_page_path(&connection, work_id, Some("Start.md")).expect("save welcome page");
+
+        assert_eq!(
+            get_welcome_page_path(&connection, work_id).expect("work welcome page"),
+            Some("Start.md".to_string())
+        );
+        assert_eq!(
+            get_welcome_page_path(&connection, notes_id).expect("notes welcome page"),
+            None
+        );
+
+        set_welcome_page_path(&connection, work_id, None).expect("clear welcome page");
+        assert_eq!(
+            get_welcome_page_path(&connection, work_id).expect("cleared welcome page"),
+            None
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 13",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("welcome page migration"),
+            1
         );
     }
 

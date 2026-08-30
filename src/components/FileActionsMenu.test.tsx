@@ -19,14 +19,19 @@ function file(path: string): FileNode {
   };
 }
 
-function handlers(): FileActionHandlers {
+function handlers(
+  customPath: string | null = null,
+  effectivePath: string | null = null,
+): FileActionHandlers {
   return {
+    welcomePage: { customPath, effectivePath },
     onDuplicate: vi.fn(),
     onBookmark: vi.fn(),
     onCopyPath: vi.fn(),
     onOpenHistory: vi.fn(),
     onOpenInNewTab: vi.fn(),
     onReveal: vi.fn(),
+    onSetWelcomePage: vi.fn(),
     onRename: vi.fn(),
     onMove: vi.fn(),
     onDelete: vi.fn(),
@@ -73,5 +78,46 @@ describe("FileActionsDropdown", () => {
     fireEvent.keyDown(await screen.findByRole("menu"), { key: "Escape" });
 
     await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it("sets a Markdown file as the welcome page", async () => {
+    const actions = handlers();
+    render(
+      <FileActionsDropdown
+        node={file("Start.md")}
+        disabled={false}
+        handlers={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More file actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Set as welcome page" }),
+    );
+
+    expect(actions.onSetWelcomePage).toHaveBeenCalledWith(file("Start.md"));
+  });
+
+  it("clears an explicit welcome page choice", async () => {
+    const actions = handlers("Start.md", "Start.md");
+    render(
+      <FileActionsDropdown
+        node={file("Start.md")}
+        disabled={false}
+        handlers={actions}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More file actions" }));
+    fireEvent.click(
+      await screen.findByRole("menuitem", {
+        name: "Use .denote.md/default",
+      }),
+    );
+
+    expect(actions.onSetWelcomePage).toHaveBeenCalledWith(null);
+    expect(
+      screen.queryByRole("menuitem", { name: "Set as welcome page" }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -299,6 +299,8 @@ look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
+Markdown file menus can also set the vault welcome page or return to the
+root `.denote.md` convention.
 Dragging an entry highlights folder or root drop targets; the menu move action
 preserves a keyboard path. The sidebar divider is visually one pixel but keeps a
 larger pointer target and exposes arrow-key resizing.
@@ -342,6 +344,9 @@ code, links, imagery, Unicode, and internal navigation, while the `docs` folder
 provides concise task-based reference pages. A `test` folder deliberately uses
 Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
 source code so edge cases remain easy to exercise.
+New Welcome vaults seed the same canonical guide as both `.denote.md` and
+`Welcome.md`; the latter remains for stable links and existing-vault
+compatibility.
 
 ### Callouts
 

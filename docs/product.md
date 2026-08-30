@@ -43,6 +43,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Every installation includes an offline Denote Welcome vault with an editable
   feature tour and task-focused documentation; seeded files are never
   overwritten after creation.
+- A vault can provide a root `.denote.md` welcome page or designate another
+  Markdown file locally. The page opens when no saved tab session or explicit
+  cross-vault file takes priority.
 - The Welcome vault includes a one-time, non-destructive `test` folder covering
   Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
   highlighted source files.

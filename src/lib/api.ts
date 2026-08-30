@@ -17,6 +17,7 @@ import type {
   TabSessionState,
   TagColor,
   TrashItem,
+  WelcomePagePreference,
   WorkspaceSnapshot,
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
@@ -119,6 +120,8 @@ export const api = {
     invoke<void>("set_vault_markdown_view_mode", { mode }),
   setRestoreTabs: (enabled: boolean) =>
     invoke<void>("set_restore_tabs", { enabled }),
+  setWelcomePagePath: (path: string | null) =>
+    invoke<WelcomePagePreference>("set_welcome_page_path", { path }),
   saveTabSession: (session: TabSessionState) =>
     invoke<void>("save_tab_session", { session }),
   listHistory: (path: string) =>
