@@ -681,6 +681,182 @@ export function movePaneTab(
   });
 }
 
+export type PaneDockPosition = "center" | "left" | "right" | "top" | "bottom";
+
+export function dockAxis(position: PaneDockPosition): "x" | "y" | null {
+  switch (position) {
+    case "left":
+    case "right":
+      return "x";
+    case "top":
+    case "bottom":
+      return "y";
+    default:
+      return null;
+  }
+}
+
+export function layoutKindWithoutPane(
+  kind: PaneLayoutKind,
+  paneCount: number,
+  removedIndex: number,
+): PaneLayoutKind | null {
+  if (paneCount <= 2) {
+    return "single";
+  }
+  if (paneCount === 3) {
+    switch (kind) {
+      case "horizontal":
+        return "horizontal";
+      case "vertical":
+        return "vertical";
+      case "left-stack":
+        return removedIndex === 0 ? "vertical" : "horizontal";
+      case "right-stack":
+        return removedIndex === 2 ? "vertical" : "horizontal";
+      case "top-stack":
+        return removedIndex === 0 ? "horizontal" : "vertical";
+      case "bottom-stack":
+        return removedIndex === 2 ? "horizontal" : "vertical";
+      default:
+        return null;
+    }
+  }
+  if (kind === "horizontal" || kind === "vertical") {
+    return kind;
+  }
+  return null;
+}
+
+export function dockLayoutKind(
+  baseKind: PaneLayoutKind | null,
+  baseCount: number,
+  targetIndex: number,
+  axis: "x" | "y",
+): PaneLayoutKind {
+  if (baseCount <= 1) {
+    return axis === "x" ? "horizontal" : "vertical";
+  }
+  if (baseCount === 2) {
+    if (baseKind === "vertical") {
+      return axis === "y"
+        ? "vertical"
+        : targetIndex === 0
+          ? "bottom-stack"
+          : "top-stack";
+    }
+    return axis === "x"
+      ? "horizontal"
+      : targetIndex === 0
+        ? "right-stack"
+        : "left-stack";
+  }
+  if (baseCount === 3) {
+    if (baseKind === "horizontal" && axis === "x") {
+      return "horizontal";
+    }
+    if (baseKind === "vertical" && axis === "y") {
+      return "vertical";
+    }
+    return "grid";
+  }
+  return defaultLayoutKind(baseCount + 1);
+}
+
+function layoutForPanes(kind: PaneLayoutKind, paneCount: number): PaneLayout {
+  return normalizePaneLayout(
+    { kind, sizes: defaultPaneSizes(kind, paneCount) },
+    paneCount,
+  );
+}
+
+export function dockTab(
+  state: PaneWorkspaceState,
+  path: string,
+  targetPaneId: string,
+  position: PaneDockPosition,
+): PaneWorkspaceState {
+  const source = findPaneByPath(state.panes, path);
+  const targetIndex = state.panes.findIndex((pane) => pane.id === targetPaneId);
+  const target = state.panes[targetIndex];
+  if (!source || !target) {
+    return state;
+  }
+  const moving = source.tabs.find((tab) => tab.path === path);
+  if (!moving) {
+    return state;
+  }
+  const axis = dockAxis(position);
+  if (!axis) {
+    if (source.id === target.id) {
+      return state;
+    }
+    return {
+      ...state,
+      panes: movePaneTab(state.panes, path, target.id),
+      focusedPaneId: target.id,
+    };
+  }
+  const after = position === "right" || position === "bottom";
+
+  if (source.tabs.length === 1 && state.panes.length > 1) {
+    if (source.id === target.id) {
+      return state;
+    }
+    const remaining = state.panes.filter((pane) => pane.id !== source.id);
+    const sourceIndex = state.panes.findIndex((pane) => pane.id === source.id);
+    const baseIndex = remaining.findIndex((pane) => pane.id === target.id);
+    const panes = [...remaining];
+    panes.splice(after ? baseIndex + 1 : baseIndex, 0, {
+      ...source,
+      activePath: path,
+    });
+    const baseKind = layoutKindWithoutPane(
+      state.layout.kind,
+      state.panes.length,
+      sourceIndex,
+    );
+    return {
+      panes,
+      layout: layoutForPanes(
+        dockLayoutKind(baseKind, remaining.length, baseIndex, axis),
+        panes.length,
+      ),
+      focusedPaneId: source.id,
+    };
+  }
+
+  if (state.panes.length >= MAX_PANES) {
+    return state;
+  }
+
+  const created: WorkspacePane = {
+    id: nextPaneId(state.panes),
+    tabs: [{ ...moving, groupId: null }],
+    groups: [],
+    activePath: path,
+  };
+  const panes = state.panes.map((pane) =>
+    pane.id === source.id
+      ? prunePaneGroups({
+          ...pane,
+          tabs: pane.tabs.filter((tab) => tab.path !== path),
+          activePath: nextActivePath(pane, (candidate) => candidate === path),
+        })
+      : pane,
+  );
+  const baseIndex = panes.findIndex((pane) => pane.id === target.id);
+  panes.splice(after ? baseIndex + 1 : baseIndex, 0, created);
+  return {
+    panes,
+    layout: layoutForPanes(
+      dockLayoutKind(state.layout.kind, state.panes.length, baseIndex, axis),
+      panes.length,
+    ),
+    focusedPaneId: created.id,
+  };
+}
+
 export function buildPaneSessionState(
   state: PaneWorkspaceState,
 ): TabSessionState {

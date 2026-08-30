@@ -790,35 +790,72 @@ button:disabled {
   outline-offset: -2px;
 }
 
-.pane-controls {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0 7px;
-  border-right: 1px solid var(--border);
+.pane-dock {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
 }
 
-.pane-controls__layout {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-tertiary);
+.pane-dock__zone {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 4px;
+  opacity: 0.55;
+  transform: scale(0.98);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
-.pane-controls__layout select {
-  max-width: 190px;
-  padding: 3px 6px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-family: inherit;
-  background: var(--panel-bg);
-  border: 1px solid var(--border);
-  border-radius: 5px;
+.pane-dock__zone[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-style: solid;
+  border-color: var(--accent);
+  opacity: 1;
+  transform: scale(1);
 }
 
-.pane-controls__layout select:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 1px;
+.pane-dock__zone[data-position="left"] {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="right"] {
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="top"] {
+  top: 4px;
+  right: calc(24% + 2px);
+  left: calc(24% + 2px);
+  height: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="bottom"] {
+  right: calc(24% + 2px);
+  bottom: 4px;
+  left: calc(24% + 2px);
+  height: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="center"] {
+  inset: calc(24% + 2px) calc(24% + 2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-dock__zone {
+    transform: none;
+    transition: none;
+  }
 }
 
 .workspace-topbar__spacer {

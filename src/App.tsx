@@ -60,7 +60,7 @@ import {
   FileActionsDropdown,
   type FileActionHandlers,
 } from "./components/FileActionsMenu";
-import { PaneControls } from "./components/PaneControls";
+import { PaneDockOverlay } from "./components/PaneDockOverlay";
 import { PaneResizer } from "./components/PaneResizer";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
@@ -137,6 +137,7 @@ import {
   buildPaneSessionState,
   closePane,
   createPaneWorkspace,
+  dockTab,
   findPaneByGroup,
   findPaneByPath,
   focusedPaneOf,
@@ -159,8 +160,14 @@ import {
   setPaneLayoutKind,
   updatePane,
   upgradeTabSession,
+  type PaneDockPosition,
   type PaneWorkspaceState,
 } from "./lib/panes";
+import {
+  paneDockTargetFromPoint,
+  sameDockTarget,
+  type PaneDockTarget,
+} from "./lib/paneDocking";
 import {
   insertWorkspaceNode,
   removeWorkspacePath,
@@ -251,6 +258,14 @@ interface LinkRewriteSave {
   lineEnding: EditorTab["lineEnding"];
 }
 
+const DOCK_POSITION_LABELS: Record<PaneDockPosition, string> = {
+  center: "into the pane",
+  left: "to the left",
+  right: "to the right",
+  top: "above",
+  bottom: "below",
+};
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -261,6 +276,7 @@ function App() {
   const [paneState, setPaneState] = useState<PaneWorkspaceState>(() =>
     createPaneWorkspace(),
   );
+  const [dockTarget, setDockTarget] = useState<PaneDockTarget | null>(null);
   const [showOutline, setShowOutline] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchLocation, setSearchLocation] = useState("*");
@@ -2550,6 +2566,78 @@ function App() {
     },
     [commitPaneState, nextOpenRequest],
   );
+
+  const dockTabAtTarget = useCallback(
+    (path: string, target: PaneDockTarget) => {
+      const current = paneStateRef.current;
+      const source = findPaneByPath(current.panes, path);
+      if (!source) {
+        return;
+      }
+      const next = dockTab(current, path, target.paneId, target.position);
+      if (next === current) {
+        if (
+          target.position !== "center" &&
+          source.tabs.length > 1 &&
+          current.panes.length >= MAX_PANES
+        ) {
+          showError(`Denote supports up to ${MAX_PANES} panes.`);
+        }
+        return;
+      }
+      const title =
+        tabsRef.current.find((tab) => tab.path === path)?.title ?? path;
+      nextOpenRequest(source.id);
+      nextOpenRequest(target.paneId);
+      commitPaneState(() => next);
+      const paneNumber =
+        next.panes.findIndex((pane) => pane.id === next.focusedPaneId) + 1;
+      setStatus(
+        target.position === "center"
+          ? `Moved ${title} to pane ${paneNumber}`
+          : `Docked ${title} ${DOCK_POSITION_LABELS[target.position]} as pane ${paneNumber}`,
+      );
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-tab-path="${CSS.escape(path)}"]`,
+          )
+          ?.focus();
+      }, 0);
+    },
+    [commitPaneState, nextOpenRequest, showError],
+  );
+
+  const handleTabDragStart = useCallback(() => {
+    setDockTarget(null);
+  }, []);
+
+  const handleTabDragMove = useCallback(
+    (_path: string, clientX: number, clientY: number) => {
+      const next = paneDockTargetFromPoint(clientX, clientY);
+      setDockTarget((current) =>
+        sameDockTarget(current, next) ? current : next,
+      );
+    },
+    [],
+  );
+
+  const handleTabDragEnd = useCallback(
+    (path: string, clientX: number, clientY: number) => {
+      const target = paneDockTargetFromPoint(clientX, clientY);
+      setDockTarget(null);
+      if (!target) {
+        return false;
+      }
+      dockTabAtTarget(path, target);
+      return true;
+    },
+    [dockTabAtTarget],
+  );
+
+  const handleTabDragCancel = useCallback(() => {
+    setDockTarget(null);
+  }, []);
 
   const reorderTabs = useCallback(
     (sourcePath: string, targetPath: string) => {
@@ -5744,14 +5832,6 @@ function App() {
         aria-busy={workspaceLocked}
       >
         <header className="workspace-topbar">
-          <PaneControls
-            layout={paneLayout.kind}
-            paneCount={panes.length}
-            disabled={workspaceLocked}
-            splitShortcut={splitPaneShortcut}
-            onLayoutChange={changePaneLayout}
-            onAddPane={addWorkspacePane}
-          />
           <span className="workspace-topbar__spacer" />
           <div className="workspace-actions">
             <button
@@ -6009,6 +6089,10 @@ function App() {
                       onRenameGroup={(groupId) => void renameTabGroup(groupId)}
                       onMoveToGroup={moveTabToGroup}
                       onMoveToPane={moveTabToPane}
+                      onDragStart={handleTabDragStart}
+                      onDragMove={handleTabDragMove}
+                      onDragEnd={handleTabDragEnd}
+                      onDragCancel={handleTabDragCancel}
                     />
                     {panes.length > 1 ? (
                       <button
@@ -6023,7 +6107,12 @@ function App() {
                       </button>
                     ) : null}
                   </div>
-                  <div className="editor-pane">{renderPaneSurface(pane)}</div>
+                  <div className="editor-pane">
+                    {renderPaneSurface(pane)}
+                    {dockTarget?.paneId === pane.id ? (
+                      <PaneDockOverlay position={dockTarget.position} />
+                    ) : null}
+                  </div>
                 </section>
               );
             })}

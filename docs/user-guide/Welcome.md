@@ -23,7 +23,7 @@ regular file. Your files remain the source of truth.
 ## Try a little of everything
 
 - [x] Open a note in a tab
-- [ ] Split the editor, choose a layout, and move a tab to another pane
+- [ ] Drag a tab onto a pane edge to split the editor
 - [ ] Switch this file to read mode, then return to write mode
 - [ ] Press `Command-F` or `Ctrl-F` and search for `tag:guide`
 - [ ] Press `Command-P` or `Ctrl-P`, run a command, then find a filename

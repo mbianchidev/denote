@@ -8,9 +8,12 @@ import {
   createPaneWorkspace,
   createWorkspacePane,
   defaultLayoutKind,
+  dockLayoutKind,
+  dockTab,
   findPaneByGroup,
   findPaneByPath,
   focusedPaneOf,
+  layoutKindWithoutPane,
   layoutsForPaneCount,
   layoutSupportsPaneCount,
   MAX_PANES,
@@ -574,5 +577,240 @@ describe("pane session state", () => {
       groups: [],
       activePath: null,
     });
+  });
+});
+
+describe("tab docking", () => {
+  it("splits a single pane workspace toward the dropped side", () => {
+    const state = workspace(
+      [{ id: "pane-1", tabs: [tab("one.md"), tab("two.md")] }],
+      { kind: "single", sizes: [] },
+    );
+    const right = dockTab(state, "one.md", "pane-1", "right");
+    expect(right.panes.map((pane) => pane.id)).toEqual(["pane-1", "pane-2"]);
+    expect(right.panes[0].tabs.map((entry) => entry.path)).toEqual(["two.md"]);
+    expect(right.panes[1].tabs.map((entry) => entry.path)).toEqual(["one.md"]);
+    expect(right.layout).toEqual({ kind: "horizontal", sizes: [0.5, 0.5] });
+    expect(right.focusedPaneId).toBe("pane-2");
+
+    const left = dockTab(state, "one.md", "pane-1", "left");
+    expect(left.panes.map((pane) => pane.id)).toEqual(["pane-2", "pane-1"]);
+    expect(left.layout.kind).toBe("horizontal");
+
+    const below = dockTab(state, "one.md", "pane-1", "bottom");
+    expect(below.panes.map((pane) => pane.id)).toEqual(["pane-1", "pane-2"]);
+    expect(below.layout.kind).toBe("vertical");
+
+    const above = dockTab(state, "one.md", "pane-1", "top");
+    expect(above.panes.map((pane) => pane.id)).toEqual(["pane-2", "pane-1"]);
+    expect(above.layout.kind).toBe("vertical");
+  });
+
+  it("leaves the source pane open when its only tab is docked in a single pane workspace", () => {
+    const state = workspace([{ id: "pane-1", tabs: [tab("only.md")] }], {
+      kind: "single",
+      sizes: [],
+    });
+    const docked = dockTab(state, "only.md", "pane-1", "right");
+    expect(docked.panes).toHaveLength(2);
+    expect(docked.panes[0].tabs).toEqual([]);
+    expect(docked.panes[0].activePath).toBeNull();
+    expect(docked.panes[1].tabs.map((entry) => entry.path)).toEqual(["only.md"]);
+    expect(docked.panes[1].activePath).toBe("only.md");
+  });
+
+  it("moves a tab into the hovered pane on a centre drop", () => {
+    const dirty = tab("draft.md", "unsaved words");
+    const state = workspace([
+      { id: "pane-1", tabs: [tab("one.md"), dirty], activePath: "draft.md" },
+      { id: "pane-2", tabs: [tab("two.md")] },
+    ]);
+    const docked = dockTab(state, "draft.md", "pane-2", "center");
+    expect(docked.panes[0].tabs.map((entry) => entry.path)).toEqual(["one.md"]);
+    expect(docked.panes[1].tabs.map((entry) => entry.path)).toEqual([
+      "two.md",
+      "draft.md",
+    ]);
+    expect(docked.panes[1].tabs[1].content).toBe("unsaved words");
+    expect(docked.panes[1].activePath).toBe("draft.md");
+    expect(docked.focusedPaneId).toBe("pane-2");
+    expect(docked.layout).toBe(state.layout);
+  });
+
+  it("ignores drops that cannot change anything", () => {
+    const state = workspace([
+      { id: "pane-1", tabs: [tab("one.md")] },
+      { id: "pane-2", tabs: [tab("two.md")] },
+    ]);
+    expect(dockTab(state, "one.md", "pane-1", "center")).toBe(state);
+    expect(dockTab(state, "one.md", "pane-1", "right")).toBe(state);
+    expect(dockTab(state, "missing.md", "pane-2", "right")).toBe(state);
+    expect(dockTab(state, "one.md", "pane-9", "right")).toBe(state);
+  });
+
+  it("repositions a sole tab pane instead of opening an empty one", () => {
+    const state = workspace([
+      { id: "pane-1", tabs: [tab("one.md")] },
+      { id: "pane-2", tabs: [tab("two.md"), tab("three.md")] },
+    ]);
+    const docked = dockTab(state, "one.md", "pane-2", "bottom");
+    expect(docked.panes.map((pane) => pane.id)).toEqual(["pane-2", "pane-1"]);
+    expect(docked.panes[1].tabs.map((entry) => entry.path)).toEqual(["one.md"]);
+    expect(docked.layout).toEqual({ kind: "vertical", sizes: [0.5, 0.5] });
+    expect(docked.focusedPaneId).toBe("pane-1");
+  });
+
+  it("adds a third pane perpendicular to a split as an asymmetric layout", () => {
+    const sideBySide = workspace(
+      [
+        { id: "pane-1", tabs: [tab("one.md"), tab("two.md")] },
+        { id: "pane-2", tabs: [tab("three.md")] },
+      ],
+      { kind: "horizontal", sizes: [0.5, 0.5] },
+    );
+    const splitLeft = dockTab(sideBySide, "one.md", "pane-1", "bottom");
+    expect(splitLeft.panes.map((pane) => pane.id)).toEqual([
+      "pane-1",
+      "pane-3",
+      "pane-2",
+    ]);
+    expect(splitLeft.layout.kind).toBe("right-stack");
+
+    const splitRight = dockTab(sideBySide, "one.md", "pane-2", "top");
+    expect(splitRight.panes.map((pane) => pane.id)).toEqual([
+      "pane-1",
+      "pane-3",
+      "pane-2",
+    ]);
+    expect(splitRight.layout.kind).toBe("left-stack");
+
+    const stacked = workspace(
+      [
+        { id: "pane-1", tabs: [tab("one.md"), tab("two.md")] },
+        { id: "pane-2", tabs: [tab("three.md")] },
+      ],
+      { kind: "vertical", sizes: [0.5, 0.5] },
+    );
+    expect(dockTab(stacked, "one.md", "pane-1", "right").layout.kind).toBe(
+      "bottom-stack",
+    );
+    expect(dockTab(stacked, "one.md", "pane-2", "left").layout.kind).toBe(
+      "top-stack",
+    );
+  });
+
+  it("keeps a straight run when a third pane extends the same axis", () => {
+    const sideBySide = workspace(
+      [
+        { id: "pane-1", tabs: [tab("one.md"), tab("two.md")] },
+        { id: "pane-2", tabs: [tab("three.md")] },
+      ],
+      { kind: "horizontal", sizes: [0.5, 0.5] },
+    );
+    const docked = dockTab(sideBySide, "one.md", "pane-2", "right");
+    expect(docked.panes.map((pane) => pane.id)).toEqual([
+      "pane-1",
+      "pane-2",
+      "pane-3",
+    ]);
+    expect(docked.layout).toEqual({
+      kind: "horizontal",
+      sizes: [1 / 3, 1 / 3, 1 / 3],
+    });
+  });
+
+  it("uses the grid for a fourth pane unless the run stays straight", () => {
+    const asymmetric = workspace(
+      [
+        { id: "pane-1", tabs: [tab("one.md"), tab("two.md")] },
+        { id: "pane-2", tabs: [tab("three.md")] },
+        { id: "pane-3", tabs: [tab("four.md")] },
+      ],
+      { kind: "left-stack", sizes: [0.5, 0.5, 0.5, 0.5] },
+    );
+    expect(dockTab(asymmetric, "one.md", "pane-3", "right").layout.kind).toBe(
+      "grid",
+    );
+
+    const row = workspace(
+      [
+        { id: "pane-1", tabs: [tab("one.md"), tab("two.md")] },
+        { id: "pane-2", tabs: [tab("three.md")] },
+        { id: "pane-3", tabs: [tab("four.md")] },
+      ],
+      { kind: "horizontal", sizes: [1 / 3, 1 / 3, 1 / 3] },
+    );
+    expect(dockTab(row, "one.md", "pane-3", "right").layout.kind).toBe(
+      "horizontal",
+    );
+    expect(dockTab(row, "one.md", "pane-3", "bottom").layout.kind).toBe("grid");
+  });
+
+  it("never exceeds the pane maximum", () => {
+    const full = workspace(
+      [
+        { id: "pane-1", tabs: [tab("one.md"), tab("two.md")] },
+        { id: "pane-2", tabs: [tab("three.md")] },
+        { id: "pane-3", tabs: [tab("four.md")] },
+        { id: "pane-4", tabs: [tab("five.md")] },
+      ],
+      { kind: "grid", sizes: [0.5, 0.5, 0.5, 0.5] },
+    );
+    expect(full.panes).toHaveLength(MAX_PANES);
+    expect(dockTab(full, "one.md", "pane-4", "right")).toBe(full);
+
+    const repositioned = dockTab(full, "five.md", "pane-1", "left");
+    expect(repositioned.panes.map((pane) => pane.id)).toEqual([
+      "pane-4",
+      "pane-1",
+      "pane-2",
+      "pane-3",
+    ]);
+    expect(repositioned.panes).toHaveLength(MAX_PANES);
+    expect(repositioned.layout.kind).toBe("grid");
+  });
+
+  it("preserves unsaved tabs and prunes emptied groups when docking", () => {
+    const dirty = { ...tab("draft.md", "unsaved words"), groupId: "group-1" };
+    const state: PaneWorkspaceState = {
+      panes: [
+        {
+          id: "pane-1",
+          tabs: [tab("one.md"), dirty],
+          groups: [{ id: "group-1", name: "Drafts", collapsed: false }],
+          activePath: "draft.md",
+        },
+      ],
+      layout: { kind: "single", sizes: [] },
+      focusedPaneId: "pane-1",
+    };
+    const docked = dockTab(state, "draft.md", "pane-1", "right");
+    expect(docked.panes[0].groups).toEqual([]);
+    expect(docked.panes[0].activePath).toBe("one.md");
+    const moved = docked.panes[1].tabs[0];
+    expect(moved.groupId).toBeNull();
+    expect(moved.content).toBe("unsaved words");
+    expect(moved.saveState).toBe("dirty");
+    expect({ ...moved, groupId: "group-1" }).toEqual(dirty);
+  });
+
+  it("derives docking layouts from the arrangement that remains", () => {
+    expect(dockLayoutKind("single", 1, 0, "x")).toBe("horizontal");
+    expect(dockLayoutKind("single", 1, 0, "y")).toBe("vertical");
+    expect(dockLayoutKind("horizontal", 2, 0, "y")).toBe("right-stack");
+    expect(dockLayoutKind("horizontal", 2, 1, "y")).toBe("left-stack");
+    expect(dockLayoutKind("vertical", 2, 0, "x")).toBe("bottom-stack");
+    expect(dockLayoutKind("vertical", 2, 1, "x")).toBe("top-stack");
+    expect(dockLayoutKind("vertical", 3, 2, "y")).toBe("vertical");
+    expect(dockLayoutKind(null, 3, 0, "x")).toBe("grid");
+
+    expect(layoutKindWithoutPane("horizontal", 2, 0)).toBe("single");
+    expect(layoutKindWithoutPane("left-stack", 3, 0)).toBe("vertical");
+    expect(layoutKindWithoutPane("left-stack", 3, 2)).toBe("horizontal");
+    expect(layoutKindWithoutPane("right-stack", 3, 2)).toBe("vertical");
+    expect(layoutKindWithoutPane("top-stack", 3, 0)).toBe("horizontal");
+    expect(layoutKindWithoutPane("bottom-stack", 3, 2)).toBe("horizontal");
+    expect(layoutKindWithoutPane("grid", 4, 1)).toBeNull();
+    expect(layoutKindWithoutPane("vertical", 4, 1)).toBe("vertical");
   });
 });

@@ -428,4 +428,128 @@ describe("Tabs", () => {
       screen.queryByRole("menuitem", { name: /Move to pane/ }),
     ).not.toBeInTheDocument();
   });
+  it("reports the drag lifecycle so the workspace can dock the tab", () => {
+    const onDragStart = vi.fn();
+    const onDragMove = vi.fn();
+    const onDragEnd = vi.fn(() => true);
+    const onReorder = vi.fn();
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={onReorder}
+        onNewTab={vi.fn()}
+        groups={[]}
+        onToggleGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onMoveToGroup={vi.fn()}
+        onCloseMany={vi.fn()}
+        onDragStart={onDragStart}
+        onDragMove={onDragMove}
+        onDragEnd={onDragEnd}
+      />,
+    );
+
+    const first = screen.getByRole("tab", { name: /one\.md/i });
+    const secondContainer = screen
+      .getByRole("tab", { name: /two\.md/i })
+      .closest(".tab");
+    const originalElementFromPoint = document.elementFromPoint;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => secondContainer),
+    });
+
+    fireEvent.pointerDown(first, { button: 0, pointerId: 4 });
+    fireEvent.pointerMove(first, { clientX: 320, clientY: 240, pointerId: 4 });
+    fireEvent.pointerUp(first, { clientX: 320, clientY: 240, pointerId: 4 });
+
+    expect(onDragStart).toHaveBeenCalledWith("one.md");
+    expect(onDragMove).toHaveBeenCalledWith("one.md", 320, 240);
+    expect(onDragEnd).toHaveBeenCalledWith("one.md", 320, 240);
+    expect(onReorder).not.toHaveBeenCalled();
+
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: originalElementFromPoint,
+    });
+  });
+
+  it("falls back to tab bar reordering when no pane accepts the drop", () => {
+    const onDragEnd = vi.fn(() => false);
+    const onReorder = vi.fn();
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={onReorder}
+        onNewTab={vi.fn()}
+        groups={[]}
+        onToggleGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onMoveToGroup={vi.fn()}
+        onCloseMany={vi.fn()}
+        onDragEnd={onDragEnd}
+      />,
+    );
+
+    const first = screen.getByRole("tab", { name: /one\.md/i });
+    const secondContainer = screen
+      .getByRole("tab", { name: /two\.md/i })
+      .closest(".tab");
+    const originalElementFromPoint = document.elementFromPoint;
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => secondContainer),
+    });
+
+    fireEvent.pointerDown(first, { button: 0, pointerId: 5 });
+    fireEvent.pointerUp(first, { clientX: 200, clientY: 10, pointerId: 5 });
+
+    expect(onDragEnd).toHaveBeenCalledWith("one.md", 200, 10);
+    expect(onReorder).toHaveBeenCalledWith("one.md", "two.md");
+
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: originalElementFromPoint,
+    });
+  });
+
+  it("cancels the drag so docking hints disappear", () => {
+    const onDragCancel = vi.fn();
+    const onReorder = vi.fn();
+    render(
+      <Tabs
+        tabs={tabs}
+        activePath="one.md"
+        disabled={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onReorder={onReorder}
+        onNewTab={vi.fn()}
+        groups={[]}
+        onToggleGroup={vi.fn()}
+        onCreateGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onMoveToGroup={vi.fn()}
+        onCloseMany={vi.fn()}
+        onDragCancel={onDragCancel}
+      />,
+    );
+
+    const first = screen.getByRole("tab", { name: /one\.md/i });
+    fireEvent.pointerDown(first, { button: 0, pointerId: 6 });
+    fireEvent.pointerCancel(first, { pointerId: 6 });
+
+    expect(onDragCancel).toHaveBeenCalledTimes(1);
+    expect(onReorder).not.toHaveBeenCalled();
+  });
 });

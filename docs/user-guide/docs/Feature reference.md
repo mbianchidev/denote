@@ -58,6 +58,8 @@ more detail and examples.
 - Navigate backward and forward through each tab's independent file history.
 - Open up to four independently focusable and resizable panes.
 - Use horizontal, vertical, grid, and mirrored or rotated asymmetric layouts.
+- Drag tabs onto pane centers or edges to move, split, and rearrange the
+  workspace without a separate layout control.
 - Move live tabs between panes without losing unsaved edits.
 - Close a pane by merging its tabs into a neighbor.
 - Scope file selection, links, search, commands, history, and toolbar actions to

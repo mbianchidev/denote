@@ -31,9 +31,13 @@ raw Base64 editor.
 
 ## Panes
 
-- Use the split control or `Command-\` / `Ctrl-\` to add a pane, up to four.
-- Choose a valid layout from the pane layout control: horizontal, vertical,
+- Drag a tab over a pane body. Drop it on the left, right, top, or bottom target
+  to create or rearrange panes, up to four. Drop it in the center to move it into
+  that pane.
+- Denote chooses the layout from the drop position: horizontal, vertical,
   four-pane grid, or a mirrored/rotated three-pane asymmetric arrangement.
+- `Command-\` / `Ctrl-\` and the command palette remain keyboard alternatives
+  for creating a pane.
 - Click or focus a pane to make it the target for file selection, search,
   commands, history, links, and toolbar actions.
 - Press `F6` / `Shift-F6` to focus the next or previous pane. Direct pane focus

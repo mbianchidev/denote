@@ -44,6 +44,10 @@ interface TabsProps {
   onRenameGroup: (groupId: string) => void;
   onMoveToGroup: (path: string, groupId: string | null) => void;
   onMoveToPane?: (path: string, paneId: string) => void;
+  onDragStart?: (path: string) => void;
+  onDragMove?: (path: string, clientX: number, clientY: number) => void;
+  onDragEnd?: (path: string, clientX: number, clientY: number) => boolean;
+  onDragCancel?: () => void;
 }
 
 export function Tabs({
@@ -63,6 +67,10 @@ export function Tabs({
   onRenameGroup,
   onMoveToGroup,
   onMoveToPane,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  onDragCancel,
 }: TabsProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
@@ -155,6 +163,7 @@ export function Tabs({
       return;
     }
     event.preventDefault();
+    onDragMove?.(drag.path, event.clientX, event.clientY);
     const target = targetPathAtPointer(event);
     setDropTargetPath(target && target !== drag.path ? target : null);
   };
@@ -164,15 +173,29 @@ export function Tabs({
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
-    const target = targetPathAtPointer(event);
-    if (target && target !== drag.path) {
+    const docked =
+      onDragEnd?.(drag.path, event.clientX, event.clientY) ?? false;
+    if (docked) {
       event.preventDefault();
-      onReorder(drag.path, target);
+    } else {
+      const target = targetPathAtPointer(event);
+      if (target && target !== drag.path) {
+        event.preventDefault();
+        onReorder(drag.path, target);
+      }
     }
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     clearPointerDrag();
+  };
+
+  const cancelPointerDrag = () => {
+    const dragging = pointerDrag.current !== null;
+    clearPointerDrag();
+    if (dragging) {
+      onDragCancel?.();
+    }
   };
 
   const moveFocus = (event: KeyboardEvent, index: number) => {
@@ -235,7 +258,7 @@ export function Tabs({
           data-tab-path={tab.path}
           className="tab__activate"
           aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
-          title="Drag to reorder. Use Alt+Shift+Left or Right from the keyboard."
+          title="Drag to reorder, or drop on a pane edge to split. Use Alt+Shift+Left or Right from the keyboard."
           disabled={disabled}
           onContextMenu={(event) => openContextMenu(event, tab)}
           onKeyDown={(event) => {
@@ -257,11 +280,12 @@ export function Tabs({
               setDraggedPath(tab.path);
               setDropTargetPath(null);
               event.currentTarget.setPointerCapture?.(event.pointerId);
+              onDragStart?.(tab.path);
             }
           }}
           onPointerMove={updatePointerDrag}
           onPointerUp={finishPointerDrag}
-          onPointerCancel={clearPointerDrag}
+          onPointerCancel={cancelPointerDrag}
           onClick={() => onActivate(tab.path)}
         >
           <Icon aria-hidden="true" size={14} strokeWidth={1.8} />

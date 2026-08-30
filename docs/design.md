@@ -289,11 +289,13 @@ slot needed for another open document. Named tab groups use a compact labeled
 header, disclosure icon, and count rather than a separate panel. Collapsing a
 group preserves access to its active tab. The tab context menu keeps group,
 cross-pane move, and bulk close commands in one keyboard-operable surface.
-Global pane controls add or close panes and select only layouts valid for the
-current pane count. Focused-pane contrast stays quiet but visible, and separator
-focus uses the normal two-pixel moss ring. Back and forward arrows act on the
-focused pane's active tab history, remain disabled when no destination exists,
-and never look like global application history.
+Dragging a tab over a pane body reveals quiet left, right, top, bottom, and
+center docking targets. Edge drops create, reposition, or reshape panes into a
+valid split, asymmetric arrangement, or grid; center drops move the tab into the
+target pane. Focused-pane contrast stays quiet but visible, and separator focus
+uses the normal two-pixel moss ring. Back and forward arrows act on the focused
+pane's active tab history, remain disabled when no destination exists, and never
+look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.

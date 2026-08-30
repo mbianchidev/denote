@@ -289,6 +289,13 @@ clears its previous group assignment. Closing a pane merges its tabs into a
 neighbor so unsaved content is not discarded. Collapsed groups keep their active
 tab rendered so keyboard focus and tab semantics remain valid.
 
+Pointer tab dragging keeps the existing tab-bar reorder path, but editor-body
+drops are resolved against the hovered editor rectangle. A center target moves
+the live tab into that pane. Edge targets either reuse a sole-tab source pane or
+create a pane, then derive horizontal, vertical, asymmetric, or grid layout from
+the target pane and drop direction. The visual target overlay is pointer
+transparent and uses the same editor rectangle as hit testing.
+
 Real file tabs are serialized to SQLite after a 400 ms debounce and at workspace
 barriers. The JSON state includes pane IDs and assignments, layout and resize
 fractions, focused pane, per-pane active paths, tab order, group IDs and names,
