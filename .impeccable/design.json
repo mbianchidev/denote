@@ -1,0 +1,163 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-28T08:45:00+02:00",
+  "title": "Design System: Denote",
+  "extensions": {
+    "colorMeta": {
+      "graphite-deep": {
+        "role": "neutral",
+        "displayName": "Deep Graphite",
+        "canonical": "#121315",
+        "tonalRamp": ["#121315", "#17191c", "#202327", "#30343a", "#555a60", "#858680", "#aaa9a2", "#e8e5de"]
+      },
+      "moss-accent": {
+        "role": "primary",
+        "displayName": "Workbench Moss",
+        "canonical": "#9fbe85",
+        "tonalRamp": ["#182015", "#283324", "#3f5135", "#587249", "#759461", "#9fbe85", "#c4d9b2", "#edf4e7"]
+      },
+      "danger": {
+        "role": "secondary",
+        "displayName": "Measured Danger",
+        "canonical": "#e28b86",
+        "tonalRamp": ["#2a1718", "#3b2526", "#643738", "#8e4f4c", "#b86965", "#e28b86", "#f0b7b3", "#f9e7e5"]
+      },
+      "dialog-scrim": {
+        "role": "neutral",
+        "displayName": "Dialog Scrim",
+        "canonical": "rgba(8, 9, 10, 0.66)",
+        "tonalRamp": ["#08090a", "#121315", "#202327", "#30343a", "#555a60", "#858680", "#aaa9a2", "#e8e5de"]
+      },
+      "light-moss": {
+        "role": "primary",
+        "displayName": "Light Workbench Moss",
+        "canonical": "#537642",
+        "tonalRamp": ["#182015", "#283324", "#3f5135", "#537642", "#759461", "#9fbe85", "#c4d9b2", "#edf4e7"]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Document Headline",
+        "purpose": "Primary note title and major empty-state heading."
+      },
+      "body": {
+        "displayName": "Writing Body",
+        "purpose": "Long-form Markdown content in the centered editor column."
+      },
+      "label": {
+        "displayName": "Workspace Label",
+        "purpose": "Compact controls, paths, metadata, and category markers."
+      },
+      "mono": {
+        "displayName": "Code and Measurement",
+        "purpose": "Fenced code, inline code, and technical measurements only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "floating-surface",
+        "value": "0 14px 36px rgba(0, 0, 0, 0.34)",
+        "purpose": "Dialogs and standalone media previews."
+      }
+    ],
+    "motion": [
+      {
+        "name": "state-change",
+        "value": "150ms ease-out",
+        "purpose": "Hover, focus, and selected-state feedback only."
+      }
+    ],
+    "breakpoints": [
+      { "name": "compact-workspace", "value": "1100px" },
+      { "name": "narrow-workspace", "value": "860px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single emphasized action on a surface.",
+      "html": "<button class=\"ds-primary\">CHOOSE VAULT</button>",
+      "css": ".ds-primary { background:#9fbe85;color:#121315;padding:10px 16px;border:1px solid #b1cf98;border-radius:5px;font:650 13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-primary:hover { background:#b1cf98; } .ds-primary:focus-visible { outline:2px solid #c5dda9;outline-offset:2px; }"
+    },
+    {
+      "name": "Ghost Icon Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Compact workspace action with no resting container.",
+      "html": "<button class=\"ds-icon\" aria-label=\"Example action\">+</button>",
+      "css": ".ds-icon { width:30px;height:30px;border:1px solid transparent;border-radius:5px;background:transparent;color:#aaa9a2;font:600 16px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-icon:hover { background:#202327;color:#e8e5de; } .ds-icon:focus-visible { outline:2px solid #c5dda9;outline-offset:2px; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Permanent deletion confirmation only.",
+      "html": "<button class=\"ds-danger\">EMPTY TRASH</button>",
+      "css": ".ds-danger { background:#e28b86;color:#121315;padding:7px 12px;border:1px solid #e28b86;border-radius:5px;font:650 12px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-danger:hover { filter:brightness(1.08); } .ds-danger:focus-visible { outline:2px solid #c5dda9;outline-offset:2px; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Dense full-width vault query field.",
+      "html": "<input class=\"ds-search\" value=\"tag:work\" aria-label=\"Search vault\">",
+      "css": ".ds-search { height:36px;width:240px;padding:0 10px;color:#e8e5de;background:#121315;border:1px solid #42474e;border-radius:5px;font:400 13px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-search:focus { border-color:#9fbe85;outline:1px solid #9fbe85; }"
+    },
+    {
+      "name": "Tag Chip",
+      "kind": "chip",
+      "refersTo": "chip-tag",
+      "description": "Metadata token that can also become a search filter.",
+      "html": "<button class=\"ds-tag\">#planning</button>",
+      "css": ".ds-tag { padding:3px 7px;color:#b1cf98;background:#283324;border:1px solid #587249;border-radius:999px;font:600 11px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-tag:hover { border-color:#9fbe85; } .ds-tag:focus-visible { outline:2px solid #c5dda9;outline-offset:2px; }"
+    },
+    {
+      "name": "Active File Tab",
+      "kind": "nav",
+      "description": "Compact active-document navigation state.",
+      "html": "<button class=\"ds-tab\">Welcome.md</button>",
+      "css": ".ds-tab { height:39px;padding:0 14px;color:#e8e5de;background:#181a1d;border:0;border-right:1px solid #30343a;box-shadow:inset 0 2px #9fbe85;font:400 12px -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; } .ds-tab:focus-visible { outline:2px solid #c5dda9;outline-offset:-3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Workbench",
+    "overview": "Denote is a dependable desktop tool that recedes around the document. Tonal layers, fine dividers, compact chrome, and a generous reading column support sustained writing without decorative noise.",
+    "keyCharacteristics": [
+      "Restrained graphite surfaces with one muted moss accent.",
+      "Dense workspace chrome around a calm reading column.",
+      "Small radii and one-pixel structure instead of nested cards.",
+      "State motion only."
+    ],
+    "rules": [
+      {
+        "name": "The One Accent Rule",
+        "body": "Moss indicates action, selection, or navigation state; it is not scattered as decoration.",
+        "section": "colors"
+      },
+      {
+        "name": "The Native Voice Rule",
+        "body": "UI labels use the system family; monospace is reserved for code and measurement.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Workbench Rule",
+        "body": "Navigation and editor panels use tonal layering and borders, not decorative shadows.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep the document column visually dominant over workspace chrome.",
+      "Do use moss for selected state, focus, links, and primary actions.",
+      "Do preserve complete dark and light token pairs.",
+      "Do keep all core workflows keyboard operable with visible focus."
+    ],
+    "donts": [
+      "Don't turn files, settings, or editor sections into nested cards.",
+      "Don't use pure black, pure white, neon accents, or glowing borders.",
+      "Don't add decorative motion to a task-focused workspace.",
+      "Don't replace familiar desktop affordances with novel control shapes."
+    ]
+  }
+}

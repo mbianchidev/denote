@@ -1,0 +1,189 @@
+# Product
+
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+web
+
+## Users
+
+People who keep a personal or professional knowledge base in plain Markdown and
+want a focused desktop editor without giving up direct ownership of their
+files.
+
+## Product Purpose
+
+Denote is a local-first Markdown workspace for macOS, Windows, and Linux. It
+opens a user-selected folder as a vault, supports rich single-pane editing, and
+keeps navigation, search, metadata, and recovery close to the writing flow.
+Success means users can create, find, edit, connect, and recover notes without
+moving their content into a proprietary format or hosted service.
+
+## Positioning
+
+Denote combines an Obsidian-like vault and file workflow with a Typora-like
+single-pane Markdown editing experience. The selected folder remains the source
+of truth while optional workspace metadata is stored locally in SQLite.
+
+## Operating Context
+
+Users work with existing or new folders containing arbitrary files. UTF-8
+content opens as text, while binary content opens as a reversible Base64
+representation. Notes may mix any Unicode languages and emoji in the same document.
+Users commonly switch among several notes, browse folders, search by content
+or metadata, follow links, and recover earlier content after an unwanted edit.
+
+## Capabilities and Constraints
+
+- Tauri desktop application with React and TypeScript.
+- macOS, Windows, and Linux support.
+- A user-selected local folder is the active vault.
+- Every installation includes an offline Denote Welcome vault with an editable
+  feature tour and task-focused documentation; seeded files are never
+  overwritten after creation.
+- The Welcome vault includes a one-time, non-destructive `test` folder covering
+  Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
+  highlighted source files.
+- Up to 50 recently opened vault folders are available from a quick switcher,
+  while the native folder picker adds new vaults.
+- Previously opened vaults use a cached file tree for immediate switching, then
+  refresh disk state and search content in the background. First-time vault
+  registration may perform the slower complete scan.
+- Non-current user vaults can be removed from the recent list, with a separate
+  explicit option to move the folder and all contents to system Trash.
+- Every regular file up to 25 MB can be opened and edited.
+- Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
+  Base64 so unchanged bytes round-trip exactly.
+- Source-only programming and markup files use filename-driven CodeMirror
+  language support when the language catalog recognizes them.
+- Images retain their visual preview and can switch to raw editing.
+- Rich single-pane Markdown editing is the default.
+- `.md` files treat ordinary angle-bracket comparisons and placeholders as
+  Markdown text rather than MDX JSX. `.mdx` and `.jsx` remain non-executing,
+  JSX-highlighted source files.
+- Canonical `<!-- toc -->` / `<!-- /toc -->` blocks containing link-only
+  Markdown lists render as labeled navigation panels in Rich mode while
+  retaining their generator markers through Rich and Source edits. Other
+  comments remain locked to source mode.
+- Markdown thematic breaks render as consistent full-width document separators.
+- Long rich-text and source documents scroll inside the editor without moving
+  the caret to reveal later content.
+- Hashtags render as colored pills in rich mode. Each normalized tag has one
+  stable default or user-selected color within its vault.
+- Each vault keeps one rich-text or source-mode choice across all Markdown files
+  and restores it after app restarts unless file safety or display guides require
+  source mode.
+- File navigation replaces the active tab by default. Explicit blank tabs come
+  from Command-T / Control-T or the tab-row plus button and can be reordered by
+  pointer or keyboard.
+- Tabs can be organized into named collapsible groups. Their context menu can
+  close all, other, left, or right tabs, and move tabs between groups.
+- Each tab maintains an independent back/forward file-navigation history. New
+  navigation after going back truncates that tab's forward branch.
+- Each vault restores its last real file tabs, order, group membership, group
+  names, collapse state, and active file by default. This setting is optional
+  per vault; temporary blank tabs are never persisted.
+- Autosave is available and keeps the previous 10 changed revisions by
+  default.
+- SQLite stores local workspace metadata, including open, edit, and save
+  counters, bookmarks, recent activity, ordering, tag color overrides, trash
+  records, and revision history.
+- ZBSearch provides local full-text search with a separate location glob and
+  visual filters for tags, filename, path, content, file type, bookmarks, and
+  recency.
+- Command-F / Control-F opens search with the active file selected in the
+  location field. `*` searches the vault and patterns such as `*.html` limit
+  results by filename; platform replace shortcuts remain distinct.
+- Command-P / Control-P opens a unified command palette containing contextual
+  application actions and their assigned shortcuts. Typing a filename directly
+  retains filename-only search across all known available vaults and switches
+  vaults before opening a selected result.
+- Find and replace works in the current note or across the vault, with a
+  selectable preview before vault-wide changes are applied.
+- The active file's validated absolute path can be copied to the system
+  clipboard from the editor toolbar.
+- The active in-memory content or a native attachment-ready file can also be
+  copied. Encrypted vault attachments use a temporary plaintext cache file.
+- Command-N / Control-N and the file-tree context menu create files or folders
+  relative to the current target.
+- The vault sidebar width is pointer- and keyboard-resizable and persists across
+  launches.
+- Files and folders can be pinned above their siblings and manually ordered
+  within the pinned or unpinned section of each parent folder.
+- Files and folders can move between folders by pointer drag or the
+  keyboard-accessible context action. Rename and trash are also available from
+  the file-tree context menu.
+- Renaming or moving a file/folder updates relative inline links, images, and
+  reference definitions in eligible Markdown files; skipped or conflicting
+  rewrites are surfaced.
+- No-protocol links always resolve relative to the current file inside the vault.
+- File and same-file `#heading` fragments navigate to stable rendered heading
+  anchors or the matching Markdown source line.
+- HTTP(S) links normalize protocol case and require confirmation for unknown
+  exact domains. Users can allow one domain or all domains and manage that list
+  in Settings.
+- The active file can open every unique HTTP(S) link in one queued action that
+  pauses at each untrusted domain and resumes after approval.
+- Email, telephone, file, and confirmed custom application protocols use the
+  operating system handler; dangerous URI schemes remain blocked.
+- Command-K / Control-K preserves selected rich text in the link dialog and
+  inserts editable Markdown link syntax directly in source mode.
+- Persistent editor settings include a 12–24 px font size shared by rich and
+  source editors, two- or four-space Tab indentation, line numbers, spaces and
+  tabs, exact line-ending style, and trailing whitespace without modifying
+  content.
+- Command/Control `+`, `-`, and `0` increase, decrease, and reset editor text
+  size without changing the surrounding application chrome.
+- Display guides visibly disable rich/source controls and explain that guides
+  must be turned off before mode switching.
+- Markdown parser failures expose line and column details, force a temporary
+  source fallback without changing the vault preference, highlight the failing
+  line, and provide keyboard-accessible error navigation. Errors remain scoped
+  to their file and hide when another file is active; link failures fade
+  automatically.
+- Code blocks, syntax highlighting, gutters, and selections use complete dark
+  and light palettes rather than a fixed editor theme.
+- Rich fenced blocks and source files recognize common JavaScript/TypeScript
+  aliases plus PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell,
+  web, data, and configuration languages.
+- Rich-mode fenced code blocks expose a copy action that reads the complete live
+  code document rather than only visible lines.
+- About Denote exposes the packaged semantic version and immutable Git commit
+  hash from both the activity rail and command palette.
+- Vault encryption is optional and encrypts file contents plus saved revision
+  contents while leaving paths visible. It uses a password, ten one-time
+  recovery codes, and resumable full-vault encryption and decryption.
+- Disabling vault encryption requires every encrypted file and revision to be
+  decrypted successfully first.
+- The core application stays minimal. Additional capabilities are tracked as
+  optional plugins rather than bundled into the first release.
+- No cloud account, synchronization service, telemetry, or remote content
+  storage is part of the initial product.
+
+## Brand Commitments
+
+The product name is Denote. The interface is dark by default and also provides
+a persistent light mode. Its interaction model should feel familiar beside
+Obsidian and Typora without copying their branding.
+
+## Evidence on Hand
+
+No customer claims, benchmarks, testimonials, or production assets are
+available. Future work must not fabricate them.
+
+## Product Principles
+
+1. Files first: the vault on disk is always the durable source of truth, either
+   as directly editable content or explicitly enabled ciphertext.
+2. Writing stays central: editing should feel immediate and visually calm.
+3. Recovery is routine: autosave, history, and trash prevent avoidable loss.
+4. Search is local and fast: useful retrieval does not require a server.
+5. Capability is optional: advanced workflows belong in explicitly enabled
+   plugins.
+
+## Accessibility & Inclusion
+
+Core workflows must be keyboard operable with visible focus, semantic controls,
+and accessible names. Text handling must preserve full Unicode content and
+emoji without language-specific restrictions.

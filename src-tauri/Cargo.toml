@@ -1,0 +1,54 @@
+[package]
+name = "denote"
+version = "0.1.0"
+description = "A local-first Markdown vault for desktop"
+authors = ["Matteo Bianchi"]
+edition = "2024"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "denote_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-clipboard-manager = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri-plugin-dialog = "2"
+walkdir = "2.5.0"
+thiserror = "2.0.20"
+sha2 = "0.11.0"
+hex = "0.4.3"
+base64 = "0.23.1"
+mime_guess = "2.0.5"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+chrono = { version = "0.4.45", features = ["serde"] }
+uuid = { version = "1.26.0", features = ["v4", "serde"] }
+atomic-write-file = "0.3.1"
+fs2 = "0.4.3"
+argon2 = { version = "0.6.0", features = ["zeroize"] }
+chacha20poly1305 = { version = "0.11.0", features = ["zeroize"] }
+getrandom = "0.4.3"
+zeroize = { version = "1.9.0", features = ["derive"] }
+trash = "5.2.6"
+unicode-normalization = "0.1.25"
+clipboard-rs = { version = "0.3.5", default-features = false, features = ["wayland"] }
+libc = "0.2.189"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[target."cfg(unix)".dependencies]
+xattr = "1.6.1"
+
+[target."cfg(windows)".dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }

@@ -1,0 +1,902 @@
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { EditorView } from "@codemirror/view";
+import { undo } from "@codemirror/commands";
+import type { MDXEditorMethods } from "@mdxeditor/editor";
+import userEvent from "@testing-library/user-event";
+import { createRef, StrictMode, useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
+import { api } from "../lib/api";
+import { MarkdownEditor } from "./MarkdownEditor";
+
+describe("MarkdownEditor links", () => {
+  it("routes an ordinary external-link click through the host opener", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="[Example](https://example.com)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "Example" }));
+
+    expect(onLinkOpen).toHaveBeenCalledOnce();
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "https://example.com",
+      "Example",
+    );
+  });
+
+  it("routes ordinary relative-link clicks through vault navigation", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="[Plan](notes/plan.md)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const link = await screen.findByRole("link", { name: "Plan" });
+
+    expect(fireEvent.click(link)).toBe(false);
+    expect(onLinkOpen).toHaveBeenCalledWith("notes/plan.md", "Plan");
+  });
+
+  it("preserves file anchors when routing internal links", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="Start.md"
+        markdown={"[link](welcome.md#what-is-denote)"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "link" }));
+
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "welcome.md#what-is-denote",
+      "link",
+    );
+  });
+
+  it("recovers angle-bracket internal links with spaces", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="docs/Keyboard shortcuts.md"
+        markdown="[Next: Optional plugins](<Optional plugins.md>)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Next: Optional plugins" }),
+    );
+
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "Optional plugins.md",
+      "Next: Optional plugins",
+    );
+  });
+
+  it("renders legacy internal links with bare spaces", async () => {
+    const user = userEvent.setup();
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="docs/Keyboard shortcuts.md"
+        markdown="[Next: Optional plugins](Optional plugins.md)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Next: Optional plugins" }),
+    );
+
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "Optional plugins.md",
+      "Next: Optional plugins",
+    );
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    await waitFor(() =>
+      expect(
+        EditorView.findFromDOM(
+          document.querySelector<HTMLElement>(
+            ".mdxeditor-source-editor .cm-editor",
+          )!,
+        )?.state.doc.toString(),
+      ).toContain("(<Optional plugins.md>)"),
+    );
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    expect(
+      await screen.findByRole("link", { name: "Next: Optional plugins" }),
+    ).toBeInTheDocument();
+  });
+
+  it("preserves selected rich text when opening the link dialog", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="Example text"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const paragraph = await screen.findByText("Example text");
+    const contentEditable = paragraph.closest<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    expect(contentEditable).not.toBeNull();
+    contentEditable!.focus();
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.setStart(paragraph.firstChild as Text, 0);
+    range.setEnd(paragraph.firstChild as Text, 7);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fireEvent(document, new Event("selectionchange"));
+
+    const createLink = screen.getByRole("button", { name: "Create link" });
+    fireEvent.pointerDown(createLink);
+    await user.click(createLink);
+    const urlInput = await waitFor(() => {
+      const input = document.querySelector<HTMLInputElement>(
+        'input[name="url"]',
+      );
+      expect(input).not.toBeNull();
+      return input!;
+    });
+    await user.type(urlInput, "https://example.com");
+    await user.click(screen.getByRole("button", { name: "Set URL" }));
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.stringContaining("[Example](https://example.com) text"),
+      ),
+    );
+  });
+
+  it("reports source-mode preference changes", async () => {
+    const user = userEvent.setup();
+    const onViewModeChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="# Note"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={onViewModeChange}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("radio", { name: "Source mode" }),
+    );
+
+    expect(onViewModeChange).toHaveBeenCalledWith("source");
+  });
+
+  it("preserves user-authored angle escapes in source mode", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"\\<kbd>\n\nEdit"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="source"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement)!;
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "!" },
+    });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]).toContain(
+      "\\<kbd>",
+    );
+  });
+
+  it("does not overwrite the preference when display guides force source mode", async () => {
+    const onViewModeChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="# Note"
+        lineEnding="lf"
+        displaySettings={{
+          ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+          showLineNumbers: true,
+        }}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={onViewModeChange}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Guides lock source mode"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Rich text mode unavailable while display guides are enabled",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByTitle(
+        "Disable line numbers and invisible-character guides to switch editor modes.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("note", {
+        name: "Disable line numbers and invisible-character guides to switch editor modes.",
+      }),
+    ).toHaveAttribute("tabindex", "0");
+    expect(onViewModeChange).not.toHaveBeenCalled();
+  });
+
+  it("highlights and focuses a located source error", async () => {
+    const markdown = "# Heading\n\nproblem";
+    const props = {
+      notePath: "broken.md",
+      markdown,
+      lineEnding: "lf" as const,
+      displaySettings: {
+        ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+        showLineNumbers: true,
+      },
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      errorLocation: { line: 3, column: 2 },
+      tagColors: {},
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor {...props} errorNavigationRequest={0} />,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelector(".cm-diagnostic-line")).toHaveTextContent(
+        "problem",
+      ),
+    );
+    rerender(<MarkdownEditor {...props} errorNavigationRequest={1} />);
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement);
+    await waitFor(() => expect(view?.hasFocus).toBe(true));
+    const line = view!.state.doc.line(3);
+    expect(view!.state.selection.main.head).toBe(line.from + 1);
+  });
+
+  it("renders standard Markdown angle text without MDX parser errors", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const onMarkdownError = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="commands.md"
+        markdown={
+          "Discovery for <100k accounts\n\nThanks <3\n\nCommand <account-slug or example acme.example.com>\n\n**Use <account-slug> here**\n\nEdit me"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onMarkdownError={onMarkdownError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const richContent = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(
+        ".denote-editor-content",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(richContent).toHaveTextContent("Discovery for <100k accounts");
+    expect(richContent).toHaveTextContent("Thanks <3");
+    expect(richContent).toHaveTextContent(
+      "Command <account-slug or example acme.example.com>",
+    );
+    expect(richContent.querySelector("strong")).toHaveTextContent(
+      "Use <account-slug> here",
+    );
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(onMarkdownError).not.toHaveBeenCalled();
+
+    const paragraph = screen.getByText("Edit me");
+    await user.click(paragraph);
+    await user.keyboard("!");
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const saved =
+      onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? "";
+    expect(saved).toContain("<100k");
+    expect(saved).toContain("<account-slug");
+  });
+
+  it("keeps raw HTML images locked to lossless source mode", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={'<img src="pic.png" alt="x" data-id="1">\n\nEdit me'}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Source-only Markdown syntax"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Rich text mode unavailable for source-only Markdown syntax",
+      }),
+    ).toBeDisabled();
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement)!;
+    expect(view.state.doc.toString()).toContain(
+      '<img src="pic.png" alt="x" data-id="1">',
+    );
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "!" },
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const saved =
+      onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? "";
+    expect(saved).toContain('<img src="pic.png" alt="x" data-id="1">');
+    expect(saved).not.toContain("![x]");
+  });
+
+  it("updates the source-only lock when Markdown content changes", async () => {
+    const onViewModeChange = vi.fn();
+    const props = {
+      notePath: "note.md",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange,
+      onImageUpload: vi.fn(),
+    };
+    const { rerender } = render(
+      <MarkdownEditor {...props} markdown="# Note" />,
+    );
+    expect(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    rerender(<MarkdownEditor {...props} markdown={"# Note\n\nType <a"} />);
+    expect(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    rerender(
+      <MarkdownEditor
+        {...props}
+        markdown={'# Note\n\n<a href="https://example.com">'}
+      />,
+    );
+    expect(
+      await screen.findByRole("button", {
+        name: "Rich text mode unavailable for source-only Markdown syntax",
+      }),
+    ).toBeDisabled();
+    expect(onViewModeChange).not.toHaveBeenCalled();
+
+    rerender(<MarkdownEditor {...props} markdown="# Note" />);
+    expect(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    ).toBeInTheDocument();
+  });
+
+  it("adds stable IDs to rendered headings for anchor navigation", async () => {
+    class ImmediateImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal("Image", ImmediateImage);
+    try {
+      render(
+        <MarkdownEditor
+          notePath="note.md"
+          markdown={
+            "# What is Denote?\n\n## What is Denote?\n\n### ![Diagram](https://example.com/anchor-diagram.png)"
+          }
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={vi.fn()}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+
+      expect(await screen.findByRole("heading", { level: 1 })).toHaveAttribute(
+        "id",
+        "what-is-denote",
+      );
+      expect(screen.getByRole("heading", { level: 2 })).toHaveAttribute(
+        "id",
+        "what-is-denote-1",
+      );
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { level: 3 })).toHaveAttribute(
+          "id",
+          "diagram",
+        ),
+      );
+      screen
+        .getByRole("img", { name: "Diagram" })
+        .setAttribute("alt", "Updated diagram");
+      await waitFor(() =>
+        expect(screen.getByRole("heading", { level: 3 })).toHaveAttribute(
+          "id",
+          "updated-diagram",
+        ),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("anchors nested rendered headings without shifting later IDs", async () => {
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"> # Quoted\n\n# Normal"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const headings = await screen.findAllByRole("heading", { level: 1 });
+    expect(headings[0]).toHaveAttribute("id", "quoted");
+    expect(headings[1]).toHaveAttribute("id", "normal");
+  });
+
+  it("renders and preserves comment-delimited table of contents blocks", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "<!-- toc -->\n- [TL;DR - The quick reference](#-tldr---the-quick-reference)\n- [Communication](#-communication)\n<!-- /toc -->\n\n# ⚡ TL;DR - The quick reference\n\n# 💬 Communication\n\nEdit me"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "TL;DR - The quick reference" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Communication" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+    const paragraph = screen.getByText("Edit me");
+    await user.click(paragraph);
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    await user.keyboard("x");
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith(
+        expect.stringContaining("<!-- toc -->"),
+      ),
+    );
+    expect(onChange).toHaveBeenCalledWith(
+      expect.stringContaining("<!-- /toc -->"),
+    );
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    const sourceEditor = await waitFor(() => {
+      const element = document.querySelector<HTMLElement>(
+        ".mdxeditor-source-editor .cm-editor",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const sourceView = EditorView.findFromDOM(sourceEditor);
+    expect(sourceView?.state.doc.toString()).toContain("<!-- toc -->");
+    expect(sourceView?.state.doc.toString()).toContain("<!-- /toc -->");
+    expect(sourceView ? undo(sourceView) : true).toBe(false);
+  });
+
+  it("renders indented generated TOCs and thematic breaks in rich mode", async () => {
+    const { container } = render(
+      <MarkdownEditor
+        notePath="work-with-me.md"
+        markdown={
+          "<!-- toc -->\n  - [TL;DR - The quick reference](#-tldr---the-quick-reference)\n  - [First Time Working Together?](#-first-time-working-together)\n  - [Communication](#-communication)\n<!-- /toc -->\n\n---\n\n# ⚡ TL;DR - The quick reference\n\n## 🤝 First Time Working Together?\n\n## 💬 Communication"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "TL;DR - The quick reference" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "First Time Working Together?" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Communication" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("list", { name: "Table of contents" }),
+    ).toHaveClass("denote-generated-toc");
+    expect(
+      container.querySelector(".denote-editor-content hr"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("does not label ordinary items merged beside a generated TOC", async () => {
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n- ordinary\n\n# One"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("link", { name: "One" })).toBeInTheDocument();
+    expect(screen.getByText("ordinary")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("list", { name: "Table of contents" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("labels the document TOC instead of a matching quoted list", async () => {
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "> - [One](#one)\n\n<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# One"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const toc = await screen.findByRole("list", {
+      name: "Table of contents",
+    });
+    expect(toc.closest("blockquote")).toBeNull();
+  });
+
+  it("renders repeated Markdown tags as chips with one shared vault color", async () => {
+    const editorRef = createRef<MDXEditorMethods>();
+    render(
+      <MarkdownEditor
+        ref={editorRef}
+        notePath="note.md"
+        markdown="Read #guide, then revisit #guide."
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        tagColors={{ guide: "#7aa66a" }}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const tags = await screen.findAllByText("#guide");
+    expect(tags).toHaveLength(2);
+    for (const tag of tags) {
+      expect(tag).toHaveClass("denote-inline-tag");
+      expect(tag).toHaveStyle("--tag-color: #7aa66a");
+    }
+    expect(tags[0].closest(".denote-editor-root")).toHaveClass(
+      "mdxeditor-full-height",
+    );
+    expect(editorRef.current?.getMarkdown()).toBe(
+      "Read #guide, then revisit #guide.",
+    );
+  });
+
+  it("keeps a line-leading tag intact after an unrelated rich-text edit", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"#guide\n\nSecond"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const paragraph = await screen.findByText("Second");
+    await user.click(paragraph);
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(paragraph);
+    range.collapse(false);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const changed = onChange.mock.lastCall?.[0] as string;
+    expect(changed).toMatch(/^#guide(?:\n|$)/);
+    expect(changed).not.toMatch(/^\\#guide/);
+  });
+
+  it("uses one selected mode for every file in the vault", async () => {
+    const user = userEvent.setup();
+    render(
+      <StrictMode>
+        <ViewModeNavigationHarness />
+      </StrictMode>,
+    );
+
+    await user.click(
+      await screen.findByRole("radio", { name: "Source mode" }),
+    );
+    expect(screen.getByTestId("preferred-view-mode")).toHaveTextContent("source");
+
+    await user.click(screen.getByRole("button", { name: "Open second file" }));
+    expect(
+      await screen.findByRole("radio", { name: "Source mode", checked: true }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open first file" }));
+    expect(
+      await screen.findByRole("radio", { name: "Source mode", checked: true }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    );
+    expect(screen.getByTestId("preferred-view-mode")).toHaveTextContent(
+      "rich-text",
+    );
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open second file" }));
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open first file" }));
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("copies a rich code block from its inline button", async () => {
+    const user = userEvent.setup();
+    const copy = vi.spyOn(api, "copyFileContent").mockResolvedValue();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"```js\nconst answer = 42;\n```"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Copy code block" }),
+    );
+
+    expect(copy).toHaveBeenCalledWith("const answer = 42;");
+    copy.mockRestore();
+  });
+});
+
+function ViewModeNavigationHarness() {
+  const [path, setPath] = useState("one.md");
+  const [mode, setMode] = useState<"rich-text" | "source">("rich-text");
+  return (
+    <>
+      <button type="button" onClick={() => setPath("one.md")}>
+        Open first file
+      </button>
+      <button type="button" onClick={() => setPath("two.md")}>
+        Open second file
+      </button>
+      <output data-testid="preferred-view-mode">{mode}</output>
+      <MarkdownEditor
+        key={path}
+        notePath={path}
+        markdown={`# ${path}`}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode={mode}
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={setMode}
+        onImageUpload={vi.fn()}
+      />
+    </>
+  );
+}
