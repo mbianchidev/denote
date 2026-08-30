@@ -5,7 +5,7 @@ Markdown editor without giving up ownership of their files. Open any folder as a
 vault. Denote edits its contents in place and keeps optional workspace metadata
 on your device.
 
-<img width="1710" height="1078" alt="Denote Markdown editor" src="https://github.com/user-attachments/assets/b984fc91-d90b-41b1-a11f-67cc076ae55d" />
+<img width="1707" height="1094" alt="image" src="https://github.com/user-attachments/assets/82c52973-0f60-4345-8dda-309ed0d6d9d4" />
 
 ## Main features
 
