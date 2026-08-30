@@ -46,21 +46,16 @@ Linux.
 
 ## Prepare a release
 
-Update every Denote version source with one command:
+From an up-to-date `main` branch, update every Denote version source, commit and
+push the update, then create and push the matching tag with one command:
 
 ```bash
-npm run release -- 0.2.0
+npm run release -- 0.1.1 && git add . && git commit -m "Release v0.1.1" && git push && git tag v0.1.1 && git push origin v0.1.1
 ```
 
 The script updates `package.json`, `package-lock.json`,
 `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and
-`src-tauri/tauri.conf.json`. Commit the version update through a pull request.
-After that commit reaches `main`, create and push the matching tag:
-
-```bash
-git tag v0.2.0
-git push origin v0.2.0
-```
+`src-tauri/tauri.conf.json`.
 
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
@@ -72,3 +67,10 @@ If a release run fails, run the **Release** workflow manually and provide the
 existing tag. Incomplete draft releases are replaced automatically after every
 platform bundle succeeds, including duplicates left by older failed runs.
 Restore a deleted tag at its original release commit before retrying.
+
+To abandon a failed release, revert the tagged release commit, push the revert,
+then remove the tag locally and remotely:
+
+```bash
+git revert --no-edit v0.1.1 && git push && git tag -d v0.1.1 && git push origin --delete v0.1.1
+```
