@@ -19,6 +19,12 @@ on your device.
 Your vault remains a normal folder. Denote does not require an account, cloud
 storage, telemetry, or a proprietary document format.
 
+## Downloads
+
+Tagged versions are published on
+[GitHub Releases](https://github.com/mbianchidev/denote/releases) with desktop
+bundles for Linux, Windows, and both Apple Silicon and Intel Macs.
+
 ## Documentation
 
 Read the [project documentation](docs/index.md) or start with the
