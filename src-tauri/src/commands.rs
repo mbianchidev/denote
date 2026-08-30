@@ -510,6 +510,13 @@ pub fn copy_file_path(app: AppHandle, state: State<'_, AppState>, path: String) 
 }
 
 #[tauri::command]
+pub fn resolve_file_path(state: State<'_, AppState>, path: String) -> AppResult<String> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::absolute_entry_path(&root.to_string_lossy(), &path)
+}
+
+#[tauri::command]
 pub fn copy_file_content(app: AppHandle, content: String) -> AppResult<()> {
     if content.len() > 40 * 1024 * 1024 {
         return Err(AppError::InvalidData(
@@ -664,6 +671,22 @@ pub fn create_entry(
         &parent_path,
         &name,
         directory,
+        key.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn duplicate_file(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<crate::models::FileNode> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    let key = active_key(&state, &root)?;
+    vault::duplicate_file(
+        &state.db_path,
+        &root.to_string_lossy(),
+        &path,
         key.as_deref(),
     )
 }

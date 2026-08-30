@@ -48,6 +48,8 @@ export const api = {
   disableVaultEncryption: () =>
     invoke<WorkspaceSnapshot>("disable_vault_encryption"),
   copyFilePath: (path: string) => invoke<void>("copy_file_path", { path }),
+  resolveFilePath: (path: string) =>
+    invoke<string>("resolve_file_path", { path }),
   copyFileContent: (content: string) =>
     invoke<void>("copy_file_content", { content }),
   openExternalUri: (uri: string) =>
@@ -91,6 +93,8 @@ export const api = {
       name,
       directory,
     }),
+  duplicateFile: (path: string) =>
+    invoke<FileNode>("duplicate_file", { path }),
   renameEntry: (path: string, newName: string) =>
     invoke<MoveEntryResult>("rename_entry", { path, newName }),
   moveEntry: (path: string, targetParentPath: string) =>

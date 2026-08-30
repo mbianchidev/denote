@@ -17,15 +17,38 @@ raw Base64 editor.
 - Drag tabs directly with the pointer to reorder them.
 - Use `Alt-Shift-Left/Right` to reorder the focused tab from the keyboard.
 - Right-click a tab to create or rename a group, move the tab between groups, or
-  close all/others/left/right.
+  panes, or close all/others/left/right.
 - Collapse or expand a named group from its group header.
 - Use the back and forward arrows to revisit files navigated within the active
   tab. Opening a new file after going back replaces only that forward branch.
-- Denote reopens the previous session's files, order, groups, collapsed state,
-  and active file by default. Disable this per vault in **Editor display
-  settings**.
+- Denote reopens the previous session's panes, layout, sizes, files, pane
+  assignments, order, groups, collapsed state, focused pane, and active files by
+  default. Disable this per vault in **Editor display settings**.
 - Use the editor toolbar to copy content, an attachment-ready file, or the active
   absolute path. Encrypted vault attachments use a temporary plaintext cache.
+- Use the book control to switch the focused file to read mode. The pencil
+  control returns to the default write mode.
+
+## Panes
+
+- Drag a tab over a pane body. Drop it on the left, right, top, or bottom target
+  to create or rearrange panes, up to four. Drop it in the center to move it into
+  that pane.
+- Denote chooses the layout from the drop position: horizontal, vertical,
+  four-pane grid, or a mirrored/rotated three-pane asymmetric arrangement.
+- `Command-\` / `Ctrl-\` and the command palette remain keyboard alternatives
+  for creating a pane.
+- Click or focus a pane to make it the target for file selection, search,
+  commands, history, links, and toolbar actions.
+- Press `F6` / `Shift-F6` to focus the next or previous pane. Direct pane focus
+  uses `Option-Command-1..4` on macOS or `Ctrl-Shift-1..4` elsewhere.
+- Drag pane dividers or focus them and use arrow keys. Home resets the adjacent
+  split.
+- Close a pane with its close button or `Shift-Command-\` /
+  `Ctrl-Shift-\`. Its tabs move into a neighboring pane without losing unsaved
+  edits.
+- Move a tab through its context menu. Each pane keeps independent tabs, groups,
+  active file, and back/forward history.
 
 ## Organize a folder
 
@@ -34,7 +57,13 @@ entries. Pinned files and folders stay above ordinary siblings. Up/down actions
 customize order inside the pinned or unpinned section of the current folder.
 Use `Command-N` / `Ctrl-N` for a new file. Right-click a folder, file, or empty
 tree space for contextual creation. Entry menus also provide rename, move, and
-trash actions.
+trash actions. File menus additionally duplicate, bookmark, copy the absolute
+path, open version history, open in a new tab, and reveal the file in Finder or
+the platform file manager. The focused file exposes the same actions from the
+three-dot menu. Switching files closes that menu.
+
+Use the folder control beside New folder to expand every nested folder or
+collapse the complete tree.
 
 Drag a file or folder onto another folder to move it there, or onto empty tree
 space to move it to the vault root. Use **Move to folder…** from the context menu

@@ -97,7 +97,8 @@ The application-data database stores:
 - per-note open, edit, and save counters and timestamps;
 - each vault's persisted rich-text/source preference;
 - serialized file-tree caches for previously opened vaults;
-- each vault's restore-tabs preference and validated serialized tab session;
+- each vault's restore-tabs preference and validated serialized pane, layout,
+  size, tab, and group session;
 - bookmarks, per-folder pins, and explicit sibling ordering;
 - per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
@@ -193,7 +194,8 @@ externally after preview fail individually instead of being overwritten.
 
 ## Editing
 
-MDXEditor provides rich single-pane Markdown editing and a source fallback.
+Each active Markdown pane owns an MDXEditor instance with rich editing and a
+source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
 For `.md`, MDXEditor's HTML/JSX processing is suppressed so CommonMark/GFM owns
@@ -274,20 +276,34 @@ realm observer records only actual user mode changes; initial source mode
 required by unsupported syntax or display guides does not overwrite the vault
 preference.
 
-Tab order and named groups are frontend session state. Ordinary file navigation
-flushes and replaces the active tab; Command-T / Control-T and the plus button
+Pane layout, tab order, and named groups are frontend session state. The
+workspace keeps one to four stable pane IDs, one focused pane, per-pane active
+tabs and groups, and normalized resize fractions for horizontal, vertical, grid,
+and mirrored asymmetric layouts. Ordinary file navigation flushes and replaces
+the focused pane's active tab; Command-T / Control-T and the pane-row plus button
 append an explicit placeholder tab that the next file selection fills. Pointer
 events and `Alt-Shift-Left/Right` update the same group-contiguous order used by
 activation, `Ctrl-Tab`, bulk close ranges, close-next selection, rendering, and
-persistence. Dragging across a group boundary changes the dragged tab's group.
-Collapsed groups keep their active tab rendered so keyboard focus and tab
-semantics remain valid.
+persistence. Moving a tab between panes transfers the live editor state and
+clears its previous group assignment. Closing a pane merges its tabs into a
+neighbor so unsaved content is not discarded. Collapsed groups keep their active
+tab rendered so keyboard focus and tab semantics remain valid.
+
+Pointer tab dragging keeps the existing tab-bar reorder path, but editor-body
+drops are resolved against the hovered editor rectangle. A center target moves
+the live tab into that pane. Edge targets either reuse a sole-tab source pane or
+create a pane, then derive horizontal, vertical, asymmetric, or grid layout from
+the target pane and drop direction. The visual target overlay is pointer
+transparent and uses the same editor rectangle as hit testing.
 
 Real file tabs are serialized to SQLite after a 400 ms debounce and at workspace
-barriers. The state includes order, group IDs and names, collapsed state, and the
-active path; placeholders are excluded. Restore is enabled by default per vault,
-loads at most 100 tabs and 50 groups, skips missing files, and clears malformed or
-semantically invalid saved state. Explicit cross-vault file opens bypass restore.
+barriers. The JSON state includes pane IDs and assignments, layout and resize
+fractions, focused pane, per-pane active paths, tab order, group IDs and names,
+and collapsed state; placeholders are excluded. Legacy flat tab sessions upgrade
+to one pane without a database migration. Restore is enabled by default per
+vault, loads at most four panes, 100 tabs, and 50 groups, skips missing files, and
+clears malformed or semantically invalid saved state. Explicit cross-vault file
+opens bypass restore.
 Session metadata failures are surfaced but never block saving note content,
 closing tabs, switching vaults, or exiting.
 
@@ -313,9 +329,11 @@ dialog state; approval resumes it and cancellation discards it. Individual
 native-open failures are counted and do not stop later trusted URLs.
 
 The activity rail, resizable vault sidebar, divider, and editor are separate CSS
-grid columns. Sidebar width is clamped to 210–480px, updates continuously during
-pointer drag, supports arrow/Home/End keys through an ARIA separator, and is
-stored in local storage.
+grid columns. Inside the editor, CSS grid areas arrange up to four panes and
+semantic separators resize adjacent pane fractions by pointer or keyboard.
+Sidebar width is clamped to 210–480px, updates continuously during pointer drag,
+supports arrow/Home/End keys through an ARIA separator, and is stored in local
+storage.
 
 Command-N / Control-N resolves the selected folder or selected file's parent and
 uses the existing validated create command. The file tree exposes the same
@@ -384,7 +402,11 @@ preserving ACLs, DOS attributes, and alternate data streams.
 Filesystem operations run through dedicated Tauri commands rather than a broad
 frontend filesystem permission. Copying a file path resolves the selected entry
 inside the canonical vault boundary before the native clipboard plugin writes
-its absolute path. Every no-scheme link resolves relative to the current note and
+its absolute path. Revealing a file uses the same validated absolute path before
+the opener plugin invokes the operating-system file manager. Duplication reads
+the bounded plaintext through the vault encryption boundary, creates a
+non-conflicting sibling with a fresh encrypted representation when necessary,
+and updates the cached tree. Every no-scheme link resolves relative to the current note and
 stays inside the vault. Hostless local `file:///` links use the associated
 desktop application; remote file hosts are rejected.
 HTTP(S) schemes are normalized to lowercase and unknown exact domains require

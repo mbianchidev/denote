@@ -56,6 +56,7 @@ import type { Html } from "mdast";
 import {
   forwardRef,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -941,6 +942,7 @@ function DisabledViewModeControls({
   richLabel: string;
   sourceLabel: string;
 }) {
+  const guidanceId = useId();
   return (
     <span
       className="editor-disabled-modes"
@@ -953,7 +955,7 @@ function DisabledViewModeControls({
         type="button"
         disabled
         aria-label={richLabel}
-        aria-describedby="editor-disabled-mode-guidance"
+        aria-describedby={guidanceId}
       >
         Rich
       </button>
@@ -961,12 +963,12 @@ function DisabledViewModeControls({
         type="button"
         disabled
         aria-label={sourceLabel}
-        aria-describedby="editor-disabled-mode-guidance"
+        aria-describedby={guidanceId}
         aria-pressed="true"
       >
         Source
       </button>
-      <span id="editor-disabled-mode-guidance" className="sr-only">
+      <span id={guidanceId} className="sr-only">
         {guidance}
       </span>
     </span>

@@ -15,15 +15,16 @@ files.
 ## Product Purpose
 
 Denote is a local-first Markdown workspace for macOS, Windows, and Linux. It
-opens a user-selected folder as a vault, supports rich single-pane editing, and
-keeps navigation, search, metadata, and recovery close to the writing flow.
+opens a user-selected folder as a vault, supports rich editing in up to four
+independent panes, and keeps navigation, search, metadata, and recovery close to
+the writing flow.
 Success means users can create, find, edit, connect, and recover notes without
 moving their content into a proprietary format or hosted service.
 
 ## Positioning
 
 Denote combines an Obsidian-like vault and file workflow with a Typora-like
-single-pane Markdown editing experience. The selected folder remains the source
+focused Markdown editing experience. The selected folder remains the source
 of truth while optional workspace metadata is stored locally in SQLite.
 
 ## Operating Context
@@ -58,7 +59,7 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Source-only programming and markup files use filename-driven CodeMirror
   language support when the language catalog recognizes them.
 - Images retain their visual preview and can switch to raw editing.
-- Rich single-pane Markdown editing is the default.
+- Rich Markdown editing is the default in every pane.
 - `.md` files treat ordinary angle-bracket comparisons and placeholders as
   Markdown text rather than MDX JSX. `.mdx` and `.jsx` remain non-executing,
   JSX-highlighted source files.
@@ -79,12 +80,23 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   from Command-T / Control-T or the tab-row plus button and can be reordered by
   pointer or keyboard.
 - Tabs can be organized into named collapsible groups. Their context menu can
-  close all, other, left, or right tabs, and move tabs between groups.
+  close all, other, left, or right tabs, and move tabs between groups or panes.
 - Each tab maintains an independent back/forward file-navigation history. New
   navigation after going back truncates that tab's forward branch.
-- Each vault restores its last real file tabs, order, group membership, group
-  names, collapse state, and active file by default. This setting is optional
-  per vault; temporary blank tabs are never persisted.
+- The editor supports one to four independently focusable and resizable panes.
+  Two-pane layouts can be horizontal or vertical; three panes support equal and
+  mirrored asymmetric layouts; four panes support grid, horizontal, and
+  vertical layouts.
+- Dragging a tab over a pane exposes center and edge docking targets. Center
+  moves the tab into that pane; edge drops create or rearrange the valid pane
+  layout without requiring a separate layout control.
+- Tabs retain unsaved edits when moved between panes or when a pane is closed
+  into a neighboring pane. Search, commands, links, history, and file actions
+  follow the focused pane.
+- Each vault restores its pane layout and sizes plus its last real file tabs,
+  pane assignments, order, group membership, group names, collapse state,
+  focused pane, and active files by default. This setting is optional per vault;
+  temporary blank tabs are never persisted.
 - Autosave is available and keeps the previous 10 changed revisions by
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
@@ -104,6 +116,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system
   clipboard from the editor toolbar.
+- A per-file read mode disables editing without changing the file or its
+  rich/source presentation.
 - The active in-memory content or a native attachment-ready file can also be
   copied. Encrypted vault attachments use a temporary plaintext cache file.
 - Command-N / Control-N and the file-tree context menu create files or folders
@@ -115,6 +129,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Files and folders can move between folders by pointer drag or the
   keyboard-accessible context action. Rename and trash are also available from
   the file-tree context menu.
+- File context menus can duplicate, bookmark, copy the validated path, open
+  version history, open in a new tab, and reveal the file in the operating
+  system file manager. The focused file exposes the same menu from a three-dot
+  control and closes it when focus changes to another file.
+- One file-tree control recursively expands every folder or collapses the tree.
 - Renaming or moving a file/folder updates relative inline links, images, and
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.

@@ -152,8 +152,8 @@ contrast rather than decorative containers.
 
 The product is dark by default because it is designed for sustained focus, with
 a complete light counterpart rather than a partially inverted afterthought.
-The file tree and tabs stay compact; the document keeps generous measure and
-vertical breathing room.
+The file tree and per-pane tabs stay compact; the document keeps generous
+measure and vertical breathing room.
 
 **Key Characteristics:**
 
@@ -217,7 +217,8 @@ costumes ordinary controls as technical.
 
 The desktop workspace uses a fixed 48px activity rail, a user-resizable vault
 sidebar that defaults to 272px, a five-pixel divider target, and a flexible
-editor. The editor may add a 218px outline panel. Below 1100px, the outline drops
+one-to-four-pane editor grid. Pane dividers are pointer- and keyboard-resizable.
+The focused pane may add a 218px outline panel. Below 1100px, the outline drops
 and the document padding tightens; below 860px, the rail contracts.
 
 Chrome uses compact 24–42px rows. Document content has substantially more
@@ -278,17 +279,22 @@ semantic meaning.
 
 The activity rail is icon-led and uses an active indicator on the leading edge.
 File rows, tabs, and outline entries share compact hover and selected states.
-Tabs use the editor surface plus a two-pixel moss top edge when active.
+Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
+moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a
 keyboard equivalent; reordering never changes the underlying file tree.
-The row ends with one small plus control. File selection replaces the active tab;
-the plus control or Command-T creates the explicit empty slot needed for another
-open document. Named tab groups use a compact labeled header, disclosure icon,
-and count rather than a separate panel. Collapsing a group preserves access to
-its active tab. The tab context menu keeps group actions and bulk close commands
-in one keyboard-operable surface.
-Back and forward arrows sit immediately beside the tab strip. They act on the
-active tab's file history, remain disabled when no destination exists, and never
+The row ends with one small plus control. File selection replaces the active tab
+in the focused pane; the plus control or Command-T creates the explicit empty
+slot needed for another open document. Named tab groups use a compact labeled
+header, disclosure icon, and count rather than a separate panel. Collapsing a
+group preserves access to its active tab. The tab context menu keeps group,
+cross-pane move, and bulk close commands in one keyboard-operable surface.
+Dragging a tab over a pane body reveals quiet left, right, top, bottom, and
+center docking targets. Edge drops create, reposition, or reshape panes into a
+valid split, asymmetric arrangement, or grid; center drops move the tab into the
+target pane. Focused-pane contrast stays quiet but visible, and separator focus
+uses the normal two-pixel moss ring. Back and forward arrows act on the focused
+pane's active tab history, remain disabled when no destination exists, and never
 look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the

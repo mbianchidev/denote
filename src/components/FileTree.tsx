@@ -24,10 +24,14 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import type { FileNode } from "../types";
+import {
+  FileActionMenuItems,
+  type FileActionHandlers,
+} from "./FileActionsMenu";
 
 const CONTEXT_MENU_WIDTH = 184;
 const CONTEXT_MENU_COMPACT_HEIGHT = 92;
-const CONTEXT_MENU_ENTRY_HEIGHT = 206;
+const CONTEXT_MENU_ENTRY_HEIGHT = 430;
 
 interface FileTreeProps {
   nodes: FileNode[];
@@ -40,6 +44,7 @@ interface FileTreeProps {
   onDelete: (node: FileNode) => void;
   onMove: (node: FileNode, targetParentPath: string) => void;
   onRequestMove: (node: FileNode) => void;
+  fileActions?: FileActionHandlers;
 }
 
 export function FileTree({
@@ -53,6 +58,7 @@ export function FileTree({
   onDelete,
   onMove,
   onRequestMove,
+  fileActions,
 }: FileTreeProps) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -311,40 +317,50 @@ export function FileTree({
               {contextMenu.node ? (
                 <>
                   <div className="file-tree-context-menu__separator" role="separator" />
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      closeContextMenu(true);
-                      onRename(contextMenu.node as FileNode);
-                    }}
-                  >
-                    <Pencil aria-hidden="true" size={15} />
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      closeContextMenu(true);
-                      onRequestMove(contextMenu.node as FileNode);
-                    }}
-                  >
-                    <FolderInput aria-hidden="true" size={15} />
-                    Move to folder…
-                  </button>
-                  <button
-                    type="button"
-                    role="menuitem"
-                    className="file-tree-context-menu__danger"
-                    onClick={() => {
-                      closeContextMenu(true);
-                      onDelete(contextMenu.node as FileNode);
-                    }}
-                  >
-                    <Trash2 aria-hidden="true" size={15} />
-                    Delete
-                  </button>
+                  {contextMenu.node.kind !== "folder" && fileActions ? (
+                   <FileActionMenuItems
+                     node={contextMenu.node}
+                     handlers={fileActions}
+                     onBeforeAction={() => closeContextMenu(true)}
+                   />
+                  ) : (
+                   <>
+                     <button
+                       type="button"
+                       role="menuitem"
+                       onClick={() => {
+                         closeContextMenu(true);
+                         onRename(contextMenu.node as FileNode);
+                       }}
+                     >
+                       <Pencil aria-hidden="true" size={15} />
+                       Rename
+                     </button>
+                     <button
+                       type="button"
+                       role="menuitem"
+                       onClick={() => {
+                         closeContextMenu(true);
+                         onRequestMove(contextMenu.node as FileNode);
+                       }}
+                     >
+                       <FolderInput aria-hidden="true" size={15} />
+                       Move to folder…
+                     </button>
+                     <button
+                       type="button"
+                       role="menuitem"
+                       className="file-tree-context-menu__danger"
+                       onClick={() => {
+                         closeContextMenu(true);
+                         onDelete(contextMenu.node as FileNode);
+                       }}
+                     >
+                       <Trash2 aria-hidden="true" size={15} />
+                       Delete
+                     </button>
+                   </>
+                  )}
                 </>
               ) : null}
             </div>,

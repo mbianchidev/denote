@@ -21,8 +21,9 @@ use crate::{
     error::{AppError, AppResult},
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
-        KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, NoteDocument,
-        SaveOutcome, SearchDocument, TabSessionState, TagColor, TrashItem, WorkspaceSnapshot,
+        KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES, MarkdownViewMode,
+        NoteDocument, SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab,
+        TagColor, TrashItem, WorkspaceSnapshot,
     },
 };
 
@@ -553,6 +554,43 @@ pub fn create_entry(
         let stored_bytes = encode_file_at_rest(&root, &[], vault_key)?;
         create_file_no_replace(&destination, &stored_bytes)?;
     }
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let stats = db::stats_map(&connection, vault_id)?;
+    let placements = db::entry_placement_map(&connection, vault_id)?;
+    let node = scan_path(&root, &destination, &stats, &placements, 0)?;
+    update_cached_tree(&mut connection, vault_id, |tree| {
+        refresh_cached_tree_metadata(tree, &stats, &placements);
+        insert_cached_node(tree, node.clone())
+    });
+    Ok(node)
+}
+
+pub fn duplicate_file(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<FileNode> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
+    let source = existing_entry(&root, relative_path)?;
+    if !source.is_file() {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a regular file"
+        )));
+    }
+    if file_plaintext_len(&source)? > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(format!(
+            "{relative_path} is larger than 25 MB"
+        )));
+    }
+    let plaintext = read_plain_file(&source, vault_key)?;
+    let stored_bytes = encode_file_at_rest(&root, &plaintext, vault_key)?;
+    let destination = available_duplicate_path(&source)?;
+    ensure_no_symlinks(&root, &destination, true)?;
+    create_file_no_replace(&destination, &stored_bytes)?;
+
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     let stats = db::stats_map(&connection, vault_id)?;
@@ -1561,8 +1599,87 @@ fn validate_tab_session(session: &TabSessionState) -> AppResult<()> {
             "Saved tab session exceeds the supported size".to_string(),
         ));
     }
+    validate_tab_session_pane(
+        &session.tabs,
+        &session.groups,
+        session.active_path.as_deref(),
+    )?;
+    let Some(panes) = session.panes.as_ref() else {
+        if session.layout.is_some() || session.focused_pane_id.is_some() {
+            return Err(AppError::InvalidData(
+                "Saved tab session has a pane layout without panes".to_string(),
+            ));
+        }
+        return Ok(());
+    };
+    if panes.is_empty() || panes.len() > MAX_SESSION_PANES {
+        return Err(AppError::InvalidData(
+            "Saved tab session has an unsupported pane count".to_string(),
+        ));
+    }
+    let mut pane_ids = HashSet::new();
+    let mut session_paths = HashSet::new();
+    let mut group_count = 0;
+    let mut tab_count = 0;
+    for pane in panes {
+        if pane.id.is_empty() || pane.id.len() > 64 || !pane_ids.insert(pane.id.as_str()) {
+            return Err(AppError::InvalidData(
+                "Saved tab session contains an invalid pane".to_string(),
+            ));
+        }
+        for tab in &pane.tabs {
+            if !session_paths.insert(tab.path.as_str()) {
+                return Err(AppError::InvalidData(
+                    "Saved tab session opens one file in more than one pane".to_string(),
+                ));
+            }
+        }
+        tab_count += pane.tabs.len();
+        group_count += pane.groups.len();
+        validate_tab_session_pane(&pane.tabs, &pane.groups, pane.active_path.as_deref())?;
+    }
+    if tab_count > MAX_TAB_SESSION_TABS || group_count > MAX_TAB_SESSION_GROUPS {
+        return Err(AppError::InvalidData(
+            "Saved tab session exceeds the supported size".to_string(),
+        ));
+    }
+    if session
+        .focused_pane_id
+        .as_deref()
+        .is_some_and(|pane_id| !pane_ids.contains(pane_id))
+    {
+        return Err(AppError::InvalidData(
+            "Saved tab session focuses an unknown pane".to_string(),
+        ));
+    }
+    if let Some(layout) = session.layout.as_ref() {
+        if !layout.kind.supports_pane_count(panes.len())
+            || layout.sizes.len() != layout.kind.size_count(panes.len())
+            || layout
+                .sizes
+                .iter()
+                .any(|size| !size.is_finite() || *size <= 0.0)
+        {
+            return Err(AppError::InvalidData(
+                "Saved tab session has an invalid pane layout".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_tab_session_pane(
+    tabs: &[TabSessionTab],
+    groups: &[TabGroup],
+    active_path: Option<&str>,
+) -> AppResult<()> {
+    if tabs.len() > MAX_TAB_SESSION_TABS || groups.len() > MAX_TAB_SESSION_GROUPS {
+        return Err(AppError::InvalidData(
+            "Saved tab session exceeds the supported size".to_string(),
+        ));
+    }
     let mut group_ids = HashSet::new();
-    for group in &session.groups {
+    for group in groups {
         if group.id.is_empty()
             || group.id.len() > 64
             || group.name.trim().is_empty()
@@ -1575,7 +1692,7 @@ fn validate_tab_session(session: &TabSessionState) -> AppResult<()> {
         }
     }
     let mut paths = HashSet::new();
-    for tab in &session.tabs {
+    for tab in tabs {
         let _ = normalized_relative(&tab.path, false)?;
         if !paths.insert(tab.path.as_str())
             || tab
@@ -1588,11 +1705,7 @@ fn validate_tab_session(session: &TabSessionState) -> AppResult<()> {
             ));
         }
     }
-    if session
-        .active_path
-        .as_deref()
-        .is_some_and(|path| !paths.contains(path))
-    {
+    if active_path.is_some_and(|path| !paths.contains(path)) {
         return Err(AppError::InvalidData(
             "Saved tab session has an invalid active file".to_string(),
         ));
@@ -2002,6 +2115,40 @@ fn validate_name(name: &str) -> AppResult<&str> {
         return Err(AppError::InvalidPath(name.to_string()));
     }
     Ok(trimmed)
+}
+
+fn available_duplicate_path(source: &Path) -> AppResult<PathBuf> {
+    let parent = source
+        .parent()
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(source)))?;
+    let file_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(source)))?;
+    let extension = source.extension().and_then(|value| value.to_str());
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(file_name);
+
+    for index in 1..=1_000 {
+        let suffix = if index == 1 {
+            " copy".to_string()
+        } else {
+            format!(" copy {index}")
+        };
+        let candidate_name = extension
+            .map(|extension| format!("{stem}{suffix}.{extension}"))
+            .unwrap_or_else(|| format!("{file_name}{suffix}"));
+        let candidate = parent.join(candidate_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(AppError::Conflict(format!(
+        "Unable to choose a duplicate name for {file_name}"
+    )))
 }
 
 fn kind_for_path(path: &Path) -> FileKind {
@@ -2831,6 +2978,7 @@ mod tests {
     use tempfile::tempdir;
 
     use super::*;
+    use crate::models::{PaneLayout, PaneLayoutKind, TabSessionPane};
 
     #[test]
     fn validates_and_normalizes_tag_color_metadata() {
@@ -2852,15 +3000,165 @@ mod tests {
         assert!(normalize_tag_color("red").is_err());
     }
 
+    fn session_tab(path: &str, group_id: Option<&str>) -> TabSessionTab {
+        TabSessionTab {
+            path: path.to_string(),
+            group_id: group_id.map(str::to_string),
+        }
+    }
+
+    fn pane_session(panes: Vec<TabSessionPane>, layout: PaneLayout) -> TabSessionState {
+        TabSessionState {
+            tabs: panes.iter().flat_map(|pane| pane.tabs.clone()).collect(),
+            groups: panes.iter().flat_map(|pane| pane.groups.clone()).collect(),
+            active_path: panes.first().and_then(|pane| pane.active_path.clone()),
+            focused_pane_id: panes.first().map(|pane| pane.id.clone()),
+            layout: Some(layout),
+            panes: Some(panes),
+        }
+    }
+
     #[test]
     fn rejects_semantically_invalid_saved_tab_sessions() {
         let session = TabSessionState {
-            tabs: vec![crate::models::TabSessionTab {
-                path: "note.md".to_string(),
-                group_id: Some("missing".to_string()),
-            }],
+            tabs: vec![session_tab("note.md", Some("missing"))],
             groups: Vec::new(),
             active_path: Some("note.md".to_string()),
+            panes: None,
+            layout: None,
+            focused_pane_id: None,
+        };
+
+        assert!(validate_tab_session(&session).is_err());
+    }
+
+    #[test]
+    fn accepts_legacy_flat_saved_tab_sessions() {
+        let session = TabSessionState {
+            tabs: vec![session_tab("one.md", None), session_tab("two.md", None)],
+            groups: Vec::new(),
+            active_path: Some("two.md".to_string()),
+            panes: None,
+            layout: None,
+            focused_pane_id: None,
+        };
+
+        assert!(validate_tab_session(&session).is_ok());
+    }
+
+    #[test]
+    fn accepts_saved_pane_sessions_within_the_pane_limit() {
+        let session = pane_session(
+            vec![
+                TabSessionPane {
+                    id: "pane-1".to_string(),
+                    tabs: vec![session_tab("one.md", None)],
+                    groups: Vec::new(),
+                    active_path: Some("one.md".to_string()),
+                },
+                TabSessionPane {
+                    id: "pane-2".to_string(),
+                    tabs: vec![session_tab("two.md", Some("work"))],
+                    groups: vec![TabGroup {
+                        id: "work".to_string(),
+                        name: "Work".to_string(),
+                        collapsed: false,
+                    }],
+                    active_path: Some("two.md".to_string()),
+                },
+            ],
+            PaneLayout {
+                kind: PaneLayoutKind::Horizontal,
+                sizes: vec![0.6, 0.4],
+            },
+        );
+
+        assert!(validate_tab_session(&session).is_ok());
+    }
+
+    #[test]
+    fn rejects_saved_pane_sessions_that_break_pane_invariants() {
+        let pane = |id: &str, path: &str| TabSessionPane {
+            id: id.to_string(),
+            tabs: vec![session_tab(path, None)],
+            groups: Vec::new(),
+            active_path: Some(path.to_string()),
+        };
+        let horizontal = |sizes: Vec<f64>| PaneLayout {
+            kind: PaneLayoutKind::Horizontal,
+            sizes,
+        };
+
+        let duplicate_ids = pane_session(
+            vec![pane("pane-1", "one.md"), pane("pane-1", "two.md")],
+            horizontal(vec![0.5, 0.5]),
+        );
+        assert!(validate_tab_session(&duplicate_ids).is_err());
+
+        let duplicate_paths = pane_session(
+            vec![pane("pane-1", "one.md"), pane("pane-2", "one.md")],
+            horizontal(vec![0.5, 0.5]),
+        );
+        assert!(validate_tab_session(&duplicate_paths).is_err());
+
+        let too_many_panes = pane_session(
+            vec![
+                pane("pane-1", "one.md"),
+                pane("pane-2", "two.md"),
+                pane("pane-3", "three.md"),
+                pane("pane-4", "four.md"),
+                pane("pane-5", "five.md"),
+            ],
+            horizontal(vec![0.2, 0.2, 0.2, 0.2, 0.2]),
+        );
+        assert!(validate_tab_session(&too_many_panes).is_err());
+
+        let mut wrong_layout = pane_session(
+            vec![pane("pane-1", "one.md"), pane("pane-2", "two.md")],
+            PaneLayout {
+                kind: PaneLayoutKind::Grid,
+                sizes: vec![0.5, 0.5, 0.5, 0.5],
+            },
+        );
+        assert!(validate_tab_session(&wrong_layout).is_err());
+
+        wrong_layout.layout = Some(horizontal(vec![0.5, 0.5, 0.5]));
+        assert!(validate_tab_session(&wrong_layout).is_err());
+
+        wrong_layout.layout = Some(horizontal(vec![0.5, 0.0]));
+        assert!(validate_tab_session(&wrong_layout).is_err());
+
+        let mut unknown_focus = pane_session(
+            vec![pane("pane-1", "one.md"), pane("pane-2", "two.md")],
+            horizontal(vec![0.5, 0.5]),
+        );
+        unknown_focus.focused_pane_id = Some("pane-9".to_string());
+        assert!(validate_tab_session(&unknown_focus).is_err());
+
+        let mut invalid_active = pane_session(
+            vec![pane("pane-1", "one.md")],
+            PaneLayout {
+                kind: PaneLayoutKind::Single,
+                sizes: Vec::new(),
+            },
+        );
+        invalid_active.panes.as_mut().expect("panes")[0].active_path =
+            Some("missing.md".to_string());
+        assert!(validate_tab_session(&invalid_active).is_err());
+    }
+
+    #[test]
+    fn rejects_pane_layouts_without_panes() {
+        let session = TabSessionState {
+            tabs: Vec::new(),
+            groups: Vec::new(),
+            active_path: None,
+            panes: None,
+            layout: Some(PaneLayout {
+                kind: PaneLayoutKind::Horizontal,
+                sizes: vec![0.5, 0.5],
+            }),
+            focused_pane_id: None,
         };
 
         assert!(validate_tab_session(&session).is_err());
@@ -2902,6 +3200,14 @@ mod tests {
         directory: bool,
     ) -> AppResult<FileNode> {
         super::create_entry(db_path, vault_path, parent_path, name, directory, None)
+    }
+
+    fn duplicate_file(
+        db_path: &Path,
+        vault_path: &str,
+        relative_path: &str,
+    ) -> AppResult<FileNode> {
+        super::duplicate_file(db_path, vault_path, relative_path, None)
     }
 
     fn list_history(
@@ -2978,6 +3284,32 @@ mod tests {
             fs::canonicalize(vault_path.join("note.md")).expect("canonical note")
         );
         assert!(absolute_entry_path(vault_path.to_str().unwrap(), "../note.md").is_err());
+    }
+
+    #[test]
+    fn duplicates_files_with_non_conflicting_names() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("example.md"), "invented content").expect("note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let first = duplicate_file(&db_path, vault_path.to_str().unwrap(), "example.md")
+            .expect("first duplicate");
+        let second = duplicate_file(&db_path, vault_path.to_str().unwrap(), "example.md")
+            .expect("second duplicate");
+
+        assert_eq!(first.path, "example copy.md");
+        assert_eq!(second.path, "example copy 2.md");
+        assert_eq!(
+            fs::read_to_string(vault_path.join(&first.path)).expect("duplicate content"),
+            "invented content"
+        );
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
+        assert!(snapshot.tree.iter().any(|node| node.path == first.path));
+        assert!(snapshot.tree.iter().any(|node| node.path == second.path));
     }
 
     #[test]

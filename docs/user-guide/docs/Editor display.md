@@ -40,8 +40,9 @@ use complete dark and light palettes.
 ## Session restore
 
 **Reopen tabs from the last session** is enabled by default for each vault. It
-restores open files, order, named groups, collapsed state, and the active file.
-Turn it off here when a vault should always open with an empty tab strip.
+restores pane count, layout and sizes, focused pane, open files, pane
+assignments, order, named groups, collapsed state, and active files. Turn it off
+here when a vault should always open with one empty pane.
 
 ## External domains
 

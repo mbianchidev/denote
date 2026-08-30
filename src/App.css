@@ -41,6 +41,7 @@
   --syntax-variable: #e8e5de;
   --focus: #c5dda9;
   --shadow: 0 14px 36px rgba(0, 0, 0, 0.34);
+  --pane-gap: 5px;
 }
 
 :root[data-theme="light"] {
@@ -373,7 +374,8 @@ button:disabled {
   background: color-mix(in srgb, var(--accent) 10%, var(--sidebar-bg));
 }
 
-.file-tree-context-menu {
+.file-tree-context-menu,
+.file-action-menu {
   position: fixed;
   z-index: 120;
   display: grid;
@@ -388,7 +390,8 @@ button:disabled {
   overflow-y: auto;
 }
 
-.file-tree-context-menu button {
+.file-tree-context-menu button,
+.file-action-menu button {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -403,18 +406,34 @@ button:disabled {
 }
 
 .file-tree-context-menu button:hover,
-.file-tree-context-menu button:focus-visible {
+.file-tree-context-menu button:focus-visible,
+.file-action-menu button:hover,
+.file-action-menu button:focus-visible {
   color: var(--text-primary);
   background: var(--panel-bg);
 }
 
-.file-tree-context-menu__separator {
+.file-tree-context-menu__separator,
+.file-action-menu__separator {
   height: 1px;
   margin: 4px;
   background: var(--border);
 }
 
 .file-tree-context-menu .file-tree-context-menu__danger {
+  color: var(--danger);
+}
+
+.file-action-menu {
+  z-index: 140;
+  width: 216px;
+}
+
+.file-action-menu .file-action-menu__danger {
+  color: var(--danger);
+}
+
+.file-tree-context-menu .file-action-menu__danger {
   color: var(--danger);
 }
 
@@ -700,6 +719,148 @@ button:disabled {
   min-height: 0;
   flex: 1;
   overflow: hidden;
+}
+
+.pane-grid {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  background: var(--border);
+}
+
+.workspace-pane {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--editor-bg);
+}
+
+.workspace-pane[data-focused="true"] {
+  box-shadow: inset 0 0 0 1px var(--accent-muted);
+}
+
+.pane-grid[data-pane-count="1"] .workspace-pane[data-focused="true"] {
+  box-shadow: none;
+}
+
+.workspace-pane__header {
+  display: flex;
+  height: 33px;
+  min-height: 33px;
+  align-items: stretch;
+  background: var(--rail-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.workspace-pane[data-focused="true"] .workspace-pane__header {
+  background: color-mix(in srgb, var(--accent) 7%, var(--rail-bg));
+}
+
+.pane-close {
+  flex: none;
+  align-self: center;
+  margin-right: 4px;
+}
+
+.pane-resizer {
+  position: relative;
+  z-index: 4;
+  background: var(--border);
+  touch-action: none;
+}
+
+.pane-resizer[data-orientation="vertical"] {
+  cursor: col-resize;
+}
+
+.pane-resizer[data-orientation="horizontal"] {
+  cursor: row-resize;
+}
+
+.pane-resizer:hover,
+.pane-resizer:focus-visible {
+  background: var(--accent);
+}
+
+.pane-resizer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.pane-dock {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
+}
+
+.pane-dock__zone {
+  position: absolute;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--accent) 40%, var(--border));
+  border-radius: 4px;
+  opacity: 0.55;
+  transform: scale(0.98);
+  transition:
+    opacity 150ms ease,
+    transform 150ms ease,
+    background-color 150ms ease,
+    border-color 150ms ease;
+}
+
+.pane-dock__zone[data-active="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-style: solid;
+  border-color: var(--accent);
+  opacity: 1;
+  transform: scale(1);
+}
+
+.pane-dock__zone[data-position="left"] {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="right"] {
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="top"] {
+  top: 4px;
+  right: calc(24% + 2px);
+  left: calc(24% + 2px);
+  height: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="bottom"] {
+  right: calc(24% + 2px);
+  bottom: 4px;
+  left: calc(24% + 2px);
+  height: calc(24% - 6px);
+}
+
+.pane-dock__zone[data-position="center"] {
+  inset: calc(24% + 2px) calc(24% + 2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pane-dock__zone {
+    transform: none;
+    transition: none;
+  }
+}
+
+.workspace-topbar__spacer {
+  flex: 1;
+  min-width: 0;
 }
 
 .editor-pane {

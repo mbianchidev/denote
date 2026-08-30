@@ -38,6 +38,14 @@ export function workspaceAncestorPaths(path: string): string[] {
   );
 }
 
+export function workspaceFolderPaths(nodes: FileNode[]): string[] {
+  return nodes.flatMap((node) =>
+    node.kind === "folder"
+      ? [node.path, ...workspaceFolderPaths(node.children)]
+      : [],
+  );
+}
+
 function insertAtPath(
   nodes: FileNode[],
   node: FileNode,

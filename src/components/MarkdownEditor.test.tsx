@@ -347,6 +347,45 @@ describe("MarkdownEditor links", () => {
     expect(onViewModeChange).not.toHaveBeenCalled();
   });
 
+  it("uses unique guidance ids across pane editor instances", async () => {
+    const props = {
+      markdown: "# Note",
+      lineEnding: "lf" as const,
+      displaySettings: {
+        ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+        showLineNumbers: true,
+      },
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    render(
+      <>
+        <MarkdownEditor {...props} notePath="first.md" />
+        <MarkdownEditor {...props} notePath="second.md" />
+      </>,
+    );
+
+    const richButtons = await screen.findAllByRole("button", {
+      name: "Rich text mode unavailable while display guides are enabled",
+    });
+    const guidanceIds = richButtons.map((button) =>
+      button.getAttribute("aria-describedby"),
+    );
+
+    expect(new Set(guidanceIds).size).toBe(2);
+    for (const guidanceId of guidanceIds) {
+      expect(guidanceId).not.toBeNull();
+      expect(document.getElementById(guidanceId as string)).toHaveTextContent(
+        "Disable line numbers and invisible-character guides to switch editor modes.",
+      );
+    }
+  });
+
   it("highlights and focuses a located source error", async () => {
     const markdown = "# Heading\n\nproblem";
     const props = {

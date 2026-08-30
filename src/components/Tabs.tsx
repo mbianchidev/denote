@@ -1,6 +1,7 @@
 import {
   ChevronDown,
   ChevronRight,
+  Columns2,
   FileImage,
   FileText,
   FolderPlus,
@@ -21,11 +22,18 @@ import { createPortal } from "react-dom";
 import { tabsInVisualOrder } from "../lib/tabs";
 import type { EditorTab, TabGroup } from "../types";
 
+export interface TabPaneTarget {
+  id: string;
+  label: string;
+}
+
 interface TabsProps {
   tabs: EditorTab[];
   groups: TabGroup[];
   activePath: string | null;
   disabled: boolean;
+  label?: string;
+  paneTargets?: TabPaneTarget[];
   onActivate: (path: string) => void;
   onClose: (path: string) => void;
   onCloseMany: (paths: string[]) => void;
@@ -35,6 +43,11 @@ interface TabsProps {
   onCreateGroup: (path: string) => void;
   onRenameGroup: (groupId: string) => void;
   onMoveToGroup: (path: string, groupId: string | null) => void;
+  onMoveToPane?: (path: string, paneId: string) => void;
+  onDragStart?: (path: string) => void;
+  onDragMove?: (path: string, clientX: number, clientY: number) => void;
+  onDragEnd?: (path: string, clientX: number, clientY: number) => boolean;
+  onDragCancel?: () => void;
 }
 
 export function Tabs({
@@ -42,6 +55,8 @@ export function Tabs({
   groups,
   activePath,
   disabled,
+  label = "Open files",
+  paneTargets = [],
   onActivate,
   onClose,
   onCloseMany,
@@ -51,6 +66,11 @@ export function Tabs({
   onCreateGroup,
   onRenameGroup,
   onMoveToGroup,
+  onMoveToPane,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  onDragCancel,
 }: TabsProps) {
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
@@ -143,6 +163,7 @@ export function Tabs({
       return;
     }
     event.preventDefault();
+    onDragMove?.(drag.path, event.clientX, event.clientY);
     const target = targetPathAtPointer(event);
     setDropTargetPath(target && target !== drag.path ? target : null);
   };
@@ -152,15 +173,29 @@ export function Tabs({
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
-    const target = targetPathAtPointer(event);
-    if (target && target !== drag.path) {
+    const docked =
+      onDragEnd?.(drag.path, event.clientX, event.clientY) ?? false;
+    if (docked) {
       event.preventDefault();
-      onReorder(drag.path, target);
+    } else {
+      const target = targetPathAtPointer(event);
+      if (target && target !== drag.path) {
+        event.preventDefault();
+        onReorder(drag.path, target);
+      }
     }
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
     clearPointerDrag();
+  };
+
+  const cancelPointerDrag = () => {
+    const dragging = pointerDrag.current !== null;
+    clearPointerDrag();
+    if (dragging) {
+      onDragCancel?.();
+    }
   };
 
   const moveFocus = (event: KeyboardEvent, index: number) => {
@@ -223,7 +258,7 @@ export function Tabs({
           data-tab-path={tab.path}
           className="tab__activate"
           aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
-          title="Drag to reorder. Use Alt+Shift+Left or Right from the keyboard."
+          title="Drag to reorder, or drop on a pane edge to split. Use Alt+Shift+Left or Right from the keyboard."
           disabled={disabled}
           onContextMenu={(event) => openContextMenu(event, tab)}
           onKeyDown={(event) => {
@@ -245,11 +280,12 @@ export function Tabs({
               setDraggedPath(tab.path);
               setDropTargetPath(null);
               event.currentTarget.setPointerCapture?.(event.pointerId);
+              onDragStart?.(tab.path);
             }
           }}
           onPointerMove={updatePointerDrag}
           onPointerUp={finishPointerDrag}
-          onPointerCancel={clearPointerDrag}
+          onPointerCancel={cancelPointerDrag}
           onClick={() => onActivate(tab.path)}
         >
           <Icon aria-hidden="true" size={14} strokeWidth={1.8} />
@@ -360,7 +396,7 @@ export function Tabs({
       <div
         className="tabs"
         role="tablist"
-        aria-label="Open files"
+        aria-label={label}
         data-reordering={draggedPath !== null}
       >
         {renderedTabs}
@@ -460,6 +496,27 @@ export function Tabs({
                     }
                   />
                 ))}
+              {onMoveToPane && paneTargets.length > 0 ? (
+                <>
+                  <div
+                    className="tab-context-menu__separator"
+                    role="separator"
+                  />
+                  {paneTargets.map((pane) => (
+                    <MenuButton
+                      key={pane.id}
+                      icon={<Columns2 aria-hidden="true" size={14} />}
+                      label={`Move to ${pane.label}`}
+                      onClick={() =>
+                        runMenuAction(() => {
+                          onMoveToPane(menuTab.path, pane.id);
+                          focusTabAfterLayoutChange(menuTab.path);
+                        })
+                      }
+                    />
+                  ))}
+                </>
+              ) : null}
             </div>,
             document.body,
           )

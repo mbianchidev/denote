@@ -91,10 +91,35 @@ export interface TabSessionTab {
   groupId: string | null;
 }
 
+export type PaneLayoutKind =
+  | "single"
+  | "horizontal"
+  | "vertical"
+  | "grid"
+  | "left-stack"
+  | "right-stack"
+  | "top-stack"
+  | "bottom-stack";
+
+export interface PaneLayout {
+  kind: PaneLayoutKind;
+  sizes: number[];
+}
+
+export interface TabSessionPane {
+  id: string;
+  tabs: TabSessionTab[];
+  groups: TabGroup[];
+  activePath: string | null;
+}
+
 export interface TabSessionState {
   tabs: TabSessionTab[];
   groups: TabGroup[];
   activePath: string | null;
+  panes?: TabSessionPane[];
+  layout?: PaneLayout;
+  focusedPaneId?: string | null;
 }
 
 export type EncryptionPhase = "encrypting" | "encrypted" | "decrypting";
@@ -201,12 +226,20 @@ export interface EditorTab {
   stats?: NoteStats;
   imageDataUrl?: string;
   rawEditing: boolean;
+  readOnly?: boolean;
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
 }
 
 export type SidebarView = "files" | "search" | "bookmarks" | "recent" | "trash";
+
+export interface WorkspacePane {
+  id: string;
+  tabs: EditorTab[];
+  groups: TabGroup[];
+  activePath: string | null;
+}
 
 export interface HeadingItem {
   depth: number;

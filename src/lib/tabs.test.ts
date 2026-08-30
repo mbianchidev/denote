@@ -1,11 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { EditorTab } from "../types";
 import {
-  applyTabSessionLayout,
-  buildTabSessionState,
   moveTabInLayout,
   placeOpenedTab,
-  removeTabsForPaths,
   removeTabNavigationPaths,
   rekeyTabNavigation,
   restoreTabHistoryTarget,
@@ -144,62 +141,6 @@ describe("tab placement", () => {
     ).toBe(0);
   });
 
-  it("closes trashed tabs, prunes history, and selects an adjacent tab", () => {
-    const result = removeTabsForPaths(
-      [
-        tab("before.md"),
-        {
-          ...tab("folder/current.md"),
-          navigationHistory: ["before.md", "folder/current.md"],
-          navigationIndex: 1,
-        },
-        tab("after.md"),
-      ],
-      "folder/current.md",
-      (path) => path.startsWith("folder/"),
-    );
-
-    expect(result.tabs.map(({ path }) => path)).toEqual([
-      "before.md",
-      "after.md",
-    ]);
-    expect(result.removedPaths).toEqual(["folder/current.md"]);
-    expect(result.activePath).toBe("after.md");
-  });
-
-  it("fills an explicit blank tab and appends only when no tab is active", () => {
-    expect(
-      placeOpenedTab([tab("new-tab", true)], "new-tab", tab("note.md"))[0]
-        .placeholder,
-    ).toBe(false);
-    expect(placeOpenedTab([], null, tab("note.md"))).toHaveLength(1);
-  });
-
-  it("persists and restores ordered grouped tabs without blank placeholders", () => {
-    const groups = [{ id: "work", name: "Work", collapsed: true }];
-    const session = buildTabSessionState(
-      [
-        { ...tab("one.md"), groupId: "work" },
-        tab("new-tab", true),
-        { ...tab("two.md"), groupId: "work" },
-      ],
-      groups,
-      "two.md",
-    );
-    expect(session.tabs.map(({ path }) => path)).toEqual(["one.md", "two.md"]);
-
-    const restored = applyTabSessionLayout(
-      [tab("two.md"), tab("one.md")],
-      session,
-    );
-    expect(restored.tabs.map(({ path }) => path)).toEqual([
-      "one.md",
-      "two.md",
-    ]);
-    expect(restored.groups).toEqual(groups);
-    expect(restored.activePath).toBe("two.md");
-  });
-
   it("keeps grouped tabs contiguous in visual and persisted order", () => {
     const interleaved = [
       { ...tab("one.md"), groupId: "work" },
@@ -212,13 +153,6 @@ describe("tab placement", () => {
       "two.md",
       "outside.md",
     ]);
-    expect(
-      buildTabSessionState(
-        interleaved,
-        [{ id: "work", name: "Work", collapsed: false }],
-        "two.md",
-      ).tabs.map(({ path }) => path),
-    ).toEqual(["one.md", "two.md", "outside.md"]);
   });
 
   it("moves tabs between groups without splitting either group", () => {

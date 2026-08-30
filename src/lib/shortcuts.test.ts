@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   editorZoomShortcut,
+  isClosePaneShortcut,
   isCommandPaletteShortcut,
   isNewFileShortcut,
   isNewTabShortcut,
   isReplaceShortcut,
   isSearchShortcut,
+  isSplitPaneShortcut,
+  paneFocusShortcut,
 } from "./shortcuts";
 
 describe("replace shortcut", () => {
@@ -265,5 +268,76 @@ describe("replace shortcut", () => {
         });
       });
     });
+  });
+});
+
+describe("pane shortcuts", () => {
+  const event = (
+    overrides: Partial<{
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey: boolean;
+      shiftKey: boolean;
+      code: string;
+    }>,
+  ) => ({
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    code: "Backslash",
+    ...overrides,
+  });
+
+  it("splits panes with the primary modifier and backslash", () => {
+    expect(isSplitPaneShortcut(event({ metaKey: true }), "MacIntel")).toBe(true);
+    expect(isSplitPaneShortcut(event({ ctrlKey: true }), "Win32")).toBe(true);
+    expect(isSplitPaneShortcut(event({ metaKey: true }), "Win32")).toBe(false);
+    expect(
+      isSplitPaneShortcut(event({ ctrlKey: true, shiftKey: true }), "Win32"),
+    ).toBe(false);
+  });
+
+  it("closes panes with the shifted split shortcut", () => {
+    expect(
+      isClosePaneShortcut(event({ metaKey: true, shiftKey: true }), "MacIntel"),
+    ).toBe(true);
+    expect(isClosePaneShortcut(event({ ctrlKey: true }), "Win32")).toBe(false);
+  });
+
+  it("focuses panes by index and by direction", () => {
+    expect(
+      paneFocusShortcut(
+        event({ metaKey: true, altKey: true, code: "Digit3" }),
+        "MacIntel",
+      ),
+    ).toEqual({ kind: "index", index: 2 });
+    expect(
+      paneFocusShortcut(
+        event({ ctrlKey: true, shiftKey: true, code: "Digit3" }),
+        "Win32",
+      ),
+    ).toEqual({ kind: "index", index: 2 });
+    expect(
+      paneFocusShortcut(event({ code: "F6" }), "Win32"),
+    ).toEqual({ kind: "step", direction: 1 });
+    expect(
+      paneFocusShortcut(event({ code: "F6", shiftKey: true }), "Win32"),
+    ).toEqual({ kind: "step", direction: -1 });
+    expect(
+      paneFocusShortcut(event({ ctrlKey: true, code: "Digit1" }), "Win32"),
+    ).toBeNull();
+    expect(
+      paneFocusShortcut(
+        event({ ctrlKey: true, altKey: true, code: "Digit3" }),
+        "Win32",
+      ),
+    ).toBeNull();
+    expect(
+      paneFocusShortcut(
+        event({ ctrlKey: true, shiftKey: true, code: "Digit5" }),
+        "Win32",
+      ),
+    ).toBeNull();
   });
 });
