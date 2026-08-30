@@ -22,6 +22,19 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+Validate plugin manifests, package structure, documentation, type safety, and
+editor/plugin import boundaries separately with:
+
+```bash
+npm run check:plugins
+```
+
+Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
+`@denote/plugin-sdk`, its own files, and declared third-party packages. It must
+not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
+`packages/plugins/reference/` as the contract example; it is not bundled into
+the Denote application.
+
 ## Build a desktop bundle
 
 ```bash

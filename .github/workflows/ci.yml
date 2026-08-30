@@ -58,6 +58,9 @@ jobs:
       - name: Frontend tests
         run: npm test
 
+      - name: Plugin contract and boundaries
+        run: npm run check:plugins
+
       - name: Frontend build
         run: npm run build
 

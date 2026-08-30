@@ -41,6 +41,36 @@ path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
 
+## Plugin boundary
+
+Plugin implementations live under `packages/plugins/<plugin-id>/`, separate
+from the editor source and from every other plugin. The public, versioned
+contract lives in `packages/plugin-sdk`; `src/plugins/api.ts` is the editor-side
+orchestrator. CI rejects editor imports of plugin implementations, plugin
+imports of editor/Tauri internals, and direct plugin-to-plugin dependencies.
+
+The plugin registry accepts catalog metadata, not executable modules. Catalog
+registration is therefore safe before enablement and cannot run plugin code.
+An enable operation must pass compatibility checks, native download, checksum
+verification, atomic installation, isolated runtime loading, exact manifest
+matching, capability construction, and activation before enabled state is
+committed. A failed enable operation disposes registrations, unloads the
+runtime, and removes package code.
+
+Disablement runs even after plugin failures: deactivation and every registered
+disposable are attempted, then the runtime is terminated and its downloaded
+package is deleted. Plugin settings and generated data use an app-data namespace
+separate from the vault. Secure-storage capability is backed by an OS keychain
+namespace derived by the host from the plugin ID; plugins cannot select or list
+other namespaces. User-authored vault content is never removed with a plugin.
+
+Plugin activation contexts expose capability-specific services instead of a
+vault path, application state, Tauri invocation, or encryption keys. A plugin
+cannot receive a capability absent from its signed manifest. Enabling alone must
+not invoke any workspace mutation. Workspace writes, clipboard writes, and
+process execution are withheld during activation and issued only inside a
+host-dispatched user action after permission checks.
+
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored
 name when necessary. Empty Trash permanently removes both hidden files and

@@ -9,7 +9,7 @@ body:
       value: |
         Thanks for proposing a Denote plugin.
 
-        Plugins should remain optional, use the typed host API, clean up their resources when disabled, and preserve vault portability. Search existing issues before submitting a new proposal.
+        Plugins remain optional and disabled by default. Their code is downloaded and executed only after enablement, and disabling removes the downloaded package. Plugins use the typed host API, cannot import editor or other plugin code, clean up every resource, and preserve vault portability. Search existing issues before submitting a new proposal.
 
   - type: input
     id: name
@@ -82,9 +82,9 @@ body:
     id: data
     attributes:
       label: Data, portability, and removal
-      description: Explain what the plugin stores and what remains after it is disabled or removed.
+      description: Explain package deletion, settings/state retention, credential cleanup, and what user-authored content remains after disablement.
       placeholder: |
-        Describe storage location, file format, backup needs, migrations, and removal behavior.
+        Describe storage location, file format, keychain use, backup needs, migrations, and removal behavior.
     validations:
       required: true
 
@@ -143,6 +143,8 @@ body:
         - label: I searched existing issues and did not find an equivalent plugin proposal.
           required: true
         - label: This feature can remain optional and disabled by default.
+          required: true
+        - label: Enabling this plugin does not modify user content without a separate explicit action.
           required: true
         - label: The proposal explains how disabling the plugin preserves user data and vault access.
           required: true
