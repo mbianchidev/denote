@@ -29,8 +29,8 @@
     },
     "artifact": {
       "url": "https://raw.githubusercontent.com/mbianchidev/denote/cp-desktop-plugin-ecosystem-foundation/plugin-artifacts/denote.reference-0.1.0.tgz",
-      "sha256": "32fd216a9b8881adffd4f6fdfe1998629aa98d7873fc2fa9db3c64108a53f08f",
-      "sizeBytes": 44814
+      "sha256": "c0e9b86bd2d6c507c140ba0bb8604b004b6d03ebb8192d43b82b568467eea558",
+      "sizeBytes": 14089
     },
     "guide": "# Reference plugin\n\n## Purpose\n\nThis development-only plugin proves the Denote plugin contract and lifecycle. It does not provide a production user feature.\n\n## Enablement and permissions\n\nEnabling requests the Commands permission. The package is downloaded and verified before its code loads.\n\n## Usage\n\nEnable the plugin, then run its reference command from the command palette.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling unregisters the command, stops its worker, and deletes the downloaded package. It does not edit or delete vault content.\n\n## Troubleshooting\n\nIf activation fails, Denote reports the error, rolls back registrations, terminates the worker, and removes the package."
   }

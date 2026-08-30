@@ -1,7 +1,6 @@
+import { createHash } from "node:crypto";
 import {
-  createHash,
-} from "node:crypto";
-import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -13,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { create } from "tar";
+import { create, extract } from "tar";
 import {
   parsePluginManifest,
   type PluginCatalogEntry,
@@ -43,21 +42,6 @@ try {
       JSON.parse(readFileSync(join(pluginDirectory, "plugin.json"), "utf8")) as unknown,
     );
     const artifactName = `${manifest.id}-${manifest.version}.tgz`;
-    const temporaryArtifact = join(temporaryRoot, artifactName);
-    await create(
-      {
-        cwd: pluginDirectory,
-        file: temporaryArtifact,
-        gzip: true,
-        portable: true,
-        noMtime: true,
-        follow: false,
-      },
-      ["dist", "plugin.json", "guide.md", "icon.svg", "package.json"],
-    );
-    const bytes = readFileSync(temporaryArtifact);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
-    const sizeBytes = statSync(temporaryArtifact).size;
     const committedArtifact = join(artifactsRoot, artifactName);
     const entry = catalog.find(
       (candidate) => candidate.manifest.id === manifest.id,
@@ -67,12 +51,14 @@ try {
     }
 
     if (checkOnly) {
-      const committed = readFileSync(committedArtifact);
-      if (!committed.equals(bytes)) {
+      if (!existsSync(committedArtifact)) {
         throw new Error(
-          `${artifactName} is stale. Run npm run package:plugins.`,
+          `${artifactName} is missing. Run npm run package:plugins.`,
         );
       }
+      const committed = readFileSync(committedArtifact);
+      const sha256 = createHash("sha256").update(committed).digest("hex");
+      const sizeBytes = statSync(committedArtifact).size;
       if (
         entry.artifact.sha256 !== sha256 ||
         entry.artifact.sizeBytes !== sizeBytes
@@ -81,7 +67,46 @@ try {
           `Catalog integrity metadata is stale for ${manifest.id}.`,
         );
       }
+      const extracted = join(temporaryRoot, manifest.id);
+      mkdirSync(extracted);
+      await extract({
+        cwd: extracted,
+        file: committedArtifact,
+        strict: true,
+      });
+      for (const path of [
+        "dist/index.js",
+        "plugin.json",
+        "guide.md",
+        "icon.svg",
+        "package.json",
+      ]) {
+        const packaged = normalizeText(readFileSync(join(extracted, path), "utf8"));
+        const current = normalizeText(
+          readFileSync(join(pluginDirectory, path), "utf8"),
+        );
+        if (packaged !== current) {
+          throw new Error(
+            `${artifactName} contains stale ${path}. Run npm run package:plugins.`,
+          );
+        }
+      }
     } else {
+      const temporaryArtifact = join(temporaryRoot, artifactName);
+      await create(
+        {
+          cwd: pluginDirectory,
+          file: temporaryArtifact,
+          gzip: true,
+          portable: true,
+          noMtime: true,
+          follow: false,
+        },
+        ["dist/index.js", "plugin.json", "guide.md", "icon.svg", "package.json"],
+      );
+      const bytes = readFileSync(temporaryArtifact);
+      const sha256 = createHash("sha256").update(bytes).digest("hex");
+      const sizeBytes = statSync(temporaryArtifact).size;
       writeFileSync(committedArtifact, bytes);
       entry.artifact = {
         url: `https://raw.githubusercontent.com/mbianchidev/denote/${artifactRef}/plugin-artifacts/${artifactName}`,
@@ -96,4 +121,8 @@ try {
   }
 } finally {
   rmSync(temporaryRoot, { recursive: true, force: true });
+}
+
+function normalizeText(value: string): string {
+  return value.replace(/\r\n/g, "\n");
 }

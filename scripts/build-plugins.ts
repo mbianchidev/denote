@@ -29,7 +29,7 @@ for (const pluginDirectory of pluginDirectories) {
     build: {
       emptyOutDir: true,
       minify: false,
-      sourcemap: true,
+      sourcemap: false,
       outDir: dirname(outputPath),
       lib: {
         entry: sourcePath,
