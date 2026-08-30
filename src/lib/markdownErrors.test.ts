@@ -3,6 +3,7 @@ import {
   locateMarkdownError,
   markdownErrorSourceIdentity,
 } from "./markdownErrors";
+import { markdownEditorSource } from "./markdown";
 
 describe("Markdown error locations", () => {
   it("recovers the MDX parser line and column hidden by MDXEditor", () => {
@@ -23,6 +24,16 @@ describe("Markdown error locations", () => {
         "Error parsing markdown: Unexpected character `1` (U+0031) before name, expected a character that can start a name, such as a letter, `$`, or `_`",
       ),
     ).toEqual({ line: 9, column: 8 });
+  });
+
+  it("maps errors using the transformed source displayed by the editor", () => {
+    const original = ">![info]\n> Body\n\n<1bad>";
+    expect(
+      locateMarkdownError(
+        markdownEditorSource(original),
+        "Error parsing markdown: Unexpected character `1` (U+0031) before name",
+      ),
+    ).toEqual({ line: 5, column: 2 });
   });
 
   it("ignores valid angle destinations before the parser error", () => {

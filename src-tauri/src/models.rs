@@ -97,6 +97,8 @@ pub struct FileNode {
     pub modified_at: Option<i64>,
     pub bookmarked: bool,
     pub pinned: bool,
+    #[serde(default)]
+    pub position: Option<i64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

@@ -13,6 +13,7 @@ export interface FileNode {
   modifiedAt: number | null;
   bookmarked: boolean;
   pinned: boolean;
+  position?: number | null;
 }
 
 export interface NoteStats {

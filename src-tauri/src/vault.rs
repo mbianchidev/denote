@@ -22,7 +22,7 @@ use crate::{
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
         KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, NoteDocument,
-        SaveOutcome, SearchDocument, TabSessionState, TagColor, WorkspaceSnapshot,
+        SaveOutcome, SearchDocument, TabSessionState, TagColor, TrashItem, WorkspaceSnapshot,
     },
 };
 
@@ -528,7 +528,7 @@ pub fn create_entry(
     name: &str,
     directory: bool,
     vault_key: Option<&[u8; 32]>,
-) -> AppResult<String> {
+) -> AppResult<FileNode> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
     let parent = if parent_path.is_empty() {
@@ -553,9 +553,16 @@ pub fn create_entry(
         let stored_bytes = encode_file_at_rest(&root, &[], vault_key)?;
         create_file_no_replace(&destination, &stored_bytes)?;
     }
-    let connection = db::open(db_path)?;
-    let _ = ensure_vault(&connection, &root)?;
-    relative_string(&root, &destination)
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let stats = db::stats_map(&connection, vault_id)?;
+    let placements = db::entry_placement_map(&connection, vault_id)?;
+    let node = scan_path(&root, &destination, &stats, &placements, 0)?;
+    update_cached_tree(&mut connection, vault_id, |tree| {
+        refresh_cached_tree_metadata(tree, &stats, &placements);
+        insert_cached_node(tree, node.clone())
+    });
+    Ok(node)
 }
 
 pub fn rename_entry(
@@ -681,7 +688,7 @@ pub fn move_entry(
     Ok(new_relative)
 }
 
-pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<()> {
+pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<TrashItem> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
     let source = existing_entry(&root, relative_path)?;
@@ -713,7 +720,7 @@ pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> App
         db::cancel_file_operation(&connection, &operation_id)?;
         return Err(error.into());
     }
-    if let Err(error) = db::trash_metadata(
+    let item_id = match db::trash_metadata(
         &mut connection,
         vault_id,
         relative_path,
@@ -721,18 +728,27 @@ pub fn trash_entry(db_path: &Path, vault_path: &str, relative_path: &str) -> App
         is_directory,
         Some(&operation_id),
     ) {
-        return Err(rollback_operation(
-            &connection,
-            &operation_id,
-            &destination,
-            &source,
-            error,
-        ));
-    }
-    Ok(())
+        Ok(item_id) => item_id,
+        Err(error) => {
+            return Err(rollback_operation(
+                &connection,
+                &operation_id,
+                &destination,
+                &source,
+                error,
+            ));
+        }
+    };
+    let item = db::trash_item(&connection, vault_id, item_id)?
+        .ok_or_else(|| AppError::NotFound(format!("Trash item {item_id}")))?;
+    update_cached_tree(&mut connection, vault_id, |tree| {
+        remove_cached_path(tree, relative_path);
+        true
+    });
+    Ok(item)
 }
 
-pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> AppResult<String> {
+pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> AppResult<FileNode> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
     let mut connection = db::open(db_path)?;
@@ -793,7 +809,14 @@ pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> App
     if let Some(parent) = source.parent() {
         let _ = fs::remove_dir(parent);
     }
-    Ok(restored_relative)
+    let stats = db::stats_map(&connection, vault_id)?;
+    let placements = db::entry_placement_map(&connection, vault_id)?;
+    let node = scan_path(&root, &destination, &stats, &placements, 0)?;
+    update_cached_tree(&mut connection, vault_id, |tree| {
+        refresh_cached_tree_metadata(tree, &stats, &placements);
+        insert_cached_node(tree, node.clone())
+    });
+    Ok(node)
 }
 
 pub fn empty_trash(db_path: &Path, vault_path: &str) -> AppResult<usize> {
@@ -1694,7 +1717,6 @@ fn scan_directory(
     let mut nodes = Vec::new();
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
-        let file_type = entry.file_type()?;
         let path = entry.path();
         if metadata_is_link(&fs::symlink_metadata(&path)?)
             || entry
@@ -1704,49 +1726,147 @@ fn scan_directory(
         {
             continue;
         }
-        let relative = relative_string(root, &path)?;
-        let metadata = entry.metadata()?;
-        let modified_at = metadata
-            .modified()
-            .ok()
-            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-            .map(|value| value.as_millis() as i64);
-        if file_type.is_dir() {
-            nodes.push(FileNode {
-                path: relative.clone(),
-                name: entry.file_name().to_string_lossy().into_owned(),
-                kind: FileKind::Folder,
-                children: scan_directory(root, &path, stats, placements, depth + 1)?,
-                size: 0,
-                modified_at,
-                bookmarked: false,
-                pinned: placements
-                    .get(&relative)
-                    .map(|placement| placement.pinned)
-                    .unwrap_or(false),
-            });
-        } else {
-            let kind = kind_for_path(&path);
-            nodes.push(FileNode {
-                path: relative.clone(),
-                name: entry.file_name().to_string_lossy().into_owned(),
-                kind,
-                children: Vec::new(),
-                size: metadata.len(),
-                modified_at,
-                bookmarked: stats
-                    .get(&relative)
-                    .map(|value| value.bookmarked)
-                    .unwrap_or(false),
-                pinned: placements
-                    .get(&relative)
-                    .map(|placement| placement.pinned)
-                    .unwrap_or(false),
-            });
+        nodes.push(scan_path(root, &path, stats, placements, depth)?);
+    }
+    sort_file_nodes(&mut nodes);
+    Ok(nodes)
+}
+
+fn scan_path(
+    root: &Path,
+    path: &Path,
+    stats: &HashMap<String, crate::models::NoteStats>,
+    placements: &HashMap<String, db::EntryPlacement>,
+    depth: usize,
+) -> AppResult<FileNode> {
+    let relative = relative_string(root, path)?;
+    let metadata = fs::metadata(path)?;
+    let modified_at = metadata
+        .modified()
+        .ok()
+        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+        .map(|value| value.as_millis() as i64);
+    let name = path
+        .file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .ok_or_else(|| AppError::InvalidPath(relative.clone()))?;
+    let placement = placements.get(&relative);
+    let pinned = placement.map(|placement| placement.pinned).unwrap_or(false);
+    let position = placement.map(|placement| placement.position);
+    if metadata.is_dir() {
+        Ok(FileNode {
+            path: relative,
+            name,
+            kind: FileKind::Folder,
+            children: scan_directory(root, path, stats, placements, depth + 1)?,
+            size: 0,
+            modified_at,
+            bookmarked: false,
+            pinned,
+            position,
+        })
+    } else {
+        Ok(FileNode {
+            path: relative.clone(),
+            name,
+            kind: kind_for_path(path),
+            children: Vec::new(),
+            size: metadata.len(),
+            modified_at,
+            bookmarked: stats
+                .get(&relative)
+                .map(|value| value.bookmarked)
+                .unwrap_or(false),
+            pinned,
+            position,
+        })
+    }
+}
+
+fn update_cached_tree(
+    connection: &mut Connection,
+    vault_id: i64,
+    update: impl FnOnce(&mut Vec<FileNode>) -> bool,
+) {
+    let mut tree = match db::workspace_tree_cache(connection, vault_id) {
+        Ok(Some(tree)) => tree,
+        Ok(None) => return,
+        Err(error) => {
+            eprintln!("Unable to read the vault tree cache after a file mutation: {error}");
+            return;
+        }
+    };
+    if !update(&mut tree) {
+        if let Err(error) = db::clear_workspace_tree_cache(connection, vault_id) {
+            eprintln!("Unable to clear a stale vault tree cache: {error}");
+        }
+        return;
+    }
+    if let Err(error) = db::set_workspace_tree_cache(connection, vault_id, &tree) {
+        eprintln!("Unable to update the vault tree cache after a file mutation: {error}");
+    }
+}
+
+fn remove_cached_path(nodes: &mut Vec<FileNode>, path: &str) {
+    nodes.retain(|node| node.path != path && !node.path.starts_with(&format!("{path}/")));
+    for node in nodes {
+        if node.kind == FileKind::Folder {
+            remove_cached_path(&mut node.children, path);
         }
     }
-    sort_file_nodes(&mut nodes, placements);
-    Ok(nodes)
+}
+
+fn insert_cached_node(nodes: &mut Vec<FileNode>, node: FileNode) -> bool {
+    let parent_path = node.path.rsplit_once('/').map(|(parent, _)| parent);
+    if let Some(parent_path) = parent_path {
+        if let Some(parent) = find_cached_node_mut(nodes, parent_path)
+            && parent.kind == FileKind::Folder
+        {
+            insert_cached_sibling(&mut parent.children, node);
+            return true;
+        }
+        return false;
+    }
+    insert_cached_sibling(nodes, node);
+    true
+}
+
+fn find_cached_node_mut<'a>(nodes: &'a mut [FileNode], path: &str) -> Option<&'a mut FileNode> {
+    for node in nodes {
+        if node.path == path {
+            return Some(node);
+        }
+        if node.kind == FileKind::Folder
+            && let Some(found) = find_cached_node_mut(&mut node.children, path)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn insert_cached_sibling(nodes: &mut Vec<FileNode>, node: FileNode) {
+    nodes.retain(|candidate| candidate.path != node.path);
+    let insertion_index = nodes
+        .iter()
+        .position(|candidate| compare_cached_nodes(&node, candidate).is_lt())
+        .unwrap_or(nodes.len());
+    nodes.insert(insertion_index, node);
+}
+
+fn compare_cached_nodes(left: &FileNode, right: &FileNode) -> std::cmp::Ordering {
+    right
+        .pinned
+        .cmp(&left.pinned)
+        .then_with(|| {
+            left.position
+                .unwrap_or(i64::MAX)
+                .cmp(&right.position.unwrap_or(i64::MAX))
+        })
+        .then_with(|| {
+            matches!(right.kind, FileKind::Folder).cmp(&matches!(left.kind, FileKind::Folder))
+        })
+        .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
 }
 
 fn refresh_cached_tree_metadata(
@@ -1755,10 +1875,9 @@ fn refresh_cached_tree_metadata(
     placements: &HashMap<String, db::EntryPlacement>,
 ) {
     for node in nodes.iter_mut() {
-        node.pinned = placements
-            .get(&node.path)
-            .map(|placement| placement.pinned)
-            .unwrap_or(false);
+        let placement = placements.get(&node.path);
+        node.pinned = placement.map(|placement| placement.pinned).unwrap_or(false);
+        node.position = placement.map(|placement| placement.position);
         if node.kind == FileKind::Folder {
             node.bookmarked = false;
             refresh_cached_tree_metadata(&mut node.children, stats, placements);
@@ -1769,28 +1888,11 @@ fn refresh_cached_tree_metadata(
                 .unwrap_or(false);
         }
     }
-    sort_file_nodes(nodes, placements);
+    sort_file_nodes(nodes);
 }
 
-fn sort_file_nodes(nodes: &mut [FileNode], placements: &HashMap<String, db::EntryPlacement>) {
-    nodes.sort_by(|left, right| {
-        let left_position = placements
-            .get(&left.path)
-            .map(|placement| placement.position)
-            .unwrap_or(i64::MAX);
-        let right_position = placements
-            .get(&right.path)
-            .map(|placement| placement.position)
-            .unwrap_or(i64::MAX);
-        right
-            .pinned
-            .cmp(&left.pinned)
-            .then_with(|| left_position.cmp(&right_position))
-            .then_with(|| {
-                matches!(right.kind, FileKind::Folder).cmp(&matches!(left.kind, FileKind::Folder))
-            })
-            .then_with(|| left.name.to_lowercase().cmp(&right.name.to_lowercase()))
-    });
+fn sort_file_nodes(nodes: &mut [FileNode]) {
+    nodes.sort_by(compare_cached_nodes);
 }
 
 fn ensure_vault(connection: &Connection, root: &Path) -> AppResult<(i64, String)> {
@@ -2798,7 +2900,7 @@ mod tests {
         parent_path: &str,
         name: &str,
         directory: bool,
-    ) -> AppResult<String> {
+    ) -> AppResult<FileNode> {
         super::create_entry(db_path, vault_path, parent_path, name, directory, None)
     }
 
@@ -2843,6 +2945,7 @@ mod tests {
         super::read_image_data_url(db_path, vault_path, note_path, image_source, None)
     }
 
+    #[cfg(unix)]
     fn save_attachment(
         vault_path: &str,
         note_path: &str,
@@ -3335,17 +3438,27 @@ mod tests {
         let db_path = directory.path().join("denote.sqlite3");
         db::initialize(&db_path).expect("database initialized");
 
-        trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
+        refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("initial refresh");
+        let trashed =
+            trash_entry(&db_path, vault_path.to_str().unwrap(), "note.md").expect("trash note");
+        assert_eq!(trashed.original_path, "note.md");
         assert!(!vault_path.join("note.md").exists());
-        let snapshot =
-            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
-        assert_eq!(snapshot.trash.len(), 1);
+        let connection = db::open(&db_path).expect("database");
+        let canonical = canonical_vault(vault_path.to_str().expect("vault path")).expect("vault");
+        let (vault_id, _) = ensure_vault(&connection, &canonical).expect("vault record");
+        let mut cached = db::workspace_tree_cache(&connection, vault_id)
+            .expect("cached tree")
+            .expect("cache");
+        assert!(find_cached_node_mut(&mut cached, "note.md").is_none());
 
-        let restored =
-            restore_trash_item(&db_path, vault_path.to_str().unwrap(), snapshot.trash[0].id)
-                .expect("restore note");
-        assert_eq!(restored, "note.md");
+        let restored = restore_trash_item(&db_path, vault_path.to_str().unwrap(), trashed.id)
+            .expect("restore note");
+        assert_eq!(restored.path, "note.md");
         assert!(vault_path.join("note.md").exists());
+        let mut cached = db::workspace_tree_cache(&connection, vault_id)
+            .expect("cached tree")
+            .expect("cache");
+        assert!(find_cached_node_mut(&mut cached, "note.md").is_some());
     }
 
     #[test]
@@ -3392,12 +3505,12 @@ mod tests {
         let restored =
             restore_trash_item(&db_path, vault_path.to_str().unwrap(), snapshot.trash[0].id)
                 .expect("restore original");
-        assert_eq!(restored, "note (restored 1).md");
-        let restored_document =
-            read_note(&db_path, vault_path.to_str().unwrap(), &restored).expect("restored note");
+        assert_eq!(restored.path, "note (restored 1).md");
+        let restored_document = read_note(&db_path, vault_path.to_str().unwrap(), &restored.path)
+            .expect("restored note");
         assert!(restored_document.stats.bookmarked);
         assert_eq!(
-            list_history(&db_path, vault_path.to_str().unwrap(), &restored)
+            list_history(&db_path, vault_path.to_str().unwrap(), &restored.path)
                 .expect("restored history")
                 .len(),
             1

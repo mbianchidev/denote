@@ -116,13 +116,19 @@ import {
   moveTabInLayout,
   placeOpenedTab,
   rekeyTabNavigation,
-  removeTabNavigationPaths,
+  removeTabsForPaths,
   restoreTabHistoryTarget,
   tabHistoryTarget,
   tabReferencedPaths,
   tabsReferencePath,
   tabsInVisualOrder,
 } from "./lib/tabs";
+import {
+  insertWorkspaceNode,
+  removeWorkspacePath,
+  workspaceAncestorPaths,
+  workspacePathMatches,
+} from "./lib/workspaceTree";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   editorZoomShortcut,
@@ -877,6 +883,9 @@ function App() {
 
   const loadWorkspace = useCallback(
     async (snapshot: WorkspaceSnapshot, resetTabs: boolean) => {
+      if (resetTabs) {
+        finishActionDialog(null);
+      }
       openFileRequest.current += 1;
       const vaultLocked =
         snapshot.encryption.enabled && !snapshot.encryption.unlocked;
@@ -989,6 +998,7 @@ function App() {
     [
       commitTabs,
       commitTabGroups,
+      finishActionDialog,
       queueVaultViewModeWrite,
       rebuildSearchIndex,
       refreshCachedWorkspace,
@@ -1119,9 +1129,6 @@ function App() {
   }, [searchFilters, searchLocation, searchQuery]);
 
   const chooseVault = useCallback(async () => {
-    if (workspaceLockedRef.current) {
-      return;
-    }
     setVaultSwitcherOpen(false);
     setInitializing(true);
     try {
@@ -1144,9 +1151,6 @@ function App() {
 
   const switchKnownVault = useCallback(
     async (vaultId: number, filePath?: string) => {
-      if (workspaceLockedRef.current) {
-        throw new Error("Workspace is busy. Try switching vaults again.");
-      }
       setInitializing(true);
       try {
         if (!(await beginWorkspaceOperationRef.current())) {
@@ -1501,6 +1505,49 @@ function App() {
     }
   }, [acquireWorkspaceLock, setWorkspaceLock, showError]);
   beginWorkspaceOperationRef.current = beginWorkspaceOperation;
+
+  const beginEntryMutation = useCallback(
+    async (
+      expectedGeneration: number,
+      isAffected: (path: string) => boolean,
+    ): Promise<boolean> => {
+      await acquireWorkspaceLock();
+      try {
+        if (expectedGeneration !== vaultGeneration.current) {
+          setWorkspaceLock(false);
+          return false;
+        }
+        if (
+          [...pendingAttachmentInsertions.current.keys()].some(isAffected)
+        ) {
+          const uploads = await Promise.all([...attachmentUploads.current]);
+          if (uploads.some((succeeded) => !succeeded)) {
+            setWorkspaceLock(false);
+            return false;
+          }
+        }
+        for (const tab of tabsRef.current) {
+          if (
+            !tab.placeholder &&
+            isAffected(tab.path) &&
+            !(await flushTab(tab.path))
+          ) {
+            setWorkspaceLock(false);
+            return false;
+          }
+        }
+        if (expectedGeneration !== vaultGeneration.current) {
+          setWorkspaceLock(false);
+          return false;
+        }
+        return true;
+      } catch (caught) {
+        setWorkspaceLock(false);
+        throw caught;
+      }
+    },
+    [acquireWorkspaceLock, flushTab, setWorkspaceLock],
+  );
 
   const uploadAttachment = useCallback(
     (notePath: string, file: File): Promise<string> => {
@@ -2446,6 +2493,8 @@ function App() {
       if (!workspace || workspaceLockedRef.current) {
         return;
       }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
       const parentPath =
         parentOverride ??
         (selectedNode?.kind === "folder"
@@ -2463,30 +2512,61 @@ function App() {
       if (!entered) {
         return;
       }
+      if (
+        expectedGeneration !== vaultGeneration.current ||
+        workspace.vaultPath !== expectedVaultPath
+      ) {
+        return;
+      }
       const name =
         !directory && !/\.[^./\\]+$/.test(entered)
           ? `${entered}.md`
           : entered;
+      let createdNode: FileNode | null = null;
+      let mutationStarted = false;
       try {
-        const path = await api.createEntry(parentPath, name, directory);
+        if (
+          !(await beginEntryMutation(expectedGeneration, () => false))
+        ) {
+          return;
+        }
+        mutationStarted = true;
+        createdNode = await api.createEntry(parentPath, name, directory);
+        setWorkspace((current) =>
+          current?.vaultPath === expectedVaultPath
+            ? {
+                ...current,
+                tree: insertWorkspaceNode(current.tree, createdNode!),
+              }
+            : current,
+        );
         if (parentPath) {
           setExpandedPaths((current) => new Set(current).add(parentPath));
         }
-        await refreshAndReindex();
-        setSelectedPath(path);
-        if (!directory) {
-          await openFile(path);
-        }
+        setSelectedPath(createdNode.path);
+        setStatus(`Created ${createdNode.name}`);
       } catch (caught) {
         showError(caught);
+      } finally {
+        if (mutationStarted) {
+          setWorkspaceLock(false);
+        }
+      }
+      if (createdNode) {
+        scheduleIndexRebuild();
+        if (!directory) {
+          await openFile(createdNode.path);
+        }
       }
     },
     [
+      beginEntryMutation,
       openFile,
-      refreshAndReindex,
       requestText,
+      scheduleIndexRebuild,
       selectedNode,
       selectedPath,
+      setWorkspaceLock,
       showError,
       workspace,
     ],
@@ -2836,6 +2916,8 @@ function App() {
     if (!workspace || workspaceLockedRef.current) {
       return;
     }
+    const expectedGeneration = vaultGeneration.current;
+    const expectedVaultPath = workspace.vaultPath;
     if (
       !(await requestConfirmation({
         title: "Move to trash",
@@ -2846,29 +2928,32 @@ function App() {
     ) {
       return;
     }
+    if (
+      expectedGeneration !== vaultGeneration.current ||
+      workspace.vaultPath !== expectedVaultPath
+    ) {
+      return;
+    }
+    const isAffected = (path: string) =>
+      workspacePathMatches(path, node.path);
+    let mutationStarted = false;
+    let trashed = false;
     try {
       openFileRequest.current += 1;
-      if (!(await beginWorkspaceOperation())) {
+      if (!(await beginEntryMutation(expectedGeneration, isAffected))) {
         return;
       }
-      const affectedTabs = tabsRef.current.filter(
-        (tab) =>
-          !tab.placeholder &&
-          (tab.path === node.path || tab.path.startsWith(`${node.path}/`)),
+      mutationStarted = true;
+      const trashItem = await api.trashEntry(node.path);
+      const currentTabs = tabsRef.current;
+      const removal = removeTabsForPaths(
+        currentTabs,
+        activePathRef.current,
+        isAffected,
       );
-      for (const tab of affectedTabs) {
-        if (!(await flushTab(tab.path))) {
-          setStatus("Trash cancelled because a note could not be saved");
-          return;
-        }
-      }
-      await api.trashEntry(node.path);
-      const isAffected = (path: string) =>
-        path === node.path || path.startsWith(`${node.path}/`);
+      const remainingTabs = removal.tabs;
       commitTabs((current) =>
-        current
-          .filter((tab) => !isAffected(tab.path))
-          .map((tab) => removeTabNavigationPaths(tab, isAffected)),
+        current === currentTabs ? remainingTabs : current,
       );
       dispatchErrors({
         type: "remove-markdown-prefix",
@@ -2876,31 +2961,70 @@ function App() {
       });
       commitTabGroups((current) =>
         current.filter((group) =>
-          tabsRef.current.some((tab) => tab.groupId === group.id),
+          remainingTabs.some((tab) => tab.groupId === group.id),
         ),
       );
-      for (const tab of affectedTabs) {
-        cancelPendingPath(tab.path);
+      for (const path of removal.removedPaths) {
+        cancelPendingPath(path);
       }
-      if (activePath && isAffected(activePath)) {
-        setActivePath(null);
+      if (activePathRef.current && isAffected(activePathRef.current)) {
+        const nextPath = removal.activePath;
+        activePathRef.current = nextPath;
+        setActivePath(nextPath);
+        setSelectedPath(
+          remainingTabs.find((tab) => tab.path === nextPath)?.placeholder
+            ? null
+            : nextPath,
+        );
+      } else if (selectedPath && isAffected(selectedPath)) {
+        setSelectedPath(null);
       }
-      setSelectedPath(null);
-      await refreshAndReindex();
+      setExpandedPaths(
+        (current) =>
+          new Set([...current].filter((path) => !isAffected(path))),
+      );
+      setWorkspace((current) =>
+        current?.vaultPath === expectedVaultPath
+          ? {
+              ...current,
+              tree: removeWorkspacePath(current.tree, node.path),
+              bookmarks: current.bookmarks.filter(
+                (item) => !isAffected(item.path),
+              ),
+              recent: current.recent.filter(
+                (item) => !isAffected(item.path),
+              ),
+              trash: [
+                trashItem,
+                ...current.trash.filter((item) => item.id !== trashItem.id),
+              ],
+            }
+          : current,
+      );
+      searchIndex.current.removePaths(isAffected);
+      setSearchResults((current) =>
+        current.filter((result) => !isAffected(result.document.path)),
+      );
+      setStatus(`Moved ${node.name} to Denote Trash`);
+      trashed = true;
     } catch (caught) {
       showError(caught);
     } finally {
-      setWorkspaceLock(false);
+      if (mutationStarted) {
+        setWorkspaceLock(false);
+      }
+    }
+    if (trashed) {
+      scheduleIndexRebuild();
     }
   }, [
-    activePath,
-    beginWorkspaceOperation,
+    beginEntryMutation,
     cancelPendingPath,
     commitTabGroups,
     commitTabs,
-    flushTab,
-    refreshAndReindex,
     requestConfirmation,
+    scheduleIndexRebuild,
+    selectedPath,
     setWorkspaceLock,
     showError,
     workspace,
@@ -2992,19 +3116,59 @@ function App() {
 
   const restoreTrash = useCallback(
     async (itemId: number) => {
-      if (!workspace) {
+      if (!workspace || workspaceLockedRef.current) {
         return;
       }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      let mutationStarted = false;
+      let restored = false;
       try {
-        const restoredPath = await api.restoreTrashItem(itemId);
-        await refreshAndReindex();
+        if (
+          !(await beginEntryMutation(expectedGeneration, () => false))
+        ) {
+          return;
+        }
+        mutationStarted = true;
+        const restoredNode = await api.restoreTrashItem(itemId);
+        setWorkspace((current) =>
+          current?.vaultPath === expectedVaultPath
+            ? {
+                ...current,
+                tree: insertWorkspaceNode(current.tree, restoredNode),
+                trash: current.trash.filter((item) => item.id !== itemId),
+              }
+            : current,
+        );
+        setExpandedPaths((current) => {
+          const next = new Set(current);
+          for (const path of workspaceAncestorPaths(restoredNode.path)) {
+            next.add(path);
+          }
+          return next;
+        });
         setSidebarView("files");
-        setSelectedPath(restoredPath);
+        setSelectedPath(restoredNode.path);
+        setStatus(`Restored ${restoredNode.name}`);
+        restored = true;
       } catch (caught) {
         showError(caught);
+      } finally {
+        if (mutationStarted) {
+          setWorkspaceLock(false);
+        }
+      }
+      if (restored) {
+        scheduleIndexRebuild();
       }
     },
-    [refreshAndReindex, showError, workspace],
+    [
+      beginEntryMutation,
+      scheduleIndexRebuild,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
   );
 
   const emptyTrash = useCallback(async () => {

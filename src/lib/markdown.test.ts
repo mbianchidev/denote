@@ -5,6 +5,7 @@ import {
   applyTocMarkerViewChange,
   calloutsToDirectives,
   captureTocMarkers,
+  captureThematicBreaks,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   extractHeadings,
@@ -17,6 +18,7 @@ import {
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   restoreTocMarkers,
+  restoreThematicBreaks,
   resolveInternalLink,
   nextHeadingSlug,
   normalizeBareSpaceLinkDestinations,
@@ -42,6 +44,18 @@ describe("markdown utilities", () => {
     ).toBe(
       ":::info\nOpen [the next page](<Optional plugins.md>).\n:::",
     );
+  });
+
+  it("preserves standalone thematic-break syntax without treating frontmatter as a break", () => {
+    expect(
+      restoreThematicBreaks(
+        "Before\n\n***\n\nAfter",
+        captureThematicBreaks("Before\n\n---\n\nAfter"),
+      ),
+    ).toBe("Before\n\n---\n\nAfter");
+    expect(captureThematicBreaks("---\ntitle: Note\n---\n\nBody")).toEqual({
+      delimiters: [],
+    });
   });
 
   it("extracts mixed-language tags without treating headings as tags", () => {
@@ -571,7 +585,7 @@ describe("markdown utilities", () => {
   });
 
   it("keeps every embedded guide page compatible with rich mode", () => {
-    const root = join(process.cwd(), "src-tauri/resources/default-vault");
+    const root = join(process.cwd(), "docs/user-guide");
     for (const path of markdownFiles(root)) {
       expect(hasUnsupportedRichMarkdown(readFileSync(path, "utf8")), path).toBe(
         false,

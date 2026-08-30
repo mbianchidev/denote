@@ -114,6 +114,42 @@ describe("MarkdownEditor links", () => {
     );
   });
 
+  it("keeps directly entered angle-bracket Markdown links exact after rich edits", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "[Next: Writing and formatting](<Writing and formatting.md>)\n\nEdit"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("link", {
+        name: "Next: Writing and formatting",
+      }),
+    ).toBeInTheDocument();
+    const paragraph = screen.getByText("Edit");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.lastCall?.[0]).toBe(
+      "[Next: Writing and formatting](<Writing and formatting.md>)\n\n!",
+    );
+  });
+
   it("renders legacy internal links with bare spaces", async () => {
     const user = userEvent.setup();
     const onLinkOpen = vi.fn();
@@ -670,6 +706,61 @@ describe("MarkdownEditor links", () => {
     ).toHaveAttribute("aria-checked", "true");
   });
 
+  it("renders a standalone triple dash as a separator, not frontmatter", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"Before\n\n---\n\nAfter"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await waitFor(() =>
+        container.querySelector(".denote-editor-content hr"),
+      ),
+    ).toBeInTheDocument();
+    const after = screen.getByText("After");
+    await user.click(after);
+    placeCaretAtEnd(after);
+    await user.keyboard("!");
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.lastCall?.[0]).toContain("\n\n---\n\n");
+  });
+
+  it("keeps paired leading triple dashes as frontmatter", async () => {
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"---\ntitle: Note\n---\n\nBody"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("Body")).toBeInTheDocument();
+    expect(
+      container.querySelector(".denote-editor-content hr"),
+    ).not.toBeInTheDocument();
+  });
+
   it("does not label ordinary items merged beside a generated TOC", async () => {
     render(
       <MarkdownEditor
@@ -721,18 +812,20 @@ describe("MarkdownEditor links", () => {
     expect(toc.closest("blockquote")).toBeNull();
   });
 
-  it("renders repeated Markdown tags as chips with one shared vault color", async () => {
+  it("renders only a tag-only final content line as colored pills", async () => {
     const editorRef = createRef<MDXEditorMethods>();
     render(
       <MarkdownEditor
         ref={editorRef}
         notePath="note.md"
-        markdown="Read #guide, then revisit #guide."
+        markdown={
+          "# Heading #topic\n\n<!-- toc -->\n- [Guide](#guide)\n<!-- /toc -->\n\nRead #topic inline.\n\n#guide #project/日本語"
+        }
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         preferredViewMode="rich-text"
         readOnly={false}
-        tagColors={{ guide: "#7aa66a" }}
+        tagColors={{ guide: "#7aa66a", "project/日本語": "#8f77bd" }}
         onChange={vi.fn()}
         onError={vi.fn()}
         onLinkOpen={vi.fn()}
@@ -741,17 +834,23 @@ describe("MarkdownEditor links", () => {
       />,
     );
 
-    const tags = await screen.findAllByText("#guide");
-    expect(tags).toHaveLength(2);
-    for (const tag of tags) {
-      expect(tag).toHaveClass("denote-inline-tag");
-      expect(tag).toHaveStyle("--tag-color: #7aa66a");
+    const guide = await screen.findByText("#guide");
+    const unicodePath = screen.getByText("#project/日本語");
+    expect(guide).toHaveClass("denote-inline-tag");
+    expect(guide).toHaveStyle("--tag-color: #7aa66a");
+    expect(unicodePath).toHaveClass("denote-inline-tag");
+    expect(unicodePath).toHaveStyle("--tag-color: #8f77bd");
+    for (const ordinary of screen.getAllByText("#topic")) {
+      expect(ordinary).not.toHaveClass("denote-inline-tag");
     }
-    expect(tags[0].closest(".denote-editor-root")).toHaveClass(
+    expect(
+      screen.getByRole("link", { name: "Guide" }),
+    ).not.toHaveClass("denote-inline-tag");
+    expect(guide.closest(".denote-editor-root")).toHaveClass(
       "mdxeditor-full-height",
     );
-    expect(editorRef.current?.getMarkdown()).toBe(
-      "Read #guide, then revisit #guide.",
+    expect(editorRef.current?.getMarkdown()).toContain(
+      "\\#guide #project/日本語",
     );
   });
 
@@ -788,6 +887,144 @@ describe("MarkdownEditor links", () => {
     const changed = onChange.mock.lastCall?.[0] as string;
     expect(changed).toMatch(/^#guide(?:\n|$)/);
     expect(changed).not.toMatch(/^\\#guide/);
+  });
+
+  it("renders and serializes an empty fenced block as an empty code section", async () => {
+    const editorRef = createRef<MDXEditorMethods>();
+    render(
+      <MarkdownEditor
+        ref={editorRef}
+        notePath="note.md"
+        markdown={"```\n```"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", { name: "Copy code block" }),
+    ).toBeInTheDocument();
+    expect(editorRef.current?.getMarkdown()).toBe("```\n```");
+  });
+
+  it("creates an empty code section when complete empty fences are pasted", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown=""
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const content = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(
+        '.denote-editor-content[contenteditable="true"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    content.focus();
+
+    fireEvent.paste(content, {
+      clipboardData: {
+        getData: (type: string) => (type === "text/plain" ? "```\n```" : ""),
+      },
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Copy code block" }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(onChange).toHaveBeenCalledWith("```\n```"),
+    );
+  });
+
+  it("loads local Markdown images through the host image API", async () => {
+    class ImmediateImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal("Image", ImmediateImage);
+    const readImage = vi
+      .spyOn(api, "readImageDataUrl")
+      .mockResolvedValue("data:image/svg+xml;base64,PHN2Zy8+");
+    try {
+      render(
+        <MarkdownEditor
+          notePath="notes/orbits.md"
+          markdown="![Orbiting note](assets/orbit.svg)"
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={vi.fn()}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+
+      expect(
+        await screen.findByRole("img", { name: "Orbiting note" }),
+      ).toHaveAttribute("src", "data:image/svg+xml;base64,PHN2Zy8+");
+      expect(readImage).toHaveBeenCalledWith(
+        "assets/orbit.svg",
+        "notes/orbits.md",
+      );
+    } finally {
+      readImage.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("surfaces local Markdown image loading failures", async () => {
+    const failure = new Error("Image is outside the vault");
+    const readImage = vi
+      .spyOn(api, "readImageDataUrl")
+      .mockRejectedValue(failure);
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const onError = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="notes/orbits.md"
+        markdown="![Orbiting note](assets/orbit.svg)"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={onError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(onError).toHaveBeenCalledWith("Image is outside the vault"),
+    );
+    readImage.mockRestore();
+    consoleError.mockRestore();
   });
 
   it("uses one selected mode for every file in the vault", async () => {
@@ -899,4 +1136,13 @@ function ViewModeNavigationHarness() {
       />
     </>
   );
+}
+
+function placeCaretAtEnd(element: Element) {
+  const selection = window.getSelection();
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  range.collapse(false);
+  selection?.removeAllRanges();
+  selection?.addRange(range);
 }

@@ -900,8 +900,7 @@ button:disabled {
   padding: 14px 18px 14px 42px;
   background: color-mix(in srgb, var(--editor-raised) 82%, transparent);
   border: 1px solid var(--border);
-  border-inline-start: 3px solid var(--accent);
-  border-radius: 6px;
+  border-radius: 4px;
 }
 
 .denote-editor-content .denote-generated-toc li {

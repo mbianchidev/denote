@@ -81,6 +81,19 @@ describe("vault search", () => {
     expect(results[0]?.document.path).toBe("projects/alpha.md");
   });
 
+  it("removes trashed paths before the deferred index rebuild", async () => {
+    const index = new VaultSearchIndex();
+    await index.rebuild(documents);
+
+    index.removePaths((path) => path.startsWith("projects/"));
+
+    expect(await index.query("launch")).toEqual([
+      expect.objectContaining({
+        document: expect.objectContaining({ path: "site/index.html" }),
+      }),
+    ]);
+  });
+
   it("limits search to exact files and globbed file types", async () => {
     const index = new VaultSearchIndex();
     await index.rebuild(documents);
