@@ -114,11 +114,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          releases="$(
+          # Draft releases are not reachable through /releases/tags/{tag}, so the
+          # complete release list is filtered by tag name instead.
+          find_releases() {
             gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
               jq -s --arg tag "$RELEASE_TAG" \
                 '[.[][] | select(.tag_name == $tag)]'
-          )"
+          }
+          releases="$(find_releases)"
           release_count="$(jq 'length' <<< "$releases")"
           if (( release_count > 1 )); then
             echo "::error::Multiple releases exist for ${RELEASE_TAG}. Delete the stale duplicates before retrying."
@@ -146,7 +149,12 @@ jobs:
               release_args+=(--prerelease)
             fi
             gh release create "$RELEASE_TAG" "${release_args[@]}"
-            release_id="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)"
+            releases="$(find_releases)"
+            if [[ "$(jq 'length' <<< "$releases")" != "1" ]]; then
+              echo "::error::Could not resolve the draft release for ${RELEASE_TAG}."
+              exit 1
+            fi
+            release_id="$(jq -r '.[0].id' <<< "$releases")"
           fi
           echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
 
