@@ -1,7 +1,5 @@
 # Keyboard shortcuts
 
-#guide #shortcuts
-
 | Action | macOS | Windows / Linux |
 | --- | --- | --- |
 | Open command palette | `Command-P` | `Ctrl-P` |
@@ -36,3 +34,5 @@ All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
 
 [Next: Optional plugins](<Optional plugins.md>)
+
+#guide #shortcuts

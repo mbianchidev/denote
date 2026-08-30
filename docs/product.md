@@ -63,14 +63,15 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Markdown text rather than MDX JSX. `.mdx` and `.jsx` remain non-executing,
   JSX-highlighted source files.
 - Canonical `<!-- toc -->` / `<!-- /toc -->` blocks containing link-only
-  Markdown lists render as labeled navigation panels in Rich mode while
+  Markdown lists render as tables of contents in Rich mode while
   retaining their generator markers through Rich and Source edits. Other
   comments remain locked to source mode.
 - Markdown thematic breaks render as consistent full-width document separators.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.
-- Hashtags render as colored pills in rich mode. Each normalized tag has one
-  stable default or user-selected color within its vault.
+- A tag-only final line renders its hashtags as colored pills in rich mode.
+  Each normalized tag has one stable default or user-selected color within its
+  vault.
 - Each vault keeps one rich-text or source-mode choice across all Markdown files
   and restores it after app restarts unless file safety or display guides require
   source mode.

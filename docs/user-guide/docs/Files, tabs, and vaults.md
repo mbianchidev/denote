@@ -1,7 +1,5 @@
 # Files, tabs, and vaults
 
-#guide #files #vaults
-
 ## Any regular file
 
 Files up to 25 MB can be edited regardless of extension. Valid UTF-8 opens as
@@ -65,3 +63,5 @@ vault. Selecting a file switches vaults when necessary and opens it. Encrypted
 target vaults ask for an unlock before opening the pending result.
 
 [Next: History, trash, and recovery](<History, trash, and recovery.md>)
+
+#guide #files #vaults

@@ -1,7 +1,5 @@
 # Complete feature reference
 
-#guide #reference #features
-
 This page lists every built-in Denote capability. The linked task guides provide
 more detail and examples.
 
@@ -70,9 +68,8 @@ more detail and examples.
   frontmatter, links, images, code, and callouts.
 - Treat angle-bracket comparisons, hearts, and placeholders in `.md` as standard
   Markdown text; keep `.mdx` and `.jsx` as non-executing JSX-highlighted source.
-- Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists as labeled Rich
-  mode navigation panels and preserve their generator markers across Rich and
-  Source edits.
+- Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists as tables of
+  contents and preserve their generator markers across Rich and Source edits.
 - Render `>![info]`, `>![warning]`, and `>![danger]` as callout boxes.
 - Copy rich-mode fenced code blocks from their inline **Copy** button.
 - Highlight supported programming and markup files by filename in the source
@@ -89,7 +86,7 @@ more detail and examples.
 ## Tags, links, and navigation
 
 - Extract Unicode hashtags including slash, underscore, and hyphen forms.
-- Render tags as colored pills in rich mode.
+- Render a tag-only final line as colored pills in rich mode.
 - Assign stable default colors and editable per-vault color overrides.
 - Search a tag by selecting its document tag pill.
 - Resolve no-protocol links relative to the current file inside Denote,
@@ -157,3 +154,5 @@ comments, highlighting, TTS/dictation, calendar, time tracking, and colorful tex
 are tracked as optional plugins rather than built into the minimal core.
 
 [Back to Welcome](../Welcome.md)
+
+#guide #reference #features

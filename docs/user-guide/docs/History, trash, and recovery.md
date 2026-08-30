@@ -1,7 +1,5 @@
 # History, trash, and recovery
 
-#guide #recovery
-
 ## Autosave and counters
 
 Autosave runs about 800 milliseconds after the latest edit. SQLite metadata
@@ -23,3 +21,5 @@ Saves use same-directory atomic replacement. If another application changes an
 open file, Denote reports a conflict instead of overwriting that edit.
 
 [Next: Vault encryption](<Vault encryption.md>)
+
+#guide #recovery

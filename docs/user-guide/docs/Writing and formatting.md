@@ -1,7 +1,5 @@
 # Writing and formatting
 
-#guide #markdown
-
 Markdown files use a rich single-pane editor. Files containing MDX, raw HTML,
 footnotes, math, or reference definitions stay in source mode so Denote cannot
 silently rewrite unsupported syntax.
@@ -23,11 +21,18 @@ Use the toolbar for headings, emphasis, lists, links, images, tables, code
 blocks, thematic breaks, frontmatter, and callouts.
 
 Generated tables of contents using exact `<!-- toc -->` and `<!-- /toc -->`
-marker lines render as labeled navigation panels in Rich mode. Every item must
+marker lines render as tables of contents in Rich mode. Every item must
 be a link; nested link-only lists are supported. Denote preserves those markers
 after Rich edits and when switching to Source. Other HTML comments remain
 locked to source mode. A line containing `---` renders as a full-width thematic
 separator.
+
+````markdown
+<!-- toc -->
+- [Common Markdown](#common-markdown)
+- [Tags](#tags)
+<!-- /toc -->
+````
 
 Regular `.md` files follow standard Markdown rules for angle brackets. Text such
 as `<100k`, `<3`, and `<account-slug>` remains literal instead of being parsed as
@@ -61,10 +66,12 @@ live code block text, including edits made inside the block.
 
 ## Tags
 
-Write a hashtag such as `#guide`, `#project/atlas`, or `#研究`. Rich mode renders
-it as a colored pill while the Markdown source stays unchanged. Every occurrence
-of the same tag uses one color across the current vault. Use the palette control
-beside a tag in the document tag bar to choose a different color.
+Put tags on a tag-only final line, such as `#guide #project/atlas #研究`. Rich
+mode renders that line as colored pills while the Markdown source stays
+unchanged. Hashtags elsewhere remain ordinary text, including headings and table
+of contents links. Every occurrence of the same tag uses one color across the
+current vault. Select a pill to search for it, or use the palette control in the
+document tag bar to choose a different color.
 
 Tags inside inline or fenced code stay literal. Prefix a hashtag with `\` when
 you want literal text instead of a tag; notes using escaped hashtags open in
@@ -116,3 +123,5 @@ file, hides while another file is active, and clears when fixed or dismissed.
 Link-navigation errors fade automatically.
 
 [Next: Search and replace](<Search and replace.md>)
+
+#guide #markdown
