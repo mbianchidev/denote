@@ -45,8 +45,9 @@ the selected folder as the source of truth.
 - Permanent empty-trash action with explicit confirmation
 - Table of contents, task lists, tables, code blocks with rich-mode copy buttons,
   images, and links
-- Generated `<!-- toc -->` / `<!-- /toc -->` link lists render in Rich mode
-  while their exact markers survive Rich and Source edits
+- Generated `<!-- toc -->` / `<!-- /toc -->` link lists render as labeled Rich
+  mode navigation panels while their exact markers survive Rich and Source edits
+- Thematic breaks such as `---` render as full-width document separators
 - Command-K / Control-K link creation that wraps rich-text selections or inserts
   Markdown link syntax directly in source mode
 - File and same-page heading anchors with retrying rich/source navigation

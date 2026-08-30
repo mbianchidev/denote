@@ -895,6 +895,30 @@ button:disabled {
   margin: 0.85em 0;
 }
 
+.denote-editor-content .denote-generated-toc {
+  margin: 1.35em 0 1.8em;
+  padding: 14px 18px 14px 42px;
+  background: color-mix(in srgb, var(--editor-raised) 82%, transparent);
+  border: 1px solid var(--border);
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 6px;
+}
+
+.denote-editor-content .denote-generated-toc li {
+  margin: 0.28em 0;
+}
+
+.denote-editor-content .denote-generated-toc a {
+  font-weight: 560;
+}
+
+.denote-editor-content hr {
+  height: 0;
+  margin: 2em 0;
+  border: 0;
+  border-top: 1px solid var(--border-strong);
+}
+
 .denote-editor-content a {
   color: var(--accent-strong);
   text-decoration-color: color-mix(in srgb, var(--accent) 48%, transparent);

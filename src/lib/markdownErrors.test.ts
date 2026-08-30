@@ -14,6 +14,39 @@ describe("Markdown error locations", () => {
     ).toEqual({ line: 3, column: 2 });
   });
 
+  it("locates invalid MDX names after a generated TOC and thematic break", () => {
+    const source =
+      "<!-- toc -->\n  - [One](#one)\n<!-- /toc -->\n\n---\n\n# One\n\nTime: <1 minute";
+    expect(
+      locateMarkdownError(
+        source,
+        "Error parsing markdown: Unexpected character `1` (U+0031) before name, expected a character that can start a name, such as a letter, `$`, or `_`",
+      ),
+    ).toEqual({ line: 9, column: 8 });
+  });
+
+  it("ignores valid angle destinations before the parser error", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n[x](<1 target>)\n\nTime: <1 minute";
+    expect(
+      locateMarkdownError(
+        source,
+        "Error parsing markdown: Unexpected character `1` (U+0031) before name",
+      ),
+    ).toEqual({ line: 7, column: 8 });
+  });
+
+  it("ignores invalid-name text inside a valid link title", () => {
+    const source =
+      '<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n[x](foo "<1 title ]( rest")\n\nTime: <1 minute';
+    expect(
+      locateMarkdownError(
+        source,
+        "Error parsing markdown: Unexpected character `1` (U+0031) before name",
+      ),
+    ).toEqual({ line: 7, column: 8 });
+  });
+
   it("locates an error in the original document including boundary whitespace", () => {
     expect(
       locateMarkdownError(
@@ -47,5 +80,11 @@ describe("Markdown error locations", () => {
     expect(locateMarkdownError("ordinary text", "Unknown editor failure")).toBe(
       null,
     );
+    expect(
+      locateMarkdownError(
+        "`<1inline>`\n\n```\n<1fenced>\n```\n\n\\<1escaped>",
+        "Error parsing markdown: Unexpected character `1` (U+0031) before name",
+      ),
+    ).toBeNull();
   });
 });

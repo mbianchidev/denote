@@ -497,6 +497,86 @@ function protectedMarkdownRanges(markdown: string): Array<[number, number]> {
   return mergeRanges(ranges);
 }
 
+export function protectedMarkdownDiagnosticRanges(
+  markdown: string,
+): Array<[number, number]> {
+  const ranges = protectedMarkdownRanges(markdown);
+  const root = markdownRoot(markdown);
+  if (!root) {
+    return ranges;
+  }
+  visitMarkdownAst(root, (node) => {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) {
+      return;
+    }
+    if (node.type === "definition") {
+      ranges.push([start, end]);
+      return;
+    }
+    if (node.type !== "link" && node.type !== "image") {
+      return;
+    }
+    const source = markdown.slice(start, end);
+    if (source.startsWith("<") && source.endsWith(">")) {
+      ranges.push([start, end]);
+      return;
+    }
+    const destinationStart = inlineLinkDestinationStart(source);
+    if (destinationStart !== null) {
+      ranges.push([start + destinationStart, end]);
+    }
+  });
+  return mergeRanges(ranges);
+}
+
+function inlineLinkDestinationStart(source: string): number | null {
+  const labelStart = source.startsWith("![")
+    ? 2
+    : source.startsWith("[")
+      ? 1
+      : -1;
+  if (labelStart < 0) {
+    return null;
+  }
+  let nestedBrackets = 0;
+  let codeTicks = 0;
+  for (let index = labelStart; index < source.length - 1; index += 1) {
+    if (source[index] === "`" && !isEscapedAt(source, index)) {
+      let runLength = 1;
+      while (source[index + runLength] === "`") {
+        runLength += 1;
+      }
+      if (codeTicks === 0) {
+        codeTicks = runLength;
+      } else if (codeTicks === runLength) {
+        codeTicks = 0;
+      }
+      index += runLength - 1;
+      continue;
+    }
+    if (codeTicks > 0 || isEscapedAt(source, index)) {
+      continue;
+    }
+    if (source[index] === "[") {
+      nestedBrackets += 1;
+      continue;
+    }
+    if (source[index] !== "]") {
+      continue;
+    }
+    if (nestedBrackets > 0) {
+      nestedBrackets -= 1;
+      continue;
+    }
+    if (source[index + 1] === "(") {
+      return index + 2;
+    }
+  }
+  return null;
+}
+
 function mergeRanges(ranges: Array<[number, number]>): Array<[number, number]> {
   const merged: Array<[number, number]> = [];
   for (const range of ranges.sort((left, right) => left[0] - right[0])) {

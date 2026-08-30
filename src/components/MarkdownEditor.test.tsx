@@ -285,6 +285,8 @@ describe("MarkdownEditor links", () => {
     const onMarkdownError = vi.fn();
     const onMarkdownErrorCleared = vi.fn();
     const editorRef = createRef<MDXEditorMethods>();
+    const brokenMarkdown =
+      "<!-- toc -->\n  - [One](#one)\n<!-- /toc -->\n\n---\n\n# One\n\nTime: <1 minute";
 
     function Harness() {
       const [diagnostic, setDiagnostic] =
@@ -293,7 +295,7 @@ describe("MarkdownEditor links", () => {
         <MarkdownEditor
           ref={editorRef}
           notePath="broken.md"
-          markdown={"# Heading\n\n<1bad>"}
+          markdown={brokenMarkdown}
           lineEnding="lf"
           displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
           preferredViewMode="rich-text"
@@ -318,13 +320,13 @@ describe("MarkdownEditor links", () => {
     await waitFor(() =>
       expect(onMarkdownError).toHaveBeenCalledWith(
         expect.objectContaining({
-          location: { line: 3, column: 2 },
+          location: { line: 9, column: 8 },
         }),
       ),
     );
     await waitFor(() =>
       expect(container.querySelector(".cm-diagnostic-line")).toHaveTextContent(
-        "<1bad>",
+        "Time: <1 minute",
       ),
     );
     expect(
@@ -555,6 +557,94 @@ describe("MarkdownEditor links", () => {
     expect(sourceView?.state.doc.toString()).toContain("<!-- toc -->");
     expect(sourceView?.state.doc.toString()).toContain("<!-- /toc -->");
     expect(sourceView ? undo(sourceView) : true).toBe(false);
+  });
+
+  it("renders indented generated TOCs and thematic breaks in rich mode", async () => {
+    const { container } = render(
+      <MarkdownEditor
+        notePath="work-with-me.md"
+        markdown={
+          "<!-- toc -->\n  - [TL;DR - The quick reference](#-tldr---the-quick-reference)\n  - [First Time Working Together?](#-first-time-working-together)\n  - [Communication](#-communication)\n<!-- /toc -->\n\n---\n\n# ⚡ TL;DR - The quick reference\n\n## 🤝 First Time Working Together?\n\n## 💬 Communication"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("link", { name: "TL;DR - The quick reference" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "First Time Working Together?" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Communication" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("list", { name: "Table of contents" }),
+    ).toHaveClass("denote-generated-toc");
+    expect(
+      container.querySelector(".denote-editor-content hr"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("does not label ordinary items merged beside a generated TOC", async () => {
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n- ordinary\n\n# One"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole("link", { name: "One" })).toBeInTheDocument();
+    expect(screen.getByText("ordinary")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("list", { name: "Table of contents" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("labels the document TOC instead of a matching quoted list", async () => {
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "> - [One](#one)\n\n<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n# One"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const toc = await screen.findByRole("list", {
+      name: "Table of contents",
+    });
+    expect(toc.closest("blockquote")).toBeNull();
   });
 
   it("renders repeated Markdown tags as chips with one shared vault color", async () => {

@@ -68,8 +68,9 @@ more detail and examples.
 - Keep the previous ten changed revisions.
 - Render headings, emphasis, lists, task lists, quotes, tables, thematic breaks,
   frontmatter, links, images, code, and callouts.
-- Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists in Rich mode and
-  preserve their generator markers across Rich and Source edits.
+- Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists as labeled Rich
+  mode navigation panels and preserve their generator markers across Rich and
+  Source edits.
 - Render `>![info]`, `>![warning]`, and `>![danger]` as callout boxes.
 - Copy rich-mode fenced code blocks from their inline **Copy** button.
 - Highlight supported programming and markup files by filename in the source

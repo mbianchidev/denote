@@ -199,7 +199,9 @@ Exact paired `<!-- toc -->` and `<!-- /toc -->` marker lines are accepted only
 around one root link-only list, including nested link-only items. MDXEditor
 omits comments from its rich tree, so Denote snapshots list/item order, link
 fingerprints, and neighboring block context, then restores only verified marker
-boundaries after Rich serialization. Snapshots refresh after each edit.
+boundaries after Rich serialization. The matching rendered root list receives a
+stable TOC class and accessible label; thematic breaks receive the shared editor
+separator treatment. Snapshots refresh after each edit.
 Switching to Source synchronizes the latest marker-preserving Markdown through a
 non-history CodeMirror transaction; subsequent Source edits replace or
 invalidate the snapshot so explicit marker deletion remains authoritative.
@@ -212,10 +214,12 @@ selects the matching Markdown heading line in CodeMirror source.
 
 MDX parser messages discard their underlying positional cause, so Denote
 replays the MDX JSX/Markdown tokenizer against the reported source to recover a
-verified line and column. A stable CodeMirror StateField receives diagnostics
-without remounting the editor. Parse failures temporarily select source mode
-without writing the vault-wide preference; the error banner can scroll, select,
-and focus the marked position. A reducer stores parser diagnostics by file path,
+verified line and column. For inline invalid MDX names that the replay parser
+treats as ordinary Markdown text, Denote locates the reported Unicode code point
+outside code, HTML, and escaped ranges. A stable CodeMirror StateField receives
+diagnostics without remounting the editor. Parse failures temporarily select
+source mode without writing the vault-wide preference; the error banner can
+scroll, select, and focus the marked position. A reducer stores diagnostics by path,
 so late callbacks cannot leak an old file's error into the active view. Tab
 switches hide unrelated diagnostics while preserving them for return navigation;
 closing, moving, renaming, or trashing files removes or rekeys their entries.

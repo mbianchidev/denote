@@ -1,6 +1,7 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { mdxJsx } from "micromark-extension-mdx-jsx";
 import { mdxMd } from "micromark-extension-mdx-md";
+import { protectedMarkdownDiagnosticRanges } from "./markdown";
 
 export interface MarkdownErrorLocation {
   line: number;
@@ -42,7 +43,7 @@ export function locateMarkdownError(
     }
   }
 
-  return explicitLocation(message);
+  return unexpectedMdxNameLocation(source, message) ?? explicitLocation(message);
 }
 
 export function markdownErrorSourceIdentity(source: string): string {
@@ -79,4 +80,55 @@ function positiveInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0
     ? value
     : null;
+}
+
+function unexpectedMdxNameLocation(
+  source: string,
+  message: string,
+): MarkdownErrorLocation | null {
+  const codePointMatch = message.match(
+    /Unexpected character `[^`]+` \(U\+([0-9A-F]{4,6})\) before name/i,
+  );
+  if (!codePointMatch) {
+    return null;
+  }
+  const character = String.fromCodePoint(
+    Number.parseInt(codePointMatch[1], 16),
+  );
+  const protectedRanges = protectedMarkdownDiagnosticRanges(source);
+  for (let offset = 0; offset < source.length; offset += 1) {
+    if (source[offset] !== "<" || isEscapedAt(source, offset)) {
+      continue;
+    }
+    const characterOffset = source[offset + 1] === "/" ? offset + 2 : offset + 1;
+    if (
+      !source.startsWith(character, characterOffset) ||
+      protectedRanges.some(
+        ([start, end]) => characterOffset >= start && characterOffset < end,
+      )
+    ) {
+      continue;
+    }
+    return offsetLocation(source, characterOffset);
+  }
+  return null;
+}
+
+function offsetLocation(
+  source: string,
+  offset: number,
+): MarkdownErrorLocation {
+  const lines = source.slice(0, offset).split("\n");
+  return {
+    line: lines.length,
+    column: lines[lines.length - 1].length + 1,
+  };
+}
+
+function isEscapedAt(source: string, offset: number): boolean {
+  let slashCount = 0;
+  for (let index = offset - 1; index >= 0 && source[index] === "\\"; index -= 1) {
+    slashCount += 1;
+  }
+  return slashCount % 2 === 1;
 }

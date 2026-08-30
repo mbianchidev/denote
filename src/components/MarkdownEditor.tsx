@@ -419,6 +419,7 @@ export const MarkdownEditor = forwardRef<
     }
     applyInlineTagColors(shell, tagColors);
     applyHeadingAnchors(shell);
+    applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
     const observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         if (mutation.type === "characterData") {
@@ -435,6 +436,7 @@ export const MarkdownEditor = forwardRef<
         }
       }
       applyHeadingAnchors(shell);
+      applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
     });
 
     observer.observe(shell, {
@@ -610,6 +612,72 @@ function applyHeadingAnchors(root: HTMLElement) {
   )) {
     heading.id = nextHeadingSlug(renderedHeadingText(heading), usedSlugs);
   }
+}
+
+function applyGeneratedTocPresentation(
+  root: HTMLElement,
+  snapshot: ReturnType<typeof captureTocMarkers>,
+) {
+  const editor = root.querySelector<HTMLElement>(".denote-editor-content");
+  if (!editor) {
+    return;
+  }
+  for (const list of editor.querySelectorAll<HTMLElement>(
+    "[data-denote-generated-toc]",
+  )) {
+    list.classList.remove("denote-generated-toc");
+    list.removeAttribute("data-denote-generated-toc");
+    list.removeAttribute("aria-label");
+  }
+  const lists = [...editor.children].filter(
+    (
+      child,
+    ): child is HTMLUListElement | HTMLOListElement =>
+      child instanceof HTMLUListElement || child instanceof HTMLOListElement,
+  );
+  const claimed = new Set<HTMLElement>();
+  for (const block of snapshot.blocks) {
+    const ordinal = lists[block.listOrdinal];
+    const list =
+      ordinal &&
+      !claimed.has(ordinal) &&
+      sameRenderedToc(ordinal, block.items.length, block.links)
+        ? ordinal
+        : lists.find(
+            (candidate) =>
+              !claimed.has(candidate) &&
+              sameRenderedToc(
+                candidate,
+                block.items.length,
+                block.links,
+              ),
+          );
+    if (!list) {
+      continue;
+    }
+    claimed.add(list);
+    list.classList.add("denote-generated-toc");
+    list.setAttribute("data-denote-generated-toc", "");
+    list.setAttribute("aria-label", "Table of contents");
+  }
+}
+
+function sameRenderedToc(
+  list: HTMLElement,
+  expectedItemCount: number,
+  expectedLinks: string[],
+): boolean {
+  const itemCount = [...list.children].filter(
+    (child) => child instanceof HTMLLIElement,
+  ).length;
+  const links = [...list.querySelectorAll<HTMLAnchorElement>("a[href]")].map(
+    (anchor) => anchor.getAttribute("href") ?? "",
+  );
+  return (
+    itemCount === expectedItemCount &&
+    links.length === expectedLinks.length &&
+    links.every((link, index) => link === expectedLinks[index])
+  );
 }
 
 function renderedHeadingText(heading: HTMLElement): string {
