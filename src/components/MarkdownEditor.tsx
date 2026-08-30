@@ -80,7 +80,6 @@ import { denoteHashtagPlugin } from "../lib/hashtagPlugin";
 import { shouldOpenLinkOnClick } from "../lib/links";
 import {
   locateMarkdownError,
-  markdownErrorSourceIdentity,
   type MarkdownErrorLocation,
 } from "../lib/markdownErrors";
 import {
@@ -90,6 +89,7 @@ import {
 import {
   applyTocMarkerViewChange,
   captureTocMarkers,
+  captureThematicBreaks,
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
@@ -99,6 +99,7 @@ import {
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
+  restoreThematicBreaks,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
 import {
@@ -314,6 +315,12 @@ export const MarkdownEditor = forwardRef<
   if (tocMarkersRef.current === null) {
     tocMarkersRef.current = captureTocMarkers(markdown);
   }
+  const thematicBreaksRef = useRef<
+    ReturnType<typeof captureThematicBreaks> | null
+  >(null);
+  if (thematicBreaksRef.current === null) {
+    thematicBreaksRef.current = captureThematicBreaks(markdown);
+  }
   const plugins = useMemo(
     () => [
       headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4, 5, 6] }),
@@ -342,7 +349,12 @@ export const MarkdownEditor = forwardRef<
           ) {
             return source;
           }
-          return api.readImageDataUrl(source, notePath);
+          try {
+            return await api.readImageDataUrl(source, notePath);
+          } catch (caught) {
+            onError(errorMessage(caught));
+            throw caught;
+          }
         },
         allowSetImageDimensions: true,
       }),
@@ -454,6 +466,7 @@ export const MarkdownEditor = forwardRef<
       forceSource,
       initialViewMode,
       notePath,
+      onError,
       onImageUpload,
       onMarkdownErrorCleared,
       onViewModeChange,
@@ -500,31 +513,20 @@ export const MarkdownEditor = forwardRef<
     if (!shell) {
       return;
     }
-    applyInlineTagColors(shell, tagColors);
+    applyTagPills(shell, tagColors);
     applyHeadingAnchors(shell);
     applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
-    const observer = new MutationObserver((mutations) => {
-      for (const mutation of mutations) {
-        if (mutation.type === "characterData") {
-          applyInlineTagColor(mutation.target.parentElement, tagColors);
-          continue;
-        }
-        for (const node of mutation.addedNodes) {
-          if (node instanceof HTMLElement) {
-            applyInlineTagColor(node, tagColors);
-            applyInlineTagColors(node, tagColors);
-          } else {
-            applyInlineTagColor(node.parentElement, tagColors);
-          }
-        }
-      }
+    normalizeRenderedImageDimensions(shell);
+    const observer = new MutationObserver(() => {
+      applyTagPills(shell, tagColors);
       applyHeadingAnchors(shell);
       applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
+      normalizeRenderedImageDimensions(shell);
     });
 
     observer.observe(shell, {
       attributes: true,
-      attributeFilter: ["alt"],
+      attributeFilter: ["alt", "height", "width"],
       childList: true,
       subtree: true,
       characterData: true,
@@ -631,9 +633,18 @@ export const MarkdownEditor = forwardRef<
         spellCheck
         onChange={(value, initialNormalize) => {
           if (!initialNormalize) {
-            const restoredMarkdown = restoreRichTextTagSyntax(
+            let restoredMarkdown = restoreRichTextTagSyntax(
               directivesToCallouts(value),
             );
+            if (activeViewModeRef.current === "rich-text") {
+              restoredMarkdown = restoreThematicBreaks(
+                restoredMarkdown,
+                thematicBreaksRef.current!,
+              );
+            } else {
+              thematicBreaksRef.current =
+                captureThematicBreaks(restoredMarkdown);
+            }
             const markerUpdate = applyTocMarkerViewChange(
               activeViewModeRef.current === "rich-text"
                 ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
@@ -642,6 +653,9 @@ export const MarkdownEditor = forwardRef<
               activeViewModeRef.current,
             );
             tocMarkersRef.current = markerUpdate.snapshot;
+            thematicBreaksRef.current = captureThematicBreaks(
+              markerUpdate.markdown,
+            );
             onChange(
               restoreMarkdownBoundaryWhitespace(
                 markerUpdate.markdown,
@@ -651,18 +665,10 @@ export const MarkdownEditor = forwardRef<
           }
         }}
         onError={({ error, source }) => {
-          const documentSource =
-            markdownErrorSourceIdentity(source) ===
-            markdownErrorSourceIdentity(editorSource)
-              ? markdown
-              : restoreMarkdownBoundaryWhitespace(
-                  directivesToCallouts(source),
-                  boundaryWhitespace,
-                );
           const diagnostic = {
             message: error,
             source,
-            location: locateMarkdownError(documentSource, error),
+            location: locateMarkdownError(source, error),
           };
           if (onMarkdownError) {
             onMarkdownError(diagnostic);
@@ -708,6 +714,22 @@ function applyHeadingAnchors(root: HTMLElement) {
     ".denote-editor-content h1, .denote-editor-content h2, .denote-editor-content h3, .denote-editor-content h4, .denote-editor-content h5, .denote-editor-content h6",
   )) {
     heading.id = nextHeadingSlug(renderedHeadingText(heading), usedSlugs);
+  }
+}
+
+function normalizeRenderedImageDimensions(root: HTMLElement) {
+  for (const image of root.querySelectorAll<HTMLImageElement>(
+    'img[width="inherit"], img[height="inherit"]',
+  )) {
+    image
+      .closest<HTMLElement>('[data-editor-block-type="image"]')
+      ?.classList.add("denote-image-block");
+    if (image.getAttribute("width") === "inherit") {
+      image.removeAttribute("width");
+    }
+    if (image.getAttribute("height") === "inherit") {
+      image.removeAttribute("height");
+    }
   }
 }
 
@@ -830,12 +852,68 @@ function sourceEditorView(shell: HTMLElement): EditorView | null {
   return editorElement ? EditorView.findFromDOM(editorElement) : null;
 }
 
-function applyInlineTagColors(root: HTMLElement, colors: TagColorMap) {
-  for (const element of root.querySelectorAll<HTMLElement>(
-    ".denote-inline-tag",
+const TAG_ONLY_LINE =
+  /^\s*#[\p{L}\p{N}\p{M}_/-]+(?:[ \t]+#[\p{L}\p{N}\p{M}_/-]+)*\s*$/u;
+
+function applyTagPills(root: HTMLElement, colors: TagColorMap) {
+  const hashtags = [
+    ...root.querySelectorAll<HTMLElement>(".denote-hashtag"),
+  ];
+  for (const element of hashtags) {
+    element.classList.remove("denote-inline-tag");
+    delete element.dataset.tag;
+    element.style.removeProperty("--tag-color");
+  }
+  const editor = root.querySelector<HTMLElement>(".denote-editor-content");
+  const finalBlock = editor ? lastContentBlock(editor) : null;
+  if (!(finalBlock instanceof HTMLParagraphElement)) {
+    return;
+  }
+  const lines = renderedLineText(finalBlock).split("\n");
+  const lineText = lines[lines.length - 1] ?? "";
+  if (!TAG_ONLY_LINE.test(lineText)) {
+    return;
+  }
+  const breaks = [...finalBlock.querySelectorAll("br")];
+  const lastBreak = breaks[breaks.length - 1];
+  for (const element of finalBlock.querySelectorAll<HTMLElement>(
+    ".denote-hashtag",
   )) {
+    if (
+      lastBreak &&
+      !(
+        lastBreak.compareDocumentPosition(element) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+      )
+    ) {
+      continue;
+    }
+    element.classList.add("denote-inline-tag");
     applyInlineTagColor(element, colors);
   }
+}
+
+function lastContentBlock(editor: HTMLElement): HTMLElement | null {
+  return (
+    [...editor.children]
+      .reverse()
+      .find(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement &&
+          (renderedLineText(child).trim() !== "" ||
+            child.matches("hr, pre, table, ul, ol, blockquote")),
+      ) ?? null
+  );
+}
+
+function renderedLineText(node: Node): string {
+  if (node instanceof Text) {
+    return node.data;
+  }
+  if (node instanceof HTMLBRElement) {
+    return "\n";
+  }
+  return [...node.childNodes].map(renderedLineText).join("");
 }
 
 function applyInlineTagColor(

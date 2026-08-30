@@ -1,7 +1,5 @@
 # Getting started
 
-#guide #basics
-
 ## What is a vault?
 
 A vault is any folder you choose. Denote reads and writes the files in place; it
@@ -33,3 +31,5 @@ operating system Trash. The current vault and built-in guide cannot be removed.
 - Use the sun/moon control to switch themes.
 
 [Next: Writing and formatting](<Writing and formatting.md>)
+
+#guide #basics

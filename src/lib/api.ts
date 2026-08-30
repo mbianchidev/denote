@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   HistoryRevision,
   FileEncoding,
+  FileNode,
   FileLineEnding,
   DocumentBatch,
   EncryptionSetupResult,
@@ -15,6 +16,7 @@ import type {
   SaveOutcome,
   TabSessionState,
   TagColor,
+  TrashItem,
   WorkspaceSnapshot,
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
@@ -84,7 +86,7 @@ export const api = {
     name: string,
     directory: boolean,
   ) =>
-    invoke<string>("create_entry", {
+    invoke<FileNode>("create_entry", {
       parentPath,
       name,
       directory,
@@ -95,9 +97,9 @@ export const api = {
     invoke<MoveEntryResult>("move_entry", { path, targetParentPath }),
   finishLinkRewrite: (rewriteToken: string) =>
     invoke<void>("finish_link_rewrite", { rewriteToken }),
-  trashEntry: (path: string) => invoke<void>("trash_entry", { path }),
+  trashEntry: (path: string) => invoke<TrashItem>("trash_entry", { path }),
   restoreTrashItem: (itemId: number) =>
-    invoke<string>("restore_trash_item", { itemId }),
+    invoke<FileNode>("restore_trash_item", { itemId }),
   emptyTrash: () => invoke<number>("empty_trash"),
   completeExit: () => invoke<void>("complete_exit"),
   setBookmark: (path: string, bookmarked: boolean) =>

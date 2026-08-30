@@ -60,6 +60,12 @@ export class VaultSearchIndex {
     );
   }
 
+  removePaths(remove: (path: string) => boolean): void {
+    this.documents = this.documents.filter(
+      (document) => !remove(document.path),
+    );
+  }
+
   async rebuild(documents: SearchDocument[]): Promise<void> {
     this.documents = documents;
     this.database = create({ schema: SEARCH_SCHEMA });

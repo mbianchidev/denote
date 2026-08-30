@@ -1,7 +1,5 @@
 # Search and replace
 
-#guide #search
-
 ## Search
 
 Press `Command-F` on macOS or `Ctrl-F` on Windows and Linux. Denote opens search,
@@ -57,3 +55,5 @@ target the current file or the vault. Vault-wide replacement shows selectable
 before/after previews and checks that files did not change after preview.
 
 [Next: Files, tabs, and vaults](<Files, tabs, and vaults.md>)
+
+#guide #search

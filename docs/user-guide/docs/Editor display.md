@@ -1,7 +1,5 @@
 # Editor display
 
-#guide #editor
-
 Open **Editor settings** from the editor toolbar. Preferences persist across
 launches.
 
@@ -52,3 +50,5 @@ an exact domain at any time. If `*` is shown, every external web domain is
 allowed; remove it or clear permissions to restore confirmation prompts.
 
 [Next: Keyboard shortcuts](<Keyboard shortcuts.md>)
+
+#guide #editor

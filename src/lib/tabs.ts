@@ -138,6 +138,34 @@ export function removeTabNavigationPaths(
   };
 }
 
+export function removeTabsForPaths(
+  tabs: EditorTab[],
+  activePath: string | null,
+  remove: (path: string) => boolean,
+): {
+  tabs: EditorTab[];
+  removedPaths: string[];
+  activePath: string | null;
+} {
+  const activeIndex = tabs.findIndex((tab) => tab.path === activePath);
+  const removedPaths = tabs
+    .filter((tab) => remove(tab.path))
+    .map((tab) => tab.path);
+  const remaining = tabs
+    .filter((tab) => !remove(tab.path))
+    .map((tab) => removeTabNavigationPaths(tab, remove));
+  return {
+    tabs: remaining,
+    removedPaths,
+    activePath:
+      activePath && remove(activePath)
+        ? (remaining[
+            Math.min(Math.max(activeIndex, 0), remaining.length - 1)
+          ]?.path ?? null)
+        : activePath,
+  };
+}
+
 function pushTabNavigation(
   tab: EditorTab,
   path: string,

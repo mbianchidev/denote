@@ -5,6 +5,7 @@ import {
   buildTabSessionState,
   moveTabInLayout,
   placeOpenedTab,
+  removeTabsForPaths,
   removeTabNavigationPaths,
   rekeyTabNavigation,
   restoreTabHistoryTarget,
@@ -141,6 +142,29 @@ describe("tab placement", () => {
         (path) => path.startsWith("deleted/"),
       ).navigationIndex,
     ).toBe(0);
+  });
+
+  it("closes trashed tabs, prunes history, and selects an adjacent tab", () => {
+    const result = removeTabsForPaths(
+      [
+        tab("before.md"),
+        {
+          ...tab("folder/current.md"),
+          navigationHistory: ["before.md", "folder/current.md"],
+          navigationIndex: 1,
+        },
+        tab("after.md"),
+      ],
+      "folder/current.md",
+      (path) => path.startsWith("folder/"),
+    );
+
+    expect(result.tabs.map(({ path }) => path)).toEqual([
+      "before.md",
+      "after.md",
+    ]);
+    expect(result.removedPaths).toEqual(["folder/current.md"]);
+    expect(result.activePath).toBe("after.md");
   });
 
   it("fills an explicit blank tab and appends only when no tab is active", () => {

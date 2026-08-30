@@ -1,11 +1,16 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 const host = process.env.TAURI_DEV_HOST;
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
+const require = createRequire(import.meta.url);
+const workerSafeNamedCharacterDecoder = require.resolve(
+  "decode-named-character-reference",
+);
 const packageVersion = (
   JSON.parse(
     readFileSync(new URL("./package.json", import.meta.url), "utf8"),
@@ -70,8 +75,20 @@ function resolveDirtyBuild(): boolean {
 }
 
 // https://vite.dev/config/
-export default defineConfig(async () => ({
+export default defineConfig(async ({ command }) => ({
   plugins: [react()],
+  resolve:
+    command === "serve"
+      ? {
+          alias: {
+            "decode-named-character-reference":
+              workerSafeNamedCharacterDecoder,
+          },
+        }
+      : undefined,
+  worker: {
+    plugins: () => [workerSafeMarkdownEntities()],
+  },
   define: {
     __DENOTE_VERSION__: JSON.stringify(tauriVersion),
     __DENOTE_COMMIT_HASH__: JSON.stringify(commitHash),
@@ -105,3 +122,15 @@ export default defineConfig(async () => ({
     css: true,
   },
 }));
+
+function workerSafeMarkdownEntities() {
+  return {
+    name: "worker-safe-markdown-entities",
+    enforce: "pre" as const,
+    resolveId(source: string) {
+      return source === "decode-named-character-reference"
+        ? workerSafeNamedCharacterDecoder
+        : null;
+    },
+  };
+}

@@ -138,7 +138,7 @@ components:
     padding: "3px 7px"
 ---
 
-# Design System: Denote
+# Design system: Denote
 
 ## Overview
 
@@ -264,7 +264,8 @@ semantic meaning.
   the theme surface or text tokens, preserving contrast in both themes.
 - **State:** Used for tags and filters, never as a generic container. A tag keeps
   one stable color throughout a vault, and the document tag bar exposes a
-  keyboard-focusable native color picker.
+  keyboard-focusable native color picker. In the editor, pills are reserved for
+  a tag-only final line.
 
 ### Inputs / Fields
 
@@ -341,12 +342,11 @@ source code so edge cases remain easy to exercise.
 Callouts are tonal boxes inside the document. Semantic color appears in the
 border and low-chroma background; body text keeps normal reading contrast.
 
-### Generated Tables of Contents
+### Generated tables of contents
 
-Canonical comment-delimited TOCs render as ordinary nested link lists so they
-remain calm, readable, and keyboard operable. Marker comments stay invisible in
-Rich mode but remain present in Source and saved Markdown. Other comments do not
-receive this exception.
+Canonical comment-delimited TOCs render as tables of contents with ordinary
+nested links. Marker comments stay invisible in Rich mode but remain present in
+Source and saved Markdown. Other comments do not receive this exception.
 
 ### Code Blocks
 

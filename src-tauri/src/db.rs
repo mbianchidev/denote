@@ -717,6 +717,27 @@ pub fn set_workspace_tree_cache_if_current(
     Ok(true)
 }
 
+pub fn set_workspace_tree_cache(
+    connection: &mut Connection,
+    vault_id: i64,
+    tree: &[FileNode],
+) -> AppResult<()> {
+    let serialized = serde_json::to_string(tree).map_err(|error| {
+        AppError::State(format!("Unable to serialize the vault tree cache: {error}"))
+    })?;
+    connection.execute(
+        r#"
+        INSERT INTO workspace_cache(vault_id, tree_json, updated_at)
+        VALUES (?1, ?2, ?3)
+        ON CONFLICT(vault_id) DO UPDATE SET
+          tree_json = excluded.tree_json,
+          updated_at = excluded.updated_at
+        "#,
+        params![vault_id, serialized, now()],
+    )?;
+    Ok(())
+}
+
 pub fn clear_workspace_tree_cache(connection: &Connection, vault_id: i64) -> AppResult<()> {
     connection.execute(
         "DELETE FROM workspace_cache WHERE vault_id = ?1",
@@ -1316,6 +1337,31 @@ pub fn list_trash(connection: &Connection, vault_id: i64) -> AppResult<Vec<Trash
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+pub fn trash_item(
+    connection: &Connection,
+    vault_id: i64,
+    item_id: i64,
+) -> AppResult<Option<TrashItem>> {
+    Ok(connection
+        .query_row(
+            r#"
+            SELECT id, original_path, deleted_at, is_directory
+            FROM trash_items
+            WHERE id = ?1 AND vault_id = ?2 AND restored_at IS NULL
+            "#,
+            params![item_id, vault_id],
+            |row| {
+                Ok(TrashItem {
+                    id: row.get(0)?,
+                    original_path: row.get(1)?,
+                    deleted_at: row.get(2)?,
+                    is_directory: row.get::<_, i64>(3)? != 0,
+                })
+            },
+        )
+        .optional()?)
+}
+
 pub fn trash_path(
     connection: &Connection,
     vault_id: i64,
@@ -1701,6 +1747,7 @@ mod tests {
             modified_at: None,
             bookmarked: false,
             pinned: false,
+            position: None,
         }];
         let newer_tree = vec![FileNode {
             path: "new.md".to_string(),
@@ -1711,6 +1758,7 @@ mod tests {
             modified_at: None,
             bookmarked: false,
             pinned: false,
+            position: None,
         }];
 
         assert!(

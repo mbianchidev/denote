@@ -14,51 +14,51 @@ const TEST_FIXTURE_MARKER: &str = ".denote/fixtures/test-v1";
 const SEED_FILES: &[(&str, &[u8])] = &[
     (
         "Welcome.md",
-        include_bytes!("../resources/default-vault/Welcome.md"),
+        include_bytes!("../../docs/user-guide/Welcome.md"),
     ),
     (
         "docs/Getting started.md",
-        include_bytes!("../resources/default-vault/docs/Getting started.md"),
+        include_bytes!("../../docs/user-guide/docs/Getting started.md"),
     ),
     (
         "docs/Feature reference.md",
-        include_bytes!("../resources/default-vault/docs/Feature reference.md"),
+        include_bytes!("../../docs/user-guide/docs/Feature reference.md"),
     ),
     (
         "docs/Writing and formatting.md",
-        include_bytes!("../resources/default-vault/docs/Writing and formatting.md"),
+        include_bytes!("../../docs/user-guide/docs/Writing and formatting.md"),
     ),
     (
         "docs/Search and replace.md",
-        include_bytes!("../resources/default-vault/docs/Search and replace.md"),
+        include_bytes!("../../docs/user-guide/docs/Search and replace.md"),
     ),
     (
         "docs/Files, tabs, and vaults.md",
-        include_bytes!("../resources/default-vault/docs/Files, tabs, and vaults.md"),
+        include_bytes!("../../docs/user-guide/docs/Files, tabs, and vaults.md"),
     ),
     (
         "docs/History, trash, and recovery.md",
-        include_bytes!("../resources/default-vault/docs/History, trash, and recovery.md"),
+        include_bytes!("../../docs/user-guide/docs/History, trash, and recovery.md"),
     ),
     (
         "docs/Vault encryption.md",
-        include_bytes!("../resources/default-vault/docs/Vault encryption.md"),
+        include_bytes!("../../docs/user-guide/docs/Vault encryption.md"),
     ),
     (
         "docs/Editor display.md",
-        include_bytes!("../resources/default-vault/docs/Editor display.md"),
+        include_bytes!("../../docs/user-guide/docs/Editor display.md"),
     ),
     (
         "docs/Keyboard shortcuts.md",
-        include_bytes!("../resources/default-vault/docs/Keyboard shortcuts.md"),
+        include_bytes!("../../docs/user-guide/docs/Keyboard shortcuts.md"),
     ),
     (
         "docs/Optional plugins.md",
-        include_bytes!("../resources/default-vault/docs/Optional plugins.md"),
+        include_bytes!("../../docs/user-guide/docs/Optional plugins.md"),
     ),
     (
         "assets/orbit.svg",
-        include_bytes!("../resources/default-vault/assets/orbit.svg"),
+        include_bytes!("../../docs/user-guide/assets/orbit.svg"),
     ),
 ];
 const TEST_FILES: &[(&str, &[u8])] = &[

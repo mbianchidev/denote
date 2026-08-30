@@ -25,6 +25,8 @@ directory is written to a random staging path and renamed into place, so a crash
 cannot expose a partial guide. Existing files are never merged or overwritten.
 The vault is registered as the built-in default, used when no valid last vault
 exists, and its `Welcome.md` page opens after the workspace is ready.
+The canonical seed content lives under `docs/user-guide/` and is embedded by
+`src-tauri/src/default_vault.rs`.
 
 A versioned marker under `.denote/fixtures` adds the multilingual `test` folder
 once to older unencrypted Welcome vaults. Existing `test` entries are preserved,
@@ -239,10 +241,10 @@ own scroll containers. Long files therefore scroll independently of caret
 movement while the workspace shell remains fixed.
 
 Lexical's hashtag entity support recognizes the same NFC-normalized Unicode,
-slash, underscore, and hyphen syntax as search indexing. Inline and fenced code
-plus escaped hashes remain literal rather than becoming tags. Hashtag nodes
-export through the ordinary text visitor, and Denote restores Markdown's
-line-leading tag syntax after rich export, so visual pills never alter source.
+slash, underscore, and hyphen syntax as search indexing, but only on a tag-only
+final content line. Headings, tables of contents, prose, inline and fenced code,
+and escaped hashes remain literal. Hashtag nodes export through the ordinary
+text visitor, so visual pills never alter source.
 SQLite stores only explicit per-vault color overrides; deterministic palette
 colors cover tags without an override. CSS mixes the chosen color into the
 current theme surface while retaining normal theme text, keeping dark and light
@@ -337,6 +339,13 @@ conflicting rewrites are surfaced without reverting the completed filesystem
 move. A dedicated cross-process link-rewrite lease starts before the filesystem
 move and remains held through those saves, preventing another Denote process
 from interleaving a second topology change.
+
+Create, trash, and restore commands return the changed file node or trash
+record. The frontend updates the tree, Trash view, open tabs, navigation
+history, and expanded folders immediately after the filesystem mutation. Rust
+updates the cached tree in the same operation, while the slower search rebuild
+runs after the workspace lock is released. Vault switches wait for an active
+mutation instead of failing with a workspace-busy error.
 
 Each open tab keeps an in-memory path history and cursor. Ordinary navigation
 appends after the cursor and truncates its forward branch. Back/forward loads use

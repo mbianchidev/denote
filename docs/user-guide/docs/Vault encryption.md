@@ -1,7 +1,5 @@
 # Vault encryption
 
-#guide #security
-
 Vault encryption is optional. It protects file contents, Denote Trash, and saved
 revision contents while leaving filenames and folder structure visible.
 
@@ -30,3 +28,5 @@ Encryption does not hide paths, sizes, timestamps, or operational metadata, and
 cannot erase plaintext from backups or storage snapshots created earlier.
 
 [Next: Editor display](<Editor display.md>)
+
+#guide #security

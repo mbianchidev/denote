@@ -64,6 +64,63 @@ export function markdownEditorSource(markdown: string): string {
   return calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown));
 }
 
+export interface ThematicBreakSnapshot {
+  delimiters: string[];
+}
+
+export function captureThematicBreaks(markdown: string): ThematicBreakSnapshot {
+  return {
+    delimiters: thematicBreakRanges(markdown).map(({ delimiter }) => delimiter),
+  };
+}
+
+export function restoreThematicBreaks(
+  markdown: string,
+  snapshot: ThematicBreakSnapshot,
+): string {
+  const ranges = thematicBreakRanges(markdown);
+  if (ranges.length !== snapshot.delimiters.length) {
+    return markdown;
+  }
+  let restored = markdown;
+  for (let index = ranges.length - 1; index >= 0; index -= 1) {
+    const range = ranges[index];
+    const delimiter = snapshot.delimiters[index];
+    restored = `${restored.slice(0, range.start)}${delimiter}${restored.slice(
+      range.end,
+    )}`;
+  }
+  return restored;
+}
+
+function thematicBreakRanges(
+  markdown: string,
+): Array<{ start: number; end: number; delimiter: string }> {
+  const root = markdownRoot(markdown);
+  if (!root) {
+    return [];
+  }
+  const frontmatterEnd =
+    markdown.match(/^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1(?=\r?\n|$)/)?.[0]
+      .length ?? 0;
+  const ranges: Array<{ start: number; end: number; delimiter: string }> = [];
+  visitMarkdownAst(root, (node) => {
+    if (node.type !== "thematicBreak") {
+      return;
+    }
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined || start < frontmatterEnd) {
+      return;
+    }
+    const delimiter = markdown.slice(start, end).trim();
+    if (/^(?:-{3,}|\*{3,}|_{3,})$/.test(delimiter)) {
+      ranges.push({ start, end, delimiter });
+    }
+  });
+  return ranges;
+}
+
 export function directivesToCallouts(markdown: string): string {
   const lines = markdown.split("\n");
   const output: string[] = [];

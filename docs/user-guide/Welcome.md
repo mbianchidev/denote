@@ -2,14 +2,13 @@
 
 ![Orbiting note](assets/orbit.svg)
 
-#welcome #denote #getting-started
-
 <!-- toc -->
 - [What is Denote](#what-is-denote)
 - [Try a little of everything](#try-a-little-of-everything)
 - [Syntax highlighting](#syntax-highlighting)
 - [Read the guide](#read-the-guide)
 - [Test heading navigation](#test-heading-navigation)
+- [Tags](#tags)
 <!-- /toc -->
 
 >![info]
@@ -92,6 +91,14 @@ Use the generated table of contents at the top of this page, or follow
 heading navigation. [Try a little of everything](#try-a-little-of-everything)
 tests a same-file-only anchor.
 
+## Tags
+
+Keep document tags on a tag-only final line. Rich mode renders that last line as
+colored pills. Hashtags in headings, tables of contents, prose, code, or earlier
+lines remain ordinary text.
+
 ---
 
 Unicode and emoji can live together: English · 日本語 · Русский · Español · 🎵
+
+#welcome #denote #getting-started #project/日本語

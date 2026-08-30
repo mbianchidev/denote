@@ -654,7 +654,7 @@ pub fn create_entry(
     parent_path: String,
     name: String,
     directory: bool,
-) -> AppResult<String> {
+) -> AppResult<crate::models::FileNode> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     let key = active_key(&state, &root)?;
@@ -716,14 +716,20 @@ pub fn finish_link_rewrite(
 }
 
 #[tauri::command]
-pub fn trash_entry(state: State<'_, AppState>, path: String) -> AppResult<()> {
+pub fn trash_entry(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<crate::models::TrashItem> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::trash_entry(&state.db_path, &root.to_string_lossy(), &path)
 }
 
 #[tauri::command]
-pub fn restore_trash_item(state: State<'_, AppState>, item_id: i64) -> AppResult<String> {
+pub fn restore_trash_item(
+    state: State<'_, AppState>,
+    item_id: i64,
+) -> AppResult<crate::models::FileNode> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::restore_trash_item(&state.db_path, &root.to_string_lossy(), item_id)
