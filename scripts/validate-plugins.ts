@@ -296,6 +296,15 @@ function readCatalog(): PluginCatalogEntry[] {
   for (const [index, entry] of value.entries()) {
     try {
       assertValidPluginCatalogEntry(entry);
+      if (
+        !/^https:\/\/raw\.githubusercontent\.com\/mbianchidev\/denote\/[0-9a-f]{40}\/plugin-artifacts\/[^/]+\.tgz$/.test(
+          entry.artifact.url,
+        )
+      ) {
+        throw new Error(
+          "Artifact URL must use an immutable 40-character commit SHA.",
+        );
+      }
       entries.push(entry);
     } catch (error) {
       errors.push(`catalog[${index}]: ${errorMessage(error)}`);

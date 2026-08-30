@@ -42,10 +42,17 @@ integrity metadata with:
 npm run package:plugins
 ```
 
-Commit the resulting files under `plugin-artifacts/` with the matching catalog
-change. CI rebuilds every plugin, validates the real entrypoint, checks the
-committed archive contents, and verifies its catalog size and SHA-256 digest on
-all supported platforms.
+Commit the resulting files under `plugin-artifacts/`, then pin a new artifact
+URL to that commit:
+
+```bash
+DENOTE_PLUGIN_ARTIFACT_REF=$(git rev-parse HEAD) npm run package:plugins
+```
+
+Commit the catalog-only pin separately. Existing versions retain their immutable
+URL when repackaged. CI rebuilds every plugin, validates the real entrypoint,
+checks the committed archive contents, requires a 40-character commit pin, and
+verifies catalog size and SHA-256 digest on all supported platforms.
 
 ## Build a desktop bundle
 

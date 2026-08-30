@@ -23,9 +23,7 @@ const pluginsRoot = join(root, "packages", "plugins");
 const artifactsRoot = join(root, "plugin-artifacts");
 const catalogPath = join(pluginsRoot, "catalog.json");
 const checkOnly = process.argv.includes("--check");
-const artifactRef =
-  process.env.DENOTE_PLUGIN_ARTIFACT_REF ??
-  "cp-desktop-plugin-ecosystem-foundation";
+const artifactRef = process.env.DENOTE_PLUGIN_ARTIFACT_REF;
 const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => join(pluginsRoot, entry.name))
@@ -113,7 +111,9 @@ try {
         readFileSync(join(pluginDirectory, manifest.documentation), "utf8"),
       );
       entry.artifact = {
-        url: `https://raw.githubusercontent.com/mbianchidev/denote/${artifactRef}/plugin-artifacts/${artifactName}`,
+        url: artifactRef
+          ? `https://raw.githubusercontent.com/mbianchidev/denote/${artifactRef}/plugin-artifacts/${artifactName}`
+          : retainedArtifactUrl(entry.artifact.url, artifactName),
         sha256,
         sizeBytes,
       };
@@ -129,4 +129,13 @@ try {
 
 function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n");
+}
+
+function retainedArtifactUrl(current: string, artifactName: string): string {
+  if (current.endsWith(`/plugin-artifacts/${artifactName}`)) {
+    return current;
+  }
+  throw new Error(
+    `Set DENOTE_PLUGIN_ARTIFACT_REF to the commit containing ${artifactName}.`,
+  );
 }

@@ -31,7 +31,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://raw.githubusercontent.com/mbianchidev/denote/cp-desktop-plugin-ecosystem-foundation/plugin-artifacts/denote.reference-0.1.0.tgz",
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/35072b99f07973821834e1d43d5a3e6e15cf0b90/plugin-artifacts/denote.reference-0.1.0.tgz",
       "sha256": "7f7f68838dd2ea118ea4dc9714172db63fc790a71d0c80d99e334b0b95b657f7",
       "sizeBytes": 14353
     },
