@@ -246,13 +246,16 @@ export function SearchPanel({
             <button
               type="button"
               className="search-result"
-              key={result.document.path}
+              key={`${result.document.path}:${result.match?.from ?? "file"}:${result.match?.to ?? "file"}`}
               onClick={() => onOpenResult(result)}
             >
               <span className="search-result__title">
                 {result.document.title}
               </span>
-              <span className="search-result__path">{result.document.path}</span>
+              <span className="search-result__path">
+                {result.document.path}
+                {result.occurrence ? ` · Match ${result.occurrence}` : ""}
+              </span>
               <span className="search-result__snippet">{result.snippet}</span>
               {result.document.tags.length > 0 ? (
                 <span className="tag-row" aria-label="Tags">

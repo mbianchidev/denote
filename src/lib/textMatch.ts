@@ -3,15 +3,19 @@ import type { SearchMatch } from "../types";
 export function findCaseInsensitiveMatches(
   source: string,
   query: string,
+  limit = Number.POSITIVE_INFINITY,
 ): SearchMatch[] {
   const foldedQuery = query.toLocaleLowerCase();
-  if (!foldedQuery) {
+  if (!foldedQuery || limit <= 0) {
     return [];
   }
   const foldedSource = source.toLocaleLowerCase();
   const foldedMatches: SearchMatch[] = [];
   let offset = 0;
-  while (offset <= foldedSource.length - foldedQuery.length) {
+  while (
+    foldedMatches.length < limit &&
+    offset <= foldedSource.length - foldedQuery.length
+  ) {
     const foldedIndex = foldedSource.indexOf(foldedQuery, offset);
     if (foldedIndex < 0) {
       break;
@@ -23,33 +27,6 @@ export function findCaseInsensitiveMatches(
     offset = foldedIndex + foldedQuery.length;
   }
   return mapFoldedRangesToSource(source, foldedMatches);
-}
-
-export function findEarliestCaseInsensitiveMatch(
-  source: string,
-  queries: string[],
-): SearchMatch | null {
-  const foldedSource = source.toLocaleLowerCase();
-  let earliest: SearchMatch | null = null;
-  for (const query of queries) {
-    const foldedQuery = query.toLocaleLowerCase();
-    if (!foldedQuery) {
-      continue;
-    }
-    const from = foldedSource.indexOf(foldedQuery);
-    const to = from + foldedQuery.length;
-    if (
-      from >= 0 &&
-      (earliest === null ||
-        from < earliest.from ||
-        (from === earliest.from && to - from > earliest.to - earliest.from))
-    ) {
-      earliest = { from, to };
-    }
-  }
-  return earliest
-    ? (mapFoldedRangesToSource(source, [earliest])[0] ?? null)
-    : null;
 }
 
 function mapFoldedRangesToSource(

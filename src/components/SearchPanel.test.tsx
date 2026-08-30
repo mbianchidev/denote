@@ -6,6 +6,7 @@ import {
   createEmptySearchFilters,
   type SearchFilters,
 } from "../lib/search";
+import type { SearchResult } from "../types";
 import { SearchPanel } from "./SearchPanel";
 
 describe("SearchPanel", () => {
@@ -55,6 +56,7 @@ describe("SearchPanel", () => {
       score: 1,
       snippet: "A synthetic needle example.",
       match: { from: 12, to: 18 },
+      occurrence: 1,
     };
 
     render(
@@ -76,6 +78,61 @@ describe("SearchPanel", () => {
     await user.click(screen.getByRole("button", { name: /Guide/ }));
 
     expect(onOpenResult).toHaveBeenCalledWith(result);
+  });
+
+  it("opens repeated occurrences in the same file independently", async () => {
+    const user = userEvent.setup();
+    const onOpenResult = vi.fn();
+    const document = {
+      path: "docs/Guide.md",
+      title: "Guide",
+      content: "needle one and needle two",
+      contentHash: "mock-hash",
+      encoding: "utf8" as const,
+      lineEnding: "lf" as const,
+      tags: [],
+      kind: "markdown" as const,
+      bookmarked: false,
+      lastOpenedAt: null,
+    };
+    const results: SearchResult[] = [
+      {
+        document,
+        score: 1,
+        snippet: "needle one",
+        match: { from: 0, to: 6 },
+        occurrence: 1,
+      },
+      {
+        document,
+        score: 1,
+        snippet: "needle two",
+        match: { from: 15, to: 21 },
+        occurrence: 2,
+      },
+    ];
+
+    render(
+      <SearchPanel
+        query="needle"
+        location="docs/Guide.md"
+        filters={createEmptySearchFilters()}
+        focusQueryRequest={0}
+        results={results}
+        searching={false}
+        tagColors={{}}
+        onQueryChange={vi.fn()}
+        onLocationChange={vi.fn()}
+        onFiltersChange={vi.fn()}
+        onOpenResult={onOpenResult}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: /Guide/ })).toHaveLength(2);
+
+    await user.click(screen.getByRole("button", { name: /Match 2/ }));
+
+    expect(onOpenResult).toHaveBeenCalledWith(results[1]);
   });
 
   it("exposes visual tag, type, recency, and bookmark filters", async () => {

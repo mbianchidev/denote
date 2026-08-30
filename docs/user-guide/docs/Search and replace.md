@@ -12,8 +12,9 @@ places the active file in **Where to search**, and focuses **Search text**. Use:
 
 Enter words in the separate search-text field. Open **Filters** to choose tags,
 file types, recency, bookmark state, filename, path, or content visually. The
-controls are fully keyboard operable. Choose a result to open its file and move
-the editor to the first matching term.
+controls are fully keyboard operable. Every matching content occurrence appears
+as its own result. Choose one to open its file and move the editor to that exact
+term.
 
 Inline filters remain available for saved or pasted queries:
 

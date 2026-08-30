@@ -215,6 +215,7 @@ export interface SearchResult {
   score: number;
   snippet: string;
   match: SearchMatch | null;
+  occurrence: number | null;
 }
 
 export interface SearchMatch {

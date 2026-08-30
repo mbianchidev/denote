@@ -81,13 +81,30 @@ describe("vault search", () => {
     expect(results[0]?.document.path).toBe("projects/alpha.md");
   });
 
-  it("returns the first content match for result navigation", async () => {
+  it("returns one result for each content occurrence", async () => {
     const index = new VaultSearchIndex();
-    await index.rebuild(documents);
+    await index.rebuild([
+      {
+        ...documents[0],
+        path: "occurrences.md",
+        title: "Occurrences",
+        content: "needle one\nmiddle needle two\nlast needle",
+      },
+    ]);
 
-    const results = await index.query("日本語");
+    const results = await index.query("needle");
 
-    expect(results[0]?.match).toEqual({ from: 41, to: 44 });
+    expect(results.map((result) => result.document.path)).toEqual([
+      "occurrences.md",
+      "occurrences.md",
+      "occurrences.md",
+    ]);
+    expect(results.map((result) => result.match)).toEqual([
+      { from: 0, to: 6 },
+      { from: 18, to: 24 },
+      { from: 34, to: 40 },
+    ]);
+    expect(results.map((result) => result.occurrence)).toEqual([1, 2, 3]);
   });
 
   it("uses original offsets and the earliest matching search term", async () => {
@@ -107,6 +124,25 @@ describe("vault search", () => {
       from: 3,
       to: 6,
     });
+  });
+
+  it("does not duplicate phrase occurrences with their component terms", async () => {
+    const index = new VaultSearchIndex();
+    await index.rebuild([
+      {
+        ...documents[0],
+        path: "phrases.md",
+        title: "Phrases",
+        content: "foo bar then foo bar",
+      },
+    ]);
+
+    const results = await index.query("foo bar");
+
+    expect(results.map((result) => result.match)).toEqual([
+      { from: 0, to: 7 },
+      { from: 13, to: 20 },
+    ]);
   });
 
   it("removes trashed paths before the deferred index rebuild", async () => {
