@@ -260,6 +260,7 @@ interface LinkRewriteSave {
 
 const DOCK_POSITION_LABELS: Record<PaneDockPosition, string> = {
   center: "into the pane",
+  "tab-strip": "into the pane",
   left: "to the left",
   right: "to the right",
   top: "above",
@@ -2593,7 +2594,7 @@ function App() {
       const paneNumber =
         next.panes.findIndex((pane) => pane.id === next.focusedPaneId) + 1;
       setStatus(
-        target.position === "center"
+        target.position === "center" || target.position === "tab-strip"
           ? `Moved ${title} to pane ${paneNumber}`
           : `Docked ${title} ${DOCK_POSITION_LABELS[target.position]} as pane ${paneNumber}`,
       );
