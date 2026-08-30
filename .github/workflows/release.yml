@@ -4,32 +4,49 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build
+        required: true
+        type: string
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
   validate:
     name: Validate release
     runs-on: ubuntu-22.04
+    outputs:
+      source_sha: ${{ steps.source.outputs.sha }}
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Verify tag commit is on main
         shell: bash
         run: |
           git fetch --no-tags origin main:refs/remotes/origin/main
-          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+          if ! git merge-base --is-ancestor HEAD origin/main; then
             echo "::error::Release tags must point to a commit on main."
             exit 1
           fi
+
+      - name: Read source revision
+        id: source
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Install Linux dependencies
         run: |
@@ -66,7 +83,7 @@ jobs:
         run: npm ci
 
       - name: Verify release version
-        run: npm run release -- --check "$GITHUB_REF_NAME"
+        run: npm run release -- --check "$RELEASE_TAG"
 
       - name: Frontend tests
         run: npm test
@@ -97,15 +114,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
-          if release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id 2>/dev/null)"; then
-            is_draft="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .draft)"
+          releases="$(
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+              jq -s --arg tag "$RELEASE_TAG" \
+                '[.[][] | select(.tag_name == $tag)]'
+          )"
+          release_count="$(jq 'length' <<< "$releases")"
+          if (( release_count > 1 )); then
+            echo "::error::Multiple releases exist for ${RELEASE_TAG}. Delete the stale duplicates before retrying."
+            jq -r '.[] | "::error::\(.html_url)"' <<< "$releases"
+            exit 1
+          fi
+          if (( release_count == 1 )); then
+            release_id="$(jq -r '.[0].id' <<< "$releases")"
+            is_draft="$(jq -r '.[0].draft' <<< "$releases")"
             if [[ "$is_draft" != "true" ]]; then
-              echo "::error::Release ${GITHUB_REF_NAME} is already published."
+              echo "::error::Release ${RELEASE_TAG} is already published."
               exit 1
             fi
-            echo "Reusing draft release ${GITHUB_REF_NAME}."
+            echo "Reusing draft release ${RELEASE_TAG}."
           else
-            version="${GITHUB_REF_NAME#v}"
+            version="${RELEASE_TAG#v}"
             release_args=(
               --repo "$GITHUB_REPOSITORY"
               --verify-tag
@@ -116,14 +145,16 @@ jobs:
             if [[ "$version" == *-* ]]; then
               release_args+=(--prerelease)
             fi
-            gh release create "$GITHUB_REF_NAME" "${release_args[@]}"
-            release_id="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .id)"
+            gh release create "$RELEASE_TAG" "${release_args[@]}"
+            release_id="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq .databaseId)"
           fi
           echo "release_id=${release_id}" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.name }}
-    needs: create-release
+    needs:
+      - validate
+      - create-release
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -144,6 +175,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -185,7 +218,7 @@ jobs:
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          DENOTE_COMMIT_HASH: ${{ github.sha }}
+          DENOTE_COMMIT_HASH: ${{ needs.validate.outputs.source_sha }}
           DENOTE_BUILD_DIRTY: "false"
         with:
           releaseId: ${{ needs.create-release.outputs.release_id }}
@@ -204,4 +237,5 @@ jobs:
       - name: Publish completed release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          RELEASE_ID: ${{ needs.create-release.outputs.release_id }}
+        run: gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false
