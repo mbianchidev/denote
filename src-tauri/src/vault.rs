@@ -565,6 +565,43 @@ pub fn create_entry(
     Ok(node)
 }
 
+pub fn duplicate_file(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<FileNode> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
+    let source = existing_entry(&root, relative_path)?;
+    if !source.is_file() {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a regular file"
+        )));
+    }
+    if file_plaintext_len(&source)? > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(format!(
+            "{relative_path} is larger than 25 MB"
+        )));
+    }
+    let plaintext = read_plain_file(&source, vault_key)?;
+    let stored_bytes = encode_file_at_rest(&root, &plaintext, vault_key)?;
+    let destination = available_duplicate_path(&source)?;
+    ensure_no_symlinks(&root, &destination, true)?;
+    create_file_no_replace(&destination, &stored_bytes)?;
+
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let stats = db::stats_map(&connection, vault_id)?;
+    let placements = db::entry_placement_map(&connection, vault_id)?;
+    let node = scan_path(&root, &destination, &stats, &placements, 0)?;
+    update_cached_tree(&mut connection, vault_id, |tree| {
+        refresh_cached_tree_metadata(tree, &stats, &placements);
+        insert_cached_node(tree, node.clone())
+    });
+    Ok(node)
+}
+
 pub fn rename_entry(
     db_path: &Path,
     vault_path: &str,
@@ -2004,6 +2041,40 @@ fn validate_name(name: &str) -> AppResult<&str> {
     Ok(trimmed)
 }
 
+fn available_duplicate_path(source: &Path) -> AppResult<PathBuf> {
+    let parent = source
+        .parent()
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(source)))?;
+    let file_name = source
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| AppError::InvalidPath(path_to_string(source)))?;
+    let extension = source.extension().and_then(|value| value.to_str());
+    let stem = source
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or(file_name);
+
+    for index in 1..=1_000 {
+        let suffix = if index == 1 {
+            " copy".to_string()
+        } else {
+            format!(" copy {index}")
+        };
+        let candidate_name = extension
+            .map(|extension| format!("{stem}{suffix}.{extension}"))
+            .unwrap_or_else(|| format!("{file_name}{suffix}"));
+        let candidate = parent.join(candidate_name);
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+
+    Err(AppError::Conflict(format!(
+        "Unable to choose a duplicate name for {file_name}"
+    )))
+}
+
 fn kind_for_path(path: &Path) -> FileKind {
     if path.is_dir() {
         return FileKind::Folder;
@@ -2904,6 +2975,14 @@ mod tests {
         super::create_entry(db_path, vault_path, parent_path, name, directory, None)
     }
 
+    fn duplicate_file(
+        db_path: &Path,
+        vault_path: &str,
+        relative_path: &str,
+    ) -> AppResult<FileNode> {
+        super::duplicate_file(db_path, vault_path, relative_path, None)
+    }
+
     fn list_history(
         db_path: &Path,
         vault_path: &str,
@@ -2978,6 +3057,32 @@ mod tests {
             fs::canonicalize(vault_path.join("note.md")).expect("canonical note")
         );
         assert!(absolute_entry_path(vault_path.to_str().unwrap(), "../note.md").is_err());
+    }
+
+    #[test]
+    fn duplicates_files_with_non_conflicting_names() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("example.md"), "invented content").expect("note");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let first = duplicate_file(&db_path, vault_path.to_str().unwrap(), "example.md")
+            .expect("first duplicate");
+        let second = duplicate_file(&db_path, vault_path.to_str().unwrap(), "example.md")
+            .expect("second duplicate");
+
+        assert_eq!(first.path, "example copy.md");
+        assert_eq!(second.path, "example copy 2.md");
+        assert_eq!(
+            fs::read_to_string(vault_path.join(&first.path)).expect("duplicate content"),
+            "invented content"
+        );
+        let snapshot =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refresh vault");
+        assert!(snapshot.tree.iter().any(|node| node.path == first.path));
+        assert!(snapshot.tree.iter().any(|node| node.path == second.path));
     }
 
     #[test]

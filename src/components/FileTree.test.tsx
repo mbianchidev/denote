@@ -186,6 +186,79 @@ describe("FileTree", () => {
     expect(onDelete).toHaveBeenCalledWith(node);
   });
 
+  it("offers the complete file action menu", async () => {
+    const user = userEvent.setup();
+    const node = {
+      path: "notes/example.md",
+      name: "example.md",
+      kind: "markdown" as const,
+      children: [],
+      size: 12,
+      modifiedAt: null,
+      bookmarked: false,
+      pinned: false,
+    };
+    const fileActions = {
+      onDuplicate: vi.fn(),
+      onBookmark: vi.fn(),
+      onCopyPath: vi.fn(),
+      onOpenHistory: vi.fn(),
+      onOpenInNewTab: vi.fn(),
+      onReveal: vi.fn(),
+      onRename: vi.fn(),
+      onMove: vi.fn(),
+      onDelete: vi.fn(),
+    };
+    const { rerender } = render(
+      <FileTree
+        nodes={[node]}
+        selectedPath={node.path}
+        expandedPaths={new Set()}
+        onSelect={vi.fn()}
+        onToggleFolder={vi.fn()}
+        onCreate={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        onMove={vi.fn()}
+        onRequestMove={vi.fn()}
+        fileActions={fileActions}
+      />,
+    );
+
+    const actions = [
+      ["Duplicate", fileActions.onDuplicate],
+      ["Add bookmark", fileActions.onBookmark],
+      ["Copy path", fileActions.onCopyPath],
+      ["Open version history", fileActions.onOpenHistory],
+      ["Open in new tab", fileActions.onOpenInNewTab],
+      ["Reveal in folder", fileActions.onReveal],
+      ["Rename", fileActions.onRename],
+      ["Move to folder…", fileActions.onMove],
+      ["Delete", fileActions.onDelete],
+    ] as const;
+
+    for (const [label, handler] of actions) {
+      fireEvent.contextMenu(screen.getByRole("button", { name: /example\.md/i }));
+      await user.click(await screen.findByRole("menuitem", { name: label }));
+      expect(handler).toHaveBeenCalledWith(node);
+      rerender(
+        <FileTree
+          nodes={[node]}
+          selectedPath={node.path}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+          fileActions={fileActions}
+        />,
+      );
+    }
+  });
+
   it("moves an entry by dragging it onto a folder", () => {
     const onMove = vi.fn();
     const nodes = [

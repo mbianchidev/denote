@@ -4,6 +4,7 @@ import {
   insertWorkspaceNode,
   removeWorkspacePath,
   workspaceAncestorPaths,
+  workspaceFolderPaths,
   workspacePathMatches,
 } from "./workspaceTree";
 
@@ -86,5 +87,16 @@ describe("workspace tree mutations", () => {
       "one",
       "one/two",
     ]);
+  });
+
+  it("returns every nested folder path for recursive expansion", () => {
+    expect(
+      workspaceFolderPaths([
+        node("notes", "folder", [
+          node("notes/archive", "folder", [node("notes/archive/old.md")]),
+        ]),
+        node("root.md"),
+      ]),
+    ).toEqual(["notes", "notes/archive"]);
   });
 });

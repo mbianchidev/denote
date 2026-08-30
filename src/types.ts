@@ -201,6 +201,7 @@ export interface EditorTab {
   stats?: NoteStats;
   imageDataUrl?: string;
   rawEditing: boolean;
+  readOnly?: boolean;
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";

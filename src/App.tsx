@@ -1,6 +1,6 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { forceParsing, syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import {
@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  BookOpen,
   Bookmark,
   BookmarkCheck,
   ChevronsUpDown,
@@ -16,6 +17,8 @@ import {
   ExternalLink as ExternalLinkIcon,
   FileCode2,
   FilePlus2,
+  Folder,
+  FolderOpen,
   FolderPlus,
   History,
   Image as ImageIcon,
@@ -52,6 +55,10 @@ import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ExternalLinkDialog } from "./components/ExternalLinkDialog";
 import { FileTree } from "./components/FileTree";
+import {
+  FileActionsDropdown,
+  type FileActionHandlers,
+} from "./components/FileActionsMenu";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
 import {
@@ -127,6 +134,7 @@ import {
   insertWorkspaceNode,
   removeWorkspacePath,
   workspaceAncestorPaths,
+  workspaceFolderPaths,
   workspacePathMatches,
 } from "./lib/workspaceTree";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
@@ -273,6 +281,10 @@ function App() {
   const [historyRevisions, setHistoryRevisions] = useState<HistoryRevision[]>(
     [],
   );
+  const [historyTarget, setHistoryTarget] = useState<{
+    path: string;
+    title: string;
+  } | null>(null);
   const searchIndex = useRef(new VaultSearchIndex());
   const searchIndexReady = useRef(false);
   const searchRequestRef = useRef<SearchRequest>({
@@ -449,6 +461,13 @@ function App() {
     () => (workspace ? flattenNodes(workspace.tree) : []),
     [workspace],
   );
+  const folderPaths = useMemo(
+    () => (workspace ? workspaceFolderPaths(workspace.tree) : []),
+    [workspace],
+  );
+  const allFoldersExpanded =
+    folderPaths.length > 0 &&
+    folderPaths.every((path) => expandedPaths.has(path));
   const selectedMoveAvailability = useMemo(() => {
     if (!workspace || !selectedNode) {
       return { up: false, down: false };
@@ -1066,6 +1085,7 @@ function App() {
       placeholder: true,
       groupId: null,
       rawEditing: false,
+      readOnly: false,
       editorRevision: 0,
       editRecorded: false,
       saveState: "saved",
@@ -1666,6 +1686,7 @@ function App() {
               navigationIndex: 0,
               imageDataUrl,
               rawEditing: false,
+              readOnly: false,
               editorRevision: 0,
               stats: document.stats,
               editRecorded: false,
@@ -1686,6 +1707,7 @@ function App() {
             navigationHistory: [path],
             navigationIndex: 0,
             rawEditing: false,
+            readOnly: false,
             editorRevision: 0,
             stats: document.stats,
             editRecorded: false,
@@ -1814,6 +1836,20 @@ function App() {
       return operation;
     },
     [openFileNow],
+  );
+
+  const openFileInNewTab = useCallback(
+    async (path: string) => {
+      const existing = tabsRef.current.find((tab) => tab.path === path);
+      if (existing) {
+        activateTab(path);
+        setStatus(`${existing.title} is already open`);
+        return;
+      }
+      createNewTab();
+      await openFile(path);
+    },
+    [activateTab, createNewTab, openFile],
   );
 
   const navigateTabHistory = useCallback(
@@ -2066,6 +2102,7 @@ function App() {
       );
       if (
         !currentTab ||
+        currentTab.readOnly ||
         (currentTab.kind === "image" && !currentTab.rawEditing)
       ) {
         return;
@@ -3036,6 +3073,68 @@ function App() {
     }
   }, [selectedNode, trashNode]);
 
+  const duplicateNode = useCallback(
+    async (node: FileNode) => {
+      if (
+        !workspace ||
+        node.kind === "folder" ||
+        workspaceLockedRef.current
+      ) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      let mutationStarted = false;
+      let duplicated = false;
+      try {
+        if (
+          !(await beginEntryMutation(
+            expectedGeneration,
+            (path) => path === node.path,
+          ))
+        ) {
+          return;
+        }
+        mutationStarted = true;
+        const duplicate = await api.duplicateFile(node.path);
+        setWorkspace((current) =>
+          current?.vaultPath === expectedVaultPath
+            ? {
+                ...current,
+                tree: insertWorkspaceNode(current.tree, duplicate),
+              }
+            : current,
+        );
+        setExpandedPaths((current) => {
+          const next = new Set(current);
+          for (const path of workspaceAncestorPaths(duplicate.path)) {
+            next.add(path);
+          }
+          return next;
+        });
+        setSelectedPath(duplicate.path);
+        setStatus(`Duplicated ${node.name} as ${duplicate.name}`);
+        duplicated = true;
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        if (mutationStarted) {
+          setWorkspaceLock(false);
+        }
+      }
+      if (duplicated) {
+        scheduleIndexRebuild();
+      }
+    },
+    [
+      beginEntryMutation,
+      scheduleIndexRebuild,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
+
   const toggleBookmarkForNode = useCallback(async (node: FileNode | null) => {
     if (
       !workspace ||
@@ -3211,23 +3310,29 @@ function App() {
     workspace,
   ]);
 
-  const openHistory = useCallback(async () => {
-    if (!workspace || !activeFileTab) {
+  const openHistoryForNode = useCallback(async (node: FileNode | null) => {
+    if (!workspace || !node || node.kind === "folder") {
       return;
     }
     if (workspaceLockedRef.current) {
       return;
     }
+    setHistoryTarget({ path: node.path, title: node.name });
     setHistoryOpen(true);
     setHistoryLoading(true);
     try {
-      setHistoryRevisions(await api.listHistory(activeFileTab.path));
+      setHistoryRevisions(await api.listHistory(node.path));
     } catch (caught) {
       showError(caught);
     } finally {
       setHistoryLoading(false);
     }
-  }, [activeFileTab, showError, workspace]);
+  }, [showError, workspace]);
+
+  const openHistory = useCallback(
+    async () => openHistoryForNode(activeNode),
+    [activeNode, openHistoryForNode],
+  );
 
   const previewReplace = useCallback(
     async (request: ReplaceRequest): Promise<ReplacePreview[]> => {
@@ -3542,6 +3647,37 @@ function App() {
     }
   }, [activeFileTab, showError]);
 
+  const copyNodePath = useCallback(
+    async (node: FileNode) => {
+      if (node.kind === "folder" || workspaceLockedRef.current) {
+        return;
+      }
+      try {
+        await api.copyFilePath(node.path);
+        setStatus("Copied file path");
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+
+  const revealNode = useCallback(
+    async (node: FileNode) => {
+      if (node.kind === "folder" || workspaceLockedRef.current) {
+        return;
+      }
+      try {
+        const absolutePath = await api.resolveFilePath(node.path);
+        await revealItemInDir(absolutePath);
+        setStatus(`Revealed ${node.name}`);
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+
   const copyActiveFileContent = useCallback(async () => {
     if (!activeFileTab || workspaceLockedRef.current) {
       return;
@@ -3599,15 +3735,30 @@ function App() {
     );
   }, [commitTabs]);
 
+  const toggleReadMode = useCallback(() => {
+    const path = activePathRef.current;
+    if (!path) {
+      return;
+    }
+    commitTabs((current) =>
+      current.map((tab) =>
+        tab.path === path ? { ...tab, readOnly: !tab.readOnly } : tab,
+      ),
+    );
+    const nextReadOnly =
+      tabsRef.current.find((tab) => tab.path === path)?.readOnly ?? false;
+    setStatus(nextReadOnly ? "Read mode" : "Write mode");
+  }, [commitTabs]);
+
   const restoreRevision = useCallback(
     async (revisionId: number) => {
-      if (!workspace || !activeFileTab) {
+      if (!workspace || !historyTarget) {
         return;
       }
       if (workspaceLockedRef.current) {
         return;
       }
-      const restorePath = activeFileTab.path;
+      const restorePath = historyTarget.path;
       try {
         if (!(await beginWorkspaceOperation())) {
           return;
@@ -3635,7 +3786,7 @@ function App() {
               : tab,
           ),
         );
-        if (activeFileTab.kind === "image") {
+        if (findNode(workspace.tree, restorePath)?.kind === "image") {
           const imageDataUrl = await api.readImageDataUrl(restorePath);
           commitTabs((current) =>
             current.map((tab) =>
@@ -3644,6 +3795,7 @@ function App() {
           );
         }
         setHistoryOpen(false);
+        setHistoryTarget(null);
         setStatus("Revision restored");
         scheduleIndexRebuild();
       } catch (caught) {
@@ -3653,10 +3805,10 @@ function App() {
       }
     },
     [
-      activeFileTab,
       beginWorkspaceOperation,
       commitTabs,
       flushTab,
+      historyTarget,
       scheduleIndexRebuild,
       setWorkspaceLock,
       showError,
@@ -4113,7 +4265,19 @@ function App() {
     activeSiblings[activeNodeIndex + 1]?.pinned === activeNode?.pinned;
   const activeFileEditable =
     activeFileTab !== null &&
+    !activeFileTab.readOnly &&
     (activeFileTab.kind !== "image" || activeFileTab.rawEditing);
+  const fileActionHandlers: FileActionHandlers = {
+    onDuplicate: (node) => void duplicateNode(node),
+    onBookmark: (node) => void toggleBookmarkForNode(node),
+    onCopyPath: (node) => void copyNodePath(node),
+    onOpenHistory: (node) => void openHistoryForNode(node),
+    onOpenInNewTab: (node) => void openFileInNewTab(node.path),
+    onReveal: (node) => void revealNode(node),
+    onRename: (node) => void renameNode(node),
+    onMove: (node) => void requestMoveNode(node),
+    onDelete: (node) => void trashNode(node),
+  };
   const commandPaletteCommands: CommandPaletteCommand[] = [
     {
       id: "file.find",
@@ -4395,6 +4559,23 @@ function App() {
           : undefined,
     },
     {
+      id: "file.open-new-tab",
+      title: "Open current file in a new tab",
+      description: "Keep the current tab and open this file separately.",
+      category: "File",
+      disabled: activeFileTab === null,
+      run: () =>
+        activeFileTab ? openFileInNewTab(activeFileTab.path) : undefined,
+    },
+    {
+      id: "file.duplicate",
+      title: "Duplicate current file",
+      description: "Create a non-conflicting copy beside the current file.",
+      category: "File",
+      disabled: activeNode === null || activeNode.kind === "folder",
+      run: () => (activeNode ? duplicateNode(activeNode) : undefined),
+    },
+    {
       id: "file.rename",
       title: "Rename current file",
       description: "Rename the active file in its folder.",
@@ -4453,6 +4634,14 @@ function App() {
       run: () => (activeNode ? trashNode(activeNode) : undefined),
     },
     {
+      id: "file.reveal",
+      title: "Reveal current file in folder",
+      description: "Show the current file in the operating system file manager.",
+      category: "File",
+      disabled: activeNode === null || activeNode.kind === "folder",
+      run: () => (activeNode ? revealNode(activeNode) : undefined),
+    },
+    {
       id: "file.reload",
       title: "Reload current file from disk",
       description: "Discard editor state after confirmation if needed.",
@@ -4509,6 +4698,16 @@ function App() {
       shortcut: macOS ? "⌥⌘F" : "Ctrl+H",
       disabled: !workspaceReady,
       run: () => setReplaceOpen(true),
+    },
+    {
+      id: "editor.read-mode",
+      title: activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode",
+      description: activeFileTab?.readOnly
+        ? "Enable editing for the current file."
+        : "Prevent edits in the current file.",
+      category: "Editor",
+      disabled: activeFileTab === null,
+      run: toggleReadMode,
     },
     {
       id: "editor.image-mode",
@@ -4782,6 +4981,26 @@ function App() {
               >
                 <FolderPlus aria-hidden="true" size={16} />
               </button>
+              <button
+                type="button"
+                className="icon-button"
+                title={allFoldersExpanded ? "Collapse all folders" : "Expand all folders"}
+                aria-label={
+                  allFoldersExpanded ? "Collapse all folders" : "Expand all folders"
+                }
+                disabled={folderPaths.length === 0}
+                onClick={() =>
+                  setExpandedPaths(
+                    allFoldersExpanded ? new Set() : new Set(folderPaths),
+                  )
+                }
+              >
+                {allFoldersExpanded ? (
+                  <Folder aria-hidden="true" size={16} />
+                ) : (
+                  <FolderOpen aria-hidden="true" size={16} />
+                )}
+              </button>
               <span className="toolbar-spacer" />
               <button
                 type="button"
@@ -4895,6 +5114,7 @@ function App() {
                 void moveNode(node, targetParentPath)
               }
               onRequestMove={(node) => void requestMoveNode(node)}
+              fileActions={fileActionHandlers}
             />
           </>
         ) : sidebarView === "search" ? (
@@ -4939,6 +5159,25 @@ function App() {
                   onClick={() => void emptyTrash()}
                 >
                   <Trash2 aria-hidden="true" size={15} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label={
+                    activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
+                  }
+                  title={
+                    activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
+                  }
+                  aria-pressed={activeFileTab?.readOnly ?? false}
+                  disabled={!activeFileTab || workspaceLocked}
+                  onClick={toggleReadMode}
+                >
+                  {activeFileTab?.readOnly ? (
+                    <Pencil aria-hidden="true" size={16} />
+                  ) : (
+                    <BookOpen aria-hidden="true" size={16} />
+                  )}
                 </button>
                 <button
                   type="button"
@@ -5180,6 +5419,11 @@ function App() {
             >
               <ListTree aria-hidden="true" size={16} />
             </button>
+            <FileActionsDropdown
+              node={activeNode}
+              disabled={workspaceLocked}
+              handlers={fileActionHandlers}
+            />
           </div>
         </header>
         {errorBanner}
@@ -5211,7 +5455,7 @@ function App() {
                     lineEnding={activeFileTab.lineEnding}
                     displaySettings={editorDisplaySettings}
                     preferredViewMode={markdownViewMode}
-                    readOnly={workspaceLocked}
+                    readOnly={workspaceLocked || (activeFileTab.readOnly ?? false)}
                     errorLocation={activeMarkdownError?.location}
                     errorNavigationRequest={
                      activeMarkdownError?.navigationRequest ?? 0
@@ -5239,9 +5483,11 @@ function App() {
                     ) : null}
                     <PlainTextEditor
                       key={`${activeFileTab.path}:${activeFileTab.editorRevision}`}
-                      ariaLabel={`Edit ${activeFileTab.title}`}
+                      ariaLabel={`${
+                        activeFileTab.readOnly ? "Read" : "Edit"
+                      } ${activeFileTab.title}`}
                       value={activeFileTab.content}
-                      readOnly={workspaceLocked}
+                      readOnly={workspaceLocked || (activeFileTab.readOnly ?? false)}
                       spellCheck={
                         activeFileTab.encoding === "utf8" &&
                         sourceLanguageName(activeFileTab.path) === null
@@ -5334,10 +5580,13 @@ function App() {
       </section>
       <HistoryDialog
         open={historyOpen}
-        title={activeFileTab?.title ?? "Note"}
+        title={historyTarget?.title ?? "Note"}
         revisions={historyRevisions}
         loading={historyLoading}
-        onClose={() => setHistoryOpen(false)}
+        onClose={() => {
+          setHistoryOpen(false);
+          setHistoryTarget(null);
+        }}
         onRestore={(revisionId) => void restoreRevision(revisionId)}
       />
       <ReplaceDialog
