@@ -345,20 +345,26 @@ jobs:
 
           releases="$(find_releases)"
           release_count="$(jq 'length' <<< "$releases")"
-          if (( release_count > 1 )); then
-            echo "::error::Multiple releases exist for ${RELEASE_TAG}."
-            jq -r '.[] | "::error::\(.html_url)"' <<< "$releases"
+          published_count="$(
+            jq '[.[] | select(.draft == false)] | length' <<< "$releases"
+          )"
+          if (( published_count > 1 )); then
+            echo "::error::Multiple published releases exist for ${RELEASE_TAG}."
+            jq -r '.[] | select(.draft == false) | "::error::\(.html_url)"' <<< "$releases"
             exit 1
           fi
-          if (( release_count == 1 )); then
-            release_id="$(jq -r '.[0].id' <<< "$releases")"
-            is_draft="$(jq -r '.[0].draft' <<< "$releases")"
-            if [[ "$is_draft" != "true" ]]; then
-              echo "Release ${RELEASE_TAG} is already published."
-              exit 0
-            fi
-            echo "Replacing incomplete draft release ${RELEASE_TAG}."
-            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+          if (( published_count == 1 )); then
+            while IFS= read -r release_id; do
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+            done < <(jq -r '.[] | select(.draft == true) | .id' <<< "$releases")
+            echo "Release ${RELEASE_TAG} is already published."
+            exit 0
+          fi
+          if (( release_count > 0 )); then
+            echo "Replacing ${release_count} incomplete draft release(s) for ${RELEASE_TAG}."
+            while IFS= read -r release_id; do
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}"
+            done < <(jq -r '.[].id' <<< "$releases")
           fi
 
           version="${RELEASE_TAG#v}"

@@ -57,5 +57,5 @@ NSIS installers, then publishes them together with generated release notes.
 
 If a release run fails, run the **Release** workflow manually and provide the
 existing tag. Incomplete draft releases are replaced automatically after every
-platform bundle succeeds. Restore a deleted tag at its original release commit
-before retrying.
+platform bundle succeeds, including duplicates left by older failed runs.
+Restore a deleted tag at its original release commit before retrying.
