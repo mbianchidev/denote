@@ -12,6 +12,8 @@ import type {
   MoveEntryResult,
   NoteDocument,
   NoteStats,
+  InstalledPlugin,
+  PluginView,
   RecoveryCodesResult,
   SaveOutcome,
   TabSessionState,
@@ -154,6 +156,55 @@ export const api = {
       dataBase64,
     });
   },
+  listPlugins: () => invoke<PluginView[]>("list_plugins"),
+  preparePluginEnable: (pluginId: string, approvedPermissions: string[]) =>
+    invoke<InstalledPlugin>("prepare_plugin_enable", {
+      pluginId,
+      approvedPermissions,
+    }),
+  commitPluginEnable: (pluginId: string) =>
+    invoke<void>("commit_plugin_enable", { pluginId }),
+  rollbackPluginEnable: (pluginId: string, error?: string) =>
+    invoke<void>("rollback_plugin_enable", {
+      pluginId,
+      error: error ?? null,
+    }),
+  disablePlugin: (
+    pluginId: string,
+    clearData = false,
+    clearCredentials = false,
+  ) =>
+    invoke<void>("disable_plugin", {
+      pluginId,
+      clearData,
+      clearCredentials,
+    }),
+  readPluginEntrypoint: (pluginId: string) =>
+    invoke<string>("read_plugin_entrypoint", { pluginId }),
+  getPluginSettings: (pluginId: string) =>
+    invoke<Record<string, unknown>>("get_plugin_settings", { pluginId }),
+  setPluginSettings: (
+    pluginId: string,
+    settings: Record<string, unknown>,
+  ) =>
+    invoke<Record<string, unknown>>("set_plugin_settings", {
+      pluginId,
+      settings,
+    }),
+  pluginStorageGet: (pluginId: string, key: string) =>
+    invoke<unknown | null>("plugin_storage_get", { pluginId, key }),
+  pluginStorageSet: (pluginId: string, key: string, value: unknown) =>
+    invoke<void>("plugin_storage_set", { pluginId, key, value }),
+  pluginStorageDelete: (pluginId: string, key: string) =>
+    invoke<void>("plugin_storage_delete", { pluginId, key }),
+  pluginStorageClear: (pluginId: string) =>
+    invoke<void>("plugin_storage_clear", { pluginId }),
+  pluginSecretGet: (pluginId: string, key: string) =>
+    invoke<string | null>("plugin_secret_get", { pluginId, key }),
+  pluginSecretSet: (pluginId: string, key: string, value: string) =>
+    invoke<void>("plugin_secret_set", { pluginId, key, value }),
+  pluginSecretDelete: (pluginId: string, key: string) =>
+    invoke<void>("plugin_secret_delete", { pluginId, key }),
 };
 
 function fileToBase64(file: File): Promise<string> {

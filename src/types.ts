@@ -1,4 +1,8 @@
 import type { MarkdownViewMode } from "./lib/markdownView";
+import type {
+  PluginCatalogEntry,
+  PluginLifecycleState,
+} from "@denote/plugin-sdk";
 
 export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
 export type FileEncoding = "utf8" | "base64";
@@ -203,6 +207,21 @@ export interface DocumentBatch {
 
 export interface LinkRewriteBatch extends DocumentBatch {
   availablePaths: string[];
+}
+
+export interface PluginView {
+  catalog: PluginCatalogEntry;
+  status: PluginLifecycleState;
+  enabled: boolean;
+  error: string | null;
+  approvedPermissions: string[];
+  settings: Record<string, unknown>;
+}
+
+export interface InstalledPlugin {
+  pluginId: string;
+  version: string;
+  entrypoint: string;
 }
 
 export interface MoveEntryResult {

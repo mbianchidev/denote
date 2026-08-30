@@ -27,6 +27,8 @@ pub enum AppError {
     Clipboard(String),
     #[error("Unable to move vault to system Trash: {0}")]
     Trash(String),
+    #[error("Plugin operation failed: {0}")]
+    Plugin(String),
 }
 
 impl Serialize for AppError {

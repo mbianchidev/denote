@@ -195,6 +195,7 @@ import {
   type ReplaceRequest,
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
+import { usePlugins } from "./plugins/usePlugins";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
   DEFAULT_EDITOR_FONT_SIZE,
@@ -715,6 +716,7 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
+  const pluginController = usePlugins(showError);
 
   const showLinkError = useCallback((value: unknown) => {
     const message = errorMessage(value);
@@ -5409,6 +5411,15 @@ function App() {
         setTheme((current) => (current === "dark" ? "light" : "dark")),
     },
   ];
+  commandPaletteCommands.push(
+    ...pluginController.commands.map((command) => ({
+      id: command.id,
+      title: command.title,
+      description: `Run command from ${command.pluginId}.`,
+      category: "Plugins",
+      run: () => pluginController.runCommand(command.pluginId, command.id),
+    })),
+  );
 
   const vaultSwitcherDialog = (
     <VaultSwitcherDialog
@@ -6329,10 +6340,19 @@ function App() {
         restoreTabs={workspace.restoreTabs}
         externalDomains={externalDomainPolicy.domains}
         allowAllExternalDomains={externalDomainPolicy.allowAll}
+        plugins={pluginController.plugins}
+        pluginsLoading={pluginController.loading}
+        busyPluginIds={pluginController.busyPluginIds}
         onChange={updateEditorDisplaySettings}
         onRestoreTabsChange={updateRestoreTabs}
         onRemoveExternalDomain={removeExternalDomain}
         onClearExternalDomains={clearExternalDomains}
+        onEnablePlugin={pluginController.enable}
+        onDisablePlugin={pluginController.disable}
+        onClearPluginData={pluginController.clearData}
+        onClearPluginCredentials={pluginController.clearCredentials}
+        onUpdatePluginSettings={pluginController.updateSettings}
+        onPluginError={showError}
         onClose={() => setEditorSettingsOpen(false)}
       />
       <ExternalLinkDialog

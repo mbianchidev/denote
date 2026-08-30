@@ -9,6 +9,7 @@ import {
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "packages", "plugins");
+const sdkRoot = realpathSync(join(root, "packages", "plugin-sdk"));
 const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => join(pluginsRoot, entry.name))
@@ -24,7 +25,7 @@ for (const pluginDirectory of pluginDirectories) {
   await build({
     configFile: false,
     logLevel: "error",
-    plugins: [pluginBoundary(pluginDirectory)],
+    plugins: [pluginBoundary(pluginDirectory, sdkRoot)],
     build: {
       emptyOutDir: true,
       minify: false,
@@ -34,9 +35,6 @@ for (const pluginDirectory of pluginDirectories) {
         entry: sourcePath,
         formats: ["es"],
         fileName: () => basename(outputPath),
-      },
-      rolldownOptions: {
-        external: ["@denote/plugin-sdk"],
       },
     },
   });
@@ -50,7 +48,7 @@ function parseManifest(pluginDirectory: string): PluginManifest {
   return parsePluginManifest(manifestValue);
 }
 
-function pluginBoundary(pluginDirectory: string): Plugin {
+function pluginBoundary(pluginDirectory: string, canonicalSdkRoot: string): Plugin {
   const canonicalRoot = realpathSync(pluginDirectory);
   return {
     name: "denote-plugin-boundary",
@@ -66,6 +64,8 @@ function pluginBoundary(pluginDirectory: string): Plugin {
       if (
         canonicalPath === canonicalRoot ||
         canonicalPath.startsWith(`${canonicalRoot}${sep}`) ||
+        canonicalPath === canonicalSdkRoot ||
+        canonicalPath.startsWith(`${canonicalSdkRoot}${sep}`) ||
         canonicalPath.includes(`${sep}node_modules${sep}`)
       ) {
         return;

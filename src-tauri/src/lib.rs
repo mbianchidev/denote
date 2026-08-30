@@ -4,6 +4,7 @@ mod db;
 mod default_vault;
 mod error;
 mod models;
+mod plugins;
 mod vault;
 
 use db::AppState;
@@ -114,6 +115,10 @@ pub fn run() {
             }
             app.manage(commands::FileClipboard::new());
             app.manage(commands::LinkRewriteLeases::new());
+            app.manage(plugins::PluginManager::new(
+                app_data_dir.clone(),
+                app_cache_dir.clone(),
+            )?);
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
             db::initialize(&db_path)?;
@@ -179,6 +184,21 @@ pub fn run() {
             commands::list_link_rewrite_documents,
             commands::read_image_data_url,
             commands::save_attachment,
+            plugins::list_plugins,
+            plugins::prepare_plugin_enable,
+            plugins::commit_plugin_enable,
+            plugins::rollback_plugin_enable,
+            plugins::disable_plugin,
+            plugins::read_plugin_entrypoint,
+            plugins::get_plugin_settings,
+            plugins::set_plugin_settings,
+            plugins::plugin_storage_get,
+            plugins::plugin_storage_set,
+            plugins::plugin_storage_delete,
+            plugins::plugin_storage_clear,
+            plugins::plugin_secret_get,
+            plugins::plugin_secret_set,
+            plugins::plugin_secret_delete,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")
