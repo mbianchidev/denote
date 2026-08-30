@@ -321,8 +321,9 @@ Vault search separates **Where to search** from search text. The location field
 uses compact helper copy for `*`, exact paths, and globs such as `*.html`.
 **Filters** is an ordinary disclosure button with visible state and a contained,
 scrollable form for tags, types, recency, bookmarks, filename, path, and content.
-Command-F / Control-F selects the active file path so typing immediately replaces
-the scope rather than editing it character by character.
+Command-F / Control-F keeps the active file path as the scope and moves keyboard
+focus to the search-text field. Search-result controls open the file and select
+the first matching term in the editor.
 
 External web navigation uses a compact confirmation dialog that states the exact
 domain and full destination. The primary choices are explicit: allow that domain
@@ -371,8 +372,10 @@ place it at the lower edge so the language and delete controls remain clear.
 ### Replace Preview
 
 Find and replace uses a wide modal with paired fields, explicit scope controls,
-and selectable per-file source snippets. Destructive text is shown in measured
-danger; replacement text uses the moss accent.
+and selectable per-file source snippets. Its primary actions are **Find** and
+**Replace**. Successful replacement keeps the modal open and announces the
+number of replaced instances. Destructive text is shown in measured danger;
+replacement text uses the moss accent.
 
 ### Binary Editor Notice
 

@@ -214,6 +214,17 @@ export interface SearchResult {
   document: SearchDocument;
   score: number;
   snippet: string;
+  match: SearchMatch | null;
+}
+
+export interface SearchMatch {
+  from: number;
+  to: number;
+}
+
+export interface EditorSearchNavigation extends SearchMatch {
+  request: number;
+  text: string;
 }
 
 export interface EditorTab {

@@ -9,13 +9,13 @@ import {
 import { SearchPanel } from "./SearchPanel";
 
 describe("SearchPanel", () => {
-  it("focuses and selects the current-file location on request", async () => {
+  it("focuses the search text while keeping the current-file location", async () => {
     render(
       <SearchPanel
         query=""
         location="docs/Guide.md"
         filters={createEmptySearchFilters()}
-        focusLocationRequest={1}
+        focusQueryRequest={1}
         results={[]}
         searching={false}
         tagColors={{}}
@@ -26,13 +26,56 @@ describe("SearchPanel", () => {
       />,
     );
 
-    const input = screen.getByRole("textbox", { name: "Where to search" });
-    await waitFor(() => expect(input).toHaveFocus());
-    expect(input).toHaveValue("docs/Guide.md");
-    expect((input as HTMLInputElement).selectionStart).toBe(0);
-    expect((input as HTMLInputElement).selectionEnd).toBe(
-      "docs/Guide.md".length,
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "Search text" }),
+      ).toHaveFocus(),
     );
+    expect(
+      screen.getByRole("textbox", { name: "Where to search" }),
+    ).toHaveValue("docs/Guide.md");
+  });
+
+  it("opens a result with its search match", async () => {
+    const user = userEvent.setup();
+    const onOpenResult = vi.fn();
+    const result = {
+      document: {
+        path: "docs/Guide.md",
+        title: "Guide",
+        content: "A synthetic needle example.",
+        contentHash: "mock-hash",
+        encoding: "utf8" as const,
+        lineEnding: "lf" as const,
+        tags: [],
+        kind: "markdown" as const,
+        bookmarked: false,
+        lastOpenedAt: null,
+      },
+      score: 1,
+      snippet: "A synthetic needle example.",
+      match: { from: 12, to: 18 },
+    };
+
+    render(
+      <SearchPanel
+        query="needle"
+        location="docs/Guide.md"
+        filters={createEmptySearchFilters()}
+        focusQueryRequest={0}
+        results={[result]}
+        searching={false}
+        tagColors={{}}
+        onQueryChange={vi.fn()}
+        onLocationChange={vi.fn()}
+        onFiltersChange={vi.fn()}
+        onOpenResult={onOpenResult}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: /Guide/ }));
+
+    expect(onOpenResult).toHaveBeenCalledWith(result);
   });
 
   it("exposes visual tag, type, recency, and bookmark filters", async () => {
@@ -47,7 +90,7 @@ describe("SearchPanel", () => {
           query=""
           location="*"
           filters={filters}
-          focusLocationRequest={0}
+          focusQueryRequest={0}
           results={[]}
           searching={false}
           tagColors={{}}

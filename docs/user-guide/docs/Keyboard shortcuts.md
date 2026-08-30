@@ -11,7 +11,7 @@
 | Close focused pane | `Shift-Command-\` | `Ctrl-Shift-\` |
 | Focus next / previous pane | `F6` / `Shift-F6` | `F6` / `Shift-F6` |
 | Focus pane 1–4 | `Option-Command-1..4` | `Ctrl-Shift-1..4` |
-| Find and replace | `Option-Command-F` | `Ctrl-H` |
+| Find and replace | `Command-H` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
 | Create or edit link | `Command-K` | `Ctrl-K` |
 | Close tab | `Command-W` | `Ctrl-W` |
@@ -27,8 +27,9 @@ The command palette lists assigned shortcuts beside their commands. Type a
 command name, category, description, keyword, or filename; use Up/Down and
 Enter to run the active result.
 
-The search shortcut selects the active file in **Where to search**. Type `*` to
-search the vault or a pattern such as `*.html` to limit file types.
+The search shortcut keeps the active file in **Where to search** and focuses
+**Search text**. Type `*` in the location field to search the vault or a pattern
+such as `*.html` to limit file types.
 
 `Escape` hides the table of contents when it is open. Sidebar and pane dividers
 use arrow keys and Home. File-tree context menus use arrow keys and

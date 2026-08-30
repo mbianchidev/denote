@@ -215,6 +215,7 @@ import {
 } from "./lib/links";
 import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
 import type {
+  EditorSearchNavigation,
   EditorTab,
   FileNode,
   HeadingItem,
@@ -285,8 +286,11 @@ function App() {
   const [searchFilters, setSearchFilters] = useState<SearchFilters>(() =>
     createEmptySearchFilters(),
   );
-  const [searchLocationFocusRequest, setSearchLocationFocusRequest] = useState(0);
+  const [searchQueryFocusRequest, setSearchQueryFocusRequest] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchNavigation, setSearchNavigation] = useState<
+    (EditorSearchNavigation & { path: string }) | null
+  >(null);
   const [indexing, setIndexing] = useState(false);
   const [errors, dispatchErrors] = useReducer(
     appErrorsReducer,
@@ -379,6 +383,7 @@ function App() {
     path: string;
   } | null>(null);
   const activePathRef = useRef<string | null>(null);
+  const searchNavigationRequest = useRef(0);
   const paneStateRef = useRef<PaneWorkspaceState>(paneState);
   const openFileRequests = useRef(new Map<string, number>());
   const openFileQueue = useRef<Promise<void>>(Promise.resolve());
@@ -539,6 +544,11 @@ function App() {
   const tabs = focusedPane.tabs;
   const tabGroups = focusedPane.groups;
   const activePath = focusedPane.activePath;
+  useEffect(() => {
+    setSearchNavigation((current) =>
+      current?.path === activePath ? current : null,
+    );
+  }, [activePath]);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
     [activePath, tabs],
@@ -1030,6 +1040,7 @@ function App() {
       searchIndex.current = new VaultSearchIndex();
       searchIndexReady.current = false;
       setSearchResults([]);
+      setSearchNavigation(null);
       if (resetTabs || vaultLocked) {
         dispatchErrors({ type: "clear-all" });
         setSearchQuery("");
@@ -2111,6 +2122,27 @@ function App() {
         transientErrors,
       ),
     [openFileInPane],
+  );
+
+  const openSearchResult = useCallback(
+    async (result: SearchResult) => {
+      await openFile(result.document.path);
+      if (
+        activePathRef.current !== result.document.path ||
+        result.match === null
+      ) {
+        setSearchNavigation(null);
+        return;
+      }
+      setSearchNavigation({
+        path: result.document.path,
+        request: ++searchNavigationRequest.current,
+        from: result.match.from,
+        to: result.match.to,
+        text: result.document.content.slice(result.match.from, result.match.to),
+      });
+    },
+    [openFile],
   );
 
   const openFileInNewTab = useCallback(
@@ -3954,6 +3986,9 @@ function App() {
               : tab;
           }),
         );
+        if (applied.size > 0) {
+          setSearchNavigation(null);
+        }
         for (const tab of tabsRef.current) {
           if (tab.kind === "image" && applied.has(tab.path)) {
             try {
@@ -4525,7 +4560,7 @@ function App() {
   const focusVaultSearch = useCallback(() => {
     setSearchLocation(activeFileTab?.path ?? "*");
     setSidebarView("search");
-    setSearchLocationFocusRequest((current) => current + 1);
+    setSearchQueryFocusRequest((current) => current + 1);
   }, [activeFileTab?.path]);
 
   const navigateToEditorError = useCallback(() => {
@@ -5262,7 +5297,7 @@ function App() {
       title: "Find and replace",
       description: "Replace text in the current file or vault.",
       category: "Editor",
-      shortcut: macOS ? "⌥⌘F" : "Ctrl+H",
+      shortcut: macOS ? "⌘H" : "Ctrl+H",
       disabled: !workspaceReady,
       run: () => setReplaceOpen(true),
     },
@@ -5523,6 +5558,12 @@ function App() {
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
             errorNavigationRequest={paneMarkdownError?.navigationRequest ?? 0}
+            searchNavigation={
+              pane.id === focusedPaneId &&
+              searchNavigation?.path === paneTab.path
+                ? searchNavigation
+                : undefined
+            }
             tagColors={tagColorMap}
             onChange={(content) => changeTabContent(paneTab.path, content)}
             onError={showError}
@@ -5557,6 +5598,12 @@ function App() {
               filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
               lineEnding={paneTab.lineEnding}
               displaySettings={editorDisplaySettings}
+              searchNavigation={
+                pane.id === focusedPaneId &&
+                searchNavigation?.path === paneTab.path
+                  ? searchNavigation
+                  : undefined
+              }
               onChange={(content) => changeTabContent(paneTab.path, content)}
               onError={showError}
             />
@@ -5810,14 +5857,14 @@ function App() {
             query={searchQuery}
             location={searchLocation}
             filters={searchFilters}
-            focusLocationRequest={searchLocationFocusRequest}
+            focusQueryRequest={searchQueryFocusRequest}
             results={searchResults}
             searching={indexing}
             tagColors={tagColorMap}
             onQueryChange={setSearchQuery}
             onLocationChange={setSearchLocation}
             onFiltersChange={setSearchFilters}
-            onOpenResult={(path) => void openFile(path)}
+            onOpenResult={(result) => void openSearchResult(result)}
           />
         ) : sidebarView === "bookmarks" ? (
           <SidebarNoteList
@@ -5975,7 +6022,7 @@ function App() {
               className="icon-button"
               aria-label="Find and replace"
               title={`Find and replace (${
-                navigator.platform.includes("Mac") ? "⌥⌘F" : "Ctrl+H"
+                navigator.platform.includes("Mac") ? "⌘H" : "Ctrl+H"
               })`}
               disabled={workspaceLocked}
               onClick={() => setReplaceOpen(true)}

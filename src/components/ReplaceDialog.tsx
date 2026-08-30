@@ -121,10 +121,17 @@ export function ReplaceDialog({
     try {
       const summary = await onApply(request, selected);
       if (summary.failedFiles === 0) {
-        onClose();
+        setPreviews([]);
+        setSelectedPaths(new Set());
+        setMessage(
+          `${summary.replacedOccurrences} instance${
+            summary.replacedOccurrences === 1 ? "" : "s"
+          } ${summary.replacedOccurrences === 1 ? "has" : "have"} been replaced.`,
+        );
+        window.setTimeout(() => findRef.current?.focus(), 0);
       } else {
         setMessage(
-          `Replaced ${summary.replacedOccurrences} occurrence${
+          `Replaced ${summary.replacedOccurrences} instance${
             summary.replacedOccurrences === 1 ? "" : "s"
           } in ${summary.appliedFiles} file${
             summary.appliedFiles === 1 ? "" : "s"
@@ -133,6 +140,8 @@ export function ReplaceDialog({
           } could not be changed.`,
         );
       }
+    } catch (caught) {
+      setMessage(errorMessage(caught));
     } finally {
       setBusy(false);
     }
@@ -314,7 +323,7 @@ export function ReplaceDialog({
           disabled={busy || !find}
           onClick={() => void preview()}
         >
-          Preview
+          Find
         </button>
         <button
           type="button"
@@ -322,7 +331,7 @@ export function ReplaceDialog({
           disabled={busy || selectedPaths.size === 0}
           onClick={() => void apply()}
         >
-          Replace selected
+          Replace
         </button>
       </footer>
     </dialog>

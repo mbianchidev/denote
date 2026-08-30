@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { PlainTextEditor } from "./PlainTextEditor";
@@ -82,5 +83,39 @@ describe("PlainTextEditor", () => {
       screen.getByRole("textbox", { name: "Edit restored source" }),
     ).toHaveTextContent("after");
     expect(props.onChange).not.toHaveBeenCalled();
+  });
+
+  it("focuses and selects a requested search match", async () => {
+    const { container } = render(
+      <PlainTextEditor
+        value="Start needle finish"
+        ariaLabel="Edit searchable source"
+        readOnly={false}
+        spellCheck
+        binary={false}
+        filePath="searchable.txt"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        searchNavigation={{
+          request: 1,
+          from: 6,
+          to: 12,
+          text: "needle",
+        }}
+        onChange={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByRole("textbox", {
+      name: "Edit searchable source",
+    });
+    await vi.waitFor(() => expect(editor).toHaveFocus());
+    const view = EditorView.findFromDOM(
+      container.querySelector<HTMLElement>(".cm-editor")!,
+    );
+    expect(view?.state.sliceDoc(
+      view.state.selection.main.from,
+      view.state.selection.main.to,
+    )).toBe("needle");
   });
 });

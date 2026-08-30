@@ -1,5 +1,6 @@
 import { create, insertMultiple, search } from "zbsearch";
 import type { SearchDocument, SearchResult } from "../types";
+import { findEarliestCaseInsensitiveMatch } from "./textMatch";
 
 const SEARCH_SCHEMA = {
   path: "string",
@@ -149,7 +150,11 @@ export class VaultSearchIndex {
           compareRecent(right.document, left.document) ||
           left.document.title.localeCompare(right.document.title),
       )
-      .slice(0, 200);
+      .slice(0, 200)
+      .map((result) => ({
+        ...result,
+        match: findContentMatch(result.document.content, parsed),
+      }));
   }
 }
 
@@ -402,6 +407,20 @@ function createSnippet(document: SearchDocument, term: string): string {
   const start = Math.max(0, index - 70);
   const end = Math.min(compact.length, index + firstTerm.length + 110);
   return `${start > 0 ? "…" : ""}${compact.slice(start, end)}${end < compact.length ? "…" : ""}`;
+}
+
+function findContentMatch(
+  content: string,
+  parsed: ParsedSearch,
+): { from: number; to: number } | null {
+  const candidates = [
+    parsed.term,
+    ...parsed.term.split(/\s+/),
+    ...parsed.content,
+  ]
+    .map((candidate) => candidate.trim())
+    .filter(Boolean);
+  return findEarliestCaseInsensitiveMatch(content, candidates);
 }
 
 function compareRecent(left: SearchDocument, right: SearchDocument): number {

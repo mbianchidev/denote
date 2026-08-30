@@ -182,9 +182,11 @@ match the full vault-relative path. Existing inline filters are merged with the
 visual filter model before result scoring and filtering.
 
 Command-F on macOS and Control-F on Windows/Linux are captured before browser or
-CodeMirror find handlers, set the active file as the location, and select that
-field. The macOS Option-Command-F and Windows/Linux Control-H replace shortcuts
-are evaluated separately and remain unchanged.
+CodeMirror find handlers, set the active file as the location, and focus the
+search-text field. Search results retain the first exact content-match range so
+opening a result can select and center that term in the active rich-text or
+source editor. Command-H on macOS and Control-H on Windows/Linux open replace;
+the macOS native application menu omits its conflicting default Hide item.
 
 Command-P on macOS and Control-P on Windows/Linux opens a unified command
 palette. The frontend contributes contextual action descriptors with labels,
@@ -206,6 +208,8 @@ replacement flushes open tabs first, then previews all editable files up to 25
 MB, including Base64 binary content.
 Each selected file is saved with its preview-time content hash, so files changed
 externally after preview fail individually instead of being overwritten.
+Successful replacement clears the stale preview, keeps the dialog open, and
+announces the number of replaced instances.
 
 ## Editing
 

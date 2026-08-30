@@ -427,6 +427,80 @@ describe("MarkdownEditor links", () => {
     expect(view!.state.selection.main.head).toBe(line.from + 1);
   });
 
+  it("focuses and selects a requested rich-text search match", async () => {
+    render(
+      <MarkdownEditor
+        notePath="searchable.md"
+        markdown="Start needle finish"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        searchNavigation={{
+          request: 1,
+          from: 6,
+          to: 12,
+          text: "needle",
+        }}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const content = await screen.findByText("Start needle finish");
+    const contentEditable = content.closest<HTMLElement>(
+      '[contenteditable="true"]',
+    );
+    await waitFor(() => expect(contentEditable).toHaveFocus());
+    expect(window.getSelection()?.toString()).toBe("needle");
+    expect(contentEditable).not.toHaveAttribute("tabindex", "-1");
+  });
+
+  it("switches to source mode for a match hidden by Markdown syntax", async () => {
+    const onViewModeChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="searchable.md"
+        markdown={"[label](needle)\n\nneedle"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        searchNavigation={{
+          request: 1,
+          from: 8,
+          to: 14,
+          text: "needle",
+        }}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={onViewModeChange}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement)!;
+    await waitFor(() =>
+      expect(
+        view.state.sliceDoc(
+          view.state.selection.main.from,
+          view.state.selection.main.to,
+        ),
+      ).toBe("needle"),
+    );
+    expect(view.state.selection.main.from).toBe(8);
+    expect(onViewModeChange).not.toHaveBeenCalledWith("source");
+  });
+
   it("renders standard Markdown angle text without MDX parser errors", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

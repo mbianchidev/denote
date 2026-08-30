@@ -103,19 +103,21 @@ import {
   restoreThematicBreaks,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
+import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
   resolveTagColor,
   tagColorStyle,
   type TagColorMap,
 } from "../lib/tagColors";
-import type { FileLineEnding } from "../types";
+import type { EditorSearchNavigation, FileLineEnding } from "../types";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
   onChange: (mode: MarkdownViewMode) => void;
   onErrorCleared?: () => void;
   isSourceForced?: () => boolean;
+  suppressPersistence?: () => boolean;
   onModeChange?: (mode: MarkdownViewMode) => void;
 }>({
   init(realm, params) {
@@ -135,7 +137,11 @@ const viewModePreferencePlugin = realmPlugin<{
       }
       if (mode !== "diff" && mode !== previousMode) {
         previousMode = mode;
-        if (!forcingSource && !params?.isSourceForced?.()) {
+        if (
+          !forcingSource &&
+          !params?.isSourceForced?.() &&
+          !params?.suppressPersistence?.()
+        ) {
           params?.onChange(mode);
         }
       }
@@ -206,6 +212,7 @@ interface MarkdownEditorProps {
   readOnly: boolean;
   errorLocation?: MarkdownErrorLocation;
   errorNavigationRequest?: number;
+  searchNavigation?: EditorSearchNavigation;
   tagColors?: TagColorMap;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
@@ -235,6 +242,7 @@ export const MarkdownEditor = forwardRef<
     readOnly,
     errorLocation,
     errorNavigationRequest = 0,
+    searchNavigation,
     tagColors = EMPTY_TAG_COLORS,
     onChange,
     onError,
@@ -275,6 +283,8 @@ export const MarkdownEditor = forwardRef<
   const forceSource = sourceOnly || displayGuidesForceSource;
   const sourceForcedRef = useRef(forceSource);
   sourceForcedRef.current = forceSource;
+  const searchForcedSourceRef = useRef(false);
+  const handledSearchRequest = useRef(0);
   const sourceLock = useMemo(
     () =>
       sourceOnly
@@ -384,11 +394,17 @@ export const MarkdownEditor = forwardRef<
       viewModePreferencePlugin({
         mode: initialViewMode,
         isSourceForced: () => sourceForcedRef.current,
+        suppressPersistence: () => searchForcedSourceRef.current,
         onChange: onViewModeChange,
         onErrorCleared: onMarkdownErrorCleared,
         onModeChange: (mode) => {
           activeViewModeRef.current = mode;
           setActiveViewMode(mode);
+          if (mode === "source" && searchForcedSourceRef.current) {
+            queueMicrotask(() => {
+              searchForcedSourceRef.current = false;
+            });
+          }
         },
       }),
       toolbarPlugin({
@@ -570,6 +586,46 @@ export const MarkdownEditor = forwardRef<
     errorNavigationRequest,
     notePath,
   ]);
+
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (
+      !shell ||
+      !searchNavigation ||
+      searchNavigation.request <= 0 ||
+      handledSearchRequest.current === searchNavigation.request
+    ) {
+      return;
+    }
+    let attempt = 0;
+    let timer = 0;
+    const reveal = () => {
+      if (activeViewMode !== "source") {
+        const result = revealRichTextSearch(shell, markdown, searchNavigation);
+        if (result === "source-required") {
+          searchForcedSourceRef.current = true;
+          if (switchToSourceMode(shell)) {
+            return;
+          }
+          searchForcedSourceRef.current = false;
+        } else if (result === "revealed") {
+          handledSearchRequest.current = searchNavigation.request;
+          return;
+        }
+      }
+      const revealed =
+        activeViewMode === "source" &&
+        revealSourceSearch(shell, searchNavigation);
+      if (revealed || attempt >= 20) {
+        handledSearchRequest.current = searchNavigation.request;
+        return;
+      }
+      attempt += 1;
+      timer = window.setTimeout(reveal, 30);
+    };
+    timer = window.setTimeout(reveal, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeViewMode, markdown, notePath, searchNavigation]);
 
   return (
     <div
@@ -851,6 +907,119 @@ function sourceEditorView(shell: HTMLElement): EditorView | null {
     ".mdxeditor-source-editor .cm-editor",
   );
   return editorElement ? EditorView.findFromDOM(editorElement) : null;
+}
+
+function revealSourceSearch(
+  shell: HTMLElement,
+  navigation: EditorSearchNavigation,
+): boolean {
+  const view = sourceEditorView(shell);
+  if (!view) {
+    return false;
+  }
+  const source = view.state.doc.toString();
+  const from = Math.max(0, Math.min(navigation.from, source.length));
+  const to = Math.max(from, Math.min(navigation.to, source.length));
+  const exact =
+    source.slice(from, to).toLocaleLowerCase() ===
+    navigation.text.toLocaleLowerCase();
+  const fallback = exact
+    ? { from, to }
+    : findCaseInsensitiveMatches(source, navigation.text)[0];
+  if (!fallback) {
+    return false;
+  }
+  view.dispatch({
+    selection: { anchor: fallback.from, head: fallback.to },
+    effects: EditorView.scrollIntoView(fallback.from, { y: "center" }),
+  });
+  view.focus();
+  return true;
+}
+
+function switchToSourceMode(shell: HTMLElement): boolean {
+  const sourceToggle = shell.querySelector<HTMLButtonElement>(
+    'button[aria-label="Source mode"]',
+  );
+  if (!sourceToggle) {
+    return false;
+  }
+  sourceToggle.click();
+  return true;
+}
+
+function revealRichTextSearch(
+  shell: HTMLElement,
+  markdown: string,
+  navigation: EditorSearchNavigation,
+): "revealed" | "not-ready" | "source-required" {
+  const root = shell.querySelector<HTMLElement>(".denote-editor-content");
+  if (!root || !navigation.text) {
+    return "not-ready";
+  }
+  const entries: Array<{ node: Text; start: number; end: number }> = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let combined = "";
+  let node = walker.nextNode();
+  while (node) {
+    const textNode = node as Text;
+    const start = combined.length;
+    combined += textNode.data;
+    entries.push({ node: textNode, start, end: combined.length });
+    node = walker.nextNode();
+  }
+  if (!combined && markdown) {
+    return "not-ready";
+  }
+  const sourceMatches = findCaseInsensitiveMatches(markdown, navigation.text);
+  const exactTarget = sourceMatches.findIndex(
+    (match) => match.from === navigation.from && match.to === navigation.to,
+  );
+  const targetIndex =
+    exactTarget >= 0
+      ? exactTarget
+      : sourceMatches.reduce(
+          (closest, match, index) =>
+            closest < 0 ||
+            Math.abs(match.from - navigation.from) <
+              Math.abs(sourceMatches[closest].from - navigation.from)
+              ? index
+              : closest,
+          -1,
+        );
+  const renderedMatches = findCaseInsensitiveMatches(
+    combined,
+    navigation.text,
+  );
+  if (
+    targetIndex < 0 ||
+    renderedMatches.length !== sourceMatches.length ||
+    !renderedMatches[targetIndex]
+  ) {
+    return "source-required";
+  }
+  const { from: matchStart, to: matchEnd } = renderedMatches[targetIndex];
+  const startEntry = entries.find(
+    (entry) => matchStart >= entry.start && matchStart < entry.end,
+  );
+  const endEntry = entries.find(
+    (entry) => matchEnd > entry.start && matchEnd <= entry.end,
+  );
+  if (!startEntry || !endEntry) {
+    return "not-ready";
+  }
+  root.focus();
+  const range = document.createRange();
+  range.setStart(startEntry.node, matchStart - startEntry.start);
+  range.setEnd(endEntry.node, matchEnd - endEntry.start);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  startEntry.node.parentElement?.scrollIntoView?.({
+    behavior: "smooth",
+    block: "center",
+  });
+  return "revealed";
 }
 
 const TAG_ONLY_LINE =

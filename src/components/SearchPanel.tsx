@@ -12,14 +12,14 @@ interface SearchPanelProps {
   query: string;
   location: string;
   filters: SearchFilters;
-  focusLocationRequest: number;
+  focusQueryRequest: number;
   results: SearchResult[];
   searching: boolean;
   tagColors: TagColorMap;
   onQueryChange: (query: string) => void;
   onLocationChange: (location: string) => void;
   onFiltersChange: (filters: SearchFilters) => void;
-  onOpenResult: (path: string) => void;
+  onOpenResult: (result: SearchResult) => void;
 }
 
 const FILE_KINDS = [
@@ -33,7 +33,7 @@ export function SearchPanel({
   query,
   location,
   filters,
-  focusLocationRequest,
+  focusQueryRequest,
   results,
   searching,
   tagColors,
@@ -44,16 +44,16 @@ export function SearchPanel({
 }: SearchPanelProps) {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [tagInput, setTagInput] = useState(filters.tags.join(", "));
-  const locationInputRef = useRef<HTMLInputElement>(null);
+  const queryInputRef = useRef<HTMLInputElement>(null);
   const activeFilterCount = countSearchFilters(filters);
 
   useEffect(() => {
-    if (focusLocationRequest <= 0) {
+    if (focusQueryRequest <= 0) {
       return;
     }
-    locationInputRef.current?.focus();
-    locationInputRef.current?.select();
-  }, [focusLocationRequest]);
+    queryInputRef.current?.focus();
+    queryInputRef.current?.select();
+  }, [focusQueryRequest]);
 
   useEffect(() => {
     if (
@@ -70,10 +70,8 @@ export function SearchPanel({
         <div className="search-field search-location">
           <label htmlFor="search-location">Where to search</label>
           <input
-            ref={locationInputRef}
             id="search-location"
             value={location}
-            autoFocus
             spellCheck={false}
             placeholder="* or *.html"
             aria-describedby="search-location-help"
@@ -88,7 +86,9 @@ export function SearchPanel({
           <Search aria-hidden="true" size={16} />
           <span className="sr-only">Search text</span>
           <input
+            ref={queryInputRef}
             value={query}
+            autoFocus
             placeholder="Search text"
             onChange={(event) => onQueryChange(event.currentTarget.value)}
           />
@@ -242,19 +242,21 @@ export function SearchPanel({
         {searching ? (
           <p className="sidebar-empty">Updating local index…</p>
         ) : results.length > 0 ? (
-          results.map(({ document, snippet }) => (
+          results.map((result) => (
             <button
               type="button"
               className="search-result"
-              key={document.path}
-              onClick={() => onOpenResult(document.path)}
+              key={result.document.path}
+              onClick={() => onOpenResult(result)}
             >
-              <span className="search-result__title">{document.title}</span>
-              <span className="search-result__path">{document.path}</span>
-              <span className="search-result__snippet">{snippet}</span>
-              {document.tags.length > 0 ? (
+              <span className="search-result__title">
+                {result.document.title}
+              </span>
+              <span className="search-result__path">{result.document.path}</span>
+              <span className="search-result__snippet">{result.snippet}</span>
+              {result.document.tags.length > 0 ? (
                 <span className="tag-row" aria-label="Tags">
-                  {document.tags.slice(0, 4).map((tag) => (
+                  {result.document.tags.slice(0, 4).map((tag) => (
                     <TagChip
                       tag={tag}
                       color={resolveTagColor(tag, tagColors)}
