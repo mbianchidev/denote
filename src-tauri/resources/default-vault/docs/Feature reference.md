@@ -68,6 +68,8 @@ more detail and examples.
 - Keep the previous ten changed revisions.
 - Render headings, emphasis, lists, task lists, quotes, tables, thematic breaks,
   frontmatter, links, images, code, and callouts.
+- Treat angle-bracket comparisons, hearts, and placeholders in `.md` as standard
+  Markdown text; keep `.mdx` and `.jsx` as non-executing JSX-highlighted source.
 - Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists as labeled Rich
   mode navigation panels and preserve their generator markers across Rich and
   Source edits.
@@ -80,7 +82,7 @@ more detail and examples.
   languages.
 - Preserve mixed Unicode scripts and emoji in one file.
 - Open unsupported rich syntax such as MDX, raw HTML, footnotes, math, reference
-  definitions, and escaped hashtags in source mode for safety.
+  definitions, and escaped hashtags in locked source mode for safety.
 - Report Markdown parser line/column details, highlight the failing source
   position, and expose **Navigate to error** without changing the saved mode.
 

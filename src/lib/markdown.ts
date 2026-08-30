@@ -1,5 +1,6 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { HeadingItem } from "../types";
+import { isRichSafeStandardMarkdownAngle } from "./mdxCompatibility";
 import { normalizeTag } from "./tagColors";
 import type { MarkdownViewMode } from "./markdownView";
 
@@ -744,6 +745,7 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
     /\[\^[^\]]+\]/.test(markdown) ||
     containsUnsupportedHtmlComment(markdown) ||
+    containsEscapedAngleSyntax(markdown) ||
     containsUnsafeAngleSyntax(markdown) ||
     /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
@@ -753,6 +755,9 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
 }
 
 function containsUnsupportedHtmlComment(markdown: string): boolean {
+  if (!markdown.includes("<!--")) {
+    return false;
+  }
   const allowedMarkers = new Set(
     validTocBlocks(markdown).flatMap((block) =>
       block.markerRanges.map(([start, end]) => `${start}:${end}`),
@@ -766,7 +771,7 @@ function containsUnsupportedHtmlComment(markdown: string): boolean {
   visitMarkdownAst(root, (node) => {
     if (
       node.type === "html" &&
-      node.value?.startsWith("<!--")
+      node.value?.trimStart().startsWith("<!--")
     ) {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
@@ -1119,43 +1124,199 @@ interface MarkdownAstNode {
 }
 
 function containsUnsafeAngleSyntax(markdown: string): boolean {
-  const candidates = [
+  const matches = [
     ...markdown.matchAll(/<\/?[a-z][^<>]*>/gi),
     ...markdown.matchAll(/<![a-z][^<>]*>/gi),
     ...markdown.matchAll(
       /<(?:https?:\/\/|mailto:|tel:|[^<>\s]+@)[^<>\n]*>/gi,
     ),
     ...markdown.matchAll(/<[a-z][^<>\n]*(?=\n|$)/gi),
+    ...markdown.matchAll(/<(?!\!--)[^<>\n]+>/g),
   ];
-  if (candidates.length === 0) {
+  if (!markdown.includes("<")) {
     return false;
   }
   try {
     const allowedRanges = new Set<string>();
+    const literalRanges: Array<[number, number]> = [];
+    const textRanges: Array<[number, number]> = [];
+    const codeRanges: Array<[number, number]> = [];
+    const literalHtmlOpenTags = new Set<string>();
+    let unsafeHtml = false;
     visitMarkdownAst(fromMarkdown(markdown), (node) => {
-      if (node.type !== "link") {
-        return;
-      }
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
       if (start === undefined || end === undefined) {
         return;
       }
-      const range = angleLinkDestinationRange(markdown, node, start, end);
-      if (range) {
-        allowedRanges.add(`${range[0]}:${range[1]}`);
+      if (node.type === "code" || node.type === "inlineCode") {
+        codeRanges.push([start, end]);
+      } else if (node.type === "text") {
+        textRanges.push([start, end]);
+      } else if (node.type === "link") {
+        const range = angleLinkDestinationRange(markdown, node, start, end);
+        if (range) {
+          allowedRanges.add(`${range[0]}:${range[1]}`);
+        }
+      } else if (
+        node.type === "html" &&
+        node.value
+      ) {
+        if (node.value.trim().startsWith("<!--")) {
+          return;
+        }
+        if (isRichSafeStandardMarkdownAngle(node.value)) {
+          const value = node.value.trim();
+          const closingTag = value.match(
+            /^<\/([A-Za-z][A-Za-z0-9:-]*)\s*>/,
+          )?.[1]?.toLowerCase();
+          if (closingTag && literalHtmlOpenTags.has(closingTag)) {
+            unsafeHtml = true;
+            return;
+          }
+          const openingTag = value.match(
+            /^<([A-Za-z][A-Za-z0-9:-]*)\b/,
+          )?.[1]?.toLowerCase();
+          if (openingTag) {
+            if (/\/\s*>$/.test(value)) {
+              unsafeHtml = true;
+              return;
+            }
+            literalHtmlOpenTags.add(openingTag);
+          }
+          literalRanges.push([start, end]);
+        } else {
+          unsafeHtml = true;
+        }
       }
     });
-    return candidates.some(
-      (candidate) =>
-        candidate.index === undefined ||
-        !allowedRanges.has(
-          `${candidate.index}:${candidate.index + candidate[0].length}`,
-        ),
-    );
+    if (unsafeHtml) {
+      return true;
+    }
+    const candidates = [
+      ...new Map(
+        matches
+          .flatMap((match) =>
+            match.index === undefined
+              ? []
+              : [{ index: match.index, value: match[0] }],
+          )
+          .map((match) => [
+            `${match.index}:${match.value.length}`,
+            match,
+          ]),
+      ).values(),
+    ].sort((left, right) => left.index - right.index);
+    if (candidates.length === 0) {
+      return false;
+    }
+    const codeIndex = createRangeIndex(codeRanges);
+    const literalIndex = createRangeIndex(literalRanges);
+    const literalStarts = new Set(literalRanges.map(([start]) => start));
+    const textIndex = createRangeIndex(textRanges);
+    let scannedOffset = 0;
+    let unclosedTagOffset = -1;
+    for (const candidate of candidates) {
+      while (scannedOffset < candidate.index) {
+        const character = markdown[scannedOffset];
+        if (character === "\n" || character === ">") {
+          unclosedTagOffset = -1;
+        } else if (
+          character === "<" &&
+          isPotentialTagStart(markdown, scannedOffset + 1)
+        ) {
+          unclosedTagOffset = scannedOffset;
+        }
+        scannedOffset += 1;
+      }
+      const candidateEnd = candidate.index + candidate.value.length;
+      const range = `${candidate.index}:${candidateEnd}`;
+      if (rangeContains(codeIndex, candidate.index, candidateEnd)) {
+        continue;
+      }
+      if (allowedRanges.has(range)) {
+        continue;
+      }
+      const literal =
+        (rangeContains(literalIndex, candidate.index, candidateEnd) &&
+          literalStarts.has(candidate.index)) ||
+        (isRichSafeStandardMarkdownAngle(candidate.value) &&
+          rangeContains(textIndex, candidate.index, candidateEnd));
+      if (!literal || unclosedTagOffset >= 0) {
+        return true;
+      }
+    }
+    return false;
   } catch {
     return true;
   }
+}
+
+function isPotentialTagStart(markdown: string, offset: number): boolean {
+  const code = markdown.charCodeAt(offset);
+  if (code === 47) {
+    return isTagNameStartCode(markdown.charCodeAt(offset + 1));
+  }
+  return isTagNameStartCode(code);
+}
+
+function isTagNameStartCode(code: number): boolean {
+  return (
+    code === 36 ||
+    code === 95 ||
+    (code >= 65 && code <= 90) ||
+    (code >= 97 && code <= 122)
+  );
+}
+
+function containsEscapedAngleSyntax(markdown: string): boolean {
+  if (!/\\+</.test(markdown)) {
+    return false;
+  }
+  const protectedIndex = createRangeIndex(protectedMarkdownRanges(markdown));
+  return [...markdown.matchAll(/\\+</g)].some((match) => {
+    const angleOffset = (match.index ?? 0) + match[0].length - 1;
+    return !rangeContains(protectedIndex, angleOffset, angleOffset + 1);
+  });
+}
+
+interface RangeIndex {
+  starts: number[];
+  maxEnds: number[];
+}
+
+function createRangeIndex(ranges: Array<[number, number]>): RangeIndex {
+  const sorted = [...ranges].sort(
+    (left, right) => left[0] - right[0] || right[1] - left[1],
+  );
+  const starts: number[] = [];
+  const maxEnds: number[] = [];
+  let maxEnd = -1;
+  for (const [start, end] of sorted) {
+    starts.push(start);
+    maxEnd = Math.max(maxEnd, end);
+    maxEnds.push(maxEnd);
+  }
+  return { starts, maxEnds };
+}
+
+function rangeContains(
+  index: RangeIndex,
+  start: number,
+  end: number,
+): boolean {
+  let low = 0;
+  let high = index.starts.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if (index.starts[middle] <= start) {
+      low = middle + 1;
+    } else {
+      high = middle;
+    }
+  }
+  const candidate = low - 1;
+  return candidate >= 0 && index.maxEnds[candidate] >= end;
 }
 
 function angleLinkDestinationRange(

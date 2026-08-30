@@ -47,6 +47,17 @@ describe("Markdown error locations", () => {
     ).toEqual({ line: 7, column: 8 });
   });
 
+  it("locates attribute errors after accepted HTML comments", () => {
+    const source =
+      "<!-- toc -->\n- [One](#one)\n<!-- /toc -->\n\n.sales summary <account-slug or link to proxima like acme.ghe.com>";
+    expect(
+      locateMarkdownError(
+        source,
+        "Error parsing markdown: Unexpected character `.` (U+002E) in attribute name, expected an attribute name character such as letters, digits, `$`, or `_`; `=` to initialize a value; whitespace before attributes; or the end of the tag",
+      ),
+    ).toEqual({ line: 5, column: 58 });
+  });
+
   it("locates an error in the original document including boundary whitespace", () => {
     expect(
       locateMarkdownError(

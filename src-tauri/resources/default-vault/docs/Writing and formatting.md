@@ -26,7 +26,12 @@ Generated tables of contents using exact `<!-- toc -->` and `<!-- /toc -->`
 marker lines render as labeled navigation panels in Rich mode. Every item must
 be a link; nested link-only lists are supported. Denote preserves those markers
 after Rich edits and when switching to Source. Other HTML comments remain
-source-only. A line containing `---` renders as a full-width thematic separator.
+locked to source mode. A line containing `---` renders as a full-width thematic
+separator.
+
+Regular `.md` files follow standard Markdown rules for angle brackets. Text such
+as `<100k`, `<3`, and `<account-slug>` remains literal instead of being parsed as
+JSX. `.mdx` and `.jsx` open as non-executing JSX-highlighted source files.
 
 Press `Command-K` on macOS or `Ctrl-K` on Windows and Linux to create a link.
 Rich mode opens the link dialog and preserves highlighted text as the anchor.

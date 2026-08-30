@@ -4,6 +4,8 @@ import { sourceLanguageName } from "./sourceLanguage";
 describe("source language detection", () => {
   it("detects supported programming languages from filenames", () => {
     expect(sourceLanguageName("src/app.js")).toBe("JavaScript");
+    expect(sourceLanguageName("src/Component.jsx")).toBe("JSX");
+    expect(sourceLanguageName("docs/Guide.mdx")).toBe("JSX");
     expect(sourceLanguageName("src/app.ts")).toBe("TypeScript");
     expect(sourceLanguageName("script.py")).toBe("Python");
     expect(sourceLanguageName("public/index.php")).toBe("PHP");

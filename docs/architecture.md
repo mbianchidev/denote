@@ -194,6 +194,14 @@ externally after preview fail individually instead of being overwritten.
 MDXEditor provides rich single-pane Markdown editing and a source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
+For `.md`, MDXEditor's HTML/JSX processing is suppressed so CommonMark/GFM owns
+autolinks, indented code, raw HTML, comparisons, hearts, and placeholders. A
+high-priority standard-HTML visitor imports HTML tokens as literal text and
+inherits surrounding formatting; canonical TOC comments remain structural
+markers. Serializer escapes are reconciled against the previous source only
+after Rich edits. Unsupported raw HTML remains locked to lossless source mode.
+`.mdx` and `.jsx` bypass the rich editor and use non-executing JSX-highlighted
+source editing.
 
 Exact paired `<!-- toc -->` and `<!-- /toc -->` marker lines are accepted only
 around one root link-only list, including nested link-only items. MDXEditor
@@ -213,10 +221,10 @@ editor renders, highlights the rich heading when available, and otherwise
 selects the matching Markdown heading line in CodeMirror source.
 
 MDX parser messages discard their underlying positional cause, so Denote
-replays the MDX JSX/Markdown tokenizer against the reported source to recover a
-verified line and column. For inline invalid MDX names that the replay parser
-treats as ordinary Markdown text, Denote locates the reported Unicode code point
-outside code, HTML, and escaped ranges. A stable CodeMirror StateField receives
+replays the MDX JSX/Markdown tokenizer against the reported source after masking
+accepted HTML comments with offset-preserving whitespace. For remaining inline
+invalid names, Denote locates the reported Unicode code point outside code,
+HTML, and escaped ranges. A stable CodeMirror StateField receives
 diagnostics without remounting the editor. Parse failures temporarily select
 source mode without writing the vault-wide preference; the error banner can
 scroll, select, and focus the marked position. A reducer stores diagnostics by path,

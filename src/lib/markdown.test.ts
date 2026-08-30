@@ -283,6 +283,7 @@ describe("markdown utilities", () => {
       ),
     ).toBe(false);
     expect(hasUnsupportedRichMarkdown("<!-- toc -->")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("  <!-- keep -->")).toBe(true);
     expect(hasUnsupportedRichMarkdown("prefix <!-- toc --> suffix")).toBe(true);
     expect(
       hasUnsupportedRichMarkdown(
@@ -305,6 +306,22 @@ describe("markdown utilities", () => {
       hasUnsupportedRichMarkdown("```md\n<!-- toc -->\n```"),
     ).toBe(false);
     expect(hasUnsupportedRichMarkdown("Use <kbd>Ctrl</kbd> here.")).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "Discovery for <100k accounts\n\nThanks <3\n\nUse <account-slug>\n\nPlatform <platform aws/azure>",
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown("<account-slug>\ncontinued explanation"),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown('<custom-element data-x="1">'),
+    ).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<account [slug]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<1[slug]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<é[slug]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("\\<100k")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("\\\\<100k")).toBe(true);
     expect(hasUnsupportedRichMarkdown("[guide]: ./guide.md")).toBe(true);
     expect(hasUnsupportedRichMarkdown("It costs $5 and then $10 total.")).toBe(
       false,
@@ -483,6 +500,15 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("<user@example.com>")).toBe(true);
     expect(hasUnsupportedRichMarkdown("<123@example.com>")).toBe(true);
     expect(hasUnsupportedRichMarkdown("<!DOCTYPE html>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<![CDATA[value]]>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<slot>fallback</slot>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<font>legacy</font>")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("<marquee>legacy</marquee>")).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<custom-element>content</custom-element>",
+      ),
+    ).toBe(true);
     expect(hasUnsupportedRichMarkdown("<input disabled")).toBe(true);
     expect(hasUnsupportedRichMarkdown(`${"<a".repeat(1_000)}>`)).toBe(true);
     expect(hasUnsupportedRichMarkdown("\\[x](<input disabled>)")).toBe(true);
@@ -525,7 +551,7 @@ describe("markdown utilities", () => {
     ).toBe(true);
     expect(
       hasUnsupportedRichMarkdown("[`foo ](<kbd>)`](safe.md)"),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       hasUnsupportedRichMarkdown('[x](safe.md "title ](<kbd>)")'),
     ).toBe(true);

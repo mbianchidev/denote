@@ -1,6 +1,7 @@
 import {
   $isDirectiveNode,
   AdmonitionDirectiveDescriptor,
+  addImportVisitor$,
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
   ChangeAdmonitionType,
@@ -17,6 +18,7 @@ import {
   InsertThematicBreak,
   ListsToggle,
   MDXEditor,
+  type MdastImportVisitor,
   type MDXEditorMethods,
   Separator,
   StrikeThroughSupSubToggles,
@@ -44,7 +46,13 @@ import {
 import { usePublisher } from "@mdxeditor/gurx";
 import { Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
+import {
+  $createParagraphNode,
+  $createTextNode,
+  $isRootNode,
+} from "lexical";
 import { Link2 } from "lucide-react";
+import type { Html } from "mdast";
 import {
   forwardRef,
   useEffect,
@@ -76,6 +84,10 @@ import {
   type MarkdownErrorLocation,
 } from "../lib/markdownErrors";
 import {
+  hasIncompleteStandardMarkdownAngle,
+  restoreStandardMarkdownAngles,
+} from "../lib/mdxCompatibility";
+import {
   applyTocMarkerViewChange,
   captureTocMarkers,
   captureMarkdownBoundaryWhitespace,
@@ -101,6 +113,7 @@ const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
   onChange: (mode: MarkdownViewMode) => void;
   onErrorCleared?: () => void;
+  isSourceForced?: () => boolean;
   onModeChange?: (mode: MarkdownViewMode) => void;
 }>({
   init(realm, params) {
@@ -120,11 +133,12 @@ const viewModePreferencePlugin = realmPlugin<{
       }
       if (mode !== "diff" && mode !== previousMode) {
         previousMode = mode;
-        if (!forcingSource) {
+        if (!forcingSource && !params?.isSourceForced?.()) {
           params?.onChange(mode);
         }
       }
     });
+
     realm.sub(realm.pipe(markdownProcessingError$), (error) => {
       if (!error) {
         if (hadProcessingError) {
@@ -151,6 +165,33 @@ const viewModePreferencePlugin = realmPlugin<{
         ? "source"
         : (params?.mode ?? "rich-text"),
     );
+  },
+});
+
+const standardMarkdownHtmlVisitor: MdastImportVisitor<Html> = {
+  testNode: "html",
+  visitNode({ mdastNode, actions, lexicalParent }) {
+    if (/^<!-- \/?toc -->$/.test(mdastNode.value.trim())) {
+      return;
+    }
+    const text = $createTextNode(mdastNode.value);
+    text.setFormat(actions.getParentFormatting());
+    const style = actions.getParentStyle();
+    if (style) {
+      text.setStyle(style);
+    }
+    if ($isRootNode(lexicalParent)) {
+      lexicalParent.append($createParagraphNode().append(text));
+    } else {
+      actions.addAndStepInto(text);
+    }
+  },
+  priority: 100,
+};
+
+const standardMarkdownCompatibilityPlugin = realmPlugin({
+  init(realm) {
+    realm.pub(addImportVisitor$, standardMarkdownHtmlVisitor);
   },
 });
 
@@ -208,17 +249,51 @@ export const MarkdownEditor = forwardRef<
     [markdown],
   );
   const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
-  const [sourceFirst] = useState(() => hasUnsupportedRichMarkdown(markdown));
+  const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
   const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
   onLinkOpenRef.current = onLinkOpen;
-  const forceSource = hasEditorDisplayGuides(displaySettings);
+  const displayGuidesForceSource =
+    hasEditorDisplayGuides(displaySettings);
+  const initialSourceOnly = useRef(detectedSourceOnly).current;
   const initialViewMode: MarkdownViewMode =
-    sourceFirst || forceSource ? "source" : initialPreferredViewMode;
+    initialSourceOnly || displayGuidesForceSource
+      ? "source"
+      : initialPreferredViewMode;
   const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
   const [activeViewMode, setActiveViewMode] =
     useState<MarkdownViewMode>(initialViewMode);
+  const sourceOnly =
+    detectedSourceOnly &&
+    !(
+      activeViewMode === "rich-text" &&
+      hasIncompleteStandardMarkdownAngle(markdown)
+    );
+  const forceSource = sourceOnly || displayGuidesForceSource;
+  const sourceForcedRef = useRef(forceSource);
+  sourceForcedRef.current = forceSource;
+  const sourceLock = useMemo(
+    () =>
+      sourceOnly
+        ? {
+            guidance:
+              "Rich text mode is unavailable because this file contains source-only Markdown syntax.",
+            richLabel:
+              "Rich text mode unavailable for source-only Markdown syntax",
+            sourceLabel: "Source mode locked for source-only Markdown syntax",
+            status: "Source-only Markdown syntax",
+          }
+        : {
+            guidance:
+              "Disable line numbers and invisible-character guides to switch editor modes.",
+            richLabel:
+              "Rich text mode unavailable while display guides are enabled",
+            sourceLabel: "Source mode locked while display guides are enabled",
+            status: "Guides lock source mode",
+          },
+    [sourceOnly],
+  );
   const displayExtensions = useMemo(
     () => [
       ...createEditorDisplayExtensions(displaySettings, lineEnding, false),
@@ -292,8 +367,10 @@ export const MarkdownEditor = forwardRef<
           ...displayExtensions,
         ],
       }),
+      standardMarkdownCompatibilityPlugin(),
       viewModePreferencePlugin({
         mode: initialViewMode,
+        isSourceForced: () => sourceForcedRef.current,
         onChange: onViewModeChange,
         onErrorCleared: onMarkdownErrorCleared,
         onModeChange: (mode) => {
@@ -306,12 +383,17 @@ export const MarkdownEditor = forwardRef<
         toolbarContents: () =>
           forceSource ? (
             <>
+              <EnforceSourceMode />
               <UndoRedo />
               <Separator />
-              <DisabledViewModeControls />
+              <DisabledViewModeControls
+                guidance={sourceLock.guidance}
+                richLabel={sourceLock.richLabel}
+                sourceLabel={sourceLock.sourceLabel}
+              />
               <Separator />
               <span className="editor-source-mode-label">
-                Guides lock source mode
+                {sourceLock.status}
               </span>
             </>
           ) : (
@@ -368,13 +450,14 @@ export const MarkdownEditor = forwardRef<
     ],
     [
       displayExtensions,
+      sourceLock,
       forceSource,
       initialViewMode,
       notePath,
       onImageUpload,
       onMarkdownErrorCleared,
       onViewModeChange,
-      sourceFirst,
+      sourceOnly,
       tabExtensions,
     ],
   );
@@ -543,12 +626,18 @@ export const MarkdownEditor = forwardRef<
         contentEditableClassName="denote-editor-content"
         placeholder="Start writing…"
         readOnly={readOnly}
+        suppressHtmlProcessing
         trim={false}
         spellCheck
         onChange={(value, initialNormalize) => {
           if (!initialNormalize) {
+            const restoredMarkdown = restoreRichTextTagSyntax(
+              directivesToCallouts(value),
+            );
             const markerUpdate = applyTocMarkerViewChange(
-              restoreRichTextTagSyntax(directivesToCallouts(value)),
+              activeViewModeRef.current === "rich-text"
+                ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
+                : restoredMarkdown,
               tocMarkersRef.current!,
               activeViewModeRef.current,
             );
@@ -601,6 +690,14 @@ function CreateLinkPreservingSelection() {
       <Link2 aria-hidden="true" size={16} />
     </button>
   );
+}
+
+function EnforceSourceMode() {
+  const setViewMode = usePublisher(viewMode$);
+  useEffect(() => {
+    setViewMode("source");
+  }, [setViewMode]);
+  return null;
 }
 
 const EMPTY_TAG_COLORS: TagColorMap = {};
@@ -757,9 +854,15 @@ function applyInlineTagColor(
   element.style.setProperty("--tag-color", style["--tag-color"]);
 }
 
-function DisabledViewModeControls() {
-  const guidance =
-    "Disable line numbers and invisible-character guides to switch editor modes.";
+function DisabledViewModeControls({
+  guidance,
+  richLabel,
+  sourceLabel,
+}: {
+  guidance: string;
+  richLabel: string;
+  sourceLabel: string;
+}) {
   return (
     <span
       className="editor-disabled-modes"
@@ -771,7 +874,7 @@ function DisabledViewModeControls() {
       <button
         type="button"
         disabled
-        aria-label="Rich text mode unavailable while display guides are enabled"
+        aria-label={richLabel}
         aria-describedby="editor-disabled-mode-guidance"
       >
         Rich
@@ -779,7 +882,7 @@ function DisabledViewModeControls() {
       <button
         type="button"
         disabled
-        aria-label="Source mode locked while display guides are enabled"
+        aria-label={sourceLabel}
         aria-describedby="editor-disabled-mode-guidance"
         aria-pressed="true"
       >

@@ -15,9 +15,13 @@ function sourceLanguage(path: string): LanguageDescription | null {
   const extension = fileName.includes(".")
     ? fileName.split(".").slice(-1)[0]?.toLowerCase()
     : undefined;
+  const catalogExtension = extension === "mdx" ? "jsx" : extension;
   return (
     languages.find((language) => {
-      if (extension && language.extensions.includes(extension)) {
+      if (
+        catalogExtension &&
+        language.extensions.includes(catalogExtension)
+      ) {
         return true;
       }
       if (!language.filename) {

@@ -19,8 +19,9 @@ export function locateMarkdownError(
   source: string,
   message: string,
 ): MarkdownErrorLocation | null {
+  const replaySource = maskHtmlComments(source);
   try {
-    fromMarkdown(source, { extensions: [mdxJsx(), mdxMd()] });
+    fromMarkdown(replaySource, { extensions: [mdxJsx(), mdxMd()] });
   } catch (caught) {
     const error = caught as PositionedParseError;
     const line = positiveInteger(error.line);
@@ -48,6 +49,12 @@ export function locateMarkdownError(
 
 export function markdownErrorSourceIdentity(source: string): string {
   return source.trim();
+}
+
+function maskHtmlComments(source: string): string {
+  return source.replace(/<!--[\s\S]*?-->/g, (comment) =>
+    comment.replace(/[^\r\n]/g, " "),
+  );
 }
 
 function explicitLocation(message: string): MarkdownErrorLocation | null {

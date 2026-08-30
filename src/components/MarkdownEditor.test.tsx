@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
@@ -7,10 +7,7 @@ import { createRef, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { api } from "../lib/api";
-import {
-  MarkdownEditor,
-  type MarkdownEditorDiagnostic,
-} from "./MarkdownEditor";
+import { MarkdownEditor } from "./MarkdownEditor";
 
 describe("MarkdownEditor links", () => {
   it("routes an ordinary external-link click through the host opener", async () => {
@@ -238,6 +235,40 @@ describe("MarkdownEditor links", () => {
     expect(onViewModeChange).toHaveBeenCalledWith("source");
   });
 
+  it("preserves user-authored angle escapes in source mode", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"\\<kbd>\n\nEdit"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="source"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement)!;
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "!" },
+    });
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.calls[onChange.mock.calls.length - 1]?.[0]).toContain(
+      "\\<kbd>",
+    );
+  });
+
   it("does not overwrite the preference when display guides force source mode", async () => {
     const onViewModeChange = vi.fn();
     render(
@@ -280,75 +311,62 @@ describe("MarkdownEditor links", () => {
     expect(onViewModeChange).not.toHaveBeenCalled();
   });
 
-  it("reports and highlights the exact Markdown parser location", async () => {
-    const onViewModeChange = vi.fn();
-    const onMarkdownError = vi.fn();
-    const onMarkdownErrorCleared = vi.fn();
-    const editorRef = createRef<MDXEditorMethods>();
-    const brokenMarkdown =
-      "<!-- toc -->\n  - [One](#one)\n<!-- /toc -->\n\n---\n\n# One\n\nTime: <1 minute";
-
-    function Harness() {
-      const [diagnostic, setDiagnostic] =
-        useState<MarkdownEditorDiagnostic | null>(null);
-      return (
-        <MarkdownEditor
-          ref={editorRef}
-          notePath="broken.md"
-          markdown={brokenMarkdown}
-          lineEnding="lf"
-          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
-          preferredViewMode="rich-text"
-          readOnly={false}
-          errorLocation={diagnostic?.location ?? undefined}
-          onChange={vi.fn()}
-          onError={vi.fn()}
-          onMarkdownError={(nextDiagnostic) => {
-            onMarkdownError(nextDiagnostic);
-            setDiagnostic(nextDiagnostic);
-          }}
-          onMarkdownErrorCleared={onMarkdownErrorCleared}
-          onLinkOpen={vi.fn()}
-          onViewModeChange={onViewModeChange}
-          onImageUpload={vi.fn()}
-        />
-      );
-    }
-
-    const { container } = render(<Harness />);
-
-    await waitFor(() =>
-      expect(onMarkdownError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          location: { line: 9, column: 8 },
-        }),
-      ),
+  it("highlights and focuses a located source error", async () => {
+    const markdown = "# Heading\n\nproblem";
+    const props = {
+      notePath: "broken.md",
+      markdown,
+      lineEnding: "lf" as const,
+      displaySettings: {
+        ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+        showLineNumbers: true,
+      },
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      errorLocation: { line: 3, column: 2 },
+      tagColors: {},
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor {...props} errorNavigationRequest={0} />,
     );
+
     await waitFor(() =>
       expect(container.querySelector(".cm-diagnostic-line")).toHaveTextContent(
-        "Time: <1 minute",
+        "problem",
       ),
     );
-    expect(
-      screen.getByRole("radio", { name: "Source mode" }),
-    ).toHaveAttribute("aria-checked", "true");
-    expect(onViewModeChange).not.toHaveBeenCalled();
-
-    act(() => editorRef.current?.setMarkdown("# Fixed"));
-    await waitFor(() => expect(onMarkdownErrorCleared).toHaveBeenCalledOnce());
+    rerender(<MarkdownEditor {...props} errorNavigationRequest={1} />);
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement);
+    await waitFor(() => expect(view?.hasFocus).toBe(true));
+    const line = view!.state.doc.line(3);
+    expect(view!.state.selection.main.head).toBe(line.from + 1);
   });
 
-  it("reports the original line when the parser trims boundary whitespace", async () => {
+  it("renders standard Markdown angle text without MDX parser errors", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
     const onMarkdownError = vi.fn();
-    render(
+    const { container } = render(
       <MarkdownEditor
-        notePath="broken.md"
-        markdown={"\n# Heading\n\n<1bad>\n"}
+        notePath="commands.md"
+        markdown={
+          "Discovery for <100k accounts\n\nThanks <3\n\nCommand <account-slug or example acme.example.com>\n\n**Use <account-slug> here**\n\nEdit me"
+        }
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         preferredViewMode="rich-text"
         readOnly={false}
-        onChange={vi.fn()}
+        onChange={onChange}
         onError={vi.fn()}
         onMarkdownError={onMarkdownError}
         onLinkOpen={vi.fn()}
@@ -357,68 +375,124 @@ describe("MarkdownEditor links", () => {
       />,
     );
 
-    await waitFor(() =>
-      expect(onMarkdownError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          location: { line: 4, column: 2 },
-        }),
-      ),
+    const richContent = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(
+        ".denote-editor-content",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(richContent).toHaveTextContent("Discovery for <100k accounts");
+    expect(richContent).toHaveTextContent("Thanks <3");
+    expect(richContent).toHaveTextContent(
+      "Command <account-slug or example acme.example.com>",
     );
+    expect(richContent.querySelector("strong")).toHaveTextContent(
+      "Use <account-slug> here",
+    );
+    expect(
+      screen.getByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(onMarkdownError).not.toHaveBeenCalled();
+
+    const paragraph = screen.getByText("Edit me");
+    await user.click(paragraph);
+    await user.keyboard("!");
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const saved =
+      onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? "";
+    expect(saved).toContain("<100k");
+    expect(saved).toContain("<account-slug");
   });
 
-  it("reports original coordinates after rich Markdown transformations", async () => {
-    const onCalloutError = vi.fn();
-    const { unmount } = render(
+  it("keeps raw HTML images locked to lossless source mode", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
       <MarkdownEditor
-        notePath="callout.md"
-        markdown={">![info]\n> Message\n\n<1bad>"}
+        notePath="note.md"
+        markdown={'<img src="pic.png" alt="x" data-id="1">\n\nEdit me'}
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         preferredViewMode="rich-text"
         readOnly={false}
-        onChange={vi.fn()}
+        onChange={onChange}
         onError={vi.fn()}
-        onMarkdownError={onCalloutError}
         onLinkOpen={vi.fn()}
         onViewModeChange={vi.fn()}
         onImageUpload={vi.fn()}
       />,
     );
 
-    await waitFor(() =>
-      expect(onCalloutError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          location: { line: 4, column: 2 },
-        }),
-      ),
+    expect(
+      await screen.findByText("Source-only Markdown syntax"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Rich text mode unavailable for source-only Markdown syntax",
+      }),
+    ).toBeDisabled();
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement)!;
+    expect(view.state.doc.toString()).toContain(
+      '<img src="pic.png" alt="x" data-id="1">',
     );
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: "!" },
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const saved =
+      onChange.mock.calls[onChange.mock.calls.length - 1]?.[0] ?? "";
+    expect(saved).toContain('<img src="pic.png" alt="x" data-id="1">');
+    expect(saved).not.toContain("![x]");
+  });
 
-    unmount();
-    const onLinkError = vi.fn();
-    render(
+  it("updates the source-only lock when Markdown content changes", async () => {
+    const onViewModeChange = vi.fn();
+    const props = {
+      notePath: "note.md",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange,
+      onImageUpload: vi.fn(),
+    };
+    const { rerender } = render(
+      <MarkdownEditor {...props} markdown="# Note" />,
+    );
+    expect(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    rerender(<MarkdownEditor {...props} markdown={"# Note\n\nType <a"} />);
+    expect(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    ).toHaveAttribute("aria-checked", "true");
+
+    rerender(
       <MarkdownEditor
-        notePath="link.md"
-        markdown={"[x](a b) <1bad>"}
-        lineEnding="lf"
-        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
-        preferredViewMode="rich-text"
-        readOnly={false}
-        onChange={vi.fn()}
-        onError={vi.fn()}
-        onMarkdownError={onLinkError}
-        onLinkOpen={vi.fn()}
-        onViewModeChange={vi.fn()}
-        onImageUpload={vi.fn()}
+        {...props}
+        markdown={'# Note\n\n<a href="https://example.com">'}
       />,
     );
+    expect(
+      await screen.findByRole("button", {
+        name: "Rich text mode unavailable for source-only Markdown syntax",
+      }),
+    ).toBeDisabled();
+    expect(onViewModeChange).not.toHaveBeenCalled();
 
-    await waitFor(() =>
-      expect(onLinkError).toHaveBeenCalledWith(
-        expect.objectContaining({
-          location: { line: 1, column: 11 },
-        }),
-      ),
-    );
+    rerender(<MarkdownEditor {...props} markdown="# Note" />);
+    expect(
+      await screen.findByRole("radio", { name: "Rich text" }),
+    ).toBeInTheDocument();
   });
 
   it("adds stable IDs to rendered headings for anchor navigation", async () => {

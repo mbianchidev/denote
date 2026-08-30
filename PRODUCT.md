@@ -59,10 +59,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   language support when the language catalog recognizes them.
 - Images retain their visual preview and can switch to raw editing.
 - Rich single-pane Markdown editing is the default.
+- `.md` files treat ordinary angle-bracket comparisons and placeholders as
+  Markdown text rather than MDX JSX. `.mdx` and `.jsx` remain non-executing,
+  JSX-highlighted source files.
 - Canonical `<!-- toc -->` / `<!-- /toc -->` blocks containing link-only
   Markdown lists render as labeled navigation panels in Rich mode while
   retaining their generator markers through Rich and Source edits. Other
-  comments remain source-only.
+  comments remain locked to source mode.
 - Markdown thematic breaks render as consistent full-width document separators.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.

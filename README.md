@@ -92,8 +92,12 @@ to the full 25 MB limit.
 MDX files always remain in source mode so JSX and ESM syntax cannot be
 round-tripped through the rich Markdown renderer.
 
-Notes containing raw HTML, footnotes, or math open in source mode by default so
+Notes containing raw HTML, footnotes, or math remain locked in source mode so
 unsupported rich-editor transforms cannot silently rewrite that syntax.
+Ordinary `.md` files use standard Markdown angle-bracket rules, so comparisons,
+hearts, and placeholders such as `<100k`, `<3`, and `<account-slug>` remain
+literal text. `.mdx` and `.jsx` stay source-only with JSX-aware highlighting and
+are never executed.
 Canonical paired TOC marker comments are the only HTML-comment exception: the
 block must contain one link-only Markdown list. Lone, altered, mixed-content, or
 other comments remain source-only.
