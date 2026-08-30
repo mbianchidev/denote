@@ -80,6 +80,7 @@ pub fn run() {
             commands::set_tag_color,
             commands::set_vault_markdown_view_mode,
             commands::set_restore_tabs,
+            commands::set_welcome_page_path,
             commands::save_tab_session,
             commands::list_history,
             commands::restore_revision,

@@ -86,6 +86,23 @@ Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
 
+## Choose a welcome page
+
+Add `.denote.md` at the vault root to open it automatically when the vault has no
+tab session to restore. It remains an ordinary editable Markdown file, and its
+links resolve normally from the vault root. No welcome file is generated for
+user vaults.
+
+To use another `.md`, `.markdown`, or `.mdx` file, open its file menu and choose
+**Set as welcome page**. Choose **Use .denote.md/default** from a file menu to
+clear that override. Moving or renaming the chosen file keeps the setting;
+moving it to Denote Trash clears it.
+
+An explicit file opened from cross-vault search and a saved tab session take
+priority over the welcome page. If the welcome file is missing, unreadable, or
+invalid, Denote reports the error and leaves the vault available without opening
+another fallback page.
+
 Press `Command-P` or `Ctrl-P` to open the command palette. Type a filename
 directly, or choose **Find file across vaults**, to search every known available
 vault. Selecting a file switches vaults when necessary and opens it. Encrypted

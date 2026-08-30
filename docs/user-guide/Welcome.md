@@ -13,7 +13,8 @@
 
 >![info]
 > This ordinary local folder is your built-in guide. Edit it, encrypt it, move it,
-> or delete it. Denote never replaces your changes.
+> or delete it. Its `.denote.md` opens when no tab session needs restoring, and
+> Denote never replaces your changes.
 
 ## What is Denote
 
@@ -29,6 +30,7 @@ regular file. Your files remain the source of truth.
 - [ ] Press `Command-P` or `Ctrl-P`, run a command, then find a filename
 - [ ] Highlight words and press `Command-K` or `Ctrl-K` to create a link
 - [ ] Pin a page in the file tree
+- [ ] Use a Markdown file menu to set or clear the vault welcome page
 - [ ] Open **Editor settings**, change text size and Tab indentation
 - [ ] Open this page's external links together from the editor toolbar
 - [ ] Use the table of contents above to jump between headings

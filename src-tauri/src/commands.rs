@@ -23,7 +23,7 @@ use crate::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
         KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, MoveEntryResult,
         NoteDocument, RecoveryCodesResult, SaveOutcome, TabSessionState, TagColor,
-        WorkspaceSnapshot,
+        WelcomePagePreference, WorkspaceSnapshot,
     },
     vault,
 };
@@ -838,6 +838,16 @@ pub fn set_restore_tabs(state: State<'_, AppState>, enabled: bool) -> AppResult<
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::set_restore_tabs(&state.db_path, &root.to_string_lossy(), enabled)
+}
+
+#[tauri::command]
+pub fn set_welcome_page_path(
+    state: State<'_, AppState>,
+    path: Option<String>,
+) -> AppResult<WelcomePagePreference> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::set_welcome_page_path(&state.db_path, &root.to_string_lossy(), path.as_deref())
 }
 
 #[tauri::command]

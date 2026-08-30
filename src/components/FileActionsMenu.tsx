@@ -7,8 +7,10 @@ import {
   FolderInput,
   FolderOpen,
   History,
+  House,
   MoreHorizontal,
   Pencil,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
 import {
@@ -20,18 +22,20 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import type { FileNode } from "../types";
+import type { FileNode, WelcomePagePreference } from "../types";
 
 const MENU_WIDTH = 224;
-const MENU_HEIGHT = 356;
+const MENU_HEIGHT = 428;
 
 export interface FileActionHandlers {
+  welcomePage: WelcomePagePreference;
   onDuplicate: (node: FileNode) => void;
   onBookmark: (node: FileNode) => void;
   onCopyPath: (node: FileNode) => void;
   onOpenHistory: (node: FileNode) => void;
   onOpenInNewTab: (node: FileNode) => void;
   onReveal: (node: FileNode) => void;
+  onSetWelcomePage: (node: FileNode | null) => void;
   onRename: (node: FileNode) => void;
   onMove: (node: FileNode) => void;
   onDelete: (node: FileNode) => void;
@@ -52,6 +56,8 @@ export function FileActionMenuItems({
     onBeforeAction?.();
     action(node);
   };
+  const currentWelcome = handlers.welcomePage.effectivePath === node.path;
+  const customWelcome = handlers.welcomePage.customPath !== null;
 
   return (
     <>
@@ -86,6 +92,25 @@ export function FileActionMenuItems({
         label="Open in new tab"
         onClick={() => run(handlers.onOpenInNewTab)}
       />
+      {node.kind === "markdown" &&
+      node.path !== ".denote.md" &&
+      !currentWelcome ? (
+        <MenuButton
+          icon={<House aria-hidden="true" size={15} />}
+          label="Set as welcome page"
+          onClick={() => run(handlers.onSetWelcomePage)}
+        />
+      ) : null}
+      {customWelcome ? (
+        <MenuButton
+          icon={<RotateCcw aria-hidden="true" size={15} />}
+          label="Use .denote.md/default"
+          onClick={() => {
+            onBeforeAction?.();
+            handlers.onSetWelcomePage(null);
+          }}
+        />
+      ) : null}
       <MenuButton
         icon={<FolderOpen aria-hidden="true" size={15} />}
         label="Reveal in folder"

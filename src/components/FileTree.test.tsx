@@ -199,12 +199,14 @@ describe("FileTree", () => {
       pinned: false,
     };
     const fileActions = {
+      welcomePage: { customPath: null, effectivePath: null },
       onDuplicate: vi.fn(),
       onBookmark: vi.fn(),
       onCopyPath: vi.fn(),
       onOpenHistory: vi.fn(),
       onOpenInNewTab: vi.fn(),
       onReveal: vi.fn(),
+      onSetWelcomePage: vi.fn(),
       onRename: vi.fn(),
       onMove: vi.fn(),
       onDelete: vi.fn(),
@@ -231,6 +233,7 @@ describe("FileTree", () => {
       ["Copy path", fileActions.onCopyPath],
       ["Open version history", fileActions.onOpenHistory],
       ["Open in new tab", fileActions.onOpenInNewTab],
+      ["Set as welcome page", fileActions.onSetWelcomePage],
       ["Reveal in folder", fileActions.onReveal],
       ["Rename", fileActions.onRename],
       ["Move to folder…", fileActions.onMove],

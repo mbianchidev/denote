@@ -131,6 +131,11 @@ export interface EncryptionStatus {
   remainingRecoveryCodes: number;
 }
 
+export interface WelcomePagePreference {
+  customPath: string | null;
+  effectivePath: string | null;
+}
+
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
@@ -143,6 +148,7 @@ export interface WorkspaceSnapshot {
   markdownViewMode: MarkdownViewMode | null;
   restoreTabs: boolean;
   tabSession: TabSessionState | null;
+  welcomePage: WelcomePagePreference;
   fromCache: boolean;
   encryption: EncryptionStatus;
 }

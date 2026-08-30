@@ -24,7 +24,9 @@ the application-data database if that folder does not exist. The complete
 directory is written to a random staging path and renamed into place, so a crash
 cannot expose a partial guide. Existing files are never merged or overwritten.
 The vault is registered as the built-in default, used when no valid last vault
-exists, and its `Welcome.md` page opens after the workspace is ready.
+exists, and new copies contain `.denote.md` plus the link-compatible
+`Welcome.md`. Existing copies without `.denote.md` continue opening
+`Welcome.md`.
 The canonical seed content lives under `docs/user-guide/` and is embedded by
 `src-tauri/src/default_vault.rs`.
 
@@ -96,6 +98,8 @@ The application-data database stores:
 - known vaults and the most recently opened vault;
 - per-note open, edit, and save counters and timestamps;
 - each vault's persisted rich-text/source preference;
+- an optional vault-relative Markdown path that overrides the root
+  `.denote.md` welcome convention;
 - serialized file-tree caches for previously opened vaults;
 - each vault's restore-tabs preference and validated serialized pane, layout,
   size, tab, and group session;
@@ -135,6 +139,15 @@ and ZBSearch rebuild in the background. Missing or invalid caches fall back to a
 full scan once and are replaced. Pending filesystem recovery operations also
 force a full scan before a cached tree can be used.
 
+Welcome target resolution does not depend on the cached tree. Rust checks the
+root `.denote.md` path directly and returns the explicit and effective paths in
+the workspace snapshot. An explicit Markdown-file choice wins, followed by
+`.denote.md`, then the built-in vault's legacy `Welcome.md`; other vaults have no
+automatic target. The frontend opens that target only when no saved tab session
+or requested cross-vault file is being restored. Read or parse errors use the
+ordinary editor error surfaces and do not block the vault or fall through to a
+lower-priority target.
+
 Full tree, search-document, editable-document, and global filename scans run on
 Tauri blocking workers after capturing the active vault/key, so they do not hold
 the global workspace guard or the native UI thread. Each full tree scan reserves
@@ -145,6 +158,8 @@ results.
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.
+Renames and moves rekey an explicit welcome path transactionally. Moving that
+path or an ancestor to Denote Trash clears the override.
 
 ## Search
 
