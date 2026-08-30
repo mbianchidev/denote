@@ -20,6 +20,9 @@
   "permissions": [
     {
       "capability": "commands"
+    },
+    {
+      "capability": "secure-storage"
     }
   ],
   "entrypoint": "dist/index.js",

@@ -70,6 +70,7 @@ describe("PluginSettingsPanel", () => {
 
     expect(onEnable).toHaveBeenCalledWith("denote.reference", [
       JSON.stringify({ capability: "commands" }),
+      JSON.stringify({ capability: "secure-storage" }),
     ]);
   });
 

@@ -22,6 +22,9 @@
       "permissions": [
         {
           "capability": "commands"
+        },
+        {
+          "capability": "secure-storage"
         }
       ],
       "entrypoint": "dist/index.js",
@@ -29,9 +32,9 @@
     },
     "artifact": {
       "url": "https://raw.githubusercontent.com/mbianchidev/denote/cp-desktop-plugin-ecosystem-foundation/plugin-artifacts/denote.reference-0.1.0.tgz",
-      "sha256": "c0e9b86bd2d6c507c140ba0bb8604b004b6d03ebb8192d43b82b568467eea558",
-      "sizeBytes": 14089
+      "sha256": "7f7f68838dd2ea118ea4dc9714172db63fc790a71d0c80d99e334b0b95b657f7",
+      "sizeBytes": 14353
     },
-    "guide": "# Reference plugin\n\n## Purpose\n\nThis development-only plugin proves the Denote plugin contract and lifecycle. It\ndoes not provide a production user feature.\n\n## Enablement and permissions\n\nEnabling requests the Commands permission. The package must be downloaded and\nverified before its code loads.\n\n## Usage\n\nThe plugin registers a harmless reference command used by host tests.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling unregisters the command, unloads the runtime, and deletes the\ndownloaded package. It does not edit or delete vault content.\n\n## Troubleshooting\n\nIf activation fails, Denote reports the error, rolls back registrations, unloads\nthe runtime, and removes the package.\n"
+    "guide": "# Reference plugin\n\n## Purpose\n\nThis development-only plugin proves the Denote plugin contract and lifecycle. It\ndoes not provide a production user feature.\n\n## Enablement and permissions\n\nEnabling requests the Commands and Secure storage permissions. The package must\nbe downloaded and verified before its code loads. Secure values use this\nplugin's isolated operating-system keychain namespace.\n\n## Usage\n\nThe plugin registers one harmless reference command and one explicit keychain\nverification command. The verification command writes, reads, and deletes a\nsynthetic value without accessing any other plugin or Denote credential.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling unregisters the command, unloads the runtime, and deletes the\ndownloaded package. It does not edit or delete vault content.\n\n## Troubleshooting\n\nIf activation fails, Denote reports the error, rolls back registrations, unloads\nthe runtime, and removes the package.\n"
   }
 ]

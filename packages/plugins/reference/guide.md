@@ -7,12 +7,15 @@ does not provide a production user feature.
 
 ## Enablement and permissions
 
-Enabling requests the Commands permission. The package must be downloaded and
-verified before its code loads.
+Enabling requests the Commands and Secure storage permissions. The package must
+be downloaded and verified before its code loads. Secure values use this
+plugin's isolated operating-system keychain namespace.
 
 ## Usage
 
-The plugin registers a harmless reference command used by host tests.
+The plugin registers one harmless reference command and one explicit keychain
+verification command. The verification command writes, reads, and deletes a
+synthetic value without accessing any other plugin or Denote credential.
 
 ## Settings
 
