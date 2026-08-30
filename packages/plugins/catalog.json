@@ -31,7 +31,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://raw.githubusercontent.com/mbianchidev/denote/35072b99f07973821834e1d43d5a3e6e15cf0b90/plugin-artifacts/denote.reference-0.1.0.tgz",
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/611f6c22d6edec96b60e296fd8250c454145e3c4/plugin-artifacts/denote.reference-0.1.0.tgz",
       "sha256": "4a6753c800499a9deaaba5a5c4f730a96a9db3f167640fa91b7074d588ebf24e",
       "sizeBytes": 14352
     },
