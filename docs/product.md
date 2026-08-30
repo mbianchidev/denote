@@ -87,9 +87,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Two-pane layouts can be horizontal or vertical; three panes support equal and
   mirrored asymmetric layouts; four panes support grid, horizontal, and
   vertical layouts.
-- Dragging a tab over a pane exposes center and edge docking targets. Center
-  moves the tab into that pane; edge drops create or rearrange the valid pane
-  layout without requiring a separate layout control.
+- Dragging a tab over a pane exposes center and edge docking targets. Center or
+  empty tab-strip drops move the tab into that pane; edge drops create or
+  rearrange the valid pane layout without requiring a separate layout control.
 - Tabs retain unsaved edits when moved between panes or when a pane is closed
   into a neighboring pane. Search, commands, links, history, and file actions
   follow the focused pane.

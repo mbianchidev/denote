@@ -681,7 +681,13 @@ export function movePaneTab(
   });
 }
 
-export type PaneDockPosition = "center" | "left" | "right" | "top" | "bottom";
+export type PaneDockPosition =
+  | "center"
+  | "tab-strip"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom";
 
 export function dockAxis(position: PaneDockPosition): "x" | "y" | null {
   switch (position) {
@@ -785,6 +791,34 @@ export function dockTab(
   const moving = source.tabs.find((tab) => tab.path === path);
   if (!moving) {
     return state;
+  }
+  if (position === "tab-strip") {
+    if (source.id !== target.id) {
+      return {
+        ...state,
+        panes: movePaneTab(state.panes, path, target.id),
+        focusedPaneId: target.id,
+      };
+    }
+    const ordered = tabsInVisualOrder(target.tabs);
+    const sourceIndex = ordered.findIndex((tab) => tab.path === path);
+    if (sourceIndex === ordered.length - 1 && moving.groupId === null) {
+      return state;
+    }
+    return {
+      ...state,
+      panes: updatePane(state.panes, target.id, (pane) =>
+        prunePaneGroups({
+          ...pane,
+          tabs: [
+            ...ordered.filter((tab) => tab.path !== path),
+            { ...moving, groupId: null },
+          ],
+          activePath: path,
+        }),
+      ),
+      focusedPaneId: target.id,
+    };
   }
   const axis = dockAxis(position);
   if (!axis) {

@@ -637,12 +637,34 @@ describe("tab docking", () => {
     expect(docked.layout).toBe(state.layout);
   });
 
+  it("appends a tab within its pane when dropped on empty tab strip space", () => {
+    const state = workspace(
+      [
+        {
+          id: "pane-1",
+          tabs: [tab("one.md"), tab("two.md"), tab("three.md")],
+          activePath: "one.md",
+        },
+      ],
+      { kind: "single", sizes: [] },
+    );
+    const docked = dockTab(state, "one.md", "pane-1", "tab-strip");
+    expect(docked.panes[0].tabs.map((entry) => entry.path)).toEqual([
+      "two.md",
+      "three.md",
+      "one.md",
+    ]);
+    expect(docked.panes[0].activePath).toBe("one.md");
+    expect(docked.focusedPaneId).toBe("pane-1");
+  });
+
   it("ignores drops that cannot change anything", () => {
     const state = workspace([
       { id: "pane-1", tabs: [tab("one.md")] },
       { id: "pane-2", tabs: [tab("two.md")] },
     ]);
     expect(dockTab(state, "one.md", "pane-1", "center")).toBe(state);
+    expect(dockTab(state, "two.md", "pane-2", "tab-strip")).toBe(state);
     expect(dockTab(state, "one.md", "pane-1", "right")).toBe(state);
     expect(dockTab(state, "missing.md", "pane-2", "right")).toBe(state);
     expect(dockTab(state, "one.md", "pane-9", "right")).toBe(state);

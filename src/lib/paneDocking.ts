@@ -45,13 +45,23 @@ export function paneDockTargetFromPoint(
   if (!element) {
     return null;
   }
-  if (element.closest(".workspace-pane__header") || element.closest(".tab")) {
+  if (element.closest(".tab")) {
+    return null;
+  }
+  const pane = element.closest<HTMLElement>(".workspace-pane");
+  const paneId = pane?.dataset.paneId;
+  if (!pane || !paneId) {
+    return null;
+  }
+  const tabStrip = element.closest<HTMLElement>(".tabs");
+  if (tabStrip && element === tabStrip) {
+    return { paneId, position: "tab-strip" };
+  }
+  if (element.closest(".workspace-pane__header")) {
     return null;
   }
   const editor = element.closest<HTMLElement>(".editor-pane");
-  const pane = editor?.closest<HTMLElement>(".workspace-pane");
-  const paneId = pane?.dataset.paneId;
-  if (!editor || !pane || !paneId) {
+  if (!editor) {
     return null;
   }
   const rect = editor.getBoundingClientRect();

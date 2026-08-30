@@ -65,11 +65,14 @@ describe("pane docking targets", () => {
     });
   });
 
-  it("never targets the tab bar so reordering keeps working", () => {
+  it("keeps tab drops for reordering and appends over empty tab strip space", () => {
     document.body.innerHTML = `
       <section class="workspace-pane" data-pane-id="pane-1">
         <div class="workspace-pane__header">
-          <div class="tab"><button id="tab-button">one</button></div>
+          <div class="tabs">
+            <div class="tab"><button id="tab-button">one</button></div>
+          </div>
+          <button id="new-tab-button">new tab</button>
         </div>
         <div class="editor-pane"></div>
       </section>
@@ -77,9 +80,13 @@ describe("pane docking targets", () => {
     stubElementFromPoint(document.querySelector("#tab-button"));
     expect(paneDockTargetFromPoint(10, 10)).toBeNull();
 
-    stubElementFromPoint(
-      document.querySelector(".workspace-pane__header"),
-    );
+    stubElementFromPoint(document.querySelector(".tabs"));
+    expect(paneDockTargetFromPoint(10, 10)).toEqual({
+      paneId: "pane-1",
+      position: "tab-strip",
+    });
+
+    stubElementFromPoint(document.querySelector("#new-tab-button"));
     expect(paneDockTargetFromPoint(10, 10)).toBeNull();
   });
 

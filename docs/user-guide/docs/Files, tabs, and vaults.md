@@ -32,8 +32,8 @@ raw Base64 editor.
 ## Panes
 
 - Drag a tab over a pane body. Drop it on the left, right, top, or bottom target
-  to create or rearrange panes, up to four. Drop it in the center to move it into
-  that pane.
+  to create or rearrange panes, up to four. Drop it in the center or on empty
+  space in that pane's tab strip to add it to that pane.
 - Denote chooses the layout from the drop position: horizontal, vertical,
   four-pane grid, or a mirrored/rotated three-pane asymmetric arrangement.
 - `Command-\` / `Ctrl-\` and the command palette remain keyboard alternatives

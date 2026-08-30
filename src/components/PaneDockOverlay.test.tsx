@@ -34,6 +34,13 @@ describe("PaneDockOverlay", () => {
         (zone) => zone.getAttribute("data-position"),
       ),
     ).toEqual(["center"]);
+
+    rerender(<PaneDockOverlay position="tab-strip" />);
+    expect(
+      [...container.querySelectorAll('.pane-dock__zone[data-active="true"]')].map(
+        (zone) => zone.getAttribute("data-position"),
+      ),
+    ).toEqual(["center"]);
   });
 
   it("stays out of the way of the pointer and assistive technology", () => {
@@ -64,8 +71,8 @@ function tab(path: string): EditorTab {
   };
 }
 
-function Harness() {
-  const [state, setState] = useState<PaneWorkspaceState>({
+function Harness({
+  initialState = {
     panes: [
       {
         id: "pane-1",
@@ -76,7 +83,11 @@ function Harness() {
     ],
     layout: { kind: "single", sizes: [] },
     focusedPaneId: "pane-1",
-  });
+  },
+}: {
+  initialState?: PaneWorkspaceState;
+}) {
+  const [state, setState] = useState<PaneWorkspaceState>(initialState);
   const [dockTarget, setDockTarget] = useState<PaneDockTarget | null>(null);
   return (
     <div className="pane-grid" data-layout={state.layout.kind}>
@@ -163,5 +174,78 @@ describe("pane docking drag", () => {
       panes[1].querySelectorAll('[data-tab-path="one.md"]'),
     ).toHaveLength(1);
     expect(document.querySelector(".pane-dock")).toBeNull();
+  });
+
+  it("adds a dragged tab to another pane from empty tab strip space", () => {
+    render(
+      <Harness
+        initialState={{
+          panes: [
+            {
+              id: "pane-1",
+              tabs: [tab("one.md")],
+              groups: [],
+              activePath: "one.md",
+            },
+            {
+              id: "pane-2",
+              tabs: [tab("two.md")],
+              groups: [],
+              activePath: "two.md",
+            },
+          ],
+          layout: { kind: "horizontal", sizes: [0.5, 0.5] },
+          focusedPaneId: "pane-1",
+        }}
+      />,
+    );
+    const targetTabStrip = document
+      .querySelector<HTMLElement>('[data-pane-id="pane-2"]')
+      ?.querySelector<HTMLElement>(".tabs");
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => targetTabStrip),
+    });
+
+    const first = screen.getByRole("tab", { name: /one\.md/i });
+    fireEvent.pointerDown(first, { button: 0, pointerId: 1 });
+    fireEvent.pointerMove(first, { clientX: 500, clientY: 10, pointerId: 1 });
+
+    expect(
+      document
+        .querySelector('[data-pane-id="pane-2"]')
+        ?.querySelector('.pane-dock__zone[data-active="true"]'),
+    ).toHaveAttribute("data-position", "center");
+
+    fireEvent.pointerUp(first, { clientX: 500, clientY: 10, pointerId: 1 });
+
+    const targetPane = document.querySelector('[data-pane-id="pane-2"]');
+    expect(targetPane?.querySelectorAll('[data-tab-path="two.md"]')).toHaveLength(
+      1,
+    );
+    expect(targetPane?.querySelectorAll('[data-tab-path="one.md"]')).toHaveLength(
+      1,
+    );
+    expect(
+      targetPane?.querySelector('[data-tab-path="one.md"]'),
+    ).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("moves a tab to the end of its pane from empty tab strip space", () => {
+    render(<Harness />);
+    const tabStrip = document.querySelector<HTMLElement>(".tabs");
+    Object.defineProperty(document, "elementFromPoint", {
+      configurable: true,
+      value: vi.fn(() => tabStrip),
+    });
+
+    const first = screen.getByRole("tab", { name: /one\.md/i });
+    fireEvent.pointerDown(first, { button: 0, pointerId: 1 });
+    fireEvent.pointerMove(first, { clientX: 500, clientY: 10, pointerId: 1 });
+    fireEvent.pointerUp(first, { clientX: 500, clientY: 10, pointerId: 1 });
+
+    expect(
+      screen.getAllByRole("tab").map((tabElement) => tabElement.textContent),
+    ).toEqual(["two.md", "one.md"]);
   });
 });
