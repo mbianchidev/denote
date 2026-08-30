@@ -81,6 +81,34 @@ describe("vault search", () => {
     expect(results[0]?.document.path).toBe("projects/alpha.md");
   });
 
+  it("returns the first content match for result navigation", async () => {
+    const index = new VaultSearchIndex();
+    await index.rebuild(documents);
+
+    const results = await index.query("日本語");
+
+    expect(results[0]?.match).toEqual({ from: 41, to: 44 });
+  });
+
+  it("uses original offsets and the earliest matching search term", async () => {
+    const index = new VaultSearchIndex();
+    await index.rebuild([
+      {
+        ...documents[0],
+        path: "offsets.md",
+        title: "Offsets",
+        content: "İx bar first, foo later",
+      },
+    ]);
+
+    expect((await index.query("i"))[0]?.match).toEqual({ from: 0, to: 1 });
+    expect((await index.query("x"))[0]?.match).toEqual({ from: 1, to: 2 });
+    expect((await index.query("foo bar"))[0]?.match).toEqual({
+      from: 3,
+      to: 6,
+    });
+  });
+
   it("removes trashed paths before the deferred index rebuild", async () => {
     const index = new VaultSearchIndex();
     await index.rebuild(documents);

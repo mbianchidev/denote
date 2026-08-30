@@ -5,6 +5,7 @@
 <!-- toc -->
 - [What is Denote](#what-is-denote)
 - [Try a little of everything](#try-a-little-of-everything)
+- [Expandable details](#expandable-details)
 - [Syntax highlighting](#syntax-highlighting)
 - [Read the guide](#read-the-guide)
 - [Test heading navigation](#test-heading-navigation)
@@ -46,6 +47,18 @@ regular file. Your files remain the source of truth.
 | Images | The orbit above |
 | Callouts | The information and warning boxes |
 | Code themes | The block below |
+
+## Expandable details
+
+<details>
+<summary>Open a Markdown disclosure</summary>
+
+This hidden section renders with ordinary **Markdown** formatting.
+
+- Disclosure remains keyboard operable.
+- Add `open` to the `<details>` tag to expand it initially.
+
+</details>
 
 ## Syntax highlighting
 

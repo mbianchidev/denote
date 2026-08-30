@@ -14,10 +14,10 @@ export function isReplaceShortcut(
   const isMac = /Mac|iPhone|iPad|iPod/i.test(platform);
   return isMac
     ? event.metaKey &&
-        event.altKey &&
+        !event.altKey &&
         !event.ctrlKey &&
         !event.shiftKey &&
-        event.code === "KeyF"
+        event.code === "KeyH"
     : event.ctrlKey &&
         !event.metaKey &&
         !event.altKey &&

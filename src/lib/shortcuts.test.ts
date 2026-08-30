@@ -12,15 +12,15 @@ import {
 } from "./shortcuts";
 
 describe("replace shortcut", () => {
-  it("uses physical key codes so macOS Option does not change detection", () => {
+  it("uses Command-H on macOS", () => {
     expect(
       isReplaceShortcut(
         {
           ctrlKey: false,
           metaKey: true,
-          altKey: true,
+          altKey: false,
           shiftKey: false,
-          code: "KeyF",
+          code: "KeyH",
         },
         "MacIntel",
       ),
@@ -58,15 +58,15 @@ describe("replace shortcut", () => {
       ).toBe(true);
     });
 
-    it("does not override the macOS replace shortcut", () => {
+    it("does not activate with extra modifiers", () => {
       expect(
         isSearchShortcut(
           {
             ctrlKey: false,
             metaKey: true,
-            altKey: true,
+            altKey: false,
             shiftKey: false,
-            code: "KeyF",
+            code: "KeyH",
           },
           "MacIntel",
         ),
@@ -93,13 +93,13 @@ describe("replace shortcut", () => {
     expect(
       isReplaceShortcut(
         {
-          ctrlKey: true,
-          metaKey: false,
+          ctrlKey: false,
+          metaKey: true,
           altKey: false,
           shiftKey: false,
           code: "KeyH",
         },
-        "MacIntel",
+        "Win32",
       ),
     ).toBe(false);
   });

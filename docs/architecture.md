@@ -182,9 +182,11 @@ match the full vault-relative path. Existing inline filters are merged with the
 visual filter model before result scoring and filtering.
 
 Command-F on macOS and Control-F on Windows/Linux are captured before browser or
-CodeMirror find handlers, set the active file as the location, and select that
-field. The macOS Option-Command-F and Windows/Linux Control-H replace shortcuts
-are evaluated separately and remain unchanged.
+CodeMirror find handlers, set the active file as the location, and focus the
+search-text field. Search results retain the first exact content-match range so
+opening a result can select and center that term in the active rich-text or
+source editor. Command-H on macOS and Control-H on Windows/Linux open replace;
+the macOS native application menu omits its conflicting default Hide item.
 
 Command-P on macOS and Control-P on Windows/Linux opens a unified command
 palette. The frontend contributes contextual action descriptors with labels,
@@ -206,6 +208,8 @@ replacement flushes open tabs first, then previews all editable files up to 25
 MB, including Base64 binary content.
 Each selected file is saved with its preview-time content hash, so files changed
 externally after preview fail individually instead of being overwritten.
+Successful replacement clears the stale preview, keeps the dialog open, and
+announces the number of replaced instances.
 
 ## Editing
 
@@ -213,12 +217,16 @@ Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
-For `.md`, MDXEditor's HTML/JSX processing is suppressed so CommonMark/GFM owns
-autolinks, indented code, raw HTML, comparisons, hearts, and placeholders. A
-high-priority standard-HTML visitor imports HTML tokens as literal text and
-inherits surrounding formatting; canonical TOC comments remain structural
-markers. Serializer escapes are reconciled against the previous source only
-after Rich edits. Unsupported raw HTML remains locked to lossless source mode.
+For `.md`, MDXEditor's HTML/JSX processing is normally suppressed so
+CommonMark/GFM owns autolinks, indented code, raw HTML, comparisons, hearts, and
+placeholders. A high-priority standard-HTML visitor imports HTML tokens as
+literal text and inherits surrounding formatting; canonical TOC comments remain
+structural markers. Well-formed top-level `<details>` blocks are the restricted
+exception: Denote validates the exact `details`/`summary` tag shape, escapes
+unrelated angle syntax, and enables MDXEditor's native generic HTML nodes for
+that document. Attributes other than boolean `open`, nested raw HTML, malformed
+blocks, and other raw HTML remain locked to lossless source mode. Serializer
+escapes are reconciled against the previous source only after Rich edits.
 `.mdx` and `.jsx` bypass the rich editor and use non-executing JSX-highlighted
 source editing.
 

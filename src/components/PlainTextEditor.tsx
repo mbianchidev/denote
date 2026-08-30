@@ -16,7 +16,8 @@ import {
 } from "../lib/editorExtensions";
 import type { EditorDisplaySettings } from "../lib/editorDisplay";
 import { loadSourceLanguage } from "../lib/sourceLanguage";
-import type { FileLineEnding } from "../types";
+import { findCaseInsensitiveMatches } from "../lib/textMatch";
+import type { EditorSearchNavigation, FileLineEnding } from "../types";
 
 interface PlainTextEditorProps {
   value: string;
@@ -27,6 +28,7 @@ interface PlainTextEditorProps {
   filePath: string | null;
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
+  searchNavigation?: EditorSearchNavigation;
   onChange: (value: string) => void;
   onError?: (error: unknown) => void;
 }
@@ -40,6 +42,7 @@ export function PlainTextEditor({
   filePath,
   lineEnding,
   displaySettings,
+  searchNavigation,
   onChange,
   onError,
 }: PlainTextEditorProps) {
@@ -167,6 +170,25 @@ export function PlainTextEditor({
     }
   }, [value]);
 
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !searchNavigation || searchNavigation.request <= 0) {
+      return;
+    }
+    const range = resolveSearchRange(
+      editor.state.doc.toString(),
+      searchNavigation,
+    );
+    if (!range) {
+      return;
+    }
+    editor.dispatch({
+      selection: { anchor: range.from, head: range.to },
+      effects: EditorView.scrollIntoView(range.from, { y: "center" }),
+    });
+    editor.focus();
+  }, [searchNavigation]);
+
   return (
     <div
       ref={containerRef}
@@ -175,4 +197,19 @@ export function PlainTextEditor({
       }`}
     />
   );
+}
+
+function resolveSearchRange(
+  source: string,
+  navigation: EditorSearchNavigation,
+): { from: number; to: number } | null {
+  const from = Math.max(0, Math.min(navigation.from, source.length));
+  const to = Math.max(from, Math.min(navigation.to, source.length));
+  if (
+    source.slice(from, to).toLocaleLowerCase() ===
+    navigation.text.toLocaleLowerCase()
+  ) {
+    return { from, to };
+  }
+  return findCaseInsensitiveMatches(source, navigation.text)[0] ?? null;
 }

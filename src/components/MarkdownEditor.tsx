@@ -1,4 +1,5 @@
 import {
+  $createGenericHTMLNode,
   $isDirectiveNode,
   AdmonitionDirectiveDescriptor,
   addImportVisitor$,
@@ -49,10 +50,11 @@ import { EditorView } from "@codemirror/view";
 import {
   $createParagraphNode,
   $createTextNode,
+  $isElementNode,
   $isRootNode,
 } from "lexical";
 import { Link2 } from "lucide-react";
-import type { Html } from "mdast";
+import type { Html, Paragraph, Parent } from "mdast";
 import {
   forwardRef,
   useEffect,
@@ -94,6 +96,7 @@ import {
   captureMarkdownBoundaryWhitespace,
   directivesToCallouts,
   hasUnsupportedRichMarkdown,
+  hasSupportedDetailsMarkdown,
   markdownEditorSource,
   nextHeadingSlug,
   normalizeBareSpaceLinkDestinations,
@@ -103,19 +106,21 @@ import {
   restoreThematicBreaks,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
+import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
   resolveTagColor,
   tagColorStyle,
   type TagColorMap,
 } from "../lib/tagColors";
-import type { FileLineEnding } from "../types";
+import type { EditorSearchNavigation, FileLineEnding } from "../types";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
   onChange: (mode: MarkdownViewMode) => void;
   onErrorCleared?: () => void;
   isSourceForced?: () => boolean;
+  suppressPersistence?: () => boolean;
   onModeChange?: (mode: MarkdownViewMode) => void;
 }>({
   init(realm, params) {
@@ -135,7 +140,11 @@ const viewModePreferencePlugin = realmPlugin<{
       }
       if (mode !== "diff" && mode !== previousMode) {
         previousMode = mode;
-        if (!forcingSource && !params?.isSourceForced?.()) {
+        if (
+          !forcingSource &&
+          !params?.isSourceForced?.() &&
+          !params?.suppressPersistence?.()
+        ) {
           params?.onChange(mode);
         }
       }
@@ -173,7 +182,19 @@ const viewModePreferencePlugin = realmPlugin<{
 const standardMarkdownHtmlVisitor: MdastImportVisitor<Html> = {
   testNode: "html",
   visitNode({ mdastNode, actions, lexicalParent }) {
-    if (/^<!-- \/?toc -->$/.test(mdastNode.value.trim())) {
+    const value = mdastNode.value.trim();
+    if (/^<!-- \/?toc -->$/.test(value)) {
+      return;
+    }
+    const summary = /^<summary>([^<>\r\n]*)<\/summary>$/.exec(value);
+    if (summary) {
+      const summaryNode = $createGenericHTMLNode(
+        "summary",
+        "mdxJsxFlowElement",
+        [],
+      );
+      summaryNode.append($createTextNode(summary[1]));
+      actions.addAndStepInto(summaryNode);
       return;
     }
     const text = $createTextNode(mdastNode.value);
@@ -191,9 +212,49 @@ const standardMarkdownHtmlVisitor: MdastImportVisitor<Html> = {
   priority: 100,
 };
 
+interface MdxSummaryElement {
+  type: "mdxJsxTextElement";
+  name: "summary";
+  attributes: [];
+  children: Parent["children"];
+}
+
+const detailsSummaryParagraphVisitor: MdastImportVisitor<Paragraph> = {
+  testNode(node) {
+    if (node.type !== "paragraph" || node.children.length !== 1) {
+      return false;
+    }
+    const child = node.children[0] as unknown as Partial<MdxSummaryElement>;
+    return (
+      child.type === "mdxJsxTextElement" &&
+      child.name === "summary" &&
+      Array.isArray(child.attributes) &&
+      child.attributes.length === 0 &&
+      Array.isArray(child.children)
+    );
+  },
+  visitNode({ mdastNode, actions, lexicalParent }) {
+    if (!$isElementNode(lexicalParent)) {
+      throw new Error("Summary must be imported into an element node.");
+    }
+    const summary = mdastNode.children[0] as unknown as MdxSummaryElement;
+    const summaryNode = $createGenericHTMLNode(
+      "summary",
+      "mdxJsxFlowElement",
+      [],
+    );
+    lexicalParent.append(summaryNode);
+    actions.visitChildren(summary as unknown as Parent, summaryNode);
+  },
+  priority: 200,
+};
+
 const standardMarkdownCompatibilityPlugin = realmPlugin({
   init(realm) {
-    realm.pub(addImportVisitor$, standardMarkdownHtmlVisitor);
+    realm.pub(addImportVisitor$, [
+      detailsSummaryParagraphVisitor,
+      standardMarkdownHtmlVisitor,
+    ]);
   },
 });
 
@@ -206,6 +267,7 @@ interface MarkdownEditorProps {
   readOnly: boolean;
   errorLocation?: MarkdownErrorLocation;
   errorNavigationRequest?: number;
+  searchNavigation?: EditorSearchNavigation;
   tagColors?: TagColorMap;
   onChange: (markdown: string) => void;
   onError: (message: string) => void;
@@ -235,6 +297,7 @@ export const MarkdownEditor = forwardRef<
     readOnly,
     errorLocation,
     errorNavigationRequest = 0,
+    searchNavigation,
     tagColors = EMPTY_TAG_COLORS,
     onChange,
     onError,
@@ -252,6 +315,7 @@ export const MarkdownEditor = forwardRef<
   );
   const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
   const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
+  const renderDetails = hasSupportedDetailsMarkdown(markdown);
   const shellRef = useRef<HTMLDivElement>(null);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
@@ -266,6 +330,12 @@ export const MarkdownEditor = forwardRef<
   const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
   const [activeViewMode, setActiveViewMode] =
     useState<MarkdownViewMode>(initialViewMode);
+  const desiredHtmlProcessing = renderDetails && !detectedSourceOnly;
+  const [htmlProcessing, setHtmlProcessing] = useState(
+    desiredHtmlProcessing,
+  );
+  const realmInitialViewModeRef = useRef(initialViewMode);
+  const realmInitialViewMode = realmInitialViewModeRef.current;
   const sourceOnly =
     detectedSourceOnly &&
     !(
@@ -275,6 +345,24 @@ export const MarkdownEditor = forwardRef<
   const forceSource = sourceOnly || displayGuidesForceSource;
   const sourceForcedRef = useRef(forceSource);
   sourceForcedRef.current = forceSource;
+  const searchForcedSourceRef = useRef(false);
+  const handledSearchRequest = useRef(0);
+  useEffect(() => {
+    if (
+      activeViewMode === "rich-text" &&
+      htmlProcessing !== desiredHtmlProcessing
+    ) {
+      realmInitialViewModeRef.current = forceSource
+        ? "source"
+        : activeViewMode;
+      setHtmlProcessing(desiredHtmlProcessing);
+    }
+  }, [
+    activeViewMode,
+    desiredHtmlProcessing,
+    forceSource,
+    htmlProcessing,
+  ]);
   const sourceLock = useMemo(
     () =>
       sourceOnly
@@ -371,7 +459,7 @@ export const MarkdownEditor = forwardRef<
         directiveDescriptors: [AdmonitionDirectiveDescriptor],
       }),
       diffSourcePlugin({
-        viewMode: initialViewMode,
+        viewMode: realmInitialViewMode,
         diffMarkdown: "",
         readOnlyDiff: false,
         codeMirrorExtensions: [
@@ -382,13 +470,19 @@ export const MarkdownEditor = forwardRef<
       }),
       standardMarkdownCompatibilityPlugin(),
       viewModePreferencePlugin({
-        mode: initialViewMode,
+        mode: realmInitialViewMode,
         isSourceForced: () => sourceForcedRef.current,
+        suppressPersistence: () => searchForcedSourceRef.current,
         onChange: onViewModeChange,
         onErrorCleared: onMarkdownErrorCleared,
         onModeChange: (mode) => {
           activeViewModeRef.current = mode;
           setActiveViewMode(mode);
+          if (mode === "source" && searchForcedSourceRef.current) {
+            queueMicrotask(() => {
+              searchForcedSourceRef.current = false;
+            });
+          }
         },
       }),
       toolbarPlugin({
@@ -466,6 +560,7 @@ export const MarkdownEditor = forwardRef<
       sourceLock,
       forceSource,
       initialViewMode,
+      realmInitialViewMode,
       notePath,
       onError,
       onImageUpload,
@@ -571,6 +666,46 @@ export const MarkdownEditor = forwardRef<
     notePath,
   ]);
 
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (
+      !shell ||
+      !searchNavigation ||
+      searchNavigation.request <= 0 ||
+      handledSearchRequest.current === searchNavigation.request
+    ) {
+      return;
+    }
+    let attempt = 0;
+    let timer = 0;
+    const reveal = () => {
+      if (activeViewMode !== "source") {
+        const result = revealRichTextSearch(shell, markdown, searchNavigation);
+        if (result === "source-required") {
+          searchForcedSourceRef.current = true;
+          if (switchToSourceMode(shell)) {
+            return;
+          }
+          searchForcedSourceRef.current = false;
+        } else if (result === "revealed") {
+          handledSearchRequest.current = searchNavigation.request;
+          return;
+        }
+      }
+      const revealed =
+        activeViewMode === "source" &&
+        revealSourceSearch(shell, searchNavigation);
+      if (revealed || attempt >= 20) {
+        handledSearchRequest.current = searchNavigation.request;
+        return;
+      }
+      attempt += 1;
+      timer = window.setTimeout(reveal, 30);
+    };
+    timer = window.setTimeout(reveal, 0);
+    return () => window.clearTimeout(timer);
+  }, [activeViewMode, markdown, notePath, searchNavigation]);
+
   return (
     <div
       ref={shellRef}
@@ -592,6 +727,26 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
       onClickCapture={(event) => {
+        const target =
+          event.target instanceof Element ? event.target : null;
+        const requestedRichMode =
+          target?.closest<HTMLButtonElement>(
+            'button[aria-label="Rich text"]',
+          ) ?? null;
+        if (
+          requestedRichMode &&
+          activeViewMode === "source" &&
+          htmlProcessing !== desiredHtmlProcessing
+        ) {
+          event.preventDefault();
+          event.stopPropagation();
+          realmInitialViewModeRef.current = "rich-text";
+          activeViewModeRef.current = "rich-text";
+          setActiveViewMode("rich-text");
+          onViewModeChange("rich-text");
+          setHtmlProcessing(desiredHtmlProcessing);
+          return;
+        }
         const link = renderedLink(event.target, editorMarkdown);
         if (!link) {
           return;
@@ -622,6 +777,7 @@ export const MarkdownEditor = forwardRef<
       }}
     >
       <MDXEditor
+        key={htmlProcessing ? "details-html" : "standard-markdown"}
         ref={ref}
         markdown={editorSource}
         plugins={plugins}
@@ -629,7 +785,7 @@ export const MarkdownEditor = forwardRef<
         contentEditableClassName="denote-editor-content"
         placeholder="Start writing…"
         readOnly={readOnly}
-        suppressHtmlProcessing
+        suppressHtmlProcessing={!htmlProcessing}
         trim={false}
         spellCheck
         onChange={(value, initialNormalize) => {
@@ -851,6 +1007,119 @@ function sourceEditorView(shell: HTMLElement): EditorView | null {
     ".mdxeditor-source-editor .cm-editor",
   );
   return editorElement ? EditorView.findFromDOM(editorElement) : null;
+}
+
+function revealSourceSearch(
+  shell: HTMLElement,
+  navigation: EditorSearchNavigation,
+): boolean {
+  const view = sourceEditorView(shell);
+  if (!view) {
+    return false;
+  }
+  const source = view.state.doc.toString();
+  const from = Math.max(0, Math.min(navigation.from, source.length));
+  const to = Math.max(from, Math.min(navigation.to, source.length));
+  const exact =
+    source.slice(from, to).toLocaleLowerCase() ===
+    navigation.text.toLocaleLowerCase();
+  const fallback = exact
+    ? { from, to }
+    : findCaseInsensitiveMatches(source, navigation.text)[0];
+  if (!fallback) {
+    return false;
+  }
+  view.dispatch({
+    selection: { anchor: fallback.from, head: fallback.to },
+    effects: EditorView.scrollIntoView(fallback.from, { y: "center" }),
+  });
+  view.focus();
+  return true;
+}
+
+function switchToSourceMode(shell: HTMLElement): boolean {
+  const sourceToggle = shell.querySelector<HTMLButtonElement>(
+    'button[aria-label="Source mode"]',
+  );
+  if (!sourceToggle) {
+    return false;
+  }
+  sourceToggle.click();
+  return true;
+}
+
+function revealRichTextSearch(
+  shell: HTMLElement,
+  markdown: string,
+  navigation: EditorSearchNavigation,
+): "revealed" | "not-ready" | "source-required" {
+  const root = shell.querySelector<HTMLElement>(".denote-editor-content");
+  if (!root || !navigation.text) {
+    return "not-ready";
+  }
+  const entries: Array<{ node: Text; start: number; end: number }> = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let combined = "";
+  let node = walker.nextNode();
+  while (node) {
+    const textNode = node as Text;
+    const start = combined.length;
+    combined += textNode.data;
+    entries.push({ node: textNode, start, end: combined.length });
+    node = walker.nextNode();
+  }
+  if (!combined && markdown) {
+    return "not-ready";
+  }
+  const sourceMatches = findCaseInsensitiveMatches(markdown, navigation.text);
+  const exactTarget = sourceMatches.findIndex(
+    (match) => match.from === navigation.from && match.to === navigation.to,
+  );
+  const targetIndex =
+    exactTarget >= 0
+      ? exactTarget
+      : sourceMatches.reduce(
+          (closest, match, index) =>
+            closest < 0 ||
+            Math.abs(match.from - navigation.from) <
+              Math.abs(sourceMatches[closest].from - navigation.from)
+              ? index
+              : closest,
+          -1,
+        );
+  const renderedMatches = findCaseInsensitiveMatches(
+    combined,
+    navigation.text,
+  );
+  if (
+    targetIndex < 0 ||
+    renderedMatches.length !== sourceMatches.length ||
+    !renderedMatches[targetIndex]
+  ) {
+    return "source-required";
+  }
+  const { from: matchStart, to: matchEnd } = renderedMatches[targetIndex];
+  const startEntry = entries.find(
+    (entry) => matchStart >= entry.start && matchStart < entry.end,
+  );
+  const endEntry = entries.find(
+    (entry) => matchEnd > entry.start && matchEnd <= entry.end,
+  );
+  if (!startEntry || !endEntry) {
+    return "not-ready";
+  }
+  root.focus();
+  const range = document.createRange();
+  range.setStart(startEntry.node, matchStart - startEntry.start);
+  range.setEnd(endEntry.node, matchEnd - endEntry.start);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  startEntry.node.parentElement?.scrollIntoView?.({
+    behavior: "smooth",
+    block: "center",
+  });
+  return "revealed";
 }
 
 const TAG_ONLY_LINE =

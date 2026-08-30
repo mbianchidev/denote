@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ReplaceDialog } from "./ReplaceDialog";
 
 describe("ReplaceDialog", () => {
-  it("previews and applies selected replacements", async () => {
+  it("finds and applies selected replacements without closing", async () => {
     const user = userEvent.setup();
     const onPreview = vi.fn().mockResolvedValue([
       {
@@ -40,15 +40,17 @@ describe("ReplaceDialog", () => {
       screen.getByRole("textbox", { name: "Replace with" }),
       "document",
     );
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Find" }));
     expect(await screen.findByText("note.md")).toBeInTheDocument();
 
-    await user.click(
-      screen.getByRole("button", { name: "Replace selected" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Replace" }));
 
     expect(onApply).toHaveBeenCalledOnce();
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("2 instances have been replaced."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("note.md")).not.toBeInTheDocument();
   });
 
   it("shows preview failures instead of reporting no matches", async () => {
@@ -64,7 +66,7 @@ describe("ReplaceDialog", () => {
     );
 
     await user.type(screen.getByRole("textbox", { name: "Find" }), "note");
-    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Find" }));
 
     expect(await screen.findByText("Save conflict")).toBeInTheDocument();
     expect(screen.queryByText("No matches found.")).not.toBeInTheDocument();

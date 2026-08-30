@@ -8,6 +8,10 @@ Read these documents before changing Denote:
 - `docs/development.md` lists setup and validation commands.
 - `docs/user-guide/` contains the canonical in-app documentation.
 
+For macOS development handoff, build the disk image with
+`CI=true npm run tauri build -- --bundles dmg`, then open the generated `.dmg`
+from `src-tauri/target/release/bundle/dmg/`.
+
 Preserve the one-time, non-destructive Denote Welcome vault behavior. Existing
 Welcome vaults must not be overwritten. When adding, removing, or moving a
 Welcome file, update `SEED_FILES` in `src-tauri/src/default_vault.rs`. Content

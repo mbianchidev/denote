@@ -322,6 +322,51 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("Use <kbd>Ctrl</kbd> here.")).toBe(true);
     expect(
       hasUnsupportedRichMarkdown(
+        "<details>\n<summary>More information</summary>\n\nHidden **Markdown**.\n\n</details>",
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown(
+        '<details onclick="alert(1)">\n<summary>Unsafe</summary>\n\nHidden.\n\n</details>',
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<details>\n<summary>Missing close</summary>\n\nHidden.",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<details>\n<summary>First</summary>\n\n<summary>Second</summary>\n\nHidden.\n\n</details>",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<details>\n<summary>Example</summary>\n\n    const hidden = true;\n\n</details>",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<details>\n<summary>Example</summary>\n\n```html\n</details>\n```\n\nHidden.\n\n</details>",
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<details>\n<summary>Example</summary>\n\n<https://example.com>\n\n</details>",
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        "<details>\n  <summary>\n    More information\n  </summary>\n\n  Hidden **Markdown**.\n</details>",
+      ),
+    ).toBe(false);
+    expect(
+      markdownEditorSource(
+        "```html\n<details>\n<summary>Example</summary>\n</details>\n```",
+      ),
+    ).toContain("<summary>Example</summary>");
+    expect(
+      hasUnsupportedRichMarkdown(
         "Mock threshold <42 units\n\nMarker <7\n\nUse <mock-key>\n\nMode <mode alpha/beta>",
       ),
     ).toBe(false);

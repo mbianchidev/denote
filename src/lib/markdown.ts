@@ -803,12 +803,184 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
     /\[\^[^\]]+\]/.test(markdown) ||
     containsUnsupportedHtmlComment(markdown) ||
     containsEscapedAngleSyntax(markdown) ||
-    containsUnsafeAngleSyntax(markdown) ||
+    containsDetailsMdxIncompatibleAngles(markdown) ||
+    containsDetailsMdxIncompatibleMarkdown(markdown) ||
+    containsUnsafeAngleSyntax(maskSupportedDetailsTags(markdown)) ||
     /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
     /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown) ||
     /\\#(?=[\p{L}\p{N}\p{M}_/-])/u.test(markdown)
   );
+}
+
+export function hasSupportedDetailsMarkdown(markdown: string): boolean {
+  return richDetailsBlocks(markdown).length > 0;
+}
+
+function containsDetailsMdxIncompatibleAngles(markdown: string): boolean {
+  if (!hasSupportedDetailsMarkdown(markdown)) {
+    return false;
+  }
+  const masked = maskSupportedDetailsTags(markdown);
+  const protectedRanges: Array<[number, number]> = [];
+  visitMarkdownAst(fromMarkdown(masked), (node) => {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) {
+      return;
+    }
+    if (node.type === "code" || node.type === "inlineCode") {
+      protectedRanges.push([start, end]);
+    } else if (node.type === "link") {
+      const range = angleLinkDestinationRange(masked, node, start, end);
+      if (range) {
+        protectedRanges.push(range);
+      }
+    }
+  });
+  const protectedIndex = createRangeIndex(protectedRanges);
+  for (const match of masked.matchAll(/</g)) {
+    const offset = match.index ?? 0;
+    if (
+      rangeContains(protectedIndex, offset, offset + 1) ||
+      masked.startsWith("<!--", offset)
+    ) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function containsDetailsMdxIncompatibleMarkdown(markdown: string): boolean {
+  if (!hasSupportedDetailsMarkdown(markdown)) {
+    return false;
+  }
+  const root = markdownRoot(markdown);
+  if (!root) {
+    return true;
+  }
+  let incompatible = false;
+  visitMarkdownAst(root, (node) => {
+    if (incompatible || node.type !== "code") {
+      return;
+    }
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (start === undefined || end === undefined) {
+      incompatible = true;
+      return;
+    }
+    incompatible = /^(?: {4}|\t)/.test(markdown.slice(start, end));
+  });
+  return incompatible;
+}
+
+function maskSupportedDetailsTags(markdown: string): string {
+  return replaceRichDetailsBlocks(markdown, (block) =>
+    block.replace(/<\/?(?:details|summary)(?: open)?>/g, (tag) =>
+      " ".repeat(tag.length),
+    ),
+  );
+}
+
+interface RichDetailsBlock {
+  start: number;
+  end: number;
+  value: string;
+}
+
+function richDetailsBlocks(markdown: string): RichDetailsBlock[] {
+  const blocks: RichDetailsBlock[] = [];
+  const codeRanges: Array<[number, number]> = [];
+  const root = markdownRoot(markdown);
+  if (root) {
+    visitMarkdownAst(root, (node) => {
+      if (node.type !== "code" && node.type !== "inlineCode") {
+        return;
+      }
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (start !== undefined && end !== undefined) {
+        codeRanges.push([start, end]);
+      }
+    });
+  }
+  const codeIndex = createRangeIndex(codeRanges);
+  const closingPattern = /^<\/details>[ \t]*$/gm;
+  for (const opening of markdown.matchAll(/^<details(?: open)?>[ \t]*$/gm)) {
+    const start = opening.index ?? 0;
+    if (rangeContains(codeIndex, start, start + opening[0].length)) {
+      continue;
+    }
+    const summary = /^\r?\n(?:[ \t]*<summary>[^\r\n<>]*<\/summary>[ \t]*|[ \t]*<summary>[ \t]*\r?\n[ \t]+[^\r\n<>]*\r?\n[ \t]*<\/summary>[ \t]*)\r?\n/.exec(
+      markdown.slice(start + opening[0].length),
+    );
+    if (!summary) {
+      continue;
+    }
+    const contentStart = start + opening[0].length + summary[0].length;
+    closingPattern.lastIndex = contentStart;
+    let closing = closingPattern.exec(markdown);
+    while (
+      closing &&
+      rangeContains(
+        codeIndex,
+        closing.index,
+        closing.index + closing[0].length,
+      )
+    ) {
+      closing = closingPattern.exec(markdown);
+    }
+    if (!closing) {
+      continue;
+    }
+    const end = closing.index + closing[0].length;
+    const value = markdown.slice(start, end);
+    const tags = [
+      ...value.matchAll(/<\/?(?:details|summary)\b[^>]*>/g),
+    ]
+      .filter((tag) => {
+        const tagStart = start + (tag.index ?? 0);
+        return !rangeContains(
+          codeIndex,
+          tagStart,
+          tagStart + tag[0].length,
+        );
+      })
+      .map((tag) => tag[0]);
+    if (
+      rangeContains(codeIndex, start, end) ||
+      tags.length !== 4 ||
+      !/^<details(?: open)?>$/.test(tags[0]) ||
+      tags[1] !== "<summary>" ||
+      tags[2] !== "</summary>" ||
+      tags[3] !== "</details>"
+    ) {
+      continue;
+    }
+    blocks.push({
+      start,
+      end,
+      value,
+    });
+  }
+  return blocks;
+}
+
+function replaceRichDetailsBlocks(
+  markdown: string,
+  replace: (block: string) => string,
+): string {
+  const blocks = richDetailsBlocks(markdown);
+  let output = "";
+  let cursor = 0;
+  for (const block of blocks) {
+    output += markdown.slice(cursor, block.start);
+    output += replace(block.value);
+    cursor = block.end;
+  }
+  return output + markdown.slice(cursor);
 }
 
 function containsUnsupportedHtmlComment(markdown: string): boolean {
