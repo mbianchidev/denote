@@ -299,10 +299,11 @@ look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
-The root and folder menus also expose one **Mark as project** or **Unmark
-project** action. Shift-F10 and the Context Menu key open the focused folder's
-surface. Whole-vault and unavailable-root actions remain keyboard-operable in
-the command palette.
+The root and folder menus expose independent **Mark as project** / **Unmark
+project** and **Mark as workspace** / **Unmark workspace** actions, so either or
+both roles can apply to one folder. Shift-F10 and the Context Menu key open the
+focused folder's surface. Whole-vault and unavailable project/workspace actions
+remain keyboard-operable in the command palette.
 Markdown file menus can also set the vault welcome page or return to the
 root `.denote.md` convention.
 Dragging an entry highlights folder or root drop targets; the menu move action
@@ -320,8 +321,9 @@ assigned shortcut on the trailing edge. File rows lead with the filename, keep
 vault identity visible, and relegate the relative path to quiet metadata. Arrow
 keys skip unavailable commands; Enter runs or opens the active result. A
 file-only scope remains available without opening a second dialog.
-Project commands include whole-vault marking, the selected folder, each recorded
-root (including unavailable roots), and an unmark-all action.
+Project and workspace commands separately include whole-vault marking, the
+selected folder, each recorded root (including unavailable roots), and an
+unmark-all action.
 
 Vault search separates **Where to search** from search text. The location field
 uses compact helper copy for `*`, exact paths, and globs such as `*.html`.
@@ -407,23 +409,30 @@ explicitly enabled. The settings dialog applies changes immediately and states
 that markers never change saved content.
 Rich/source controls remain visible in a disabled segmented state while guides
 force source mode; their tooltip names the setting that restores mode switching.
-Files inside a marked project use the same restrained gutter to force line
-numbers, and project Markdown forces Source mode with project-specific
-guidance. These
-constraints are transient overlays: leaving or unmarking the project immediately
-returns to saved display settings and the vault Markdown preference.
+Files inside an explicit or implicit project use the same restrained gutter to
+force line numbers, and project Markdown forces Source mode with project-specific
+guidance. These constraints are transient overlays: leaving the project or
+removing its governing mark immediately returns to saved display settings and
+the vault Markdown preference.
 
 ### Project Context
 
-The status bar shows a compact **Project:** label only for the closest available
-marked ancestor of the focused file. Changes also use the existing polite
-screen-reader status announcement. With no focused project file, no project
-status or plugin recommendation is shown.
+The status bar shows a compact **Project:** label for the closest available
+explicit or implicit project root of the focused file. Explicit nested roots
+therefore win over workspace child projects. Changes also use the existing
+polite screen-reader status announcement. With no focused project file, no
+project status or plugin recommendation is shown.
 
 The Plugins settings section may show a non-blocking **Code tooling** group for
 an active project. Its Git, Terminal, Language server, Linter, Compiler, and Code
 navigation rows use the existing status treatment for unavailable, disabled, or
 enabled states and never imply automatic installation.
+
+When an otherwise unmarked vault root safely contains a `.git` file or
+directory, a non-modal suggestion appears in the workspace chrome. It offers
+**Mark as project** and **No thanks**, never marks automatically, and disappears
+permanently for that vault after either dismissal or manual root
+project/workspace marking.
 
 ### Vault Security
 

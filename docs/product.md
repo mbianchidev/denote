@@ -40,13 +40,27 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Tauri desktop application with React and TypeScript.
 - macOS, Windows, and Linux support.
 - A user-selected local folder is the active vault.
-- The vault root and any existing subfolder can be marked or unmarked as a
-  project root through folder/root context actions or the command palette.
-  Project roots may be nested; the closest available marked ancestor of the
-  focused file is active, and no focused project file means no active project.
-- The active project appears in the status bar. Marks for folders deleted
-  outside Denote remain as unavailable local metadata until removed through the
-  command palette.
+- The vault root and any existing subfolder can independently be marked or
+  unmarked as an explicit project root, a multi-project workspace, or both
+  through separate folder/root context actions or command-palette commands.
+- Each safe, real direct child folder of a workspace is discovered as an
+  implicit project. Nested content belongs to that child project, while files
+  directly in the workspace container need a separate explicit project root.
+  New direct child folders are discovered automatically.
+- Explicit and implicit project roots may be nested. The closest available root
+  of the focused file is active, so an explicit nested project wins over its
+  workspace child ancestor. No focused project file means no active project.
+- The active project appears in the status bar. Workspace child projects keep
+  stable local identities through Denote rename/move and can be promoted to
+  explicit projects. Unmarking a workspace removes only implicit-only children.
+- Missing project and workspace folders remain as unavailable local metadata
+  until removed through the command palette. Denote Trash clears affected
+  project/workspace metadata; restoring a direct child under a still-marked
+  workspace discovers it as a new implicit project.
+- When an otherwise unmarked vault root safely contains a `.git` file or
+  directory, Denote suggests—but never automatically applies—**Mark as
+  project**. **No thanks** permanently dismisses the suggestion for that vault;
+  manually marking the root as a project or workspace also dismisses it.
 - Every installation includes an offline Denote Welcome vault with an editable
   feature tour and task-focused documentation; seeded files are never
   overwritten after creation.
@@ -114,10 +128,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
   counters, bookmarks, recent activity, ordering, tag color overrides, trash
-  records, revision history, and stable project-root identities and paths.
-- Denote rename and move operations preserve project identities while updating
-  their paths. Moving a marked folder or its ancestor to Denote Trash removes
-  equal and descendant marks; restore does not recreate them.
+  records, revision history, stable project/workspace identities and paths, and
+  Git-suggestion dismissal. These records never alter vault or project files.
+- Denote rename and move operations preserve explicit and implicit project
+  identities while updating their paths. Moving a marked folder or its ancestor
+  to Denote Trash removes affected project/workspace metadata.
 - ZBSearch provides local full-text search with a separate location glob and
   visual filters for tags, filename, path, content, file type, bookmarks, and
   recency.
@@ -177,10 +192,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides
   must be turned off before mode switching.
-- Files inside a marked project temporarily force line numbers, and project
-  Markdown temporarily forces Source mode. Leaving or unmarking the project
-  restores the saved line-number setting and vault Markdown preference
-  immediately; these project constraints never persist as editor preferences.
+- Files inside an explicit or implicit project temporarily force line numbers,
+  and project Markdown temporarily forces Source mode. Leaving the project or
+  removing its governing mark restores the saved line-number setting and vault
+  Markdown preference immediately; these constraints never persist as editor
+  preferences.
 - Markdown parser failures expose line and column details, force a temporary
   source fallback without changing the vault preference, highlight the failing
   line, and provide keyboard-accessible error navigation. Errors remain scoped
@@ -210,10 +226,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   root as its working directory. Persistent terminal and language-server APIs
   remain separate future plugin work.
 - **Settings → Plugins** shows a non-blocking **Code tooling** recommendation
-  only when the focused file has an active project. Git, Terminal, Language
-  server, Linter, Compiler, and Code navigation roles show unavailable,
-  disabled, or enabled status; Denote never downloads or enables them
-  automatically, and core project behavior does not depend on plugins.
+  only when the focused file has an active explicit or implicit project. Git,
+  Terminal, Language server, Linter, Compiler, and Code navigation roles show
+  unavailable, disabled, or enabled status; Denote never downloads or enables
+  them automatically, and core project behavior does not depend on plugins.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 
@@ -241,7 +257,8 @@ available. Future work must not fabricate them.
 ## Accessibility & Inclusion
 
 Core workflows must be keyboard operable with visible focus, semantic controls,
-accessible names, and screen-reader status updates. Folder project actions are
-available with Shift-F10 or the Context Menu key; whole-vault and unavailable
-project marks remain operable through the command palette. Text handling must
-preserve full Unicode content and emoji without language-specific restrictions.
+accessible names, and screen-reader status updates. Separate folder project and
+workspace actions are available with Shift-F10 or the Context Menu key;
+whole-vault and unavailable project/workspace roots remain operable through the
+command palette. Text handling must preserve full Unicode content and emoji
+without language-specific restrictions.

@@ -41,13 +41,32 @@ path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
 
-Project roots are operational path metadata in the application-data SQLite
-database, never files or markers inside vault/project content. Each mark has a
-stable opaque ID and a validated vault-relative folder path. Nested marks are
-allowed; the frontend derives the active project from the closest available
-marked ancestor of the focused real file. Missing externally deleted folders
-remain recorded but cannot become active. IDs and paths are outside vault
-content encryption, like other operational path metadata.
+Explicit project roots and workspace roots are independent operational path
+metadata in the application-data SQLite database, never files or markers inside
+vault/project content. Each root has a stable opaque ID and validated
+vault-relative folder path; one folder may hold both roles.
+
+A workspace discovers each safe, real direct child directory as an implicit
+project with its own stable opaque ID. Descendants resolve to that child, while
+files directly in the workspace container receive no implicit project. Refresh
+discovers new direct children. Explicit nested roots still win through
+closest-root resolution, and marking an implicit child as a project promotes the
+same identity rather than replacing it.
+
+Denote-managed rename and move operations rekey explicit roots, workspaces, and
+implicit children without changing their IDs. Unmarking a workspace deletes
+only implicit-only children; promoted explicit children remain. Missing roots
+and children stay recorded but unavailable. Trash clears affected project and
+workspace metadata. If a trashed child is restored beneath a still-marked
+workspace, refresh discovers it as a new implicit project.
+
+The root Git suggestion is derived only when the canonical vault safely contains
+a `.git` regular file or directory and the root is neither an explicit project
+nor a workspace. Acceptance creates an explicit root project. Dismissal and
+manual root project/workspace marking persist a per-vault dismissal; no
+filesystem marker is written and no root is marked automatically. IDs, paths,
+and dismissal state are outside vault content encryption, like other operational
+path metadata.
 
 ## Plugin boundary
 
@@ -92,7 +111,7 @@ processes require separate permissions; processes use platform-qualified exact
 absolute executable allowlists, cross-platform process groups, bounded output,
 and a timeout.
 The additive API version 1 `project-context` capability exposes only the active
-mark's opaque ID and vault-relative root plus change events. It provides no
+explicit or implicit project's opaque ID and vault-relative root plus change events. It provides no
 absolute path and no dependency on editor or project-root implementation
 objects.
 
@@ -212,8 +231,10 @@ The application-data database stores:
 - per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
   encryption is enabled;
-- trash records used by restore.
-- stable project-root IDs and vault-relative paths, including unavailable roots.
+- trash records used by restore;
+- stable explicit/implicit project and workspace IDs and vault-relative paths,
+  including unavailable roots and children;
+- per-vault Git-project-suggestion dismissal.
 
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative
 if the metadata database is removed.
@@ -267,9 +288,10 @@ interrupted between the move and metadata commit.
 Renames and moves rekey an explicit welcome path transactionally. Moving that
 path or an ancestor to Denote Trash clears the override.
 Denote directory rename and move operations similarly rekey equal and descendant
-project-root paths without replacing their IDs. Trash deletes equal and
-descendant project marks transactionally; restore deliberately does not recreate
-them.
+project/workspace paths without replacing their IDs. Trash deletes affected
+project/workspace metadata transactionally. Restore does not recreate those
+records directly; a restored direct child of a still-marked workspace is later
+discovered as a new implicit project.
 
 ## Search
 
@@ -410,7 +432,7 @@ Because rendered rich Markdown has no stable one-to-one source-line mapping,
 enabling any guide temporarily constrains Markdown editing to source mode.
 Disabled rich/source controls remain visible and point back to the display
 settings.
-For a file whose closest marked ancestor is an active project, the frontend
+For a file whose closest explicit or implicit project root is active, the frontend
 applies line numbers through an in-memory display-settings overlay. Markdown in
 that project also forces Source mode. Neither overlay writes the saved display
 settings or vault Markdown preference, so switching focus outside the project or

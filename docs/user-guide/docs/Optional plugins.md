@@ -35,12 +35,13 @@ and limited to listed hosts. Clipboard, notifications, and process execution
 have separate permissions; process permissions list exact executables for each
 supported operating system.
 
-An approved plugin can request `project-context`. It receives only a stable
-opaque project ID and vault-relative root, plus change events—never an absolute
-path or Denote implementation object. A plugin command captures that project
-identity. Existing bounded process actions revalidate it and use the current
-project root as their working directory. Persistent terminal and language-server
-APIs remain future plugin work.
+An approved plugin can request `project-context`. For explicit projects and
+workspace-discovered implicit projects alike, it receives only a stable opaque
+project ID and vault-relative root, plus change events—never an absolute path or
+Denote implementation object. A plugin command captures that project identity.
+Existing bounded process actions revalidate it and use the current project root
+as their working directory. Persistent terminal and language-server APIs remain
+future plugin work.
 
 With a focused active project, **Settings → Plugins** shows a non-blocking
 **Code tooling** recommendation for Git, Terminal, Language server, Linter,

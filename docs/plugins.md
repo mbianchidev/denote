@@ -69,11 +69,12 @@ declarative settings, enable/disable controls, and explicit data or credential
 cleanup. Permissions must be approved before download. Structured permission
 objects are persisted and compared with the current manifest, so any permission
 change requires approval again.
-When the focused file has an active project, Settings also shows a non-blocking
-**Code tooling** recommendation. Git, Terminal, Language server, Linter,
-Compiler, and Code navigation roles report unavailable, disabled, or enabled
-catalog status. Recommendations never download or enable a plugin, and missing,
-disabled, or failed plugins do not affect core project behavior.
+When the focused file has an active explicit or implicit project, Settings also
+shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
+server, Linter, Compiler, and Code navigation roles report unavailable,
+disabled, or enabled catalog status. Recommendations never download or enable a
+plugin, and missing, disabled, or failed plugins do not affect core project
+behavior.
 
 The manager also provides **Disable all plugins** as a recovery action. Plugin
 workers start after the core editor is usable, activation is time-limited, and a
@@ -104,9 +105,9 @@ installed packages when Denote starts.
 
 - Plugins receive no raw vault path or editor implementation object.
 - An approved additive API version 1 `project-context` capability provides only
-  the active project's stable opaque ID and vault-relative root, with change
-  events. It exposes no absolute filesystem path or project implementation
-  object.
+  the active explicit or implicit project's stable opaque ID and vault-relative
+  root, with change events. It exposes no absolute filesystem path or project
+  implementation object.
 - Plugin API version 1 exposes command registration, static sidebar views,
   note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
   explicit-command-action capabilities for versioned workspace text,
