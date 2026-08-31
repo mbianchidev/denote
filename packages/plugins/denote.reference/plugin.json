@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.reference",
+  "name": "Reference plugin",
+  "version": "0.1.0",
+  "description": "Exercises the plugin lifecycle without adding a production feature.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "other",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.1.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "commands"
+    },
+    {
+      "capability": "sidebar"
+    },
+    {
+      "capability": "status"
+    },
+    {
+      "capability": "editor-decoration"
+    },
+    {
+      "capability": "note-events"
+    },
+    {
+      "capability": "secure-storage"
+    }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

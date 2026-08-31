@@ -4,6 +4,7 @@ mod db;
 mod default_vault;
 mod error;
 mod models;
+mod plugins;
 mod vault;
 
 use db::AppState;
@@ -217,8 +218,19 @@ fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _, _| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Err(error) = window.show() {
+                    eprintln!("Unable to show existing Denote window: {error}");
+                }
+                if let Err(error) = window.set_focus() {
+                    eprintln!("Unable to focus existing Denote window: {error}");
+                }
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -231,6 +243,10 @@ pub fn run() {
             }
             app.manage(commands::FileClipboard::new());
             app.manage(commands::LinkRewriteLeases::new());
+            app.manage(plugins::PluginManager::new(
+                app_data_dir.clone(),
+                app_cache_dir.clone(),
+            ));
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
             db::initialize(&db_path)?;
@@ -279,6 +295,7 @@ pub fn run() {
             commands::trash_entry,
             commands::restore_trash_item,
             commands::empty_trash,
+            commands::prepare_exit,
             commands::complete_exit,
             commands::set_bookmark,
             commands::record_edit,
@@ -296,6 +313,31 @@ pub fn run() {
             commands::list_link_rewrite_documents,
             commands::read_image_data_url,
             commands::save_attachment,
+            plugins::list_plugins,
+            plugins::prepare_plugin_enable,
+            plugins::commit_plugin_enable,
+            plugins::rollback_plugin_enable,
+            plugins::recover_plugin_transactions,
+            plugins::disable_plugin,
+            plugins::read_plugin_entrypoint,
+            plugins::get_plugin_settings,
+            plugins::set_plugin_settings,
+            plugins::import_plugin_settings,
+            plugins::plugin_storage_get,
+            plugins::plugin_storage_set,
+            plugins::plugin_storage_delete,
+            plugins::plugin_storage_clear,
+            plugins::plugin_secret_get,
+            plugins::plugin_secret_set,
+            plugins::plugin_secret_delete,
+            plugins::authorize_plugin_capability,
+            plugins::plugin_workspace_read,
+            plugins::plugin_workspace_write,
+            plugins::plugin_network_request,
+            plugins::plugin_clipboard_read,
+            plugins::plugin_clipboard_write,
+            plugins::plugin_show_notification,
+            plugins::plugin_process_request,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")

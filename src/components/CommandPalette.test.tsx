@@ -79,6 +79,42 @@ describe("CommandPalette", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it("finds and runs a plugin command by its title", async () => {
+    const user = userEvent.setup();
+    const run = vi.fn();
+    render(
+      <CommandPalette
+        open
+        commands={[
+          ...commands,
+          {
+            id: "denote.reference.verify-keychain",
+            title: "Plugin host: verify keychain isolation",
+            description: "Run command from denote.reference.",
+            category: "Plugins",
+            run,
+          },
+        ]}
+        onLoadFiles={async () => batch}
+        onOpenFile={vi.fn()}
+        onCommandError={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.type(
+      await screen.findByRole("combobox", {
+        name: "Search commands or filenames across vaults",
+      }),
+      "verify keychain isolation",
+    );
+    await user.click(
+      screen.getByRole("option", { name: /verify keychain isolation/i }),
+    );
+
+    expect(run).toHaveBeenCalledOnce();
+  });
+
   it("filters by filename only and opens the selected vault file", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();

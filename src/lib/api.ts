@@ -12,6 +12,8 @@ import type {
   MoveEntryResult,
   NoteDocument,
   NoteStats,
+  InstalledPlugin,
+  PluginView,
   RecoveryCodesResult,
   SaveOutcome,
   TabSessionState,
@@ -21,6 +23,14 @@ import type {
   WorkspaceSnapshot,
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
+import type {
+  PluginNetworkRequest,
+  PluginNetworkResponse,
+  PluginPermissionRequest,
+  PluginProcessRequest,
+  PluginProcessResult,
+  PluginTextDocument,
+} from "@denote/plugin-sdk";
 
 export const api = {
   getLastVault: () => invoke<WorkspaceSnapshot | null>("get_last_vault"),
@@ -106,6 +116,7 @@ export const api = {
   restoreTrashItem: (itemId: number) =>
     invoke<FileNode>("restore_trash_item", { itemId }),
   emptyTrash: () => invoke<number>("empty_trash"),
+  prepareExit: () => invoke<void>("prepare_exit"),
   completeExit: () => invoke<void>("complete_exit"),
   setBookmark: (path: string, bookmarked: boolean) =>
     invoke<void>("set_bookmark", { path, bookmarked }),
@@ -154,6 +165,130 @@ export const api = {
       dataBase64,
     });
   },
+  listPlugins: () => invoke<PluginView[]>("list_plugins"),
+  preparePluginEnable: (
+    pluginId: string,
+    approvedPermissions: PluginPermissionRequest[],
+  ) =>
+    invoke<InstalledPlugin>("prepare_plugin_enable", {
+      pluginId,
+      approvedPermissions,
+    }),
+  commitPluginEnable: (transactionId: string) =>
+    invoke<void>("commit_plugin_enable", { transactionId }),
+  rollbackPluginEnable: (transactionId: string, error?: string) =>
+    invoke<void>("rollback_plugin_enable", {
+      transactionId,
+      error: error ?? null,
+    }),
+  recoverPluginTransactions: () =>
+    invoke<void>("recover_plugin_transactions"),
+  disablePlugin: (
+    pluginId: string,
+    clearData = false,
+    clearCredentials = false,
+  ) =>
+    invoke<void>("disable_plugin", {
+      pluginId,
+      clearData,
+      clearCredentials,
+    }),
+  readPluginEntrypoint: (pluginId: string) =>
+    invoke<string>("read_plugin_entrypoint", { pluginId }),
+  getPluginSettings: (pluginId: string) =>
+    invoke<Record<string, unknown>>("get_plugin_settings", { pluginId }),
+  setPluginSettings: (
+    pluginId: string,
+    settings: Record<string, unknown>,
+  ) =>
+    invoke<Record<string, unknown>>("set_plugin_settings", {
+      pluginId,
+      settings,
+    }),
+  importPluginSettings: (
+    pluginId: string,
+    sourceVersion: number,
+    settings: Record<string, unknown>,
+  ) =>
+    invoke<Record<string, unknown>>("import_plugin_settings", {
+      pluginId,
+      sourceVersion,
+      settings,
+    }),
+  pluginStorageGet: (pluginId: string, key: string) =>
+    invoke<unknown | null>("plugin_storage_get", { pluginId, key }),
+  pluginStorageSet: (pluginId: string, key: string, value: unknown) =>
+    invoke<void>("plugin_storage_set", { pluginId, key, value }),
+  pluginStorageDelete: (pluginId: string, key: string) =>
+    invoke<void>("plugin_storage_delete", { pluginId, key }),
+  pluginStorageClear: (pluginId: string) =>
+    invoke<void>("plugin_storage_clear", { pluginId }),
+  pluginSecretGet: (pluginId: string, key: string) =>
+    invoke<string | null>("plugin_secret_get", { pluginId, key }),
+  pluginSecretSet: (pluginId: string, key: string, value: string) =>
+    invoke<void>("plugin_secret_set", { pluginId, key, value }),
+  pluginSecretDelete: (pluginId: string, key: string) =>
+    invoke<void>("plugin_secret_delete", { pluginId, key }),
+  authorizePluginCapability: (
+    pluginId: string,
+    capability: string,
+    workspaceScope?: string,
+  ) =>
+    invoke<void>("authorize_plugin_capability", {
+      pluginId,
+      capability,
+      workspaceScope: workspaceScope ?? null,
+    }),
+  pluginWorkspaceRead: (
+    pluginId: string,
+    workspaceScope: string,
+    path: string,
+    writePermission = false,
+  ) =>
+    invoke<PluginTextDocument>("plugin_workspace_read", {
+      pluginId,
+      workspaceScope,
+      path,
+      writePermission,
+    }),
+  pluginWorkspaceWrite: (
+    pluginId: string,
+    workspaceScope: string,
+    path: string,
+    content: string,
+    version: string,
+  ) =>
+    invoke<void>("plugin_workspace_write", {
+      pluginId,
+      workspaceScope,
+      path,
+      content,
+      version,
+    }),
+  pluginNetworkRequest: (pluginId: string, request: PluginNetworkRequest) =>
+    invoke<PluginNetworkResponse>("plugin_network_request", {
+      pluginId,
+      request,
+    }),
+  pluginClipboardRead: (pluginId: string) =>
+    invoke<string>("plugin_clipboard_read", { pluginId }),
+  pluginClipboardWrite: (pluginId: string, text: string) =>
+    invoke<void>("plugin_clipboard_write", { pluginId, text }),
+  pluginShowNotification: (
+    pluginId: string,
+    title: string,
+    body?: string,
+  ) =>
+    invoke<void>("plugin_show_notification", {
+      pluginId,
+      title,
+      body: body ?? null,
+    }),
+  pluginProcessRequest: (pluginId: string, request: PluginProcessRequest) =>
+    invoke<PluginProcessResult>("plugin_process_request", {
+      pluginId,
+      request,
+    }),
 };
 
 function fileToBase64(file: File): Promise<string> {

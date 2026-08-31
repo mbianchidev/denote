@@ -1,5 +1,5 @@
 import { RotateCcw, Settings2, Trash2, X } from "lucide-react";
-import { useEffect, useRef, type RefObject } from "react";
+import { useEffect, useRef, useState, type RefObject } from "react";
 import {
   DEFAULT_EDITOR_DISPLAY_SETTINGS,
   MAX_EDITOR_FONT_SIZE,
@@ -7,6 +7,9 @@ import {
   normalizeEditorFontSize,
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
+import type { PluginView } from "../types";
+import type { PluginPermissionRequest } from "@denote/plugin-sdk";
+import { PluginSettingsPanel } from "./PluginSettingsPanel";
 
 interface EditorSettingsDialogProps {
   open: boolean;
@@ -15,10 +18,31 @@ interface EditorSettingsDialogProps {
   restoreTabs: boolean;
   externalDomains: string[];
   allowAllExternalDomains: boolean;
+  plugins: PluginView[];
+  pluginsLoading: boolean;
+  busyPluginIds: ReadonlySet<string>;
   onChange: (settings: EditorDisplaySettings) => void;
   onRestoreTabsChange: (enabled: boolean) => void;
   onRemoveExternalDomain: (domain: string) => void;
   onClearExternalDomains: () => void;
+  onEnablePlugin: (
+    pluginId: string,
+    permissions: PluginPermissionRequest[],
+  ) => Promise<void>;
+  onDisablePlugin: (pluginId: string) => Promise<void>;
+  onDisableAllPlugins: () => Promise<void>;
+  onClearPluginData: (pluginId: string) => Promise<void>;
+  onClearPluginCredentials: (pluginId: string) => Promise<void>;
+  onUpdatePluginSettings: (
+    pluginId: string,
+    settings: Record<string, unknown>,
+  ) => Promise<void>;
+  onImportPluginSettings: (
+    pluginId: string,
+    sourceVersion: number,
+    settings: Record<string, unknown>,
+  ) => Promise<void>;
+  onPluginError: (error: unknown) => void;
   onClose: () => void;
 }
 
@@ -29,14 +53,26 @@ export function EditorSettingsDialog({
   restoreTabs,
   externalDomains,
   allowAllExternalDomains,
+  plugins,
+  pluginsLoading,
+  busyPluginIds,
   onChange,
   onRestoreTabsChange,
   onRemoveExternalDomain,
   onClearExternalDomains,
+  onEnablePlugin,
+  onDisablePlugin,
+  onDisableAllPlugins,
+  onClearPluginData,
+  onClearPluginCredentials,
+  onUpdatePluginSettings,
+  onImportPluginSettings,
+  onPluginError,
   onClose,
 }: EditorSettingsDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const firstInputRef = useRef<HTMLInputElement>(null);
+  const firstControlRef = useRef<HTMLButtonElement>(null);
+  const [section, setSection] = useState<"editor" | "plugins">("editor");
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -45,7 +81,7 @@ export function EditorSettingsDialog({
     }
     if (open && !dialog.open) {
       dialog.showModal();
-      window.setTimeout(() => firstInputRef.current?.focus(), 0);
+      window.setTimeout(() => firstControlRef.current?.focus(), 0);
     } else if (!open && dialog.open) {
       dialog.close();
     }
@@ -108,8 +144,27 @@ export function EditorSettingsDialog({
         </button>
       </header>
 
-      <div className="editor-settings-dialog__body">
-        <div className="editor-font-setting">
+      <nav className="editor-settings-dialog__sections" aria-label="Settings sections">
+        <button
+          ref={firstControlRef}
+          type="button"
+          aria-pressed={section === "editor"}
+          onClick={() => setSection("editor")}
+        >
+          Editor
+        </button>
+        <button
+          type="button"
+          aria-pressed={section === "plugins"}
+          onClick={() => setSection("plugins")}
+        >
+          Plugins
+        </button>
+      </nav>
+
+      {section === "editor" ? (
+        <div className="editor-settings-dialog__body">
+          <div className="editor-font-setting">
           <label htmlFor="editor-font-size">
             <strong>Editor font size</strong>
             <small>Applies to rich text and source editors.</small>
@@ -125,7 +180,6 @@ export function EditorSettingsDialog({
               −
             </button>
             <input
-              ref={firstInputRef}
               id="editor-font-size"
               type="range"
               min={MIN_EDITOR_FONT_SIZE}
@@ -218,7 +272,7 @@ export function EditorSettingsDialog({
             onChange={onRestoreTabsChange}
           />
         </div>
-        <section
+          <section
           className="external-domain-settings"
           aria-labelledby="external-domain-settings-title"
         >
@@ -277,21 +331,40 @@ export function EditorSettingsDialog({
               Clear external domain permissions
             </button>
           ) : null}
-        </section>
-      </div>
+          </section>
+        </div>
+      ) : (
+        <PluginSettingsPanel
+          plugins={plugins}
+          loading={pluginsLoading}
+          busyPluginIds={busyPluginIds}
+          onEnable={onEnablePlugin}
+          onDisable={onDisablePlugin}
+          onDisableAll={onDisableAllPlugins}
+          onClearData={onClearPluginData}
+          onClearCredentials={onClearPluginCredentials}
+          onUpdateSettings={onUpdatePluginSettings}
+          onImportSettings={onImportPluginSettings}
+          onError={onPluginError}
+        />
+      )}
 
       <footer className="editor-settings-dialog__actions">
-        <button
-          type="button"
-          className="secondary-button"
-          disabled={disabled || atDefaults}
-          onClick={() =>
-            onChange({ ...DEFAULT_EDITOR_DISPLAY_SETTINGS })
-          }
-        >
-          <RotateCcw aria-hidden="true" size={14} />
-          Reset editor
-        </button>
+        {section === "editor" ? (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={disabled || atDefaults}
+            onClick={() =>
+              onChange({ ...DEFAULT_EDITOR_DISPLAY_SETTINGS })
+            }
+          >
+            <RotateCcw aria-hidden="true" size={14} />
+            Reset editor
+          </button>
+        ) : (
+          <span />
+        )}
         <button type="button" className="primary-button" onClick={onClose}>
           Done
         </button>

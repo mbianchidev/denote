@@ -9,6 +9,9 @@
 
     /* Bundler mode */
     "moduleResolution": "bundler",
+    "paths": {
+      "@denote/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"]
+    },
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,

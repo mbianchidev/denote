@@ -406,6 +406,25 @@ pub fn read_note(
     relative_path: &str,
     vault_key: Option<&[u8; 32]>,
 ) -> AppResult<NoteDocument> {
+    read_note_impl(db_path, vault_path, relative_path, vault_key, true)
+}
+
+pub fn read_note_without_recording(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<NoteDocument> {
+    read_note_impl(db_path, vault_path, relative_path, vault_key, false)
+}
+
+fn read_note_impl(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
+    record_open: bool,
+) -> AppResult<NoteDocument> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
@@ -424,7 +443,9 @@ pub fn read_note(
 
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    db::record_open(&connection, vault_id, relative_path)?;
+    if record_open {
+        db::record_open(&connection, vault_id, relative_path)?;
+    }
     let stats = db::get_stats(&connection, vault_id, relative_path)?;
     Ok(NoteDocument {
         path: relative_path.to_string(),

@@ -70,6 +70,7 @@ import { CODE_BLOCK_LANGUAGES } from "../lib/codeBlockLanguages";
 import {
   createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
+  createPluginDecorationExtensions,
   createEditorTabExtensions,
   denoteCodeMirrorTheme,
   markdownLinkKeymap,
@@ -79,6 +80,7 @@ import {
   hasEditorDisplayGuides,
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
+import type { PluginEditorDecoration } from "@denote/plugin-sdk";
 import { denoteHashtagPlugin } from "../lib/hashtagPlugin";
 import { shouldOpenLinkOnClick } from "../lib/links";
 import {
@@ -263,6 +265,7 @@ interface MarkdownEditorProps {
   markdown: string;
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
+  pluginDecorations?: PluginEditorDecoration[];
   preferredViewMode: MarkdownViewMode;
   readOnly: boolean;
   errorLocation?: MarkdownErrorLocation;
@@ -293,6 +296,7 @@ export const MarkdownEditor = forwardRef<
     markdown,
     lineEnding,
     displaySettings,
+    pluginDecorations = [],
     preferredViewMode,
     readOnly,
     errorLocation,
@@ -395,6 +399,10 @@ export const MarkdownEditor = forwardRef<
     () => createEditorTabExtensions(displaySettings),
     [displaySettings],
   );
+  const pluginDecorationExtensions = useMemo(
+    () => createPluginDecorationExtensions(pluginDecorations),
+    [pluginDecorations],
+  );
   const boundaryWhitespace = useRef(
     captureMarkdownBoundaryWhitespace(markdown),
   ).current;
@@ -466,6 +474,7 @@ export const MarkdownEditor = forwardRef<
           denoteCodeMirrorTheme,
           markdownLinkKeymap,
           ...displayExtensions,
+          ...pluginDecorationExtensions,
         ],
       }),
       standardMarkdownCompatibilityPlugin(),
@@ -566,6 +575,7 @@ export const MarkdownEditor = forwardRef<
       onImageUpload,
       onMarkdownErrorCleared,
       onViewModeChange,
+      pluginDecorationExtensions,
       sourceOnly,
       tabExtensions,
     ],

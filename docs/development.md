@@ -22,6 +22,55 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+Validate plugin manifests, package structure, documentation, type safety, and
+editor/plugin import boundaries separately with:
+
+```bash
+npm run check:plugins
+```
+
+Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
+`@denote/plugin-sdk`, its own files, and declared third-party packages. It must
+not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
+`packages/plugins/denote.reference/` as the contract example; it is not bundled into
+the Denote application.
+
+Create a complete package skeleton and draft catalog entry with:
+
+```bash
+npm run create:plugin -- denote.example "Example plugin" productivity
+```
+
+The scaffold includes the manifest, required guide sections, icon, package
+metadata, and SDK entrypoint. Implement and test it entirely inside that folder
+before packaging.
+
+Plugin packages cannot declare npm lifecycle scripts or executable `bin`
+entries. CI checks this before dependency installation, installs with lifecycle
+scripts disabled, audits JavaScript and Rust dependencies, and rejects new
+high-severity dependency vulnerabilities.
+
+Build the independently downloadable plugin artifacts and update catalog
+integrity metadata with:
+
+```bash
+npm run package:plugins
+```
+
+Commit the resulting files under `plugin-artifacts/`, then pin a new artifact
+URL to that commit:
+
+```bash
+DENOTE_PLUGIN_ARTIFACT_REF=$(git rev-parse HEAD) npm run package:plugins
+```
+
+Commit the catalog-only pin separately. Existing versions retain their immutable
+URL when repackaged. CI rebuilds every plugin, validates the real entrypoint,
+checks the committed archive contents, requires a 40-character commit pin, and
+downloads every pinned URL with a timeout and strict byte bound, checks safe
+archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
+supported platforms.
+
 ## Build a desktop bundle
 
 ```bash

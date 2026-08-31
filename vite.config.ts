@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
@@ -76,7 +77,10 @@ function resolveDirtyBuild(): boolean {
 
 // https://vite.dev/config/
 export default defineConfig(async ({ command }) => ({
-  plugins: [react()],
+  plugins: [
+    react(),
+    ...(command === "build" ? [editorPluginBoundary()] : []),
+  ],
   resolve:
     command === "serve"
       ? {
@@ -131,6 +135,30 @@ function workerSafeMarkdownEntities() {
       return source === "decode-named-character-reference"
         ? workerSafeNamedCharacterDecoder
         : null;
+    },
+  };
+}
+
+function editorPluginBoundary() {
+  const pluginsRoot = realpathSync(
+    fileURLToPath(new URL("./packages/plugins", import.meta.url)),
+  );
+  return {
+    name: "denote-editor-plugin-boundary",
+    moduleParsed(moduleInfo: { id: string }) {
+      const modulePath = moduleInfo.id.split("?")[0];
+      if (modulePath.startsWith("\0") || !existsSync(modulePath)) {
+        return;
+      }
+      const canonicalPath = realpathSync(modulePath);
+      if (
+        canonicalPath === pluginsRoot ||
+        canonicalPath.startsWith(`${pluginsRoot}${sep}`)
+      ) {
+        throw new Error(
+          `Editor build cannot include plugin implementation ${canonicalPath}.`,
+        );
+      }
     },
   };
 }

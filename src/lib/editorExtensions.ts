@@ -26,6 +26,7 @@ import {
   type Command,
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
+import type { PluginEditorDecoration } from "@denote/plugin-sdk";
 import type { FileLineEnding } from "../types";
 import type { EditorDisplaySettings } from "./editorDisplay";
 import type { MarkdownErrorLocation } from "./markdownErrors";
@@ -170,6 +171,67 @@ const editorDiagnosticField = StateField.define<DecorationSet>({
 
 export function createEditorDiagnosticExtensions(): Extension[] {
   return [editorDiagnosticField];
+}
+
+export function createPluginDecorationExtensions(
+  rules: readonly PluginEditorDecoration[],
+): Extension[] {
+  if (rules.length === 0) {
+    return [];
+  }
+  return [
+    ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+
+        constructor(view: EditorView) {
+          this.decorations = pluginDecorations(view, rules);
+        }
+
+        update(update: ViewUpdate) {
+          if (update.docChanged || update.viewportChanged) {
+            this.decorations = pluginDecorations(update.view, rules);
+          }
+        }
+      },
+      {
+        decorations: (plugin) => plugin.decorations,
+      },
+    ),
+  ];
+}
+
+function pluginDecorations(
+  view: EditorView,
+  rules: readonly PluginEditorDecoration[],
+): DecorationSet {
+  const ranges: Range<Decoration>[] = [];
+  const text = view.state.doc.toString();
+  for (const rule of rules) {
+    if (!rule.pattern) {
+      continue;
+    }
+    const pattern = new RegExp(
+      escapeRegExp(rule.pattern),
+      rule.caseSensitive ? "gu" : "giu",
+    );
+    let count = 0;
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(text)) && count < 2_000) {
+      ranges.push(
+        Decoration.mark({
+          class: `cm-plugin-decoration cm-plugin-decoration--${rule.style}`,
+          attributes: { "data-plugin-decoration": rule.id },
+        }).range(match.index, match.index + match[0].length),
+      );
+      count += 1;
+    }
+  }
+  return Decoration.set(ranges, true);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function diagnosticDecorations(

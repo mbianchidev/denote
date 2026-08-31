@@ -196,6 +196,7 @@ import {
   type ReplaceRequest,
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
+import { usePlugins } from "./plugins/usePlugins";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
   DEFAULT_EDITOR_FONT_SIZE,
@@ -275,6 +276,9 @@ function App() {
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
+  const [activePluginSidebar, setActivePluginSidebar] = useState<string | null>(
+    null,
+  );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [paneState, setPaneState] = useState<PaneWorkspaceState>(() =>
@@ -718,6 +722,68 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
+  const pluginController = usePlugins(showError);
+  const pluginDecorationKey = pluginController.decorations
+    .map(
+      (decoration) =>
+        `${decoration.id}:${decoration.pattern}:${decoration.style}:${decoration.caseSensitive}`,
+    )
+    .join("\u0000");
+  const shutdownPlugins = pluginController.shutdown;
+  const emitPluginNoteEvent = pluginController.emitNoteEvent;
+  const invalidatePluginActions = pluginController.invalidateActionLeases;
+  useEffect(() => {
+    invalidatePluginActions();
+  }, [invalidatePluginActions, workspace?.vaultPath]);
+  const previousPluginNotes = useRef(
+    new Map<
+      string,
+      {
+        content: string;
+        saveState: EditorTab["saveState"];
+      }
+    >(),
+  );
+  useEffect(() => {
+    const previous = previousPluginNotes.current;
+    const current = new Map<
+      string,
+      {
+        content: string;
+        saveState: EditorTab["saveState"];
+      }
+    >();
+    for (const pane of panes) {
+      for (const tab of pane.tabs) {
+        if (tab.placeholder) {
+          continue;
+        }
+        current.set(tab.path, {
+          content: tab.content,
+          saveState: tab.saveState,
+        });
+      }
+    }
+    for (const path of previous.keys()) {
+      if (!current.has(path)) {
+        emitPluginNoteEvent({ path, kind: "closed" });
+      }
+    }
+    for (const [path, note] of current) {
+      const prior = previous.get(path);
+      if (!prior) {
+        emitPluginNoteEvent({ path, kind: "opened" });
+      } else {
+        if (prior.content !== note.content) {
+          emitPluginNoteEvent({ path, kind: "changed" });
+        }
+        if (prior.saveState === "saving" && note.saveState === "saved") {
+          emitPluginNoteEvent({ path, kind: "saved" });
+        }
+      }
+    }
+    previousPluginNotes.current = current;
+  }, [emitPluginNoteEvent, panes]);
 
   const showLinkError = useCallback((value: unknown) => {
     const message = errorMessage(value);
@@ -1891,6 +1957,8 @@ function App() {
     await Promise.all([...criticalOperations.current]);
     if (await beginWorkspaceOperationRef.current()) {
       try {
+        await api.prepareExit();
+        await shutdownPlugins();
         await api.completeExit();
       } catch (caught) {
         closingWindow.current = false;
@@ -1902,7 +1970,7 @@ function App() {
       setWorkspaceLock(false);
       setStatus("Close cancelled because a note could not be saved");
     }
-  }, [setWorkspaceLock, showError]);
+  }, [setWorkspaceLock, showError, shutdownPlugins]);
 
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;
@@ -5421,6 +5489,21 @@ function App() {
         setTheme((current) => (current === "dark" ? "light" : "dark")),
     },
   ];
+  commandPaletteCommands.push(
+    ...pluginController.commands.map((command) => ({
+      id: command.id,
+      title: command.title,
+      description: `Run command from ${command.pluginId}.`,
+      category: "Plugins",
+      disabled: workspace === null,
+      run: () =>
+        pluginController.runCommand(
+          command.pluginId,
+          command.id,
+          workspace?.vaultPath ?? "",
+        ),
+    })),
+  );
   commandPaletteCommandsRef.current = commandPaletteCommands;
 
   useEffect(() => {
@@ -5510,6 +5593,10 @@ function App() {
       }
     />
   );
+  const activePluginSidebarView =
+    pluginController.sidebarViews.find(
+      (view) => view.id === activePluginSidebar,
+    ) ?? null;
 
   if (!workspace) {
     return (
@@ -5607,11 +5694,12 @@ function App() {
           paneTab.encoding === "utf8" &&
           !paneTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
           <MarkdownEditor
-            key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}`}
+            key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}:${pluginDecorationKey}`}
             notePath={paneTab.path}
             markdown={paneTab.content}
             lineEnding={paneTab.lineEnding}
             displaySettings={editorDisplaySettings}
+            pluginDecorations={pluginController.decorations}
             preferredViewMode={markdownViewMode}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
@@ -5656,6 +5744,7 @@ function App() {
               filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
               lineEnding={paneTab.lineEnding}
               displaySettings={editorDisplaySettings}
+              pluginDecorations={pluginController.decorations}
               searchNavigation={
                 pane.id === focusedPaneId &&
                 searchNavigation?.path === paneTab.path
@@ -5715,8 +5804,14 @@ function App() {
       </a>
       <ActivityRail
         activeView={sidebarView}
+        activePluginView={activePluginSidebarView?.id ?? null}
+        pluginViews={pluginController.sidebarViews}
         theme={theme}
-        onViewChange={setSidebarView}
+        onViewChange={(view) => {
+          setActivePluginSidebar(null);
+          setSidebarView(view);
+        }}
+        onPluginViewChange={setActivePluginSidebar}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={() =>
           setTheme((current) => (current === "dark" ? "light" : "dark"))
@@ -5753,7 +5848,16 @@ function App() {
             </button>
           </div>
         </header>
-        {sidebarView === "files" ? (
+        {activePluginSidebarView ? (
+          <div className="sidebar-view plugin-sidebar-view">
+            <div className="sidebar-view__title">
+              <h2>{activePluginSidebarView.title}</h2>
+            </div>
+            <div className="plugin-sidebar-view__content">
+              {activePluginSidebarView.content}
+            </div>
+          </div>
+        ) : sidebarView === "files" ? (
           <>
             <div className="sidebar-toolbar" aria-label="File actions">
               <button
@@ -6351,6 +6455,11 @@ function App() {
               </span>
             </>
           ) : null}
+          {pluginController.statusItems.map((item) => (
+            <span key={item.id} title={item.pluginId}>
+              {item.text}
+            </span>
+          ))}
           <span>{status}</span>
         </footer>
         <span className="sr-only" role="status" aria-live="polite">
@@ -6387,10 +6496,21 @@ function App() {
         restoreTabs={workspace.restoreTabs}
         externalDomains={externalDomainPolicy.domains}
         allowAllExternalDomains={externalDomainPolicy.allowAll}
+        plugins={pluginController.plugins}
+        pluginsLoading={pluginController.loading}
+        busyPluginIds={pluginController.busyPluginIds}
         onChange={updateEditorDisplaySettings}
         onRestoreTabsChange={updateRestoreTabs}
         onRemoveExternalDomain={removeExternalDomain}
         onClearExternalDomains={clearExternalDomains}
+        onEnablePlugin={pluginController.enable}
+        onDisablePlugin={pluginController.disable}
+        onDisableAllPlugins={pluginController.disableAll}
+        onClearPluginData={pluginController.clearData}
+        onClearPluginCredentials={pluginController.clearCredentials}
+        onUpdatePluginSettings={pluginController.updateSettings}
+        onImportPluginSettings={pluginController.importSettings}
+        onPluginError={showError}
         onClose={() => setEditorSettingsOpen(false)}
       />
       <ExternalLinkDialog
