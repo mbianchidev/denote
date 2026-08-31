@@ -347,6 +347,94 @@ describe("MarkdownEditor links", () => {
     expect(onViewModeChange).not.toHaveBeenCalled();
   });
 
+  it("transiently enforces project source mode and restores saved preferences", async () => {
+    const onChange = vi.fn();
+    const onViewModeChange = vi.fn();
+    const props = {
+      notePath: "code/guide.md",
+      lineEnding: "lf" as const,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange,
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange,
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor
+        {...props}
+        markdown="# Workspace guide"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        projectSourceMode={false}
+      />,
+    );
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <MarkdownEditor
+        {...props}
+        markdown="# Workspace guide"
+        displaySettings={{
+          ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+          showLineNumbers: true,
+        }}
+        projectSourceMode
+      />,
+    );
+
+    expect(
+      await screen.findByText("Code workspace source mode"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Rich text mode unavailable inside a code workspace",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("note", {
+        name: "Rich text mode is unavailable because this file is inside a code workspace.",
+      }),
+    ).toHaveAttribute("tabindex", "0");
+    const sourceEditor = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return EditorView.findFromDOM(element!)!;
+    });
+    sourceEditor.dispatch({
+      changes: {
+        from: sourceEditor.state.doc.length,
+        insert: "\n\nKept content",
+      },
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const updatedMarkdown = onChange.mock.lastCall?.[0] ?? "";
+
+    rerender(
+      <MarkdownEditor
+        {...props}
+        markdown={updatedMarkdown}
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        projectSourceMode={false}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Kept content")).toBeInTheDocument();
+    expect(container.querySelector(".cm-lineNumbers")).toBeNull();
+    expect(onViewModeChange).not.toHaveBeenCalled();
+  });
+
   it("uses unique guidance ids across pane editor instances", async () => {
     const props = {
       markdown: "# Note",

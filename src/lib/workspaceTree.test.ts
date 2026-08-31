@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FileNode } from "../types";
 import {
+  closestAvailableProjectRoot,
   insertWorkspaceNode,
   removeWorkspacePath,
   workspaceAncestorPaths,
@@ -36,6 +37,61 @@ describe("workspace tree mutations", () => {
     expect(removeWorkspacePath(tree, "notes")).toEqual([tree[1]]);
     expect(workspacePathMatches("notes/a.md", "notes")).toBe(true);
     expect(workspacePathMatches("notes-old/b.md", "notes")).toBe(false);
+  });
+
+  describe("closestAvailableProjectRoot", () => {
+    const projectRoots = [
+      { id: "vault", rootPath: "", available: true },
+      { id: "app", rootPath: "code/app", available: true },
+      { id: "nested", rootPath: "code/app/packages/ui", available: true },
+      { id: "missing", rootPath: "code/app/packages/api", available: false },
+    ];
+
+    it("returns the closest available nested root", () => {
+      expect(
+        closestAvailableProjectRoot(
+          projectRoots,
+          "code/app/packages/ui/button.ts",
+        ),
+      ).toEqual(projectRoots[2]);
+      expect(
+        closestAvailableProjectRoot(
+          projectRoots,
+          "code/app/packages/api/client.ts",
+        ),
+      ).toEqual(projectRoots[1]);
+    });
+
+    it("matches path components and falls back to the whole-vault root", () => {
+      expect(
+        closestAvailableProjectRoot(projectRoots, "code/application/readme.md"),
+      ).toEqual(projectRoots[0]);
+      expect(
+        closestAvailableProjectRoot(projectRoots, "notes/project.md"),
+      ).toEqual(projectRoots[0]);
+    });
+
+    it("returns null for null paths or when no available root matches", () => {
+      expect(closestAvailableProjectRoot(projectRoots, null)).toBeNull();
+      expect(
+        closestAvailableProjectRoot(
+          projectRoots.filter(({ id }) => id !== "vault"),
+          "notes/project.md",
+        ),
+      ).toBeNull();
+    });
+
+    it("uses a deterministic result when duplicate roots are present", () => {
+      expect(
+        closestAvailableProjectRoot(
+          [
+            { id: "second", rootPath: "code", available: true },
+            { id: "first", rootPath: "code", available: true },
+          ],
+          "code/main.ts",
+        )?.id,
+      ).toBe("first");
+    });
   });
 
   it("inserts entries and synthesizes missing parent folders", () => {

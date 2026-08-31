@@ -267,6 +267,7 @@ interface MarkdownEditorProps {
   displaySettings: EditorDisplaySettings;
   pluginDecorations?: PluginEditorDecoration[];
   preferredViewMode: MarkdownViewMode;
+  projectSourceMode?: boolean;
   readOnly: boolean;
   errorLocation?: MarkdownErrorLocation;
   errorNavigationRequest?: number;
@@ -298,6 +299,7 @@ export const MarkdownEditor = forwardRef<
     displaySettings,
     pluginDecorations = [],
     preferredViewMode,
+    projectSourceMode = false,
     readOnly,
     errorLocation,
     errorNavigationRequest = 0,
@@ -328,7 +330,7 @@ export const MarkdownEditor = forwardRef<
     hasEditorDisplayGuides(displaySettings);
   const initialSourceOnly = useRef(detectedSourceOnly).current;
   const initialViewMode: MarkdownViewMode =
-    initialSourceOnly || displayGuidesForceSource
+    projectSourceMode || initialSourceOnly || displayGuidesForceSource
       ? "source"
       : initialPreferredViewMode;
   const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
@@ -346,9 +348,15 @@ export const MarkdownEditor = forwardRef<
       activeViewMode === "rich-text" &&
       hasIncompleteStandardMarkdownAngle(markdown)
     );
-  const forceSource = sourceOnly || displayGuidesForceSource;
+  const forceSource =
+    projectSourceMode || sourceOnly || displayGuidesForceSource;
+  const previousForceSource = useRef(forceSource);
+  const restorePreferredViewMode =
+    previousForceSource.current && !forceSource;
+  previousForceSource.current = forceSource;
   const sourceForcedRef = useRef(forceSource);
   sourceForcedRef.current = forceSource;
+  const transientViewModeChangeRef = useRef(false);
   const searchForcedSourceRef = useRef(false);
   const handledSearchRequest = useRef(0);
   useEffect(() => {
@@ -369,7 +377,16 @@ export const MarkdownEditor = forwardRef<
   ]);
   const sourceLock = useMemo(
     () =>
-      sourceOnly
+      projectSourceMode
+        ? {
+            guidance:
+              "Rich text mode is unavailable because this file is inside a code workspace.",
+            richLabel:
+              "Rich text mode unavailable inside a code workspace",
+            sourceLabel: "Source mode locked inside a code workspace",
+            status: "Code workspace source mode",
+          }
+        : sourceOnly
         ? {
             guidance:
               "Rich text mode is unavailable because this file contains source-only Markdown syntax.",
@@ -386,7 +403,7 @@ export const MarkdownEditor = forwardRef<
             sourceLabel: "Source mode locked while display guides are enabled",
             status: "Guides lock source mode",
           },
-    [sourceOnly],
+    [projectSourceMode, sourceOnly],
   );
   const displayExtensions = useMemo(
     () => [
@@ -481,7 +498,9 @@ export const MarkdownEditor = forwardRef<
       viewModePreferencePlugin({
         mode: realmInitialViewMode,
         isSourceForced: () => sourceForcedRef.current,
-        suppressPersistence: () => searchForcedSourceRef.current,
+        suppressPersistence: () =>
+          searchForcedSourceRef.current ||
+          transientViewModeChangeRef.current,
         onChange: onViewModeChange,
         onErrorCleared: onMarkdownErrorCleared,
         onModeChange: (mode) => {
@@ -514,6 +533,12 @@ export const MarkdownEditor = forwardRef<
             </>
           ) : (
             <>
+              {restorePreferredViewMode ? (
+                <RestorePreferredViewMode
+                  mode={preferredViewMode}
+                  suppressPersistence={transientViewModeChangeRef}
+                />
+              ) : null}
               <DiffSourceToggleWrapper
                 options={["rich-text", "source"]}
                 SourceToolbar={<UndoRedo />}
@@ -576,6 +601,9 @@ export const MarkdownEditor = forwardRef<
       onMarkdownErrorCleared,
       onViewModeChange,
       pluginDecorationExtensions,
+      preferredViewMode,
+      projectSourceMode,
+      restorePreferredViewMode,
       sourceOnly,
       tabExtensions,
     ],
@@ -870,6 +898,25 @@ function EnforceSourceMode() {
   useEffect(() => {
     setViewMode("source");
   }, [setViewMode]);
+  return null;
+}
+
+function RestorePreferredViewMode({
+  mode,
+  suppressPersistence,
+}: {
+  mode: MarkdownViewMode;
+  suppressPersistence: RefObject<boolean>;
+}) {
+  const setViewMode = usePublisher(viewMode$);
+  useEffect(() => {
+    suppressPersistence.current = true;
+    try {
+      setViewMode(mode);
+    } finally {
+      suppressPersistence.current = false;
+    }
+  }, [mode, setViewMode, suppressPersistence]);
   return null;
 }
 

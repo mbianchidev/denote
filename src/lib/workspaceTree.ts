@@ -1,7 +1,34 @@
-import type { FileNode } from "../types";
+import type { FileNode, ProjectRoot } from "../types";
 
 export function workspacePathMatches(candidate: string, path: string): boolean {
   return candidate === path || candidate.startsWith(`${path}/`);
+}
+
+export function closestAvailableProjectRoot(
+  projectRoots: ProjectRoot[],
+  filePath: string | null,
+): ProjectRoot | null {
+  if (filePath === null) {
+    return null;
+  }
+
+  let closest: ProjectRoot | null = null;
+  for (const projectRoot of projectRoots) {
+    if (
+      !projectRoot.available ||
+      (projectRoot.rootPath !== "" &&
+        !workspacePathMatches(filePath, projectRoot.rootPath))
+    ) {
+      continue;
+    }
+    if (
+      closest === null ||
+      compareProjectRootProximity(projectRoot, closest) < 0
+    ) {
+      closest = projectRoot;
+    }
+  }
+  return closest;
 }
 
 export function removeWorkspacePath(
@@ -104,6 +131,25 @@ function compareWorkspaceNodes(left: FileNode, right: FileNode): number {
     Number(right.kind === "folder") - Number(left.kind === "folder") ||
     compareFoldedNames(left.name, right.name)
   );
+}
+
+function compareProjectRootProximity(
+  left: ProjectRoot,
+  right: ProjectRoot,
+): number {
+  const depthDifference =
+    projectRootDepth(right.rootPath) - projectRootDepth(left.rootPath);
+  if (depthDifference !== 0) {
+    return depthDifference;
+  }
+  if (left.rootPath !== right.rootPath) {
+    return left.rootPath < right.rootPath ? -1 : 1;
+  }
+  return left.id === right.id ? 0 : left.id < right.id ? -1 : 1;
+}
+
+function projectRootDepth(path: string): number {
+  return path === "" ? 0 : path.split("/").length;
 }
 
 function compareFoldedNames(left: string, right: string): number {

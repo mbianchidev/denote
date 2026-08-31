@@ -170,6 +170,7 @@ import {
   type PaneDockTarget,
 } from "./lib/paneDocking";
 import {
+  closestAvailableProjectRoot,
   insertWorkspaceNode,
   removeWorkspacePath,
   workspaceAncestorPaths,
@@ -224,6 +225,7 @@ import type {
   HistoryRevision,
   KnownVaultFile,
   PaneLayoutKind,
+  ProjectRoot,
   SearchResult,
   SidebarView,
   TabGroup,
@@ -561,6 +563,14 @@ function App() {
     [activePath, tabs],
   );
   const activeFileTab = activeTab?.placeholder ? null : activeTab;
+  const activeProject = useMemo(
+    () =>
+      closestAvailableProjectRoot(
+        workspace?.projectRoots ?? [],
+        activeFileTab?.path ?? null,
+      ),
+    [activeFileTab?.path, workspace?.projectRoots],
+  );
   const activeMarkdownSource =
     activeFileTab?.kind === "markdown" && activeFileTab.encoding === "utf8"
       ? markdownErrorSourceIdentity(
@@ -5649,7 +5659,10 @@ function App() {
     );
   }
 
-  const renderPaneSurface = (pane: WorkspacePane) => {
+  const renderPaneSurface = (
+    pane: WorkspacePane,
+    paneProject: ProjectRoot | null,
+  ) => {
     const paneTab = pane.tabs.find((tab) => tab.path === pane.activePath) ?? null;
     if (paneTab?.placeholder) {
       return (
@@ -5675,6 +5688,10 @@ function App() {
       );
     }
     const paneReadOnly = workspaceLocked || (paneTab.readOnly ?? false);
+    const paneDisplaySettings =
+      paneProject && !editorDisplaySettings.showLineNumbers
+        ? { ...editorDisplaySettings, showLineNumbers: true }
+        : editorDisplaySettings;
     const paneMarkdownError =
       paneTab.kind === "markdown" && paneTab.encoding === "utf8"
         ? markdownAppErrorForPath(
@@ -5698,9 +5715,10 @@ function App() {
             notePath={paneTab.path}
             markdown={paneTab.content}
             lineEnding={paneTab.lineEnding}
-            displaySettings={editorDisplaySettings}
+            displaySettings={paneDisplaySettings}
             pluginDecorations={pluginController.decorations}
             preferredViewMode={markdownViewMode}
+            projectSourceMode={paneProject !== null}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
             errorNavigationRequest={paneMarkdownError?.navigationRequest ?? 0}
@@ -5743,7 +5761,7 @@ function App() {
               binary={paneTab.encoding === "base64"}
               filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
               lineEnding={paneTab.lineEnding}
-              displaySettings={editorDisplaySettings}
+              displaySettings={paneDisplaySettings}
               pluginDecorations={pluginController.decorations}
               searchNavigation={
                 pane.id === focusedPaneId &&
@@ -6323,6 +6341,12 @@ function App() {
             {panes.map((pane, index) => {
               const area = paneAreaList[index];
               const focused = pane.id === focusedPaneId;
+              const paneActiveTab =
+                pane.tabs.find((tab) => tab.path === pane.activePath) ?? null;
+              const paneProject = closestAvailableProjectRoot(
+                workspace.projectRoots,
+                paneActiveTab?.placeholder ? null : (paneActiveTab?.path ?? null),
+              );
               return (
                 <section
                   key={pane.id}
@@ -6384,7 +6408,10 @@ function App() {
                     ) : null}
                   </div>
                   <div className="editor-pane">
-                    {renderPaneSurface(pane)}
+                    {renderPaneSurface(
+                      pane,
+                      focused ? activeProject : paneProject,
+                    )}
                     {dockTarget?.paneId === pane.id ? (
                       <PaneDockOverlay position={dockTarget.position} />
                     ) : null}

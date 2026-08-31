@@ -85,6 +85,49 @@ describe("PlainTextEditor", () => {
     expect(props.onChange).not.toHaveBeenCalled();
   });
 
+  it("applies and removes a transient line-number overlay without changing text", () => {
+    const props = {
+      value: "const total = 3;",
+      ariaLabel: "Edit project source",
+      readOnly: false,
+      spellCheck: false,
+      binary: false,
+      filePath: "code/total.ts",
+      lineEnding: "lf" as const,
+      onChange: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <PlainTextEditor
+        {...props}
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+      />,
+    );
+    expect(container.querySelector(".cm-lineNumbers")).toBeNull();
+
+    rerender(
+      <PlainTextEditor
+        {...props}
+        displaySettings={{
+          ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+          showLineNumbers: true,
+        }}
+      />,
+    );
+    expect(container.querySelector(".cm-lineNumbers")).not.toBeNull();
+
+    rerender(
+      <PlainTextEditor
+        {...props}
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+      />,
+    );
+    expect(container.querySelector(".cm-lineNumbers")).toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Edit project source" }),
+    ).toHaveTextContent("const total = 3;");
+    expect(props.onChange).not.toHaveBeenCalled();
+  });
+
   it("focuses and selects a requested search match", async () => {
     const { container } = render(
       <PlainTextEditor
