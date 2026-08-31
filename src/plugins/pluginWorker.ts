@@ -43,6 +43,7 @@ let plugin: DenotePlugin | null = null;
 let port: MessagePort | null = null;
 let cleaned = false;
 let projectContext: PluginProjectContext | null = null;
+let hostMessageQueue = Promise.resolve();
 
 function send(message: PluginRuntimeMessage): void {
   if (!port) {
@@ -529,7 +530,15 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
   port = event.ports[0];
   self.onmessage = null;
   port.onmessage = (portEvent: MessageEvent<PluginHostMessage>) => {
-    void handleMessage(portEvent.data);
+    if (portEvent.data.type === "host-response") {
+      void handleMessage(portEvent.data);
+      return;
+    }
+    hostMessageQueue = hostMessageQueue
+      .then(() => handleMessage(portEvent.data))
+      .catch((error) => {
+        send({ type: "runtime-error", error: errorMessage(error) });
+      });
   };
   port.start();
   try {

@@ -204,7 +204,7 @@ describe("PluginWorkerRuntime", () => {
       projectId: "project-alpha",
       rootPath: "code/alpha",
     });
-    await runtime.start(plugin());
+    await runtime.start(pluginWithProjectContext());
     const worker = FakeWorker.instances[0];
     FakeWorker.completeCommands = false;
 
@@ -239,8 +239,12 @@ describe("PluginWorkerRuntime", () => {
     await command;
   });
 
-  it("invalidates a null-scoped command when focus enters a project", async () => {
+  it("keeps process-only commands unscoped across project changes", async () => {
     const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
     await runtime.start(plugin());
     const worker = FakeWorker.instances[0];
     FakeWorker.completeCommands = false;
@@ -248,11 +252,11 @@ describe("PluginWorkerRuntime", () => {
     const command = runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: "project-alpha" },
     );
     runtime.setProjectContext({
-      projectId: "project-alpha",
-      rootPath: "code/alpha",
+      projectId: "project-beta",
+      rootPath: "code/beta",
     });
     worker.runtimePort?.postMessage({
       type: "host-request",
@@ -263,13 +267,12 @@ describe("PluginWorkerRuntime", () => {
     });
 
     await vi.waitFor(() => {
-      expect(worker.received).toContainEqual({
-        type: "host-response",
-        requestId: "process-request",
-        error: "Plugin action capability lease is invalid or expired.",
-      });
+      expect(api.pluginProcessRequest).toHaveBeenCalledWith(
+        "denote.reference",
+        { executable: "/usr/bin/printf", arguments: [] },
+        null,
+      );
     });
-    expect(api.pluginProcessRequest).not.toHaveBeenCalled();
     worker.runtimePort?.postMessage({
       type: "command-result",
       requestId: "request-id",
@@ -283,7 +286,7 @@ describe("PluginWorkerRuntime", () => {
       projectId: "project-alpha",
       rootPath: "code/alpha",
     });
-    await runtime.start(plugin());
+    await runtime.start(pluginWithProjectContext());
     const worker = FakeWorker.instances[0];
     FakeWorker.completeCommands = false;
 
@@ -571,6 +574,121 @@ describe("PluginWorkerRuntime", () => {
           isRecord(message) && message.message === "project-retained",
       ),
     ).toHaveLength(2);
+  });
+
+  it("serializes project changes before commands while host responses bypass the queue", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const pluginModule = dataModuleUrl(`
+      let projectChangeComplete = false;
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          context.capabilities.projectContext.subscribe(async () => {
+            await context.storage.get("project-change-gate");
+            projectChangeComplete = true;
+          });
+          context.capabilities.commands.register({
+            id: "denote.reference.after-project-change",
+            title: "Run after project change",
+            run() {
+              context.logger.info("command-order", { projectChangeComplete });
+            },
+          });
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["commands", "project-context"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "ready" });
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: { type: "activate", projectContext: null },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "project-context-change",
+          event: {
+            previous: null,
+            current: {
+              projectId: "project-alpha",
+              rootPath: "code/alpha",
+            },
+          },
+        },
+      }),
+    );
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "run-command",
+          commandId: "denote.reference.after-project-change",
+          requestId: "ordered-command",
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "host-request",
+        requestId: "request-id",
+        operation: "storage.get",
+        key: "project-change-gate",
+        value: undefined,
+        actionId: undefined,
+      });
+    });
+    expect(port.messages).not.toContainEqual({
+      type: "command-result",
+      requestId: "ordered-command",
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "host-response",
+          requestId: "request-id",
+          value: null,
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "log",
+        level: "info",
+        message: "command-order",
+        details: { projectChangeComplete: true },
+      });
+      expect(port.messages).toContainEqual({
+        type: "command-result",
+        requestId: "ordered-command",
+      });
+    });
   });
 
   it("reports project context listener failures through runtime errors", async () => {

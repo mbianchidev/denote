@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::{sync::mpsc, thread, time::Duration};
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
@@ -797,6 +798,84 @@ fn process_capability_uses_an_approved_project_working_directory() {
 
     assert_eq!(result.exit_code, 0);
     assert_eq!(result.stdout.trim(), project.to_string_lossy());
+}
+
+#[cfg(unix)]
+#[test]
+fn project_process_waits_for_project_root_mutations() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let db_path = data.path().join("denote.db");
+    db::initialize(&db_path).expect("database");
+    let vault_root = data.path().join("synthetic-vault");
+    let project_root = vault_root.join("code");
+    fs::create_dir_all(&project_root).expect("project");
+    let vault_root = fs::canonicalize(vault_root).expect("canonical vault");
+    let project_root = fs::canonicalize(project_root).expect("canonical project");
+    let connection = db::open(&db_path).expect("connection");
+    let vault_id = db::ensure_vault(
+        &connection,
+        &vault_root.to_string_lossy(),
+        "Synthetic Vault",
+    )
+    .expect("vault record");
+    let project_id =
+        db::ensure_project_root(&connection, vault_id, "code").expect("project record");
+    drop(connection);
+
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "process".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::from([(
+            current_platform().to_string(),
+            vec!["/bin/pwd".to_string()],
+        )]),
+    });
+    let manager = manager(catalog.clone(), &data, &cache);
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
+    }
+    let app_state = Arc::new(db::AppState::new(db_path, Some(vault_root)));
+    let worker_state = Arc::clone(&app_state);
+    let worker_manager = manager.clone();
+    let plugin_id = catalog.manifest.id.clone();
+    let mutation_guard = app_state.write_vault_access().expect("mutation guard");
+    let (started_tx, started_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        started_tx.send(()).expect("started");
+        let result = super::commands::process_request_with_app_state(
+            &worker_manager,
+            &worker_state,
+            &plugin_id,
+            PluginProcessRequest {
+                executable: "/bin/pwd".to_string(),
+                arguments: vec![],
+            },
+            Some(&project_id),
+        );
+        result_tx.send(result).expect("result");
+    });
+
+    started_rx.recv().expect("worker started");
+    assert!(matches!(
+        result_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    drop(mutation_guard);
+    let result = result_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("process result")
+        .expect("process");
+    worker.join().expect("worker");
+
+    assert_eq!(result.stdout.trim(), project_root.to_string_lossy());
 }
 
 #[test]

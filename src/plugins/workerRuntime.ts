@@ -196,7 +196,12 @@ export class PluginWorkerRuntime {
     }
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(runtime, requestId, COMMAND_TIMEOUT_MS);
-    runtime.activeActions.set(requestId, { ...actionScope });
+    runtime.activeActions.set(requestId, {
+      ...actionScope,
+      projectId: runtime.permissions.has("project-context")
+        ? actionScope.projectId
+        : null,
+    });
     runtime.port.postMessage({
       type: "run-command",
       commandId,
@@ -249,7 +254,9 @@ export class PluginWorkerRuntime {
 
   invalidateActionLeases(): void {
     for (const runtime of this.runtimes.values()) {
-      runtime.activeActions.clear();
+      if (runtime.permissions.has("project-context")) {
+        runtime.activeActions.clear();
+      }
     }
   }
 

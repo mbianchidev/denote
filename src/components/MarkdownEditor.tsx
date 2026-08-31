@@ -57,6 +57,7 @@ import { Link2 } from "lucide-react";
 import type { Html, Paragraph, Parent } from "mdast";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -350,15 +351,25 @@ export const MarkdownEditor = forwardRef<
     );
   const forceSource =
     projectSourceMode || sourceOnly || displayGuidesForceSource;
-  const previousForceSource = useRef(forceSource);
-  const restorePreferredViewMode =
-    previousForceSource.current && !forceSource;
-  previousForceSource.current = forceSource;
+  const previousCommittedForceSource = useRef(forceSource);
+  const [restorePreferredViewMode, setRestorePreferredViewMode] = useState(false);
+  const clearPreferredViewModeRestoration = useCallback(
+    () => setRestorePreferredViewMode(false),
+    [],
+  );
   const sourceForcedRef = useRef(forceSource);
   sourceForcedRef.current = forceSource;
   const transientViewModeChangeRef = useRef(false);
   const searchForcedSourceRef = useRef(false);
   const handledSearchRequest = useRef(0);
+  useEffect(() => {
+    const shouldRestore =
+      previousCommittedForceSource.current && !forceSource;
+    previousCommittedForceSource.current = forceSource;
+    if (shouldRestore) {
+      setRestorePreferredViewMode(true);
+    }
+  }, [forceSource]);
   useEffect(() => {
     if (
       activeViewMode === "rich-text" &&
@@ -536,6 +547,7 @@ export const MarkdownEditor = forwardRef<
               {restorePreferredViewMode ? (
                 <RestorePreferredViewMode
                   mode={preferredViewMode}
+                  onRestored={clearPreferredViewModeRestoration}
                   suppressPersistence={transientViewModeChangeRef}
                 />
               ) : null}
@@ -591,6 +603,7 @@ export const MarkdownEditor = forwardRef<
     ],
     [
       displayExtensions,
+      clearPreferredViewModeRestoration,
       sourceLock,
       forceSource,
       initialViewMode,
@@ -903,9 +916,11 @@ function EnforceSourceMode() {
 
 function RestorePreferredViewMode({
   mode,
+  onRestored,
   suppressPersistence,
 }: {
   mode: MarkdownViewMode;
+  onRestored: () => void;
   suppressPersistence: RefObject<boolean>;
 }) {
   const setViewMode = usePublisher(viewMode$);
@@ -913,10 +928,11 @@ function RestorePreferredViewMode({
     suppressPersistence.current = true;
     try {
       setViewMode(mode);
+      onRestored();
     } finally {
       suppressPersistence.current = false;
     }
-  }, [mode, setViewMode, suppressPersistence]);
+  }, [mode, onRestored, setViewMode, suppressPersistence]);
   return null;
 }
 

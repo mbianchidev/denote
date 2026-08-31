@@ -362,12 +362,14 @@ describe("MarkdownEditor links", () => {
       onImageUpload: vi.fn(),
     };
     const { container, rerender } = render(
-      <MarkdownEditor
-        {...props}
-        markdown="# Workspace guide"
-        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
-        projectSourceMode={false}
-      />,
+      <StrictMode>
+        <MarkdownEditor
+          {...props}
+          markdown="# Workspace guide"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          projectSourceMode={false}
+        />
+      </StrictMode>,
     );
     expect(
       await screen.findByRole("radio", {
@@ -377,15 +379,17 @@ describe("MarkdownEditor links", () => {
     ).toBeInTheDocument();
 
     rerender(
-      <MarkdownEditor
-        {...props}
-        markdown="# Workspace guide"
-        displaySettings={{
-          ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
-          showLineNumbers: true,
-        }}
-        projectSourceMode
-      />,
+      <StrictMode>
+        <MarkdownEditor
+          {...props}
+          markdown="# Workspace guide"
+          displaySettings={{
+            ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+            showLineNumbers: true,
+          }}
+          projectSourceMode
+        />
+      </StrictMode>,
     );
 
     expect(
@@ -416,12 +420,14 @@ describe("MarkdownEditor links", () => {
     const updatedMarkdown = onChange.mock.lastCall?.[0] ?? "";
 
     rerender(
-      <MarkdownEditor
-        {...props}
-        markdown={updatedMarkdown}
-        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
-        projectSourceMode={false}
-      />,
+      <StrictMode>
+        <MarkdownEditor
+          {...props}
+          markdown={updatedMarkdown}
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          projectSourceMode={false}
+        />
+      </StrictMode>,
     );
 
     expect(

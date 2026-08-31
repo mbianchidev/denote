@@ -407,6 +407,7 @@ function App() {
   const commandPaletteCommandsRef = useRef<CommandPaletteCommand[]>([]);
   const previousActiveProjectId = useRef<string | null>(null);
   const projectRootsRevision = useRef(0);
+  const projectRootMutationTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
@@ -1297,13 +1298,9 @@ function App() {
     (
       projectRoots: ProjectRoot[],
       expectedGeneration: number,
-      expectedRootsRevision: number,
       expectedVaultPath: string,
     ) => {
-      if (
-        expectedGeneration !== vaultGeneration.current ||
-        expectedRootsRevision !== projectRootsRevision.current
-      ) {
+      if (expectedGeneration !== vaultGeneration.current) {
         return;
       }
       setWorkspace((current) =>
@@ -1315,6 +1312,15 @@ function App() {
     [],
   );
 
+  const enqueueProjectRootMutation = useCallback(
+    async (operation: () => Promise<void>) => {
+      const queued = projectRootMutationTail.current.then(operation);
+      projectRootMutationTail.current = queued.catch(() => {});
+      await queued;
+    },
+    [],
+  );
+
   const markProject = useCallback(
     async (path: string) => {
       if (!workspace || workspaceLockedRef.current) {
@@ -1322,39 +1328,41 @@ function App() {
       }
       const expectedGeneration = vaultGeneration.current;
       const expectedVaultPath = workspace.vaultPath;
-      const expectedRootsRevision = ++projectRootsRevision.current;
-      try {
-        const projectRoots = await api.markProjectRoot(path);
-        applyProjectRoots(
-          projectRoots,
-          expectedGeneration,
-          expectedRootsRevision,
-          expectedVaultPath,
-        );
-        if (
-          expectedGeneration === vaultGeneration.current &&
-          expectedRootsRevision === projectRootsRevision.current &&
-          workspace.vaultPath === expectedVaultPath
-        ) {
-          setStatus(
-            path === ""
-              ? "Marked the vault root as a project"
-              : `Marked ${path} as a project`,
+      await enqueueProjectRootMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const projectRoots = await api.markProjectRoot(path);
+          applyProjectRoots(
+            projectRoots,
+            expectedGeneration,
+            expectedVaultPath,
           );
+          projectRootsRevision.current += 1;
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              path === ""
+                ? "Marked the vault root as a project"
+                : `Marked ${path} as a project`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(`Unable to mark project root ${path}:`, caught);
+          }
         }
-      } catch (caught) {
-        if (
-          expectedGeneration === vaultGeneration.current &&
-          expectedRootsRevision === projectRootsRevision.current &&
-          workspace.vaultPath === expectedVaultPath
-        ) {
-          showError(caught);
-        } else {
-          console.error(`Unable to mark project root ${path}:`, caught);
-        }
-      }
+      });
     },
-    [applyProjectRoots, showError, workspace],
+    [applyProjectRoots, enqueueProjectRootMutation, showError, workspace],
   );
 
   const unmarkProject = useCallback(
@@ -1364,42 +1372,44 @@ function App() {
       }
       const expectedGeneration = vaultGeneration.current;
       const expectedVaultPath = workspace.vaultPath;
-      const expectedRootsRevision = ++projectRootsRevision.current;
-      try {
-        const projectRoots = await api.unmarkProjectRoot(projectRoot.id);
-        applyProjectRoots(
-          projectRoots,
-          expectedGeneration,
-          expectedRootsRevision,
-          expectedVaultPath,
-        );
-        if (
-          expectedGeneration === vaultGeneration.current &&
-          expectedRootsRevision === projectRootsRevision.current &&
-          workspace.vaultPath === expectedVaultPath
-        ) {
-          setStatus(
-            projectRoot.rootPath === ""
-              ? "Unmarked the vault root project"
-              : `Unmarked ${projectRoot.rootPath} as a project`,
-          );
+      await enqueueProjectRootMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
         }
-      } catch (caught) {
-        if (
-          expectedGeneration === vaultGeneration.current &&
-          expectedRootsRevision === projectRootsRevision.current &&
-          workspace.vaultPath === expectedVaultPath
-        ) {
-          showError(caught);
-        } else {
-          console.error(
-            `Unable to unmark project root ${projectRoot.rootPath}:`,
-            caught,
+        try {
+          const projectRoots = await api.unmarkProjectRoot(projectRoot.id);
+          applyProjectRoots(
+            projectRoots,
+            expectedGeneration,
+            expectedVaultPath,
           );
+          projectRootsRevision.current += 1;
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              projectRoot.rootPath === ""
+                ? "Unmarked the vault root project"
+                : `Unmarked ${projectRoot.rootPath} as a project`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(
+              `Unable to unmark project root ${projectRoot.rootPath}:`,
+              caught,
+            );
+          }
         }
-      }
+      });
     },
-    [applyProjectRoots, showError, workspace],
+    [applyProjectRoots, enqueueProjectRootMutation, showError, workspace],
   );
 
   const unmarkAllProjects = useCallback(async () => {
@@ -1413,51 +1423,61 @@ function App() {
     const expectedGeneration = vaultGeneration.current;
     const expectedVaultPath = workspace.vaultPath;
     const projectRoots = [...workspace.projectRoots];
-    const failures: string[] = [];
-    const expectedRootsRevision = ++projectRootsRevision.current;
-    for (const projectRoot of projectRoots) {
-      if (
-        expectedGeneration !== vaultGeneration.current ||
-        workspace.vaultPath !== expectedVaultPath
-      ) {
+    await enqueueProjectRootMutation(async () => {
+      const failures: string[] = [];
+      let authoritativeRoots = projectRoots;
+      let changed = false;
+      for (const projectRoot of projectRoots) {
+        if (
+          expectedGeneration !== vaultGeneration.current ||
+          workspace.vaultPath !== expectedVaultPath
+        ) {
+          return;
+        }
+        try {
+          authoritativeRoots = await api.unmarkProjectRoot(projectRoot.id);
+          changed = true;
+        } catch (caught) {
+          failures.push(
+            `${projectRoot.rootPath || "Vault root"}: ${errorMessage(caught)}`,
+          );
+        }
+      }
+      applyProjectRoots(
+        authoritativeRoots,
+        expectedGeneration,
+        expectedVaultPath,
+      );
+      if (changed) {
+        projectRootsRevision.current += 1;
+      }
+      if (failures.length > 0) {
+        showError(
+          new Error(
+            `Could not unmark ${failures.length} project root${
+              failures.length === 1 ? "" : "s"
+            }. ${failures.join(" ")}`,
+          ),
+        );
         return;
       }
-      try {
-        const authoritativeRoots = await api.unmarkProjectRoot(projectRoot.id);
-        applyProjectRoots(
-          authoritativeRoots,
-          expectedGeneration,
-          expectedRootsRevision,
-          expectedVaultPath,
-        );
-      } catch (caught) {
-        failures.push(
-          `${projectRoot.rootPath || "Vault root"}: ${errorMessage(caught)}`,
+      if (
+        expectedGeneration === vaultGeneration.current &&
+        workspace.vaultPath === expectedVaultPath
+      ) {
+        setStatus(
+          `Unmarked ${projectRoots.length} project root${
+            projectRoots.length === 1 ? "" : "s"
+          }`,
         );
       }
-    }
-    if (failures.length > 0) {
-      showError(
-        new Error(
-          `Could not unmark ${failures.length} project root${
-            failures.length === 1 ? "" : "s"
-          }. ${failures.join(" ")}`,
-        ),
-      );
-      return;
-    }
-    if (
-      expectedGeneration === vaultGeneration.current &&
-      expectedRootsRevision === projectRootsRevision.current &&
-      workspace.vaultPath === expectedVaultPath
-    ) {
-      setStatus(
-        `Unmarked ${projectRoots.length} project root${
-          projectRoots.length === 1 ? "" : "s"
-        }`,
-      );
-    }
-  }, [applyProjectRoots, showError, workspace]);
+    });
+  }, [
+    applyProjectRoots,
+    enqueueProjectRootMutation,
+    showError,
+    workspace,
+  ]);
 
   useEffect(() => {
     applyTheme(theme);
