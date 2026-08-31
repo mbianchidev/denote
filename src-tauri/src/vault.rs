@@ -1023,6 +1023,48 @@ pub fn unmark_project_root(
     project_roots(&connection, vault_id, &root)
 }
 
+pub(crate) fn resolve_project_root(
+    db_path: &Path,
+    vault_path: &str,
+    project_root_id: &str,
+) -> AppResult<PathBuf> {
+    let root = canonical_vault(vault_path)
+        .map_err(|_| AppError::Plugin("The current vault is unavailable".to_string()))?;
+    let _vault_lock = acquire_vault_lock(&root, false).map_err(|_| {
+        AppError::Plugin("Unable to verify the selected project folder".to_string())
+    })?;
+    let connection = db::open(db_path)?;
+    let Some((project_vault_path, root_path)) =
+        db::project_root_location(&connection, project_root_id)?
+    else {
+        return Err(AppError::Plugin(
+            "The selected project is no longer marked or does not exist".to_string(),
+        ));
+    };
+    if project_vault_path != path_to_string(&root) {
+        return Err(AppError::Plugin(
+            "The selected project does not belong to the current vault".to_string(),
+        ));
+    }
+    let project_root = if root_path.is_empty() {
+        root
+    } else {
+        existing_entry(&root, &root_path).map_err(|_| {
+            AppError::Plugin(
+                "The selected project folder is unavailable or is not a safe real directory"
+                    .to_string(),
+            )
+        })?
+    };
+    if !project_root.is_dir() {
+        return Err(AppError::Plugin(
+            "The selected project folder is unavailable or is not a safe real directory"
+                .to_string(),
+        ));
+    }
+    Ok(project_root)
+}
+
 pub fn save_tab_session(
     db_path: &Path,
     vault_path: &str,

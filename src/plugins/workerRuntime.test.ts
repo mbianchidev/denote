@@ -16,6 +16,7 @@ vi.mock("../lib/api", () => ({
     pluginSecretGet: vi.fn(),
     pluginSecretSet: vi.fn(),
     pluginSecretDelete: vi.fn(),
+    pluginProcessRequest: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -57,6 +58,7 @@ class FakeMessageChannel {
 
 class FakeWorker extends EventTarget {
   static instances: FakeWorker[] = [];
+  static completeCommands = true;
   terminated = false;
   runtimePort: FakePort | null = null;
   received: unknown[] = [];
@@ -92,7 +94,8 @@ class FakeWorker extends EventTarget {
         port.postMessage({ type: "activated" });
       } else if (
         data.type === "run-command" &&
-        typeof data.requestId === "string"
+        typeof data.requestId === "string" &&
+        FakeWorker.completeCommands
       ) {
         port.postMessage({
           type: "command-result",
@@ -142,6 +145,7 @@ describe("PluginWorkerRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     FakeWorker.instances = [];
+    FakeWorker.completeCommands = true;
     vi.stubGlobal("Worker", FakeWorker);
     vi.stubGlobal("MessageChannel", FakeMessageChannel);
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "request-id") });
@@ -182,7 +186,7 @@ describe("PluginWorkerRuntime", () => {
     await runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      "/vault",
+      { workspaceScope: "/vault", projectId: null },
     );
     expect(worker.runtimePort?.messages).toEqual(
       expect.arrayContaining([
@@ -192,6 +196,127 @@ describe("PluginWorkerRuntime", () => {
         }),
       ]),
     );
+  });
+
+  it("carries the captured project ID through process requests after a same-ID root move", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(plugin());
+    const worker = FakeWorker.instances[0];
+    FakeWorker.completeCommands = false;
+
+    const command = runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "moved/alpha",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "process-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: ["hello"] },
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pluginProcessRequest).toHaveBeenCalledWith(
+        "denote.reference",
+        { executable: "/usr/bin/printf", arguments: ["hello"] },
+        "project-alpha",
+      );
+    });
+    worker.runtimePort?.postMessage({
+      type: "command-result",
+      requestId: "request-id",
+    });
+    await command;
+  });
+
+  it("invalidates a null-scoped command when focus enters a project", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    await runtime.start(plugin());
+    const worker = FakeWorker.instances[0];
+    FakeWorker.completeCommands = false;
+
+    const command = runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      { workspaceScope: "/vault", projectId: null },
+    );
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "process-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: [] },
+    });
+
+    await vi.waitFor(() => {
+      expect(worker.received).toContainEqual({
+        type: "host-response",
+        requestId: "process-request",
+        error: "Plugin action capability lease is invalid or expired.",
+      });
+    });
+    expect(api.pluginProcessRequest).not.toHaveBeenCalled();
+    worker.runtimePort?.postMessage({
+      type: "command-result",
+      requestId: "request-id",
+    });
+    await command;
+  });
+
+  it("invalidates a project-scoped command when project identity changes", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(plugin());
+    const worker = FakeWorker.instances[0];
+    FakeWorker.completeCommands = false;
+
+    const command = runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    runtime.setProjectContext({
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "process-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: [] },
+    });
+
+    await vi.waitFor(() => {
+      expect(worker.received).toContainEqual({
+        type: "host-response",
+        requestId: "process-request",
+        error: "Plugin action capability lease is invalid or expired.",
+      });
+    });
+    expect(api.pluginProcessRequest).not.toHaveBeenCalled();
+    worker.runtimePort?.postMessage({
+      type: "command-result",
+      requestId: "request-id",
+    });
+    await command;
   });
 
   it("provides action-scoped capabilities to real pluginWorker.ts commands", async () => {

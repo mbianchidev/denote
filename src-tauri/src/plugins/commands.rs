@@ -345,9 +345,22 @@ pub fn plugin_show_notification(
 #[tauri::command]
 pub async fn plugin_process_request(
     state: State<'_, PluginManager>,
+    app_state: State<'_, AppState>,
     plugin_id: String,
     request: PluginProcessRequest,
+    project_id: Option<String>,
 ) -> AppResult<PluginProcessResult> {
+    let current_dir = if let Some(project_id) = project_id {
+        let _vault_access = app_state.read_vault_access()?;
+        let root = app_state.active_vault()?;
+        Some(vault::resolve_project_root(
+            &app_state.db_path,
+            &root.to_string_lossy(),
+            &project_id,
+        )?)
+    } else {
+        None
+    };
     let manager = state.inner().clone();
-    run_blocking(move || manager.process_request(&plugin_id, request)).await
+    run_blocking(move || manager.process_request(&plugin_id, request, current_dir.as_deref())).await
 }

@@ -684,6 +684,22 @@ pub fn list_project_roots(
     rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
 }
 
+pub fn project_root_location(
+    connection: &Connection,
+    project_root_id: &str,
+) -> AppResult<Option<(String, String)>> {
+    Ok(connection
+        .query_row(
+            "SELECT vaults.path, project_roots.root_path
+             FROM project_roots
+             JOIN vaults ON vaults.id = project_roots.vault_id
+             WHERE project_roots.id = ?1",
+            params![project_root_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?)
+}
+
 pub fn delete_project_root(
     connection: &Connection,
     vault_id: i64,

@@ -8,6 +8,7 @@ import type {
 } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
+  type PluginActionLeaseScope,
   type PluginCommandContribution,
   type PluginSidebarContribution,
   type PluginStatusContribution,
@@ -331,9 +332,14 @@ export function usePlugins(
       if (!runtime) {
         throw new Error("Plugin runtime is unavailable.");
       }
-      await runtime.runCommand(pluginId, commandId, workspaceScope);
+      runtime.setProjectContext(projectContext);
+      const actionScope: PluginActionLeaseScope = {
+        workspaceScope,
+        projectId: projectContext?.projectId ?? null,
+      };
+      await runtime.runCommand(pluginId, commandId, actionScope);
     },
-    [],
+    [projectContext],
   );
 
   const importSettings = useCallback(

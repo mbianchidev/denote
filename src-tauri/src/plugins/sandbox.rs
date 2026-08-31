@@ -286,6 +286,7 @@ impl PluginManager {
         &self,
         plugin_id: &str,
         request: PluginProcessRequest,
+        current_dir: Option<&Path>,
     ) -> AppResult<PluginProcessResult> {
         let permission = self.enabled_permission(plugin_id, "process")?;
         if !permission
@@ -300,7 +301,7 @@ impl PluginManager {
                 request.executable
             )));
         }
-        run_bounded_process(request)
+        run_bounded_process(request, current_dir)
     }
 
     pub(crate) fn installed_plugin(
@@ -394,7 +395,10 @@ pub(crate) fn platform_executable_is_absolute(platform: &str, executable: &str) 
     }
 }
 
-pub(crate) fn run_bounded_process(request: PluginProcessRequest) -> AppResult<PluginProcessResult> {
+pub(crate) fn run_bounded_process(
+    request: PluginProcessRequest,
+    current_dir: Option<&Path>,
+) -> AppResult<PluginProcessResult> {
     const OUTPUT_LIMIT: u64 = 1024 * 1024;
     if request.arguments.len() > 64
         || request
@@ -409,6 +413,9 @@ pub(crate) fn run_bounded_process(request: PluginProcessRequest) -> AppResult<Pl
     let mut stdout_file = tempfile::tempfile()?;
     let mut stderr_file = tempfile::tempfile()?;
     let mut command = Command::new(&request.executable);
+    if let Some(current_dir) = current_dir {
+        command.current_dir(current_dir);
+    }
     command
         .args(&request.arguments)
         .stdin(Stdio::null())

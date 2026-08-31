@@ -13,6 +13,8 @@ use flate2::{Compression, write::GzEncoder};
 use tar::Builder;
 use tempfile::TempDir;
 
+use crate::{db, vault};
+
 fn catalog() -> PluginCatalogEntry {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON)
         .expect("catalog")
@@ -675,6 +677,7 @@ fn process_capability_runs_only_an_approved_absolute_executable() {
                 executable: "/usr/bin/printf".to_string(),
                 arguments: vec!["hello".to_string()],
             },
+            None,
         )
         .expect("process");
 
@@ -688,9 +691,146 @@ fn process_capability_runs_only_an_approved_absolute_executable() {
                     executable: "/bin/sh".to_string(),
                     arguments: vec![],
                 },
+                None,
             )
             .is_err()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn process_capability_uses_an_approved_project_working_directory() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let project = data.path().join("synthetic-project");
+    fs::create_dir(&project).expect("project");
+    let project = fs::canonicalize(project).expect("canonical project");
+    let mut catalog = catalog();
+    let permission = PluginPermission {
+        capability: "process".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::from([(
+            current_platform().to_string(),
+            vec!["/bin/pwd".to_string()],
+        )]),
+    };
+    catalog.manifest.permissions.push(permission);
+    let manager = manager(catalog.clone(), &data, &cache);
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
+    }
+
+    let result = manager
+        .process_request(
+            &catalog.manifest.id,
+            PluginProcessRequest {
+                executable: "/bin/pwd".to_string(),
+                arguments: vec![],
+            },
+            Some(&project),
+        )
+        .expect("process");
+
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout.trim(), project.to_string_lossy());
+}
+
+#[test]
+fn project_process_resolution_uses_current_path_and_rejects_stale_identity() {
+    let data = TempDir::new().expect("data");
+    let db_path = data.path().join("denote.db");
+    db::initialize(&db_path).expect("database");
+    let trusted_vault = data.path().join("trusted-vault");
+    let other_vault = data.path().join("other-vault");
+    fs::create_dir(&trusted_vault).expect("trusted vault");
+    fs::create_dir(&other_vault).expect("other vault");
+    fs::create_dir_all(trusted_vault.join("code").join("before")).expect("initial project");
+    fs::create_dir_all(trusted_vault.join("code").join("after")).expect("moved project");
+    let trusted_vault = fs::canonicalize(trusted_vault).expect("canonical trusted vault");
+    let other_vault = fs::canonicalize(other_vault).expect("canonical other vault");
+    let connection = db::open(&db_path).expect("connection");
+    let trusted_vault_id = db::ensure_vault(
+        &connection,
+        &trusted_vault.to_string_lossy(),
+        "Trusted Vault",
+    )
+    .expect("trusted vault record");
+    let other_vault_id =
+        db::ensure_vault(&connection, &other_vault.to_string_lossy(), "Other Vault")
+            .expect("other vault record");
+    let project_id =
+        db::ensure_project_root(&connection, trusted_vault_id, "code/before").expect("project");
+    let other_project_id =
+        db::ensure_project_root(&connection, other_vault_id, "").expect("other project");
+    connection
+        .execute(
+            "UPDATE project_roots SET root_path = 'code/after' WHERE id = ?1",
+            [&project_id],
+        )
+        .expect("move project metadata");
+    drop(connection);
+
+    assert_eq!(
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id,)
+            .expect("current project path"),
+        trusted_vault.join("code").join("after"),
+    );
+    fs::remove_dir_all(trusted_vault.join("code").join("after")).expect("remove project folder");
+    let unavailable_error =
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
+            .expect_err("unavailable project");
+    assert!(unavailable_error.to_string().contains("unavailable"));
+    let other_error = vault::resolve_project_root(
+        &db_path,
+        &trusted_vault.to_string_lossy(),
+        &other_project_id,
+    )
+    .expect_err("other vault project");
+    assert!(other_error.to_string().contains("current vault"));
+
+    let connection = db::open(&db_path).expect("connection");
+    db::delete_project_root(&connection, trusted_vault_id, &project_id).expect("unmark project");
+    drop(connection);
+    let missing_error =
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
+            .expect_err("unmarked project");
+    assert!(missing_error.to_string().contains("no longer marked"));
+}
+
+#[cfg(unix)]
+#[test]
+fn project_process_resolution_rejects_a_symlinked_project_folder() {
+    use std::os::unix::fs::symlink;
+
+    let data = TempDir::new().expect("data");
+    let db_path = data.path().join("denote.db");
+    db::initialize(&db_path).expect("database");
+    let trusted_vault = data.path().join("trusted-vault");
+    let outside = data.path().join("outside");
+    fs::create_dir(&trusted_vault).expect("trusted vault");
+    fs::create_dir(&outside).expect("outside");
+    symlink(&outside, trusted_vault.join("linked-project")).expect("project symlink");
+    let trusted_vault = fs::canonicalize(trusted_vault).expect("canonical trusted vault");
+    let connection = db::open(&db_path).expect("connection");
+    let vault_id = db::ensure_vault(
+        &connection,
+        &trusted_vault.to_string_lossy(),
+        "Trusted Vault",
+    )
+    .expect("vault record");
+    let project_id =
+        db::ensure_project_root(&connection, vault_id, "linked-project").expect("project record");
+    drop(connection);
+
+    let error =
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
+            .expect_err("symlinked project");
+    assert!(error.to_string().contains("safe real directory"));
 }
 
 #[cfg(unix)]

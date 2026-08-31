@@ -333,4 +333,39 @@ describe("usePlugins", () => {
       expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(null);
     });
   });
+
+  it("captures the current nullable project ID when a command starts", async () => {
+    const initial = {
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    };
+    const rendered = await mountReady([makePlugin({ enabled: true })], initial);
+
+    await act(async () => {
+      await rendered.result.current.runCommand(
+        pluginId,
+        "denote.reference.synthetic",
+        "/vault",
+      );
+    });
+    expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.synthetic",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+
+    rendered.rerender({ currentProjectContext: null });
+    await act(async () => {
+      await rendered.result.current.runCommand(
+        pluginId,
+        "denote.reference.synthetic",
+        "/vault",
+      );
+    });
+    expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.synthetic",
+      { workspaceScope: "/vault", projectId: null },
+    );
+  });
 });

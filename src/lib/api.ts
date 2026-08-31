@@ -289,10 +289,15 @@ export const api = {
       title,
       body: body ?? null,
     }),
-  pluginProcessRequest: (pluginId: string, request: PluginProcessRequest) =>
+  pluginProcessRequest: (
+    pluginId: string,
+    request: PluginProcessRequest,
+    projectId: string | null,
+  ) =>
     invoke<PluginProcessResult>("plugin_process_request", {
       pluginId,
       request,
+      projectId,
     }),
 };
 

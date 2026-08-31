@@ -8,6 +8,7 @@ import type {
 import {
   privilegedHostOperation,
   runHostOperation,
+  type PluginActionLeaseScope,
 } from "./hostOperations";
 import {
   isPluginRuntimeMessage,
@@ -25,6 +26,7 @@ export type {
   PluginSidebarContribution,
   PluginStatusContribution,
 } from "./runtimeMessages";
+export type { PluginActionLeaseScope } from "./hostOperations";
 
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
@@ -54,7 +56,7 @@ interface Runtime {
   stagedDecorations: Map<string, PluginDecorationContribution>;
   permissions: Set<string>;
   pending: Map<string, PendingRequest>;
-  activeActions: Map<string, string>;
+  activeActions: Map<string, PluginActionLeaseScope>;
   hostRequests: Set<Promise<void>>;
   handshakes: Set<PendingHandshake>;
   activated: boolean;
@@ -186,7 +188,7 @@ export class PluginWorkerRuntime {
   async runCommand(
     pluginId: string,
     commandId: string,
-    workspaceScope: string,
+    actionScope: PluginActionLeaseScope,
   ): Promise<void> {
     const runtime = this.requireRuntime(pluginId);
     if (!runtime.activated || !runtime.commands.has(commandId)) {
@@ -194,7 +196,7 @@ export class PluginWorkerRuntime {
     }
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(runtime, requestId, COMMAND_TIMEOUT_MS);
-    runtime.activeActions.set(requestId, workspaceScope);
+    runtime.activeActions.set(requestId, { ...actionScope });
     runtime.port.postMessage({
       type: "run-command",
       commandId,
@@ -226,6 +228,9 @@ export class PluginWorkerRuntime {
     validateProjectContext(context);
     if (sameProjectContext(this.projectContext, context)) {
       return;
+    }
+    if (projectIdentity(this.projectContext) !== projectIdentity(context)) {
+      this.invalidateActionLeases();
     }
     const event: PluginProjectContextChangeEvent = {
       previous: cloneProjectContext(this.projectContext),
@@ -574,7 +579,7 @@ export class PluginWorkerRuntime {
     pluginId: string,
     runtime: Runtime,
     message: Extract<PluginRuntimeMessage, { type: "host-request" }>,
-    workspaceScope?: string,
+    actionScope?: PluginActionLeaseScope,
   ): Promise<void> {
     try {
       const value = await runHostOperation(
@@ -582,7 +587,7 @@ export class PluginWorkerRuntime {
         message.operation,
         message.key,
         message.value,
-        workspaceScope,
+        actionScope,
       );
       runtime.port.postMessage({
         type: "host-response",
@@ -794,6 +799,10 @@ function sameProjectContext(
       left.projectId === right.projectId &&
       left.rootPath === right.rootPath)
   );
+}
+
+function projectIdentity(context: PluginProjectContext | null): string | null {
+  return context?.projectId ?? null;
 }
 
 function validateProjectContext(context: PluginProjectContext | null): void {
