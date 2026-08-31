@@ -10,10 +10,10 @@ not a later runtime checkout or mutable environment value.
 ## Data boundaries
 
 The selected vault is the content boundary. Every regular file up to 25 MB can
-be opened. Markdown (`.md`, `.markdown`, `.mdx`) gets the rich/source editor,
-other valid UTF-8 files use the plain editor, and invalid UTF-8 uses a
-byte-preserving Base64 representation. Images keep their visual preview and
-offer a raw-edit toggle.
+be opened. Markdown (`.md`, `.markdown`) gets the rich/source editor, `.mdx`
+uses non-executing JSX-highlighted source editing, other valid UTF-8 files use
+the plain editor, and invalid UTF-8 uses a byte-preserving Base64
+representation. Images keep their visual preview and offer a raw-edit toggle.
 
 Consistent LF, CRLF, and CR files are normalized in the editor and restored to
 their original line-ending style when saved. Mixed line endings use Base64 so
@@ -40,6 +40,14 @@ commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
+
+Project roots are operational path metadata in the application-data SQLite
+database, never files or markers inside vault/project content. Each mark has a
+stable opaque ID and a validated vault-relative folder path. Nested marks are
+allowed; the frontend derives the active project from the closest available
+marked ancestor of the focused real file. Missing externally deleted folders
+remain recorded but cannot become active. IDs and paths are outside vault
+content encryption, like other operational path metadata.
 
 ## Plugin boundary
 
@@ -83,6 +91,17 @@ network requests require HTTPS and declared hosts; clipboard, notifications, and
 processes require separate permissions; processes use platform-qualified exact
 absolute executable allowlists, cross-platform process groups, bounded output,
 and a timeout.
+The additive API version 1 `project-context` capability exposes only the active
+mark's opaque ID and vault-relative root plus change events. It provides no
+absolute path and no dependency on editor or project-root implementation
+objects.
+
+Each explicit plugin command lease snapshots both vault scope and active project
+identity. Changing project identity invalidates outstanding leases. Existing
+bounded process execution resolves the captured ID through native SQLite,
+revalidates that it still belongs to the active vault and names a safe available
+directory, and uses that directory as `cwd`. Persistent terminal sessions and
+language-server protocols are not part of this API.
 
 API version 1 intentionally excludes arbitrary renderers, embedded plugin UI,
 menu injection, and general import/export hooks. Editor actions use command
@@ -194,6 +213,7 @@ The application-data database stores:
 - the previous 10 distinct saved contents per note, encrypted when vault
   encryption is enabled;
 - trash records used by restore.
+- stable project-root IDs and vault-relative paths, including unavailable roots.
 
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative
 if the metadata database is removed.
@@ -246,6 +266,10 @@ the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.
 Renames and moves rekey an explicit welcome path transactionally. Moving that
 path or an ancestor to Denote Trash clears the override.
+Denote directory rename and move operations similarly rekey equal and descendant
+project-root paths without replacing their IDs. Trash deletes equal and
+descendant project marks transactionally; restore deliberately does not recreate
+them.
 
 ## Search
 
@@ -386,6 +410,12 @@ Because rendered rich Markdown has no stable one-to-one source-line mapping,
 enabling any guide temporarily constrains Markdown editing to source mode.
 Disabled rich/source controls remain visible and point back to the display
 settings.
+For a file whose closest marked ancestor is an active project, the frontend
+applies line numbers through an in-memory display-settings overlay. Markdown in
+that project also forces Source mode. Neither overlay writes the saved display
+settings or vault Markdown preference, so switching focus outside the project or
+unmarking it restores ordinary behavior immediately. `.mdx` remains independently
+source-only.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every

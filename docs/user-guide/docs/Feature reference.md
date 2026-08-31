@@ -40,6 +40,20 @@ more detail and examples.
 - Update relative Markdown links automatically after file/folder rename or move,
   with explicit reporting for skipped or conflicting files.
 
+## Projects
+
+- Mark or unmark the vault root or an existing folder through its context menu
+  or the command palette.
+- Keep multiple or nested roots; use the closest available marked ancestor of
+  the focused file as the active project.
+- Show the active project in the status bar and announce project changes to
+  screen readers. A blank tab or non-project file has no active project.
+- Keep externally deleted roots as unavailable local metadata until they are
+  removed through the command palette.
+- Preserve stable project identity and update paths through Denote rename/move.
+- Clear equal and descendant marks on trash; do not recreate them on restore.
+- Store project roots only in app-data SQLite, never in vault content.
+
 ## Tabs, groups, and panes
 
 - File selection navigates in the active tab.
@@ -166,14 +180,27 @@ more detail and examples.
   whitespace.
 - Keep rich/source buttons visible but disabled while display guides require
   source mode, with guidance for turning guides off.
+- Force line numbers for project files and Source mode for project Markdown
+  without changing saved editor settings or the vault Markdown preference.
 - Operate core workflows with keyboard controls, visible focus, named dialogs,
   menus, tab semantics, and screen-reader status updates.
 
 ## Optional plugins
 
-Git synchronization, graph view, Kanban, Mermaid, task enhancements, reminders,
-comments, highlighting, TTS/dictation, calendar, time tracking, and colorful text
-are tracked as optional plugins rather than built into the minimal core.
+- Approved API version 1 plugins can observe the active project's stable opaque
+  ID and vault-relative root through `project-context` change events, without
+  receiving absolute paths or Denote implementation objects.
+- Plugin command leases capture project identity. Existing bounded process
+  execution revalidates it and uses the current project root as `cwd`; persistent
+  terminal and language-server APIs remain future work.
+- For a focused active project, Plugins settings recommends Git, Terminal,
+  Language server, Linter, Compiler, and Code navigation roles with unavailable,
+  disabled, or enabled status. Recommendations never auto-download or enable.
+- Core project behavior remains independent of missing, disabled, or failed
+  plugins.
+- Git synchronization, graph view, Kanban, Mermaid, task enhancements,
+  reminders, comments, highlighting, TTS/dictation, calendar, time tracking, and
+  colorful text remain optional rather than built into the minimal core.
 
 [Back to Welcome](../Welcome.md)
 

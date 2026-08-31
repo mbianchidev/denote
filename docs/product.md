@@ -40,6 +40,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Tauri desktop application with React and TypeScript.
 - macOS, Windows, and Linux support.
 - A user-selected local folder is the active vault.
+- The vault root and any existing subfolder can be marked or unmarked as a
+  project root through folder/root context actions or the command palette.
+  Project roots may be nested; the closest available marked ancestor of the
+  focused file is active, and no focused project file means no active project.
+- The active project appears in the status bar. Marks for folders deleted
+  outside Denote remain as unavailable local metadata until removed through the
+  command palette.
 - Every installation includes an offline Denote Welcome vault with an editable
   feature tour and task-focused documentation; seeded files are never
   overwritten after creation.
@@ -107,7 +114,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
   counters, bookmarks, recent activity, ordering, tag color overrides, trash
-  records, and revision history.
+  records, revision history, and stable project-root identities and paths.
+- Denote rename and move operations preserve project identities while updating
+  their paths. Moving a marked folder or its ancestor to Denote Trash removes
+  equal and descendant marks; restore does not recreate them.
 - ZBSearch provides local full-text search with a separate location glob and
   visual filters for tags, filename, path, content, file type, bookmarks, and
   recency.
@@ -167,6 +177,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides
   must be turned off before mode switching.
+- Files inside a marked project temporarily force line numbers, and project
+  Markdown temporarily forces Source mode. Leaving or unmarking the project
+  restores the saved line-number setting and vault Markdown preference
+  immediately; these project constraints never persist as editor preferences.
 - Markdown parser failures expose line and column details, force a temporary
   source fallback without changing the vault preference, highlight the failing
   line, and provide keyboard-accessible error navigation. Errors remain scoped
@@ -188,6 +202,18 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   decrypted successfully first.
 - The core application stays minimal. Additional capabilities are tracked as
   optional plugins rather than bundled into the first release.
+- Approved plugins may request the additive API version 1 `project-context`
+  capability. It exposes only a stable opaque project ID, a vault-relative root,
+  and context-change events, never an absolute path or editor implementation.
+- Plugin command leases capture the current project identity. Existing bounded
+  process execution validates that identity again and uses the current project
+  root as its working directory. Persistent terminal and language-server APIs
+  remain separate future plugin work.
+- **Settings → Plugins** shows a non-blocking **Code tooling** recommendation
+  only when the focused file has an active project. Git, Terminal, Language
+  server, Linter, Compiler, and Code navigation roles show unavailable,
+  disabled, or enabled status; Denote never downloads or enables them
+  automatically, and core project behavior does not depend on plugins.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 
@@ -215,5 +241,7 @@ available. Future work must not fabricate them.
 ## Accessibility & Inclusion
 
 Core workflows must be keyboard operable with visible focus, semantic controls,
-and accessible names. Text handling must preserve full Unicode content and
-emoji without language-specific restrictions.
+accessible names, and screen-reader status updates. Folder project actions are
+available with Shift-F10 or the Context Menu key; whole-vault and unavailable
+project marks remain operable through the command palette. Text handling must
+preserve full Unicode content and emoji without language-specific restrictions.

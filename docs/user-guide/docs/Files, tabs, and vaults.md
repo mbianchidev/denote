@@ -74,6 +74,25 @@ large, unreadable, or conflicting files that could not be rewritten.
 Drag the divider beside the file tree to resize the sidebar. Focus it and use
 Left/Right arrows, or press Home to reset the default width.
 
+## Mark project roots
+
+Right-click empty tree space for the vault root, or an existing folder, and
+choose **Mark as project**. Use the same menu to **Unmark project**. From the
+keyboard, focus a folder and press Shift-F10 or the Context Menu key. The command
+palette can mark the whole vault or selected folder, unmark any recorded root,
+or unmark all roots.
+
+You can mark multiple and nested folders. The closest available marked ancestor
+of the focused file becomes active and appears in the status bar. A blank tab or
+a focused file outside every marked root has no active project. If a marked
+folder is deleted outside Denote, its unavailable mark remains local and can be
+removed from the command palette.
+
+Renaming or moving a folder in Denote keeps each affected project's identity and
+updates its path. Moving a marked folder or an ancestor to Denote Trash removes
+that mark and descendant marks. Restoring the folder does not recreate them.
+Project marks are Denote app metadata, not files added to the vault.
+
 ## Switch vaults
 
 Use the sidebar vault switcher or `Shift-Command-O` / `Ctrl-Shift-O`. Denote

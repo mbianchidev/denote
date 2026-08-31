@@ -299,6 +299,10 @@ look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
+The root and folder menus also expose one **Mark as project** or **Unmark
+project** action. Shift-F10 and the Context Menu key open the focused folder's
+surface. Whole-vault and unavailable-root actions remain keyboard-operable in
+the command palette.
 Markdown file menus can also set the vault welcome page or return to the
 root `.denote.md` convention.
 Dragging an entry highlights folder or root drop targets; the menu move action
@@ -316,6 +320,8 @@ assigned shortcut on the trailing edge. File rows lead with the filename, keep
 vault identity visible, and relegate the relative path to quiet metadata. Arrow
 keys skip unavailable commands; Enter runs or opens the active result. A
 file-only scope remains available without opening a second dialog.
+Project commands include whole-vault marking, the selected folder, each recorded
+root (including unavailable roots), and an unmark-all action.
 
 Vault search separates **Where to search** from search text. The location field
 uses compact helper copy for `*`, exact paths, and globs such as `*.html`.
@@ -401,6 +407,23 @@ explicitly enabled. The settings dialog applies changes immediately and states
 that markers never change saved content.
 Rich/source controls remain visible in a disabled segmented state while guides
 force source mode; their tooltip names the setting that restores mode switching.
+Files inside a marked project use the same restrained gutter to force line
+numbers, and project Markdown forces Source mode with project-specific
+guidance. These
+constraints are transient overlays: leaving or unmarking the project immediately
+returns to saved display settings and the vault Markdown preference.
+
+### Project Context
+
+The status bar shows a compact **Project:** label only for the closest available
+marked ancestor of the focused file. Changes also use the existing polite
+screen-reader status announcement. With no focused project file, no project
+status or plugin recommendation is shown.
+
+The Plugins settings section may show a non-blocking **Code tooling** group for
+an active project. Its Git, Terminal, Language server, Linter, Compiler, and Code
+navigation rows use the existing status treatment for unavailable, disabled, or
+enabled states and never imply automatic installation.
 
 ### Vault Security
 
