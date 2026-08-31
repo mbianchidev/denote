@@ -1,9 +1,45 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { FileNode } from "../types";
 import { FileTree } from "./FileTree";
 
 describe("FileTree", () => {
+  it("allows excluded folders to be opened directly", async () => {
+    const user = userEvent.setup();
+    const folder: FileNode = {
+      path: ".git",
+      name: ".git",
+      kind: "folder",
+      children: [],
+      size: 0,
+      modifiedAt: null,
+      bookmarked: false,
+      pinned: false,
+    };
+    const onSelect = vi.fn();
+    const onToggleFolder = vi.fn();
+    render(
+      <FileTree
+        nodes={[folder]}
+        selectedPath={null}
+        expandedPaths={new Set()}
+        onSelect={onSelect}
+        onToggleFolder={onToggleFolder}
+        onCreate={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        onMove={vi.fn()}
+        onRequestMove={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: ".git" }));
+
+    expect(onSelect).toHaveBeenCalledWith(folder);
+    expect(onToggleFolder).toHaveBeenCalledWith(".git");
+  });
+
   it("identifies pinned entries", () => {
     render(
       <FileTree
@@ -582,4 +618,423 @@ describe("FileTree", () => {
       value: originalElementFromPoint,
     });
   });
+
+  describe("virtualization", () => {
+    let clientHeightDescriptor: PropertyDescriptor | undefined;
+    let frameCallbacks: FrameRequestCallback[];
+
+    beforeEach(() => {
+      clientHeightDescriptor = Object.getOwnPropertyDescriptor(
+        HTMLElement.prototype,
+        "clientHeight",
+      );
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+        configurable: true,
+        get() {
+          return this.classList.contains("file-tree") ? 87 : 0;
+        },
+      });
+      frameCallbacks = [];
+      vi.stubGlobal(
+        "requestAnimationFrame",
+        vi.fn((callback: FrameRequestCallback) => {
+          frameCallbacks.push(callback);
+          return frameCallbacks.length;
+        }),
+      );
+      vi.stubGlobal("cancelAnimationFrame", vi.fn());
+    });
+
+    afterEach(() => {
+      if (clientHeightDescriptor) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "clientHeight",
+          clientHeightDescriptor,
+        );
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, "clientHeight");
+      }
+      vi.unstubAllGlobals();
+    });
+
+    it("bounds the initial large-tree DOM before a viewport is measured", () => {
+      Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+        configurable: true,
+        get() {
+          return 0;
+        },
+      });
+
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath={null}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+
+      expect(screen.queryByRole("button", { name: "file-99.md" })).toBeNull();
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(18);
+    });
+
+    it("renders a bounded slice and updates it after scrolling", async () => {
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath={null}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(screen.getAllByRole("button")).toHaveLength(9);
+      });
+      const tree = screen.getByLabelText("Vault files");
+      fireEvent.scroll(tree, { target: { scrollTop: 50 * 29 } });
+      act(() => {
+        for (const callback of frameCallbacks.splice(0)) {
+          callback(performance.now());
+        }
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: "file-50.md" }),
+        ).toBeInTheDocument();
+      });
+      expect(
+        screen.queryByRole("button", { name: "file-0.md" }),
+      ).not.toBeInTheDocument();
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(16);
+    });
+
+    it("moves focus to offscreen logical rows with arrows and Home/End", async () => {
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath={null}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+      const tree = screen.getByLabelText("Vault files");
+      const lastInitiallyRenderedRow = await screen.findByRole("button", {
+        name: "file-8.md",
+      });
+      lastInitiallyRenderedRow.focus();
+
+      fireEvent.keyDown(lastInitiallyRenderedRow, { key: "ArrowDown" });
+
+      const nextRow = await screen.findByRole("button", { name: "file-9.md" });
+      await waitFor(() => expect(nextRow).toHaveFocus());
+      expect(nextRow).toHaveAttribute("data-tree-row-index", "9");
+      expect(tree.scrollTop).toBeGreaterThan(0);
+
+      fireEvent.keyDown(nextRow, { key: "ArrowUp" });
+      await waitFor(() => expect(lastInitiallyRenderedRow).toHaveFocus());
+
+      fireEvent.keyDown(lastInitiallyRenderedRow, { key: "End" });
+
+      const finalRow = await screen.findByRole("button", { name: "file-99.md" });
+      await waitFor(() => expect(finalRow).toHaveFocus());
+      expect(finalRow).toHaveAttribute("data-tree-row-path", "file-99.md");
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+
+      fireEvent.keyDown(finalRow, { key: "Home" });
+
+      const firstRow = await screen.findByRole("button", { name: "file-0.md" });
+      await waitFor(() => expect(firstRow).toHaveFocus());
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+    });
+
+    it("tabs across a virtualized boundary and back without trapping focus", async () => {
+      const user = userEvent.setup();
+      render(
+        <>
+          <FileTree
+            nodes={fileNodes(100)}
+            selectedPath={null}
+            expandedPaths={new Set()}
+            onSelect={vi.fn()}
+            onToggleFolder={vi.fn()}
+            onCreate={vi.fn()}
+            onRename={vi.fn()}
+            onDelete={vi.fn()}
+            onMove={vi.fn()}
+            onRequestMove={vi.fn()}
+          />
+          <button type="button">After tree</button>
+        </>,
+      );
+      const boundaryRow = await screen.findByRole("button", {
+        name: "file-8.md",
+      });
+      boundaryRow.focus();
+
+      await user.tab();
+
+      const offscreenRow = await screen.findByRole("button", {
+        name: "file-9.md",
+      });
+      await waitFor(() => expect(offscreenRow).toHaveFocus());
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(18);
+
+      await user.tab({ shift: true });
+      expect(boundaryRow).toHaveFocus();
+
+      fireEvent.keyDown(boundaryRow, { key: "Home" });
+      const firstRow = await screen.findByRole("button", { name: "file-0.md" });
+      await waitFor(() => expect(firstRow).toHaveFocus());
+      await user.tab({ shift: true });
+      expect(firstRow).not.toHaveFocus();
+
+      fireEvent.keyDown(
+        screen.getByRole("button", { name: "file-0.md" }),
+        { key: "End" },
+      );
+      const finalRow = await screen.findByRole("button", { name: "file-99.md" });
+      await waitFor(() => expect(finalRow).toHaveFocus());
+      await user.tab();
+      expect(screen.getByRole("button", { name: "After tree" })).toHaveFocus();
+    });
+
+    it("keeps a focused row mounted and focused outside the viewport", async () => {
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath={null}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+      const focusedRow = await screen.findByRole("button", {
+        name: "file-0.md",
+      });
+      focusedRow.focus();
+      const tree = screen.getByLabelText("Vault files");
+
+      fireEvent.scroll(tree, { target: { scrollTop: 50 * 29 } });
+      act(() => {
+        for (const callback of frameCallbacks.splice(0)) {
+          callback(performance.now());
+        }
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: "file-50.md" }),
+        ).toBeInTheDocument();
+      });
+      expect(focusedRow).toBeInTheDocument();
+      expect(focusedRow).toHaveFocus();
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+    });
+
+    it("restores focus to a retained keyboard context-menu opener", async () => {
+      const user = userEvent.setup();
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath={null}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+      const opener = await screen.findByRole("button", { name: "file-0.md" });
+      opener.focus();
+      fireEvent.keyDown(opener, { key: "ContextMenu" });
+      expect(await screen.findByRole("menu")).toBeInTheDocument();
+      const tree = screen.getByLabelText("Vault files");
+
+      fireEvent.scroll(tree, { target: { scrollTop: 50 * 29 } });
+      act(() => {
+        for (const callback of frameCallbacks.splice(0)) {
+          callback(performance.now());
+        }
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: "file-50.md" }),
+        ).toBeInTheDocument();
+      });
+      expect(opener).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+
+      expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+    });
+
+    it("keeps an active pointer-drag row mounted outside the viewport", async () => {
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath={null}
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+      const draggedRow = await screen.findByRole("button", {
+        name: "file-0.md",
+      });
+      const originalElementFromPoint = document.elementFromPoint;
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: vi.fn(() => draggedRow),
+      });
+      fireEvent.pointerDown(draggedRow, {
+        button: 0,
+        clientX: 10,
+        clientY: 10,
+        pointerId: 5,
+      });
+      fireEvent.pointerMove(draggedRow, {
+        clientX: 30,
+        clientY: 30,
+        pointerId: 5,
+      });
+      const tree = screen.getByLabelText("Vault files");
+
+      fireEvent.scroll(tree, { target: { scrollTop: 50 * 29 } });
+      act(() => {
+        for (const callback of frameCallbacks.splice(0)) {
+          callback(performance.now());
+        }
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByRole("button", { name: "file-50.md" }),
+        ).toBeInTheDocument();
+      });
+      expect(draggedRow).toBeInTheDocument();
+      expect(draggedRow).toHaveAttribute("data-dragging", "true");
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+      fireEvent.pointerCancel(draggedRow, { pointerId: 5 });
+      Object.defineProperty(document, "elementFromPoint", {
+        configurable: true,
+        value: originalElementFromPoint,
+      });
+    });
+
+    it("scrolls an externally selected visible row into the viewport", async () => {
+      const nodes = fileNodes(100);
+      const props = {
+        nodes,
+        expandedPaths: new Set<string>(),
+        onSelect: vi.fn(),
+        onToggleFolder: vi.fn(),
+        onCreate: vi.fn(),
+        onRename: vi.fn(),
+        onDelete: vi.fn(),
+        onMove: vi.fn(),
+        onRequestMove: vi.fn(),
+      };
+      const { rerender } = render(
+        <FileTree {...props} selectedPath="file-0.md" />,
+      );
+      const tree = screen.getByLabelText("Vault files");
+
+      rerender(<FileTree {...props} selectedPath="file-80.md" />);
+
+      await waitFor(() => {
+        expect(tree.scrollTop).toBeGreaterThan(0);
+        expect(
+          screen.getByRole("button", { name: "file-80.md" }),
+        ).toHaveAttribute("aria-current", "true");
+      });
+    });
+
+    it("does not expand ancestors to reveal an external selection", async () => {
+      const onToggleFolder = vi.fn();
+      render(
+        <FileTree
+          nodes={[
+            {
+              path: "closed",
+              name: "closed",
+              kind: "folder",
+              children: [
+                { ...fileNodes(1)[0], path: "closed/file-0.md" },
+              ],
+              size: 0,
+              modifiedAt: null,
+              bookmarked: false,
+              pinned: false,
+            },
+          ]}
+          selectedPath="closed/file-0.md"
+          expandedPaths={new Set()}
+          onSelect={vi.fn()}
+          onToggleFolder={onToggleFolder}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+
+      await waitFor(() => {
+        expect(
+          screen.queryByRole("button", { name: "file-0.md" }),
+        ).not.toBeInTheDocument();
+      });
+      expect(screen.getByLabelText("Vault files").scrollTop).toBe(0);
+      expect(onToggleFolder).not.toHaveBeenCalled();
+    });
+  });
 });
+
+function fileNodes(count: number): FileNode[] {
+  return Array.from({ length: count }, (_, index) => ({
+    path: `file-${index}.md`,
+    name: `file-${index}.md`,
+    kind: "markdown",
+    children: [],
+    size: index,
+    modifiedAt: null,
+    bookmarked: false,
+    pinned: false,
+  }));
+}

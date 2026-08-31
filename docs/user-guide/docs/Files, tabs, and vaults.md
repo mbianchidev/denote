@@ -63,7 +63,8 @@ the platform file manager. The focused file exposes the same actions from the
 three-dot menu. Switching files closes that menu.
 
 Use the folder control beside New folder to expand every nested folder or
-collapse the complete tree.
+collapse the complete tree. Expand all leaves folders named `.git` and
+`node_modules` collapsed unless you opened them directly.
 
 Drag a file or folder onto another folder to move it there, or onto empty tree
 space to move it to the vault root. Use **Move to folder…** from the context menu

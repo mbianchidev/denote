@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { FileNode } from "../types";
 import {
+  applyWorkspaceBulkAction,
   closestAvailableProjectRoot,
+  initialWorkspaceFolderPaths,
   insertWorkspaceNode,
+  mergeBulkExpandedPaths,
   projectConfigurationFields,
   projectRootAtPath,
   projectRootLabel,
@@ -11,7 +14,10 @@ import {
   removeProjectConfigurationAtOrBelow,
   removeProjectRootsAtOrBelow,
   removeWorkspacePath,
+  visibleWorkspaceRows,
   workspaceAncestorPaths,
+  workspaceBulkActionState,
+  workspaceBulkExpansion,
   workspaceFolderPaths,
   workspacePathMatches,
   withProjectConfiguration,
@@ -367,5 +373,208 @@ describe("workspace tree mutations", () => {
         node("root.md"),
       ]),
     ).toEqual(["notes", "notes/archive"]);
+  });
+
+  it("selects up to eight eligible top-level folders for initial expansion", () => {
+    const excludedGit = node(".GIT", "folder");
+    const excludedModules = node("Node_Modules", "folder");
+    Object.defineProperty(excludedGit, "children", {
+      configurable: true,
+      get() {
+        throw new Error("initial expansion must not traverse excluded folders");
+      },
+    });
+    Object.defineProperty(excludedModules, "children", {
+      configurable: true,
+      get() {
+        throw new Error("initial expansion must not traverse excluded folders");
+      },
+    });
+    const eligibleFolders = Array.from({ length: 10 }, (_, index) =>
+      node(`folder-${index}`, "folder", [node(`folder-${index}/nested.md`)]),
+    );
+
+    expect(
+      initialWorkspaceFolderPaths([
+        node("root.md"),
+        excludedGit,
+        eligibleFolders[0],
+        excludedModules,
+        ...eligibleFolders.slice(1),
+      ]),
+    ).toEqual(eligibleFolders.slice(0, 8).map(({ path }) => path));
+  });
+
+  it("excludes only .git and node_modules subtrees from bulk expansion", () => {
+    const tree = [
+      node("code", "folder", [
+        node("code/.GIT", "folder", [
+          node("code/.GIT/hooks", "folder", [node("code/.GIT/hooks/pre-commit")]),
+        ]),
+        node("code/Node_Modules", "folder", [
+          node("code/Node_Modules/package", "folder"),
+        ]),
+        node("code/.github", "folder"),
+        node("code/node_modules-old", "folder"),
+      ]),
+    ];
+
+    expect(workspaceBulkExpansion(tree)).toEqual({
+      folderPaths: ["code", "code/.github", "code/node_modules-old"],
+      excludedRootPaths: ["code/.GIT", "code/Node_Modules"],
+    });
+  });
+
+  it("preserves explicit excluded expansion until collapse all clears it", () => {
+    const expansion = workspaceBulkExpansion([
+      node("src", "folder"),
+      node(".git", "folder", [
+        node(".git/hooks", "folder"),
+      ]),
+      node("node_modules", "folder", [
+        node("node_modules/package", "folder"),
+      ]),
+    ]);
+    let expanded = mergeBulkExpandedPaths(
+      expansion,
+      new Set([".git", ".git/hooks", "node_modules/package", "stale"]),
+    );
+
+    expect([...expanded]).toEqual([
+      "src",
+      ".git",
+      ".git/hooks",
+      "node_modules/package",
+    ]);
+    expanded = new Set();
+    expect(expanded).toEqual(new Set());
+  });
+
+  it("reports expand-all when any bulk-expandable folder remains collapsed", () => {
+    const expansion = workspaceBulkExpansion([
+      node("src", "folder"),
+      node(".git", "folder"),
+      node("node_modules", "folder"),
+    ]);
+
+    expect(
+      workspaceBulkActionState(
+        expansion,
+        new Set([".git", "node_modules"]),
+      ),
+    ).toEqual({ action: "expand", disabled: false });
+  });
+
+  it("reports collapse-all when every bulk folder is expanded", () => {
+    const expansion = workspaceBulkExpansion([
+      node("src", "folder"),
+      node(".git", "folder"),
+    ]);
+
+    expect(
+      workspaceBulkActionState(expansion, new Set(["src", ".git"])),
+    ).toEqual({ action: "collapse", disabled: false });
+  });
+
+  it("reports collapse-all for an excluded-only expanded tree", () => {
+    const expansion = workspaceBulkExpansion([
+      node(".git", "folder"),
+      node("node_modules", "folder"),
+    ]);
+
+    expect(workspaceBulkActionState(expansion, new Set([".git"]))).toEqual({
+      action: "collapse",
+      disabled: false,
+    });
+    expect(workspaceBulkActionState(expansion, new Set())).toEqual({
+      action: "expand",
+      disabled: true,
+    });
+    expect(applyWorkspaceBulkAction(expansion, new Set([".git"]))).toEqual(
+      new Set(),
+    );
+  });
+
+  it("expands remaining bulk folders without clearing excluded expansion", () => {
+    const expansion = workspaceBulkExpansion([
+      node("src", "folder"),
+      node("docs", "folder"),
+      node(".git", "folder"),
+    ]);
+
+    expect(
+      applyWorkspaceBulkAction(expansion, new Set(["src", ".git"])),
+    ).toEqual(new Set(["src", "docs", ".git"]));
+  });
+
+  it("flattens visible rows in tree order with their depth", () => {
+    const tree = [
+      node("notes", "folder", [
+        node("notes/today.md"),
+        node("notes/archive", "folder", [
+          node("notes/archive/old.md"),
+        ]),
+      ]),
+      node("root.md"),
+    ];
+
+    expect(
+      visibleWorkspaceRows(tree, new Set(["notes", "notes/archive"])).map(
+        ({ node: rowNode, depth }) => [rowNode.path, depth],
+      ),
+    ).toEqual([
+      ["notes", 0],
+      ["notes/today.md", 1],
+      ["notes/archive", 1],
+      ["notes/archive/old.md", 2],
+      ["root.md", 0],
+    ]);
+    expect(
+      visibleWorkspaceRows(tree, new Set()).map(({ node: rowNode, depth }) => [
+        rowNode.path,
+        depth,
+      ]),
+    ).toEqual([
+      ["notes", 0],
+      ["root.md", 0],
+    ]);
+  });
+
+  it("handles deep trees iteratively with one child-list visit per folder", () => {
+    const depth = 3_000;
+    const expandedPaths = new Set<string>();
+    let childrenReads = 0;
+    let child: FileNode = node("leaf.md");
+    for (let index = depth - 1; index >= 0; index -= 1) {
+      const path = `folder-${index}`;
+      expandedPaths.add(path);
+      const children = [child];
+      const folder = node(path, "folder", children);
+      Object.defineProperty(folder, "children", {
+        configurable: true,
+        get() {
+          childrenReads += 1;
+          return children;
+        },
+      });
+      child = folder;
+    }
+    const tree = [child];
+
+    const rows = visibleWorkspaceRows(tree, expandedPaths);
+    expect(rows).toHaveLength(depth + 1);
+    expect(rows[rows.length - 1]).toEqual({
+      node: expect.objectContaining({ path: "leaf.md" }),
+      depth,
+    });
+    expect(childrenReads).toBe(depth);
+
+    childrenReads = 0;
+    expect(workspaceFolderPaths(tree)).toHaveLength(depth);
+    expect(childrenReads).toBe(depth);
+
+    childrenReads = 0;
+    expect(workspaceBulkExpansion(tree).folderPaths).toHaveLength(depth);
+    expect(childrenReads).toBe(depth);
   });
 });

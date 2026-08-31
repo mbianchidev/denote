@@ -336,6 +336,11 @@ button:disabled {
   overflow: auto;
 }
 
+.file-tree__spacer {
+  width: 1px;
+  pointer-events: none;
+}
+
 .file-tree__row {
   display: flex;
   width: 100%;

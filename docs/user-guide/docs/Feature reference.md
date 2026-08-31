@@ -36,7 +36,8 @@ more detail and examples.
 - Duplicate files with a non-conflicting sibling name.
 - Bookmark, copy a path, open version history, open in a new tab, or reveal a
   file from its context menu or the focused-file three-dot menu.
-- Recursively expand every folder or collapse the complete file tree.
+- Expand every folder except `.git` and `node_modules` unless opened directly,
+  or collapse the complete file tree.
 - Update relative Markdown links automatically after file/folder rename or move,
   with explicit reporting for skipped or conflicting files.
 

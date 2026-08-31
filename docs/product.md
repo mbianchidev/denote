@@ -173,7 +173,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   version history, open in a new tab, and reveal the file in the operating
   system file manager. The focused file exposes the same menu from a three-dot
   control and closes it when focus changes to another file.
-- One file-tree control recursively expands every folder or collapses the tree.
+- One file-tree control expands every folder except `.git` and `node_modules`,
+  which stay collapsed unless opened directly, or collapses the complete tree.
 - Renaming or moving a file/folder updates relative inline links, images, and
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.

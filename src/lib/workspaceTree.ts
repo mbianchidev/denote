@@ -149,11 +149,154 @@ export function workspaceAncestorPaths(path: string): string[] {
 }
 
 export function workspaceFolderPaths(nodes: FileNode[]): string[] {
-  return nodes.flatMap((node) =>
-    node.kind === "folder"
-      ? [node.path, ...workspaceFolderPaths(node.children)]
-      : [],
-  );
+  const paths: string[] = [];
+  const stack = [...nodes].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.kind !== "folder") {
+      continue;
+    }
+    paths.push(node.path);
+    const children = node.children;
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
+  return paths;
+}
+
+export function initialWorkspaceFolderPaths(
+  nodes: FileNode[],
+  limit = 8,
+): string[] {
+  const paths: string[] = [];
+  for (const node of nodes) {
+    if (paths.length >= limit) {
+      break;
+    }
+    if (node.kind !== "folder" || isBulkExpansionExcludedFolder(node.name)) {
+      continue;
+    }
+    paths.push(node.path);
+  }
+  return paths;
+}
+
+export interface VisibleWorkspaceRow {
+  node: FileNode;
+  depth: number;
+}
+
+export function visibleWorkspaceRows(
+  nodes: FileNode[],
+  expandedPaths: ReadonlySet<string>,
+): VisibleWorkspaceRow[] {
+  const rows: VisibleWorkspaceRow[] = [];
+  const stack: VisibleWorkspaceRow[] = [];
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    stack.push({ node: nodes[index], depth: 0 });
+  }
+  while (stack.length > 0) {
+    const row = stack.pop()!;
+    rows.push(row);
+    if (
+      row.node.kind !== "folder" ||
+      !expandedPaths.has(row.node.path)
+    ) {
+      continue;
+    }
+    const children = row.node.children;
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({ node: children[index], depth: row.depth + 1 });
+    }
+  }
+  return rows;
+}
+
+export interface WorkspaceBulkExpansion {
+  folderPaths: string[];
+  excludedRootPaths: string[];
+}
+
+export interface WorkspaceBulkActionState {
+  action: "expand" | "collapse";
+  disabled: boolean;
+}
+
+export function workspaceBulkExpansion(
+  nodes: FileNode[],
+): WorkspaceBulkExpansion {
+  const folderPaths: string[] = [];
+  const excludedRootPaths: string[] = [];
+  const stack = [...nodes].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.kind !== "folder") {
+      continue;
+    }
+    if (isBulkExpansionExcludedFolder(node.name)) {
+      excludedRootPaths.push(node.path);
+      continue;
+    }
+    folderPaths.push(node.path);
+    const children = node.children;
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push(children[index]);
+    }
+  }
+  return { folderPaths, excludedRootPaths };
+}
+
+export function mergeBulkExpandedPaths(
+  expansion: WorkspaceBulkExpansion,
+  expandedPaths: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set(expansion.folderPaths);
+  const excludedRoots = new Set(expansion.excludedRootPaths);
+  for (const path of expandedPaths) {
+    let candidate = path;
+    while (candidate !== "") {
+      if (excludedRoots.has(candidate)) {
+        next.add(path);
+        break;
+      }
+      const separatorIndex = candidate.lastIndexOf("/");
+      candidate =
+        separatorIndex < 0 ? "" : candidate.slice(0, separatorIndex);
+    }
+  }
+  return next;
+}
+
+export function workspaceBulkActionState(
+  expansion: WorkspaceBulkExpansion,
+  expandedPaths: ReadonlySet<string>,
+): WorkspaceBulkActionState {
+  const hasBulkFolders = expansion.folderPaths.length > 0;
+  const allBulkFoldersExpanded =
+    hasBulkFolders &&
+    expansion.folderPaths.every((path) => expandedPaths.has(path));
+  return {
+    action:
+      allBulkFoldersExpanded || (!hasBulkFolders && expandedPaths.size > 0)
+        ? "collapse"
+        : "expand",
+    disabled: !hasBulkFolders && expandedPaths.size === 0,
+  };
+}
+
+export function applyWorkspaceBulkAction(
+  expansion: WorkspaceBulkExpansion,
+  expandedPaths: ReadonlySet<string>,
+): Set<string> {
+  return workspaceBulkActionState(expansion, expandedPaths).action === "collapse"
+    ? new Set()
+    : mergeBulkExpandedPaths(expansion, expandedPaths);
+}
+
+function isBulkExpansionExcludedFolder(name: string): boolean {
+  const foldedName = name.toLowerCase();
+  return foldedName === ".git" || foldedName === "node_modules";
 }
 
 function insertAtPath(

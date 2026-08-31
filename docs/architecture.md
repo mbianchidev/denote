@@ -545,6 +545,12 @@ Command-N / Control-N resolves the selected folder or selected file's parent and
 uses the existing validated create command. The file tree exposes the same
 parent-resolution logic through a keyboard-operable contextual menu; right-click
 on empty tree space targets the vault root.
+Visible file-tree rows are flattened iteratively and large trees render a
+fixed-height overscanned window immediately, using a bounded fallback viewport
+until the sidebar is measured. Logical row indices drive arrow, Home/End, and
+cross-window Tab focus without expanding collapsed ancestors. Bulk expansion
+skips `.git` and `node_modules` subtrees while retaining folders opened directly;
+collapse-all clears every expanded path.
 
 Cross-folder moves resolve a folder or vault-root destination inside the
 canonical vault, reject self/descendant folder moves and conflicts, then reuse

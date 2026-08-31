@@ -172,14 +172,17 @@ import {
   type PaneDockTarget,
 } from "./lib/paneDocking";
 import {
+  applyWorkspaceBulkAction,
   closestAvailableProjectRoot,
+  initialWorkspaceFolderPaths,
   insertWorkspaceNode,
   projectConfigurationFields,
   projectRootLabel,
   removeProjectConfigurationAtOrBelow,
   removeWorkspacePath,
+  workspaceBulkActionState,
+  workspaceBulkExpansion,
   workspaceAncestorPaths,
-  workspaceFolderPaths,
   workspacePathMatches,
   withProjectConfiguration,
 } from "./lib/workspaceTree";
@@ -632,13 +635,17 @@ function App() {
     () => (workspace ? flattenNodes(workspace.tree) : []),
     [workspace],
   );
-  const folderPaths = useMemo(
-    () => (workspace ? workspaceFolderPaths(workspace.tree) : []),
+  const folderExpansion = useMemo(
+    () =>
+      workspace
+        ? workspaceBulkExpansion(workspace.tree)
+        : { folderPaths: [], excludedRootPaths: [] },
     [workspace],
   );
-  const allFoldersExpanded =
-    folderPaths.length > 0 &&
-    folderPaths.every((path) => expandedPaths.has(path));
+  const folderBulkAction = useMemo(
+    () => workspaceBulkActionState(folderExpansion, expandedPaths),
+    [expandedPaths, folderExpansion],
+  );
   const selectedMoveAvailability = useMemo(() => {
     if (!workspace || !selectedNode) {
       return { up: false, down: false };
@@ -1208,14 +1215,7 @@ function App() {
       setMarkdownViewMode(vaultViewMode);
       setWorkspace({ ...snapshot, markdownViewMode: vaultViewMode });
       setSelectedPath(null);
-      setExpandedPaths(
-        new Set(
-          snapshot.tree
-            .filter((node) => node.kind === "folder")
-            .slice(0, 8)
-            .map((node) => node.path),
-        ),
-      );
+      setExpandedPaths(new Set(initialWorkspaceFolderPaths(snapshot.tree)));
       if (resetTabs || vaultLocked) {
         for (const timer of saveTimers.current.values()) {
           window.clearTimeout(timer);
@@ -6479,18 +6479,24 @@ function App() {
               <button
                 type="button"
                 className="icon-button"
-                title={allFoldersExpanded ? "Collapse all folders" : "Expand all folders"}
-                aria-label={
-                  allFoldersExpanded ? "Collapse all folders" : "Expand all folders"
+                title={
+                  folderBulkAction.action === "collapse"
+                    ? "Collapse all folders"
+                    : "Expand all folders"
                 }
-                disabled={folderPaths.length === 0}
+                aria-label={
+                  folderBulkAction.action === "collapse"
+                    ? "Collapse all folders"
+                    : "Expand all folders"
+                }
+                disabled={folderBulkAction.disabled}
                 onClick={() =>
-                  setExpandedPaths(
-                    allFoldersExpanded ? new Set() : new Set(folderPaths),
+                  setExpandedPaths((current) =>
+                    applyWorkspaceBulkAction(folderExpansion, current),
                   )
                 }
               >
-                {allFoldersExpanded ? (
+                {folderBulkAction.action === "collapse" ? (
                   <Folder aria-hidden="true" size={16} />
                 ) : (
                   <FolderOpen aria-hidden="true" size={16} />
@@ -7257,24 +7263,35 @@ function SidebarNoteList({
 }
 
 function flattenNodes(nodes: FileNode[]): FileNode[] {
-  return nodes.flatMap((node) => [
-    node,
-    ...(node.kind === "folder" ? flattenNodes(node.children) : []),
-  ]);
+  const flattened: FileNode[] = [];
+  const stack = [...nodes].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    flattened.push(node);
+    if (node.kind === "folder") {
+      const children = node.children;
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        stack.push(children[index]);
+      }
+    }
+  }
+  return flattened;
 }
 
 function findNode(nodes: FileNode[], path: string | null): FileNode | null {
   if (!path) {
     return null;
   }
-  for (const node of nodes) {
+  const stack = [...nodes].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
     if (node.path === path) {
       return node;
     }
     if (node.kind === "folder") {
-      const nested = findNode(node.children, path);
-      if (nested) {
-        return nested;
+      const children = node.children;
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        stack.push(children[index]);
       }
     }
   }
