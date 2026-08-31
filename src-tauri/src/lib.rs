@@ -310,6 +310,7 @@ pub fn run() {
             commands::mark_project_workspace,
             commands::unmark_project_workspace,
             commands::dismiss_git_project_suggestion,
+            commands::refresh_project_configuration,
             commands::save_tab_session,
             commands::list_history,
             commands::restore_revision,

@@ -56,6 +56,7 @@ import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ExternalLinkDialog } from "./components/ExternalLinkDialog";
 import { FileTree } from "./components/FileTree";
+import { GitProjectSuggestion } from "./components/GitProjectSuggestion";
 import {
   FileActionsDropdown,
   type FileActionHandlers,
@@ -118,6 +119,7 @@ import {
   type SearchRequest,
 } from "./lib/search";
 import { sourceLanguageName } from "./lib/sourceLanguage";
+import { buildProjectCommands } from "./lib/projectCommands";
 import { welcomePageTarget } from "./lib/welcomePage";
 import {
   MAX_TAB_SESSION_GROUPS,
@@ -172,13 +174,14 @@ import {
 import {
   closestAvailableProjectRoot,
   insertWorkspaceNode,
-  projectRootAtPath,
+  projectConfigurationFields,
   projectRootLabel,
-  removeProjectRootsAtOrBelow,
+  removeProjectConfigurationAtOrBelow,
   removeWorkspacePath,
   workspaceAncestorPaths,
   workspaceFolderPaths,
   workspacePathMatches,
+  withProjectConfiguration,
 } from "./lib/workspaceTree";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
@@ -228,7 +231,9 @@ import type {
   HistoryRevision,
   KnownVaultFile,
   PaneLayoutKind,
+  ProjectConfiguration,
   ProjectRoot,
+  ProjectWorkspace,
   SearchResult,
   SidebarView,
   TabGroup,
@@ -406,8 +411,10 @@ function App() {
   const modalOpenRef = useRef(false);
   const commandPaletteCommandsRef = useRef<CommandPaletteCommand[]>([]);
   const previousActiveProjectId = useRef<string | null>(null);
-  const projectRootsRevision = useRef(0);
-  const projectRootMutationTail = useRef<Promise<void>>(Promise.resolve());
+  const projectConfigurationRevision = useRef(0);
+  const projectConfigurationMutationTail = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
   const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
@@ -1106,7 +1113,7 @@ function App() {
   const refreshCachedWorkspace = useCallback(
     async (generation: number) => {
       const request = ++workspaceRefreshRequest.current;
-      const rootsRevision = projectRootsRevision.current;
+      const configurationRevision = projectConfigurationRevision.current;
       try {
         const snapshot = await api.refreshVault();
         if (
@@ -1116,12 +1123,9 @@ function App() {
           return;
         }
         setWorkspace((current) =>
-          rootsRevision === projectRootsRevision.current
+          configurationRevision === projectConfigurationRevision.current
             ? snapshot
-            : {
-                ...snapshot,
-                projectRoots: current?.projectRoots ?? snapshot.projectRoots,
-              },
+            : withProjectConfiguration(snapshot, current ?? snapshot),
         );
         await rebuildSearchIndex(generation);
       } catch (caught) {
@@ -1264,7 +1268,7 @@ function App() {
     }
     const generation = vaultGeneration.current;
     const request = ++workspaceRefreshRequest.current;
-    const rootsRevision = projectRootsRevision.current;
+    const configurationRevision = projectConfigurationRevision.current;
     try {
       const snapshot = await api.refreshVault();
       if (
@@ -1272,12 +1276,9 @@ function App() {
         request === workspaceRefreshRequest.current
       ) {
         setWorkspace((current) =>
-          rootsRevision === projectRootsRevision.current
+        configurationRevision === projectConfigurationRevision.current
             ? snapshot
-            : {
-                ...snapshot,
-                projectRoots: current?.projectRoots ?? snapshot.projectRoots,
-              },
+            : withProjectConfiguration(snapshot, current ?? snapshot),
         );
         if (reindex || !searchIndexReady.current) {
           await rebuildSearchIndex(generation);
@@ -1294,9 +1295,9 @@ function App() {
     }
   }, [rebuildSearchIndex, showError, workspace]);
 
-  const applyProjectRoots = useCallback(
+  const applyProjectConfiguration = useCallback(
     (
-      projectRoots: ProjectRoot[],
+      configuration: ProjectConfiguration,
       expectedGeneration: number,
       expectedVaultPath: string,
     ) => {
@@ -1305,17 +1306,17 @@ function App() {
       }
       setWorkspace((current) =>
         current?.vaultPath === expectedVaultPath
-          ? { ...current, projectRoots }
+          ? withProjectConfiguration(current, configuration)
           : current,
       );
     },
     [],
   );
 
-  const enqueueProjectRootMutation = useCallback(
+  const enqueueProjectConfigurationMutation = useCallback(
     async (operation: () => Promise<void>) => {
-      const queued = projectRootMutationTail.current.then(operation);
-      projectRootMutationTail.current = queued.catch(() => {});
+      const queued = projectConfigurationMutationTail.current.then(operation);
+      projectConfigurationMutationTail.current = queued.catch(() => {});
       await queued;
     },
     [],
@@ -1328,18 +1329,18 @@ function App() {
       }
       const expectedGeneration = vaultGeneration.current;
       const expectedVaultPath = workspace.vaultPath;
-      await enqueueProjectRootMutation(async () => {
+      await enqueueProjectConfigurationMutation(async () => {
         if (expectedGeneration !== vaultGeneration.current) {
           return;
         }
         try {
-          const { projectRoots } = await api.markProjectRoot(path);
-          applyProjectRoots(
-            projectRoots,
+          const configuration = await api.markProjectRoot(path);
+          applyProjectConfiguration(
+            configuration,
             expectedGeneration,
             expectedVaultPath,
           );
-          projectRootsRevision.current += 1;
+          projectConfigurationRevision.current += 1;
           if (
             expectedGeneration === vaultGeneration.current &&
             workspace.vaultPath === expectedVaultPath
@@ -1362,7 +1363,12 @@ function App() {
         }
       });
     },
-    [applyProjectRoots, enqueueProjectRootMutation, showError, workspace],
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      showError,
+      workspace,
+    ],
   );
 
   const unmarkProject = useCallback(
@@ -1372,18 +1378,18 @@ function App() {
       }
       const expectedGeneration = vaultGeneration.current;
       const expectedVaultPath = workspace.vaultPath;
-      await enqueueProjectRootMutation(async () => {
+      await enqueueProjectConfigurationMutation(async () => {
         if (expectedGeneration !== vaultGeneration.current) {
           return;
         }
         try {
-          const { projectRoots } = await api.unmarkProjectRoot(projectRoot.id);
-          applyProjectRoots(
-            projectRoots,
+          const configuration = await api.unmarkProjectRoot(projectRoot.id);
+          applyProjectConfiguration(
+            configuration,
             expectedGeneration,
             expectedVaultPath,
           );
-          projectRootsRevision.current += 1;
+          projectConfigurationRevision.current += 1;
           if (
             expectedGeneration === vaultGeneration.current &&
             workspace.vaultPath === expectedVaultPath
@@ -1409,25 +1415,31 @@ function App() {
         }
       });
     },
-    [applyProjectRoots, enqueueProjectRootMutation, showError, workspace],
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      showError,
+      workspace,
+    ],
   );
 
   const unmarkAllProjects = useCallback(async () => {
+    const explicitProjectRoots =
+      workspace?.projectRoots.filter((projectRoot) => projectRoot.explicit) ?? [];
     if (
       !workspace ||
       workspaceLockedRef.current ||
-      workspace.projectRoots.length === 0
+      explicitProjectRoots.length === 0
     ) {
       return;
     }
     const expectedGeneration = vaultGeneration.current;
     const expectedVaultPath = workspace.vaultPath;
-    const projectRoots = [...workspace.projectRoots];
-    await enqueueProjectRootMutation(async () => {
+    await enqueueProjectConfigurationMutation(async () => {
       const failures: string[] = [];
-      let authoritativeRoots = projectRoots;
+      let authoritativeConfiguration = projectConfigurationFields(workspace);
       let changed = false;
-      for (const projectRoot of projectRoots) {
+      for (const projectRoot of explicitProjectRoots) {
         if (
           expectedGeneration !== vaultGeneration.current ||
           workspace.vaultPath !== expectedVaultPath
@@ -1435,9 +1447,9 @@ function App() {
           return;
         }
         try {
-          authoritativeRoots = (
-            await api.unmarkProjectRoot(projectRoot.id)
-          ).projectRoots;
+          authoritativeConfiguration = await api.unmarkProjectRoot(
+            projectRoot.id,
+          );
           changed = true;
         } catch (caught) {
           failures.push(
@@ -1445,13 +1457,13 @@ function App() {
           );
         }
       }
-      applyProjectRoots(
-        authoritativeRoots,
+      applyProjectConfiguration(
+        authoritativeConfiguration,
         expectedGeneration,
         expectedVaultPath,
       );
       if (changed) {
-        projectRootsRevision.current += 1;
+        projectConfigurationRevision.current += 1;
       }
       if (failures.length > 0) {
         showError(
@@ -1468,18 +1480,274 @@ function App() {
         workspace.vaultPath === expectedVaultPath
       ) {
         setStatus(
-          `Unmarked ${projectRoots.length} project root${
-            projectRoots.length === 1 ? "" : "s"
+          `Unmarked ${explicitProjectRoots.length} project root${
+            explicitProjectRoots.length === 1 ? "" : "s"
           }`,
         );
       }
     });
   }, [
-    applyProjectRoots,
-    enqueueProjectRootMutation,
+    applyProjectConfiguration,
+    enqueueProjectConfigurationMutation,
     showError,
     workspace,
   ]);
+
+  const markWorkspace = useCallback(
+    async (path: string) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.markProjectWorkspace(path);
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              path === ""
+                ? "Marked the vault root as a workspace"
+                : `Marked ${path} as a workspace`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(`Unable to mark workspace root ${path}:`, caught);
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      showError,
+      workspace,
+    ],
+  );
+
+  const unmarkWorkspace = useCallback(
+    async (projectWorkspace: ProjectWorkspace) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.unmarkProjectWorkspace(
+            projectWorkspace.id,
+          );
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              projectWorkspace.rootPath === ""
+                ? "Unmarked the vault root workspace"
+                : `Unmarked ${projectWorkspace.rootPath} as a workspace`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(
+              `Unable to unmark workspace root ${projectWorkspace.rootPath}:`,
+              caught,
+            );
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      showError,
+      workspace,
+    ],
+  );
+
+  const unmarkAllWorkspaces = useCallback(async () => {
+    if (
+      !workspace ||
+      workspaceLockedRef.current ||
+      workspace.projectWorkspaces.length === 0
+    ) {
+      return;
+    }
+    const expectedGeneration = vaultGeneration.current;
+    const expectedVaultPath = workspace.vaultPath;
+    const projectWorkspaces = [...workspace.projectWorkspaces];
+    await enqueueProjectConfigurationMutation(async () => {
+      const failures: string[] = [];
+      let authoritativeConfiguration = projectConfigurationFields(workspace);
+      let changed = false;
+      for (const projectWorkspace of projectWorkspaces) {
+        if (
+          expectedGeneration !== vaultGeneration.current ||
+          workspace.vaultPath !== expectedVaultPath
+        ) {
+          return;
+        }
+        try {
+          authoritativeConfiguration = await api.unmarkProjectWorkspace(
+            projectWorkspace.id,
+          );
+          changed = true;
+        } catch (caught) {
+          failures.push(
+            `${projectWorkspace.rootPath || "Vault root"}: ${errorMessage(
+              caught,
+            )}`,
+          );
+        }
+      }
+      applyProjectConfiguration(
+        authoritativeConfiguration,
+        expectedGeneration,
+        expectedVaultPath,
+      );
+      if (changed) {
+        projectConfigurationRevision.current += 1;
+      }
+      if (failures.length > 0) {
+        showError(
+          new Error(
+            `Could not unmark ${failures.length} workspace root${
+              failures.length === 1 ? "" : "s"
+            }. ${failures.join(" ")}`,
+          ),
+        );
+        return;
+      }
+      if (
+        expectedGeneration === vaultGeneration.current &&
+        workspace.vaultPath === expectedVaultPath
+      ) {
+        setStatus(
+          `Unmarked ${projectWorkspaces.length} workspace root${
+            projectWorkspaces.length === 1 ? "" : "s"
+          }`,
+        );
+      }
+    });
+  }, [
+    applyProjectConfiguration,
+    enqueueProjectConfigurationMutation,
+    showError,
+    workspace,
+  ]);
+
+  const dismissGitProjectSuggestion = useCallback(async () => {
+    if (!workspace || workspaceLockedRef.current) {
+      return;
+    }
+    const expectedGeneration = vaultGeneration.current;
+    const expectedVaultPath = workspace.vaultPath;
+    await enqueueProjectConfigurationMutation(async () => {
+      if (expectedGeneration !== vaultGeneration.current) {
+        return;
+      }
+      try {
+        const configuration = await api.dismissGitProjectSuggestion();
+        applyProjectConfiguration(
+          configuration,
+          expectedGeneration,
+          expectedVaultPath,
+        );
+        projectConfigurationRevision.current += 1;
+        if (
+          expectedGeneration === vaultGeneration.current &&
+          workspace.vaultPath === expectedVaultPath
+        ) {
+          setStatus("Dismissed the Git project suggestion");
+        }
+      } catch (caught) {
+        if (
+          expectedGeneration === vaultGeneration.current &&
+          workspace.vaultPath === expectedVaultPath
+        ) {
+          showError(caught);
+        } else {
+          console.error(
+            "Unable to dismiss the Git project suggestion:",
+            caught,
+          );
+        }
+      }
+    });
+  }, [
+    applyProjectConfiguration,
+    enqueueProjectConfigurationMutation,
+    showError,
+    workspace,
+  ]);
+
+  const refreshProjectConfiguration = useCallback(
+    async (expectedGeneration: number, expectedVaultPath: string) => {
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.refreshProjectConfiguration();
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace?.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(
+              "Unable to refresh project configuration:",
+              caught,
+            );
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      showError,
+      workspace?.vaultPath,
+    ],
+  );
 
   useEffect(() => {
     applyTheme(theme);
@@ -3313,6 +3581,12 @@ function App() {
               }
             : current,
         );
+        if (directory) {
+          await refreshProjectConfiguration(
+            expectedGeneration,
+            expectedVaultPath,
+          );
+        }
         if (parentPath) {
           setExpandedPaths((current) => new Set(current).add(parentPath));
         }
@@ -3336,6 +3610,7 @@ function App() {
       beginEntryMutation,
       openFile,
       requestText,
+      refreshProjectConfiguration,
       scheduleIndexRebuild,
       selectedNode,
       selectedPath,
@@ -3761,6 +4036,11 @@ function App() {
                 isAffected(current.welcomePage.customPath)
                   ? null
                   : current.welcomePage.customPath;
+              const projectConfiguration =
+                removeProjectConfigurationAtOrBelow(
+                  projectConfigurationFields(current),
+                  node.path,
+                );
               return {
                 ...current,
                 tree,
@@ -3770,24 +4050,22 @@ function App() {
                     customPath ??
                     defaultWelcomePagePath(tree, current.default),
                 },
-              bookmarks: current.bookmarks.filter(
-                (item) => !isAffected(item.path),
-              ),
-              recent: current.recent.filter(
-                (item) => !isAffected(item.path),
-              ),
-              projectRoots: removeProjectRootsAtOrBelow(
-                current.projectRoots,
-                node.path,
-              ),
-              trash: [
-                trashItem,
-                ...current.trash.filter((item) => item.id !== trashItem.id),
-              ],
+                bookmarks: current.bookmarks.filter(
+                  (item) => !isAffected(item.path),
+                ),
+                recent: current.recent.filter(
+                  (item) => !isAffected(item.path),
+                ),
+                ...projectConfiguration,
+                trash: [
+                  trashItem,
+                  ...current.trash.filter((item) => item.id !== trashItem.id),
+                ],
               };
             })()
           : current,
       );
+      projectConfigurationRevision.current += 1;
       searchIndex.current.removePaths(isAffected);
       setSearchResults((current) =>
         current.filter((result) => !isAffected(result.document.path)),
@@ -4038,6 +4316,12 @@ function App() {
               }
             : current,
         );
+        if (restoredNode.kind === "folder") {
+          await refreshProjectConfiguration(
+            expectedGeneration,
+            expectedVaultPath,
+          );
+        }
         setExpandedPaths((current) => {
           const next = new Set(current);
           for (const path of workspaceAncestorPaths(restoredNode.path)) {
@@ -4062,6 +4346,7 @@ function App() {
     },
     [
       beginEntryMutation,
+      refreshProjectConfiguration,
       scheduleIndexRebuild,
       setWorkspaceLock,
       showError,
@@ -5130,15 +5415,21 @@ function App() {
     "var(--pane-gap)",
   );
   const splitPaneShortcut = macOS ? "⌘\\" : "Ctrl+\\";
-  const vaultProjectRoot = projectRootAtPath(
-    workspace?.projectRoots ?? [],
-    "",
-  );
   const selectedDirectory =
     selectedNode?.kind === "folder" ? selectedNode : null;
-  const selectedDirectoryProjectRoot = selectedDirectory
-    ? projectRootAtPath(workspace?.projectRoots ?? [], selectedDirectory.path)
-    : null;
+  const projectCommands = buildProjectCommands({
+    workspaceReady,
+    workspaceLocked,
+    projectRoots: workspace?.projectRoots ?? [],
+    projectWorkspaces: workspace?.projectWorkspaces ?? [],
+    selectedDirectoryPath: selectedDirectory?.path ?? null,
+    onMarkProject: markProject,
+    onUnmarkProject: unmarkProject,
+    onUnmarkAllProjects: unmarkAllProjects,
+    onMarkWorkspace: markWorkspace,
+    onUnmarkWorkspace: unmarkWorkspace,
+    onUnmarkAllWorkspaces: unmarkAllWorkspaces,
+  });
   const fileActionHandlers: FileActionHandlers = {
     welcomePage: workspace?.welcomePage ?? {
       customPath: null,
@@ -5213,60 +5504,7 @@ function App() {
       disabled: !workspaceReady,
       run: refreshAndReindex,
     },
-    {
-      id: "project.mark-vault",
-      title: "Mark vault as project",
-      description: "Use the whole vault as a project root.",
-      category: "Project",
-      disabled: !workspaceReady || workspaceLocked || vaultProjectRoot !== null,
-      run: () => markProject(""),
-    },
-    {
-      id: "project.unmark-vault",
-      title: "Unmark vault project",
-      description: "Stop using the whole vault as a project root.",
-      category: "Project",
-      disabled: !workspaceReady || workspaceLocked || vaultProjectRoot === null,
-      run: () =>
-        vaultProjectRoot ? unmarkProject(vaultProjectRoot) : undefined,
-    },
-    {
-      id: "project.mark-selected-folder",
-      title: "Mark selected folder as project",
-      description: "Use the selected directory as a project root.",
-      category: "Project",
-      disabled:
-        !workspaceReady ||
-        workspaceLocked ||
-        selectedDirectory === null ||
-        selectedDirectoryProjectRoot !== null,
-      run: () =>
-        selectedDirectory ? markProject(selectedDirectory.path) : undefined,
-    },
-    ...(workspace?.projectRoots.map((projectRoot) => ({
-      id: `project.unmark.${projectRoot.id}`,
-      title: `Unmark project: ${projectRootLabel(projectRoot)}`,
-      description: projectRoot.available
-        ? `Remove the project root at ${
-            projectRoot.rootPath || "the vault root"
-          }.`
-        : `Remove the unavailable project root at ${projectRoot.rootPath}.`,
-      category: "Project",
-      disabled: !workspaceReady || workspaceLocked,
-      run: () => unmarkProject(projectRoot),
-    })) ?? []),
-    {
-      id: "project.unmark-all",
-      title: "Unmark all projects",
-      description:
-        "Remove every recorded project root, including unavailable folders.",
-      category: "Project",
-      disabled:
-        !workspaceReady ||
-        workspaceLocked ||
-        (workspace?.projectRoots.length ?? 0) === 0,
-      run: unmarkAllProjects,
-    },
+    ...projectCommands,
     {
       id: "view.files",
       title: "Show files",
@@ -6329,8 +6567,13 @@ function App() {
               onRequestMove={(node) => void requestMoveNode(node)}
               fileActions={fileActionHandlers}
               projectRoots={workspace.projectRoots}
+              projectWorkspaces={workspace.projectWorkspaces}
               onMarkProject={(path) => void markProject(path)}
               onUnmarkProject={(projectRoot) => void unmarkProject(projectRoot)}
+              onMarkWorkspace={(path) => void markWorkspace(path)}
+              onUnmarkWorkspace={(projectWorkspace) =>
+                void unmarkWorkspace(projectWorkspace)
+              }
             />
           </>
         ) : sidebarView === "search" ? (
@@ -6629,6 +6872,12 @@ function App() {
           </div>
         </header>
         {errorBanner}
+        {workspace.suggestGitProject && !workspaceLocked ? (
+          <GitProjectSuggestion
+            onAccept={() => markProject("")}
+            onDecline={dismissGitProjectSuggestion}
+          />
+        ) : null}
         <div className="editor-layout">
           <div
             className="pane-grid"

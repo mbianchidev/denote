@@ -1,4 +1,9 @@
-import type { FileNode, ProjectRoot } from "../types";
+import type {
+  FileNode,
+  ProjectConfiguration,
+  ProjectRoot,
+  ProjectWorkspace,
+} from "../types";
 
 export function workspacePathMatches(candidate: string, path: string): boolean {
   return candidate === path || candidate.startsWith(`${path}/`);
@@ -38,12 +43,66 @@ export function projectRootAtPath(
   return projectRoots.find((projectRoot) => projectRoot.rootPath === path) ?? null;
 }
 
+export function projectWorkspaceAtPath(
+  projectWorkspaces: ProjectWorkspace[],
+  path: string,
+): ProjectWorkspace | null {
+  return (
+    projectWorkspaces.find(
+      (projectWorkspace) => projectWorkspace.rootPath === path,
+    ) ?? null
+  );
+}
+
 export function projectRootLabel(projectRoot: ProjectRoot): string {
-  if (projectRoot.rootPath === "") {
+  return projectPathLabel(projectRoot.rootPath);
+}
+
+export function projectWorkspaceLabel(
+  projectWorkspace: ProjectWorkspace,
+): string {
+  return projectPathLabel(projectWorkspace.rootPath);
+}
+
+export function projectConfigurationFields(
+  configuration: ProjectConfiguration,
+): ProjectConfiguration {
+  return {
+    projectRoots: configuration.projectRoots,
+    projectWorkspaces: configuration.projectWorkspaces,
+    suggestGitProject: configuration.suggestGitProject,
+  };
+}
+
+export function withProjectConfiguration<T extends ProjectConfiguration>(
+  value: T,
+  configuration: ProjectConfiguration,
+): T {
+  return { ...value, ...projectConfigurationFields(configuration) };
+}
+
+export function removeProjectConfigurationAtOrBelow(
+  configuration: ProjectConfiguration,
+  path: string,
+): ProjectConfiguration {
+  return {
+    ...configuration,
+    projectRoots: configuration.projectRoots.filter(
+      (projectRoot) => !workspacePathMatches(projectRoot.rootPath, path),
+    ),
+    projectWorkspaces: configuration.projectWorkspaces.filter(
+      (projectWorkspace) =>
+        !workspacePathMatches(projectWorkspace.rootPath, path),
+    ),
+  };
+}
+
+function projectPathLabel(rootPath: string): string {
+  if (rootPath === "") {
     return "Vault root";
   }
-  const segments = projectRoot.rootPath.split("/");
-  return segments[segments.length - 1] ?? projectRoot.rootPath;
+  const segments = rootPath.split("/");
+  return segments[segments.length - 1] ?? rootPath;
 }
 
 export function removeProjectRootsAtOrBelow(

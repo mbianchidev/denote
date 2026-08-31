@@ -3,13 +3,18 @@ import type { FileNode } from "../types";
 import {
   closestAvailableProjectRoot,
   insertWorkspaceNode,
+  projectConfigurationFields,
   projectRootAtPath,
   projectRootLabel,
+  projectWorkspaceAtPath,
+  projectWorkspaceLabel,
+  removeProjectConfigurationAtOrBelow,
   removeProjectRootsAtOrBelow,
   removeWorkspacePath,
   workspaceAncestorPaths,
   workspaceFolderPaths,
   workspacePathMatches,
+  withProjectConfiguration,
 } from "./workspaceTree";
 
 function node(
@@ -159,6 +164,64 @@ describe("workspace tree mutations", () => {
     expect(projectRootLabel(projectRoots[1])).toBe("ui");
   });
 
+  it("finds exact project workspaces and labels them for display", () => {
+    const projectWorkspaces = [
+      {
+        id: "vault-workspace",
+        rootPath: "",
+        available: true,
+      },
+      {
+        id: "nested-workspace",
+        rootPath: "code/packages",
+        available: true,
+      },
+    ];
+
+    expect(projectWorkspaceAtPath(projectWorkspaces, "code")).toBeNull();
+    expect(projectWorkspaceAtPath(projectWorkspaces, "code/packages")).toEqual(
+      projectWorkspaces[1],
+    );
+    expect(projectWorkspaceLabel(projectWorkspaces[0])).toBe("Vault root");
+    expect(projectWorkspaceLabel(projectWorkspaces[1])).toBe("packages");
+  });
+
+  it("preserves every authoritative project configuration field", () => {
+    const configuration = {
+      projectRoots: [
+        {
+          id: "project",
+          rootPath: "code/app",
+          available: true,
+          explicit: false,
+          workspaceId: "workspace",
+        },
+      ],
+      projectWorkspaces: [
+        {
+          id: "workspace",
+          rootPath: "code",
+          available: true,
+        },
+      ],
+      suggestGitProject: true,
+    };
+
+    expect(projectConfigurationFields(configuration)).toEqual(configuration);
+    expect(
+      withProjectConfiguration(
+        {
+          ...configuration,
+          projectRoots: [],
+          projectWorkspaces: [],
+          suggestGitProject: false,
+          treeVersion: 2,
+        },
+        configuration,
+      ),
+    ).toEqual({ ...configuration, treeVersion: 2 });
+  });
+
   it("removes project roots at or below a trashed path", () => {
     const projectRoots = [
       {
@@ -195,6 +258,53 @@ describe("workspace tree mutations", () => {
       projectRoots[0],
       projectRoots[3],
     ]);
+  });
+
+  it("filters project and workspace roots together after trash", () => {
+    const configuration = {
+      projectRoots: [
+        {
+          id: "vault",
+          rootPath: "",
+          available: true,
+          explicit: true,
+          workspaceId: null,
+        },
+        {
+          id: "child",
+          rootPath: "code/app",
+          available: true,
+          explicit: false,
+          workspaceId: "code-workspace",
+        },
+        {
+          id: "similar",
+          rootPath: "code-old",
+          available: true,
+          explicit: true,
+          workspaceId: null,
+        },
+      ],
+      projectWorkspaces: [
+        {
+          id: "code-workspace",
+          rootPath: "code",
+          available: true,
+        },
+        {
+          id: "similar-workspace",
+          rootPath: "code-old",
+          available: true,
+        },
+      ],
+      suggestGitProject: false,
+    };
+
+    expect(removeProjectConfigurationAtOrBelow(configuration, "code")).toEqual({
+      projectRoots: [configuration.projectRoots[0], configuration.projectRoots[2]],
+      projectWorkspaces: [configuration.projectWorkspaces[1]],
+      suggestGitProject: false,
+    });
   });
 
   it("inserts entries and synthesizes missing parent folders", () => {

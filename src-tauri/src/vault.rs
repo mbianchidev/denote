@@ -1083,6 +1083,18 @@ pub fn dismiss_git_project_suggestion(
     project_configuration(&connection, vault_id, &root)
 }
 
+pub fn refresh_project_configuration(
+    db_path: &Path,
+    vault_path: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    reconcile_workspace_children(&connection, vault_id, &root)?;
+    project_configuration(&connection, vault_id, &root)
+}
+
 pub(crate) fn resolve_project_root(
     db_path: &Path,
     vault_path: &str,
@@ -4173,8 +4185,8 @@ mod tests {
         );
 
         fs::create_dir(vault_path.join("mono/new-child")).expect("new direct child");
-        let discovered =
-            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached discovery");
+        let discovered = refresh_project_configuration(&db_path, vault_path.to_str().unwrap())
+            .expect("lightweight project discovery");
         assert!(
             discovered
                 .project_roots

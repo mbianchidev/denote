@@ -25,16 +25,19 @@ import {
   type PointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import type { FileNode, ProjectRoot } from "../types";
-import { projectRootAtPath } from "../lib/workspaceTree";
+import type { FileNode, ProjectRoot, ProjectWorkspace } from "../types";
+import {
+  projectRootAtPath,
+  projectWorkspaceAtPath,
+} from "../lib/workspaceTree";
 import {
   FileActionMenuItems,
   type FileActionHandlers,
 } from "./FileActionsMenu";
 
 const CONTEXT_MENU_WIDTH = 184;
-const CONTEXT_MENU_COMPACT_HEIGHT = 132;
-const CONTEXT_MENU_ENTRY_HEIGHT = 542;
+const CONTEXT_MENU_COMPACT_HEIGHT = 174;
+const CONTEXT_MENU_ENTRY_HEIGHT = 584;
 
 interface FileTreeProps {
   nodes: FileNode[];
@@ -49,8 +52,11 @@ interface FileTreeProps {
   onRequestMove: (node: FileNode) => void;
   fileActions?: FileActionHandlers;
   projectRoots?: ProjectRoot[];
+  projectWorkspaces?: ProjectWorkspace[];
   onMarkProject?: (path: string) => void;
   onUnmarkProject?: (projectRoot: ProjectRoot) => void;
+  onMarkWorkspace?: (path: string) => void;
+  onUnmarkWorkspace?: (projectWorkspace: ProjectWorkspace) => void;
 }
 
 export function FileTree({
@@ -66,8 +72,11 @@ export function FileTree({
   onRequestMove,
   fileActions,
   projectRoots = [],
+  projectWorkspaces = [],
   onMarkProject,
   onUnmarkProject,
+  onMarkWorkspace,
+  onUnmarkWorkspace,
 }: FileTreeProps) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -97,6 +106,12 @@ export function FileTree({
     contextProjectPath === null
       ? null
       : projectRootAtPath(projectRoots, contextProjectPath);
+  const contextExplicitProjectRoot =
+    contextProjectRoot?.explicit === true ? contextProjectRoot : null;
+  const contextProjectWorkspace =
+    contextProjectPath === null
+      ? null
+      : projectWorkspaceAtPath(projectWorkspaces, contextProjectPath);
 
   const closeContextMenu = (restoreFocus: boolean) => {
     setContextMenu(null);
@@ -343,21 +358,48 @@ export function FileTree({
                     role="menuitem"
                     onClick={() => {
                       closeContextMenu(true);
-                      if (contextProjectRoot) {
-                        onUnmarkProject(contextProjectRoot);
+                      if (contextExplicitProjectRoot) {
+                        onUnmarkProject(contextExplicitProjectRoot);
                       } else {
                         onMarkProject(contextProjectPath);
                       }
                     }}
                   >
-                    {contextProjectRoot ? (
+                    {contextExplicitProjectRoot ? (
                       <FolderX aria-hidden="true" size={15} />
                     ) : (
                       <FolderCheck aria-hidden="true" size={15} />
                     )}
-                    {contextProjectRoot ? "Unmark project" : "Mark as project"}
+                    {contextExplicitProjectRoot
+                      ? "Unmark project"
+                      : "Mark as project"}
                   </button>
                 </>
+              ) : null}
+              {contextProjectPath !== null &&
+              onMarkWorkspace &&
+              onUnmarkWorkspace ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    closeContextMenu(true);
+                    if (contextProjectWorkspace) {
+                      onUnmarkWorkspace(contextProjectWorkspace);
+                    } else {
+                      onMarkWorkspace(contextProjectPath);
+                    }
+                  }}
+                >
+                  {contextProjectWorkspace ? (
+                    <FolderX aria-hidden="true" size={15} />
+                  ) : (
+                    <FolderCheck aria-hidden="true" size={15} />
+                  )}
+                  {contextProjectWorkspace
+                    ? "Unmark workspace"
+                    : "Mark as workspace"}
+                </button>
               ) : null}
               {contextMenu.node ? (
                 <>

@@ -57,6 +57,8 @@ export const api = {
     }),
   dismissGitProjectSuggestion: () =>
     invoke<ProjectConfiguration>("dismiss_git_project_suggestion"),
+  refreshProjectConfiguration: () =>
+    invoke<ProjectConfiguration>("refresh_project_configuration"),
   enableVaultEncryption: (password: string) =>
     invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),
   unlockVaultWithPassword: (password: string) =>

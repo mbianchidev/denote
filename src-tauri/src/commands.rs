@@ -915,6 +915,15 @@ pub fn dismiss_git_project_suggestion(
 }
 
 #[tauri::command]
+pub fn refresh_project_configuration(
+    state: State<'_, AppState>,
+) -> AppResult<ProjectConfiguration> {
+    let _vault_access = state.write_vault_access()?;
+    let root = state.active_vault()?;
+    vault::refresh_project_configuration(&state.db_path, &root.to_string_lossy())
+}
+
+#[tauri::command]
 pub fn save_tab_session(state: State<'_, AppState>, session: TabSessionState) -> AppResult<()> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;

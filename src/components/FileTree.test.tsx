@@ -186,10 +186,12 @@ describe("FileTree", () => {
     expect(onDelete).toHaveBeenCalledWith(node);
   });
 
-  it("toggles exact folder and vault project roots without offering file toggles", async () => {
+  it("independently toggles project and workspace roots without offering file toggles", async () => {
     const user = userEvent.setup();
     const onMarkProject = vi.fn();
     const onUnmarkProject = vi.fn();
+    const onMarkWorkspace = vi.fn();
+    const onUnmarkWorkspace = vi.fn();
     const folder = {
       path: "code",
       name: "code",
@@ -217,6 +219,11 @@ describe("FileTree", () => {
       explicit: true,
       workspaceId: null,
     };
+    const vaultWorkspace = {
+      id: "vault-workspace",
+      rootPath: "",
+      available: true,
+    };
     const props = {
       nodes: [folder, file],
       selectedPath: null,
@@ -229,8 +236,15 @@ describe("FileTree", () => {
       onMove: vi.fn(),
       onRequestMove: vi.fn(),
       projectRoots: [vaultRoot],
+      projectWorkspaces: [] as {
+        id: string;
+        rootPath: string;
+        available: boolean;
+      }[],
       onMarkProject,
       onUnmarkProject,
+      onMarkWorkspace,
+      onUnmarkWorkspace,
     };
     const { rerender } = render(<FileTree {...props} />);
 
@@ -243,6 +257,34 @@ describe("FileTree", () => {
     expect(onMarkProject).toHaveBeenCalledWith("code");
     expect(folderRow).toHaveFocus();
 
+    fireEvent.keyDown(folderRow, { key: "ContextMenu" });
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Mark as workspace" }),
+    );
+    expect(onMarkWorkspace).toHaveBeenCalledWith("code");
+    expect(folderRow).toHaveFocus();
+
+    rerender(
+      <FileTree
+        {...props}
+        projectRoots={[
+          vaultRoot,
+          {
+            id: "code",
+            rootPath: "code",
+            available: true,
+            explicit: false,
+            workspaceId: "code-workspace",
+          },
+        ]}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole("button", { name: /code/i }));
+    expect(
+      await screen.findByRole("menuitem", { name: "Mark as project" }),
+    ).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+
     rerender(
       <FileTree
         {...props}
@@ -254,6 +296,13 @@ describe("FileTree", () => {
             available: true,
             explicit: true,
             workspaceId: null,
+          },
+        ]}
+        projectWorkspaces={[
+          {
+            id: "code-workspace",
+            rootPath: "code",
+            available: true,
           },
         ]}
       />,
@@ -270,7 +319,22 @@ describe("FileTree", () => {
       workspaceId: null,
     });
 
-    rerender(<FileTree {...props} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /code/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Unmark workspace" }),
+    );
+    expect(onUnmarkWorkspace).toHaveBeenCalledWith({
+      id: "code-workspace",
+      rootPath: "code",
+      available: true,
+    });
+
+    rerender(
+      <FileTree
+        {...props}
+        projectWorkspaces={[vaultWorkspace]}
+      />,
+    );
     fireEvent.contextMenu(screen.getByLabelText("Vault files"), {
       clientX: 3,
       clientY: 3,
@@ -280,10 +344,22 @@ describe("FileTree", () => {
     );
     expect(onUnmarkProject).toHaveBeenCalledWith(vaultRoot);
 
+    fireEvent.contextMenu(screen.getByLabelText("Vault files"), {
+      clientX: 3,
+      clientY: 3,
+    });
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Unmark workspace" }),
+    );
+    expect(onUnmarkWorkspace).toHaveBeenCalledWith(vaultWorkspace);
+
     rerender(<FileTree {...props} />);
     fireEvent.contextMenu(screen.getByRole("button", { name: /note\.md/i }));
     expect(
       screen.queryByRole("menuitem", { name: /mark.*project/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("menuitem", { name: /mark.*workspace/i }),
     ).not.toBeInTheDocument();
   });
 

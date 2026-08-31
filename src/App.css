@@ -512,6 +512,73 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
+.git-project-suggestion {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 10px 6px 14px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+  background: color-mix(in srgb, var(--accent) 5%, var(--editor-bg));
+  border-bottom: 1px solid var(--border);
+}
+
+.git-project-suggestion__copy {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 3px 8px;
+}
+
+.git-project-suggestion__copy strong {
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.git-project-suggestion__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.git-project-suggestion__accept,
+.git-project-suggestion__decline {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 650;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.git-project-suggestion__accept {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--accent-strong);
+}
+
+.git-project-suggestion__accept:hover:not(:disabled) {
+  background: var(--accent-strong);
+}
+
+.git-project-suggestion__decline {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.git-project-suggestion__decline:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
 .tabs {
   display: flex;
   min-width: 0;
