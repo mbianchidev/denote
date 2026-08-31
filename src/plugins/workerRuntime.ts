@@ -1,6 +1,10 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
-import type { PluginNoteEvent } from "@denote/plugin-sdk";
+import type {
+  PluginNoteEvent,
+  PluginProjectContext,
+  PluginProjectContextChangeEvent,
+} from "@denote/plugin-sdk";
 import {
   privilegedHostOperation,
   runHostOperation,
@@ -67,6 +71,7 @@ export class PluginWorkerRuntime {
   private readonly starts = new Map<string, PendingStart>();
   private readonly stops = new Map<string, Promise<void>>();
   private readonly generations = new Map<string, number>();
+  private projectContext: PluginProjectContext | null = null;
 
   constructor(
     private readonly onCommandsChanged: (
@@ -217,6 +222,26 @@ export class PluginWorkerRuntime {
     }
   }
 
+  setProjectContext(context: PluginProjectContext | null): void {
+    validateProjectContext(context);
+    if (sameProjectContext(this.projectContext, context)) {
+      return;
+    }
+    const event: PluginProjectContextChangeEvent = {
+      previous: cloneProjectContext(this.projectContext),
+      current: cloneProjectContext(context),
+    };
+    this.projectContext = cloneProjectContext(context);
+    for (const runtime of this.runtimes.values()) {
+      if (
+        (runtime.phase === "activating" || runtime.phase === "active") &&
+        runtime.permissions.has("project-context")
+      ) {
+        runtime.port.postMessage({ type: "project-context-change", event });
+      }
+    }
+  }
+
   invalidateActionLeases(): void {
     for (const runtime of this.runtimes.values()) {
       runtime.activeActions.clear();
@@ -299,7 +324,14 @@ export class PluginWorkerRuntime {
         ACTIVATION_TIMEOUT_MS,
       );
       runtime.phase = "activating";
-      runtime.port.postMessage({ type: "activate" });
+      runtime.port.postMessage(
+        runtime.permissions.has("project-context")
+          ? {
+              type: "activate",
+              projectContext: cloneProjectContext(this.projectContext),
+            }
+          : { type: "activate" },
+      );
       await activated;
       this.assertCurrent(pluginId, generation);
       runtime.activated = true;
@@ -741,4 +773,43 @@ function dataModuleUrl(source: string): string {
     binary += String.fromCharCode(byte);
   }
   return `data:text/javascript;base64,${btoa(binary)}`;
+}
+
+function cloneProjectContext(
+  context: PluginProjectContext | null,
+): PluginProjectContext | null {
+  return context
+    ? { projectId: context.projectId, rootPath: context.rootPath }
+    : null;
+}
+
+function sameProjectContext(
+  left: PluginProjectContext | null,
+  right: PluginProjectContext | null,
+): boolean {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.projectId === right.projectId &&
+      left.rootPath === right.rootPath)
+  );
+}
+
+function validateProjectContext(context: PluginProjectContext | null): void {
+  if (context === null) {
+    return;
+  }
+  if (
+    typeof context.projectId !== "string" ||
+    context.projectId.length === 0 ||
+    typeof context.rootPath !== "string" ||
+    context.rootPath.includes("\0") ||
+    context.rootPath.startsWith("/") ||
+    context.rootPath.startsWith("\\") ||
+    /^[A-Za-z]:[\\/]/.test(context.rootPath) ||
+    context.rootPath.split(/[\\/]/).some((segment) => segment === "..")
+  ) {
+    throw new Error("Plugin project context must use a vault-relative root path.");
+  }
 }

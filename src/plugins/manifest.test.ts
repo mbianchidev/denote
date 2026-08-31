@@ -80,6 +80,29 @@ describe("plugin manifest validation", () => {
     );
   });
 
+  it("accepts project context as an unconstrained API v1 capability", () => {
+    expect(
+      validatePluginManifest({
+        ...referenceManifestJson,
+        permissions: [{ capability: "project-context" }],
+      }),
+    ).toMatchObject({ valid: true, errors: [] });
+
+    const constrained = validatePluginManifest({
+      ...referenceManifestJson,
+      permissions: [
+        {
+          capability: "project-context",
+          hosts: ["projects.example"],
+        },
+      ],
+    });
+    expect(constrained.valid).toBe(false);
+    expect(constrained.errors).toContain(
+      "permissions[0].hosts is only valid for network permission.",
+    );
+  });
+
   it("validates catalog artifact integrity metadata", () => {
     const result = validatePluginCatalogEntry({
       manifest: referenceManifestJson,

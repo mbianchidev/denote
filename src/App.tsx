@@ -749,7 +749,17 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
-  const pluginController = usePlugins(showError);
+  const pluginProjectContext = useMemo(
+    () =>
+      activeProject
+        ? {
+            projectId: activeProject.id,
+            rootPath: activeProject.rootPath,
+          }
+        : null,
+    [activeProject?.id, activeProject?.rootPath],
+  );
+  const pluginController = usePlugins(showError, pluginProjectContext);
   const pluginDecorationKey = pluginController.decorations
     .map(
       (decoration) =>

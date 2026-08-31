@@ -26,6 +26,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   status: "Add status bar items",
   "editor-decoration": "Decorate editor content",
   "note-events": "Observe note lifecycle events",
+  "project-context": "Observe the focused project root",
   "workspace-read": "Read vault content",
   "workspace-write": "Change vault content after an explicit action",
   network: "Connect to declared network hosts",

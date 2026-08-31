@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
-import type { PluginPermissionRequest } from "@denote/plugin-sdk";
-import type { PluginNoteEvent } from "@denote/plugin-sdk";
+import type {
+  PluginNoteEvent,
+  PluginPermissionRequest,
+  PluginProjectContext,
+} from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
   type PluginCommandContribution,
@@ -49,6 +52,7 @@ export interface PluginController {
 
 export function usePlugins(
   reportError: (error: unknown) => void,
+  projectContext: PluginProjectContext | null = null,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [commands, setCommands] = useState<PluginCommandContribution[]>([]);
@@ -99,6 +103,7 @@ export function usePlugins(
       setStatusItems,
       setDecorations,
     );
+    runtime.setProjectContext(projectContext);
     runtimeRef.current = runtime;
     void api
       .recoverPluginTransactions()
@@ -146,6 +151,10 @@ export function usePlugins(
         .catch(reportError);
     };
   }, [refresh, reportError]);
+
+  useEffect(() => {
+    runtimeRef.current?.setProjectContext(projectContext);
+  }, [projectContext]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {

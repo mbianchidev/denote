@@ -1,7 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import catalogJson from "../../packages/plugins/catalog.json";
-import { assertValidPluginCatalogEntry } from "@denote/plugin-sdk";
+import {
+  assertValidPluginCatalogEntry,
+  type PluginProjectContext,
+} from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
@@ -14,6 +17,7 @@ interface MockRuntimeInstance {
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
+  setProjectContext: ReturnType<typeof vi.fn>;
   invalidateActionLeases: ReturnType<typeof vi.fn>;
 }
 
@@ -53,6 +57,7 @@ vi.mock("./workerRuntime", () => {
     isRunning = vi.fn(() => true);
     runCommand = vi.fn(async () => {});
     broadcastNoteEvent = vi.fn();
+    setProjectContext = vi.fn();
     invalidateActionLeases = vi.fn();
 
     constructor(
@@ -108,11 +113,21 @@ function queueRecoverTransactions() {
  * afterward. The startup effect unconditionally calls `api.listPlugins`
  * twice: once for the initial catalog fetch and once after the restore loop.
  */
-async function mountReady(initialPlugins: PluginView[]) {
+async function mountReady(
+  initialPlugins: PluginView[],
+  projectContext: PluginProjectContext | null = null,
+) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
   queueListPlugins(initialPlugins);
-  const rendered = renderHook(() => usePlugins(reportError));
+  const rendered = renderHook(
+    ({
+      currentProjectContext,
+    }: {
+      currentProjectContext: PluginProjectContext | null;
+    }) => usePlugins(reportError, currentProjectContext),
+    { initialProps: { currentProjectContext: projectContext } },
+  );
   await waitFor(() => expect(rendered.result.current.loading).toBe(false));
   callOrder.length = 0;
   vi.mocked(api.recoverPluginTransactions).mockClear();
@@ -293,5 +308,29 @@ describe("usePlugins", () => {
         title: "Plugin host: verify keychain isolation",
       },
     ]);
+  });
+
+  it("provides the current project before startup and forwards later changes", async () => {
+    const initial = {
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    };
+    const rendered = await mountReady([makePlugin({ enabled: true })], initial);
+
+    expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(initial);
+
+    const next = {
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    };
+    rendered.rerender({ currentProjectContext: next });
+    await waitFor(() => {
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(next);
+    });
+
+    rendered.rerender({ currentProjectContext: null });
+    await waitFor(() => {
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(null);
+    });
   });
 });

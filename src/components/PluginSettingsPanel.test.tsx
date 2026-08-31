@@ -87,6 +87,39 @@ describe("PluginSettingsPanel", () => {
     ]);
   });
 
+  it("describes and approves focused project context access", async () => {
+    const user = userEvent.setup();
+    const onEnable = vi.fn().mockResolvedValue(undefined);
+    const projectContextCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        permissions: [{ capability: "project-context" } as const],
+      },
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [plugin({ catalog: projectContextCatalog })],
+          onEnable,
+        })}
+      />,
+    );
+
+    await user.click(screen.getByText("Permissions and guide"));
+    expect(
+      screen.getByText("Observe the focused project root"),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Enable" }));
+    await user.click(
+      screen.getByRole("button", { name: "Approve and enable" }),
+    );
+
+    expect(onEnable).toHaveBeenCalledWith("denote.reference", [
+      { capability: "project-context" },
+    ]);
+  });
+
   it("offers package disable and explicit data cleanup", async () => {
     const user = userEvent.setup();
     const onDisable = vi.fn().mockResolvedValue(undefined);

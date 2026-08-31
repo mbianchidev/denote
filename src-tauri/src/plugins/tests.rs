@@ -469,6 +469,30 @@ fn catalog_rejects_mismatched_provenance() {
 }
 
 #[test]
+fn catalog_accepts_unconstrained_project_context_capability() {
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "project-context".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::new(),
+    });
+
+    assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
+fn catalog_rejects_project_context_constraints() {
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "project-context".to_string(),
+        hosts: vec!["projects.example".to_string()],
+        executables: BTreeMap::new(),
+    });
+
+    assert!(validate_catalog(&[catalog]).is_err());
+}
+
+#[test]
 fn removed_catalog_entries_drop_namespaced_state() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
