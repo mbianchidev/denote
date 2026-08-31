@@ -1572,6 +1572,14 @@ button.tag-chip:active,
   white-space: nowrap;
 }
 
+.status-bar__project {
+  max-width: 22%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .status-bar [data-save-state="error"] {
   color: var(--danger);
 }

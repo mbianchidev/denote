@@ -31,6 +31,30 @@ export function closestAvailableProjectRoot(
   return closest;
 }
 
+export function projectRootAtPath(
+  projectRoots: ProjectRoot[],
+  path: string,
+): ProjectRoot | null {
+  return projectRoots.find((projectRoot) => projectRoot.rootPath === path) ?? null;
+}
+
+export function projectRootLabel(projectRoot: ProjectRoot): string {
+  if (projectRoot.rootPath === "") {
+    return "Vault root";
+  }
+  const segments = projectRoot.rootPath.split("/");
+  return segments[segments.length - 1] ?? projectRoot.rootPath;
+}
+
+export function removeProjectRootsAtOrBelow(
+  projectRoots: ProjectRoot[],
+  path: string,
+): ProjectRoot[] {
+  return projectRoots.filter(
+    (projectRoot) => !workspacePathMatches(projectRoot.rootPath, path),
+  );
+}
+
 export function removeWorkspacePath(
   nodes: FileNode[],
   path: string,

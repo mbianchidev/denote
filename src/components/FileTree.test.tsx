@@ -186,6 +186,93 @@ describe("FileTree", () => {
     expect(onDelete).toHaveBeenCalledWith(node);
   });
 
+  it("toggles exact folder and vault project roots without offering file toggles", async () => {
+    const user = userEvent.setup();
+    const onMarkProject = vi.fn();
+    const onUnmarkProject = vi.fn();
+    const folder = {
+      path: "code",
+      name: "code",
+      kind: "folder" as const,
+      children: [],
+      size: 0,
+      modifiedAt: null,
+      bookmarked: false,
+      pinned: false,
+    };
+    const file = {
+      path: "note.md",
+      name: "note.md",
+      kind: "markdown" as const,
+      children: [],
+      size: 4,
+      modifiedAt: null,
+      bookmarked: false,
+      pinned: false,
+    };
+    const vaultRoot = { id: "vault", rootPath: "", available: true };
+    const props = {
+      nodes: [folder, file],
+      selectedPath: null,
+      expandedPaths: new Set<string>(),
+      onSelect: vi.fn(),
+      onToggleFolder: vi.fn(),
+      onCreate: vi.fn(),
+      onRename: vi.fn(),
+      onDelete: vi.fn(),
+      onMove: vi.fn(),
+      onRequestMove: vi.fn(),
+      projectRoots: [vaultRoot],
+      onMarkProject,
+      onUnmarkProject,
+    };
+    const { rerender } = render(<FileTree {...props} />);
+
+    const folderRow = screen.getByRole("button", { name: /code/i });
+    folderRow.focus();
+    fireEvent.keyDown(folderRow, { key: "F10", shiftKey: true });
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Mark as project" }),
+    );
+    expect(onMarkProject).toHaveBeenCalledWith("code");
+    expect(folderRow).toHaveFocus();
+
+    rerender(
+      <FileTree
+        {...props}
+        projectRoots={[
+          vaultRoot,
+          { id: "code", rootPath: "code", available: true },
+        ]}
+      />,
+    );
+    fireEvent.contextMenu(screen.getByRole("button", { name: /code/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Unmark project" }),
+    );
+    expect(onUnmarkProject).toHaveBeenCalledWith({
+      id: "code",
+      rootPath: "code",
+      available: true,
+    });
+
+    rerender(<FileTree {...props} />);
+    fireEvent.contextMenu(screen.getByLabelText("Vault files"), {
+      clientX: 3,
+      clientY: 3,
+    });
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Unmark project" }),
+    );
+    expect(onUnmarkProject).toHaveBeenCalledWith(vaultRoot);
+
+    rerender(<FileTree {...props} />);
+    fireEvent.contextMenu(screen.getByRole("button", { name: /note\.md/i }));
+    expect(
+      screen.queryByRole("menuitem", { name: /mark.*project/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("offers the complete file action menu", async () => {
     const user = userEvent.setup();
     const node = {

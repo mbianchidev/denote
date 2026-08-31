@@ -5,9 +5,11 @@ import {
   FilePlus2,
   FileText,
   Folder,
+  FolderCheck,
   FolderInput,
   FolderPlus,
   FolderOpen,
+  FolderX,
   Pencil,
   Pin,
   Trash2,
@@ -23,15 +25,16 @@ import {
   type PointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import type { FileNode } from "../types";
+import type { FileNode, ProjectRoot } from "../types";
+import { projectRootAtPath } from "../lib/workspaceTree";
 import {
   FileActionMenuItems,
   type FileActionHandlers,
 } from "./FileActionsMenu";
 
 const CONTEXT_MENU_WIDTH = 184;
-const CONTEXT_MENU_COMPACT_HEIGHT = 92;
-const CONTEXT_MENU_ENTRY_HEIGHT = 502;
+const CONTEXT_MENU_COMPACT_HEIGHT = 132;
+const CONTEXT_MENU_ENTRY_HEIGHT = 542;
 
 interface FileTreeProps {
   nodes: FileNode[];
@@ -45,6 +48,9 @@ interface FileTreeProps {
   onMove: (node: FileNode, targetParentPath: string) => void;
   onRequestMove: (node: FileNode) => void;
   fileActions?: FileActionHandlers;
+  projectRoots?: ProjectRoot[];
+  onMarkProject?: (path: string) => void;
+  onUnmarkProject?: (projectRoot: ProjectRoot) => void;
 }
 
 export function FileTree({
@@ -59,6 +65,9 @@ export function FileTree({
   onMove,
   onRequestMove,
   fileActions,
+  projectRoots = [],
+  onMarkProject,
+  onUnmarkProject,
 }: FileTreeProps) {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -78,6 +87,16 @@ export function FileTree({
   const suppressClickPath = useRef<string | null>(null);
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const contextProjectPath =
+    contextMenu?.node?.kind === "folder"
+      ? contextMenu.node.path
+      : contextMenu?.node === null
+        ? ""
+        : null;
+  const contextProjectRoot =
+    contextProjectPath === null
+      ? null
+      : projectRootAtPath(projectRoots, contextProjectPath);
 
   const closeContextMenu = (restoreFocus: boolean) => {
     setContextMenu(null);
@@ -314,6 +333,32 @@ export function FileTree({
                 <FolderPlus aria-hidden="true" size={15} />
                 New folder
               </button>
+              {contextProjectPath !== null &&
+              onMarkProject &&
+              onUnmarkProject ? (
+                <>
+                  <div className="file-tree-context-menu__separator" role="separator" />
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      closeContextMenu(true);
+                      if (contextProjectRoot) {
+                        onUnmarkProject(contextProjectRoot);
+                      } else {
+                        onMarkProject(contextProjectPath);
+                      }
+                    }}
+                  >
+                    {contextProjectRoot ? (
+                      <FolderX aria-hidden="true" size={15} />
+                    ) : (
+                      <FolderCheck aria-hidden="true" size={15} />
+                    )}
+                    {contextProjectRoot ? "Unmark project" : "Mark as project"}
+                  </button>
+                </>
+              ) : null}
               {contextMenu.node ? (
                 <>
                   <div className="file-tree-context-menu__separator" role="separator" />

@@ -3,6 +3,9 @@ import type { FileNode } from "../types";
 import {
   closestAvailableProjectRoot,
   insertWorkspaceNode,
+  projectRootAtPath,
+  projectRootLabel,
+  removeProjectRootsAtOrBelow,
   removeWorkspacePath,
   workspaceAncestorPaths,
   workspaceFolderPaths,
@@ -92,6 +95,34 @@ describe("workspace tree mutations", () => {
         )?.id,
       ).toBe("first");
     });
+  });
+
+  it("finds exact project roots and labels them for display", () => {
+    const projectRoots = [
+      { id: "vault", rootPath: "", available: true },
+      { id: "nested", rootPath: "code/packages/ui", available: true },
+    ];
+
+    expect(projectRootAtPath(projectRoots, "code")).toBeNull();
+    expect(projectRootAtPath(projectRoots, "code/packages/ui")).toEqual(
+      projectRoots[1],
+    );
+    expect(projectRootLabel(projectRoots[0])).toBe("Vault root");
+    expect(projectRootLabel(projectRoots[1])).toBe("ui");
+  });
+
+  it("removes project roots at or below a trashed path", () => {
+    const projectRoots = [
+      { id: "vault", rootPath: "", available: true },
+      { id: "code", rootPath: "code", available: true },
+      { id: "ui", rootPath: "code/packages/ui", available: false },
+      { id: "similar", rootPath: "code-old", available: true },
+    ];
+
+    expect(removeProjectRootsAtOrBelow(projectRoots, "code")).toEqual([
+      projectRoots[0],
+      projectRoots[3],
+    ]);
   });
 
   it("inserts entries and synthesizes missing parent folders", () => {
