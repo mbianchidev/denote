@@ -2694,6 +2694,11 @@ kbd {
   gap: 12px;
 }
 
+.plugin-settings__header .secondary-button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .plugin-settings__header p {
   margin-top: 4px;
   color: var(--text-secondary);
