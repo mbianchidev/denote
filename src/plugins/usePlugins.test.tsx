@@ -7,6 +7,7 @@ import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
 
 interface MockRuntimeInstance {
+  onCommandsChanged: unknown;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
@@ -267,5 +268,30 @@ describe("usePlugins", () => {
     expect(callOrder).toEqual(["stopAll", "recoverPluginTransactions"]);
     expect(runtimeInstances[0].stopAll).toHaveBeenCalledTimes(1);
     expect(api.recoverPluginTransactions).toHaveBeenCalledTimes(1);
+  });
+
+  it("publishes command contributions from the active runtime", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const publishCommands = runtimeInstances[0].onCommandsChanged as (
+      commands: Array<{ pluginId: string; id: string; title: string }>,
+    ) => void;
+
+    act(() => {
+      publishCommands([
+        {
+          pluginId,
+          id: "denote.reference.verify-keychain",
+          title: "Plugin host: verify keychain isolation",
+        },
+      ]);
+    });
+
+    expect(result.current.commands).toEqual([
+      {
+        pluginId,
+        id: "denote.reference.verify-keychain",
+        title: "Plugin host: verify keychain isolation",
+      },
+    ]);
   });
 });
