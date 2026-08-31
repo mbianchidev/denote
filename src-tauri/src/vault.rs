@@ -19,11 +19,12 @@ use walkdir::WalkDir;
 use crate::{
     crypto, db,
     error::{AppError, AppResult},
+    gitignore,
     models::{
-        DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
-        KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES, MarkdownViewMode,
-        NoteDocument, ProjectConfiguration, ProjectRoot, ProjectWorkspace, SaveOutcome,
-        SearchDocument, TabGroup, TabSessionState, TabSessionTab, TagColor, TrashItem,
+        DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, GitignoreStatusUpdate,
+        HistoryRevision, KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES,
+        MarkdownViewMode, NoteDocument, ProjectConfiguration, ProjectRoot, ProjectWorkspace,
+        SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab, TagColor, TrashItem,
         WelcomePagePreference, WorkspaceSnapshot,
     },
 };
@@ -1098,6 +1099,48 @@ pub fn refresh_project_configuration(
     project_configuration(&connection, vault_id, &root)
 }
 
+pub fn refresh_gitignore_status(
+    db_path: &Path,
+    vault_path: &str,
+    scope_paths: Vec<String>,
+) -> AppResult<GitignoreStatusUpdate> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let scope_paths = gitignore::normalize_scope_paths(scope_paths)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let tree = match db::workspace_tree_cache(&connection, vault_id) {
+        Ok(Some(tree)) => tree,
+        Ok(None) => {
+            return Ok(GitignoreStatusUpdate {
+                scope_paths,
+                ignored_paths: Vec::new(),
+                complete: false,
+            });
+        }
+        Err(error) => {
+            eprintln!("Unable to read the vault tree cache for .gitignore refresh: {error}");
+            return Ok(GitignoreStatusUpdate {
+                scope_paths,
+                ignored_paths: Vec::new(),
+                complete: false,
+            });
+        }
+    };
+    let configuration = project_configuration(&connection, vault_id, &root)?;
+    let ignored_paths = gitignore::ignored_paths_in_scopes(
+        &root,
+        &tree,
+        &configuration.project_roots,
+        &scope_paths,
+    );
+    Ok(GitignoreStatusUpdate {
+        scope_paths,
+        ignored_paths,
+        complete: true,
+    })
+}
+
 pub(crate) fn resolve_project_root(
     db_path: &Path,
     vault_path: &str,
@@ -1782,6 +1825,7 @@ fn snapshot_with_tree(
         eprintln!("Unable to refresh project workspace children for snapshot: {error}");
     }
     let project_configuration = project_configuration(connection, vault_id, root)?;
+    let ignored_paths = gitignore::ignored_paths(root, &tree, &project_configuration.project_roots);
     Ok(WorkspaceSnapshot {
         vault_path,
         vault_name,
@@ -1798,6 +1842,7 @@ fn snapshot_with_tree(
         project_roots: project_configuration.project_roots,
         project_workspaces: project_configuration.project_workspaces,
         suggest_git_project: project_configuration.suggest_git_project,
+        ignored_paths,
         from_cache,
         encryption: Default::default(),
     })
@@ -4132,6 +4177,96 @@ mod tests {
             open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("updated cache");
         assert!(updated.from_cache);
         assert!(updated.tree.iter().any(|node| node.name == "two.md"));
+    }
+
+    #[test]
+    fn fresh_and_cached_snapshots_recompute_live_gitignore_without_removing_tree_nodes() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("app")).expect("project directory");
+        fs::write(vault_path.join("app/ignored.tmp"), "temporary").expect("temporary file");
+        fs::write(vault_path.join("app/kept.txt"), "kept").expect("kept file");
+        fs::write(vault_path.join("app/.gitignore"), "*.tmp\n").expect("ignore");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "app").expect("project root");
+
+        let fresh = open_vault(&db_path, vault_path.to_str().unwrap()).expect("fresh snapshot");
+        assert_eq!(fresh.ignored_paths, vec!["app/ignored.tmp"]);
+        let fresh_app = fresh
+            .tree
+            .iter()
+            .find(|node| node.path == "app")
+            .expect("app tree node");
+        assert_eq!(fresh_app.children.len(), 3);
+
+        fs::write(vault_path.join("app/.gitignore"), "*.txt\n").expect("edit ignore");
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached snapshot");
+
+        assert!(cached.from_cache);
+        assert_eq!(cached.ignored_paths, vec!["app/kept.txt"]);
+        let cached_app = cached
+            .tree
+            .iter()
+            .find(|node| node.path == "app")
+            .expect("cached app tree node");
+        assert_eq!(cached_app.children.len(), 3);
+        assert!(
+            cached_app
+                .children
+                .iter()
+                .any(|node| node.path == "app/ignored.tmp")
+        );
+        assert!(
+            cached_app
+                .children
+                .iter()
+                .any(|node| node.path == "app/kept.txt")
+        );
+    }
+
+    #[test]
+    fn gitignore_refresh_is_scoped_and_reports_an_unavailable_cache() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("app/deep")).expect("project directory");
+        fs::write(vault_path.join("app/top.tmp"), "top").expect("top file");
+        fs::write(vault_path.join("app/deep/nested.tmp"), "nested").expect("nested file");
+        fs::write(vault_path.join("app/.gitignore"), "*.tmp\n").expect("ignore");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "app").expect("project root");
+
+        let unavailable = refresh_gitignore_status(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            vec!["app/deep".to_string()],
+        )
+        .expect("unavailable cache response");
+        assert_eq!(unavailable.scope_paths, vec!["app/deep"]);
+        assert!(unavailable.ignored_paths.is_empty());
+        assert!(!unavailable.complete);
+
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("populate cache");
+        let scoped = refresh_gitignore_status(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            vec!["app/deep".to_string()],
+        )
+        .expect("scoped response");
+        assert_eq!(scoped.scope_paths, vec!["app/deep"]);
+        assert_eq!(scoped.ignored_paths, vec!["app/deep/nested.tmp"]);
+        assert!(scoped.complete);
+
+        let whole = refresh_gitignore_status(&db_path, vault_path.to_str().unwrap(), Vec::new())
+            .expect("whole response");
+        assert!(whole.scope_paths.is_empty());
+        assert_eq!(
+            whole.ignored_paths,
+            vec!["app/deep/nested.tmp", "app/top.tmp"]
+        );
+        assert!(whole.complete);
     }
 
     #[test]

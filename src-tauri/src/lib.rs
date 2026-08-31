@@ -3,6 +3,7 @@ mod crypto;
 mod db;
 mod default_vault;
 mod error;
+mod gitignore;
 mod models;
 mod plugins;
 mod vault;
@@ -311,6 +312,7 @@ pub fn run() {
             commands::unmark_project_workspace,
             commands::dismiss_git_project_suggestion,
             commands::refresh_project_configuration,
+            commands::refresh_gitignore_status,
             commands::save_tab_session,
             commands::list_history,
             commands::restore_revision,

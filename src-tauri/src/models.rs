@@ -298,6 +298,14 @@ pub struct ProjectConfiguration {
     pub suggest_git_project: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitignoreStatusUpdate {
+    pub scope_paths: Vec<String>,
+    pub ignored_paths: Vec<String>,
+    pub complete: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
@@ -316,6 +324,7 @@ pub struct WorkspaceSnapshot {
     pub project_roots: Vec<ProjectRoot>,
     pub project_workspaces: Vec<ProjectWorkspace>,
     pub suggest_git_project: bool,
+    pub ignored_paths: Vec<String>,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }

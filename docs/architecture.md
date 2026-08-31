@@ -41,9 +41,11 @@ path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
 Project-configuration IPC carries the originating snapshot's vault path only as
-an identity guard. Rust acquires the workspace write guard, compares that value
-to the current active vault, and rejects stale queued requests before using the
-active vault as the operation root.
+an identity guard. Rust compares that value to the current active vault and
+rejects stale queued requests before using the active vault as the operation
+root. Project/workspace mutations hold the workspace write guard; read-only
+`.gitignore` status refreshes hold the shared read guard so they may run
+concurrently without racing a vault switch or mutation.
 
 Explicit project roots and workspace roots are independent operational path
 metadata in the application-data SQLite database, never files or markers inside

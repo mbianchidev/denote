@@ -164,6 +164,12 @@ export interface ProjectConfiguration {
   suggestGitProject: boolean;
 }
 
+export interface GitignoreStatusUpdate {
+  scopePaths: string[];
+  ignoredPaths: string[];
+  complete: boolean;
+}
+
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
@@ -180,6 +186,7 @@ export interface WorkspaceSnapshot {
   projectRoots: ProjectRoot[];
   projectWorkspaces: ProjectWorkspace[];
   suggestGitProject: boolean;
+  ignoredPaths: string[];
   fromCache: boolean;
   encryption: EncryptionStatus;
 }

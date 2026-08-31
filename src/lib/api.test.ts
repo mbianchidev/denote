@@ -23,6 +23,7 @@ describe("project configuration API", () => {
     await api.unmarkProjectWorkspace(vaultPath, "workspace-id");
     await api.dismissGitProjectSuggestion(vaultPath);
     await api.refreshProjectConfiguration(vaultPath);
+    await api.refreshGitignoreStatus(vaultPath, ["app", "packages/ui"]);
 
     expect(invoke.mock.calls).toEqual([
       [
@@ -46,6 +47,13 @@ describe("project configuration API", () => {
       ],
       ["dismiss_git_project_suggestion", { expectedVaultPath: vaultPath }],
       ["refresh_project_configuration", { expectedVaultPath: vaultPath }],
+      [
+        "refresh_gitignore_status",
+        {
+          expectedVaultPath: vaultPath,
+          scopePaths: ["app", "packages/ui"],
+        },
+      ],
     ]);
   });
 });

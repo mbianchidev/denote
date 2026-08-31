@@ -4,6 +4,7 @@ import type {
   FileEncoding,
   FileNode,
   FileLineEnding,
+  GitignoreStatusUpdate,
   DocumentBatch,
   EncryptionSetupResult,
   KnownVault,
@@ -75,6 +76,14 @@ export const api = {
   refreshProjectConfiguration: (expectedVaultPath: string) =>
     invoke<ProjectConfiguration>("refresh_project_configuration", {
       expectedVaultPath,
+    }),
+  refreshGitignoreStatus: (
+    expectedVaultPath: string,
+    scopePaths: string[],
+  ) =>
+    invoke<GitignoreStatusUpdate>("refresh_gitignore_status", {
+      expectedVaultPath,
+      scopePaths,
     }),
   enableVaultEncryption: (password: string) =>
     invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),

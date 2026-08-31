@@ -132,6 +132,7 @@ function workspaceSnapshot(tree: FileNode[]): WorkspaceSnapshot {
     projectRoots: [],
     projectWorkspaces: [],
     suggestGitProject: false,
+    ignoredPaths: [],
     fromCache: false,
     encryption: {
       enabled: false,
