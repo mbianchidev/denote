@@ -3958,6 +3958,115 @@ mod tests {
     }
 
     #[test]
+    fn rename_and_move_rekey_nested_project_roots_with_stable_ids() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("workspace/app")).expect("project folders");
+        fs::create_dir_all(vault_path.join("workspace-old")).expect("sibling project");
+        fs::create_dir_all(vault_path.join("destination")).expect("move destination");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("workspace root");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "workspace/app")
+            .expect("nested root");
+        let initial = mark_project_root(&db_path, vault_path.to_str().unwrap(), "workspace-old")
+            .expect("sibling root");
+        let workspace_id = initial
+            .iter()
+            .find(|root| root.root_path == "workspace")
+            .expect("workspace root")
+            .id
+            .clone();
+        let nested_id = initial
+            .iter()
+            .find(|root| root.root_path == "workspace/app")
+            .expect("nested root")
+            .id
+            .clone();
+        let sibling_id = initial
+            .iter()
+            .find(|root| root.root_path == "workspace-old")
+            .expect("sibling root")
+            .id
+            .clone();
+
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "workspace",
+            "renamed",
+        )
+        .expect("rename project");
+        let connection = db::open(&db_path).expect("database opened");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        let renamed = db::list_project_roots(&connection, vault_id).expect("renamed roots");
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == workspace_id)
+                .expect("renamed workspace")
+                .root_path,
+            "renamed"
+        );
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == nested_id)
+                .expect("renamed nested root")
+                .root_path,
+            "renamed/app"
+        );
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == sibling_id)
+                .expect("unrelated sibling")
+                .root_path,
+            "workspace-old"
+        );
+
+        assert_eq!(
+            move_entry(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "renamed",
+                "destination",
+            )
+            .expect("move project"),
+            "destination/renamed"
+        );
+        let moved = db::list_project_roots(&connection, vault_id).expect("moved roots");
+        assert_eq!(
+            moved
+                .iter()
+                .find(|root| root.id == workspace_id)
+                .expect("moved workspace")
+                .root_path,
+            "destination/renamed"
+        );
+        assert_eq!(
+            moved
+                .iter()
+                .find(|root| root.id == nested_id)
+                .expect("moved nested root")
+                .root_path,
+            "destination/renamed/app"
+        );
+        assert_eq!(
+            moved
+                .iter()
+                .find(|root| root.id == sibling_id)
+                .expect("unrelated sibling")
+                .root_path,
+            "workspace-old"
+        );
+    }
+
+    #[test]
     fn stages_current_editor_content_as_a_clipboard_file() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -4188,6 +4297,134 @@ mod tests {
     }
 
     #[test]
+    fn trash_clears_project_roots_below_the_entry_without_restoring_them() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("parent/project/nested")).expect("project folders");
+        fs::create_dir_all(vault_path.join("parent/project-old")).expect("sibling project");
+        fs::create_dir_all(vault_path.join("parent/note.md-project")).expect("file-prefix sibling");
+        fs::write(vault_path.join("parent/note.md"), "synthetic note").expect("synthetic file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        for root_path in [
+            "",
+            "parent",
+            "parent/project",
+            "parent/project/nested",
+            "parent/project-old",
+            "parent/note.md-project",
+        ] {
+            mark_project_root(&db_path, vault_path.to_str().unwrap(), root_path)
+                .expect("mark project root");
+        }
+        let connection = db::open(&db_path).expect("database opened");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        let initial = db::list_project_roots(&connection, vault_id).expect("initial roots");
+        let whole_vault_id = initial
+            .iter()
+            .find(|root| root.root_path.is_empty())
+            .expect("whole-vault root")
+            .id
+            .clone();
+        let parent_id = initial
+            .iter()
+            .find(|root| root.root_path == "parent")
+            .expect("parent root")
+            .id
+            .clone();
+        let sibling_id = initial
+            .iter()
+            .find(|root| root.root_path == "parent/project-old")
+            .expect("sibling root")
+            .id
+            .clone();
+        let file_prefix_sibling_id = initial
+            .iter()
+            .find(|root| root.root_path == "parent/note.md-project")
+            .expect("file-prefix sibling root")
+            .id
+            .clone();
+
+        let trashed_file = trash_entry(&db_path, vault_path.to_str().unwrap(), "parent/note.md")
+            .expect("trash file");
+        assert_eq!(
+            db::list_project_roots(&connection, vault_id)
+                .expect("roots after file trash")
+                .len(),
+            initial.len()
+        );
+        restore_trash_item(&db_path, vault_path.to_str().unwrap(), trashed_file.id)
+            .expect("restore file");
+
+        let trashed_project = trash_entry(&db_path, vault_path.to_str().unwrap(), "parent/project")
+            .expect("trash project");
+        let remaining =
+            db::list_project_roots(&connection, vault_id).expect("roots after project trash");
+        assert_eq!(remaining.len(), 4);
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == whole_vault_id)
+                .expect("whole-vault root")
+                .root_path,
+            ""
+        );
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == parent_id)
+                .expect("ancestor root")
+                .root_path,
+            "parent"
+        );
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == sibling_id)
+                .expect("sibling root")
+                .root_path,
+            "parent/project-old"
+        );
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == file_prefix_sibling_id)
+                .expect("file-prefix sibling root")
+                .root_path,
+            "parent/note.md-project"
+        );
+        assert!(
+            remaining
+                .iter()
+                .all(|root| !root.root_path.starts_with(".denote/trash"))
+        );
+
+        restore_trash_item(&db_path, vault_path.to_str().unwrap(), trashed_project.id)
+            .expect("restore project");
+        let after_restore =
+            db::list_project_roots(&connection, vault_id).expect("roots after restore");
+        assert_eq!(after_restore.len(), remaining.len());
+        for (id, path) in [
+            (&whole_vault_id, ""),
+            (&parent_id, "parent"),
+            (&sibling_id, "parent/project-old"),
+            (&file_prefix_sibling_id, "parent/note.md-project"),
+        ] {
+            assert_eq!(
+                after_restore
+                    .iter()
+                    .find(|root| &root.id == id)
+                    .expect("preserved root")
+                    .root_path,
+                path
+            );
+        }
+    }
+
+    #[test]
     fn trashed_note_metadata_does_not_leak_to_replacement_file() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -4326,6 +4563,105 @@ mod tests {
             read_note(&db_path, vault_path.to_str().unwrap(), "new.md").expect("new note");
         assert_eq!(new_document.stats.open_count, 2);
         let connection = db::open(&db_path).expect("database reopened");
+        assert!(
+            db::pending_file_operations(&connection, vault_id)
+                .expect("pending operations")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn reconciles_project_roots_after_interrupted_directory_operations() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("old/nested")).expect("project folders");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "").expect("whole-vault root");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "old").expect("project root");
+        let initial = mark_project_root(&db_path, vault_path.to_str().unwrap(), "old/nested")
+            .expect("nested root");
+        let whole_vault_id = initial
+            .iter()
+            .find(|root| root.root_path.is_empty())
+            .expect("whole-vault root")
+            .id
+            .clone();
+        let project_id = initial
+            .iter()
+            .find(|root| root.root_path == "old")
+            .expect("project root")
+            .id
+            .clone();
+        let nested_id = initial
+            .iter()
+            .find(|root| root.root_path == "old/nested")
+            .expect("nested root")
+            .id
+            .clone();
+
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let connection = db::open(&db_path).expect("database opened");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        db::begin_file_operation(&connection, vault_id, "rename", "old", "new", None, true)
+            .expect("rename journal");
+        fs::rename(vault_path.join("old"), vault_path.join("new")).expect("rename directory");
+
+        refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("reconcile rename");
+        let renamed = db::list_project_roots(&connection, vault_id).expect("renamed roots");
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == project_id)
+                .expect("renamed project")
+                .root_path,
+            "new"
+        );
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == nested_id)
+                .expect("renamed nested root")
+                .root_path,
+            "new/nested"
+        );
+
+        let trash_relative = ".denote/trash/recovery-operation/new";
+        fs::create_dir_all(vault_path.join(".denote/trash/recovery-operation"))
+            .expect("trash directory");
+        db::begin_file_operation(
+            &connection,
+            vault_id,
+            "trash",
+            "new",
+            trash_relative,
+            None,
+            true,
+        )
+        .expect("trash journal");
+        fs::rename(vault_path.join("new"), vault_path.join(trash_relative))
+            .expect("trash directory");
+
+        let recovered =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("reconcile trash");
+        let remaining =
+            db::list_project_roots(&connection, vault_id).expect("roots after recovered trash");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, whole_vault_id);
+        assert!(remaining[0].root_path.is_empty());
+        assert_eq!(recovered.trash.len(), 1);
+        restore_trash_item(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            recovered.trash[0].id,
+        )
+        .expect("restore recovered project");
+        let restored =
+            db::list_project_roots(&connection, vault_id).expect("roots after recovered restore");
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].id, whole_vault_id);
+        assert!(restored[0].root_path.is_empty());
         assert!(
             db::pending_file_operations(&connection, vault_id)
                 .expect("pending operations")

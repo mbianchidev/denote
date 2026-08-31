@@ -1413,6 +1413,7 @@ pub fn trash_metadata(
         ],
     )?;
     clear_welcome_page_for_path_tx(&transaction, vault_id, original_path)?;
+    delete_project_roots_for_path_tx(&transaction, vault_id, original_path)?;
     rekey_content_metadata_tx(&transaction, vault_id, original_path, trash_path)?;
     finish_file_operation_tx(&transaction, operation_id)?;
     let item_id = transaction.last_insert_rowid();
@@ -1547,11 +1548,60 @@ fn rename_metadata_tx(
 ) -> AppResult<()> {
     delete_content_metadata_tx(transaction, vault_id, new_path)?;
     rekey_content_metadata_tx(transaction, vault_id, old_path, new_path)?;
+    if is_directory && !is_denote_trash_path(new_path) {
+        delete_project_roots_for_path_tx(transaction, vault_id, new_path)?;
+        rekey_project_roots_tx(transaction, vault_id, old_path, new_path)?;
+    }
     if is_directory || is_markdown_path(new_path) {
         rekey_welcome_page_path_tx(transaction, vault_id, old_path, new_path)?;
     } else {
         clear_welcome_page_for_path_tx(transaction, vault_id, old_path)?;
     }
+    Ok(())
+}
+
+fn is_denote_trash_path(path: &str) -> bool {
+    path == ".denote/trash" || path.starts_with(".denote/trash/")
+}
+
+fn rekey_project_roots_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        UPDATE project_roots
+        SET root_path = ?1 || substr(root_path, length(?2) + 1),
+            updated_at = ?3
+        WHERE vault_id = ?4
+          AND (
+            root_path = ?2
+            OR substr(root_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![new_path, old_path, now(), vault_id],
+    )?;
+    Ok(())
+}
+
+fn delete_project_roots_for_path_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        DELETE FROM project_roots
+        WHERE vault_id = ?1
+          AND (
+            root_path = ?2
+            OR substr(root_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![vault_id, path],
+    )?;
     Ok(())
 }
 
