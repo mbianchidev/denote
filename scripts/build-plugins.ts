@@ -36,6 +36,11 @@ for (const pluginDirectory of pluginDirectories) {
         formats: ["es"],
         fileName: () => basename(outputPath),
       },
+      rolldownOptions: {
+        output: {
+          codeSplitting: false,
+        },
+      },
     },
   });
   console.log(`Built ${manifest.id}@${manifest.version}.`);

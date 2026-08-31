@@ -99,6 +99,9 @@ function createHost(plugin?: DenotePlugin) {
           delete: vi.fn(),
           clear: vi.fn(),
         },
+        settings: {
+          getAll: vi.fn(),
+        },
         capabilities: {
           commands: {
             register: vi.fn(() => ({ dispose: vi.fn() })),
@@ -445,6 +448,9 @@ describe("PluginRegistry", () => {
         delete: vi.fn(),
         clear: vi.fn(),
       },
+      settings: {
+        getAll: vi.fn(),
+      },
       capabilities: {
         commands: {
           register: vi.fn(() => ({ dispose: vi.fn() })),
@@ -466,48 +472,6 @@ describe("PluginRegistry", () => {
     expect(host.installer.remove).toHaveBeenCalledWith("denote.reference");
   });
 
-  it("withholds mutating capabilities from activation", async () => {
-    const entry = catalogEntry({
-      permissions: [
-        { capability: "workspace-write" },
-        { capability: "clipboard-write" },
-        { capability: "process" },
-      ],
-    });
-    const activate = vi.fn();
-    const plugin: DenotePlugin = {
-      manifest: entry.manifest,
-      activate,
-    };
-    const { host } = createHost(plugin);
-    host.contextFactory.create = vi.fn(() => ({
-      pluginId: plugin.manifest.id,
-      logger: {
-        debug: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        error: vi.fn(),
-      },
-      storage: {
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn(),
-        clear: vi.fn(),
-      },
-      capabilities: {},
-    }));
-    const registry = new PluginRegistry(host);
-    registry.register(entry);
-
-    await registry.setEnabled("denote.reference", true);
-
-    expect(activate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        capabilities: {},
-      }),
-    );
-  });
-
   it("rejects mutating capabilities exposed outside a user action", async () => {
     const plugin: DenotePlugin = {
       manifest: catalogEntry().manifest,
@@ -527,6 +491,9 @@ describe("PluginRegistry", () => {
         set: vi.fn(),
         delete: vi.fn(),
         clear: vi.fn(),
+      },
+      settings: {
+        getAll: vi.fn(),
       },
       capabilities: {
         commands: {

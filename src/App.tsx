@@ -717,6 +717,7 @@ function App() {
     setStatus("Action failed");
   }, []);
   const pluginController = usePlugins(showError);
+  const shutdownPlugins = pluginController.shutdown;
 
   const showLinkError = useCallback((value: unknown) => {
     const message = errorMessage(value);
@@ -1890,6 +1891,8 @@ function App() {
     await Promise.all([...criticalOperations.current]);
     if (await beginWorkspaceOperationRef.current()) {
       try {
+        await api.prepareExit();
+        await shutdownPlugins();
         await api.completeExit();
       } catch (caught) {
         closingWindow.current = false;
@@ -1901,7 +1904,7 @@ function App() {
       setWorkspaceLock(false);
       setStatus("Close cancelled because a note could not be saved");
     }
-  }, [setWorkspaceLock, showError]);
+  }, [setWorkspaceLock, showError, shutdownPlugins]);
 
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;

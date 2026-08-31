@@ -23,6 +23,7 @@ import type {
   WorkspaceSnapshot,
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
+import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 
 export const api = {
   getLastVault: () => invoke<WorkspaceSnapshot | null>("get_last_vault"),
@@ -108,6 +109,7 @@ export const api = {
   restoreTrashItem: (itemId: number) =>
     invoke<FileNode>("restore_trash_item", { itemId }),
   emptyTrash: () => invoke<number>("empty_trash"),
+  prepareExit: () => invoke<void>("prepare_exit"),
   completeExit: () => invoke<void>("complete_exit"),
   setBookmark: (path: string, bookmarked: boolean) =>
     invoke<void>("set_bookmark", { path, bookmarked }),
@@ -157,18 +159,23 @@ export const api = {
     });
   },
   listPlugins: () => invoke<PluginView[]>("list_plugins"),
-  preparePluginEnable: (pluginId: string, approvedPermissions: string[]) =>
+  preparePluginEnable: (
+    pluginId: string,
+    approvedPermissions: PluginPermissionRequest[],
+  ) =>
     invoke<InstalledPlugin>("prepare_plugin_enable", {
       pluginId,
       approvedPermissions,
     }),
-  commitPluginEnable: (pluginId: string) =>
-    invoke<void>("commit_plugin_enable", { pluginId }),
-  rollbackPluginEnable: (pluginId: string, error?: string) =>
+  commitPluginEnable: (transactionId: string) =>
+    invoke<void>("commit_plugin_enable", { transactionId }),
+  rollbackPluginEnable: (transactionId: string, error?: string) =>
     invoke<void>("rollback_plugin_enable", {
-      pluginId,
+      transactionId,
       error: error ?? null,
     }),
+  recoverPluginTransactions: () =>
+    invoke<void>("recover_plugin_transactions"),
   disablePlugin: (
     pluginId: string,
     clearData = false,

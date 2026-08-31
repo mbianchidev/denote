@@ -67,9 +67,10 @@ other namespaces. User-authored vault content is never removed with a plugin.
 Plugin activation contexts expose capability-specific services instead of a
 vault path, application state, Tauri invocation, or encryption keys. A plugin
 cannot receive a capability absent from its signed manifest. Enabling alone must
-not invoke any workspace mutation. Workspace writes, clipboard writes, and
-process execution are withheld during activation and issued only inside a
-host-dispatched user action after permission checks.
+not invoke any workspace mutation. Plugin API version 1 intentionally exposes
+only command registration, plugin-scoped state/settings, and optional secure
+storage. Other declared capability names are rejected until an isolated native
+service is implemented behind a later API version.
 
 The native plugin manager embeds only `packages/plugins/catalog.json`. Plugin
 artifacts remain separate repository files and are downloaded over HTTPS after
@@ -79,11 +80,14 @@ parent traversal, symlinks, hard links, and special files. The packaged manifest
 must match the catalog ID, version, API version, and permission payload. A
 same-filesystem rename commits the staged package atomically.
 
-Downloaded entrypoints are read only for prepared or enabled plugins and passed
-to a blob-backed module worker. The worker has no DOM or direct Tauri bindings.
-Messages are scoped to the plugin ID by the host; plugin code cannot choose the
-ID used for native storage or keychain calls. Command contributions require the
-plugin ID prefix and disappear when the worker terminates.
+Downloaded entrypoints are read only for transaction-prepared or enabled
+plugins and passed to an opaque-origin data-URL worker. The trusted bootstrap
+captures a bound private `MessagePort` before invoking the self-contained plugin
+bundle, so plugin code cannot spoof activation or host messages. The worker has no
+DOM or direct Tauri bindings. Messages are scoped to the plugin ID by the host;
+plugin code cannot choose the ID used for native storage or keychain calls.
+Command contributions require the plugin ID prefix, remain staged until
+activation succeeds, and disappear when the worker terminates.
 
 Plugin state lives in `plugins/state.json` under application data. Package code
 lives under `plugins/packages/<plugin-id>/<version>/`; transient downloads use
@@ -91,7 +95,10 @@ application cache. Startup removes orphaned downloads and packages for disabled,
 unknown, missing, or incompatible plugins. Settings and generated state are
 namespaced separately and retained by default when code is disabled. Credential
 keys are tracked only to support explicit cleanup; credential values live in
-the operating-system keychain.
+the operating-system keychain. A separate `plugins/credentials.json` write-ahead
+journal preserves cleanup discovery if the main state file is corrupt. State
+updates use copy-on-write atomic persistence, and a process-lifetime file lock
+plus the single-instance plugin prevents concurrent writers.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored
@@ -492,8 +499,9 @@ confirmation; trust is local-only and can be exact or wildcard. Mail, telephone,
 and custom `scheme://` links use a native validator and opener, with custom
 schemes requiring one-time confirmation. `javascript`, `data`, `vbscript`,
 `blob`, `about`, and `file` are blocked from that generic URI command. The
-content security policy only allows local application code plus the image
-sources required for Markdown previews. Encrypted vaults must be unlocked before
+content security policy allows local application scripts, opaque data-URL
+workers for verified plugins, and the image sources required for Markdown
+previews. Encrypted vaults must be unlocked before
 content commands receive a data key, and incomplete encryption state blocks
 ordinary content operations until the resumable transformation finishes.
 

@@ -1,7 +1,7 @@
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     fs,
-    io::{Cursor, Write},
+    io::{Cursor, Read, Write},
     path::{Component, Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard},
     time::Duration,
@@ -9,6 +9,7 @@ use std::{
 
 use atomic_write_file::AtomicWriteFile;
 use flate2::read::GzDecoder;
+use fs2::FileExt;
 use keyring::Entry;
 use reqwest::blocking::Client;
 use semver::Version;
@@ -24,6 +25,10 @@ use crate::error::{AppError, AppResult};
 const CATALOG_JSON: &str = include_str!("../../packages/plugins/catalog.json");
 const MAX_PLUGIN_PACKAGE_BYTES: usize = 25 * 1024 * 1024;
 const MAX_PLUGIN_ENTRYPOINT_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_PLUGIN_SETTINGS_BYTES: usize = 256 * 1024;
+const MAX_PLUGIN_STORAGE_VALUE_BYTES: usize = 256 * 1024;
+const MAX_PLUGIN_STORAGE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_PLUGIN_STORAGE_KEYS: usize = 256;
 const KEYCHAIN_SERVICE_PREFIX: &str = "dev.denote.plugin";
 const PLUGIN_API_VERSION: u32 = 1;
 
@@ -94,8 +99,9 @@ pub struct PluginView {
     pub status: String,
     pub enabled: bool,
     pub error: Option<String>,
-    pub approved_permissions: Vec<String>,
+    pub approved_permissions: Vec<PluginPermission>,
     pub settings: Value,
+    pub has_credentials: bool,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -104,17 +110,28 @@ pub struct InstalledPlugin {
     pub plugin_id: String,
     pub version: String,
     pub entrypoint: String,
+    pub transaction_id: String,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", default)]
 struct PersistentPluginState {
     enabled: BTreeSet<String>,
-    approved_permissions: BTreeMap<String, BTreeSet<String>>,
+    approved_permissions: BTreeMap<String, BTreeSet<PluginPermission>>,
+    artifact_hashes: BTreeMap<String, String>,
+    entrypoint_hashes: BTreeMap<String, String>,
     settings: BTreeMap<String, Value>,
     storage: BTreeMap<String, BTreeMap<String, Value>>,
     credential_keys: BTreeMap<String, BTreeSet<String>>,
+    pending_credential_keys: BTreeMap<String, BTreeSet<String>>,
     errors: BTreeMap<String, String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", default)]
+struct CredentialLedger {
+    credential_keys: BTreeMap<String, BTreeSet<String>>,
+    pending_credential_keys: BTreeMap<String, BTreeSet<String>>,
 }
 
 struct PluginManagerInner {
@@ -122,8 +139,11 @@ struct PluginManagerInner {
     app_cache_dir: PathBuf,
     catalog: Vec<PluginCatalogEntry>,
     state: Mutex<PersistentPluginState>,
-    prepared_permissions: Mutex<BTreeMap<String, BTreeSet<String>>>,
+    pending_transactions: Mutex<BTreeMap<String, PreparedPluginTransaction>>,
+    preparation_lock: Mutex<()>,
     operations: Mutex<HashSet<String>>,
+    initialization_error: Mutex<Option<String>>,
+    _process_lock: Option<fs::File>,
 }
 
 #[derive(Clone)]
@@ -134,10 +154,22 @@ pub struct PluginManager {
 struct PluginOperation {
     manager: PluginManager,
     plugin_id: String,
+    retained: bool,
+}
+
+#[derive(Clone)]
+struct PreparedPluginTransaction {
+    plugin_id: String,
+    permissions: BTreeSet<PluginPermission>,
+    artifact_sha256: String,
+    entrypoint_sha256: Option<String>,
 }
 
 impl Drop for PluginOperation {
     fn drop(&mut self) {
+        if self.retained {
+            return;
+        }
         if let Ok(mut operations) = self.manager.inner.operations.lock() {
             operations.remove(&self.plugin_id);
         }
@@ -145,38 +177,129 @@ impl Drop for PluginOperation {
 }
 
 impl PluginManager {
-    pub fn new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> AppResult<Self> {
+    pub fn new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> Self {
+        let (manager, initialized) =
+            match Self::try_new(app_data_dir.clone(), app_cache_dir.clone()) {
+                Ok(manager) => (manager, true),
+                Err(error) => {
+                    eprintln!("Plugin manager started disabled: {error}");
+                    (
+                        Self {
+                            inner: Arc::new(PluginManagerInner {
+                                app_data_dir,
+                                app_cache_dir,
+                                catalog: vec![],
+                                state: Mutex::new(PersistentPluginState::default()),
+                                pending_transactions: Mutex::new(BTreeMap::new()),
+                                preparation_lock: Mutex::new(()),
+                                operations: Mutex::new(HashSet::new()),
+                                initialization_error: Mutex::new(Some(error.to_string())),
+                                _process_lock: None,
+                            }),
+                        },
+                        false,
+                    )
+                }
+            };
+        if initialized && let Err(error) = manager.reconcile_packages() {
+            eprintln!("Plugin recovery failed; plugins remain disabled: {error}");
+            if let Ok(mut state) = manager.inner.state.lock() {
+                state.enabled.clear();
+            }
+            if let Ok(mut initialization_error) = manager.inner.initialization_error.lock() {
+                *initialization_error = Some(format!(
+                    "Plugin recovery failed. Check application-data permissions and restart: {error}"
+                ));
+            }
+        }
+        manager
+    }
+
+    fn try_new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> AppResult<Self> {
         let catalog: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON)
             .map_err(|error| AppError::Plugin(format!("Invalid embedded catalog: {error}")))?;
         validate_catalog(&catalog)?;
         let plugins_dir = app_data_dir.join("plugins");
-        fs::create_dir_all(&plugins_dir)?;
-        fs::create_dir_all(app_cache_dir.join("plugin-downloads"))?;
+        ensure_managed_directory(&plugins_dir)?;
+        ensure_managed_directory(&plugins_dir.join("packages"))?;
+        ensure_managed_directory(&app_cache_dir.join("plugin-downloads"))?;
+        let process_lock = fs::OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(plugins_dir.join(".manager.lock"))?;
+        process_lock.try_lock_exclusive().map_err(|error| {
+            AppError::Plugin(format!(
+                "Another Denote process is managing plugins: {error}"
+            ))
+        })?;
         let state_path = plugins_dir.join("state.json");
-        let state = if state_path.exists() {
-            serde_json::from_slice(&fs::read(&state_path)?).map_err(|error| {
-                AppError::Plugin(format!("Unable to read plugin state: {error}"))
-            })?
+        let mut state = if state_path.exists() {
+            match serde_json::from_slice(&fs::read(&state_path)?) {
+                Ok(state) => state,
+                Err(error) => {
+                    let quarantine =
+                        plugins_dir.join(format!("state.corrupt-{}.json", Uuid::new_v4()));
+                    if let Err(rename_error) = fs::rename(&state_path, &quarantine) {
+                        eprintln!(
+                            "Unable to quarantine corrupt plugin state {}: {rename_error}",
+                            state_path.display()
+                        );
+                    } else {
+                        eprintln!(
+                            "Quarantined corrupt plugin state at {}: {error}",
+                            quarantine.display()
+                        );
+                    }
+                    PersistentPluginState::default()
+                }
+            }
         } else {
             PersistentPluginState::default()
         };
+        if let Some(credential_ledger) = load_credential_ledger(&plugins_dir)? {
+            for (plugin_id, keys) in credential_ledger.credential_keys {
+                state
+                    .credential_keys
+                    .entry(plugin_id)
+                    .or_default()
+                    .extend(keys);
+            }
+            for (plugin_id, keys) in credential_ledger.pending_credential_keys {
+                state
+                    .pending_credential_keys
+                    .entry(plugin_id)
+                    .or_default()
+                    .extend(keys);
+            }
+        }
         let manager = Self {
             inner: Arc::new(PluginManagerInner {
                 app_data_dir,
                 app_cache_dir,
                 catalog,
                 state: Mutex::new(state),
-                prepared_permissions: Mutex::new(BTreeMap::new()),
+                pending_transactions: Mutex::new(BTreeMap::new()),
+                preparation_lock: Mutex::new(()),
                 operations: Mutex::new(HashSet::new()),
+                initialization_error: Mutex::new(None),
+                _process_lock: Some(process_lock),
             }),
         };
-        manager.reconcile_packages()?;
+        let state_snapshot = manager.state()?.clone();
+        manager.save_credential_ledger(&state_snapshot)?;
         Ok(manager)
     }
 
     fn list(&self) -> AppResult<Vec<PluginView>> {
-        let state = self.state()?;
-        let prepared = self.prepared_permissions()?;
+        let initialization_error = self.initialization_error()?;
+        if initialization_error.is_some() && self.inner.catalog.is_empty() {
+            return Err(AppError::Plugin(initialization_error.unwrap_or_else(
+                || "Plugin manager failed to initialize".to_string(),
+            )));
+        }
+        let state = self.state()?.clone();
+        let pending = self.pending_transactions()?.clone();
         self.inner
             .catalog
             .iter()
@@ -185,9 +308,15 @@ impl PluginManager {
                 let compatibility_error = compatibility_error(&catalog.manifest);
                 let enabled = state.enabled.contains(plugin_id);
                 let installed = self.install_dir(catalog).is_dir();
-                let status = if compatibility_error.is_some() {
+                let prepared_permissions = pending
+                    .values()
+                    .find(|transaction| transaction.plugin_id == *plugin_id)
+                    .map(|transaction| transaction.permissions.clone());
+                let status = if initialization_error.is_some() {
+                    "failed"
+                } else if compatibility_error.is_some() {
                     "incompatible"
-                } else if prepared.contains_key(plugin_id) {
+                } else if prepared_permissions.is_some() {
                     "installing"
                 } else if enabled && installed {
                     "enabled"
@@ -202,11 +331,12 @@ impl PluginManager {
                     catalog: catalog.clone(),
                     status: status.to_string(),
                     enabled,
-                    error: compatibility_error.or_else(|| state.errors.get(plugin_id).cloned()),
-                    approved_permissions: state
-                        .approved_permissions
-                        .get(plugin_id)
-                        .cloned()
+                    error: initialization_error
+                        .clone()
+                        .or(compatibility_error)
+                        .or_else(|| state.errors.get(plugin_id).cloned()),
+                    approved_permissions: prepared_permissions
+                        .or_else(|| state.approved_permissions.get(plugin_id).cloned())
                         .unwrap_or_default()
                         .into_iter()
                         .collect(),
@@ -214,7 +344,16 @@ impl PluginManager {
                         .settings
                         .get(plugin_id)
                         .cloned()
+                        .and_then(|settings| validate_settings(&catalog.manifest, settings).ok())
                         .unwrap_or_else(|| default_settings(&catalog.manifest)),
+                    has_credentials: state
+                        .credential_keys
+                        .get(plugin_id)
+                        .is_some_and(|keys| !keys.is_empty())
+                        || state
+                            .pending_credential_keys
+                            .get(plugin_id)
+                            .is_some_and(|keys| !keys.is_empty()),
                 })
             })
             .collect()
@@ -223,78 +362,147 @@ impl PluginManager {
     fn prepare(
         &self,
         plugin_id: &str,
-        approved_permissions: Vec<String>,
+        approved_permissions: Vec<PluginPermission>,
     ) -> AppResult<InstalledPlugin> {
-        let _operation = self.begin_operation(plugin_id)?;
+        let _preparation = self.preparation_lock()?;
+        let mut operation = self.begin_operation(plugin_id)?;
         let catalog = self.catalog_entry(plugin_id)?.clone();
         if let Some(error) = compatibility_error(&catalog.manifest) {
             return Err(AppError::Plugin(error));
         }
-        let requested = permission_tokens(&catalog.manifest)?;
-        let approved: BTreeSet<String> = approved_permissions.into_iter().collect();
+        let requested: BTreeSet<PluginPermission> =
+            catalog.manifest.permissions.iter().cloned().collect();
+        let approved: BTreeSet<PluginPermission> = approved_permissions.into_iter().collect();
         if approved != requested {
             return Err(AppError::Plugin(format!(
                 "Approved permissions do not match the current manifest for {plugin_id}"
             )));
         }
         if self.state()?.enabled.contains(plugin_id) {
-            return self.installed_plugin(&catalog);
+            return Err(AppError::Plugin(format!(
+                "Plugin {plugin_id} is already enabled"
+            )));
         }
-
-        let bytes = self.download_to_cache(&catalog)?;
-        self.install_package(&catalog, &bytes)?;
-        self.prepared_permissions()?
-            .insert(plugin_id.to_string(), approved);
-        self.clear_error(plugin_id)?;
-        self.installed_plugin(&catalog)
+        let transaction_id = Uuid::new_v4().to_string();
+        self.pending_transactions()?.insert(
+            transaction_id.clone(),
+            PreparedPluginTransaction {
+                plugin_id: plugin_id.to_string(),
+                permissions: approved,
+                artifact_sha256: catalog.artifact.sha256.clone(),
+                entrypoint_sha256: None,
+            },
+        );
+        operation.retained = true;
+        let result = (|| {
+            let bytes = self.download_to_cache(&catalog)?;
+            let entrypoint_sha256 = self.install_package(&catalog, &bytes)?;
+            self.clear_error(plugin_id)?;
+            let mut transactions = self.pending_transactions()?;
+            let transaction = transactions
+                .get_mut(&transaction_id)
+                .ok_or_else(|| AppError::Plugin("Plugin preparation was cancelled".to_string()))?;
+            transaction.entrypoint_sha256 = Some(entrypoint_sha256);
+            drop(transactions);
+            self.installed_plugin(&catalog, transaction_id.clone())
+        })();
+        match result {
+            Ok(installed) => Ok(installed),
+            Err(error) => {
+                self.pending_transactions()?.remove(&transaction_id);
+                if let Err(cleanup_error) = self.remove_package(plugin_id) {
+                    self.finish_operation(plugin_id)?;
+                    return Err(AppError::Plugin(format!(
+                        "{error}; additionally failed to remove the incomplete package: {cleanup_error}"
+                    )));
+                }
+                self.finish_operation(plugin_id)?;
+                Err(error)
+            }
+        }
     }
 
-    fn commit_enable(&self, plugin_id: &str) -> AppResult<()> {
-        let permissions = self
-            .prepared_permissions()?
-            .remove(plugin_id)
-            .ok_or_else(|| {
-                AppError::Plugin(format!("Plugin {plugin_id} is not prepared for enablement"))
-            })?;
-        let catalog = self.catalog_entry(plugin_id)?;
-        self.installed_plugin(catalog)?;
-        let mut state = self.state()?;
-        state.enabled.insert(plugin_id.to_string());
-        state
-            .approved_permissions
-            .insert(plugin_id.to_string(), permissions);
-        state.errors.remove(plugin_id);
-        self.save_state(&state)
+    fn commit_enable(&self, transaction_id: &str) -> AppResult<()> {
+        let mut transactions = self.pending_transactions()?;
+        let transaction = transactions.get(transaction_id).cloned().ok_or_else(|| {
+            AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
+        })?;
+        let plugin_id = transaction.plugin_id;
+        let catalog = self.catalog_entry(&plugin_id)?;
+        self.installed_plugin(catalog, transaction_id.to_string())?;
+        self.update_state(|state| {
+            state.enabled.insert(plugin_id.clone());
+            state
+                .approved_permissions
+                .insert(plugin_id.clone(), transaction.permissions);
+            state
+                .artifact_hashes
+                .insert(plugin_id.clone(), transaction.artifact_sha256);
+            state.entrypoint_hashes.insert(
+                plugin_id.clone(),
+                transaction.entrypoint_sha256.ok_or_else(|| {
+                    AppError::Plugin("Plugin preparation is incomplete".to_string())
+                })?,
+            );
+            state.errors.remove(&plugin_id);
+            Ok(())
+        })?;
+        transactions.remove(transaction_id);
+        drop(transactions);
+        self.finish_operation(&plugin_id)
     }
 
-    fn rollback_enable(&self, plugin_id: &str, error: Option<String>) -> AppResult<()> {
-        self.prepared_permissions()?.remove(plugin_id);
-        self.remove_package(plugin_id)?;
-        let mut state = self.state()?;
-        state.enabled.remove(plugin_id);
-        if let Some(error) = error {
-            state.errors.insert(plugin_id.to_string(), error);
+    fn rollback_enable(&self, transaction_id: &str, error: Option<String>) -> AppResult<()> {
+        let mut transactions = self.pending_transactions()?;
+        let transaction = transactions.get(transaction_id).cloned().ok_or_else(|| {
+            AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
+        })?;
+        let plugin_id = transaction.plugin_id;
+        self.catalog_entry(&plugin_id)?;
+        self.remove_package(&plugin_id)?;
+        self.update_state(|state| {
+            state.enabled.remove(&plugin_id);
+            if let Some(error) = error {
+                state.errors.insert(plugin_id.clone(), error);
+            }
+            Ok(())
+        })?;
+        transactions.remove(transaction_id);
+        drop(transactions);
+        self.finish_operation(&plugin_id)
+    }
+
+    fn recover_pending_transactions(&self) -> AppResult<()> {
+        let _preparation = self.preparation_lock()?;
+        let transaction_ids: Vec<String> = self.pending_transactions()?.keys().cloned().collect();
+        for transaction_id in transaction_ids {
+            self.rollback_enable(
+                &transaction_id,
+                Some("Recovered an interrupted plugin enablement.".to_string()),
+            )?;
         }
-        self.save_state(&state)
+        Ok(())
     }
 
     fn disable(&self, plugin_id: &str, clear_data: bool, clear_credentials: bool) -> AppResult<()> {
         let _operation = self.begin_operation(plugin_id)?;
         self.catalog_entry(plugin_id)?;
-        self.prepared_permissions()?.remove(plugin_id);
         self.remove_package(plugin_id)?;
         if clear_credentials {
             self.clear_credentials(plugin_id)?;
         }
-        let mut state = self.state()?;
-        state.enabled.remove(plugin_id);
-        state.approved_permissions.remove(plugin_id);
-        state.errors.remove(plugin_id);
-        if clear_data {
-            state.settings.remove(plugin_id);
-            state.storage.remove(plugin_id);
-        }
-        self.save_state(&state)
+        self.update_state(|state| {
+            state.enabled.remove(plugin_id);
+            state.approved_permissions.remove(plugin_id);
+            state.artifact_hashes.remove(plugin_id);
+            state.entrypoint_hashes.remove(plugin_id);
+            state.errors.remove(plugin_id);
+            if clear_data {
+                state.settings.remove(plugin_id);
+                state.storage.remove(plugin_id);
+            }
+            Ok(())
+        })
     }
 
     fn read_entrypoint(&self, plugin_id: &str) -> AppResult<String> {
@@ -314,27 +522,83 @@ impl PluginManager {
                 "Plugin entrypoint is invalid or too large: {plugin_id}"
             )));
         }
-        fs::read_to_string(canonical_entrypoint).map_err(AppError::from)
+        let expected_hash = self.expected_entrypoint_hash(plugin_id)?;
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        fs::File::open(&canonical_entrypoint)?
+            .take(MAX_PLUGIN_ENTRYPOINT_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != metadata.len()
+            || hex::encode(Sha256::digest(&bytes)) != expected_hash
+        {
+            return Err(AppError::Plugin(format!(
+                "Plugin entrypoint integrity check failed: {plugin_id}"
+            )));
+        }
+        String::from_utf8(bytes).map_err(|error| {
+            AppError::Plugin(format!(
+                "Plugin entrypoint is not valid UTF-8 for {plugin_id}: {error}"
+            ))
+        })
+    }
+
+    fn expected_entrypoint_hash(&self, plugin_id: &str) -> AppResult<String> {
+        let pending = self.pending_transactions()?;
+        let prepared_hash = pending
+            .values()
+            .find(|transaction| transaction.plugin_id == plugin_id)
+            .and_then(|transaction| transaction.entrypoint_sha256.clone());
+        drop(pending);
+        if let Some(hash) = prepared_hash {
+            return Ok(hash);
+        }
+        self.state()?
+            .entrypoint_hashes
+            .get(plugin_id)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::Plugin(format!(
+                    "Plugin {plugin_id} has no recorded entrypoint integrity hash"
+                ))
+            })
     }
 
     fn settings(&self, plugin_id: &str) -> AppResult<Value> {
         let catalog = self.catalog_entry(plugin_id)?;
-        Ok(self
-            .state()?
-            .settings
-            .get(plugin_id)
-            .cloned()
-            .unwrap_or_else(|| default_settings(&catalog.manifest)))
+        let saved = self.state()?.settings.get(plugin_id).cloned();
+        let normalized = match saved.clone() {
+            Some(saved) => validate_settings(&catalog.manifest, saved)
+                .unwrap_or_else(|_| default_settings(&catalog.manifest)),
+            None => default_settings(&catalog.manifest),
+        };
+        if saved.as_ref() != Some(&normalized) {
+            self.update_state(|state| {
+                state
+                    .settings
+                    .insert(plugin_id.to_string(), normalized.clone());
+                Ok(())
+            })?;
+        }
+        Ok(normalized)
     }
 
     fn set_settings(&self, plugin_id: &str, settings: Value) -> AppResult<Value> {
         let catalog = self.catalog_entry(plugin_id)?;
         let settings = validate_settings(&catalog.manifest, settings)?;
-        let mut state = self.state()?;
-        state
-            .settings
-            .insert(plugin_id.to_string(), settings.clone());
-        self.save_state(&state)?;
+        if serde_json::to_vec(&settings)
+            .map_err(|error| AppError::Plugin(format!("Unable to size settings: {error}")))?
+            .len()
+            > MAX_PLUGIN_SETTINGS_BYTES
+        {
+            return Err(AppError::Plugin(format!(
+                "Settings for {plugin_id} exceed the size limit"
+            )));
+        }
+        self.update_state(|state| {
+            state
+                .settings
+                .insert(plugin_id.to_string(), settings.clone());
+            Ok(())
+        })?;
         Ok(settings)
     }
 
@@ -351,30 +615,31 @@ impl PluginManager {
     fn storage_set(&self, plugin_id: &str, key: &str, value: Value) -> AppResult<()> {
         self.authorize_runtime(plugin_id, None)?;
         validate_storage_key(key)?;
-        let mut state = self.state()?;
-        state
-            .storage
-            .entry(plugin_id.to_string())
-            .or_default()
-            .insert(key.to_string(), value);
-        self.save_state(&state)
+        self.update_state(|state| {
+            let storage = state.storage.entry(plugin_id.to_string()).or_default();
+            enforce_storage_quota(storage, key, &value)?;
+            storage.insert(key.to_string(), value);
+            Ok(())
+        })
     }
 
     fn storage_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, None)?;
         validate_storage_key(key)?;
-        let mut state = self.state()?;
-        if let Some(storage) = state.storage.get_mut(plugin_id) {
-            storage.remove(key);
-        }
-        self.save_state(&state)
+        self.update_state(|state| {
+            if let Some(storage) = state.storage.get_mut(plugin_id) {
+                storage.remove(key);
+            }
+            Ok(())
+        })
     }
 
     fn storage_clear(&self, plugin_id: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, None)?;
-        let mut state = self.state()?;
-        state.storage.remove(plugin_id);
-        self.save_state(&state)
+        self.update_state(|state| {
+            state.storage.remove(plugin_id);
+            Ok(())
+        })
     }
 
     fn secret_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<String>> {
@@ -393,6 +658,21 @@ impl PluginManager {
     fn secret_set(&self, plugin_id: &str, key: &str, value: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
         validate_storage_key(key)?;
+        let was_tracked = self
+            .state()?
+            .credential_keys
+            .get(plugin_id)
+            .is_some_and(|keys| keys.contains(key));
+        if !was_tracked {
+            self.update_credential_state(|state| {
+                state
+                    .pending_credential_keys
+                    .entry(plugin_id.to_string())
+                    .or_default()
+                    .insert(key.to_string());
+                Ok(())
+            })?;
+        }
         keychain_entry(plugin_id, key)?
             .set_password(value)
             .map_err(|error| {
@@ -400,42 +680,63 @@ impl PluginManager {
                     "Unable to save keychain entry for {plugin_id}: {error}"
                 ))
             })?;
-        let mut state = self.state()?;
-        state
-            .credential_keys
-            .entry(plugin_id.to_string())
-            .or_default()
-            .insert(key.to_string());
-        self.save_state(&state)
+        if !was_tracked {
+            self.update_credential_state(|state| {
+                state
+                    .credential_keys
+                    .entry(plugin_id.to_string())
+                    .or_default()
+                    .insert(key.to_string());
+                if let Some(keys) = state.pending_credential_keys.get_mut(plugin_id) {
+                    keys.remove(key);
+                }
+                Ok(())
+            })?;
+        }
+        Ok(())
     }
 
     fn secret_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
         validate_storage_key(key)?;
         delete_keychain_entry(plugin_id, key)?;
-        let mut state = self.state()?;
-        if let Some(keys) = state.credential_keys.get_mut(plugin_id) {
-            keys.remove(key);
-        }
-        self.save_state(&state)
+        self.update_credential_state(|state| {
+            if let Some(keys) = state.credential_keys.get_mut(plugin_id) {
+                keys.remove(key);
+            }
+            if let Some(keys) = state.pending_credential_keys.get_mut(plugin_id) {
+                keys.remove(key);
+            }
+            Ok(())
+        })
     }
 
     fn clear_credentials(&self, plugin_id: &str) -> AppResult<()> {
-        let keys = self
-            .state()?
+        let state = self.state()?;
+        let mut keys = state
             .credential_keys
             .get(plugin_id)
             .cloned()
             .unwrap_or_default();
+        keys.extend(
+            state
+                .pending_credential_keys
+                .get(plugin_id)
+                .cloned()
+                .unwrap_or_default(),
+        );
+        drop(state);
         for key in &keys {
             delete_keychain_entry(plugin_id, key)?;
         }
-        let mut state = self.state()?;
-        state.credential_keys.remove(plugin_id);
-        self.save_state(&state)
+        self.update_credential_state(|state| {
+            state.credential_keys.remove(plugin_id);
+            state.pending_credential_keys.remove(plugin_id);
+            Ok(())
+        })
     }
 
-    fn install_package(&self, catalog: &PluginCatalogEntry, bytes: &[u8]) -> AppResult<()> {
+    fn install_package(&self, catalog: &PluginCatalogEntry, bytes: &[u8]) -> AppResult<String> {
         verify_artifact(catalog, bytes)?;
         let plugin_root = self.plugin_root(&catalog.manifest.id);
         reject_symlink(&plugin_root)?;
@@ -444,12 +745,13 @@ impl PluginManager {
         fs::create_dir(&staging)?;
         let result = extract_archive(bytes, &staging).and_then(|_| {
             validate_extracted_package(catalog, &staging)?;
+            let entrypoint_sha256 = sha256_file(&staging.join(&catalog.manifest.entrypoint))?;
             let target = self.install_dir(catalog);
             if target.exists() {
                 remove_directory_atomically(&target)?;
             }
             fs::rename(&staging, &target)?;
-            Ok(())
+            Ok(entrypoint_sha256)
         });
         if result.is_err() && staging.exists() {
             if let Err(error) = fs::remove_dir_all(&staging) {
@@ -500,49 +802,131 @@ impl PluginManager {
         for catalog in &self.inner.catalog {
             let plugin_id = &catalog.manifest.id;
             let plugin_root = self.plugin_root(plugin_id);
+            let requested_permissions: BTreeSet<PluginPermission> =
+                catalog.manifest.permissions.iter().cloned().collect();
+            let approved_permissions = self.state()?.approved_permissions.get(plugin_id).cloned();
+            let artifact_hash = self.state()?.artifact_hashes.get(plugin_id).cloned();
+            let entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
             if let Some(error) = compatibility_error(&catalog.manifest) {
                 if plugin_root.exists() {
                     self.remove_package(plugin_id)?;
                 }
-                let mut state = self.state()?;
-                state.enabled.remove(plugin_id);
-                state.errors.insert(plugin_id.clone(), error);
-                self.save_state(&state)?;
+                self.update_state(|state| {
+                    state.enabled.remove(plugin_id);
+                    state.approved_permissions.remove(plugin_id);
+                    state.artifact_hashes.remove(plugin_id);
+                    state.entrypoint_hashes.remove(plugin_id);
+                    state.errors.insert(plugin_id.clone(), error);
+                    Ok(())
+                })?;
+            } else if enabled.contains(plugin_id)
+                && approved_permissions.as_ref() != Some(&requested_permissions)
+            {
+                if plugin_root.exists() {
+                    self.remove_package(plugin_id)?;
+                }
+                self.update_state(|state| {
+                    state.enabled.remove(plugin_id);
+                    state.approved_permissions.remove(plugin_id);
+                    state.artifact_hashes.remove(plugin_id);
+                    state.entrypoint_hashes.remove(plugin_id);
+                    state.errors.insert(
+                        plugin_id.clone(),
+                        "Plugin permissions changed. Review and approve them before enabling again."
+                            .to_string(),
+                    );
+                    Ok(())
+                })?;
             } else if enabled.contains(plugin_id) {
-                if !self.install_dir(catalog).is_dir() {
+                let installed_entrypoint =
+                    self.install_dir(catalog).join(&catalog.manifest.entrypoint);
+                let entrypoint_matches = match (
+                    entrypoint_hash.as_deref(),
+                    sha256_file(&installed_entrypoint),
+                ) {
+                    (Some(expected), Ok(actual)) => actual == expected,
+                    _ => false,
+                };
+                let installed_valid = self.install_dir(catalog).is_dir()
+                    && validate_extracted_package(catalog, &self.install_dir(catalog)).is_ok()
+                    && artifact_hash.as_deref() == Some(catalog.artifact.sha256.as_str())
+                    && entrypoint_matches;
+                if !installed_valid {
                     if plugin_root.exists() {
                         self.remove_package(plugin_id)?;
                     }
-                    let mut state = self.state()?;
-                    state.enabled.remove(plugin_id);
-                    state.errors.insert(
-                        plugin_id.clone(),
-                        "The catalog version changed or the package is missing. Review permissions and enable the plugin again."
-                            .to_string(),
-                    );
-                    self.save_state(&state)?;
+                    self.update_state(|state| {
+                        state.enabled.remove(plugin_id);
+                        state.approved_permissions.remove(plugin_id);
+                        state.artifact_hashes.remove(plugin_id);
+                        state.entrypoint_hashes.remove(plugin_id);
+                        state.errors.insert(
+                            plugin_id.clone(),
+                            "The catalog artifact changed or the package is missing. Review permissions and enable the plugin again."
+                                .to_string(),
+                        );
+                        Ok(())
+                    })?;
                 }
             } else if plugin_root.exists() {
                 self.remove_package(plugin_id)?;
             }
+        }
+        let known_ids: BTreeSet<String> = self
+            .inner
+            .catalog
+            .iter()
+            .map(|entry| entry.manifest.id.clone())
+            .collect();
+        let state_snapshot = self.state()?.clone();
+        let mut orphaned_ids = BTreeSet::new();
+        orphaned_ids.extend(state_snapshot.enabled.iter().cloned());
+        orphaned_ids.extend(state_snapshot.approved_permissions.keys().cloned());
+        orphaned_ids.extend(state_snapshot.artifact_hashes.keys().cloned());
+        orphaned_ids.extend(state_snapshot.entrypoint_hashes.keys().cloned());
+        orphaned_ids.extend(state_snapshot.settings.keys().cloned());
+        orphaned_ids.extend(state_snapshot.storage.keys().cloned());
+        orphaned_ids.extend(state_snapshot.credential_keys.keys().cloned());
+        orphaned_ids.extend(state_snapshot.pending_credential_keys.keys().cloned());
+        orphaned_ids.retain(|plugin_id| !known_ids.contains(plugin_id));
+        for plugin_id in orphaned_ids {
+            self.clear_credentials(&plugin_id)?;
+            self.update_state(|state| {
+                state.enabled.remove(&plugin_id);
+                state.approved_permissions.remove(&plugin_id);
+                state.artifact_hashes.remove(&plugin_id);
+                state.entrypoint_hashes.remove(&plugin_id);
+                state.settings.remove(&plugin_id);
+                state.storage.remove(&plugin_id);
+                state.errors.remove(&plugin_id);
+                Ok(())
+            })?;
         }
         Ok(())
     }
 
     fn prune_transient_paths(&self) -> AppResult<()> {
         let cache_dir = self.inner.app_cache_dir.join("plugin-downloads");
+        ensure_managed_directory(&cache_dir)?;
         if cache_dir.exists() {
             for entry in fs::read_dir(&cache_dir)? {
-                let path = entry?.path();
-                if path.is_dir() {
+                let entry = entry?;
+                let path = entry.path();
+                let metadata = fs::symlink_metadata(&path)?;
+                if metadata_is_link(&metadata) || metadata.is_file() {
+                    fs::remove_file(path)?;
+                } else if metadata.is_dir() {
                     fs::remove_dir_all(path)?;
                 } else {
-                    fs::remove_file(path)?;
+                    return Err(AppError::Plugin(format!(
+                        "Unsupported plugin cache entry: {}",
+                        path.display()
+                    )));
                 }
             }
         }
         let packages_dir = self.inner.app_data_dir.join("plugins").join("packages");
-        fs::create_dir_all(&packages_dir)?;
+        ensure_managed_directory(&packages_dir)?;
         let known: BTreeSet<&str> = self
             .inner
             .catalog
@@ -552,25 +936,41 @@ impl PluginManager {
         for entry in fs::read_dir(&packages_dir)? {
             let entry = entry?;
             let path = entry.path();
+            let metadata = fs::symlink_metadata(&path)?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
+            if metadata_is_link(&metadata) {
+                fs::remove_file(path)?;
+                continue;
+            }
             if !known.contains(name.as_ref()) {
-                if path.is_dir() {
+                if metadata.is_dir() {
                     remove_directory_atomically(&path)?;
-                } else {
+                } else if metadata.is_file() {
                     fs::remove_file(path)?;
+                } else {
+                    return Err(AppError::Plugin(format!(
+                        "Unsupported plugin package entry: {}",
+                        path.display()
+                    )));
                 }
-            } else if path.is_dir() {
+            } else if metadata.is_dir() {
                 for child in fs::read_dir(&path)? {
                     let child = child?;
+                    let child_path = child.path();
+                    let metadata = fs::symlink_metadata(&child_path)?;
                     let child_name = child.file_name();
                     let child_name = child_name.to_string_lossy();
                     if child_name.starts_with(".staging-") || child_name.starts_with(".removing-") {
-                        let child_path = child.path();
-                        if child_path.is_dir() {
+                        if metadata_is_link(&metadata) || metadata.is_file() {
+                            fs::remove_file(child_path)?;
+                        } else if metadata.is_dir() {
                             fs::remove_dir_all(child_path)?;
                         } else {
-                            fs::remove_file(child_path)?;
+                            return Err(AppError::Plugin(format!(
+                                "Unsupported transient plugin entry: {}",
+                                child_path.display()
+                            )));
                         }
                     }
                 }
@@ -580,23 +980,32 @@ impl PluginManager {
     }
 
     fn authorize_runtime(&self, plugin_id: &str, permission: Option<&str>) -> AppResult<()> {
+        let pending = self.pending_transactions()?;
+        let prepared_permissions = pending
+            .values()
+            .find(|transaction| transaction.plugin_id == plugin_id)
+            .map(|transaction| transaction.permissions.clone());
+        drop(pending);
         let state = self.state()?;
-        let prepared = self.prepared_permissions()?;
-        let permissions = if let Some(permissions) = prepared.get(plugin_id) {
+        let permissions = if let Some(permissions) = prepared_permissions {
             permissions
         } else if state.enabled.contains(plugin_id) {
-            state.approved_permissions.get(plugin_id).ok_or_else(|| {
-                AppError::Plugin(format!(
-                    "Plugin {plugin_id} has no approved permission record"
-                ))
-            })?
+            state
+                .approved_permissions
+                .get(plugin_id)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::Plugin(format!(
+                        "Plugin {plugin_id} has no approved permission record"
+                    ))
+                })?
         } else {
             return Err(AppError::Plugin(format!(
                 "Plugin {plugin_id} is not enabled"
             )));
         };
         if let Some(permission) = permission
-            && !has_permission(self.catalog_entry(plugin_id)?, permissions, permission)?
+            && !has_permission(self.catalog_entry(plugin_id)?, &permissions, permission)
         {
             return Err(AppError::Plugin(format!(
                 "Plugin {plugin_id} lacks {permission} permission"
@@ -605,7 +1014,11 @@ impl PluginManager {
         Ok(())
     }
 
-    fn installed_plugin(&self, catalog: &PluginCatalogEntry) -> AppResult<InstalledPlugin> {
+    fn installed_plugin(
+        &self,
+        catalog: &PluginCatalogEntry,
+        transaction_id: String,
+    ) -> AppResult<InstalledPlugin> {
         let entrypoint = self.install_dir(catalog).join(&catalog.manifest.entrypoint);
         if !entrypoint.is_file() {
             return Err(AppError::Plugin(format!(
@@ -617,18 +1030,21 @@ impl PluginManager {
             plugin_id: catalog.manifest.id.clone(),
             version: catalog.manifest.version.clone(),
             entrypoint: catalog.manifest.entrypoint.clone(),
+            transaction_id,
         })
     }
 
     fn clear_error(&self, plugin_id: &str) -> AppResult<()> {
-        let mut state = self.state()?;
-        if state.errors.remove(plugin_id).is_some() {
-            self.save_state(&state)?;
-        }
-        Ok(())
+        self.update_state(|state| {
+            state.errors.remove(plugin_id);
+            Ok(())
+        })
     }
 
     fn begin_operation(&self, plugin_id: &str) -> AppResult<PluginOperation> {
+        if let Some(error) = self.initialization_error()? {
+            return Err(AppError::Plugin(error));
+        }
         self.catalog_entry(plugin_id)?;
         let mut operations = self.operations()?;
         if !operations.insert(plugin_id.to_string()) {
@@ -639,7 +1055,13 @@ impl PluginManager {
         Ok(PluginOperation {
             manager: self.clone(),
             plugin_id: plugin_id.to_string(),
+            retained: false,
         })
+    }
+
+    fn finish_operation(&self, plugin_id: &str) -> AppResult<()> {
+        self.operations()?.remove(plugin_id);
+        Ok(())
     }
 
     fn catalog_entry(&self, plugin_id: &str) -> AppResult<&PluginCatalogEntry> {
@@ -676,6 +1098,52 @@ impl PluginManager {
         Ok(())
     }
 
+    fn save_credential_ledger(&self, state: &PersistentPluginState) -> AppResult<()> {
+        let ledger = CredentialLedger {
+            credential_keys: state.credential_keys.clone(),
+            pending_credential_keys: state.pending_credential_keys.clone(),
+        };
+        let content = serde_json::to_vec_pretty(&ledger).map_err(|error| {
+            AppError::Plugin(format!(
+                "Unable to encode plugin credential ledger: {error}"
+            ))
+        })?;
+        let path = self
+            .inner
+            .app_data_dir
+            .join("plugins")
+            .join("credentials.json");
+        let mut file = AtomicWriteFile::options().open(path)?;
+        file.write_all(&content)?;
+        file.commit()?;
+        Ok(())
+    }
+
+    fn update_state<T>(
+        &self,
+        update: impl FnOnce(&mut PersistentPluginState) -> AppResult<T>,
+    ) -> AppResult<T> {
+        let mut state = self.state()?;
+        let mut candidate = state.clone();
+        let result = update(&mut candidate)?;
+        self.save_state(&candidate)?;
+        *state = candidate;
+        Ok(result)
+    }
+
+    fn update_credential_state<T>(
+        &self,
+        update: impl FnOnce(&mut PersistentPluginState) -> AppResult<T>,
+    ) -> AppResult<T> {
+        let mut state = self.state()?;
+        let mut candidate = state.clone();
+        let result = update(&mut candidate)?;
+        self.save_credential_ledger(&candidate)?;
+        self.save_state(&candidate)?;
+        *state = candidate;
+        Ok(result)
+    }
+
     fn state(&self) -> AppResult<MutexGuard<'_, PersistentPluginState>> {
         self.inner
             .state
@@ -683,12 +1151,20 @@ impl PluginManager {
             .map_err(|_| AppError::State("Plugin state lock is poisoned".to_string()))
     }
 
-    fn prepared_permissions(
+    fn pending_transactions(
         &self,
-    ) -> AppResult<MutexGuard<'_, BTreeMap<String, BTreeSet<String>>>> {
-        self.inner.prepared_permissions.lock().map_err(|_| {
-            AppError::State("Plugin prepared-permissions lock is poisoned".to_string())
-        })
+    ) -> AppResult<MutexGuard<'_, BTreeMap<String, PreparedPluginTransaction>>> {
+        self.inner
+            .pending_transactions
+            .lock()
+            .map_err(|_| AppError::State("Plugin transaction lock is poisoned".to_string()))
+    }
+
+    fn preparation_lock(&self) -> AppResult<MutexGuard<'_, ()>> {
+        self.inner
+            .preparation_lock
+            .lock()
+            .map_err(|_| AppError::State("Plugin preparation lock is poisoned".to_string()))
     }
 
     fn operations(&self) -> AppResult<MutexGuard<'_, HashSet<String>>> {
@@ -696,6 +1172,14 @@ impl PluginManager {
             .operations
             .lock()
             .map_err(|_| AppError::State("Plugin operation lock is poisoned".to_string()))
+    }
+
+    fn initialization_error(&self) -> AppResult<Option<String>> {
+        self.inner
+            .initialization_error
+            .lock()
+            .map(|error| error.clone())
+            .map_err(|_| AppError::State("Plugin initialization lock is poisoned".to_string()))
     }
 }
 
@@ -706,6 +1190,14 @@ fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> {
         if !valid_plugin_id(id) || !ids.insert(id) {
             return Err(AppError::Plugin(format!(
                 "Invalid or duplicate plugin ID in catalog: {id}"
+            )));
+        }
+        if Version::parse(&entry.manifest.version).is_err()
+            || entry.manifest.version.contains(['/', '\\'])
+        {
+            return Err(AppError::Plugin(format!(
+                "Invalid plugin version in catalog for {id}: {}",
+                entry.manifest.version
             )));
         }
         if !entry.artifact.url.starts_with("https://")
@@ -723,14 +1215,38 @@ fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> {
             )));
         }
         validate_relative_path(&entry.manifest.entrypoint)?;
+        validate_relative_path(&entry.manifest.documentation)?;
+        validate_relative_path(&entry.manifest.icon)?;
+        validate_settings(&entry.manifest, default_settings(&entry.manifest))?;
     }
     Ok(())
+}
+
+fn load_credential_ledger(plugins_dir: &Path) -> AppResult<Option<CredentialLedger>> {
+    let path = plugins_dir.join("credentials.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    match serde_json::from_slice(&fs::read(&path)?) {
+        Ok(ledger) => Ok(Some(ledger)),
+        Err(error) => {
+            let quarantine =
+                plugins_dir.join(format!("credentials.corrupt-{}.json", Uuid::new_v4()));
+            fs::rename(&path, &quarantine)?;
+            eprintln!(
+                "Credential cleanup ledger was corrupt and moved to {}: {error}",
+                quarantine.display()
+            );
+            Ok(None)
+        }
+    }
 }
 
 fn download_artifact(catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent("Denote plugin installer")
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|error| AppError::Plugin(format!("Unable to create HTTP client: {error}")))?;
     let response = client.get(&catalog.artifact.url).send().map_err(|error| {
@@ -746,6 +1262,12 @@ fn download_artifact(catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
             catalog.manifest.id
         )));
     }
+    if response.url().scheme() != "https" {
+        return Err(AppError::Plugin(format!(
+            "Plugin {} download resolved to a non-HTTPS URL",
+            catalog.manifest.id
+        )));
+    }
     if let Some(length) = response.content_length()
         && (length > MAX_PLUGIN_PACKAGE_BYTES as u64 || length != catalog.artifact.size_bytes)
     {
@@ -754,19 +1276,29 @@ fn download_artifact(catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
             catalog.manifest.id
         )));
     }
-    let bytes = response.bytes().map_err(|error| {
+    let expected_size = usize::try_from(catalog.artifact.size_bytes).map_err(|_| {
         AppError::Plugin(format!(
-            "Unable to read plugin {} download: {error}",
+            "Plugin {} package size is unsupported",
             catalog.manifest.id
         ))
     })?;
-    if bytes.len() > MAX_PLUGIN_PACKAGE_BYTES {
+    let mut bytes = Vec::with_capacity(expected_size);
+    response
+        .take(catalog.artifact.size_bytes + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| {
+            AppError::Plugin(format!(
+                "Unable to read plugin {} download: {error}",
+                catalog.manifest.id
+            ))
+        })?;
+    if bytes.len() != expected_size {
         return Err(AppError::Plugin(format!(
-            "Plugin {} exceeds the package size limit",
+            "Plugin {} download size does not match catalog metadata",
             catalog.manifest.id
         )));
     }
-    Ok(bytes.to_vec())
+    Ok(bytes)
 }
 
 fn verify_artifact(catalog: &PluginCatalogEntry, bytes: &[u8]) -> AppResult<()> {
@@ -784,6 +1316,20 @@ fn verify_artifact(catalog: &PluginCatalogEntry, bytes: &[u8]) -> AppResult<()> 
         )));
     }
     Ok(())
+}
+
+fn sha256_file(path: &Path) -> AppResult<String> {
+    let metadata = fs::symlink_metadata(path)?;
+    if metadata_is_link(&metadata)
+        || !metadata.is_file()
+        || metadata.len() > MAX_PLUGIN_ENTRYPOINT_BYTES
+    {
+        return Err(AppError::Plugin(format!(
+            "Plugin entrypoint is invalid: {}",
+            path.display()
+        )));
+    }
+    Ok(hex::encode(Sha256::digest(fs::read(path)?)))
 }
 
 fn extract_archive(bytes: &[u8], staging: &Path) -> AppResult<()> {
@@ -864,13 +1410,49 @@ fn remove_directory_atomically(path: &Path) -> AppResult<()> {
 }
 
 fn reject_symlink(path: &Path) -> AppResult<()> {
-    if path.exists() && fs::symlink_metadata(path)?.file_type().is_symlink() {
+    if path.exists() && metadata_is_link(&fs::symlink_metadata(path)?) {
         return Err(AppError::Plugin(format!(
             "Plugin path cannot be a symbolic link: {}",
             path.display()
         )));
     }
     Ok(())
+}
+
+fn ensure_managed_directory(path: &Path) -> AppResult<()> {
+    if path.exists() {
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata_is_link(&metadata) || !metadata.is_dir() {
+            return Err(AppError::Plugin(format!(
+                "Plugin storage root must be a regular directory: {}",
+                path.display()
+            )));
+        }
+    } else {
+        fs::create_dir_all(path)?;
+        let metadata = fs::symlink_metadata(path)?;
+        if metadata_is_link(&metadata) || !metadata.is_dir() {
+            return Err(AppError::Plugin(format!(
+                "Plugin storage root is unsafe: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn metadata_is_link(metadata: &fs::Metadata) -> bool {
+    if metadata.file_type().is_symlink() {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        return metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0;
+    }
+    #[cfg(not(windows))]
+    false
 }
 
 fn validate_archive_path(path: &Path) -> AppResult<()> {
@@ -891,39 +1473,20 @@ fn validate_relative_path(path: &str) -> AppResult<()> {
     validate_archive_path(Path::new(path))
 }
 
-fn permission_tokens(manifest: &PluginManifest) -> AppResult<BTreeSet<String>> {
-    manifest
-        .permissions
-        .iter()
-        .map(|permission| {
-            serde_json::to_string(permission).map_err(|error| {
-                AppError::Plugin(format!(
-                    "Unable to encode {} permission: {error}",
-                    permission.capability
-                ))
-            })
-        })
-        .collect()
-}
-
 fn has_permission(
     catalog: &PluginCatalogEntry,
-    approved: &BTreeSet<String>,
+    approved: &BTreeSet<PluginPermission>,
     capability: &str,
-) -> AppResult<bool> {
+) -> bool {
     let Some(permission) = catalog
         .manifest
         .permissions
         .iter()
         .find(|permission| permission.capability == capability)
     else {
-        return Ok(false);
+        return false;
     };
-    Ok(
-        approved.contains(&serde_json::to_string(permission).map_err(|error| {
-            AppError::Plugin(format!("Unable to encode {capability} permission: {error}"))
-        })?),
-    )
+    approved.contains(permission)
 }
 
 fn compatibility_error(manifest: &PluginManifest) -> Option<String> {
@@ -1035,6 +1598,24 @@ fn validate_settings(manifest: &PluginManifest, settings: Value) -> AppResult<Va
                 manifest.id
             )));
         }
+        if definition.get("type").and_then(Value::as_str) == Some("number")
+            && let Some(number) = value.as_f64()
+        {
+            if definition
+                .get("minimum")
+                .and_then(Value::as_f64)
+                .is_some_and(|minimum| number < minimum)
+                || definition
+                    .get("maximum")
+                    .and_then(Value::as_f64)
+                    .is_some_and(|maximum| number > maximum)
+            {
+                return Err(AppError::Plugin(format!(
+                    "Setting {key} is outside the allowed range for {}",
+                    manifest.id
+                )));
+            }
+        }
         if definition.get("type").and_then(Value::as_str) == Some("select")
             && !definition
                 .get("options")
@@ -1070,8 +1651,50 @@ fn validate_storage_key(key: &str) -> AppResult<()> {
     Ok(())
 }
 
+fn enforce_storage_quota(
+    storage: &BTreeMap<String, Value>,
+    key: &str,
+    value: &Value,
+) -> AppResult<()> {
+    if !storage.contains_key(key) && storage.len() >= MAX_PLUGIN_STORAGE_KEYS {
+        return Err(AppError::Plugin(format!(
+            "Plugin storage cannot exceed {MAX_PLUGIN_STORAGE_KEYS} keys"
+        )));
+    }
+    let value_size = serde_json::to_vec(value)
+        .map_err(|error| AppError::Plugin(format!("Unable to size plugin storage: {error}")))?
+        .len();
+    if value_size > MAX_PLUGIN_STORAGE_VALUE_BYTES {
+        return Err(AppError::Plugin(
+            "Plugin storage value exceeds the 256 KiB limit".to_string(),
+        ));
+    }
+    let existing_size = storage
+        .iter()
+        .filter(|(existing_key, _)| existing_key.as_str() != key)
+        .try_fold(0_usize, |total, (_, existing)| {
+            let size = serde_json::to_vec(existing).map_err(|error| {
+                AppError::Plugin(format!("Unable to size plugin storage: {error}"))
+            })?;
+            total
+                .checked_add(size.len())
+                .ok_or_else(|| AppError::Plugin("Plugin storage size overflow".to_string()))
+        })?;
+    if existing_size + value_size > MAX_PLUGIN_STORAGE_BYTES {
+        return Err(AppError::Plugin(
+            "Plugin storage exceeds the 2 MiB per-plugin limit".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn keychain_entry(plugin_id: &str, key: &str) -> AppResult<Entry> {
-    Entry::new(&format!("{KEYCHAIN_SERVICE_PREFIX}.{plugin_id}"), key).map_err(|error| {
+    let mut identifier = Sha256::new();
+    identifier.update(plugin_id.as_bytes());
+    identifier.update([0]);
+    identifier.update(key.as_bytes());
+    let account = hex::encode(identifier.finalize());
+    Entry::new(KEYCHAIN_SERVICE_PREFIX, &account).map_err(|error| {
         AppError::Plugin(format!(
             "Unable to access the operating-system keychain for {plugin_id}: {error}"
         ))
@@ -1117,7 +1740,7 @@ pub fn list_plugins(state: State<'_, PluginManager>) -> AppResult<Vec<PluginView
 pub async fn prepare_plugin_enable(
     state: State<'_, PluginManager>,
     plugin_id: String,
-    approved_permissions: Vec<String>,
+    approved_permissions: Vec<PluginPermission>,
 ) -> AppResult<InstalledPlugin> {
     let manager = state.inner().clone();
     run_blocking(move || manager.prepare(&plugin_id, approved_permissions)).await
@@ -1126,20 +1749,26 @@ pub async fn prepare_plugin_enable(
 #[tauri::command]
 pub async fn commit_plugin_enable(
     state: State<'_, PluginManager>,
-    plugin_id: String,
+    transaction_id: String,
 ) -> AppResult<()> {
     let manager = state.inner().clone();
-    run_blocking(move || manager.commit_enable(&plugin_id)).await
+    run_blocking(move || manager.commit_enable(&transaction_id)).await
 }
 
 #[tauri::command]
 pub async fn rollback_plugin_enable(
     state: State<'_, PluginManager>,
-    plugin_id: String,
+    transaction_id: String,
     error: Option<String>,
 ) -> AppResult<()> {
     let manager = state.inner().clone();
-    run_blocking(move || manager.rollback_enable(&plugin_id, error)).await
+    run_blocking(move || manager.rollback_enable(&transaction_id, error)).await
+}
+
+#[tauri::command]
+pub async fn recover_plugin_transactions(state: State<'_, PluginManager>) -> AppResult<()> {
+    let manager = state.inner().clone();
+    run_blocking(move || manager.recover_pending_transactions()).await
 }
 
 #[tauri::command]
@@ -1281,14 +1910,19 @@ mod tests {
     }
 
     fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> PluginManager {
+        fs::create_dir_all(data.path().join("plugins").join("packages")).expect("plugin packages");
+        fs::create_dir_all(cache.path().join("plugin-downloads")).expect("plugin cache");
         PluginManager {
             inner: Arc::new(PluginManagerInner {
                 app_data_dir: data.path().to_path_buf(),
                 app_cache_dir: cache.path().to_path_buf(),
                 catalog: vec![catalog],
                 state: Mutex::new(PersistentPluginState::default()),
-                prepared_permissions: Mutex::new(BTreeMap::new()),
+                pending_transactions: Mutex::new(BTreeMap::new()),
+                preparation_lock: Mutex::new(()),
                 operations: Mutex::new(HashSet::new()),
+                initialization_error: Mutex::new(None),
+                _process_lock: None,
             }),
         }
     }
@@ -1432,5 +2066,355 @@ mod tests {
 
         assert!(error.to_string().contains("cannot contain links"));
         assert!(!manager.install_dir(&catalog).exists());
+    }
+
+    #[test]
+    fn permission_changes_disable_and_remove_installed_code() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let mut catalog = catalog();
+        let bytes = package_bytes(&catalog);
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+        let hash = manager.install_package(&catalog, &bytes).expect("install");
+        {
+            let mut state = manager.state().expect("state");
+            state.enabled.insert(catalog.manifest.id.clone());
+            state.approved_permissions.insert(
+                catalog.manifest.id.clone(),
+                [PluginPermission {
+                    capability: "commands".to_string(),
+                    hosts: vec![],
+                }]
+                .into_iter()
+                .collect(),
+            );
+            state
+                .entrypoint_hashes
+                .insert(catalog.manifest.id.clone(), hash);
+            state
+                .artifact_hashes
+                .insert(catalog.manifest.id.clone(), catalog.artifact.sha256.clone());
+        }
+
+        manager.reconcile_packages().expect("reconcile");
+
+        let state = manager.state().expect("state");
+        assert!(!state.enabled.contains(&catalog.manifest.id));
+        assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+        assert!(
+            state
+                .errors
+                .get(&catalog.manifest.id)
+                .is_some_and(|error| error.contains("permissions changed"))
+        );
+    }
+
+    #[test]
+    fn tampered_entrypoint_is_removed_during_startup_recovery() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let mut catalog = catalog();
+        let bytes = package_bytes(&catalog);
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+        let hash = manager.install_package(&catalog, &bytes).expect("install");
+        {
+            let mut state = manager.state().expect("state");
+            state.enabled.insert(catalog.manifest.id.clone());
+            state.approved_permissions.insert(
+                catalog.manifest.id.clone(),
+                catalog.manifest.permissions.iter().cloned().collect(),
+            );
+            state
+                .entrypoint_hashes
+                .insert(catalog.manifest.id.clone(), hash);
+            state
+                .artifact_hashes
+                .insert(catalog.manifest.id.clone(), catalog.artifact.sha256.clone());
+        }
+
+        fs::write(
+            manager
+                .install_dir(&catalog)
+                .join(&catalog.manifest.entrypoint),
+            "tampered",
+        )
+        .expect("tamper");
+
+        manager.reconcile_packages().expect("reconcile");
+
+        assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+        assert!(
+            !manager
+                .state()
+                .expect("state")
+                .enabled
+                .contains(&catalog.manifest.id)
+        );
+    }
+
+    #[test]
+    fn changed_artifact_digest_requires_reenable_even_when_version_is_unchanged() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let mut catalog = catalog();
+        let bytes = package_bytes(&catalog);
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+        let hash = manager.install_package(&catalog, &bytes).expect("install");
+        {
+            let mut state = manager.state().expect("state");
+            state.enabled.insert(catalog.manifest.id.clone());
+            state.approved_permissions.insert(
+                catalog.manifest.id.clone(),
+                catalog.manifest.permissions.iter().cloned().collect(),
+            );
+            state
+                .entrypoint_hashes
+                .insert(catalog.manifest.id.clone(), hash);
+            state
+                .artifact_hashes
+                .insert(catalog.manifest.id.clone(), "old-digest".to_string());
+        }
+
+        manager.reconcile_packages().expect("reconcile");
+
+        assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+        assert!(
+            !manager
+                .state()
+                .expect("state")
+                .enabled
+                .contains(&catalog.manifest.id)
+        );
+    }
+
+    #[test]
+    fn invalid_transaction_cannot_delete_arbitrary_paths() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let manager = manager(catalog(), &data, &cache);
+        let sentinel = data.path().join("sentinel");
+        fs::create_dir(&sentinel).expect("sentinel");
+        fs::write(sentinel.join("keep.txt"), "keep").expect("keep");
+
+        assert!(manager.rollback_enable("../../sentinel", None).is_err());
+        assert!(sentinel.join("keep.txt").is_file());
+    }
+
+    #[test]
+    fn prepared_transaction_blocks_disable_until_rollback() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let mut catalog = catalog();
+        let bytes = package_bytes(&catalog);
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+        let entrypoint_sha256 = manager.install_package(&catalog, &bytes).expect("install");
+        manager
+            .operations()
+            .expect("operations")
+            .insert(catalog.manifest.id.clone());
+        let transaction_id = "transaction".to_string();
+        manager
+            .pending_transactions()
+            .expect("transactions")
+            .insert(
+                transaction_id.clone(),
+                PreparedPluginTransaction {
+                    plugin_id: catalog.manifest.id.clone(),
+                    permissions: catalog.manifest.permissions.iter().cloned().collect(),
+                    artifact_sha256: catalog.artifact.sha256.clone(),
+                    entrypoint_sha256: Some(entrypoint_sha256),
+                },
+            );
+
+        assert!(manager.disable(&catalog.manifest.id, false, false).is_err());
+        manager
+            .rollback_enable(&transaction_id, None)
+            .expect("rollback");
+
+        assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+        assert!(
+            !manager
+                .operations()
+                .expect("operations")
+                .contains(&catalog.manifest.id)
+        );
+    }
+
+    #[test]
+    fn read_entrypoint_rejects_changes_after_preparation() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let mut catalog = catalog();
+        let bytes = package_bytes(&catalog);
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+        let entrypoint_sha256 = manager.install_package(&catalog, &bytes).expect("install");
+        manager
+            .pending_transactions()
+            .expect("transactions")
+            .insert(
+                "transaction".to_string(),
+                PreparedPluginTransaction {
+                    plugin_id: catalog.manifest.id.clone(),
+                    permissions: catalog.manifest.permissions.iter().cloned().collect(),
+                    artifact_sha256: catalog.artifact.sha256.clone(),
+                    entrypoint_sha256: Some(entrypoint_sha256),
+                },
+            );
+        fs::write(
+            manager
+                .install_dir(&catalog)
+                .join(&catalog.manifest.entrypoint),
+            "tampered after prepare",
+        )
+        .expect("tamper");
+
+        let error = manager
+            .read_entrypoint(&catalog.manifest.id)
+            .expect_err("integrity");
+
+        assert!(error.to_string().contains("integrity check failed"));
+    }
+
+    #[test]
+    fn catalog_rejects_versions_that_can_escape_install_paths() {
+        let mut catalog = catalog();
+        catalog.manifest.version = "../outside".to_string();
+
+        assert!(validate_catalog(&[catalog]).is_err());
+    }
+
+    #[test]
+    fn removed_catalog_entries_drop_namespaced_state() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let manager = manager(catalog(), &data, &cache);
+        {
+            let mut state = manager.state().expect("state");
+            state
+                .settings
+                .insert("removed.plugin".to_string(), Value::Object(Map::new()));
+            state.storage.insert(
+                "removed.plugin".to_string(),
+                BTreeMap::from([("key".to_string(), Value::String("value".to_string()))]),
+            );
+        }
+
+        manager.reconcile_packages().expect("reconcile");
+
+        let state = manager.state().expect("state");
+        assert!(!state.settings.contains_key("removed.plugin"));
+        assert!(!state.storage.contains_key("removed.plugin"));
+    }
+
+    #[test]
+    fn corrupt_state_is_quarantined_without_blocking_core_startup() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let plugins_dir = data.path().join("plugins");
+        fs::create_dir_all(&plugins_dir).expect("plugins");
+        fs::write(plugins_dir.join("state.json"), "{broken").expect("state");
+
+        let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+
+        assert!(manager.list().is_ok());
+        assert!(
+            fs::read_dir(&plugins_dir)
+                .expect("plugins")
+                .filter_map(Result::ok)
+                .any(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("state.corrupt-"))
+        );
+    }
+
+    #[test]
+    fn credential_ledger_survives_corrupt_main_state() {
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let plugins_dir = data.path().join("plugins");
+        fs::create_dir_all(&plugins_dir).expect("plugins");
+        fs::write(plugins_dir.join("state.json"), "{broken").expect("state");
+        let ledger = CredentialLedger {
+            credential_keys: BTreeMap::from([(
+                "denote.reference".to_string(),
+                BTreeSet::from(["token".to_string()]),
+            )]),
+            pending_credential_keys: BTreeMap::new(),
+        };
+        fs::write(
+            plugins_dir.join("credentials.json"),
+            serde_json::to_vec(&ledger).expect("ledger"),
+        )
+        .expect("ledger");
+
+        let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+
+        assert!(
+            manager
+                .list()
+                .expect("list")
+                .first()
+                .is_some_and(|plugin| plugin.has_credentials)
+        );
+    }
+
+    #[test]
+    fn plugin_storage_quota_rejects_oversized_values_without_mutating_state() {
+        let storage = BTreeMap::new();
+        let value = Value::String("x".repeat(MAX_PLUGIN_STORAGE_VALUE_BYTES));
+
+        assert!(enforce_storage_quota(&storage, "large", &value).is_err());
+        assert!(storage.is_empty());
+    }
+
+    #[test]
+    fn retained_settings_are_normalized_against_current_schema() {
+        let mut manifest = catalog().manifest;
+        manifest.settings = Some(serde_json::json!({
+            "properties": {
+                "count": {
+                    "type": "number",
+                    "title": "Count",
+                    "default": 2,
+                    "minimum": 1,
+                    "maximum": 3
+                }
+            }
+        }));
+
+        assert!(validate_settings(&manifest, serde_json::json!({ "count": 9 })).is_err());
+        assert_eq!(
+            validate_settings(&manifest, serde_json::json!({})).expect("defaults"),
+            serde_json::json!({ "count": 2 })
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinked_cache_root_is_not_traversed_during_startup() {
+        use std::os::unix::fs::symlink;
+
+        let data = TempDir::new().expect("data");
+        let cache = TempDir::new().expect("cache");
+        let outside = TempDir::new().expect("outside");
+        fs::write(outside.path().join("keep.txt"), "keep").expect("keep");
+        fs::create_dir_all(cache.path()).expect("cache");
+        symlink(outside.path(), cache.path().join("plugin-downloads")).expect("symlink");
+
+        let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+
+        assert!(outside.path().join("keep.txt").is_file());
+        assert!(manager.list().is_err());
     }
 }

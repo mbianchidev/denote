@@ -476,24 +476,10 @@ function assertContextCapabilities(
   );
   const mappedCapabilities = [
     ["commands", capabilities.commands],
-    ["sidebar", capabilities.sidebar],
-    ["editor-decoration", capabilities.editorDecoration],
-    ["note-events", capabilities.noteEvents],
-    ["workspace-read", capabilities.workspaceRead],
-    ["network", capabilities.network],
-    ["clipboard-read", capabilities.clipboardRead],
-    ["notifications", capabilities.notifications],
     ["secure-storage", capabilities.secureStorage],
   ] as const;
   const allowedContextKeys = new Set([
     "commands",
-    "sidebar",
-    "editorDecoration",
-    "noteEvents",
-    "workspaceRead",
-    "network",
-    "clipboardRead",
-    "notifications",
     "secureStorage",
   ]);
   for (const capability of Object.keys(capabilities)) {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
+import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
   type PluginCommandContribution,
@@ -12,7 +13,10 @@ export interface PluginController {
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
-  enable: (pluginId: string, approvedPermissions: string[]) => Promise<void>;
+  enable: (
+    pluginId: string,
+    approvedPermissions: PluginPermissionRequest[],
+  ) => Promise<void>;
   disable: (pluginId: string) => Promise<void>;
   disableAll: () => Promise<void>;
   clearData: (pluginId: string) => Promise<void>;
@@ -22,6 +26,7 @@ export interface PluginController {
     settings: Record<string, unknown>,
   ) => Promise<void>;
   runCommand: (pluginId: string, commandId: string) => Promise<void>;
+  shutdown: () => Promise<void>;
 }
 
 export function usePlugins(
@@ -32,6 +37,8 @@ export function usePlugins(
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
   const runtimeRef = useRef<PluginWorkerRuntime | null>(null);
+  const pendingTransactionsRef = useRef(new Map<string, string>());
+  const startsAllowedRef = useRef(true);
 
   const refresh = useCallback(async () => {
     setPlugins(await api.listPlugins());
@@ -41,27 +48,49 @@ export function usePlugins(
     let cancelled = false;
     const runtime = new PluginWorkerRuntime(setCommands, (pluginId, error) => {
       reportError(error);
-      void api
-        .disablePlugin(pluginId)
-        .then(refresh)
-        .catch(reportError);
+      const transactionId = pendingTransactionsRef.current.get(pluginId);
+      void (async () => {
+        if (transactionId) {
+          try {
+            await api.rollbackPluginEnable(
+              transactionId,
+              errorMessage(error),
+            );
+            pendingTransactionsRef.current.delete(pluginId);
+            await refresh();
+            return;
+          } catch (rollbackError) {
+            reportError(rollbackError);
+          }
+        }
+        await api.disablePlugin(pluginId);
+        await refresh();
+      })().catch(reportError);
     });
     runtimeRef.current = runtime;
     void api
-      .listPlugins()
+      .recoverPluginTransactions()
+      .then(api.listPlugins)
       .then(async (available) => {
         if (cancelled) {
           return;
         }
         setPlugins(available);
         for (const plugin of available.filter((entry) => entry.enabled)) {
+          if (cancelled || !startsAllowedRef.current) {
+            break;
+          }
           try {
             await runtime.start(plugin);
           } catch (error) {
-            await api.rollbackPluginEnable(
-              plugin.catalog.manifest.id,
-              errorMessage(error),
-            );
+            if (
+              cancelled ||
+              !startsAllowedRef.current ||
+              errorMessage(error).includes("start was cancelled")
+            ) {
+              break;
+            }
+            await api.disablePlugin(plugin.catalog.manifest.id);
             reportError(error);
           }
         }
@@ -77,10 +106,14 @@ export function usePlugins(
       });
     return () => {
       cancelled = true;
+      startsAllowedRef.current = false;
       runtimeRef.current = null;
-      void runtime.stopAll().catch(reportError);
+      void runtime
+        .stopAll()
+        .then(api.recoverPluginTransactions)
+        .catch(reportError);
     };
-  }, [reportError]);
+  }, [refresh, reportError]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -99,8 +132,20 @@ export function usePlugins(
   );
 
   const enable = useCallback(
-    async (pluginId: string, approvedPermissions: string[]) => {
+    async (
+      pluginId: string,
+      approvedPermissions: PluginPermissionRequest[],
+    ) => {
       await withBusy(pluginId, async () => {
+        startsAllowedRef.current = true;
+        const staleTransaction = pendingTransactionsRef.current.get(pluginId);
+        if (staleTransaction) {
+          await api.rollbackPluginEnable(
+            staleTransaction,
+            "Retrying a previously interrupted plugin enablement.",
+          );
+          pendingTransactionsRef.current.delete(pluginId);
+        }
         const current = plugins.find(
           (plugin) => plugin.catalog.manifest.id === pluginId,
         );
@@ -108,8 +153,15 @@ export function usePlugins(
           throw new Error(`Plugin ${pluginId} is not in the catalog.`);
         }
         let runtimeStarted = false;
+        let transactionId: string | null = null;
+        let committed = false;
         try {
-          await api.preparePluginEnable(pluginId, approvedPermissions);
+          const installation = await api.preparePluginEnable(
+            pluginId,
+            approvedPermissions,
+          );
+          transactionId = installation.transactionId;
+          pendingTransactionsRef.current.set(pluginId, transactionId);
           const prepared =
             (await api.listPlugins()).find(
               (plugin) => plugin.catalog.manifest.id === pluginId,
@@ -120,17 +172,35 @@ export function usePlugins(
           }
           await runtime.start(prepared);
           runtimeStarted = true;
-          await api.commitPluginEnable(pluginId);
-          await refresh();
+          if (!runtime.isRunning(pluginId)) {
+            throw new Error(`Plugin ${pluginId} stopped before enablement completed.`);
+          }
+          await api.commitPluginEnable(transactionId);
+          committed = true;
+          pendingTransactionsRef.current.delete(pluginId);
         } catch (error) {
           if (runtimeStarted) {
             await runtimeRef.current?.stop(pluginId).catch(reportError);
           }
-          await api
-            .rollbackPluginEnable(pluginId, errorMessage(error))
-            .catch(reportError);
+          if (
+            transactionId &&
+            pendingTransactionsRef.current.get(pluginId) === transactionId
+          ) {
+            try {
+              await api.rollbackPluginEnable(
+                transactionId,
+                errorMessage(error),
+              );
+              pendingTransactionsRef.current.delete(pluginId);
+            } catch (rollbackError) {
+              reportError(rollbackError);
+            }
+          }
           await refresh().catch(reportError);
           throw error;
+        }
+        if (committed) {
+          await refresh().catch(reportError);
         }
       });
     },
@@ -140,6 +210,14 @@ export function usePlugins(
   const disable = useCallback(
     async (pluginId: string) => {
       await withBusy(pluginId, async () => {
+        const staleTransaction = pendingTransactionsRef.current.get(pluginId);
+        if (staleTransaction) {
+          await api.rollbackPluginEnable(
+            staleTransaction,
+            "Plugin enablement was cancelled.",
+          );
+          pendingTransactionsRef.current.delete(pluginId);
+        }
         let runtimeError: unknown = null;
         try {
           await runtimeRef.current?.stop(pluginId);
@@ -167,10 +245,13 @@ export function usePlugins(
   );
 
   const disableAll = useCallback(async () => {
+    startsAllowedRef.current = false;
     const runtime = runtimeRef.current;
     if (runtime) {
       await runtime.stopAll().catch(reportError);
     }
+    await api.recoverPluginTransactions();
+    pendingTransactionsRef.current.clear();
     for (const plugin of plugins) {
       if (plugin.enabled) {
         await api.disablePlugin(plugin.catalog.manifest.id);
@@ -210,6 +291,13 @@ export function usePlugins(
     [],
   );
 
+  const shutdown = useCallback(async () => {
+    startsAllowedRef.current = false;
+    await runtimeRef.current?.stopAll().catch(reportError);
+    await api.recoverPluginTransactions().catch(reportError);
+    pendingTransactionsRef.current.clear();
+  }, [reportError]);
+
   return {
     plugins,
     commands,
@@ -223,5 +311,6 @@ export function usePlugins(
     clearCredentials,
     updateSettings,
     runCommand,
+    shutdown,
   };
 }

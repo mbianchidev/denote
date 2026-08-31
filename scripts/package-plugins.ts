@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { create, extract } from "tar";
+import { create, extract, list } from "tar";
 import {
   parsePluginManifest,
   type PluginCatalogEntry,
@@ -23,6 +23,8 @@ const pluginsRoot = join(root, "packages", "plugins");
 const artifactsRoot = join(root, "plugin-artifacts");
 const catalogPath = join(pluginsRoot, "catalog.json");
 const checkOnly = process.argv.includes("--check");
+const MAX_PACKAGE_BYTES = 25 * 1024 * 1024;
+const MAX_ENTRYPOINT_BYTES = 5 * 1024 * 1024;
 const artifactRef = process.env.DENOTE_PLUGIN_ARTIFACT_REF;
 const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -40,6 +42,13 @@ try {
       JSON.parse(readFileSync(join(pluginDirectory, "plugin.json"), "utf8")) as unknown,
     );
     const artifactName = `${manifest.id}-${manifest.version}.tgz`;
+    const packagePaths = [
+      manifest.entrypoint,
+      manifest.documentation,
+      manifest.icon,
+      "plugin.json",
+      "package.json",
+    ];
     const committedArtifact = join(artifactsRoot, artifactName);
     const entry = catalog.find(
       (candidate) => candidate.manifest.id === manifest.id,
@@ -57,6 +66,9 @@ try {
       const committed = readFileSync(committedArtifact);
       const sha256 = createHash("sha256").update(committed).digest("hex");
       const sizeBytes = statSync(committedArtifact).size;
+      if (sizeBytes > MAX_PACKAGE_BYTES) {
+        throw new Error(`${artifactName} exceeds the package size limit.`);
+      }
       if (
         entry.artifact.sha256 !== sha256 ||
         entry.artifact.sizeBytes !== sizeBytes
@@ -65,6 +77,65 @@ try {
           `Catalog integrity metadata is stale for ${manifest.id}.`,
         );
       }
+      if (process.env.DENOTE_SKIP_REMOTE_ARTIFACT_CHECK !== "1") {
+        const response = await fetch(entry.artifact.url, {
+          redirect: "error",
+          signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok || response.url !== entry.artifact.url) {
+          throw new Error(
+            `Pinned artifact is unavailable for ${manifest.id}: HTTP ${response.status}.`,
+          );
+        }
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error(`Pinned artifact has no response body for ${manifest.id}.`);
+        }
+        const remoteHash = createHash("sha256");
+        let remoteBytes = 0;
+        while (true) {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            break;
+          }
+          remoteBytes += chunk.value.byteLength;
+          if (remoteBytes > sizeBytes) {
+            await reader.cancel();
+            throw new Error(`Pinned artifact is larger than catalog metadata for ${manifest.id}.`);
+          }
+          remoteHash.update(chunk.value);
+        }
+        if (remoteBytes !== sizeBytes || remoteHash.digest("hex") !== sha256) {
+          throw new Error(
+            `Pinned artifact bytes do not match catalog metadata for ${manifest.id}.`,
+          );
+        }
+      }
+      let expandedBytes = 0;
+      await list({
+        file: committedArtifact,
+        strict: true,
+        onentry(entry) {
+          if (
+            entry.path.startsWith("/") ||
+            entry.path.split("/").some((part) => part === ".." || part === "")
+          ) {
+            throw new Error(`${artifactName} contains unsafe path ${entry.path}.`);
+          }
+          if (entry.type !== "File" && entry.type !== "Directory") {
+            throw new Error(
+              `${artifactName} contains unsupported ${entry.type} entry ${entry.path}.`,
+            );
+          }
+          expandedBytes += entry.size;
+          if (expandedBytes > MAX_PACKAGE_BYTES) {
+            throw new Error(`${artifactName} exceeds the expanded size limit.`);
+          }
+          if (entry.path === manifest.entrypoint && entry.size > MAX_ENTRYPOINT_BYTES) {
+            throw new Error(`${artifactName} entrypoint exceeds the size limit.`);
+          }
+        },
+      });
       const extracted = join(temporaryRoot, manifest.id);
       mkdirSync(extracted);
       await extract({
@@ -72,13 +143,7 @@ try {
         file: committedArtifact,
         strict: true,
       });
-      for (const path of [
-        "dist/index.js",
-        "plugin.json",
-        "guide.md",
-        "icon.svg",
-        "package.json",
-      ]) {
+      for (const path of packagePaths) {
         const packaged = normalizeText(readFileSync(join(extracted, path), "utf8"));
         const current = normalizeText(
           readFileSync(join(pluginDirectory, path), "utf8"),
@@ -100,7 +165,7 @@ try {
           noMtime: true,
           follow: false,
         },
-        ["dist/index.js", "plugin.json", "guide.md", "icon.svg", "package.json"],
+        packagePaths,
       );
       const bytes = readFileSync(temporaryArtifact);
       const sha256 = createHash("sha256").update(bytes).digest("hex");

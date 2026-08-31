@@ -19,29 +19,14 @@ export type PluginCategory = (typeof PLUGIN_CATEGORIES)[number];
 
 export const PLUGIN_CAPABILITIES = [
   "commands",
-  "sidebar",
-  "editor-decoration",
-  "note-events",
-  "workspace-read",
-  "workspace-write",
-  "network",
-  "clipboard-read",
-  "clipboard-write",
-  "notifications",
-  "process",
   "secure-storage",
 ] as const;
 
 export type PluginCapability = (typeof PLUGIN_CAPABILITIES)[number];
 
-export type PluginPermissionRequest =
-  | {
-      capability: Exclude<PluginCapability, "network">;
-    }
-  | {
-      capability: "network";
-      hosts: string[];
-    };
+export interface PluginPermissionRequest {
+  capability: PluginCapability;
+}
 
 export interface PluginPublisher {
   name: string;
@@ -169,6 +154,10 @@ export interface PluginStorage {
   clear: () => Promise<void>;
 }
 
+export interface PluginSettings {
+  getAll: () => Promise<Record<string, unknown>>;
+}
+
 export interface PluginSecureStorage {
   get: (key: string) => Promise<string | null>;
   set: (key: string, value: string) => Promise<void>;
@@ -269,30 +258,18 @@ export interface PluginProcessCapability {
 
 export interface PluginCapabilities {
   commands?: PluginCommandCapability;
-  sidebar?: PluginSidebarCapability;
-  editorDecoration?: PluginEditorDecorationCapability;
-  noteEvents?: PluginNoteEventsCapability;
-  workspaceRead?: PluginWorkspaceReadCapability;
-  network?: PluginNetworkCapability;
-  clipboardRead?: PluginClipboardReadCapability;
-  notifications?: PluginNotificationCapability;
   secureStorage?: PluginSecureStorage;
 }
 
-export interface PluginUserActionCapabilities {
-  workspaceWrite?: PluginWorkspaceWriteCapability;
-  clipboardWrite?: PluginClipboardWriteCapability;
-  process?: PluginProcessCapability;
-}
-
 export interface PluginUserActionContext {
-  capabilities: PluginUserActionCapabilities;
+  capabilities: Record<string, never>;
 }
 
 export interface PluginActivationContext {
   pluginId: string;
   logger: PluginLogger;
   storage: PluginStorage;
+  settings: PluginSettings;
   capabilities: PluginCapabilities;
   subscriptions: PluginSubscriptions;
 }
@@ -331,7 +308,7 @@ export function validatePluginManifest(
   requireString(value.id, "id", errors);
   if (
     typeof value.id === "string" &&
-    !/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(value.id)
+    !/^(?=.*\.)[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(value.id)
   ) {
     errors.push(
       "id must be a namespaced lowercase identifier such as denote.example.",
@@ -554,24 +531,9 @@ function validatePermissions(value: unknown, errors: string[]): void {
     }
     seen.add(permission.capability);
 
-    if (permission.capability === "network") {
-      if (!Array.isArray(permission.hosts) || permission.hosts.length === 0) {
-        errors.push(`permissions[${index}].hosts must be a non-empty array.`);
-      } else {
-        permission.hosts.forEach((host, hostIndex) => {
-          if (
-            typeof host !== "string" ||
-            !/^(?:\*\.)?[a-z0-9.-]+$/i.test(host)
-          ) {
-            errors.push(
-              `permissions[${index}].hosts[${hostIndex}] is not a valid host pattern.`,
-            );
-          }
-        });
-      }
-    } else if ("hosts" in permission) {
+    if ("hosts" in permission) {
       errors.push(
-        `permissions[${index}].hosts is only valid for network permission.`,
+        `permissions[${index}].hosts is not supported by plugin API version 1.`,
       );
     }
   });
@@ -610,20 +572,45 @@ function validateSettings(value: unknown, errors: string[]): void {
         }
         break;
       case "number":
-        if (typeof definition.default !== "number") {
+        if (
+          typeof definition.default !== "number" ||
+          !Number.isFinite(definition.default)
+        ) {
           errors.push(`settings.properties.${key}.default must be a number.`);
         }
         if (
           definition.minimum !== undefined &&
-          typeof definition.minimum !== "number"
+          (typeof definition.minimum !== "number" ||
+            !Number.isFinite(definition.minimum))
         ) {
           errors.push(`settings.properties.${key}.minimum must be a number.`);
         }
         if (
           definition.maximum !== undefined &&
-          typeof definition.maximum !== "number"
+          (typeof definition.maximum !== "number" ||
+            !Number.isFinite(definition.maximum))
         ) {
           errors.push(`settings.properties.${key}.maximum must be a number.`);
+        }
+        if (
+          typeof definition.minimum === "number" &&
+          typeof definition.maximum === "number" &&
+          definition.minimum > definition.maximum
+        ) {
+          errors.push(
+            `settings.properties.${key}.minimum cannot exceed maximum.`,
+          );
+        }
+        if (
+          typeof definition.default === "number" &&
+          ((typeof definition.minimum === "number" &&
+            definition.default < definition.minimum) ||
+            (typeof definition.maximum === "number" &&
+              definition.default > definition.maximum))
+        ) {
+          errors.push(
+            `settings.properties.${key}.default must be inside the allowed range.`,
+          );
         }
         break;
       case "select":

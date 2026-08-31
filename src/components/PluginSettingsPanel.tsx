@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   PLUGIN_CATEGORIES,
   type PluginCategory,
+  type PluginPermissionRequest,
   type PluginSettingDefinition,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
@@ -38,7 +39,10 @@ interface PluginSettingsPanelProps {
   plugins: PluginView[];
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
-  onEnable: (pluginId: string, permissions: string[]) => Promise<void>;
+  onEnable: (
+    pluginId: string,
+    permissions: PluginPermissionRequest[],
+  ) => Promise<void>;
   onDisable: (pluginId: string) => Promise<void>;
   onDisableAll: () => Promise<void>;
   onClearData: (pluginId: string) => Promise<void>;
@@ -75,18 +79,21 @@ export function PluginSettingsPanel({
   const [drafts, setDrafts] = useState<
     Record<string, Record<string, unknown>>
   >({});
+  const [dirtyPluginIds, setDirtyPluginIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   useEffect(() => {
     setDrafts((current) => {
       const next = { ...current };
       for (const plugin of plugins) {
-        if (!(plugin.catalog.manifest.id in next)) {
+        if (!dirtyPluginIds.has(plugin.catalog.manifest.id)) {
           next[plugin.catalog.manifest.id] = { ...plugin.settings };
         }
       }
       return next;
     });
-  }, [plugins]);
+  }, [dirtyPluginIds, plugins]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -228,9 +235,6 @@ export function PluginSettingsPanel({
                   const permissions = manifest.permissions.map(
                     (permission) => permission.capability,
                   );
-                  const permissionTokens = manifest.permissions.map((permission) =>
-                    JSON.stringify(permission),
-                  );
                   const settingDefinitions =
                     manifest.settings?.properties ?? {};
                   const draft = drafts[pluginId] ?? plugin.settings;
@@ -278,10 +282,6 @@ export function PluginSettingsPanel({
                                 {manifest.permissions.map((permission) => (
                                   <li key={permission.capability}>
                                     {permissionLabel(permission.capability)}
-                                    {permission.capability === "network" &&
-                                    "hosts" in permission
-                                      ? `: ${permission.hosts.join(", ")}`
-                                      : ""}
                                   </li>
                                 ))}
                               </ul>
@@ -303,15 +303,18 @@ export function PluginSettingsPanel({
                                 id={`${pluginId}-${key}`}
                                 definition={definition}
                                 value={draft[key]}
-                                onChange={(value) =>
+                                onChange={(value) => {
+                                  setDirtyPluginIds((current) =>
+                                    new Set(current).add(pluginId),
+                                  );
                                   setDrafts((current) => ({
                                     ...current,
                                     [pluginId]: {
                                       ...(current[pluginId] ?? plugin.settings),
                                       [key]: value,
                                     },
-                                  }))
-                                }
+                                  }));
+                                }}
                               />
                             ),
                           )}
@@ -319,7 +322,15 @@ export function PluginSettingsPanel({
                             type="button"
                             className="secondary-button"
                             onClick={() =>
-                              void onUpdateSettings(pluginId, draft).catch(onError)
+                              void onUpdateSettings(pluginId, draft)
+                                .then(() =>
+                                  setDirtyPluginIds((current) => {
+                                    const next = new Set(current);
+                                    next.delete(pluginId);
+                                    return next;
+                                  }),
+                                )
+                                .catch(onError)
                             }
                           >
                             Save plugin settings
@@ -354,7 +365,7 @@ export function PluginSettingsPanel({
                               className="primary-button"
                               disabled={busy}
                               onClick={() =>
-                                void onEnable(pluginId, permissionTokens)
+                                void onEnable(pluginId, manifest.permissions)
                                   .then(() => setPendingEnable(null))
                                   .catch(onError)
                               }
@@ -402,7 +413,7 @@ export function PluginSettingsPanel({
                                 <Trash2 aria-hidden="true" size={13} />
                                 Delete saved data
                               </button>
-                              {permissions.includes("secure-storage") ? (
+                              {plugin.hasCredentials ? (
                                 <button
                                   type="button"
                                   className="secondary-button"
@@ -453,7 +464,20 @@ export function PluginSettingsPanel({
                                     ? onClearData(pluginId)
                                     : onClearCredentials(pluginId);
                                 void cleanup
-                                  .then(() => setPendingCleanup(null))
+                                  .then(() => {
+                                    if (pendingCleanup.kind === "data") {
+                                      setDrafts((current) => ({
+                                        ...current,
+                                        [pluginId]: {},
+                                      }));
+                                      setDirtyPluginIds((current) => {
+                                        const next = new Set(current);
+                                        next.delete(pluginId);
+                                        return next;
+                                      });
+                                    }
+                                    setPendingCleanup(null);
+                                  })
                                   .catch(onError);
                               }}
                             >

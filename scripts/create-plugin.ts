@@ -21,7 +21,7 @@ if (!pluginId || !displayName) {
     "Usage: npm run create:plugin -- <namespaced-plugin-id> <display-name> [category]",
   );
 }
-if (!/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(pluginId)) {
+if (!/^(?=.*\.)[a-z0-9]+(?:[.-][a-z0-9]+)+$/.test(pluginId)) {
   throw new Error(
     "Plugin ID must be a namespaced lowercase identifier such as denote.example.",
   );

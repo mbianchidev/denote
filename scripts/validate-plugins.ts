@@ -20,6 +20,7 @@ const pluginsRoot = join(root, "packages", "plugins");
 const requireArtifacts = process.argv.includes("--artifacts");
 const errors: string[] = [];
 const catalog = readCatalog();
+const validatedPluginIds = new Set<string>();
 const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
   .map((entry) => join(pluginsRoot, entry.name))
@@ -27,6 +28,13 @@ const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
 
 for (const pluginDirectory of pluginDirectories) {
   validatePlugin(pluginDirectory);
+}
+for (const entry of catalog) {
+  if (!validatedPluginIds.has(entry.manifest.id)) {
+    errors.push(
+      `Catalog plugin ${entry.manifest.id} has no matching packages/plugins/<plugin-id>/ source directory.`,
+    );
+  }
 }
 validateEditorImports(join(root, "src"));
 
@@ -61,6 +69,9 @@ function validatePlugin(pluginDirectory: string): void {
   } catch (error) {
     errors.push(`${label}: ${errorMessage(error)}`);
     return;
+  }
+  if (!validatedPluginIds.add(manifest.id)) {
+    errors.push(`Duplicate plugin source ID: ${manifest.id}.`);
   }
   const catalogEntry = catalog.find(
     (entry) => entry.manifest.id === manifest.id,
@@ -109,6 +120,33 @@ function validatePlugin(pluginDirectory: string): void {
     const path = join(pluginDirectory, packagePath);
     if (!existsSync(path) || !statSync(path).isFile()) {
       errors.push(`${label} is missing ${packagePath}.`);
+    }
+  }
+  if (requireArtifacts) {
+    const distPath = join(pluginDirectory, "dist");
+    const outputFiles = existsSync(distPath)
+      ? readdirSync(distPath, { withFileTypes: true })
+          .filter((entry) => entry.isFile())
+          .map((entry) => entry.name)
+          .sort()
+      : [];
+    if (
+      outputFiles.length !== 1 ||
+      outputFiles[0] !== manifest.entrypoint.replace(/^dist\//, "")
+    ) {
+      errors.push(
+        `${label} must build one self-contained ${manifest.entrypoint} file.`,
+      );
+    } else {
+      const output = readFileSync(
+        join(pluginDirectory, manifest.entrypoint),
+        "utf8",
+      );
+      if (/\bimport\s*\(|\bimportScripts\s*\(/.test(output)) {
+        errors.push(
+          `${label} output contains a runtime import and is not self-contained.`,
+        );
+      }
     }
   }
 
@@ -293,6 +331,7 @@ function readCatalog(): PluginCatalogEntry[] {
     return [];
   }
   const entries: PluginCatalogEntry[] = [];
+  const ids = new Set<string>();
   for (const [index, entry] of value.entries()) {
     try {
       assertValidPluginCatalogEntry(entry);
@@ -304,6 +343,9 @@ function readCatalog(): PluginCatalogEntry[] {
         throw new Error(
           "Artifact URL must use an immutable 40-character commit SHA.",
         );
+      }
+      if (!ids.add(entry.manifest.id)) {
+        throw new Error(`Duplicate catalog plugin ID: ${entry.manifest.id}.`);
       }
       entries.push(entry);
     } catch (error) {

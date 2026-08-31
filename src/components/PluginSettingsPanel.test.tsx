@@ -21,6 +21,7 @@ function plugin(overrides: Partial<PluginView> = {}): PluginView {
     error: null,
     approvedPermissions: [],
     settings: {},
+    hasCredentials: false,
     ...overrides,
   };
 }
@@ -70,8 +71,8 @@ describe("PluginSettingsPanel", () => {
     );
 
     expect(onEnable).toHaveBeenCalledWith("denote.reference", [
-      JSON.stringify({ capability: "commands" }),
-      JSON.stringify({ capability: "secure-storage" }),
+      { capability: "commands" },
+      { capability: "secure-storage" },
     ]);
   });
 
@@ -125,6 +126,32 @@ describe("PluginSettingsPanel", () => {
     );
 
     expect(onDisableAll).toHaveBeenCalledOnce();
+  });
+
+  it("keeps credential cleanup available after permission removal", () => {
+    const withoutSecureStorage = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        permissions: [{ capability: "commands" } as const],
+      },
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              catalog: withoutSecureStorage,
+              hasCredentials: true,
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Delete credentials" }),
+    ).toBeInTheDocument();
   });
 
   it("exposes the in-app usage guide before enablement", async () => {

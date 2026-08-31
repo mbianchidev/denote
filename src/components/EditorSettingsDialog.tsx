@@ -8,6 +8,7 @@ import {
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
 import type { PluginView } from "../types";
+import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 import { PluginSettingsPanel } from "./PluginSettingsPanel";
 
 interface EditorSettingsDialogProps {
@@ -24,7 +25,10 @@ interface EditorSettingsDialogProps {
   onRestoreTabsChange: (enabled: boolean) => void;
   onRemoveExternalDomain: (domain: string) => void;
   onClearExternalDomains: () => void;
-  onEnablePlugin: (pluginId: string, permissions: string[]) => Promise<void>;
+  onEnablePlugin: (
+    pluginId: string,
+    permissions: PluginPermissionRequest[],
+  ) => Promise<void>;
   onDisablePlugin: (pluginId: string) => Promise<void>;
   onDisableAllPlugins: () => Promise<void>;
   onClearPluginData: (pluginId: string) => Promise<void>;

@@ -2,6 +2,7 @@ import type { MarkdownViewMode } from "./lib/markdownView";
 import type {
   PluginCatalogEntry,
   PluginLifecycleState,
+  PluginPermissionRequest,
 } from "@denote/plugin-sdk";
 
 export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
@@ -214,14 +215,16 @@ export interface PluginView {
   status: PluginLifecycleState;
   enabled: boolean;
   error: string | null;
-  approvedPermissions: string[];
+  approvedPermissions: PluginPermissionRequest[];
   settings: Record<string, unknown>;
+  hasCredentials: boolean;
 }
 
 export interface InstalledPlugin {
   pluginId: string;
   version: string;
   entrypoint: string;
+  transactionId: string;
 }
 
 export interface MoveEntryResult {

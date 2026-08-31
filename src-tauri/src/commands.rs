@@ -766,7 +766,7 @@ pub fn empty_trash(state: State<'_, AppState>) -> AppResult<usize> {
 }
 
 #[tauri::command]
-pub fn complete_exit(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+pub fn prepare_exit(state: State<'_, AppState>) -> AppResult<()> {
     let _vault_access = state.write_vault_access()?;
     if let Some(root) = state.active_vault_optional()?
         && let Some(manifest) = crypto::load_manifest(&root)?
@@ -776,6 +776,11 @@ pub fn complete_exit(app: AppHandle, state: State<'_, AppState>) -> AppResult<()
         let key = state.vault_key()?;
         vault::seal_vault_contents(&state.db_path, &root.to_string_lossy(), &key)?;
     }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn complete_exit(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
     state.allow_exit();
     app.exit(0);
     Ok(())

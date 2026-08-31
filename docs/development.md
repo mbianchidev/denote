@@ -62,7 +62,9 @@ DENOTE_PLUGIN_ARTIFACT_REF=$(git rev-parse HEAD) npm run package:plugins
 Commit the catalog-only pin separately. Existing versions retain their immutable
 URL when repackaged. CI rebuilds every plugin, validates the real entrypoint,
 checks the committed archive contents, requires a 40-character commit pin, and
-verifies catalog size and SHA-256 digest on all supported platforms.
+downloads every pinned URL with a timeout and strict byte bound, checks safe
+archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
+supported platforms.
 
 ## Build a desktop bundle
 

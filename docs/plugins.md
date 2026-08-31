@@ -59,21 +59,29 @@ code.
 The Settings dialog contains the searchable, category-grouped plugin manager.
 It shows catalog metadata, requested permissions, status, in-app guides,
 declarative settings, enable/disable controls, and explicit data or credential
-cleanup. Permissions must be approved before download. Permission tokens include
-their complete manifest payload, so network-host or other permission changes
-require approval again.
+cleanup. Permissions must be approved before download. Structured permission
+objects are persisted and compared with the current manifest, so any permission
+change requires approval again.
 
 The manager also provides **Disable all plugins** as a recovery action. Plugin
 workers start after the core editor is usable, activation is time-limited, and a
 worker crash automatically terminates that runtime and removes its package.
+Renderer reload, shutdown, and disable-all recover or cancel native preparation
+transactions before another plugin can start.
 
 Catalog version changes never execute an old package under new metadata. On the
 next Denote start, the old package is removed and the plugin is disabled with an
 actionable message. Re-enabling downloads the new artifact and requires approval
 of its complete permission payload.
 
-Downloaded JavaScript runs in a dedicated module worker created from the
-verified package. The worker has no DOM or Tauri API object. Its host bridge
+The native state records both the catalog artifact digest and the exact
+entrypoint digest. Startup and execution recheck those values, so changing
+executable bytes without a matching catalog update disables and removes the
+package. A process-wide file lock and Denote's single-instance guard prevent
+multiple application processes from writing plugin state concurrently.
+
+Downloaded JavaScript runs in a dedicated opaque-origin data-URL worker created
+from the verified package. The worker has no DOM or Tauri API object. Its host bridge
 exposes only approved services, plugin-scoped state, keychain access, and
 registered contributions. Worker crashes trigger termination and package
 removal. Enabled workers restart from verified installed packages when Denote
@@ -82,20 +90,28 @@ starts.
 ## Security and data boundaries
 
 - Plugins receive no raw vault path or editor implementation object.
-- Workspace, network, command, process, clipboard, notification, and
-  secure-storage access require declared host capabilities.
+- Plugin API version 1 exposes only command registration and secure storage.
+  Workspace, network, process, clipboard, notification, sidebar, decoration,
+  and note-event permissions are rejected until their isolated host services
+  exist in a later API version.
 - Secure-storage access is plugin-scoped. The host-provided API exposes no
   plugin ID argument, preventing a plugin from selecting another namespace.
 - macOS uses Keychain Services, Windows uses Credential Manager, and Linux uses
   Secret Service through the cross-platform native keyring implementation.
+- Keychain account identifiers are SHA-256-derived from the plugin ID and key,
+  preventing delimiter collisions between plugin namespaces. Cleanup keys and
+  in-progress writes also live in a separate atomic credential journal so a
+  corrupt general state file does not strand known secrets.
 - Secrets must use the OS-backed keychain implementation, never manifests,
   settings, logs, caches, packages, or telemetry.
-- Enabling a plugin must not mutate vault content. Content changes require an
-  explicit user action and the workspace-write permission. Mutating workspace,
-  clipboard, and process capabilities are issued only to host-dispatched user
-  action handlers and are absent from activation context.
+- Enabling a plugin cannot mutate vault content because API version 1 exposes no
+  vault path or workspace-write capability. A later write API must require both
+  explicit user action and a separately reviewed API-version change.
 - Disabled plugins have no executable package left locally. User-authored
   content is never deleted as part of disablement.
+- Plugin state is limited to 256 keys, 256 KiB per value, and 2 MiB total.
+  Declarative settings are capped at 256 KiB and revalidated against current
+  types, choices, defaults, and numeric ranges.
 - Plugins never receive the unwrapped vault encryption key.
 
 Content-oriented capabilities remain unavailable while an encrypted vault is

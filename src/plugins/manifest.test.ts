@@ -41,7 +41,19 @@ describe("plugin manifest validation", () => {
     );
   });
 
-  it("requires network host allowlists and keeps secrets out of settings", () => {
+  it("requires a dot-namespaced plugin ID", () => {
+    const result = validatePluginManifest({
+      ...referenceManifestJson,
+      id: "foo-bar",
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain(
+      "id must be a namespaced lowercase identifier such as denote.example.",
+    );
+  });
+
+  it("rejects unsupported capabilities and keeps secrets out of settings", () => {
     const manifest = {
       ...referenceManifestJson,
       permissions: [{ capability: "network", hosts: [] }],
@@ -61,7 +73,7 @@ describe("plugin manifest validation", () => {
     expect(result.valid).toBe(false);
     expect(result.errors).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/hosts must be a non-empty array/i),
+        expect.stringMatching(/capability must be one of/i),
         expect.stringMatching(/type must be boolean, string, number, or select/i),
       ]),
     );
@@ -125,5 +137,30 @@ describe("plugin manifest validation", () => {
         version: "1.2.3+build.1",
       }).valid,
     ).toBe(true);
+  });
+
+  it("rejects invalid numeric setting ranges", () => {
+    const result = validatePluginManifest({
+      ...referenceManifestJson,
+      settings: {
+        properties: {
+          count: {
+            type: "number",
+            title: "Count",
+            default: 10,
+            minimum: 3,
+            maximum: 1,
+          },
+        },
+      },
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/minimum cannot exceed maximum/i),
+        expect.stringMatching(/default must be inside/i),
+      ]),
+    );
   });
 });
