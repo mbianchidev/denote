@@ -7,6 +7,7 @@ import {
   isNewTabShortcut,
   isReplaceShortcut,
   isSearchShortcut,
+  isSettingsShortcut,
   isSplitPaneShortcut,
   paneFocusShortcut,
 } from "./shortcuts";
@@ -268,6 +269,39 @@ describe("replace shortcut", () => {
         });
       });
     });
+  });
+});
+
+describe("settings shortcut", () => {
+  const event = (
+    overrides: Partial<{
+      ctrlKey: boolean;
+      metaKey: boolean;
+      altKey: boolean;
+      shiftKey: boolean;
+      code: string;
+      key: string;
+    }>,
+  ) => ({
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    code: "Comma",
+    key: ",",
+    ...overrides,
+  });
+
+  it("uses Command-comma on macOS and Control-comma elsewhere", () => {
+    expect(isSettingsShortcut(event({ metaKey: true }), "MacIntel")).toBe(true);
+    expect(isSettingsShortcut(event({ ctrlKey: true }), "Win32")).toBe(true);
+  });
+
+  it("rejects the wrong or additional modifiers", () => {
+    expect(isSettingsShortcut(event({ metaKey: true }), "Win32")).toBe(false);
+    expect(
+      isSettingsShortcut(event({ metaKey: true, shiftKey: true }), "MacIntel"),
+    ).toBe(false);
   });
 });
 

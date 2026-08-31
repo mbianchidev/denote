@@ -185,6 +185,7 @@ import {
   isNewTabShortcut,
   isReplaceShortcut,
   isSearchShortcut,
+  isSettingsShortcut,
   isSplitPaneShortcut,
   paneFocusShortcut,
 } from "./lib/shortcuts";
@@ -393,6 +394,8 @@ function App() {
   const vaultGeneration = useRef(0);
   const closingWindow = useRef(false);
   const workspaceLockedRef = useRef(false);
+  const modalOpenRef = useRef(false);
+  const commandPaletteCommandsRef = useRef<CommandPaletteCommand[]>([]);
   const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
@@ -4600,23 +4603,26 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [activePath, headingNavigation, revealHeading, showLinkError]);
 
+  const modalOpen =
+    replaceOpen ||
+    encryptionOpen ||
+    editorSettingsOpen ||
+    vaultSwitcherOpen ||
+    commandPaletteOpen ||
+    aboutOpen ||
+    pendingExternalLink !== null ||
+    actionDialog !== null ||
+    historyOpen;
+  modalOpenRef.current = modalOpen;
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const modalOpen =
-        replaceOpen ||
-        encryptionOpen ||
-        editorSettingsOpen ||
-        vaultSwitcherOpen ||
-        commandPaletteOpen ||
-        aboutOpen ||
-        pendingExternalLink !== null ||
-        actionDialog !== null ||
-        historyOpen;
       const zoom = editorZoomShortcut(event, navigator.platform);
       const paletteShortcut = isCommandPaletteShortcut(
         event,
         navigator.platform,
       );
+      const settingsShortcut = isSettingsShortcut(event, navigator.platform);
       if (zoom) {
         event.preventDefault();
         event.stopPropagation();
@@ -4634,6 +4640,19 @@ function App() {
         event.stopPropagation();
         if (!workspaceLockedRef.current && !modalOpen) {
           setCommandPaletteOpen(true);
+        }
+        return;
+      }
+      if (settingsShortcut) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (
+          !workspaceLockedRef.current &&
+          !modalOpen &&
+          workspace !== null &&
+          (!workspace.encryption.enabled || workspace.encryption.unlocked)
+        ) {
+          setEditorSettingsOpen(true);
         }
         return;
       }
@@ -4734,8 +4753,6 @@ function App() {
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [
-    actionDialog,
-    aboutOpen,
     activePath,
     activeFileTab,
     activateTab,
@@ -4746,20 +4763,14 @@ function App() {
     focusPaneAtIndex,
     stepFocusedPane,
     createEntry,
-    commandPaletteOpen,
     editorDisplaySettings.fontSize,
-    editorSettingsOpen,
-    encryptionOpen,
     focusVaultSearch,
-    historyOpen,
-    pendingExternalLink,
-    replaceOpen,
+    modalOpen,
     saveTab,
     showError,
     showOutline,
     tabs,
     updateEditorFontSize,
-    vaultSwitcherOpen,
     workspace,
   ]);
 
@@ -5336,6 +5347,7 @@ function App() {
       title: "Open settings",
       description: "Change font size, guides, and session restore.",
       category: "Editor",
+      shortcut: `${commandKey},`,
       disabled: !workspaceReady,
       run: () => setEditorSettingsOpen(true),
     },
@@ -5409,6 +5421,52 @@ function App() {
         setTheme((current) => (current === "dark" ? "light" : "dark")),
     },
   ];
+  commandPaletteCommandsRef.current = commandPaletteCommands;
+
+  useEffect(() => {
+    let disposed = false;
+    let unlistenMenu: (() => void) | undefined;
+    void listen<string>("denote://menu-command", (event) => {
+      if (event.payload === "window.close") {
+        void getCurrentWindow().close().catch(showError);
+        return;
+      }
+      if (workspaceLockedRef.current || modalOpenRef.current) {
+        return;
+      }
+      if (event.payload === "command-palette.open") {
+        setCommandPaletteOpen(true);
+        return;
+      }
+      const command = commandPaletteCommandsRef.current.find(
+        (candidate) => candidate.id === event.payload,
+      );
+      if (!command?.run || command.disabled) {
+        return;
+      }
+      try {
+        void Promise.resolve(command.run()).catch(showError);
+      } catch (caught) {
+        showError(caught);
+      }
+    })
+      .then((cleanup) => {
+        if (disposed) {
+          cleanup();
+        } else {
+          unlistenMenu = cleanup;
+        }
+      })
+      .catch((caught) => {
+        if (!disposed) {
+          showError(caught);
+        }
+      });
+    return () => {
+      disposed = true;
+      unlistenMenu?.();
+    };
+  }, [showError]);
 
   const vaultSwitcherDialog = (
     <VaultSwitcherDialog
