@@ -132,6 +132,23 @@ fn seal_active_vault_before_switch(state: &State<'_, AppState>) -> AppResult<()>
     Ok(())
 }
 
+fn with_expected_project_configuration_vault<T>(
+    state: &AppState,
+    expected_vault_path: &str,
+    operation: impl FnOnce(&Path) -> AppResult<T>,
+) -> AppResult<T> {
+    let _vault_access = state.write_vault_access()?;
+    let root = state.active_vault()?;
+    if root != Path::new(expected_vault_path) {
+        return Err(AppError::State(format!(
+            "Project configuration request belongs to vault \"{}\", but the active vault is \"{}\"",
+            expected_vault_path,
+            root.display()
+        )));
+    }
+    operation(&root)
+}
+
 #[tauri::command]
 pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<WorkspaceSnapshot>> {
     let _vault_access = state.write_vault_access()?;
@@ -864,63 +881,69 @@ pub fn set_welcome_page_path(
 #[tauri::command]
 pub fn mark_project_root(
     state: State<'_, AppState>,
+    expected_vault_path: String,
     path: String,
 ) -> AppResult<ProjectConfiguration> {
-    let _vault_access = state.write_vault_access()?;
-    let root = state.active_vault()?;
-    vault::mark_project_root(&state.db_path, &root.to_string_lossy(), &path)
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::mark_project_root(&state.db_path, &root.to_string_lossy(), &path)
+    })
 }
 
 #[tauri::command]
 pub fn unmark_project_root(
     state: State<'_, AppState>,
+    expected_vault_path: String,
     project_root_id: String,
 ) -> AppResult<ProjectConfiguration> {
-    let _vault_access = state.write_vault_access()?;
-    let root = state.active_vault()?;
-    vault::unmark_project_root(&state.db_path, &root.to_string_lossy(), &project_root_id)
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::unmark_project_root(&state.db_path, &root.to_string_lossy(), &project_root_id)
+    })
 }
 
 #[tauri::command]
 pub fn mark_project_workspace(
     state: State<'_, AppState>,
+    expected_vault_path: String,
     path: String,
 ) -> AppResult<ProjectConfiguration> {
-    let _vault_access = state.write_vault_access()?;
-    let root = state.active_vault()?;
-    vault::mark_project_workspace(&state.db_path, &root.to_string_lossy(), &path)
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::mark_project_workspace(&state.db_path, &root.to_string_lossy(), &path)
+    })
 }
 
 #[tauri::command]
 pub fn unmark_project_workspace(
     state: State<'_, AppState>,
+    expected_vault_path: String,
     project_workspace_id: String,
 ) -> AppResult<ProjectConfiguration> {
-    let _vault_access = state.write_vault_access()?;
-    let root = state.active_vault()?;
-    vault::unmark_project_workspace(
-        &state.db_path,
-        &root.to_string_lossy(),
-        &project_workspace_id,
-    )
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::unmark_project_workspace(
+            &state.db_path,
+            &root.to_string_lossy(),
+            &project_workspace_id,
+        )
+    })
 }
 
 #[tauri::command]
 pub fn dismiss_git_project_suggestion(
     state: State<'_, AppState>,
+    expected_vault_path: String,
 ) -> AppResult<ProjectConfiguration> {
-    let _vault_access = state.write_vault_access()?;
-    let root = state.active_vault()?;
-    vault::dismiss_git_project_suggestion(&state.db_path, &root.to_string_lossy())
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::dismiss_git_project_suggestion(&state.db_path, &root.to_string_lossy())
+    })
 }
 
 #[tauri::command]
 pub fn refresh_project_configuration(
     state: State<'_, AppState>,
+    expected_vault_path: String,
 ) -> AppResult<ProjectConfiguration> {
-    let _vault_access = state.write_vault_access()?;
-    let root = state.active_vault()?;
-    vault::refresh_project_configuration(&state.db_path, &root.to_string_lossy())
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::refresh_project_configuration(&state.db_path, &root.to_string_lossy())
+    })
 }
 
 #[tauri::command]
@@ -1106,6 +1129,31 @@ mod tests {
         );
         assert!(validate_vault_trash_path(&home, &home, &app_data).is_err());
         assert!(validate_vault_trash_path(directory.path(), &home, &app_data).is_err());
+    }
+
+    #[test]
+    fn project_configuration_guard_rejects_an_old_vault_before_mutation() {
+        let directory = tempdir().expect("temp directory");
+        let active = directory.path().join("active-vault");
+        let old = directory.path().join("old-vault");
+        fs::create_dir_all(&active).expect("active vault");
+        fs::create_dir_all(&old).expect("old vault");
+        let state = AppState::new(
+            directory.path().join("denote.sqlite3"),
+            Some(active.clone()),
+        );
+        let mut mutated = false;
+
+        let error =
+            with_expected_project_configuration_vault(&state, old.to_str().unwrap(), |_| {
+                mutated = true;
+                Ok(())
+            })
+            .expect_err("old vault request must be rejected");
+
+        assert!(!mutated);
+        assert!(error.to_string().contains("belongs to vault"));
+        assert!(error.to_string().contains(active.to_str().unwrap()));
     }
 
     #[cfg(unix)]

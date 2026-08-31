@@ -40,6 +40,10 @@ commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
+Project-configuration IPC carries the originating snapshot's vault path only as
+an identity guard. Rust acquires the workspace write guard, compares that value
+to the current active vault, and rejects stale queued requests before using the
+active vault as the operation root.
 
 Explicit project roots and workspace roots are independent operational path
 metadata in the application-data SQLite database, never files or markers inside
@@ -52,6 +56,12 @@ files directly in the workspace container receive no implicit project. Refresh
 discovers new direct children. Explicit nested roots still win through
 closest-root resolution, and marking an implicit child as a project promotes the
 same identity rather than replacing it.
+Filesystem discovery is optional: an unavailable workspace or child is logged
+and skipped without blocking cached or full vault snapshots. SQLite reads and
+association writes remain authoritative errors. Marking a workspace wraps its
+new workspace row, implicit children, associations, and root-suggestion
+dismissal in one transaction so a material reconciliation failure rolls back
+new metadata while preserving an existing idempotently marked workspace.
 
 Denote-managed rename and move operations rekey explicit roots, workspaces, and
 implicit children without changing their IDs. Unmarking a workspace deletes

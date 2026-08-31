@@ -183,6 +183,7 @@ import {
   workspacePathMatches,
   withProjectConfiguration,
 } from "./lib/workspaceTree";
+import { acquireWorkspaceLockAndDrainProjectMutations } from "./lib/workspaceOperation";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   editorZoomShortcut,
@@ -1334,7 +1335,10 @@ function App() {
           return;
         }
         try {
-          const configuration = await api.markProjectRoot(path);
+          const configuration = await api.markProjectRoot(
+            expectedVaultPath,
+            path,
+          );
           applyProjectConfiguration(
             configuration,
             expectedGeneration,
@@ -1383,7 +1387,10 @@ function App() {
           return;
         }
         try {
-          const configuration = await api.unmarkProjectRoot(projectRoot.id);
+          const configuration = await api.unmarkProjectRoot(
+            expectedVaultPath,
+            projectRoot.id,
+          );
           applyProjectConfiguration(
             configuration,
             expectedGeneration,
@@ -1448,6 +1455,7 @@ function App() {
         }
         try {
           authoritativeConfiguration = await api.unmarkProjectRoot(
+            expectedVaultPath,
             projectRoot.id,
           );
           changed = true;
@@ -1505,7 +1513,10 @@ function App() {
           return;
         }
         try {
-          const configuration = await api.markProjectWorkspace(path);
+          const configuration = await api.markProjectWorkspace(
+            expectedVaultPath,
+            path,
+          );
           applyProjectConfiguration(
             configuration,
             expectedGeneration,
@@ -1555,6 +1566,7 @@ function App() {
         }
         try {
           const configuration = await api.unmarkProjectWorkspace(
+            expectedVaultPath,
             projectWorkspace.id,
           );
           applyProjectConfiguration(
@@ -1620,6 +1632,7 @@ function App() {
         }
         try {
           authoritativeConfiguration = await api.unmarkProjectWorkspace(
+            expectedVaultPath,
             projectWorkspace.id,
           );
           changed = true;
@@ -1678,7 +1691,8 @@ function App() {
         return;
       }
       try {
-        const configuration = await api.dismissGitProjectSuggestion();
+        const configuration =
+          await api.dismissGitProjectSuggestion(expectedVaultPath);
         applyProjectConfiguration(
           configuration,
           expectedGeneration,
@@ -1719,7 +1733,8 @@ function App() {
           return;
         }
         try {
-          const configuration = await api.refreshProjectConfiguration();
+          const configuration =
+            await api.refreshProjectConfiguration(expectedVaultPath);
           applyProjectConfiguration(
             configuration,
             expectedGeneration,
@@ -2315,7 +2330,10 @@ function App() {
   flushAllTabsRef.current = flushAllTabs;
 
   const beginWorkspaceOperation = useCallback(async (): Promise<boolean> => {
-    await acquireWorkspaceLock();
+    await acquireWorkspaceLockAndDrainProjectMutations(
+      acquireWorkspaceLock,
+      () => projectConfigurationMutationTail.current,
+    );
     try {
       if (tabSessionTimer.current) {
         window.clearTimeout(tabSessionTimer.current);

@@ -1044,14 +1044,17 @@ pub fn mark_project_workspace(
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let root_path = validated_project_root_path(&root, relative_path)?;
-    let connection = db::open(db_path)?;
+    let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    db::ensure_project_workspace(&connection, vault_id, &root_path)?;
+    let transaction = connection.transaction()?;
+    db::ensure_project_workspace(&transaction, vault_id, &root_path)?;
     if root_path.is_empty() {
-        db::dismiss_git_project_suggestion(&connection, vault_id)?;
+        db::dismiss_git_project_suggestion(&transaction, vault_id)?;
     }
-    reconcile_workspace_children(&connection, vault_id, &root)?;
-    project_configuration(&connection, vault_id, &root)
+    reconcile_workspace_children(&transaction, vault_id, &root)?;
+    let configuration = project_configuration(&transaction, vault_id, &root)?;
+    transaction.commit()?;
+    Ok(configuration)
 }
 
 pub fn unmark_project_workspace(
@@ -1865,23 +1868,90 @@ fn reconcile_workspace_children(
         } else {
             match existing_entry(root, &workspace.root_path) {
                 Ok(path) if path.is_dir() => path,
-                Ok(_) | Err(_) => continue,
+                Ok(path) => {
+                    eprintln!(
+                        "Skipping unavailable project workspace {} because {} is not a directory",
+                        workspace.root_path,
+                        path.display()
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!(
+                        "Skipping unavailable project workspace {}: {error}",
+                        workspace.root_path
+                    );
+                    continue;
+                }
             }
         };
-        for entry in fs::read_dir(workspace_path)? {
-            let entry = entry?;
+        let entries = match fs::read_dir(&workspace_path) {
+            Ok(entries) => entries,
+            Err(error) => {
+                eprintln!(
+                    "Unable to discover project children in workspace {}: {error}",
+                    workspace_path.display()
+                );
+                continue;
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to inspect an entry in project workspace {}: {error}",
+                        workspace_path.display()
+                    );
+                    continue;
+                }
+            };
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if name.eq_ignore_ascii_case(".denote") || name.eq_ignore_ascii_case(".git") {
                 continue;
             }
             let path = entry.path();
-            let metadata = fs::symlink_metadata(&path)?;
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to inspect project workspace child {}: {error}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
             if metadata_is_link(&metadata) || !metadata.is_dir() {
                 continue;
             }
-            ensure_no_symlinks(root, &path, false)?;
-            let root_path = relative_string(root, &fs::canonicalize(path)?)?;
+            if let Err(error) = ensure_no_symlinks(root, &path, false) {
+                eprintln!(
+                    "Skipping unsafe project workspace child {}: {error}",
+                    path.display()
+                );
+                continue;
+            }
+            let canonical_path = match fs::canonicalize(&path) {
+                Ok(canonical_path) => canonical_path,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to resolve project workspace child {}: {error}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            let root_path = match relative_string(root, &canonical_path) {
+                Ok(root_path) => root_path,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to convert project workspace child {} to a vault-relative path: {error}",
+                        canonical_path.display()
+                    );
+                    continue;
+                }
+            };
             let project_id = db::ensure_project_root(connection, vault_id, &root_path, false)?;
             db::associate_workspace_child(connection, &workspace.id, &project_id)?;
         }
@@ -4214,6 +4284,79 @@ mod tests {
                 .project_roots
                 .iter()
                 .all(|project| !project.available)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_snapshot_skips_an_unreadable_workspace() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let workspace_path = vault_path.join("workspace");
+        fs::create_dir_all(workspace_path.join("child")).expect("workspace child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("mark workspace");
+
+        fs::set_permissions(&workspace_path, fs::Permissions::from_mode(0o000))
+            .expect("make workspace unreadable");
+        let snapshot = open_cached_vault(&db_path, vault_path.to_str().unwrap());
+        fs::set_permissions(&workspace_path, fs::Permissions::from_mode(0o755))
+            .expect("restore workspace permissions");
+
+        let snapshot = snapshot.expect("unreadable workspace should not block cached snapshot");
+        assert_eq!(snapshot.project_workspaces.len(), 1);
+        assert_eq!(snapshot.project_roots.len(), 1);
+    }
+
+    #[test]
+    fn failed_workspace_mark_rolls_back_new_metadata_and_preserves_existing_workspace() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("new/child")).expect("new workspace child");
+        fs::create_dir_all(vault_path.join("existing/child")).expect("existing workspace child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        let root = canonical_vault(vault_path.to_str().unwrap()).expect("canonical vault");
+        let connection = db::open(&db_path).expect("database");
+        let (vault_id, _) = ensure_vault(&connection, &root).expect("vault row");
+        let existing_id =
+            db::ensure_project_workspace(&connection, vault_id, "existing").expect("workspace");
+        connection
+            .execute_batch(
+                "CREATE TRIGGER fail_workspace_child_association
+                 BEFORE INSERT ON workspace_child_projects
+                 BEGIN
+                   SELECT RAISE(ABORT, 'synthetic association failure');
+                 END;",
+            )
+            .expect("failure trigger");
+        drop(connection);
+
+        assert!(
+            mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "new").is_err(),
+            "material association failure should reject a new workspace mark"
+        );
+        assert!(
+            mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "existing").is_err(),
+            "material association failure should reject an idempotent workspace mark"
+        );
+
+        let connection = db::open(&db_path).expect("database");
+        let workspaces = db::list_project_workspaces(&connection, vault_id).expect("workspaces");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].id, existing_id);
+        assert_eq!(workspaces[0].root_path, "existing");
+        assert!(
+            db::list_project_roots(&connection, vault_id)
+                .expect("project roots")
+                .is_empty()
         );
     }
 

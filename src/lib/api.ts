@@ -45,20 +45,37 @@ export const api = {
     invoke<void>("delete_known_vault", { vaultId, trashFiles }),
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
-  markProjectRoot: (path: string) =>
-    invoke<ProjectConfiguration>("mark_project_root", { path }),
-  unmarkProjectRoot: (projectRootId: string) =>
-    invoke<ProjectConfiguration>("unmark_project_root", { projectRootId }),
-  markProjectWorkspace: (path: string) =>
-    invoke<ProjectConfiguration>("mark_project_workspace", { path }),
-  unmarkProjectWorkspace: (projectWorkspaceId: string) =>
+  markProjectRoot: (expectedVaultPath: string, path: string) =>
+    invoke<ProjectConfiguration>("mark_project_root", {
+      expectedVaultPath,
+      path,
+    }),
+  unmarkProjectRoot: (expectedVaultPath: string, projectRootId: string) =>
+    invoke<ProjectConfiguration>("unmark_project_root", {
+      expectedVaultPath,
+      projectRootId,
+    }),
+  markProjectWorkspace: (expectedVaultPath: string, path: string) =>
+    invoke<ProjectConfiguration>("mark_project_workspace", {
+      expectedVaultPath,
+      path,
+    }),
+  unmarkProjectWorkspace: (
+    expectedVaultPath: string,
+    projectWorkspaceId: string,
+  ) =>
     invoke<ProjectConfiguration>("unmark_project_workspace", {
+      expectedVaultPath,
       projectWorkspaceId,
     }),
-  dismissGitProjectSuggestion: () =>
-    invoke<ProjectConfiguration>("dismiss_git_project_suggestion"),
-  refreshProjectConfiguration: () =>
-    invoke<ProjectConfiguration>("refresh_project_configuration"),
+  dismissGitProjectSuggestion: (expectedVaultPath: string) =>
+    invoke<ProjectConfiguration>("dismiss_git_project_suggestion", {
+      expectedVaultPath,
+    }),
+  refreshProjectConfiguration: (expectedVaultPath: string) =>
+    invoke<ProjectConfiguration>("refresh_project_configuration", {
+      expectedVaultPath,
+    }),
   enableVaultEncryption: (password: string) =>
     invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),
   unlockVaultWithPassword: (password: string) =>
