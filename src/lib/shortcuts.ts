@@ -61,6 +61,18 @@ export function isCommandPaletteShortcut(
         event.code === "KeyP";
 }
 
+export function isSettingsShortcut(
+  event: ShortcutEvent,
+  platform: string,
+): boolean {
+  return (
+    hasPrimaryModifier(event, platform) &&
+    !event.altKey &&
+    !event.shiftKey &&
+    (event.key === "," || event.code === "Comma")
+  );
+}
+
 export type EditorZoomShortcut = "in" | "out" | "reset";
 
 export function editorZoomShortcut(

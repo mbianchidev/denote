@@ -154,6 +154,9 @@ more detail and examples.
 ## Appearance and accessibility
 
 - Use dark mode by default or persistent light mode.
+- On macOS, use native menus for common file, vault, search, view, pane, and
+  editor actions.
+- Open Settings with `Command-,` on macOS or `Ctrl-,` on Windows and Linux.
 - Open **About Denote** from the activity rail or command palette to inspect the
   packaged version and full Git commit.
 - Scale editor text without scaling application chrome.

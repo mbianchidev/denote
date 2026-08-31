@@ -288,6 +288,14 @@ after the target vault is ready. If that vault is encrypted, the path remains
 pending until unlock. An explicitly selected palette file takes precedence over
 restoring that vault's previous tab session.
 
+The macOS native menu uses the same command identifiers as the command palette.
+Rust emits menu selections to the frontend, which resolves the current command
+descriptor before running it so unavailable actions remain no-ops. The menu
+keeps Command-H for Denote replace instead of the conflicting default Hide
+action, maps Command-W to closing the active tab, and opens Settings with
+Command-comma. Shift-Command-W closes the window through the ordinary safe-exit
+barrier.
+
 ## Replace
 
 Replace previews are calculated from Markdown source rather than rendered
