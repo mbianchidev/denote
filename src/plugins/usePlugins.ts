@@ -2,14 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
 import type { PluginPermissionRequest } from "@denote/plugin-sdk";
+import type { PluginNoteEvent } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
   type PluginCommandContribution,
+  type PluginSidebarContribution,
+  type PluginStatusContribution,
+  type PluginDecorationContribution,
 } from "./workerRuntime";
 
 export interface PluginController {
   plugins: PluginView[];
   commands: PluginCommandContribution[];
+  sidebarViews: PluginSidebarContribution[];
+  statusItems: PluginStatusContribution[];
+  decorations: PluginDecorationContribution[];
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
@@ -25,7 +32,18 @@ export interface PluginController {
     pluginId: string,
     settings: Record<string, unknown>,
   ) => Promise<void>;
-  runCommand: (pluginId: string, commandId: string) => Promise<void>;
+  importSettings: (
+    pluginId: string,
+    sourceVersion: number,
+    settings: Record<string, unknown>,
+  ) => Promise<void>;
+  runCommand: (
+    pluginId: string,
+    commandId: string,
+    workspaceScope: string,
+  ) => Promise<void>;
+  emitNoteEvent: (event: PluginNoteEvent) => void;
+  invalidateActionLeases: () => void;
   shutdown: () => Promise<void>;
 }
 
@@ -34,6 +52,13 @@ export function usePlugins(
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [commands, setCommands] = useState<PluginCommandContribution[]>([]);
+  const [sidebarViews, setSidebarViews] = useState<
+    PluginSidebarContribution[]
+  >([]);
+  const [statusItems, setStatusItems] = useState<PluginStatusContribution[]>([]);
+  const [decorations, setDecorations] = useState<
+    PluginDecorationContribution[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
   const runtimeRef = useRef<PluginWorkerRuntime | null>(null);
@@ -46,27 +71,34 @@ export function usePlugins(
 
   useEffect(() => {
     let cancelled = false;
-    const runtime = new PluginWorkerRuntime(setCommands, (pluginId, error) => {
-      reportError(error);
-      const transactionId = pendingTransactionsRef.current.get(pluginId);
-      void (async () => {
-        if (transactionId) {
-          try {
-            await api.rollbackPluginEnable(
-              transactionId,
-              errorMessage(error),
-            );
-            pendingTransactionsRef.current.delete(pluginId);
-            await refresh();
-            return;
-          } catch (rollbackError) {
-            reportError(rollbackError);
+    startsAllowedRef.current = true;
+    const runtime = new PluginWorkerRuntime(
+      setCommands,
+      (pluginId, error) => {
+        reportError(error);
+        const transactionId = pendingTransactionsRef.current.get(pluginId);
+        void (async () => {
+          if (transactionId) {
+            try {
+              await api.rollbackPluginEnable(
+                transactionId,
+                errorMessage(error),
+              );
+              pendingTransactionsRef.current.delete(pluginId);
+              await refresh();
+              return;
+            } catch (rollbackError) {
+              reportError(rollbackError);
+            }
           }
-        }
-        await api.disablePlugin(pluginId);
-        await refresh();
-      })().catch(reportError);
-    });
+          await api.disablePlugin(pluginId);
+          await refresh();
+        })().catch(reportError);
+      },
+      setSidebarViews,
+      setStatusItems,
+      setDecorations,
+    );
     runtimeRef.current = runtime;
     void api
       .recoverPluginTransactions()
@@ -281,14 +313,32 @@ export function usePlugins(
   );
 
   const runCommand = useCallback(
-    async (pluginId: string, commandId: string) => {
+    async (
+      pluginId: string,
+      commandId: string,
+      workspaceScope: string,
+    ) => {
       const runtime = runtimeRef.current;
       if (!runtime) {
         throw new Error("Plugin runtime is unavailable.");
       }
-      await runtime.runCommand(pluginId, commandId);
+      await runtime.runCommand(pluginId, commandId, workspaceScope);
     },
     [],
+  );
+
+  const importSettings = useCallback(
+    async (
+      pluginId: string,
+      sourceVersion: number,
+      settings: Record<string, unknown>,
+    ) => {
+      await withBusy(pluginId, async () => {
+        await api.importPluginSettings(pluginId, sourceVersion, settings);
+        await refresh();
+      });
+    },
+    [refresh, withBusy],
   );
 
   const shutdown = useCallback(async () => {
@@ -298,9 +348,20 @@ export function usePlugins(
     pendingTransactionsRef.current.clear();
   }, [reportError]);
 
+  const emitNoteEvent = useCallback((event: PluginNoteEvent) => {
+    runtimeRef.current?.broadcastNoteEvent(event);
+  }, []);
+
+  const invalidateActionLeases = useCallback(() => {
+    runtimeRef.current?.invalidateActionLeases();
+  }, []);
+
   return {
     plugins,
     commands,
+    sidebarViews,
+    statusItems,
+    decorations,
     loading,
     busyPluginIds,
     refresh,
@@ -310,7 +371,10 @@ export function usePlugins(
     clearData,
     clearCredentials,
     updateSettings,
+    importSettings,
     runCommand,
+    emitNoteEvent,
+    invalidateActionLeases,
     shutdown,
   };
 }

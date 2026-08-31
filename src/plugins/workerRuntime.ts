@@ -1,15 +1,30 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
+import type { PluginNoteEvent } from "@denote/plugin-sdk";
+import {
+  privilegedHostOperation,
+  runHostOperation,
+} from "./hostOperations";
+import {
+  isPluginRuntimeMessage,
+  type PluginCommandContribution,
+  type PluginDecorationContribution,
+  type PluginRuntimeMessage,
+  type PluginSidebarContribution,
+  type PluginStatusContribution,
+  type PluginWorkerConnectMessage,
+} from "./runtimeMessages";
+
+export type {
+  PluginCommandContribution,
+  PluginDecorationContribution,
+  PluginSidebarContribution,
+  PluginStatusContribution,
+} from "./runtimeMessages";
 
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 30_000;
-
-export interface PluginCommandContribution {
-  pluginId: string;
-  id: string;
-  title: string;
-}
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -27,8 +42,15 @@ interface Runtime {
   port: MessagePort;
   commands: Map<string, PluginCommandContribution>;
   stagedCommands: Map<string, PluginCommandContribution>;
+  sidebarViews: Map<string, PluginSidebarContribution>;
+  stagedSidebarViews: Map<string, PluginSidebarContribution>;
+  statusItems: Map<string, PluginStatusContribution>;
+  stagedStatusItems: Map<string, PluginStatusContribution>;
+  decorations: Map<string, PluginDecorationContribution>;
+  stagedDecorations: Map<string, PluginDecorationContribution>;
   permissions: Set<string>;
   pending: Map<string, PendingRequest>;
+  activeActions: Map<string, string>;
   hostRequests: Set<Promise<void>>;
   handshakes: Set<PendingHandshake>;
   activated: boolean;
@@ -39,29 +61,6 @@ interface PendingStart {
   generation: number;
   operation: Promise<void>;
 }
-
-type RuntimeMessage =
-  | { type: "ready" }
-  | { type: "activated" }
-  | { type: "deactivated"; requestId: string; error?: string }
-  | { type: "activation-error"; error: string }
-  | { type: "runtime-error"; error: string }
-  | { type: "register-command"; id: string; title: string }
-  | { type: "unregister-command"; id: string }
-  | {
-      type: "host-request";
-      requestId: string;
-      operation: string;
-      key?: string;
-      value?: unknown;
-    }
-  | { type: "command-result"; requestId: string; error?: string }
-  | {
-      type: "log";
-      level: "debug" | "info" | "warn" | "error";
-      message: string;
-      details?: Record<string, unknown>;
-    };
 
 export class PluginWorkerRuntime {
   private readonly runtimes = new Map<string, Runtime>();
@@ -74,6 +73,15 @@ export class PluginWorkerRuntime {
       commands: PluginCommandContribution[],
     ) => void,
     private readonly onError: (pluginId: string, error: unknown) => void,
+    private readonly onSidebarViewsChanged: (
+      views: PluginSidebarContribution[],
+    ) => void = () => {},
+    private readonly onStatusItemsChanged: (
+      items: PluginStatusContribution[],
+    ) => void = () => {},
+    private readonly onDecorationsChanged: (
+      decorations: PluginDecorationContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -128,6 +136,7 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "deactivating";
+    runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(
       runtime,
@@ -169,23 +178,49 @@ export class PluginWorkerRuntime {
     }
   }
 
-  async runCommand(pluginId: string, commandId: string): Promise<void> {
+  async runCommand(
+    pluginId: string,
+    commandId: string,
+    workspaceScope: string,
+  ): Promise<void> {
     const runtime = this.requireRuntime(pluginId);
     if (!runtime.activated || !runtime.commands.has(commandId)) {
       throw new Error(`Plugin command ${commandId} is not registered.`);
     }
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(runtime, requestId, COMMAND_TIMEOUT_MS);
+    runtime.activeActions.set(requestId, workspaceScope);
     runtime.port.postMessage({
       type: "run-command",
       commandId,
       requestId,
     });
-    await result;
+    try {
+      await result;
+    } finally {
+      runtime.activeActions.delete(requestId);
+    }
   }
 
   isRunning(pluginId: string): boolean {
     return this.runtimes.get(pluginId)?.phase === "active";
+  }
+
+  broadcastNoteEvent(event: PluginNoteEvent): void {
+    for (const runtime of this.runtimes.values()) {
+      if (
+        runtime.phase === "active" &&
+        runtime.permissions.has("note-events")
+      ) {
+        runtime.port.postMessage({ type: "note-event", event });
+      }
+    }
+  }
+
+  invalidateActionLeases(): void {
+    for (const runtime of this.runtimes.values()) {
+      runtime.activeActions.clear();
+    }
   }
 
   private async startRuntime(
@@ -197,17 +232,7 @@ export class PluginWorkerRuntime {
     this.assertCurrent(pluginId, generation);
 
     const moduleUrl = dataModuleUrl(code);
-    const bootstrapUrl = dataModuleUrl(
-      createBootstrap(
-        moduleUrl,
-        pluginId,
-        plugin.catalog.manifest.version,
-        plugin.approvedPermissions.map(
-          (permission) => permission.capability,
-        ),
-      ),
-    );
-    const worker = new Worker(bootstrapUrl, {
+    const worker = new Worker(new URL("./pluginWorker.ts", import.meta.url), {
       type: "module",
       name: `denote-plugin-${pluginId}`,
     });
@@ -217,12 +242,19 @@ export class PluginWorkerRuntime {
       port: channel.port1,
       commands: new Map(),
       stagedCommands: new Map(),
+      sidebarViews: new Map(),
+      stagedSidebarViews: new Map(),
+      statusItems: new Map(),
+      stagedStatusItems: new Map(),
+      decorations: new Map(),
+      stagedDecorations: new Map(),
       permissions: new Set(
         plugin.approvedPermissions.map(
           (permission) => permission.capability,
         ),
       ),
       pending: new Map(),
+      activeActions: new Map(),
       hostRequests: new Set(),
       handshakes: new Set(),
       activated: false,
@@ -230,7 +262,7 @@ export class PluginWorkerRuntime {
     };
     this.runtimes.set(pluginId, runtime);
     runtime.port.addEventListener("message", (event: MessageEvent<unknown>) => {
-      if (!isRuntimeMessage(event.data)) {
+      if (!isPluginRuntimeMessage(event.data)) {
         const error = new Error(
           `Plugin ${pluginId} sent an invalid runtime message.`,
         );
@@ -249,7 +281,16 @@ export class PluginWorkerRuntime {
 
     try {
       const ready = this.waitForMessage(runtime, "ready", ACTIVATION_TIMEOUT_MS);
-      worker.postMessage({ type: "connect" }, [channel.port2]);
+      const connect: PluginWorkerConnectMessage = {
+        type: "connect",
+        moduleUrl,
+        pluginId,
+        expectedVersion: plugin.catalog.manifest.version,
+        permissions: plugin.approvedPermissions.map(
+          (permission) => permission.capability,
+        ),
+      };
+      worker.postMessage(connect, [channel.port2]);
       await ready;
       this.assertCurrent(pluginId, generation);
       const activated = this.waitForMessage(
@@ -267,7 +308,22 @@ export class PluginWorkerRuntime {
         runtime.commands.set(commandId, command);
       }
       runtime.stagedCommands.clear();
+      for (const [viewId, view] of runtime.stagedSidebarViews) {
+        runtime.sidebarViews.set(viewId, view);
+      }
+      runtime.stagedSidebarViews.clear();
+      for (const [itemId, item] of runtime.stagedStatusItems) {
+        runtime.statusItems.set(itemId, item);
+      }
+      runtime.stagedStatusItems.clear();
+      for (const [decorationId, decoration] of runtime.stagedDecorations) {
+        runtime.decorations.set(decorationId, decoration);
+      }
+      runtime.stagedDecorations.clear();
       this.publishCommands();
+      this.publishSidebarViews();
+      this.publishStatusItems();
+      this.publishDecorations();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -276,7 +332,7 @@ export class PluginWorkerRuntime {
 
   private async handleMessage(
     pluginId: string,
-    message: RuntimeMessage,
+    message: PluginRuntimeMessage,
   ): Promise<void> {
     const runtime = this.runtimes.get(pluginId);
     if (!runtime) {
@@ -313,7 +369,120 @@ export class PluginWorkerRuntime {
         runtime.stagedCommands.delete(message.id);
         this.publishCommands();
         return;
+      case "register-sidebar": {
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("sidebar") ||
+          !message.id.startsWith(`${pluginId}.`)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized sidebar registration.`,
+            ),
+          );
+          return;
+        }
+        const view = {
+          pluginId,
+          id: message.id,
+          title: message.title,
+          content: message.content,
+        };
+        if (runtime.activated) {
+          runtime.sidebarViews.set(message.id, view);
+          this.publishSidebarViews();
+        } else {
+          runtime.stagedSidebarViews.set(message.id, view);
+        }
+        return;
+      }
+      case "unregister-sidebar":
+        runtime.sidebarViews.delete(message.id);
+        runtime.stagedSidebarViews.delete(message.id);
+        this.publishSidebarViews();
+        return;
+      case "register-status": {
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("status") ||
+          !message.id.startsWith(`${pluginId}.`)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized status registration.`,
+            ),
+          );
+          return;
+        }
+        const item = {
+          pluginId,
+          id: message.id,
+          text: message.text,
+        };
+        if (runtime.activated) {
+          runtime.statusItems.set(message.id, item);
+          this.publishStatusItems();
+        } else {
+          runtime.stagedStatusItems.set(message.id, item);
+        }
+        return;
+      }
+      case "unregister-status":
+        runtime.statusItems.delete(message.id);
+        runtime.stagedStatusItems.delete(message.id);
+        this.publishStatusItems();
+        return;
+      case "register-decoration": {
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("editor-decoration") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          message.pattern.length > 256
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized editor decoration.`,
+            ),
+          );
+          return;
+        }
+        const decoration = {
+          pluginId,
+          id: message.id,
+          pattern: message.pattern,
+          style: message.style,
+          caseSensitive: message.caseSensitive,
+        };
+        if (runtime.activated) {
+          runtime.decorations.set(message.id, decoration);
+          this.publishDecorations();
+        } else {
+          runtime.stagedDecorations.set(message.id, decoration);
+        }
+        return;
+      }
+      case "unregister-decoration":
+        runtime.decorations.delete(message.id);
+        runtime.stagedDecorations.delete(message.id);
+        this.publishDecorations();
+        return;
       case "host-request":
+        if (
+          privilegedHostOperation(message.operation) &&
+          (runtime.phase !== "active" ||
+            !message.actionId ||
+            !runtime.activeActions.has(message.actionId))
+        ) {
+          runtime.port.postMessage({
+            type: "host-response",
+            requestId: message.requestId,
+            error: "Plugin action capability lease is invalid or expired.",
+          });
+          return;
+        }
         if (runtime.phase === "stopping") {
           runtime.port.postMessage({
             type: "host-response",
@@ -323,12 +492,22 @@ export class PluginWorkerRuntime {
           return;
         }
         {
-          const request = this.handleHostRequest(pluginId, runtime, message);
+          const request = this.handleHostRequest(
+            pluginId,
+            runtime,
+            message,
+            message.actionId
+              ? runtime.activeActions.get(message.actionId)
+              : undefined,
+          );
           runtime.hostRequests.add(request);
           void request.finally(() => runtime.hostRequests.delete(request));
         }
         return;
       case "command-result":
+        runtime.activeActions.delete(message.requestId);
+        this.settle(runtime, message.requestId, message.error);
+        return;
       case "deactivated":
         this.settle(runtime, message.requestId, message.error);
         return;
@@ -362,7 +541,8 @@ export class PluginWorkerRuntime {
   private async handleHostRequest(
     pluginId: string,
     runtime: Runtime,
-    message: Extract<RuntimeMessage, { type: "host-request" }>,
+    message: Extract<PluginRuntimeMessage, { type: "host-request" }>,
+    workspaceScope?: string,
   ): Promise<void> {
     try {
       const value = await runHostOperation(
@@ -370,6 +550,7 @@ export class PluginWorkerRuntime {
         message.operation,
         message.key,
         message.value,
+        workspaceScope,
       );
       runtime.port.postMessage({
         type: "host-response",
@@ -402,7 +583,7 @@ export class PluginWorkerRuntime {
       }, timeoutMs);
       handshake.timeout = timeout;
       const listener = (event: MessageEvent<unknown>) => {
-        if (!isRuntimeMessage(event.data)) {
+        if (!isPluginRuntimeMessage(event.data)) {
           return;
         }
         if (event.data.type === expectedType) {
@@ -465,6 +646,9 @@ export class PluginWorkerRuntime {
     runtime.handshakes.clear();
     this.runtimes.delete(pluginId);
     this.publishCommands();
+    this.publishSidebarViews();
+    this.publishStatusItems();
+    this.publishDecorations();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -505,6 +689,30 @@ export class PluginWorkerRuntime {
     );
   }
 
+  private publishSidebarViews(): void {
+    this.onSidebarViewsChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.sidebarViews.values(),
+      ]),
+    );
+  }
+
+  private publishStatusItems(): void {
+    this.onStatusItemsChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.statusItems.values(),
+      ]),
+    );
+  }
+
+  private publishDecorations(): void {
+    this.onDecorationsChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.decorations.values(),
+      ]),
+    );
+  }
+
   private requireRuntime(pluginId: string): Runtime {
     const runtime = this.runtimes.get(pluginId);
     if (!runtime) {
@@ -526,44 +734,6 @@ export class PluginWorkerRuntime {
   }
 }
 
-async function runHostOperation(
-  pluginId: string,
-  operation: string,
-  key?: string,
-  value?: unknown,
-): Promise<unknown> {
-  switch (operation) {
-    case "storage.get":
-      return api.pluginStorageGet(pluginId, requireKey(key));
-    case "storage.set":
-      return api.pluginStorageSet(pluginId, requireKey(key), value);
-    case "storage.delete":
-      return api.pluginStorageDelete(pluginId, requireKey(key));
-    case "storage.clear":
-      return api.pluginStorageClear(pluginId);
-    case "settings.get":
-      return api.getPluginSettings(pluginId);
-    case "secret.get":
-      return api.pluginSecretGet(pluginId, requireKey(key));
-    case "secret.set":
-      if (typeof value !== "string") {
-        throw new Error("Secret value must be a string.");
-      }
-      return api.pluginSecretSet(pluginId, requireKey(key), value);
-    case "secret.delete":
-      return api.pluginSecretDelete(pluginId, requireKey(key));
-    default:
-      throw new Error(`Unsupported plugin host operation: ${operation}`);
-  }
-}
-
-function requireKey(key?: string): string {
-  if (!key) {
-    throw new Error("Plugin storage request is missing a key.");
-  }
-  return key;
-}
-
 function dataModuleUrl(source: string): string {
   const bytes = new TextEncoder().encode(source);
   let binary = "";
@@ -571,218 +741,4 @@ function dataModuleUrl(source: string): string {
     binary += String.fromCharCode(byte);
   }
   return `data:text/javascript;base64,${btoa(binary)}`;
-}
-
-function isRuntimeMessage(value: unknown): value is RuntimeMessage {
-  if (!isRecord(value) || typeof value.type !== "string") {
-    return false;
-  }
-  switch (value.type) {
-    case "ready":
-    case "activated":
-      return true;
-    case "activation-error":
-    case "runtime-error":
-      return typeof value.error === "string";
-    case "deactivated":
-    case "command-result":
-      return (
-        typeof value.requestId === "string" &&
-        (value.error === undefined || typeof value.error === "string")
-      );
-    case "register-command":
-      return typeof value.id === "string" && typeof value.title === "string";
-    case "unregister-command":
-      return typeof value.id === "string";
-    case "host-request":
-      return (
-        typeof value.requestId === "string" &&
-        typeof value.operation === "string" &&
-        (value.key === undefined || typeof value.key === "string")
-      );
-    case "log":
-      return (
-        ["debug", "info", "warn", "error"].includes(String(value.level)) &&
-        typeof value.message === "string"
-      );
-    default:
-      return false;
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function createBootstrap(
-  moduleUrl: string,
-  pluginId: string,
-  version: string,
-  permissions: string[],
-): string {
-  return `
-const pluginId = ${JSON.stringify(pluginId)};
-const expectedVersion = ${JSON.stringify(version)};
-const permissions = new Set(${JSON.stringify(permissions)});
-const commandHandlers = new Map();
-const subscriptions = [];
-const pending = new Map();
-let plugin;
-let port;
-let sendMessage;
-let createRequestId;
-let cleaned = false;
-
-function send(message) {
-  sendMessage(message);
-}
-
-function hostRequest(operation, key, value) {
-  const requestId = createRequestId();
-  send({ type: "host-request", requestId, operation, key, value });
-  return new Promise((resolve, reject) => pending.set(requestId, { resolve, reject }));
-}
-
-function runtimeContext() {
-  const logger = Object.fromEntries(
-    ["debug", "info", "warn", "error"].map((level) => [
-      level,
-      (message, details) => send({ type: "log", level, message, details }),
-    ]),
-  );
-  const capabilities = {};
-  if (permissions.has("commands")) {
-    capabilities.commands = {
-      register(command) {
-        if (!command || typeof command.id !== "string" || typeof command.title !== "string" || typeof command.run !== "function") {
-          throw new Error("Invalid command registration.");
-        }
-        if (!command.id.startsWith(pluginId + ".")) {
-          throw new Error("Plugin command IDs must use the " + pluginId + ". prefix.");
-        }
-        if (commandHandlers.has(command.id)) {
-          throw new Error("Command " + command.id + " is already registered.");
-        }
-        commandHandlers.set(command.id, command.run);
-        send({ type: "register-command", id: command.id, title: command.title });
-        return {
-          dispose() {
-            commandHandlers.delete(command.id);
-            send({ type: "unregister-command", id: command.id });
-          },
-        };
-      },
-    };
-  }
-  if (permissions.has("secure-storage")) {
-    capabilities.secureStorage = {
-      get: (key) => hostRequest("secret.get", key),
-      set: (key, value) => hostRequest("secret.set", key, value),
-      delete: (key) => hostRequest("secret.delete", key),
-    };
-  }
-  return {
-    pluginId,
-    logger,
-    storage: {
-      get: (key) => hostRequest("storage.get", key),
-      set: (key, value) => hostRequest("storage.set", key, value),
-      delete: (key) => hostRequest("storage.delete", key),
-      clear: () => hostRequest("storage.clear"),
-    },
-    settings: {
-      getAll: () => hostRequest("settings.get"),
-    },
-    capabilities,
-    subscriptions: {
-      add(disposable) {
-        if (!disposable || typeof disposable.dispose !== "function") {
-          throw new Error("Plugin subscription must be disposable.");
-        }
-        subscriptions.push(disposable);
-      },
-    },
-  };
-}
-
-async function cleanup() {
-  if (cleaned) return [];
-  cleaned = true;
-  const failures = [];
-  try {
-    if (typeof plugin?.deactivate === "function") await plugin.deactivate();
-  } catch (error) {
-    failures.push(error);
-  }
-  for (const disposable of subscriptions.reverse()) {
-    try {
-      await disposable.dispose();
-    } catch (error) {
-      failures.push(error);
-    }
-  }
-  return failures;
-}
-
-async function handleMessage(message) {
-  if (message.type === "host-response") {
-    const request = pending.get(message.requestId);
-    if (!request) return;
-    pending.delete(message.requestId);
-    if (message.error) request.reject(new Error(message.error));
-    else request.resolve(message.value);
-    return;
-  }
-  if (message.type === "activate") {
-    try {
-      if (!plugin || plugin.manifest?.id !== pluginId || plugin.manifest?.version !== expectedVersion || typeof plugin.activate !== "function") {
-        throw new Error("Loaded plugin does not match catalog metadata.");
-      }
-      await plugin.activate(runtimeContext());
-      send({ type: "activated" });
-    } catch (error) {
-      await cleanup();
-      send({ type: "activation-error", error: error instanceof Error ? error.message : String(error) });
-    }
-    return;
-  }
-  if (message.type === "run-command") {
-    try {
-      const run = commandHandlers.get(message.commandId);
-      if (!run) throw new Error("Plugin command is no longer registered.");
-      await run({ capabilities: {} });
-      send({ type: "command-result", requestId: message.requestId });
-    } catch (error) {
-      send({ type: "command-result", requestId: message.requestId, error: error instanceof Error ? error.message : String(error) });
-    }
-    return;
-  }
-  if (message.type === "deactivate") {
-    const failures = await cleanup();
-    send({
-      type: "deactivated",
-      requestId: message.requestId,
-      error: failures.length > 0 ? "Plugin cleanup failed." : undefined,
-    });
-  }
-}
-
-self.onmessage = async (event) => {
-  if (event.data?.type !== "connect" || event.ports.length !== 1) {
-    return;
-  }
-  port = event.ports[0];
-  sendMessage = port.postMessage.bind(port);
-  createRequestId = crypto.randomUUID.bind(crypto);
-  self.onmessage = null;
-  port.onmessage = (portEvent) => void handleMessage(portEvent.data);
-  port.start();
-  try {
-    plugin = (await import(${JSON.stringify(moduleUrl)})).default;
-    send({ type: "ready" });
-  } catch (error) {
-    send({ type: "activation-error", error: error instanceof Error ? error.message : String(error) });
-  }
-};
-`;
 }

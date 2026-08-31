@@ -37,6 +37,11 @@ interface EditorSettingsDialogProps {
     pluginId: string,
     settings: Record<string, unknown>,
   ) => Promise<void>;
+  onImportPluginSettings: (
+    pluginId: string,
+    sourceVersion: number,
+    settings: Record<string, unknown>,
+  ) => Promise<void>;
   onPluginError: (error: unknown) => void;
   onClose: () => void;
 }
@@ -61,6 +66,7 @@ export function EditorSettingsDialog({
   onClearPluginData,
   onClearPluginCredentials,
   onUpdatePluginSettings,
+  onImportPluginSettings,
   onPluginError,
   onClose,
 }: EditorSettingsDialogProps) {
@@ -338,6 +344,7 @@ export function EditorSettingsDialog({
           onClearData={onClearPluginData}
           onClearCredentials={onClearPluginCredentials}
           onUpdateSettings={onUpdatePluginSettings}
+          onImportSettings={onImportPluginSettings}
           onError={onPluginError}
         />
       )}

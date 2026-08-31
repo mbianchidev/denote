@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import catalogJson from "../../packages/plugins/catalog.json";
@@ -37,6 +37,7 @@ function props(overrides: Partial<Parameters<typeof PluginSettingsPanel>[0]> = {
     onClearData: vi.fn().mockResolvedValue(undefined),
     onClearCredentials: vi.fn().mockResolvedValue(undefined),
     onUpdateSettings: vi.fn().mockResolvedValue(undefined),
+    onImportSettings: vi.fn().mockResolvedValue(undefined),
     onError: vi.fn(),
     ...overrides,
   };
@@ -52,8 +53,14 @@ describe("PluginSettingsPanel", () => {
     ).toBeInTheDocument();
     expect(screen.getByText("Not stored locally")).toBeInTheDocument();
 
-    await user.type(screen.getByRole("searchbox", { name: "Search plugins" }), "missing");
+    const search = screen.getByRole("searchbox", { name: "Search plugins" });
+    await user.type(search, "missing");
     expect(screen.getByText("No plugins match these filters.")).toBeInTheDocument();
+    await user.clear(search);
+    await user.type(search, "synthetic value");
+    expect(
+      screen.getByRole("heading", { name: "Reference plugin" }),
+    ).toBeInTheDocument();
   });
 
   it("requires permission approval before enabling", async () => {
@@ -72,6 +79,10 @@ describe("PluginSettingsPanel", () => {
 
     expect(onEnable).toHaveBeenCalledWith("denote.reference", [
       { capability: "commands" },
+      { capability: "sidebar" },
+      { capability: "status" },
+      { capability: "editor-decoration" },
+      { capability: "note-events" },
       { capability: "secure-storage" },
     ]);
   });
@@ -152,6 +163,83 @@ describe("PluginSettingsPanel", () => {
     expect(
       screen.getByRole("button", { name: "Delete credentials" }),
     ).toBeInTheDocument();
+  });
+
+  it("labels catalog changes as updates requiring review", () => {
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              status: "update-available",
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Review and update" }),
+    ).toBeInTheDocument();
+  });
+
+  it("resets and imports declarative plugin settings", async () => {
+    const user = userEvent.setup();
+    const onUpdateSettings = vi.fn().mockResolvedValue(undefined);
+    const onImportSettings = vi.fn().mockResolvedValue(undefined);
+    const configurableCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        settings: {
+          version: 1,
+          properties: {
+            enabled: {
+              type: "boolean" as const,
+              title: "Enabled",
+              default: false,
+            },
+          },
+        },
+      },
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              catalog: configurableCatalog,
+              settings: { enabled: true },
+            }),
+          ],
+          onUpdateSettings,
+          onImportSettings,
+        })}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Reset settings" }),
+    );
+    expect(onUpdateSettings).toHaveBeenCalledWith("denote.reference", {
+      enabled: false,
+    });
+
+    await user.click(screen.getByText("Import or export settings JSON"));
+    const json = screen.getByRole("textbox", {
+      name: "Reference plugin settings JSON",
+    });
+    fireEvent.change(json, {
+      target: {
+        value: '{"schemaVersion":1,"settings":{"enabled":true}}',
+      },
+    });
+    await user.click(screen.getByRole("button", { name: "Import JSON" }));
+    expect(onImportSettings).toHaveBeenCalledWith(
+      "denote.reference",
+      1,
+      { enabled: true },
+    );
   });
 
   it("exposes the in-app usage guide before enablement", async () => {

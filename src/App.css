@@ -1340,6 +1340,21 @@ button:disabled {
   text-underline-offset: 3px;
 }
 
+.cm-plugin-decoration--highlight {
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  border-radius: 3px;
+}
+
+.cm-plugin-decoration--warning {
+  text-decoration: underline wavy var(--warning);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.cm-plugin-decoration--muted {
+  color: var(--text-tertiary);
+}
+
 .binary-editor-notice {
   padding: 8px 14px;
   color: var(--warning);
@@ -1527,6 +1542,14 @@ button.tag-chip:active,
   color: var(--text-tertiary);
   font-size: 12px;
   line-height: 1.55;
+}
+
+.plugin-sidebar-view__content {
+  padding: 12px 14px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
 }
 
 .status-bar {
@@ -2836,7 +2859,7 @@ kbd {
 
 .plugin-card__metadata {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   margin: 0;
   overflow: hidden;
@@ -2908,6 +2931,14 @@ kbd {
   line-height: 1.5;
 }
 
+.plugin-card__details li small {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .plugin-guide {
   display: grid;
   gap: 8px;
@@ -2943,6 +2974,39 @@ kbd {
   padding: 0 5px;
   font-size: 11px;
   font-weight: 650;
+}
+
+.plugin-card__settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plugin-settings-json {
+  border-top: 1px solid var(--border);
+}
+
+.plugin-settings-json summary {
+  padding: 10px 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.plugin-settings-json textarea {
+  width: 100%;
+  min-height: 110px;
+  margin-bottom: 8px;
+  padding: 9px;
+  resize: vertical;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .plugin-setting {

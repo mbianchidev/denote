@@ -23,6 +23,7 @@ const CATEGORY_LABELS: Record<PluginCategory, string> = {
 const PERMISSION_LABELS: Record<string, string> = {
   commands: "Register commands",
   sidebar: "Add sidebar views",
+  status: "Add status bar items",
   "editor-decoration": "Decorate editor content",
   "note-events": "Observe note lifecycle events",
   "workspace-read": "Read vault content",
@@ -51,6 +52,11 @@ interface PluginSettingsPanelProps {
     pluginId: string,
     settings: Record<string, unknown>,
   ) => Promise<void>;
+  onImportSettings: (
+    pluginId: string,
+    sourceVersion: number,
+    settings: Record<string, unknown>,
+  ) => Promise<void>;
   onError: (error: unknown) => void;
 }
 
@@ -64,6 +70,7 @@ export function PluginSettingsPanel({
   onClearData,
   onClearCredentials,
   onUpdateSettings,
+  onImportSettings,
   onError,
 }: PluginSettingsPanelProps) {
   const [query, setQuery] = useState("");
@@ -82,6 +89,7 @@ export function PluginSettingsPanel({
   const [dirtyPluginIds, setDirtyPluginIds] = useState<Set<string>>(
     new Set(),
   );
+  const [settingsJson, setSettingsJson] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setDrafts((current) => {
@@ -89,6 +97,22 @@ export function PluginSettingsPanel({
       for (const plugin of plugins) {
         if (!dirtyPluginIds.has(plugin.catalog.manifest.id)) {
           next[plugin.catalog.manifest.id] = { ...plugin.settings };
+        }
+      }
+      return next;
+    });
+    setSettingsJson((current) => {
+      const next = { ...current };
+      for (const plugin of plugins) {
+        if (!dirtyPluginIds.has(plugin.catalog.manifest.id)) {
+          next[plugin.catalog.manifest.id] = JSON.stringify(
+            {
+              schemaVersion: plugin.catalog.manifest.settings?.version ?? 0,
+              settings: plugin.settings,
+            },
+            null,
+            2,
+          );
         }
       }
       return next;
@@ -111,7 +135,13 @@ export function PluginSettingsPanel({
       }
       return (
         !normalized ||
-        [manifest.name, manifest.description, manifest.id, manifest.publisher.name]
+        [
+          manifest.name,
+          manifest.description,
+          manifest.id,
+          manifest.publisher.name,
+          plugin.catalog.guide,
+        ]
           .join(" ")
           .toLocaleLowerCase()
           .includes(normalized)
@@ -265,6 +295,14 @@ export function PluginSettingsPanel({
                           <dt>Package</dt>
                           <dd>{plugin.enabled ? "Downloaded" : "Not stored locally"}</dd>
                         </div>
+                        <div>
+                          <dt>Trust</dt>
+                          <dd>
+                            {plugin.catalog.provenance.trusted
+                              ? `Verified ${plugin.catalog.provenance.publisherId}`
+                              : "Untrusted"}
+                          </dd>
+                        </div>
                       </dl>
                       {plugin.error ? (
                         <p className="plugin-card__error" role="alert">
@@ -272,7 +310,10 @@ export function PluginSettingsPanel({
                         </p>
                       ) : null}
 
-                      <details className="plugin-card__details">
+                      <details
+                        className="plugin-card__details"
+                        open={Boolean(plugin.error) ? true : undefined}
+                      >
                         <summary>Permissions and guide</summary>
                         <div className="plugin-card__details-body">
                           <section>
@@ -282,6 +323,9 @@ export function PluginSettingsPanel({
                                 {manifest.permissions.map((permission) => (
                                   <li key={permission.capability}>
                                     {permissionLabel(permission.capability)}
+                                    {permissionScope(permission) ? (
+                                      <small>{permissionScope(permission)}</small>
+                                    ) : null}
                                   </li>
                                 ))}
                               </ul>
@@ -318,23 +362,115 @@ export function PluginSettingsPanel({
                               />
                             ),
                           )}
-                          <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={() =>
-                              void onUpdateSettings(pluginId, draft)
-                                .then(() =>
-                                  setDirtyPluginIds((current) => {
-                                    const next = new Set(current);
-                                    next.delete(pluginId);
-                                    return next;
-                                  }),
+                          <div className="plugin-card__settings-actions">
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() =>
+                                void onUpdateSettings(pluginId, draft)
+                                  .then(() =>
+                                    setDirtyPluginIds((current) => {
+                                      const next = new Set(current);
+                                      next.delete(pluginId);
+                                      return next;
+                                    }),
+                                  )
+                                  .catch(onError)
+                              }
+                            >
+                              Save settings
+                            </button>
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => {
+                                const defaults = settingDefaults(settingDefinitions);
+                                void onUpdateSettings(pluginId, defaults)
+                                  .then(() => {
+                                    setDrafts((current) => ({
+                                      ...current,
+                                      [pluginId]: defaults,
+                                    }));
+                                    setDirtyPluginIds((current) => {
+                                      const next = new Set(current);
+                                      next.delete(pluginId);
+                                      return next;
+                                    });
+                                  })
+                                  .catch(onError);
+                              }}
+                            >
+                              Reset settings
+                            </button>
+                          </div>
+                          <details className="plugin-settings-json">
+                            <summary>Import or export settings JSON</summary>
+                            <textarea
+                              aria-label={`${manifest.name} settings JSON`}
+                              value={
+                                settingsJson[pluginId] ??
+                                JSON.stringify(
+                                  {
+                                    schemaVersion:
+                                      manifest.settings?.version ?? 0,
+                                    settings: draft,
+                                  },
+                                  null,
+                                  2,
                                 )
-                                .catch(onError)
-                            }
-                          >
-                            Save plugin settings
-                          </button>
+                              }
+                              onChange={(event) => {
+                                const value = event.currentTarget.value;
+                                setSettingsJson((current) => ({
+                                  ...current,
+                                  [pluginId]: value,
+                                }));
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="secondary-button"
+                              onClick={() => {
+                                try {
+                                  const imported: unknown = JSON.parse(
+                                    settingsJson[pluginId] ?? "{}",
+                                  );
+                                  if (
+                                    !isRecord(imported) ||
+                                    typeof imported.schemaVersion !== "number" ||
+                                    !isRecord(imported.settings)
+                                  ) {
+                                    throw new Error(
+                                      "Imported plugin settings must contain schemaVersion and settings.",
+                                    );
+                                  }
+                                  const sourceVersion = imported.schemaVersion;
+                                  const importedSettings = imported.settings;
+                                  void onImportSettings(
+                                    pluginId,
+                                    sourceVersion,
+                                    importedSettings,
+                                  )
+                                    .then(() => {
+                                      setDrafts((current) => ({
+                                        ...current,
+                                        [pluginId]: importedSettings,
+                                      }));
+                                      setDirtyPluginIds((current) => {
+                                        const next = new Set(current);
+                                        next.delete(pluginId);
+                                        return next;
+                                      });
+                                    })
+                                    .catch(onError);
+                                } catch (error) {
+                                  onError(error);
+                                }
+                              }}
+                            >
+                              Import JSON
+                            </button>
+                          </details>
                         </fieldset>
                       ) : null}
 
@@ -394,7 +530,9 @@ export function PluginSettingsPanel({
                               disabled={busy || plugin.status === "incompatible"}
                               onClick={() => setPendingEnable(pluginId)}
                             >
-                              Enable
+                              {plugin.status === "update-available"
+                                ? "Review and update"
+                                : "Enable"}
                             </button>
                           )}
                           {!plugin.enabled ? (
@@ -598,6 +736,22 @@ function permissionLabel(permission: string): string {
   return PERMISSION_LABELS[permission] ?? permission;
 }
 
+function permissionScope(permission: PluginPermissionRequest): string | null {
+  if (permission.capability === "network") {
+    return `Hosts: ${permission.hosts.join(", ")}`;
+  }
+  if (permission.capability === "process") {
+    const scopes = Object.entries(permission.executables)
+      .flatMap(([platform, executables]) =>
+        (executables ?? []).map(
+          (executable) => `${platform}: ${executable}`,
+        ),
+      );
+    return scopes.length > 0 ? `Executables: ${scopes.join("; ")}` : null;
+  }
+  return null;
+}
+
 function statusLabel(plugin: PluginView): string {
   if (plugin.enabled) {
     return "Enabled";
@@ -622,4 +776,19 @@ function statusLabel(plugin: PluginView): string {
     case "enabled":
       return "Disabled";
   }
+}
+
+function settingDefaults(
+  definitions: Record<string, PluginSettingDefinition>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(definitions).map(([key, definition]) => [
+      key,
+      definition.default,
+    ]),
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -5,7 +5,7 @@ import {
   parsePluginManifest,
   validatePluginCatalogEntry,
   validatePluginManifest,
-} from "./api";
+} from "@denote/plugin-sdk";
 
 const referenceManifest = parsePluginManifest(referenceManifestJson);
 
@@ -58,6 +58,7 @@ describe("plugin manifest validation", () => {
       ...referenceManifestJson,
       permissions: [{ capability: "network", hosts: [] }],
       settings: {
+        version: 1,
         properties: {
           token: {
             type: "secret",
@@ -73,7 +74,7 @@ describe("plugin manifest validation", () => {
     expect(result.valid).toBe(false);
     expect(result.errors).toEqual(
       expect.arrayContaining([
-        expect.stringMatching(/capability must be one of/i),
+        expect.stringMatching(/hosts must be a non-empty array/i),
         expect.stringMatching(/type must be boolean, string, number, or select/i),
       ]),
     );
@@ -143,6 +144,7 @@ describe("plugin manifest validation", () => {
     const result = validatePluginManifest({
       ...referenceManifestJson,
       settings: {
+        version: 1,
         properties: {
           count: {
             type: "number",

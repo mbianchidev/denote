@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { create, extract, list } from "tar";
 import {
@@ -178,10 +179,17 @@ try {
       entry.artifact = {
         url: artifactRef
           ? `https://raw.githubusercontent.com/mbianchidev/denote/${artifactRef}/plugin-artifacts/${artifactName}`
-          : retainedArtifactUrl(entry.artifact.url, artifactName),
+          : retainedArtifactUrl(entry.artifact.url, artifactName, sha256),
         sha256,
         sizeBytes,
       };
+      if (artifactRef) {
+        entry.provenance = {
+          publisherId: "denote",
+          sourceCommit: artifactRef,
+          trusted: true,
+        };
+      }
       console.log(`Packaged ${manifest.id}@${manifest.version}.`);
     }
   }
@@ -196,11 +204,38 @@ function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n");
 }
 
-function retainedArtifactUrl(current: string, artifactName: string): string {
-  if (current.endsWith(`/plugin-artifacts/${artifactName}`)) {
-    return current;
-  }
-  throw new Error(
-    `Set DENOTE_PLUGIN_ARTIFACT_REF to the commit containing ${artifactName}.`,
+function retainedArtifactUrl(
+  current: string,
+  artifactName: string,
+  expectedSha256: string,
+): string {
+  const match = current.match(
+    /^https:\/\/raw\.githubusercontent\.com\/mbianchidev\/denote\/([0-9a-f]{40})\/plugin-artifacts\/([^/]+)$/,
   );
+  if (!match || match[2] !== artifactName) {
+    throw new Error(
+      `Set DENOTE_PLUGIN_ARTIFACT_REF to the commit containing ${artifactName}.`,
+    );
+  }
+  let pinnedArtifact: Buffer;
+  try {
+    pinnedArtifact = execFileSync(
+      "git",
+      ["show", `${match[1]}:plugin-artifacts/${artifactName}`],
+      { cwd: root, maxBuffer: MAX_PACKAGE_BYTES + 1 },
+    );
+  } catch {
+    throw new Error(
+      `Unable to read ${artifactName} from pinned commit ${match[1]}.`,
+    );
+  }
+  const pinnedSha256 = createHash("sha256")
+    .update(pinnedArtifact)
+    .digest("hex");
+  if (pinnedSha256 !== expectedSha256) {
+    throw new Error(
+      `${artifactName} changed. Commit the artifact, then rerun with DENOTE_PLUGIN_ARTIFACT_REF set to that commit.`,
+    );
+  }
+  return current;
 }

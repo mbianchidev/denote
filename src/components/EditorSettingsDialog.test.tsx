@@ -14,6 +14,7 @@ const pluginProps = {
   onClearPluginData: vi.fn(),
   onClearPluginCredentials: vi.fn(),
   onUpdatePluginSettings: vi.fn(),
+  onImportPluginSettings: vi.fn(),
   onPluginError: vi.fn(),
 };
 

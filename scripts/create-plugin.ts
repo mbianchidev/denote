@@ -102,6 +102,11 @@ catalog.push({
     sha256: "0".repeat(64),
     sizeBytes: 1,
   },
+  provenance: {
+    publisherId: "denote",
+    sourceCommit: "0".repeat(40),
+    trusted: true,
+  },
   guide: guide.trim(),
 });
 

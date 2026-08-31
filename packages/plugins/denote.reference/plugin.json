@@ -22,6 +22,18 @@
       "capability": "commands"
     },
     {
+      "capability": "sidebar"
+    },
+    {
+      "capability": "status"
+    },
+    {
+      "capability": "editor-decoration"
+    },
+    {
+      "capability": "note-events"
+    },
+    {
       "capability": "secure-storage"
     }
   ],

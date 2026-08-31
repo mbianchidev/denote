@@ -113,6 +113,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             #[cfg(target_os = "macos")]
@@ -204,6 +205,7 @@ pub fn run() {
             plugins::read_plugin_entrypoint,
             plugins::get_plugin_settings,
             plugins::set_plugin_settings,
+            plugins::import_plugin_settings,
             plugins::plugin_storage_get,
             plugins::plugin_storage_set,
             plugins::plugin_storage_delete,
@@ -211,6 +213,14 @@ pub fn run() {
             plugins::plugin_secret_get,
             plugins::plugin_secret_set,
             plugins::plugin_secret_delete,
+            plugins::authorize_plugin_capability,
+            plugins::plugin_workspace_read,
+            plugins::plugin_workspace_write,
+            plugins::plugin_network_request,
+            plugins::plugin_clipboard_read,
+            plugins::plugin_clipboard_write,
+            plugins::plugin_show_notification,
+            plugins::plugin_process_request,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")

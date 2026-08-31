@@ -9,9 +9,11 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PLUGIN_GUIDE_SECTIONS,
+  PLUGIN_CATEGORIES,
   assertValidPluginCatalogEntry,
   assertValidPluginManifest,
   type PluginCatalogEntry,
+  type PluginCategory,
   type PluginManifest,
 } from "@denote/plugin-sdk";
 
@@ -20,6 +22,7 @@ const pluginsRoot = join(root, "packages", "plugins");
 const requireArtifacts = process.argv.includes("--artifacts");
 const errors: string[] = [];
 const catalog = readCatalog();
+validateBundles(catalog);
 const validatedPluginIds = new Set<string>();
 const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -94,6 +97,13 @@ function validatePlugin(pluginDirectory: string): void {
   }
   if (packageValue.private !== true) {
     errors.push(`${label}/package.json must remain private.`);
+  }
+  if (
+    (isRecord(packageValue.scripts) &&
+      Object.keys(packageValue.scripts).length > 0) ||
+    packageValue.bin !== undefined
+  ) {
+    errors.push(`${label}/package.json cannot declare scripts or bins.`);
   }
   if (packageValue.version !== manifest.version) {
     errors.push(`${label} package and manifest versions must match.`);
@@ -330,6 +340,7 @@ function readCatalog(): PluginCatalogEntry[] {
     errors.push("packages/plugins/catalog.json must be an array.");
     return [];
   }
+
   const entries: PluginCatalogEntry[] = [];
   const ids = new Set<string>();
   for (const [index, entry] of value.entries()) {
@@ -344,6 +355,23 @@ function readCatalog(): PluginCatalogEntry[] {
           "Artifact URL must use an immutable 40-character commit SHA.",
         );
       }
+      const artifactCommit = entry.artifact.url.match(
+        /\/([0-9a-f]{40})\/plugin-artifacts\//,
+      )?.[1];
+      if (artifactCommit !== entry.provenance.sourceCommit) {
+        throw new Error(
+          "Artifact URL commit must match provenance.sourceCommit.",
+        );
+      }
+      if (
+        entry.provenance.publisherId !== "denote" ||
+        entry.manifest.publisher.name !== "Denote" ||
+        entry.manifest.repository !== "https://github.com/mbianchidev/denote"
+      ) {
+        throw new Error(
+          "The initial catalog accepts only the trusted Denote publisher.",
+        );
+      }
       if (!ids.add(entry.manifest.id)) {
         throw new Error(`Duplicate catalog plugin ID: ${entry.manifest.id}.`);
       }
@@ -353,6 +381,52 @@ function readCatalog(): PluginCatalogEntry[] {
     }
   }
   return entries;
+}
+
+function validateBundles(catalog: PluginCatalogEntry[]): void {
+  const value = readJson(
+    join(pluginsRoot, "bundles.json"),
+    "packages/plugins/bundles.json",
+  );
+  if (!Array.isArray(value)) {
+    errors.push("packages/plugins/bundles.json must be an array.");
+    return;
+  }
+  const pluginIds = new Set(catalog.map((entry) => entry.manifest.id));
+  const bundleIds = new Set<string>();
+  for (const [index, bundle] of value.entries()) {
+    if (
+      !isRecord(bundle) ||
+      typeof bundle.id !== "string" ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(bundle.id) ||
+      typeof bundle.name !== "string" ||
+      !Array.isArray(bundle.categories) ||
+      !Array.isArray(bundle.pluginIds)
+    ) {
+      errors.push(`bundles[${index}] is invalid.`);
+      continue;
+    }
+    if (!bundleIds.add(bundle.id)) {
+      errors.push(`bundles contains duplicate ID ${bundle.id}.`);
+    }
+    for (const category of bundle.categories) {
+      if (
+        typeof category !== "string" ||
+        !PLUGIN_CATEGORIES.includes(category as PluginCategory)
+      ) {
+        errors.push(
+          `bundles[${index}] contains unknown category ${String(category)}.`,
+        );
+      }
+    }
+    for (const pluginId of bundle.pluginIds) {
+      if (typeof pluginId !== "string" || !pluginIds.has(pluginId)) {
+        errors.push(
+          `bundles[${index}] contains unknown plugin ${String(pluginId)}.`,
+        );
+      }
+    }
+  }
 }
 
 function stableStringify(value: unknown): string {

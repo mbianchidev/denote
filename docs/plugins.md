@@ -6,9 +6,15 @@ application must not bundle or execute those implementations. It can load
 catalog metadata before enablement; executable packages are downloaded,
 verified, installed, and loaded only after explicit user approval.
 
-The independent public contract lives in `packages/plugin-sdk`. The editor host
-imports that package through `src/plugins/api.ts`; plugins must not import
-editor internals or another plugin.
+The independent public contract lives in `packages/plugin-sdk`. The renderer's
+`src/plugins/usePlugins.ts` hook orchestrates the plugin lifecycle (catalog
+refresh, transactional enable/disable, startup restore, shutdown) against that
+contract; `src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) hosts each
+enabled plugin in an isolated worker (`src/plugins/pluginWorker.ts`) and speaks
+only typed messages to it. The native `PluginManager` in `src-tauri` is the
+security boundary: it owns installation, verification, state persistence, and
+transaction recovery. Plugins must not import editor internals or another
+plugin.
 
 ## Package contract
 
@@ -31,10 +37,11 @@ production feature.
 
 ## Host lifecycle
 
-`PluginRegistry` stores catalog entries rather than executable modules.
-Registering metadata does not install, import, or activate plugin code.
+The renderer's `usePlugins` hook stores catalog entries in state rather than
+executable modules. Fetching or displaying that metadata does not install,
+import, or activate plugin code.
 
-Enablement is transactional:
+Enablement is transactional and orchestrated by `usePlugins`:
 
 1. reject incompatible API or Denote versions before download;
 2. download, verify, and atomically install through the native installer;
@@ -80,20 +87,25 @@ executable bytes without a matching catalog update disables and removes the
 package. A process-wide file lock and Denote's single-instance guard prevent
 multiple application processes from writing plugin state concurrently.
 
-Downloaded JavaScript runs in a dedicated opaque-origin data-URL worker created
-from the verified package. The worker has no DOM or Tauri API object. Its host bridge
-exposes only approved services, plugin-scoped state, keychain access, and
-registered contributions. Worker crashes trigger termination and package
-removal. Enabled workers restart from verified installed packages when Denote
-starts.
+Downloaded JavaScript runs inside a dedicated, Vite-emitted module worker. Before
+the verified data-URL entrypoint is imported, the typed worker bootstrap removes
+ambient network, worker, broadcast, and browser-storage globals. The worker has no
+DOM or Tauri API object; its private `MessagePort` exposes only approved services,
+plugin-scoped state, keychain access, and registered contributions. Worker crashes
+trigger termination and package removal. Enabled workers restart from verified
+installed packages when Denote starts.
 
 ## Security and data boundaries
 
 - Plugins receive no raw vault path or editor implementation object.
-- Plugin API version 1 exposes only command registration and secure storage.
-  Workspace, network, process, clipboard, notification, sidebar, decoration,
-  and note-event permissions are rejected until their isolated host services
-  exist in a later API version.
+- Plugin API version 1 exposes command registration, static sidebar views,
+  note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
+  explicit-command-action capabilities for versioned workspace text,
+  allowlisted HTTPS, clipboard access, notifications, and platform-qualified
+  allowlisted process groups. Static status items and literal source-editor
+  decorations use disposable contribution handles like commands and sidebars.
+  Privileged action leases expire when the command settles, the worker starts
+  deactivating, or the active vault changes.
 - Secure-storage access is plugin-scoped. The host-provided API exposes no
   plugin ID argument, preventing a plugin from selecting another namespace.
 - macOS uses Keychain Services, Windows uses Credential Manager, and Linux uses
@@ -104,15 +116,34 @@ starts.
   corrupt general state file does not strand known secrets.
 - Secrets must use the OS-backed keychain implementation, never manifests,
   settings, logs, caches, packages, or telemetry.
-- Enabling a plugin cannot mutate vault content because API version 1 exposes no
-  vault path or workspace-write capability. A later write API must require both
-  explicit user action and a separately reviewed API-version change.
+- Enabling a plugin cannot mutate vault content because workspace writes exist
+  only in command action context. The host validates the current plugin
+  permission before every read, write, network, clipboard, notification, or
+  process operation.
 - Disabled plugins have no executable package left locally. User-authored
   content is never deleted as part of disablement.
 - Plugin state is limited to 256 keys, 256 KiB per value, and 2 MiB total.
   Declarative settings are capped at 256 KiB and revalidated against current
   types, choices, defaults, and numeric ranges.
+- Settings exports contain their schema version. Imports run every declared
+  one-version migration before current validation, and the UI also supports
+  reset-to-default behavior.
 - Plugins never receive the unwrapped vault encryption key.
+
+### API version 1 contribution surfaces
+
+API version 1 supports commands, static sidebar views, status items, literal
+source-editor decorations, note lifecycle events, settings/state, and optional
+secure storage. Sensitive workspace, network, clipboard, notification, and
+process operations exist only inside an explicit command action.
+
+Arbitrary renderer code, embedded webviews, custom React components, menu
+injection, and general import/export hooks are deliberately not approved
+surfaces in API version 1. Editor actions are exposed as commands so they inherit
+the same user-action lease and permission checks. Adding a new surface requires a
+typed declarative contract, deterministic disposal, accessibility behavior,
+security review, and an additive SDK release; executable UI injection requires a
+new API major and a separately documented isolation model.
 
 Content-oriented capabilities remain unavailable while an encrypted vault is
 locked. Plugins must use host APIs rather than reading decrypted temporary
@@ -134,6 +165,8 @@ The initial catalog is first-party only. A plugin artifact is publishable when:
 - dependency review reports no unresolved high-severity vulnerability;
 - the committed archive exactly matches built source;
 - its catalog entry pins an immutable repository commit and SHA-256 digest;
+- its trusted provenance publisher and source commit match the immutable
+  artifact URL;
 - requested permissions are minimal and accurately explained in the guide;
 - accessibility, privacy, failure, disablement, and data-cleanup behavior are
   reviewed by a Denote maintainer.
@@ -144,11 +177,20 @@ capability changes increment `compatibility.apiVersion`, document migration,
 and keep the prior host contract for a stated deprecation window before removal.
 
 A vulnerable or compromised artifact is removed from its hosting ref when
-possible, recorded in the plugin issue, and blocked in the next catalog update.
+possible, recorded in the plugin issue, and marked with a catalog revocation
+reason and timestamp. Revoked versions are disabled and removed before code
+execution.
 Already installed packages with missing, changed, or incompatible catalog
 metadata are disabled and deleted at startup. Third-party publishers remain out
 of scope until publisher signing and a remotely enforceable revocation channel
 are designed and reviewed.
+
+The version 1 catalog is embedded in each Denote release. New listings,
+available-version metadata, and revocations therefore arrive with an application
+update. A changed catalog fingerprint disables and removes the previous package
+instead of executing stale code; re-enablement downloads the new artifact and
+repeats permission approval. Automatic background updates and executable-version
+rollback are intentionally unavailable in version 1.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor
@@ -158,3 +200,7 @@ until the user opts in.
 Plugin proposals use `.github/ISSUE_TEMPLATE/plugin.yml`. The host API, SDK,
 catalog, and native installer require maintainer review; each plugin owns its
 manifest, guide, tests, artifact, migrations, and support lifecycle.
+
+Curated bundles live in `packages/plugins/bundles.json`. They can reference
+stable categories and explicit plugin IDs for discovery, but never trigger
+download or enablement.

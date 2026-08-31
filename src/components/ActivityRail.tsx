@@ -4,6 +4,7 @@ import {
   Files,
   Info,
   Moon,
+  Plug,
   Search,
   Sun,
   Trash2,
@@ -13,8 +14,11 @@ import type { Theme } from "../lib/theme";
 
 interface ActivityRailProps {
   activeView: SidebarView;
+  activePluginView: string | null;
+  pluginViews: Array<{ id: string; title: string }>;
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
+  onPluginViewChange: (viewId: string) => void;
   onAbout: () => void;
   onThemeToggle: () => void;
 }
@@ -33,8 +37,11 @@ const views: Array<{
 
 export function ActivityRail({
   activeView,
+  activePluginView,
+  pluginViews,
   theme,
   onViewChange,
+  onPluginViewChange,
   onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
@@ -50,7 +57,7 @@ export function ActivityRail({
             type="button"
             key={id}
             aria-label={label}
-            aria-pressed={activeView === id}
+            aria-pressed={activePluginView === null && activeView === id}
             title={
               id === "search"
                 ? `Search (${
@@ -61,6 +68,19 @@ export function ActivityRail({
             onClick={() => onViewChange(id)}
           >
             <Icon aria-hidden="true" size={19} strokeWidth={1.8} />
+          </button>
+        ))}
+        {pluginViews.map((view) => (
+          <button
+            className="icon-button activity-rail__button"
+            type="button"
+            key={view.id}
+            aria-label={view.title}
+            aria-pressed={activePluginView === view.id}
+            title={view.title}
+            onClick={() => onPluginViewChange(view.id)}
+          >
+            <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
           </button>
         ))}
       </div>

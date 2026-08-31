@@ -45,12 +45,18 @@ them into memory.
 
 Plugin implementations live under `packages/plugins/<plugin-id>/`, separate
 from the editor source and from every other plugin. The public, versioned
-contract lives in `packages/plugin-sdk`; `src/plugins/api.ts` is the editor-side
-orchestrator. CI rejects editor imports of plugin implementations, plugin
-imports of editor/Tauri internals, and direct plugin-to-plugin dependencies.
+contract lives in `packages/plugin-sdk`. `src/plugins/usePlugins.ts` is the
+renderer-side orchestrator that drives the lifecycle against that contract;
+`src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) and
+`src/plugins/pluginWorker.ts` provide the typed, isolated runtime each enabled
+plugin executes in. The native `PluginManager` is the installer, state, and
+security boundary: it downloads, verifies, installs, persists state, and
+recovers transactions. CI rejects editor imports of plugin implementations,
+plugin imports of editor/Tauri internals, and direct plugin-to-plugin
+dependencies.
 
-The plugin registry accepts catalog metadata, not executable modules. Catalog
-registration is therefore safe before enablement and cannot run plugin code.
+The plugin catalog accepts metadata, not executable modules. Catalog display is
+therefore safe before enablement and cannot run plugin code.
 An enable operation must pass compatibility checks, native download, checksum
 verification, atomic installation, isolated runtime loading, exact manifest
 matching, capability construction, and activation before enabled state is
@@ -68,9 +74,21 @@ Plugin activation contexts expose capability-specific services instead of a
 vault path, application state, Tauri invocation, or encryption keys. A plugin
 cannot receive a capability absent from its signed manifest. Enabling alone must
 not invoke any workspace mutation. Plugin API version 1 intentionally exposes
-only command registration, plugin-scoped state/settings, and optional secure
-storage. Other declared capability names are rejected until an isolated native
-service is implemented behind a later API version.
+command registration, static sidebar views, note events, plugin-scoped
+state/settings, optional secure storage, status items, literal source-editor
+decorations, and explicit command-action services. Workspace text reads return
+a content version that writes must present unchanged, reusing the canonical
+vault boundary and conflict hashes;
+network requests require HTTPS and declared hosts; clipboard, notifications, and
+processes require separate permissions; processes use platform-qualified exact
+absolute executable allowlists, cross-platform process groups, bounded output,
+and a timeout.
+
+API version 1 intentionally excludes arbitrary renderers, embedded plugin UI,
+menu injection, and general import/export hooks. Editor actions use command
+registrations so every privileged operation remains tied to an explicit,
+short-lived user action. New declarative contribution surfaces can be added
+compatibly; executable UI surfaces require a new API major and isolation review.
 
 The native plugin manager embeds only `packages/plugins/catalog.json`. Plugin
 artifacts remain separate repository files and are downloaded over HTTPS after
@@ -81,11 +99,14 @@ must match the catalog ID, version, API version, and permission payload. A
 same-filesystem rename commits the staged package atomically.
 
 Downloaded entrypoints are read only for transaction-prepared or enabled
-plugins and passed to an opaque-origin data-URL worker. The trusted bootstrap
-captures a bound private `MessagePort` before invoking the self-contained plugin
-bundle, so plugin code cannot spoof activation or host messages. The worker has no
-DOM or direct Tauri bindings. Messages are scoped to the plugin ID by the host;
-plugin code cannot choose the ID used for native storage or keychain calls.
+plugins and passed to a Vite-emitted module worker as a data-URL module. The typed
+worker bootstrap blocks ambient network, nested-worker, broadcast, and browser
+storage globals before importing the self-contained plugin bundle, then exposes a
+bound private `MessagePort`. The worker shares the application origin but has no
+DOM or direct Tauri bindings; the CSP denies direct network connections, and the
+host terminates the worker on invalid protocol messages or timeouts. Messages are
+scoped to the plugin ID by the host, so plugin code cannot choose the ID used for
+native storage or keychain calls.
 Command contributions require the plugin ID prefix, remain staged until
 activation succeeds, and disappear when the worker terminates.
 
@@ -99,6 +120,12 @@ the operating-system keychain. A separate `plugins/credentials.json` write-ahead
 journal preserves cleanup discovery if the main state file is corrupt. State
 updates use copy-on-write atomic persistence, and a process-lifetime file lock
 plus the single-instance plugin prevents concurrent writers.
+
+The catalog is compiled into the desktop release. Catalog additions, update
+metadata, and revocations therefore require an application update in API version
+1. When catalog integrity or permissions change, Denote removes the old package
+and requires a fresh download and approval rather than retaining executable
+rollback copies.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored
@@ -499,8 +526,8 @@ confirmation; trust is local-only and can be exact or wildcard. Mail, telephone,
 and custom `scheme://` links use a native validator and opener, with custom
 schemes requiring one-time confirmation. `javascript`, `data`, `vbscript`,
 `blob`, `about`, and `file` are blocked from that generic URI command. The
-content security policy allows local application scripts, opaque data-URL
-workers for verified plugins, and the image sources required for Markdown
+content security policy allows local application scripts, the bundled plugin
+worker plus verified data-URL plugin modules, and the image sources required for Markdown
 previews. Encrypted vaults must be unlocked before
 content commands receive a data key, and incomplete encryption state blocks
 ordinary content operations until the resumable transformation finishes.

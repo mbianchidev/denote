@@ -5,6 +5,7 @@ import {
   createEditorDisplayExtensions,
   createEditorDiagnosticExtensions,
   createEditorTabExtensions,
+  createPluginDecorationExtensions,
   denoteCodeMirrorTheme,
   insertMarkdownLink,
   setEditorDiagnostic,
@@ -141,6 +142,50 @@ describe("editor display extensions", () => {
     expect(
       view.dom.querySelector(".cm-diagnostic-character"),
     ).toHaveTextContent("e");
+    view.destroy();
+  });
+
+  it("renders bounded plugin text decorations", () => {
+    const parent = document.createElement("div");
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: "reference text",
+        extensions: createPluginDecorationExtensions([
+          {
+            id: "denote.reference.marker",
+            pattern: "reference",
+            style: "highlight",
+          },
+        ]),
+      }),
+    });
+
+    expect(
+      view.dom.querySelector(".cm-plugin-decoration--highlight"),
+    ).toHaveTextContent("reference");
+    view.destroy();
+  });
+
+  it("preserves Unicode offsets for case-insensitive decorations", () => {
+    const parent = document.createElement("div");
+    const view = new EditorView({
+      parent,
+      state: EditorState.create({
+        doc: "İx",
+        extensions: createPluginDecorationExtensions([
+          {
+            id: "denote.reference.marker",
+            pattern: "x",
+            style: "highlight",
+          },
+        ]),
+      }),
+    });
+
+    expect(
+      view.dom.querySelector(".cm-plugin-decoration--highlight"),
+    ).toHaveTextContent("x");
     view.destroy();
   });
 });

@@ -29,6 +29,7 @@ class FakePort extends EventTarget {
   peer: FakePort | null = null;
   closed = false;
   messages: unknown[] = [];
+  onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
 
   postMessage(message: unknown) {
     this.messages.push(message);
@@ -59,6 +60,7 @@ class FakeWorker extends EventTarget {
   terminated = false;
   runtimePort: FakePort | null = null;
   received: unknown[] = [];
+  connectMessage: unknown = null;
 
   constructor() {
     super();
@@ -69,6 +71,7 @@ class FakeWorker extends EventTarget {
     if (!isRecord(message) || message.type !== "connect") {
       return;
     }
+    this.connectMessage = message;
     const port = transfer?.[0];
     if (!(port instanceof FakePort)) {
       throw new Error("Missing runtime port.");
@@ -150,6 +153,15 @@ describe("PluginWorkerRuntime", () => {
     const worker = FakeWorker.instances[0];
 
     expect(api.readPluginEntrypoint).toHaveBeenCalledWith("denote.reference");
+    expect(worker.connectMessage).toEqual({
+      type: "connect",
+      moduleUrl: expect.stringMatching(/^data:text\/javascript;base64,/),
+      pluginId: "denote.reference",
+      expectedVersion: catalog.manifest.version,
+      permissions: catalog.manifest.permissions.map(
+        (permission) => permission.capability,
+      ),
+    });
     expect(onCommandsChanged).toHaveBeenLastCalledWith([
       {
         pluginId: "denote.reference",
@@ -157,7 +169,11 @@ describe("PluginWorkerRuntime", () => {
         title: "Reference command",
       },
     ]);
-    await runtime.runCommand("denote.reference", "denote.reference.ping");
+    await runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      "/vault",
+    );
     expect(worker.runtimePort?.messages).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -166,6 +182,135 @@ describe("PluginWorkerRuntime", () => {
         }),
       ]),
     );
+  });
+
+  it("provides action-scoped capabilities to real pluginWorker.ts commands", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const pluginModule = dataModuleUrl(`
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          context.capabilities.commands.register({
+            id: "denote.reference.read",
+            title: "Read note",
+            async run(action) {
+              await action.capabilities.workspaceRead.readText("note.md");
+            },
+          });
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["commands", "workspace-read"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "ready" });
+    });
+    // The module import path should have run after ambient capabilities were
+    // blocked, and the host-facing onmessage handler should be disarmed.
+    expect(workerScope.onmessage).toBeNull();
+    expect(workerScope.fetch).toBeUndefined();
+    expect(workerScope.Worker).toBeUndefined();
+
+    port.onmessage?.(
+      new MessageEvent("message", { data: { type: "activate" } }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "run-command",
+          commandId: "denote.reference.read",
+          requestId: "action-id",
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual(
+        expect.objectContaining({
+          type: "host-request",
+          operation: "workspace.read",
+          actionId: "action-id",
+        }),
+      );
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "host-response",
+          requestId: "request-id",
+          value: { content: "note", version: "version" },
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "command-result",
+        requestId: "action-id",
+      });
+    });
+  });
+
+  it("rejects a plugin module whose manifest does not match the catalog", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const pluginModule = dataModuleUrl(`
+      export default {
+        manifest: { id: "denote.reference", version: "9.9.9" },
+        async activate() {},
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["commands"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "ready" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", { data: { type: "activate" } }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual(
+        expect.objectContaining({ type: "activation-error" }),
+      );
+    });
   });
 
   it("terminates the worker and removes contributions on disable", async () => {
@@ -195,6 +340,78 @@ describe("PluginWorkerRuntime", () => {
         (message) => isRecord(message) && message.type === "deactivate",
       ),
     ).toHaveLength(1);
+  });
+
+  it("publishes sidebar contributions and forwards note events", async () => {
+    const onSidebarViewsChanged = vi.fn();
+    const onStatusItemsChanged = vi.fn();
+    const onDecorationsChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      onSidebarViewsChanged,
+      onStatusItemsChanged,
+      onDecorationsChanged,
+    );
+    await runtime.start(plugin());
+    const worker = FakeWorker.instances[0];
+
+    worker.runtimePort?.postMessage({
+      type: "register-sidebar",
+      id: "denote.reference.status",
+      title: "Plugin reference",
+      content: "Active",
+    });
+    worker.runtimePort?.postMessage({
+      type: "register-status",
+      id: "denote.reference.active",
+      text: "Reference active",
+    });
+    worker.runtimePort?.postMessage({
+      type: "register-decoration",
+      id: "denote.reference.marker",
+      pattern: "reference",
+      style: "highlight",
+      caseSensitive: false,
+    });
+    runtime.broadcastNoteEvent({
+      path: "note.md",
+      kind: "opened",
+    });
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+
+    expect(onSidebarViewsChanged).toHaveBeenLastCalledWith([
+      {
+        pluginId: "denote.reference",
+        id: "denote.reference.status",
+        title: "Plugin reference",
+        content: "Active",
+      },
+    ]);
+    expect(onStatusItemsChanged).toHaveBeenLastCalledWith([
+      {
+        pluginId: "denote.reference",
+        id: "denote.reference.active",
+        text: "Reference active",
+      },
+    ]);
+    expect(onDecorationsChanged).toHaveBeenLastCalledWith([
+      {
+        pluginId: "denote.reference",
+        id: "denote.reference.marker",
+        pattern: "reference",
+        style: "highlight",
+        caseSensitive: false,
+      },
+    ]);
+    expect(worker.received).toEqual(
+      expect.arrayContaining([
+        {
+          type: "note-event",
+          event: { path: "note.md", kind: "opened" },
+        },
+      ]),
+    );
   });
 
   it("cancels a pending start before worker construction", async () => {
@@ -241,4 +458,13 @@ describe("PluginWorkerRuntime", () => {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function dataModuleUrl(source: string): string {
+  const bytes = new TextEncoder().encode(source);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return `data:text/javascript;base64,${btoa(binary)}`;
 }

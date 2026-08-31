@@ -45,6 +45,11 @@ The scaffold includes the manifest, required guide sections, icon, package
 metadata, and SDK entrypoint. Implement and test it entirely inside that folder
 before packaging.
 
+Plugin packages cannot declare npm lifecycle scripts or executable `bin`
+entries. CI checks this before dependency installation, installs with lifecycle
+scripts disabled, audits JavaScript and Rust dependencies, and rejects new
+high-severity dependency vulnerabilities.
+
 Build the independently downloadable plugin artifacts and update catalog
 integrity metadata with:
 

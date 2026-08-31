@@ -5,6 +5,10 @@ run by default. Open **Settings → Plugins** to browse the catalog. You can sea
 category or enabled state, inspect permissions, and read each guide before
 enabling anything.
 
+Plugin settings can be saved, reset, and imported or exported as versioned JSON.
+Older settings exports run the plugin's declared migrations before current
+validation.
+
 When you enable a plugin, Denote will verify and install its package, ask for
 declared permissions, and then start it. Simply enabling a plugin must not edit
 your notes. Actions that change vault content require both your explicit action
@@ -24,6 +28,13 @@ Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
 keychain. Plugins cannot read Denote credentials or another plugin's entries.
 
+Other permissions are scoped and shown before approval. Workspace reads and
+writes are available only while you explicitly run a plugin command, and writes
+must use the version returned by the original read. Network access is HTTPS-only
+and limited to listed hosts. Clipboard, notifications, and process execution
+have separate permissions; process permissions list exact executables for each
+supported operating system.
+
 These capabilities are planned as separately enabled plugins:
 
 - Git vault versioning and optional timed commits;
@@ -41,7 +52,9 @@ and must run an encryption sweep before committing.
 
 The current catalog includes a development reference plugin that proves
 download, verification, isolated activation, command registration, disablement,
-and package removal. Production feature plugins remain tracked separately.
+sidebar and status contributions, note events, source-editor decorations,
+keychain isolation, restart restoration, and package removal. Production
+feature plugins remain tracked separately.
 
 [Back to Welcome](<../Welcome.md>)
 

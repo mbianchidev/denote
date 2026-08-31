@@ -12,8 +12,10 @@ import {
 import { useEffect, useRef } from "react";
 import {
   createEditorDisplayExtensions,
+  createPluginDecorationExtensions,
   denoteCodeMirrorTheme,
 } from "../lib/editorExtensions";
+import type { PluginEditorDecoration } from "@denote/plugin-sdk";
 import type { EditorDisplaySettings } from "../lib/editorDisplay";
 import { loadSourceLanguage } from "../lib/sourceLanguage";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
@@ -29,6 +31,7 @@ interface PlainTextEditorProps {
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
   searchNavigation?: EditorSearchNavigation;
+  pluginDecorations?: PluginEditorDecoration[];
   onChange: (value: string) => void;
   onError?: (error: unknown) => void;
 }
@@ -43,6 +46,7 @@ export function PlainTextEditor({
   lineEnding,
   displaySettings,
   searchNavigation,
+  pluginDecorations = [],
   onChange,
   onError,
 }: PlainTextEditorProps) {
@@ -54,6 +58,7 @@ export function PlainTextEditor({
   const displayCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
   const languageCompartment = useRef(new Compartment()).current;
+  const pluginDecorationCompartment = useRef(new Compartment()).current;
   const languageRequest = useRef(0);
 
   useEffect(() => {
@@ -91,6 +96,9 @@ export function PlainTextEditor({
             createEditorDisplayExtensions(displaySettings, lineEnding),
           ),
           languageCompartment.of([]),
+          pluginDecorationCompartment.of(
+            createPluginDecorationExtensions(pluginDecorations),
+          ),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !syncingValue.current) {
               const nextValue = update.state.doc.toString();
@@ -110,9 +118,18 @@ export function PlainTextEditor({
     ariaLabel,
     displayCompartment,
     languageCompartment,
+    pluginDecorationCompartment,
     readOnlyCompartment,
     spellCheck,
   ]);
+
+  useEffect(() => {
+    editorRef.current?.dispatch({
+      effects: pluginDecorationCompartment.reconfigure(
+        createPluginDecorationExtensions(pluginDecorations),
+      ),
+    });
+  }, [pluginDecorationCompartment, pluginDecorations]);
 
   useEffect(() => {
     const request = ++languageRequest.current;

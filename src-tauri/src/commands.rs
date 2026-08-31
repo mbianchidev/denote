@@ -93,7 +93,7 @@ impl FileClipboard {
     }
 }
 
-fn active_key(
+pub(crate) fn active_key(
     state: &State<'_, AppState>,
     root: &std::path::Path,
 ) -> AppResult<Option<Zeroizing<[u8; 32]>>> {
@@ -768,6 +768,10 @@ pub fn empty_trash(state: State<'_, AppState>) -> AppResult<usize> {
 #[tauri::command]
 pub fn prepare_exit(state: State<'_, AppState>) -> AppResult<()> {
     let _vault_access = state.write_vault_access()?;
+    seal_active_vault_for_exit(&state)
+}
+
+fn seal_active_vault_for_exit(state: &AppState) -> AppResult<()> {
     if let Some(root) = state.active_vault_optional()?
         && let Some(manifest) = crypto::load_manifest(&root)?
         && manifest.phase == EncryptionPhase::Encrypted
@@ -781,6 +785,8 @@ pub fn prepare_exit(state: State<'_, AppState>) -> AppResult<()> {
 
 #[tauri::command]
 pub fn complete_exit(app: AppHandle, state: State<'_, AppState>) -> AppResult<()> {
+    let _vault_access = state.write_vault_access()?;
+    seal_active_vault_for_exit(&state)?;
     state.allow_exit();
     app.exit(0);
     Ok(())
