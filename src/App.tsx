@@ -2389,7 +2389,10 @@ function App() {
       expectedGeneration: number,
       isAffected: (path: string) => boolean,
     ): Promise<boolean> => {
-      await acquireWorkspaceLock();
+      await acquireWorkspaceLockAndDrainProjectMutations(
+        acquireWorkspaceLock,
+        () => projectConfigurationMutationTail.current,
+      );
       try {
         if (expectedGeneration !== vaultGeneration.current) {
           setWorkspaceLock(false);
