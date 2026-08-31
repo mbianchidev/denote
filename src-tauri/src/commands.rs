@@ -22,7 +22,7 @@ use crate::{
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
         KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, MoveEntryResult,
-        NoteDocument, RecoveryCodesResult, SaveOutcome, TabSessionState, TagColor,
+        NoteDocument, ProjectRoot, RecoveryCodesResult, SaveOutcome, TabSessionState, TagColor,
         WelcomePagePreference, WorkspaceSnapshot,
     },
     vault,
@@ -859,6 +859,23 @@ pub fn set_welcome_page_path(
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
     vault::set_welcome_page_path(&state.db_path, &root.to_string_lossy(), path.as_deref())
+}
+
+#[tauri::command]
+pub fn mark_project_root(state: State<'_, AppState>, path: String) -> AppResult<Vec<ProjectRoot>> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::mark_project_root(&state.db_path, &root.to_string_lossy(), &path)
+}
+
+#[tauri::command]
+pub fn unmark_project_root(
+    state: State<'_, AppState>,
+    project_root_id: String,
+) -> AppResult<Vec<ProjectRoot>> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    vault::unmark_project_root(&state.db_path, &root.to_string_lossy(), &project_root_id)
 }
 
 #[tauri::command]

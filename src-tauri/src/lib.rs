@@ -305,6 +305,8 @@ pub fn run() {
             commands::set_vault_markdown_view_mode,
             commands::set_restore_tabs,
             commands::set_welcome_page_path,
+            commands::mark_project_root,
+            commands::unmark_project_root,
             commands::save_tab_session,
             commands::list_history,
             commands::restore_revision,

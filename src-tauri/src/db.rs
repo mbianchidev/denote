@@ -38,6 +38,11 @@ pub struct KnownVaultRecord {
     pub default: bool,
 }
 
+pub struct ProjectRootRecord {
+    pub id: String,
+    pub root_path: String,
+}
+
 pub struct AppState {
     pub db_path: PathBuf,
     active_vault: RwLock<Option<PathBuf>>,
@@ -274,6 +279,19 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
         "#,
     )?;
     let migration = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    migration.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS project_roots (
+          id TEXT PRIMARY KEY,
+          vault_id INTEGER NOT NULL,
+          root_path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (vault_id, root_path),
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+        "#,
+    )?;
     let added_encoding = !column_exists(&migration, "history", "encoding")?;
     if added_encoding {
         migration.execute(
@@ -369,6 +387,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (13, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (14, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -620,6 +642,57 @@ pub fn known_vault(connection: &Connection, vault_id: i64) -> AppResult<Option<K
             },
         )
         .optional()?)
+}
+
+pub fn ensure_project_root(
+    connection: &Connection,
+    vault_id: i64,
+    root_path: &str,
+) -> AppResult<String> {
+    let id = Uuid::new_v4().to_string();
+    let timestamp = now();
+    connection.execute(
+        r#"
+        INSERT OR IGNORE INTO project_roots(id, vault_id, root_path, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?4)
+        "#,
+        params![id, vault_id, root_path, timestamp],
+    )?;
+    Ok(connection.query_row(
+        "SELECT id FROM project_roots WHERE vault_id = ?1 AND root_path = ?2",
+        params![vault_id, root_path],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn list_project_roots(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<Vec<ProjectRootRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, root_path
+         FROM project_roots
+         WHERE vault_id = ?1
+         ORDER BY root_path COLLATE NOCASE, root_path",
+    )?;
+    let rows = statement.query_map(params![vault_id], |row| {
+        Ok(ProjectRootRecord {
+            id: row.get(0)?,
+            root_path: row.get(1)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn delete_project_root(
+    connection: &Connection,
+    vault_id: i64,
+    project_root_id: &str,
+) -> AppResult<bool> {
+    Ok(connection.execute(
+        "DELETE FROM project_roots WHERE vault_id = ?1 AND id = ?2",
+        params![vault_id, project_root_id],
+    )? > 0)
 }
 
 pub fn delete_known_vault(connection: &mut Connection, vault_id: i64, path: &str) -> AppResult<()> {
@@ -1942,6 +2015,62 @@ mod tests {
                 )
                 .expect("welcome page migration"),
             1
+        );
+    }
+
+    #[test]
+    fn stores_project_roots_with_stable_ids_and_vault_cascade() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("project-roots.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let mut connection = open(&db_path).expect("database opened");
+        let vault_path = "/vaults/synthetic";
+        let vault_id = ensure_vault(&connection, vault_path, "synthetic").expect("vault");
+
+        let whole_vault = ensure_project_root(&connection, vault_id, "").expect("whole-vault root");
+        let duplicate =
+            ensure_project_root(&connection, vault_id, "").expect("duplicate whole-vault root");
+        let nested =
+            ensure_project_root(&connection, vault_id, "packages/tool").expect("nested root");
+
+        assert_eq!(whole_vault, duplicate);
+        assert_ne!(whole_vault, nested);
+        assert!(Uuid::parse_str(&whole_vault).is_ok());
+        assert_eq!(
+            list_project_roots(&connection, vault_id)
+                .expect("project roots")
+                .into_iter()
+                .map(|root| root.root_path)
+                .collect::<Vec<_>>(),
+            ["", "packages/tool"]
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'table' AND name = 'project_roots'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("project roots table"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 14",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("project roots migration"),
+            1
+        );
+
+        delete_known_vault(&mut connection, vault_id, vault_path).expect("delete vault");
+        assert!(
+            list_project_roots(&connection, vault_id)
+                .expect("cascaded project roots")
+                .is_empty()
         );
     }
 

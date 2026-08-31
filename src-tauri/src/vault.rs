@@ -22,8 +22,8 @@ use crate::{
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
         KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES, MarkdownViewMode,
-        NoteDocument, SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab,
-        TagColor, TrashItem, WelcomePagePreference, WorkspaceSnapshot,
+        NoteDocument, ProjectRoot, SaveOutcome, SearchDocument, TabGroup, TabSessionState,
+        TabSessionTab, TagColor, TrashItem, WelcomePagePreference, WorkspaceSnapshot,
     },
 };
 
@@ -992,6 +992,37 @@ pub fn set_welcome_page_path(
     )
 }
 
+pub fn mark_project_root(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+) -> AppResult<Vec<ProjectRoot>> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let root_path = validated_project_root_path(&root, relative_path)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::ensure_project_root(&connection, vault_id, &root_path)?;
+    project_roots(&connection, vault_id, &root)
+}
+
+pub fn unmark_project_root(
+    db_path: &Path,
+    vault_path: &str,
+    project_root_id: &str,
+) -> AppResult<Vec<ProjectRoot>> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    if !db::delete_project_root(&connection, vault_id, project_root_id)? {
+        return Err(AppError::NotFound(format!(
+            "Project root {project_root_id}"
+        )));
+    }
+    project_roots(&connection, vault_id, &root)
+}
+
 pub fn save_tab_session(
     db_path: &Path,
     vault_path: &str,
@@ -1630,6 +1661,7 @@ fn snapshot_with_tree(
     let vault_path = path_to_string(root);
     let default = db::is_default_vault(connection, &vault_path)?;
     let welcome_page = welcome_page_preference(connection, vault_id, root, default)?;
+    let project_roots = project_roots(connection, vault_id, root)?;
     Ok(WorkspaceSnapshot {
         vault_path,
         vault_name,
@@ -1643,9 +1675,34 @@ fn snapshot_with_tree(
         restore_tabs,
         tab_session,
         welcome_page,
+        project_roots,
         from_cache,
         encryption: Default::default(),
     })
+}
+
+fn project_roots(
+    connection: &Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<Vec<ProjectRoot>> {
+    Ok(db::list_project_roots(connection, vault_id)?
+        .into_iter()
+        .map(|record| ProjectRoot {
+            available: project_root_available(root, &record.root_path),
+            id: record.id,
+            root_path: record.root_path,
+        })
+        .collect())
+}
+
+fn project_root_available(root: &Path, root_path: &str) -> bool {
+    if root_path.is_empty() {
+        return root.is_dir();
+    }
+    existing_entry(root, root_path)
+        .map(|path| path.is_dir())
+        .unwrap_or(false)
 }
 
 fn welcome_page_preference(
@@ -2120,6 +2177,19 @@ fn existing_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
         return Err(AppError::InvalidPath(relative_path.to_string()));
     }
     Ok(candidate)
+}
+
+fn validated_project_root_path(root: &Path, relative_path: &str) -> AppResult<String> {
+    if relative_path.is_empty() {
+        return Ok(String::new());
+    }
+    let candidate = existing_entry(root, relative_path)?;
+    if !candidate.is_dir() {
+        return Err(AppError::InvalidPath(format!(
+            "{relative_path} is not a folder"
+        )));
+    }
+    relative_string(root, &candidate)
 }
 
 fn is_encryption_control_file(root: &Path, path: &Path) -> bool {
@@ -3778,6 +3848,113 @@ mod tests {
             open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("updated cache");
         assert!(updated.from_cache);
         assert!(updated.tree.iter().any(|node| node.name == "two.md"));
+    }
+
+    #[test]
+    fn persists_project_roots_outside_the_tree_cache_and_tracks_availability() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("apps/web")).expect("project folders");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let initial = open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        assert!(initial.project_roots.is_empty());
+
+        let roots =
+            mark_project_root(&db_path, vault_path.to_str().unwrap(), "").expect("whole vault");
+        assert_eq!(roots.len(), 1);
+        assert_eq!(roots[0].root_path, "");
+        assert!(roots[0].available);
+
+        let roots = mark_project_root(&db_path, vault_path.to_str().unwrap(), "apps/web")
+            .expect("nested project root");
+        let nested = roots
+            .iter()
+            .find(|root| root.root_path == "apps/web")
+            .expect("nested root")
+            .clone();
+        let duplicate = mark_project_root(&db_path, vault_path.to_str().unwrap(), "apps/web")
+            .expect("duplicate nested project root");
+        assert_eq!(
+            duplicate
+                .iter()
+                .find(|root| root.root_path == "apps/web")
+                .expect("duplicate root")
+                .id,
+            nested.id
+        );
+
+        fs::remove_dir_all(vault_path.join("apps")).expect("external project removal");
+
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached vault");
+        assert!(cached.from_cache);
+        assert!(
+            !cached
+                .project_roots
+                .iter()
+                .find(|root| root.id == nested.id)
+                .expect("missing cached project root")
+                .available
+        );
+        assert!(
+            cached
+                .project_roots
+                .iter()
+                .find(|root| root.root_path.is_empty())
+                .expect("whole-vault root")
+                .available
+        );
+        let refreshed =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refreshed vault");
+        assert!(
+            !refreshed
+                .project_roots
+                .iter()
+                .find(|root| root.id == nested.id)
+                .expect("missing refreshed project root")
+                .available
+        );
+
+        let remaining = unmark_project_root(&db_path, vault_path.to_str().unwrap(), &nested.id)
+            .expect("remove missing project root");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].root_path, "");
+    }
+
+    #[test]
+    fn rejects_invalid_project_root_paths() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let outside = directory.path().join("outside");
+        fs::create_dir_all(vault_path.join("folder")).expect("vault folders");
+        fs::create_dir(&outside).expect("outside folder");
+        fs::write(vault_path.join("note.md"), "synthetic note").expect("synthetic file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        for path in [
+            "note.md",
+            "missing",
+            "../outside",
+            ".denote",
+            vault_path.join("folder").to_str().unwrap(),
+        ] {
+            assert!(
+                mark_project_root(&db_path, vault_path.to_str().unwrap(), path).is_err(),
+                "expected invalid project root: {path}"
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            symlink(&outside, vault_path.join("linked")).expect("outside symlink");
+            assert!(mark_project_root(&db_path, vault_path.to_str().unwrap(), "linked").is_err());
+        }
     }
 
     #[test]

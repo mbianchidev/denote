@@ -272,6 +272,14 @@ pub struct WelcomePagePreference {
     pub effective_path: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectRoot {
+    pub id: String,
+    pub root_path: String,
+    pub available: bool,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceSnapshot {
@@ -287,6 +295,7 @@ pub struct WorkspaceSnapshot {
     pub restore_tabs: bool,
     pub tab_session: Option<TabSessionState>,
     pub welcome_page: WelcomePagePreference,
+    pub project_roots: Vec<ProjectRoot>,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }

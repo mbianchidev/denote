@@ -14,6 +14,7 @@ import type {
   NoteStats,
   InstalledPlugin,
   PluginView,
+  ProjectRoot,
   RecoveryCodesResult,
   SaveOutcome,
   TabSessionState,
@@ -43,6 +44,10 @@ export const api = {
     invoke<void>("delete_known_vault", { vaultId, trashFiles }),
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
+  markProjectRoot: (path: string) =>
+    invoke<ProjectRoot[]>("mark_project_root", { path }),
+  unmarkProjectRoot: (projectRootId: string) =>
+    invoke<ProjectRoot[]>("unmark_project_root", { projectRootId }),
   enableVaultEncryption: (password: string) =>
     invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),
   unlockVaultWithPassword: (password: string) =>

@@ -141,6 +141,12 @@ export interface WelcomePagePreference {
   effectivePath: string | null;
 }
 
+export interface ProjectRoot {
+  id: string;
+  rootPath: string;
+  available: boolean;
+}
+
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
@@ -154,6 +160,7 @@ export interface WorkspaceSnapshot {
   restoreTabs: boolean;
   tabSession: TabSessionState | null;
   welcomePage: WelcomePagePreference;
+  projectRoots: ProjectRoot[];
   fromCache: boolean;
   encryption: EncryptionStatus;
 }
