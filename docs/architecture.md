@@ -57,11 +57,13 @@ discovers new direct children. Explicit nested roots still win through
 closest-root resolution, and marking an implicit child as a project promotes the
 same identity rather than replacing it.
 Filesystem discovery is optional: an unavailable workspace or child is logged
-and skipped without blocking cached or full vault snapshots. SQLite reads and
-association writes remain authoritative errors. Marking a workspace wraps its
-new workspace row, implicit children, associations, and root-suggestion
-dismissal in one transaction so a material reconciliation failure rolls back
-new metadata while preserving an existing idempotently marked workspace.
+and skipped without blocking cached or full vault snapshots. Each complete
+reconciliation lists workspaces, materializes implicit roots, and associates
+them in one SQLite immediate transaction, serializing concurrent workspace
+removal and rolling back all partial metadata on error. Snapshot reconciliation
+errors are logged and the last committed project configuration remains usable;
+explicit mark and refresh commands return the error. Marking a workspace also
+includes its new workspace row and root-suggestion dismissal in that transaction.
 
 Denote-managed rename and move operations rekey explicit roots, workspaces, and
 implicit children without changing their IDs. Unmarking a workspace deletes

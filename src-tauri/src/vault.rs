@@ -10,7 +10,7 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use fs2::FileExt as Fs2FileExt;
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
@@ -677,7 +677,7 @@ pub fn rename_entry(
             error,
         ));
     }
-    if let Err(error) = reconcile_workspace_children(&connection, vault_id, &root) {
+    if let Err(error) = reconcile_workspace_children(&mut connection, vault_id, &root) {
         eprintln!("Unable to refresh project workspace children after rename: {error}");
     }
     Ok(new_relative)
@@ -754,7 +754,7 @@ pub fn move_entry(
             error,
         ));
     }
-    if let Err(error) = reconcile_workspace_children(&connection, vault_id, &root) {
+    if let Err(error) = reconcile_workspace_children(&mut connection, vault_id, &root) {
         eprintln!("Unable to refresh project workspace children after move: {error}");
     }
     Ok(new_relative)
@@ -881,7 +881,7 @@ pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> App
     if let Some(parent) = source.parent() {
         let _ = fs::remove_dir(parent);
     }
-    if let Err(error) = reconcile_workspace_children(&connection, vault_id, &root) {
+    if let Err(error) = reconcile_workspace_children(&mut connection, vault_id, &root) {
         eprintln!("Unable to refresh project workspace children after restore: {error}");
     }
     let stats = db::stats_map(&connection, vault_id)?;
@@ -1046,12 +1046,12 @@ pub fn mark_project_workspace(
     let root_path = validated_project_root_path(&root, relative_path)?;
     let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    let transaction = connection.transaction()?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     db::ensure_project_workspace(&transaction, vault_id, &root_path)?;
     if root_path.is_empty() {
         db::dismiss_git_project_suggestion(&transaction, vault_id)?;
     }
-    reconcile_workspace_children(&transaction, vault_id, &root)?;
+    reconcile_workspace_children_inner(&transaction, vault_id, &root)?;
     let configuration = project_configuration(&transaction, vault_id, &root)?;
     transaction.commit()?;
     Ok(configuration)
@@ -1092,9 +1092,9 @@ pub fn refresh_project_configuration(
 ) -> AppResult<ProjectConfiguration> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
-    let connection = db::open(db_path)?;
+    let mut connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    reconcile_workspace_children(&connection, vault_id, &root)?;
+    reconcile_workspace_children(&mut connection, vault_id, &root)?;
     project_configuration(&connection, vault_id, &root)
 }
 
@@ -1778,7 +1778,9 @@ fn snapshot_with_tree(
     let vault_path = path_to_string(root);
     let default = db::is_default_vault(connection, &vault_path)?;
     let welcome_page = welcome_page_preference(connection, vault_id, root, default)?;
-    reconcile_workspace_children(connection, vault_id, root)?;
+    if let Err(error) = reconcile_workspace_children(connection, vault_id, root) {
+        eprintln!("Unable to refresh project workspace children for snapshot: {error}");
+    }
     let project_configuration = project_configuration(connection, vault_id, root)?;
     Ok(WorkspaceSnapshot {
         vault_path,
@@ -1858,6 +1860,17 @@ fn project_configuration(
 }
 
 fn reconcile_workspace_children(
+    connection: &mut Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<()> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    reconcile_workspace_children_inner(&transaction, vault_id, root)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn reconcile_workspace_children_inner(
     connection: &Connection,
     vault_id: i64,
     root: &Path,
@@ -4358,6 +4371,149 @@ mod tests {
                 .expect("project roots")
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn snapshots_keep_last_committed_projects_when_workspace_reconciliation_fails() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("workspace/existing")).expect("existing child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("mark workspace");
+        let existing_id = initial.project_roots[0].id.clone();
+        fs::create_dir(vault_path.join("workspace/new-child")).expect("new child");
+
+        let connection = db::open(&db_path).expect("database");
+        connection
+            .execute_batch(
+                "CREATE TRIGGER fail_new_workspace_child_association
+                 BEFORE INSERT ON workspace_child_projects
+                 WHEN (
+                   SELECT root_path FROM project_roots WHERE id = NEW.project_id
+                 ) = 'workspace/new-child'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'synthetic association failure');
+                 END;",
+            )
+            .expect("failure trigger");
+        drop(connection);
+
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached snapshot");
+        assert!(cached.from_cache);
+        assert_eq!(cached.project_roots.len(), 1);
+        assert_eq!(cached.project_roots[0].id, existing_id);
+
+        let full = refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("full snapshot");
+        assert!(!full.from_cache);
+        assert_eq!(full.project_roots.len(), 1);
+        assert_eq!(full.project_roots[0].id, existing_id);
+        assert!(
+            refresh_project_configuration(&db_path, vault_path.to_str().unwrap()).is_err(),
+            "explicit refresh must expose reconciliation failures"
+        );
+
+        let connection = db::open(&db_path).expect("database");
+        let root = canonical_vault(vault_path.to_str().unwrap()).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &root).expect("vault row");
+        let projects = db::list_project_roots(&connection, vault_id).expect("project roots");
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].id, existing_id);
+        assert!(
+            projects
+                .iter()
+                .all(|project| project.root_path != "workspace/new-child"),
+            "failed snapshots must roll back the partially inserted implicit root"
+        );
+    }
+
+    #[test]
+    fn workspace_deletion_serializes_before_reconciliation_without_ghost_projects() {
+        use std::sync::mpsc;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("workspace/existing")).expect("existing child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("mark workspace");
+        let workspace_id = initial.project_workspaces[0].id.clone();
+        fs::create_dir(vault_path.join("workspace/new-child")).expect("new child");
+
+        let root = canonical_vault(vault_path.to_str().unwrap()).expect("canonical vault");
+        let mut reconciling_connection = db::open(&db_path).expect("reconciling connection");
+        let mut deleting_connection = db::open(&db_path).expect("deleting connection");
+        let (vault_id, _) = ensure_vault(&deleting_connection, &root).expect("vault row");
+        let deletion = deleting_connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .expect("deletion transaction");
+        deletion
+            .execute(
+                "DELETE FROM project_workspaces WHERE vault_id = ?1 AND id = ?2",
+                rusqlite::params![vault_id, workspace_id],
+            )
+            .expect("delete workspace");
+        deletion
+            .execute(
+                "DELETE FROM project_roots
+                 WHERE vault_id = ?1 AND is_explicit = 0
+                   AND NOT EXISTS (
+                     SELECT 1 FROM workspace_child_projects
+                     WHERE project_id = project_roots.id
+                   )",
+                [vault_id],
+            )
+            .expect("delete orphan implicit projects");
+
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let reconciliation_root = root.clone();
+        let handle = std::thread::spawn(move || {
+            started_tx.send(()).expect("signal refresh start");
+            let result = reconcile_workspace_children(
+                &mut reconciling_connection,
+                vault_id,
+                &reconciliation_root,
+            )
+            .and_then(|()| {
+                project_configuration(&reconciling_connection, vault_id, &reconciliation_root)
+            });
+            result_tx.send(result).expect("send refresh result");
+        });
+        started_rx.recv().expect("refresh started");
+        assert!(
+            matches!(
+                result_rx.recv_timeout(Duration::from_millis(250)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "reconciliation must wait for the workspace deletion transaction"
+        );
+
+        deletion.commit().expect("commit workspace deletion");
+        let configuration = result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("refresh completed")
+            .expect("refresh configuration");
+        handle.join().expect("refresh thread");
+        assert!(configuration.project_workspaces.is_empty());
+        assert!(configuration.project_roots.is_empty());
+
+        let connection = db::open(&db_path).expect("verification connection");
+        assert!(
+            db::list_project_roots(&connection, vault_id)
+                .expect("project roots")
+                .is_empty(),
+            "workspace deletion must not leave an unassociated implicit root"
+        );
+        let snapshot =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("usable snapshot");
+        assert!(snapshot.project_workspaces.is_empty());
+        assert!(snapshot.project_roots.is_empty());
     }
 
     #[test]
