@@ -183,6 +183,10 @@ import {
   workspacePathMatches,
   withProjectConfiguration,
 } from "./lib/workspaceTree";
+import {
+  usesProjectMarkdownSourceEditor,
+  usesRichMarkdownEditor,
+} from "./lib/editorRouting";
 import { acquireWorkspaceLockAndDrainProjectMutations } from "./lib/workspaceOperation";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
@@ -598,7 +602,9 @@ function App() {
     );
   }, [activeProject]);
   const activeMarkdownSource =
-    activeFileTab?.kind === "markdown" && activeFileTab.encoding === "utf8"
+    activeProject === null &&
+    activeFileTab?.kind === "markdown" &&
+    activeFileTab.encoding === "utf8"
       ? markdownErrorSourceIdentity(
           markdownEditorSource(activeFileTab.content),
         )
@@ -6249,14 +6255,17 @@ function App() {
       paneProject && !editorDisplaySettings.showLineNumbers
         ? { ...editorDisplaySettings, showLineNumbers: true }
         : editorDisplaySettings;
+    const paneUsesRichMarkdown = usesRichMarkdownEditor(paneTab, paneProject);
     const paneMarkdownError =
-      paneTab.kind === "markdown" && paneTab.encoding === "utf8"
+      paneUsesRichMarkdown
         ? markdownAppErrorForPath(
             errors,
             paneTab.path,
             markdownErrorSourceIdentity(markdownEditorSource(paneTab.content)),
           )
         : null;
+    const paneUsesProjectMarkdownSource =
+      usesProjectMarkdownSourceEditor(paneTab, paneProject);
     return (
       <>
         {paneTab.kind === "image" && !paneTab.rawEditing ? (
@@ -6264,9 +6273,7 @@ function App() {
             <img src={paneTab.imageDataUrl} alt={paneTab.title} />
             <figcaption>{paneTab.path}</figcaption>
           </figure>
-        ) : paneTab.kind === "markdown" &&
-          paneTab.encoding === "utf8" &&
-          !paneTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
+        ) : paneUsesRichMarkdown ? (
           <MarkdownEditor
             key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}:${pluginDecorationKey}`}
             notePath={paneTab.path}
@@ -6275,7 +6282,6 @@ function App() {
             displaySettings={paneDisplaySettings}
             pluginDecorations={pluginController.decorations}
             preferredViewMode={markdownViewMode}
-            projectSourceMode={paneProject !== null}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
             errorNavigationRequest={paneMarkdownError?.navigationRequest ?? 0}
@@ -6300,6 +6306,12 @@ function App() {
           />
         ) : (
           <>
+            {paneUsesProjectMarkdownSource ? (
+              <div className="code-workspace-source-notice" role="note">
+                Code workspace source mode. Markdown syntax is edited exactly as
+                stored on disk.
+              </div>
+            ) : null}
             {paneTab.encoding === "base64" ? (
               <div className="binary-editor-notice" role="note">
                 Binary file shown as reversible Base64. Invalid Base64 will not
@@ -6319,6 +6331,17 @@ function App() {
               filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
               lineEnding={paneTab.lineEnding}
               displaySettings={paneDisplaySettings}
+              markdownSource={paneUsesProjectMarkdownSource}
+              errorLocation={
+                paneUsesProjectMarkdownSource
+                  ? paneMarkdownError?.location
+                  : undefined
+              }
+              errorNavigationRequest={
+                paneUsesProjectMarkdownSource
+                  ? (paneMarkdownError?.navigationRequest ?? 0)
+                  : 0
+              }
               pluginDecorations={pluginController.decorations}
               searchNavigation={
                 pane.id === focusedPaneId &&

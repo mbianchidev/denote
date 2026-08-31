@@ -41,10 +41,11 @@ use complete dark and light palettes.
 ## Project files
 
 Files inside any explicit project or workspace-discovered implicit project
-always show line numbers. Markdown project files also use Source mode. These are
-temporary project constraints: they do not change the saved line-number setting
-or the vault's Markdown preference, and leaving the project restores normal
-behavior immediately.
+always show line numbers. Markdown project files use the byte-preserving source
+editor, so opening a project cannot rewrite callout markers or other stored
+Markdown syntax. These are temporary project constraints: they do not change
+the saved line-number setting or the vault's Markdown preference, and leaving
+the project restores normal behavior immediately.
 
 `.mdx` files remain non-executing, JSX-highlighted source files; project context
 does not add rich editing.

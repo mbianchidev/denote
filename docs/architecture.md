@@ -464,12 +464,14 @@ Because rendered rich Markdown has no stable one-to-one source-line mapping,
 enabling any guide temporarily constrains Markdown editing to source mode.
 Disabled rich/source controls remain visible and point back to the display
 settings.
-For a file whose closest explicit or implicit project root is active, the frontend
-applies line numbers through an in-memory display-settings overlay. Markdown in
-that project also forces Source mode. Neither overlay writes the saved display
-settings or vault Markdown preference, so switching focus outside the project or
-unmarking it restores ordinary behavior immediately. `.mdx` remains independently
-source-only.
+For a file whose closest explicit or implicit project root is active, the
+frontend applies line numbers through an in-memory display-settings overlay.
+Markdown in that project routes directly to the byte-preserving CodeMirror
+source editor rather than initializing the rich editor, so opening a code
+project cannot normalize callout or other Markdown syntax. The override does
+not write the saved display settings or vault Markdown preference, so switching
+focus outside the project or unmarking it restores ordinary behavior
+immediately. `.mdx` remains independently source-only.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every

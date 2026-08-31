@@ -1463,6 +1463,15 @@ button:disabled {
   border-bottom: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border));
 }
 
+.code-workspace-source-notice {
+  padding: 7px 14px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  text-align: center;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+}
+
 .image-viewer {
   display: grid;
   min-height: 0;

@@ -197,8 +197,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides
   must be turned off before mode switching.
-- Files inside an explicit or implicit project temporarily force line numbers,
-  and project Markdown temporarily forces Source mode. Leaving the project or
+- Files inside an explicit or implicit project temporarily force line numbers.
+  Project Markdown uses the byte-preserving source editor so opening a code
+  project cannot normalize stored Markdown syntax. Leaving the project or
   removing its governing mark restores the saved line-number setting and vault
   Markdown preference immediately; these constraints never persist as editor
   preferences.
