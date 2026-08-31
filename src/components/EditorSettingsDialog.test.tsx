@@ -6,6 +6,8 @@ import { EditorSettingsDialog } from "./EditorSettingsDialog";
 
 const pluginProps = {
   plugins: [],
+  pluginBundles: [],
+  activeProject: null,
   pluginsLoading: false,
   busyPluginIds: new Set<string>(),
   onEnablePlugin: vi.fn(),

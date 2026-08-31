@@ -15,8 +15,9 @@ use crate::{
 use super::{
     PluginManager,
     types::{
-        InstalledPlugin, PluginNetworkRequest, PluginNetworkResponse, PluginPermission,
-        PluginProcessRequest, PluginProcessResult, PluginTextDocument, PluginView,
+        InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
+        PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,
+        PluginView,
     },
 };
 
@@ -33,6 +34,11 @@ where
 #[tauri::command]
 pub fn list_plugins(state: State<'_, PluginManager>) -> AppResult<Vec<PluginView>> {
     state.list()
+}
+
+#[tauri::command]
+pub fn list_plugin_bundles(state: State<'_, PluginManager>) -> AppResult<Vec<PluginBundle>> {
+    state.bundles()
 }
 
 #[tauri::command]

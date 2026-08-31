@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
-import type { PluginView } from "../types";
+import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
   PluginNoteEvent,
   PluginPermissionRequest,
@@ -17,6 +17,7 @@ import {
 
 export interface PluginController {
   plugins: PluginView[];
+  bundles: PluginBundleMetadata[];
   commands: PluginCommandContribution[];
   sidebarViews: PluginSidebarContribution[];
   statusItems: PluginStatusContribution[];
@@ -56,6 +57,7 @@ export function usePlugins(
   projectContext: PluginProjectContext | null = null,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
+  const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
   const [commands, setCommands] = useState<PluginCommandContribution[]>([]);
   const [sidebarViews, setSidebarViews] = useState<
     PluginSidebarContribution[]
@@ -106,6 +108,18 @@ export function usePlugins(
     );
     runtime.setProjectContext(projectContext);
     runtimeRef.current = runtime;
+    void api
+      .listPluginBundles()
+      .then((available) => {
+        if (!cancelled) {
+          setBundles(available);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          reportError(error);
+        }
+      });
     void api
       .recoverPluginTransactions()
       .then(api.listPlugins)
@@ -373,6 +387,7 @@ export function usePlugins(
 
   return {
     plugins,
+    bundles,
     commands,
     sidebarViews,
     statusItems,

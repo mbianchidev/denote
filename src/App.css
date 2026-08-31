@@ -2737,6 +2737,81 @@ kbd {
   line-height: 1.5;
 }
 
+.plugin-bundle {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: var(--editor-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.plugin-bundle__header h4,
+.plugin-bundle__header p,
+.plugin-bundle__role h5,
+.plugin-bundle__role p {
+  margin: 0;
+}
+
+.plugin-bundle__header h4 {
+  font-size: 13px;
+}
+
+.plugin-bundle__header p,
+.plugin-bundle__role p,
+.plugin-bundle__candidates span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.plugin-bundle__header p {
+  margin-top: 3px;
+}
+
+.plugin-bundle__roles,
+.plugin-bundle__candidates {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plugin-bundle__roles {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.plugin-bundle__role {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.plugin-bundle__role-header,
+.plugin-bundle__candidates li {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plugin-bundle__role h5,
+.plugin-bundle__candidates strong {
+  font-size: 11px;
+}
+
+.plugin-bundle__candidates li {
+  padding-top: 7px;
+  border-top: 1px solid var(--border);
+}
+
+.plugin-bundle__candidates span {
+  text-align: right;
+}
+
 .plugin-settings__filters {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(170px, 0.52fr) minmax(150px, 0.4fr);
@@ -3084,7 +3159,8 @@ kbd {
 
 @media (max-width: 680px) {
   .plugin-settings__filters,
-  .plugin-card__metadata {
+  .plugin-card__metadata,
+  .plugin-bundle__roles {
     grid-template-columns: 1fr;
   }
 

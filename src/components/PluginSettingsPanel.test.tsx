@@ -1,9 +1,10 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import catalogJson from "../../packages/plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
+  type PluginBundle,
   type PluginCatalogEntry,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
@@ -29,6 +30,8 @@ function plugin(overrides: Partial<PluginView> = {}): PluginView {
 function props(overrides: Partial<Parameters<typeof PluginSettingsPanel>[0]> = {}) {
   return {
     plugins: [plugin()],
+    bundles: [],
+    activeProject: null,
     loading: false,
     busyPluginIds: new Set<string>(),
     onEnable: vi.fn().mockResolvedValue(undefined),
@@ -118,6 +121,152 @@ describe("PluginSettingsPanel", () => {
     expect(onEnable).toHaveBeenCalledWith("denote.reference", [
       { capability: "project-context" },
     ]);
+  });
+
+  it("shows code tooling roles only for a focused project", () => {
+    const bundle: PluginBundle = {
+      id: "code-tooling",
+      name: "Code tooling",
+      categories: ["code"],
+      roles: [
+        { id: "git", name: "Git", candidatePluginIds: [] },
+        {
+          id: "terminal",
+          name: "Terminal",
+          candidatePluginIds: ["denote.reference"],
+        },
+      ],
+    };
+    const { rerender } = render(
+      <PluginSettingsPanel {...props({ bundles: [bundle] })} />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Code tooling" }),
+    ).not.toBeInTheDocument();
+
+    rerender(
+      <PluginSettingsPanel
+        {...props({
+          bundles: [bundle],
+          activeProject: {
+            id: "project-synthetic",
+            rootPath: "projects/synthetic",
+            available: true,
+          },
+        })}
+      />,
+    );
+
+    const section = screen
+      .getByRole("heading", { name: "Code tooling" })
+      .closest("section");
+    expect(section).not.toBeNull();
+    expect(within(section!).getByText("Unavailable")).toBeInTheDocument();
+    expect(within(section!).getAllByText("Disabled")).toHaveLength(2);
+    expect(
+      within(section!).getByText(/review and enable plugins individually/i),
+    ).toBeInTheDocument();
+  });
+
+  it("reports candidate lifecycle detail without adding bundle actions", () => {
+    const failed = plugin({
+      status: "failed",
+      error: "Synthetic activation failure",
+    });
+    const enabled = plugin({
+      catalog: {
+        ...catalog,
+        manifest: {
+          ...catalog.manifest,
+          id: "denote.synthetic-enabled",
+          name: "Synthetic enabled plugin",
+        },
+      },
+      status: "enabled",
+      enabled: true,
+    });
+    const update = plugin({
+      catalog: {
+        ...catalog,
+        manifest: {
+          ...catalog.manifest,
+          id: "denote.synthetic-update",
+          name: "Synthetic update plugin",
+        },
+      },
+      status: "update-available",
+    });
+    const incompatible = plugin({
+      catalog: {
+        ...catalog,
+        manifest: {
+          ...catalog.manifest,
+          id: "denote.synthetic-incompatible",
+          name: "Synthetic incompatible plugin",
+        },
+      },
+      status: "incompatible",
+      error: "Requires a newer Denote version",
+    });
+    const bundle: PluginBundle = {
+      id: "code-tooling",
+      name: "Code tooling",
+      categories: ["code"],
+      roles: [
+        {
+          id: "linter",
+          name: "Linter",
+          candidatePluginIds: [
+            "denote.reference",
+            "denote.synthetic-update",
+            "denote.synthetic-incompatible",
+          ],
+        },
+        {
+          id: "compiler",
+          name: "Compiler",
+          candidatePluginIds: ["denote.synthetic-enabled"],
+        },
+      ],
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [failed, update, incompatible, enabled],
+          bundles: [bundle],
+          activeProject: {
+            id: "project-synthetic",
+            rootPath: "",
+            available: true,
+          },
+        })}
+      />,
+    );
+
+    const section = screen
+      .getByRole("heading", { name: "Code tooling" })
+      .closest("section");
+    expect(section).not.toBeNull();
+    expect(
+      within(section!).getByText("Failed — Synthetic activation failure"),
+    ).toBeInTheDocument();
+    expect(within(section!).getByText("Update available")).toBeInTheDocument();
+    expect(
+      within(section!).getByText(
+        "Incompatible — Requires a newer Denote version",
+      ),
+    ).toBeInTheDocument();
+    expect(within(section!).getAllByText("Enabled")).toHaveLength(2);
+    expect(
+      within(section!).queryByRole("button"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getAllByRole("button", { name: "Enable" }).length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("button", { name: "Review and update" }),
+    ).toBeInTheDocument();
   });
 
   it("offers package disable and explicit data cleanup", async () => {

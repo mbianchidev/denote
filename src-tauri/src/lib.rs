@@ -316,6 +316,7 @@ pub fn run() {
             commands::read_image_data_url,
             commands::save_attachment,
             plugins::list_plugins,
+            plugins::list_plugin_bundles,
             plugins::prepare_plugin_enable,
             plugins::commit_plugin_enable,
             plugins::rollback_plugin_enable,

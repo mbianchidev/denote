@@ -9,11 +9,10 @@ import { dirname, extname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PLUGIN_GUIDE_SECTIONS,
-  PLUGIN_CATEGORIES,
   assertValidPluginCatalogEntry,
+  assertValidPluginBundles,
   assertValidPluginManifest,
   type PluginCatalogEntry,
-  type PluginCategory,
   type PluginManifest,
 } from "@denote/plugin-sdk";
 
@@ -388,44 +387,16 @@ function validateBundles(catalog: PluginCatalogEntry[]): void {
     join(pluginsRoot, "bundles.json"),
     "packages/plugins/bundles.json",
   );
-  if (!Array.isArray(value)) {
-    errors.push("packages/plugins/bundles.json must be an array.");
+  if (value === null) {
     return;
   }
-  const pluginIds = new Set(catalog.map((entry) => entry.manifest.id));
-  const bundleIds = new Set<string>();
-  for (const [index, bundle] of value.entries()) {
-    if (
-      !isRecord(bundle) ||
-      typeof bundle.id !== "string" ||
-      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(bundle.id) ||
-      typeof bundle.name !== "string" ||
-      !Array.isArray(bundle.categories) ||
-      !Array.isArray(bundle.pluginIds)
-    ) {
-      errors.push(`bundles[${index}] is invalid.`);
-      continue;
-    }
-    if (!bundleIds.add(bundle.id)) {
-      errors.push(`bundles contains duplicate ID ${bundle.id}.`);
-    }
-    for (const category of bundle.categories) {
-      if (
-        typeof category !== "string" ||
-        !PLUGIN_CATEGORIES.includes(category as PluginCategory)
-      ) {
-        errors.push(
-          `bundles[${index}] contains unknown category ${String(category)}.`,
-        );
-      }
-    }
-    for (const pluginId of bundle.pluginIds) {
-      if (typeof pluginId !== "string" || !pluginIds.has(pluginId)) {
-        errors.push(
-          `bundles[${index}] contains unknown plugin ${String(pluginId)}.`,
-        );
-      }
-    }
+  try {
+    assertValidPluginBundles(
+      value,
+      new Set(catalog.map((entry) => entry.manifest.id)),
+    );
+  } catch (error) {
+    errors.push(`packages/plugins/bundles.json: ${errorMessage(error)}`);
   }
 }
 

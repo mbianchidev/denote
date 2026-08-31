@@ -6816,6 +6816,8 @@ function App() {
         externalDomains={externalDomainPolicy.domains}
         allowAllExternalDomains={externalDomainPolicy.allowAll}
         plugins={pluginController.plugins}
+        pluginBundles={pluginController.bundles}
+        activeProject={activeProject}
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}
         onChange={updateEditorDisplaySettings}

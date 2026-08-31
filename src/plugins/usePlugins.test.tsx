@@ -31,6 +31,7 @@ const { runtimeInstances, callOrder } = vi.hoisted(() => ({
 vi.mock("../lib/api", () => ({
   api: {
     listPlugins: vi.fn(),
+    listPluginBundles: vi.fn(),
     preparePluginEnable: vi.fn(),
     commitPluginEnable: vi.fn(),
     rollbackPluginEnable: vi.fn(),
@@ -139,11 +140,46 @@ const reportError = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.listPluginBundles).mockResolvedValue([]);
   runtimeInstances.length = 0;
   callOrder.length = 0;
 });
 
 describe("usePlugins", () => {
+  it("keeps the catalog usable when bundle metadata fails to load", async () => {
+    vi.mocked(api.listPluginBundles).mockRejectedValueOnce(
+      new Error("Invalid embedded plugin bundles"),
+    );
+    const { result } = await mountReady([makePlugin()]);
+
+    expect(result.current.plugins).toEqual([makePlugin()]);
+    expect(result.current.bundles).toEqual([]);
+    expect(reportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Invalid embedded plugin bundles" }),
+    );
+  });
+
+  it("exposes bundle metadata independently from the plugin catalog", async () => {
+    vi.mocked(api.listPluginBundles).mockResolvedValueOnce([
+      {
+        id: "code-tooling",
+        name: "Code tooling",
+        categories: ["code"],
+        roles: [
+          {
+            id: "terminal",
+            name: "Terminal",
+            candidatePluginIds: [],
+          },
+        ],
+      },
+    ]);
+    const { result } = await mountReady([makePlugin()]);
+
+    await waitFor(() => expect(result.current.bundles).toHaveLength(1));
+    expect(result.current.bundles[0].roles[0].name).toBe("Terminal");
+  });
+
   it("enables a plugin in prepare -> runtime.start -> commit -> refresh order", async () => {
     const notEnabled = makePlugin({ enabled: false });
     const { result } = await mountReady([notEnabled]);

@@ -1,9 +1,12 @@
 import type { MarkdownViewMode } from "./lib/markdownView";
 import type {
+  PluginBundle,
   PluginCatalogEntry,
   PluginLifecycleState,
   PluginPermissionRequest,
 } from "@denote/plugin-sdk";
+
+export type PluginBundleMetadata = PluginBundle;
 
 export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
 export type FileEncoding = "utf8" | "base64";

@@ -14,6 +14,7 @@ import type {
   NoteStats,
   InstalledPlugin,
   PluginView,
+  PluginBundleMetadata,
   ProjectRoot,
   RecoveryCodesResult,
   SaveOutcome,
@@ -171,6 +172,8 @@ export const api = {
     });
   },
   listPlugins: () => invoke<PluginView[]>("list_plugins"),
+  listPluginBundles: () =>
+    invoke<PluginBundleMetadata[]>("list_plugin_bundles"),
   preparePluginEnable: (
     pluginId: string,
     approvedPermissions: PluginPermissionRequest[],

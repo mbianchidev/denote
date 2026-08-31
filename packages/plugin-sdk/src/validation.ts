@@ -5,12 +5,109 @@ import {
   PLUGIN_GUIDE_SECTIONS,
   PLUGIN_MANIFEST_SCHEMA_VERSION,
   type PluginCapability,
+  type PluginBundle,
   type PluginCatalogEntry,
   type PluginCategory,
   type PluginCompatibilityResult,
   type PluginManifest,
   type PluginValidationResult,
 } from "./contracts";
+
+export function validatePluginBundles(
+  value: unknown,
+  catalogPluginIds?: ReadonlySet<string>,
+): PluginValidationResult<PluginBundle[]> {
+  if (!Array.isArray(value)) {
+    return invalid("Plugin bundles must be an array.");
+  }
+
+  const errors: string[] = [];
+  const bundleIds = new Set<string>();
+  const bundleNames = new Set<string>();
+  for (const [bundleIndex, bundle] of value.entries()) {
+    const field = `bundles[${bundleIndex}]`;
+    if (!isRecord(bundle)) {
+      errors.push(`${field} must be an object.`);
+      continue;
+    }
+    validateStableId(bundle.id, `${field}.id`, errors);
+    requireString(bundle.name, `${field}.name`, errors);
+    trackUniqueString(bundle.id, `${field}.id`, bundleIds, errors);
+    trackUniqueName(bundle.name, `${field}.name`, bundleNames, errors);
+
+    if (!Array.isArray(bundle.categories)) {
+      errors.push(`${field}.categories must be an array.`);
+    } else {
+      const categories = new Set<string>();
+      for (const [categoryIndex, category] of bundle.categories.entries()) {
+        if (
+          typeof category !== "string" ||
+          !PLUGIN_CATEGORIES.includes(category as PluginCategory)
+        ) {
+          errors.push(
+            `${field}.categories[${categoryIndex}] must be one of: ${PLUGIN_CATEGORIES.join(", ")}.`,
+          );
+        } else if (categories.has(category)) {
+          errors.push(`${field}.categories contains duplicate ${category}.`);
+        } else {
+          categories.add(category);
+        }
+      }
+    }
+
+    if (!Array.isArray(bundle.roles) || bundle.roles.length === 0) {
+      errors.push(`${field}.roles must be a non-empty array.`);
+      continue;
+    }
+    const roleIds = new Set<string>();
+    const roleNames = new Set<string>();
+    for (const [roleIndex, role] of bundle.roles.entries()) {
+      const roleField = `${field}.roles[${roleIndex}]`;
+      if (!isRecord(role)) {
+        errors.push(`${roleField} must be an object.`);
+        continue;
+      }
+      validateStableId(role.id, `${roleField}.id`, errors);
+      requireString(role.name, `${roleField}.name`, errors);
+      trackUniqueString(role.id, `${roleField}.id`, roleIds, errors);
+      trackUniqueName(role.name, `${roleField}.name`, roleNames, errors);
+      if (!Array.isArray(role.candidatePluginIds)) {
+        errors.push(`${roleField}.candidatePluginIds must be an array.`);
+        continue;
+      }
+      const candidates = new Set<string>();
+      for (const [candidateIndex, candidate] of role.candidatePluginIds.entries()) {
+        const candidateField = `${roleField}.candidatePluginIds[${candidateIndex}]`;
+        if (typeof candidate !== "string") {
+          errors.push(`${candidateField} must be a string.`);
+          continue;
+        }
+        if (candidates.has(candidate)) {
+          errors.push(`${roleField}.candidatePluginIds contains duplicate ${candidate}.`);
+        } else {
+          candidates.add(candidate);
+        }
+        if (catalogPluginIds && !catalogPluginIds.has(candidate)) {
+          errors.push(`${candidateField} references unknown catalog plugin ${candidate}.`);
+        }
+      }
+    }
+  }
+
+  return errors.length === 0
+    ? { valid: true, value: value as PluginBundle[], errors }
+    : { valid: false, value: null, errors };
+}
+
+export function assertValidPluginBundles(
+  value: unknown,
+  catalogPluginIds?: ReadonlySet<string>,
+): asserts value is PluginBundle[] {
+  const result = validatePluginBundles(value, catalogPluginIds);
+  if (!result.valid) {
+    throw new Error(`Invalid plugin bundles:\n- ${result.errors.join("\n- ")}`);
+  }
+}
 
 export function validatePluginManifest(
   value: unknown,
@@ -558,6 +655,49 @@ function requireString(
 ): void {
   if (typeof value !== "string" || value.trim().length === 0) {
     errors.push(`${field} must be a non-empty string.`);
+  }
+}
+
+function validateStableId(
+  value: unknown,
+  field: string,
+  errors: string[],
+): void {
+  if (
+    typeof value !== "string" ||
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value)
+  ) {
+    errors.push(`${field} must be a stable kebab-case ID.`);
+  }
+}
+
+function trackUniqueString(
+  value: unknown,
+  field: string,
+  seen: Set<string>,
+  errors: string[],
+): void {
+  if (typeof value === "string" && seen.has(value)) {
+    errors.push(`${field} duplicates ${value}.`);
+  } else if (typeof value === "string") {
+    seen.add(value);
+  }
+}
+
+function trackUniqueName(
+  value: unknown,
+  field: string,
+  seen: Set<string>,
+  errors: string[],
+): void {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return;
+  }
+  const normalized = value.trim().toLocaleLowerCase();
+  if (seen.has(normalized)) {
+    errors.push(`${field} duplicates the name ${value}.`);
+  } else {
+    seen.add(normalized);
   }
 }
 

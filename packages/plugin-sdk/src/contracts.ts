@@ -149,11 +149,17 @@ export interface PluginRevocation {
   revokedAt: string;
 }
 
+export interface PluginBundleRole {
+  id: string;
+  name: string;
+  candidatePluginIds: string[];
+}
+
 export interface PluginBundle {
   id: string;
   name: string;
   categories: PluginCategory[];
-  pluginIds: string[];
+  roles: PluginBundleRole[];
 }
 
 export interface PluginCatalogEntry {

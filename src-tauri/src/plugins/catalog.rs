@@ -9,8 +9,23 @@ use super::{
     package::validate_relative_path,
     sandbox::{current_platform, platform_executable_is_absolute, valid_host_pattern},
     settings::{default_settings, validate_settings},
-    types::{MAX_PLUGIN_PACKAGE_BYTES, PLUGIN_API_VERSION, PluginCatalogEntry, PluginPermission},
+    types::{
+        MAX_PLUGIN_PACKAGE_BYTES, PLUGIN_API_VERSION, PluginBundle, PluginCatalogEntry,
+        PluginPermission,
+    },
 };
+
+const PLUGIN_CATEGORIES: &[&str] = &[
+    "code",
+    "productivity",
+    "knowledge-management",
+    "editor-writing",
+    "diagrams-visualization",
+    "collaboration",
+    "accessibility",
+    "security-privacy",
+    "other",
+];
 
 pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> {
     let mut ids = HashSet::new();
@@ -21,6 +36,7 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
                 "Invalid or duplicate plugin ID in catalog: {id}"
             )));
         }
+
         if Version::parse(&entry.manifest.version).is_err()
             || entry.manifest.version.contains(['/', '\\'])
         {
@@ -115,6 +131,90 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
             }
         }
         validate_settings(&entry.manifest, default_settings(&entry.manifest))?;
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_bundles(
+    bundles: &[PluginBundle],
+    catalog: &[PluginCatalogEntry],
+) -> AppResult<()> {
+    let catalog_ids = catalog
+        .iter()
+        .map(|entry| entry.manifest.id.as_str())
+        .collect::<HashSet<_>>();
+    let mut bundle_ids = HashSet::new();
+    let mut bundle_names = HashSet::new();
+    for bundle in bundles {
+        if !valid_stable_id(&bundle.id) || !bundle_ids.insert(bundle.id.as_str()) {
+            return Err(AppError::Plugin(format!(
+                "Invalid or duplicate plugin bundle ID: {}",
+                bundle.id
+            )));
+        }
+        let bundle_name = normalized_name(&bundle.name).ok_or_else(|| {
+            AppError::Plugin(format!("Plugin bundle {} has an empty name", bundle.id))
+        })?;
+        if !bundle_names.insert(bundle_name) {
+            return Err(AppError::Plugin(format!(
+                "Duplicate plugin bundle name: {}",
+                bundle.name
+            )));
+        }
+        let mut categories = HashSet::new();
+        for category in &bundle.categories {
+            if !PLUGIN_CATEGORIES.contains(&category.as_str())
+                || !categories.insert(category.as_str())
+            {
+                return Err(AppError::Plugin(format!(
+                    "Invalid or duplicate category {category} in plugin bundle {}",
+                    bundle.id
+                )));
+            }
+        }
+        if bundle.roles.is_empty() {
+            return Err(AppError::Plugin(format!(
+                "Plugin bundle {} must define at least one role",
+                bundle.id
+            )));
+        }
+        let mut role_ids = HashSet::new();
+        let mut role_names = HashSet::new();
+        for role in &bundle.roles {
+            if !valid_stable_id(&role.id) || !role_ids.insert(role.id.as_str()) {
+                return Err(AppError::Plugin(format!(
+                    "Invalid or duplicate role ID {} in plugin bundle {}",
+                    role.id, bundle.id
+                )));
+            }
+            let normalized_role_name = normalized_name(&role.name).ok_or_else(|| {
+                AppError::Plugin(format!(
+                    "Role {} in plugin bundle {} has an empty name",
+                    role.id, bundle.id
+                ))
+            })?;
+            if !role_names.insert(normalized_role_name) {
+                return Err(AppError::Plugin(format!(
+                    "Duplicate role name {} in plugin bundle {}",
+                    role.name, bundle.id
+                )));
+            }
+            let mut candidates = HashSet::new();
+            for candidate in &role.candidate_plugin_ids {
+                if !candidates.insert(candidate.as_str()) {
+                    return Err(AppError::Plugin(format!(
+                        "Duplicate candidate {candidate} in plugin bundle {} role {}",
+                        bundle.id, role.id
+                    )));
+                }
+                if !catalog_ids.contains(candidate.as_str()) {
+                    return Err(AppError::Plugin(format!(
+                        "Unknown catalog plugin {candidate} in plugin bundle {} role {}",
+                        bundle.id, role.id
+                    )));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -225,4 +325,19 @@ pub(crate) fn valid_plugin_id(value: &str) -> bool {
         && !value.ends_with(['.', '-'])
         && !value.contains("..")
         && !value.contains("--")
+}
+
+fn valid_stable_id(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        && !value.starts_with('-')
+        && !value.ends_with('-')
+        && !value.contains("--")
+}
+
+fn normalized_name(value: &str) -> Option<String> {
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_lowercase())
 }

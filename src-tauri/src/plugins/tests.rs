@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use super::{
-    catalog::{catalog_fingerprint, compatibility_error, validate_catalog},
+    catalog::{catalog_fingerprint, compatibility_error, validate_bundles, validate_catalog},
     sandbox::{current_platform, enforce_storage_quota, host_matches},
     settings::{migrate_settings, validate_settings},
     *,
@@ -56,6 +56,8 @@ fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> Plug
             app_data_dir: data.path().to_path_buf(),
             app_cache_dir: cache.path().to_path_buf(),
             catalog: vec![catalog],
+            bundles: vec![],
+            bundle_error: None,
             state: Mutex::new(PersistentPluginState::default()),
             pending_transactions: Mutex::new(BTreeMap::new()),
             preparation_lock: Mutex::new(()),
@@ -468,6 +470,63 @@ fn catalog_rejects_mismatched_provenance() {
     catalog.provenance.source_commit = "0".repeat(40);
 
     assert!(validate_catalog(&[catalog]).is_err());
+}
+
+#[test]
+fn bundle_metadata_accepts_empty_candidates_and_rejects_invalid_references() {
+    let catalog = catalog();
+    let valid = PluginBundle {
+        id: "synthetic-tools".to_string(),
+        name: "Synthetic tools".to_string(),
+        categories: vec!["code".to_string()],
+        roles: vec![PluginBundleRole {
+            id: "terminal".to_string(),
+            name: "Terminal".to_string(),
+            candidate_plugin_ids: vec![],
+        }],
+    };
+    assert!(validate_bundles(std::slice::from_ref(&valid), std::slice::from_ref(&catalog)).is_ok());
+
+    let mut invalid = valid;
+    invalid.roles.push(PluginBundleRole {
+        id: "terminal".to_string(),
+        name: "Other terminal".to_string(),
+        candidate_plugin_ids: vec!["denote.missing".to_string()],
+    });
+    assert!(validate_bundles(&[invalid], &[catalog]).is_err());
+}
+
+#[test]
+fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
+    let catalog =
+        serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON).expect("catalog metadata");
+    let bundles = serde_json::from_str::<Vec<PluginBundle>>(BUNDLES_JSON).expect("bundle metadata");
+
+    validate_bundles(&bundles, &catalog).expect("valid bundles");
+    let code_tooling = bundles
+        .iter()
+        .find(|bundle| bundle.id == "code-tooling")
+        .expect("code tooling bundle");
+    assert_eq!(code_tooling.roles.len(), 6);
+    assert!(
+        code_tooling
+            .roles
+            .iter()
+            .all(|role| role.candidate_plugin_ids.is_empty())
+    );
+}
+
+#[test]
+fn bundle_errors_do_not_block_the_plugin_catalog() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut manager = manager(catalog(), &data, &cache);
+    Arc::get_mut(&mut manager.inner)
+        .expect("unique manager")
+        .bundle_error = Some("Synthetic bundle error".to_string());
+
+    assert!(manager.list().is_ok());
+    assert!(manager.bundles().is_err());
 }
 
 #[test]
