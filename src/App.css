@@ -2596,8 +2596,10 @@ kbd {
 .editor-settings-dialog__actions {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 8px;
-  padding: 0 18px 18px;
+  padding: 12px 18px 18px;
+  border-top: 1px solid var(--border);
 }
 
 .external-domain-settings {
@@ -2701,12 +2703,14 @@ kbd {
 
 .plugin-settings__filters {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) repeat(2, minmax(145px, auto));
-  gap: 8px;
+  grid-template-columns: minmax(240px, 1fr) minmax(170px, 0.52fr) minmax(150px, 0.4fr);
+  align-items: end;
+  gap: 12px;
 }
 
 .plugin-settings__filters > label {
   display: grid;
+  min-width: 0;
   gap: 4px;
   color: var(--text-tertiary);
   font-size: 10px;
@@ -2717,6 +2721,7 @@ kbd {
 .plugin-settings__filters select,
 .plugin-setting input,
 .plugin-setting select {
+  width: 100%;
   min-width: 0;
   height: 34px;
   padding: 0 9px;
@@ -2730,12 +2735,16 @@ kbd {
 
 .plugin-settings__search {
   position: relative;
+  display: block;
+  align-self: end;
+  height: 34px;
 }
 
 .plugin-settings__search svg {
   position: absolute;
-  bottom: 10px;
+  top: 50%;
   left: 9px;
+  transform: translateY(-50%);
   color: var(--text-tertiary);
   pointer-events: none;
 }
@@ -2748,7 +2757,7 @@ kbd {
 .plugin-settings__groups > section,
 .plugin-settings__list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .plugin-settings__groups h4 {
@@ -2770,8 +2779,8 @@ kbd {
 
 .plugin-card {
   display: grid;
-  gap: 12px;
-  padding: 14px;
+  gap: 14px;
+  padding: 16px;
   background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -2833,7 +2842,7 @@ kbd {
 
 .plugin-card__metadata > div {
   min-width: 0;
-  padding: 8px 9px;
+  padding: 9px 11px;
   background: var(--editor-bg);
 }
 
@@ -2867,7 +2876,7 @@ kbd {
 }
 
 .plugin-card__details summary {
-  padding: 9px 1px;
+  padding: 10px 1px;
   color: var(--text-secondary);
   font-size: 11px;
   font-weight: 650;
@@ -2991,8 +3000,9 @@ kbd {
 .plugin-card__actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
-  gap: 7px;
+  gap: 8px;
 }
 
 @media (max-width: 680px) {
@@ -3003,6 +3013,14 @@ kbd {
 
   .plugin-setting {
     grid-template-columns: 1fr;
+  }
+
+  .plugin-settings__header {
+    display: grid;
+  }
+
+  .plugin-settings__header .secondary-button {
+    justify-self: start;
   }
 }
 
