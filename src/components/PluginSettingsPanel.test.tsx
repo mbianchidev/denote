@@ -153,6 +153,8 @@ describe("PluginSettingsPanel", () => {
             id: "project-synthetic",
             rootPath: "projects/synthetic",
             available: true,
+            explicit: true,
+            workspaceId: null,
           },
         })}
       />,
@@ -239,6 +241,8 @@ describe("PluginSettingsPanel", () => {
             id: "project-synthetic",
             rootPath: "",
             available: true,
+            explicit: true,
+            workspaceId: null,
           },
         })}
       />,

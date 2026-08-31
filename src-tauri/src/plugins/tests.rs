@@ -820,7 +820,7 @@ fn project_process_waits_for_project_root_mutations() {
     )
     .expect("vault record");
     let project_id =
-        db::ensure_project_root(&connection, vault_id, "code").expect("project record");
+        db::ensure_project_root(&connection, vault_id, "code", true).expect("project record");
     drop(connection);
 
     let mut catalog = catalog();
@@ -901,10 +901,10 @@ fn project_process_resolution_uses_current_path_and_rejects_stale_identity() {
     let other_vault_id =
         db::ensure_vault(&connection, &other_vault.to_string_lossy(), "Other Vault")
             .expect("other vault record");
-    let project_id =
-        db::ensure_project_root(&connection, trusted_vault_id, "code/before").expect("project");
+    let project_id = db::ensure_project_root(&connection, trusted_vault_id, "code/before", true)
+        .expect("project");
     let other_project_id =
-        db::ensure_project_root(&connection, other_vault_id, "").expect("other project");
+        db::ensure_project_root(&connection, other_vault_id, "", true).expect("other project");
     connection
         .execute(
             "UPDATE project_roots SET root_path = 'code/after' WHERE id = ?1",
@@ -931,8 +931,9 @@ fn project_process_resolution_uses_current_path_and_rejects_stale_identity() {
     .expect_err("other vault project");
     assert!(other_error.to_string().contains("current vault"));
 
-    let connection = db::open(&db_path).expect("connection");
-    db::delete_project_root(&connection, trusted_vault_id, &project_id).expect("unmark project");
+    let mut connection = db::open(&db_path).expect("connection");
+    db::clear_explicit_project_root(&mut connection, trusted_vault_id, &project_id)
+        .expect("unmark project");
     drop(connection);
     let missing_error =
         vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
@@ -961,8 +962,8 @@ fn project_process_resolution_rejects_a_symlinked_project_folder() {
         "Trusted Vault",
     )
     .expect("vault record");
-    let project_id =
-        db::ensure_project_root(&connection, vault_id, "linked-project").expect("project record");
+    let project_id = db::ensure_project_root(&connection, vault_id, "linked-project", true)
+        .expect("project record");
     drop(connection);
 
     let error =

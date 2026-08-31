@@ -278,6 +278,24 @@ pub struct ProjectRoot {
     pub id: String,
     pub root_path: String,
     pub available: bool,
+    pub explicit: bool,
+    pub workspace_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectWorkspace {
+    pub id: String,
+    pub root_path: String,
+    pub available: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectConfiguration {
+    pub project_roots: Vec<ProjectRoot>,
+    pub project_workspaces: Vec<ProjectWorkspace>,
+    pub suggest_git_project: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -296,6 +314,8 @@ pub struct WorkspaceSnapshot {
     pub tab_session: Option<TabSessionState>,
     pub welcome_page: WelcomePagePreference,
     pub project_roots: Vec<ProjectRoot>,
+    pub project_workspaces: Vec<ProjectWorkspace>,
+    pub suggest_git_project: bool,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,
 }

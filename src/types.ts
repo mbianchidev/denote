@@ -148,6 +148,20 @@ export interface ProjectRoot {
   id: string;
   rootPath: string;
   available: boolean;
+  explicit: boolean;
+  workspaceId: string | null;
+}
+
+export interface ProjectWorkspace {
+  id: string;
+  rootPath: string;
+  available: boolean;
+}
+
+export interface ProjectConfiguration {
+  projectRoots: ProjectRoot[];
+  projectWorkspaces: ProjectWorkspace[];
+  suggestGitProject: boolean;
 }
 
 export interface WorkspaceSnapshot {
@@ -164,6 +178,8 @@ export interface WorkspaceSnapshot {
   tabSession: TabSessionState | null;
   welcomePage: WelcomePagePreference;
   projectRoots: ProjectRoot[];
+  projectWorkspaces: ProjectWorkspace[];
+  suggestGitProject: boolean;
   fromCache: boolean;
   encryption: EncryptionStatus;
 }

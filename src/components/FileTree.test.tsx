@@ -210,7 +210,13 @@ describe("FileTree", () => {
       bookmarked: false,
       pinned: false,
     };
-    const vaultRoot = { id: "vault", rootPath: "", available: true };
+    const vaultRoot = {
+      id: "vault",
+      rootPath: "",
+      available: true,
+      explicit: true,
+      workspaceId: null,
+    };
     const props = {
       nodes: [folder, file],
       selectedPath: null,
@@ -242,7 +248,13 @@ describe("FileTree", () => {
         {...props}
         projectRoots={[
           vaultRoot,
-          { id: "code", rootPath: "code", available: true },
+          {
+            id: "code",
+            rootPath: "code",
+            available: true,
+            explicit: true,
+            workspaceId: null,
+          },
         ]}
       />,
     );
@@ -254,6 +266,8 @@ describe("FileTree", () => {
       id: "code",
       rootPath: "code",
       available: true,
+      explicit: true,
+      workspaceId: null,
     });
 
     rerender(<FileTree {...props} />);

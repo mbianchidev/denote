@@ -1333,7 +1333,7 @@ function App() {
           return;
         }
         try {
-          const projectRoots = await api.markProjectRoot(path);
+          const { projectRoots } = await api.markProjectRoot(path);
           applyProjectRoots(
             projectRoots,
             expectedGeneration,
@@ -1377,7 +1377,7 @@ function App() {
           return;
         }
         try {
-          const projectRoots = await api.unmarkProjectRoot(projectRoot.id);
+          const { projectRoots } = await api.unmarkProjectRoot(projectRoot.id);
           applyProjectRoots(
             projectRoots,
             expectedGeneration,
@@ -1435,7 +1435,9 @@ function App() {
           return;
         }
         try {
-          authoritativeRoots = await api.unmarkProjectRoot(projectRoot.id);
+          authoritativeRoots = (
+            await api.unmarkProjectRoot(projectRoot.id)
+          ).projectRoots;
           changed = true;
         } catch (caught) {
           failures.push(

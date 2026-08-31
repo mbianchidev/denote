@@ -22,8 +22,8 @@ use crate::{
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
         KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, MoveEntryResult,
-        NoteDocument, ProjectRoot, RecoveryCodesResult, SaveOutcome, TabSessionState, TagColor,
-        WelcomePagePreference, WorkspaceSnapshot,
+        NoteDocument, ProjectConfiguration, RecoveryCodesResult, SaveOutcome, TabSessionState,
+        TagColor, WelcomePagePreference, WorkspaceSnapshot,
     },
     vault,
 };
@@ -862,7 +862,10 @@ pub fn set_welcome_page_path(
 }
 
 #[tauri::command]
-pub fn mark_project_root(state: State<'_, AppState>, path: String) -> AppResult<Vec<ProjectRoot>> {
+pub fn mark_project_root(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<ProjectConfiguration> {
     let _vault_access = state.write_vault_access()?;
     let root = state.active_vault()?;
     vault::mark_project_root(&state.db_path, &root.to_string_lossy(), &path)
@@ -872,10 +875,43 @@ pub fn mark_project_root(state: State<'_, AppState>, path: String) -> AppResult<
 pub fn unmark_project_root(
     state: State<'_, AppState>,
     project_root_id: String,
-) -> AppResult<Vec<ProjectRoot>> {
+) -> AppResult<ProjectConfiguration> {
     let _vault_access = state.write_vault_access()?;
     let root = state.active_vault()?;
     vault::unmark_project_root(&state.db_path, &root.to_string_lossy(), &project_root_id)
+}
+
+#[tauri::command]
+pub fn mark_project_workspace(
+    state: State<'_, AppState>,
+    path: String,
+) -> AppResult<ProjectConfiguration> {
+    let _vault_access = state.write_vault_access()?;
+    let root = state.active_vault()?;
+    vault::mark_project_workspace(&state.db_path, &root.to_string_lossy(), &path)
+}
+
+#[tauri::command]
+pub fn unmark_project_workspace(
+    state: State<'_, AppState>,
+    project_workspace_id: String,
+) -> AppResult<ProjectConfiguration> {
+    let _vault_access = state.write_vault_access()?;
+    let root = state.active_vault()?;
+    vault::unmark_project_workspace(
+        &state.db_path,
+        &root.to_string_lossy(),
+        &project_workspace_id,
+    )
+}
+
+#[tauri::command]
+pub fn dismiss_git_project_suggestion(
+    state: State<'_, AppState>,
+) -> AppResult<ProjectConfiguration> {
+    let _vault_access = state.write_vault_access()?;
+    let root = state.active_vault()?;
+    vault::dismiss_git_project_suggestion(&state.db_path, &root.to_string_lossy())
 }
 
 #[tauri::command]

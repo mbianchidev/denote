@@ -15,7 +15,7 @@ import type {
   InstalledPlugin,
   PluginView,
   PluginBundleMetadata,
-  ProjectRoot,
+  ProjectConfiguration,
   RecoveryCodesResult,
   SaveOutcome,
   TabSessionState,
@@ -46,9 +46,17 @@ export const api = {
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
   markProjectRoot: (path: string) =>
-    invoke<ProjectRoot[]>("mark_project_root", { path }),
+    invoke<ProjectConfiguration>("mark_project_root", { path }),
   unmarkProjectRoot: (projectRootId: string) =>
-    invoke<ProjectRoot[]>("unmark_project_root", { projectRootId }),
+    invoke<ProjectConfiguration>("unmark_project_root", { projectRootId }),
+  markProjectWorkspace: (path: string) =>
+    invoke<ProjectConfiguration>("mark_project_workspace", { path }),
+  unmarkProjectWorkspace: (projectWorkspaceId: string) =>
+    invoke<ProjectConfiguration>("unmark_project_workspace", {
+      projectWorkspaceId,
+    }),
+  dismissGitProjectSuggestion: () =>
+    invoke<ProjectConfiguration>("dismiss_git_project_suggestion"),
   enableVaultEncryption: (password: string) =>
     invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),
   unlockVaultWithPassword: (password: string) =>

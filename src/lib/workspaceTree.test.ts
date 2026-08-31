@@ -44,10 +44,34 @@ describe("workspace tree mutations", () => {
 
   describe("closestAvailableProjectRoot", () => {
     const projectRoots = [
-      { id: "vault", rootPath: "", available: true },
-      { id: "app", rootPath: "code/app", available: true },
-      { id: "nested", rootPath: "code/app/packages/ui", available: true },
-      { id: "missing", rootPath: "code/app/packages/api", available: false },
+      {
+        id: "vault",
+        rootPath: "",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "app",
+        rootPath: "code/app",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "nested",
+        rootPath: "code/app/packages/ui",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "missing",
+        rootPath: "code/app/packages/api",
+        available: false,
+        explicit: true,
+        workspaceId: null,
+      },
     ];
 
     it("returns the closest available nested root", () => {
@@ -88,8 +112,20 @@ describe("workspace tree mutations", () => {
       expect(
         closestAvailableProjectRoot(
           [
-            { id: "second", rootPath: "code", available: true },
-            { id: "first", rootPath: "code", available: true },
+            {
+              id: "second",
+              rootPath: "code",
+              available: true,
+              explicit: true,
+              workspaceId: null,
+            },
+            {
+              id: "first",
+              rootPath: "code",
+              available: true,
+              explicit: true,
+              workspaceId: null,
+            },
           ],
           "code/main.ts",
         )?.id,
@@ -99,8 +135,20 @@ describe("workspace tree mutations", () => {
 
   it("finds exact project roots and labels them for display", () => {
     const projectRoots = [
-      { id: "vault", rootPath: "", available: true },
-      { id: "nested", rootPath: "code/packages/ui", available: true },
+      {
+        id: "vault",
+        rootPath: "",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "nested",
+        rootPath: "code/packages/ui",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
     ];
 
     expect(projectRootAtPath(projectRoots, "code")).toBeNull();
@@ -113,10 +161,34 @@ describe("workspace tree mutations", () => {
 
   it("removes project roots at or below a trashed path", () => {
     const projectRoots = [
-      { id: "vault", rootPath: "", available: true },
-      { id: "code", rootPath: "code", available: true },
-      { id: "ui", rootPath: "code/packages/ui", available: false },
-      { id: "similar", rootPath: "code-old", available: true },
+      {
+        id: "vault",
+        rootPath: "",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "code",
+        rootPath: "code",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "ui",
+        rootPath: "code/packages/ui",
+        available: false,
+        explicit: true,
+        workspaceId: null,
+      },
+      {
+        id: "similar",
+        rootPath: "code-old",
+        available: true,
+        explicit: true,
+        workspaceId: null,
+      },
     ];
 
     expect(removeProjectRootsAtOrBelow(projectRoots, "code")).toEqual([
