@@ -162,7 +162,8 @@ The initial catalog is first-party only. A plugin artifact is publishable when:
 - its source is contained in one `packages/plugins/<plugin-id>/` directory;
 - manifest, guide, package, type, import-boundary, and artifact checks pass;
 - frontend and native tests pass on macOS, Windows, and Linux;
-- dependency review reports no unresolved high-severity vulnerability;
+- automated JavaScript and Rust audits report no unresolved high-severity
+  vulnerability;
 - the committed archive exactly matches built source;
 - its catalog entry pins an immutable repository commit and SHA-256 digest;
 - its trusted provenance publisher and source commit match the immutable
