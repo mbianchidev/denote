@@ -84,6 +84,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   language support when the language catalog recognizes them.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
+- Full, collapsed, and shortcut Markdown reference links render and remain
+  editable in Rich mode. Definitions stay invisible and retain their exact
+  source formatting and ordering.
 - `.md` files treat ordinary angle-bracket comparisons and placeholders as
   Markdown text rather than MDX JSX. `.mdx` and `.jsx` remain non-executing,
   JSX-highlighted source files.
@@ -93,7 +96,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   comments remain locked to source mode.
 - Well-formed `<details>` blocks with a plain `<summary>` line render as native,
   keyboard-operable disclosure sections while preserving Markdown content
-  inside. Other raw HTML remains source-only.
+  inside. A separately validated README-style subset of paragraphs, headings,
+  links, strong text, and local or HTTP(S) images renders as atomic Rich blocks
+  while preserving its raw source exactly. Other raw HTML remains source-only.
 - Markdown thematic breaks render as consistent full-width document separators.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.

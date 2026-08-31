@@ -371,16 +371,36 @@ Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
-For `.md`, MDXEditor's HTML/JSX processing is normally suppressed so
+For `.md`, MDXEditor's HTML/JSX processing remains suppressed so
 CommonMark/GFM owns autolinks, indented code, raw HTML, comparisons, hearts, and
 placeholders. A high-priority standard-HTML visitor imports HTML tokens as
 literal text and inherits surrounding formatting; canonical TOC comments remain
-structural markers. Well-formed top-level `<details>` blocks are the restricted
-exception: Denote validates the exact `details`/`summary` tag shape, escapes
-unrelated angle syntax, and enables MDXEditor's native generic HTML nodes for
-that document. Attributes other than boolean `open`, nested raw HTML, malformed
-blocks, and other raw HTML remain locked to lossless source mode. Serializer
-escapes are reconciled against the previous source only after Rich edits.
+structural markers. A higher-priority custom atomic node validates a narrow
+README-style subset (`p`, headings, `a`, `strong`, and `img`), renders only typed
+React elements, resolves local images through the native preview command, and
+exports the original raw HTML bytes. It never uses generic MDX HTML processing.
+Well-formed top-level `<details>` blocks remain a separate restricted exception:
+Denote validates the exact `details`/`summary` tag shape, escapes unrelated angle
+syntax, and enables MDXEditor's native generic HTML nodes for that document.
+Documents mixing both exceptions stay in lossless source mode. Attributes other
+than each exception's allowlist, nested raw HTML, malformed blocks, and other raw
+HTML remain locked to source mode. Serializer escapes are reconciled against the
+previous source only after Rich edits.
+Reference links use dedicated Lexical link nodes carrying their CommonMark
+identifier, label, and reference type. Definition nodes are invisible atomic
+blocks that retain the exact source range. A whole-document snapshot resolves
+references before tree import, applies first-definition-wins semantics, and
+refreshes after Source edits. Rich export keeps a reference while its definition
+still supplies the destination, otherwise it safely degrades to an inline link.
+Unresolved references import as literal Markdown text.
+
+Generated repository definitions using a self-closing `copilot-ref` destination
+are parsed separately from generic HTML. Only the exact tag with unique `kind`,
+`target-id`, and `label` attributes is accepted; `kind` must be `repo` and the
+target must be HTTP(S). The renderer uses the validated target while the atomic
+definition exports its original bytes. Invalid generated targets remain inert,
+and Lexical plus the ordinary Denote link pipeline continue to neutralize unsafe
+schemes.
 `.mdx` and `.jsx` bypass the rich editor and use non-executing JSX-highlighted
 source editing.
 

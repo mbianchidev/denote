@@ -1,6 +1,8 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { HeadingItem } from "../types";
 import { isRichSafeStandardMarkdownAngle } from "./mdxCompatibility";
+import { maskSafeRichHtml } from "./safeRichHtml";
+import { maskReferenceDefinitions } from "./referenceMarkdown";
 import { normalizeTag } from "./tagColors";
 import type { MarkdownViewMode } from "./markdownView";
 
@@ -798,19 +800,36 @@ export function applyTocMarkerViewChange(
 }
 
 export function hasUnsupportedRichMarkdown(markdown: string): boolean {
+  const referenceSafeMarkdown = maskReferenceDefinitions(markdown);
   return (
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
     /\[\^[^\]]+\]/.test(markdown) ||
     containsUnsupportedHtmlComment(markdown) ||
-    containsEscapedAngleSyntax(markdown) ||
-    containsDetailsMdxIncompatibleAngles(markdown) ||
-    containsDetailsMdxIncompatibleMarkdown(markdown) ||
-    containsUnsafeAngleSyntax(maskSupportedDetailsTags(markdown)) ||
-    /(^|\n)\s{0,3}\[[^\]]+\]:\s+\S+/m.test(markdown) ||
+    containsEscapedAngleSyntax(referenceSafeMarkdown) ||
+    containsDetailsMdxIncompatibleAngles(referenceSafeMarkdown) ||
+    containsDetailsMdxIncompatibleMarkdown(referenceSafeMarkdown) ||
+    containsUnsupportedReferenceImages(markdown) ||
+    containsUnsafeAngleSyntax(
+      maskSafeRichHtml(maskSupportedDetailsTags(referenceSafeMarkdown)),
+    ) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
     /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown) ||
     /\\#(?=[\p{L}\p{N}\p{M}_/-])/u.test(markdown)
   );
+}
+
+function containsUnsupportedReferenceImages(markdown: string): boolean {
+  const root = markdownRoot(markdown);
+  if (!root) {
+    return false;
+  }
+  let found = false;
+  visitMarkdownAst(root, (node) => {
+    if (node.type === "imageReference") {
+      found = true;
+    }
+  });
+  return found;
 }
 
 export function hasSupportedDetailsMarkdown(markdown: string): boolean {

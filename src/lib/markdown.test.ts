@@ -92,6 +92,19 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("\\#literal")).toBe(true);
   });
 
+  it("allows Markdown references and generated definition destinations in rich mode", () => {
+    expect(
+      hasUnsupportedRichMarkdown(
+        '[Guide][guide]\n\n[guide]: https://docs.example.test/guide "Guide"',
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown(
+        '[Repository][repo]\n\n[repo]: <copilot-ref kind="repo" target-id="https://example.test/org/repo" label="org/repo" />',
+      ),
+    ).toBe(false);
+  });
+
   it("ignores headings inside fenced code blocks", () => {
     expect(
       extractHeadings("# One\n```md\n# Not a heading\n```\n## Two"),
@@ -322,6 +335,29 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("Use <kbd>Ctrl</kbd> here.")).toBe(true);
     expect(
       hasUnsupportedRichMarkdown(
+        '<p align="center">\n  <a href="guides/start.md">Read <strong>first</strong></a>\n  <img src="assets/leaf.svg" alt="Leaf" width="48" height="48" />\n</p>\n\n:::caution\nKeep a backup.\n:::',
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown(
+        '<h4 align="right">Project <strong>status</strong></h4>',
+      ),
+    ).toBe(false);
+    expect(
+      hasUnsupportedRichMarkdown('<p style="text-align:center">Unsafe</p>'),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        '<p><a href="javascript:alert(1)">Unsafe</a></p>',
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
+        '<details>\n<summary>More</summary>\n\nHidden.\n\n</details>\n\n<p align="center">Visible</p>',
+      ),
+    ).toBe(true);
+    expect(
+      hasUnsupportedRichMarkdown(
         "<details>\n<summary>More information</summary>\n\nHidden **Markdown**.\n\n</details>",
       ),
     ).toBe(false);
@@ -381,7 +417,7 @@ describe("markdown utilities", () => {
     expect(hasUnsupportedRichMarkdown("<é[key]>")).toBe(true);
     expect(hasUnsupportedRichMarkdown("\\<42")).toBe(true);
     expect(hasUnsupportedRichMarkdown("\\\\<42")).toBe(true);
-    expect(hasUnsupportedRichMarkdown("[guide]: ./guide.md")).toBe(true);
+    expect(hasUnsupportedRichMarkdown("[guide]: ./guide.md")).toBe(false);
     expect(hasUnsupportedRichMarkdown("It costs $5 and then $10 total.")).toBe(
       false,
     );

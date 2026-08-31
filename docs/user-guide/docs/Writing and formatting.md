@@ -1,7 +1,7 @@
 # Writing and formatting
 
 Markdown files use a rich editor in each pane. Files containing MDX, unsupported
-raw HTML, footnotes, math, or reference definitions stay in source mode so
+raw HTML, footnotes, or math stay in source mode so
 Denote cannot silently rewrite unsupported syntax.
 
 ## Common Markdown
@@ -27,9 +27,17 @@ after Rich edits and when switching to Source. Other HTML comments remain
 locked to source mode. A line containing `---` renders as a full-width thematic
 separator.
 
-Well-formed disclosure sections are the supported raw HTML exception. Put
+Denote also renders a small README-style HTML subset as a locked Rich block:
+`p`, `h1` through `h6`, `a`, `strong`, and `img`. It supports safe alignment,
+links, relative vault images, and HTTP(S) images while preserving the original
+HTML exactly. Unsupported tags, attributes, URLs, nesting, and malformed HTML
+stay in Source mode.
+
+Well-formed disclosure sections are another supported raw HTML exception. Put
 `<details>` and `</details>` on their own lines, followed immediately by one
 plain `<summary>` line. Markdown inside the expanded section renders normally.
+Files mixing disclosure sections with README-style HTML currently stay in
+Source mode.
 
 ```markdown
 <details>
@@ -59,6 +67,21 @@ Press `Command-K` on macOS or `Ctrl-K` on Windows and Linux to create a link.
 Rich mode opens the link dialog and preserves highlighted text as the anchor.
 Source mode wraps highlighted text as `[text]()` or inserts `[]()` with the
 caret ready for the label.
+
+Full, collapsed, and shortcut reference links also render in Rich mode:
+
+```markdown
+[Guide text][guide-home]
+[Guide text][]
+[guide-home]
+
+[guide-home]: https://docs.example.test/guide "Optional title"
+[guide text]: notes/start.md
+```
+
+Definitions remain invisible in Rich mode. Denote preserves unused definitions,
+duplicate ordering, labels, titles, angle delimiters, and exact definition
+formatting when other content changes.
 
 Long documents scroll directly in the editor; you do not need to move the caret
 to reveal content below the current viewport.

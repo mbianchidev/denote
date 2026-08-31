@@ -66,6 +66,11 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  SafeRichHtmlRenderProvider,
+  safeRichHtmlPlugin,
+} from "./SafeRichHtmlNode";
+import { referenceMarkdownPlugin } from "./ReferenceMarkdownNode";
 import { api, errorMessage } from "../lib/api";
 import { CODE_BLOCK_LANGUAGES } from "../lib/codeBlockLanguages";
 import {
@@ -109,6 +114,7 @@ import {
   restoreThematicBreaks,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
+import { captureReferenceMarkdown } from "../lib/referenceMarkdown";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
@@ -321,6 +327,12 @@ export const MarkdownEditor = forwardRef<
     [markdown],
   );
   const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
+  const referenceSnapshot = useMemo(
+    () => captureReferenceMarkdown(editorSource),
+    [editorSource],
+  );
+  const referenceSnapshotRef = useRef(referenceSnapshot);
+  referenceSnapshotRef.current = referenceSnapshot;
   const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
   const renderDetails = hasSupportedDetailsMarkdown(markdown);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -505,6 +517,8 @@ export const MarkdownEditor = forwardRef<
           ...pluginDecorationExtensions,
         ],
       }),
+      safeRichHtmlPlugin(),
+      referenceMarkdownPlugin({ snapshot: referenceSnapshotRef }),
       standardMarkdownCompatibilityPlugin(),
       viewModePreferencePlugin({
         mode: realmInitialViewMode,
@@ -827,64 +841,66 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
     >
-      <MDXEditor
-        key={htmlProcessing ? "details-html" : "standard-markdown"}
-        ref={ref}
-        markdown={editorSource}
-        plugins={plugins}
-        className="denote-editor-root mdxeditor-full-height"
-        contentEditableClassName="denote-editor-content"
-        placeholder="Start writing…"
-        readOnly={readOnly}
-        suppressHtmlProcessing={!htmlProcessing}
-        trim={false}
-        spellCheck
-        onChange={(value, initialNormalize) => {
-          if (!initialNormalize) {
-            let restoredMarkdown = restoreRichTextTagSyntax(
-              directivesToCallouts(value),
-            );
-            if (activeViewModeRef.current === "rich-text") {
-              restoredMarkdown = restoreThematicBreaks(
-                restoredMarkdown,
-                thematicBreaksRef.current!,
+      <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
+        <MDXEditor
+          key={htmlProcessing ? "details-html" : "standard-markdown"}
+          ref={ref}
+          markdown={editorSource}
+          plugins={plugins}
+          className="denote-editor-root mdxeditor-full-height"
+          contentEditableClassName="denote-editor-content"
+          placeholder="Start writing…"
+          readOnly={readOnly}
+          suppressHtmlProcessing={!htmlProcessing}
+          trim={false}
+          spellCheck
+          onChange={(value, initialNormalize) => {
+            if (!initialNormalize) {
+              let restoredMarkdown = restoreRichTextTagSyntax(
+                directivesToCallouts(value),
               );
-            } else {
-              thematicBreaksRef.current =
-                captureThematicBreaks(restoredMarkdown);
-            }
-            const markerUpdate = applyTocMarkerViewChange(
-              activeViewModeRef.current === "rich-text"
-                ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
-                : restoredMarkdown,
-              tocMarkersRef.current!,
-              activeViewModeRef.current,
-            );
-            tocMarkersRef.current = markerUpdate.snapshot;
-            thematicBreaksRef.current = captureThematicBreaks(
-              markerUpdate.markdown,
-            );
-            onChange(
-              restoreMarkdownBoundaryWhitespace(
+              if (activeViewModeRef.current === "rich-text") {
+                restoredMarkdown = restoreThematicBreaks(
+                  restoredMarkdown,
+                  thematicBreaksRef.current!,
+                );
+              } else {
+                thematicBreaksRef.current =
+                  captureThematicBreaks(restoredMarkdown);
+              }
+              const markerUpdate = applyTocMarkerViewChange(
+                activeViewModeRef.current === "rich-text"
+                  ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
+                  : restoredMarkdown,
+                tocMarkersRef.current!,
+                activeViewModeRef.current,
+              );
+              tocMarkersRef.current = markerUpdate.snapshot;
+              thematicBreaksRef.current = captureThematicBreaks(
                 markerUpdate.markdown,
-                boundaryWhitespace,
-              ),
-            );
-          }
-        }}
-        onError={({ error, source }) => {
-          const diagnostic = {
-            message: error,
-            source,
-            location: locateMarkdownError(source, error),
-          };
-          if (onMarkdownError) {
-            onMarkdownError(diagnostic);
-          } else {
-            onError(error);
-          }
-        }}
-      />
+              );
+              onChange(
+                restoreMarkdownBoundaryWhitespace(
+                  markerUpdate.markdown,
+                  boundaryWhitespace,
+                ),
+              );
+            }
+          }}
+          onError={({ error, source }) => {
+            const diagnostic = {
+              message: error,
+              source,
+              location: locateMarkdownError(source, error),
+            };
+            if (onMarkdownError) {
+              onMarkdownError(diagnostic);
+            } else {
+              onError(error);
+            }
+          }}
+        />
+      </SafeRichHtmlRenderProvider>
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
   );
@@ -1452,6 +1468,13 @@ function renderedLink(
   }
   const href = link.getAttribute("href") ?? "";
   const text = link.textContent ?? "";
+  const referenceTarget = link.dataset.denoteReferenceTarget;
+  if (referenceTarget !== undefined) {
+    return { href: referenceTarget, text };
+  }
+  if (link.hasAttribute("data-denote-safe-rich-html-link")) {
+    return { href, text };
+  }
   return {
     href: recoverMarkdownLinkTarget(markdown, text, href) ?? href,
     text,
