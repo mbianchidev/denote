@@ -3,6 +3,7 @@
 | Action | macOS | Windows / Linux |
 | --- | --- | --- |
 | Open command palette | `Command-P` | `Ctrl-P` |
+| Open settings | `Command-,` | `Ctrl-,` |
 | Find file across vaults | Open the command palette and type a filename | Open the command palette and type a filename |
 | Search current file | `Command-F` | `Ctrl-F` |
 | Create file | `Command-N` | `Ctrl-N` |
@@ -26,6 +27,10 @@
 The command palette lists assigned shortcuts beside their commands. Type a
 command name, category, description, keyword, or filename; use Up/Down and
 Enter to run the active result.
+
+On macOS, the application, File, Edit, View, Window, and Help menus expose the
+same core commands, including Settings, vault actions, search, pane controls,
+editor text size, and tab/window closing.
 
 The search shortcut keeps the active file in **Where to search** and focuses
 **Search text**. Type `*` in the location field to search the vault or a pattern

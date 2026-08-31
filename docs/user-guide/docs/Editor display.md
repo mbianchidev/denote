@@ -1,7 +1,8 @@
 # Editor display
 
-Open **Editor settings** from the editor toolbar. Preferences persist across
-launches.
+Open **Editor settings** from the editor toolbar, the macOS application menu,
+or with `Command-,` on macOS and `Ctrl-,` on Windows and Linux. Preferences
+persist across launches.
 
 ## Text size
 

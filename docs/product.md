@@ -120,6 +120,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   application actions and their assigned shortcuts. Typing a filename directly
   retains filename-only search across all known available vaults and switches
   vaults before opening a selected result.
+- On macOS, native application menus expose the matching file, search, view,
+  pane, and editor actions. Settings opens with Command-comma.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system

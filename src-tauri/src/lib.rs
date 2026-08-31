@@ -10,35 +10,35 @@ use db::AppState;
 use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
+const NATIVE_MENU_COMMAND_EVENT: &str = "denote://menu-command";
+
+#[cfg(target_os = "macos")]
 fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result<()> {
     use tauri::menu::{
-        AboutMetadata, HELP_SUBMENU_ID, Menu, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID,
+        HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID,
     };
 
     let handle = app.handle();
     let package = app.package_info();
-    let config = app.config();
-    let about = AboutMetadata {
-        name: Some(package.name.clone()),
-        version: Some(package.version.to_string()),
-        copyright: config.bundle.copyright.clone(),
-        authors: config
-            .bundle
-            .publisher
-            .clone()
-            .map(|publisher| vec![publisher]),
-        ..Default::default()
-    };
     let app_menu = Submenu::with_items(
         handle,
         package.name.clone(),
         true,
         &[
-            &PredefinedMenuItem::about(handle, None, Some(about))?,
+            &MenuItem::with_id(handle, "app.about", "About Denote", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(
+                handle,
+                "editor.settings",
+                "Settings...",
+                true,
+                Some("CmdOrCtrl+,"),
+            )?,
             &PredefinedMenuItem::separator(handle)?,
             &PredefinedMenuItem::services(handle, None)?,
             &PredefinedMenuItem::separator(handle)?,
             &PredefinedMenuItem::hide_others(handle, None)?,
+            &PredefinedMenuItem::show_all(handle, None)?,
             &PredefinedMenuItem::separator(handle)?,
             &PredefinedMenuItem::quit(handle, None)?,
         ],
@@ -47,7 +47,38 @@ fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result
         handle,
         "File",
         true,
-        &[&PredefinedMenuItem::close_window(handle, None)?],
+        &[
+            &MenuItem::with_id(handle, "file.new", "New File", true, Some("CmdOrCtrl+N"))?,
+            &MenuItem::with_id(handle, "folder.new", "New Folder", true, None::<&str>)?,
+            &MenuItem::with_id(handle, "tab.new", "New Tab", true, Some("CmdOrCtrl+T"))?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(
+                handle,
+                "vault.open",
+                "Open Vault Folder...",
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                handle,
+                "vault.switch",
+                "Switch Vault...",
+                true,
+                Some("CmdOrCtrl+Shift+O"),
+            )?,
+            &MenuItem::with_id(handle, "vault.refresh", "Refresh Vault", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(handle, "file.save", "Save", true, Some("CmdOrCtrl+S"))?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(handle, "tab.close", "Close Tab", true, Some("CmdOrCtrl+W"))?,
+            &MenuItem::with_id(
+                handle,
+                "window.close",
+                "Close Window",
+                true,
+                Some("CmdOrCtrl+Shift+W"),
+            )?,
+        ],
     )?;
     let edit_menu = Submenu::with_items(
         handle,
@@ -61,13 +92,87 @@ fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result
             &PredefinedMenuItem::copy(handle, None)?,
             &PredefinedMenuItem::paste(handle, None)?,
             &PredefinedMenuItem::select_all(handle, None)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(
+                handle,
+                "vault.search",
+                "Search Current File",
+                true,
+                Some("CmdOrCtrl+F"),
+            )?,
+            &MenuItem::with_id(
+                handle,
+                "editor.replace",
+                "Find and Replace...",
+                true,
+                Some("CmdOrCtrl+H"),
+            )?,
         ],
     )?;
     let view_menu = Submenu::with_items(
         handle,
         "View",
         true,
-        &[&PredefinedMenuItem::fullscreen(handle, None)?],
+        &[
+            &MenuItem::with_id(handle, "view.files", "Show Files", true, None::<&str>)?,
+            &MenuItem::with_id(handle, "view.search", "Show Search", true, None::<&str>)?,
+            &MenuItem::with_id(
+                handle,
+                "view.bookmarks",
+                "Show Bookmarks",
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                handle,
+                "view.recent",
+                "Show Recent Files",
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(handle, "view.trash", "Show Trash", true, None::<&str>)?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(
+                handle,
+                "editor.outline",
+                "Toggle Document Outline",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(handle, "pane.split", "Split Editor", true, None::<&str>)?,
+            &MenuItem::with_id(
+                handle,
+                "pane.close",
+                "Close Focused Pane",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(handle)?,
+            &MenuItem::with_id(
+                handle,
+                "editor.zoom-in",
+                "Increase Editor Text Size",
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                handle,
+                "editor.zoom-out",
+                "Decrease Editor Text Size",
+                true,
+                None::<&str>,
+            )?,
+            &MenuItem::with_id(
+                handle,
+                "editor.zoom-reset",
+                "Actual Editor Text Size",
+                true,
+                None::<&str>,
+            )?,
+            &PredefinedMenuItem::separator(handle)?,
+            &PredefinedMenuItem::fullscreen(handle, None)?,
+        ],
     )?;
     let window_menu = Submenu::with_id_and_items(
         handle,
@@ -78,10 +183,22 @@ fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result
             &PredefinedMenuItem::minimize(handle, None)?,
             &PredefinedMenuItem::maximize(handle, None)?,
             &PredefinedMenuItem::separator(handle)?,
-            &PredefinedMenuItem::close_window(handle, None)?,
+            &PredefinedMenuItem::bring_all_to_front(handle, None)?,
         ],
     )?;
-    let help_menu = Submenu::with_id_and_items(handle, HELP_SUBMENU_ID, "Help", true, &[])?;
+    let help_menu = Submenu::with_id_and_items(
+        handle,
+        HELP_SUBMENU_ID,
+        "Help",
+        true,
+        &[&MenuItem::with_id(
+            handle,
+            "command-palette.open",
+            "Show Command Palette...",
+            true,
+            Some("CmdOrCtrl+P"),
+        )?],
+    )?;
     let menu = Menu::with_items(
         handle,
         &[
@@ -182,8 +299,8 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")
-        .run(|app, event| {
-            if let RunEvent::ExitRequested { api, .. } = event {
+        .run(|app, event| match event {
+            RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<AppState>();
                 if !state.exit_is_allowed() {
                     api.prevent_exit();
@@ -192,5 +309,12 @@ pub fn run() {
                     }
                 }
             }
+            #[cfg(target_os = "macos")]
+            RunEvent::MenuEvent(event) => {
+                if let Err(error) = app.emit(NATIVE_MENU_COMMAND_EVENT, event.id().as_ref()) {
+                    eprintln!("Unable to dispatch Denote menu command: {error}");
+                }
+            }
+            _ => {}
         });
 }
