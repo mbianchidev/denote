@@ -6,8 +6,8 @@ import {
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
   ChangeAdmonitionType,
-  ChangeCodeMirrorLanguage,
   CodeToggle,
+  type CodeBlockEditorDescriptor,
   ConditionalContents,
   DiffSourceToggleWrapper,
   HighlightToggle,
@@ -25,7 +25,6 @@ import {
   StrikeThroughSupSubToggles,
   UndoRedo,
   codeBlockPlugin,
-  codeMirrorPlugin,
   diffSourcePlugin,
   directivesPlugin,
   frontmatterPlugin,
@@ -70,9 +69,12 @@ import {
   SafeRichHtmlRenderProvider,
   safeRichHtmlPlugin,
 } from "./SafeRichHtmlNode";
+import {
+  DenoteCodeBlockEditor,
+  DenoteCodeBlockEditorSettingsProvider,
+} from "./DenoteCodeBlockEditor";
 import { referenceMarkdownPlugin } from "./ReferenceMarkdownNode";
 import { api, errorMessage } from "../lib/api";
-import { CODE_BLOCK_LANGUAGES } from "../lib/codeBlockLanguages";
 import {
   createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
@@ -266,6 +268,12 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
     ]);
   },
 });
+
+const denoteCodeBlockEditorDescriptor: CodeBlockEditorDescriptor = {
+  priority: 100,
+  match: () => true,
+  Editor: DenoteCodeBlockEditor,
+};
 
 interface MarkdownEditorProps {
   notePath: string;
@@ -496,11 +504,9 @@ export const MarkdownEditor = forwardRef<
         allowSetImageDimensions: true,
       }),
       tablePlugin(),
-      codeBlockPlugin({ defaultCodeBlockLanguage: "text" }),
-      codeMirrorPlugin({
-        codeMirrorExtensions: [denoteCodeMirrorTheme, ...tabExtensions],
-        codeBlockLanguages: CODE_BLOCK_LANGUAGES,
-        autoLoadLanguageSupport: true,
+      codeBlockPlugin({
+        defaultCodeBlockLanguage: "",
+        codeBlockEditorDescriptors: [denoteCodeBlockEditorDescriptor],
       }),
       frontmatterPlugin(),
       directivesPlugin({
@@ -602,14 +608,6 @@ export const MarkdownEditor = forwardRef<
                 <InsertThematicBreak />
                 <InsertAdmonition />
                 <InsertFrontmatter />
-                <ConditionalContents
-                  options={[
-                    {
-                      when: (editor) => editor?.editorType === "codeblock",
-                      contents: () => <ChangeCodeMirrorLanguage />,
-                    },
-                  ]}
-                />
               </DiffSourceToggleWrapper>
             </>
           ),
@@ -632,7 +630,6 @@ export const MarkdownEditor = forwardRef<
       projectSourceMode,
       restorePreferredViewMode,
       sourceOnly,
-      tabExtensions,
     ],
   );
 
@@ -842,64 +839,69 @@ export const MarkdownEditor = forwardRef<
       }}
     >
       <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
-        <MDXEditor
-          key={htmlProcessing ? "details-html" : "standard-markdown"}
-          ref={ref}
-          markdown={editorSource}
-          plugins={plugins}
-          className="denote-editor-root mdxeditor-full-height"
-          contentEditableClassName="denote-editor-content"
-          placeholder="Start writing…"
+        <DenoteCodeBlockEditorSettingsProvider
           readOnly={readOnly}
-          suppressHtmlProcessing={!htmlProcessing}
-          trim={false}
-          spellCheck
-          onChange={(value, initialNormalize) => {
-            if (!initialNormalize) {
-              let restoredMarkdown = restoreRichTextTagSyntax(
-                directivesToCallouts(value),
-              );
-              if (activeViewModeRef.current === "rich-text") {
-                restoredMarkdown = restoreThematicBreaks(
-                  restoredMarkdown,
-                  thematicBreaksRef.current!,
+          tabExtensions={tabExtensions}
+          onError={(caught) => onError(errorMessage(caught))}
+        >
+          <MDXEditor
+            key={htmlProcessing ? "details-html" : "standard-markdown"}
+            ref={ref}
+            markdown={editorSource}
+            plugins={plugins}
+            className="denote-editor-root mdxeditor-full-height"
+            contentEditableClassName="denote-editor-content"
+            placeholder="Start writing…"
+            readOnly={readOnly}
+            suppressHtmlProcessing={!htmlProcessing}
+            trim={false}
+            spellCheck
+            onChange={(value, initialNormalize) => {
+              if (!initialNormalize) {
+                let restoredMarkdown = restoreRichTextTagSyntax(
+                  directivesToCallouts(value),
                 );
-              } else {
+                if (activeViewModeRef.current === "rich-text") {
+                  restoredMarkdown = restoreThematicBreaks(
+                    restoredMarkdown,
+                    thematicBreaksRef.current!,
+                  );
+                } else {
+                  thematicBreaksRef.current =
+                    captureThematicBreaks(restoredMarkdown);
+                }
+                const markerUpdate = applyTocMarkerViewChange(
+                  activeViewModeRef.current === "rich-text"
+                    ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
+                    : restoredMarkdown,
+                  tocMarkersRef.current!,
+                  activeViewModeRef.current,
+                );
+                tocMarkersRef.current = markerUpdate.snapshot;
                 thematicBreaksRef.current =
-                  captureThematicBreaks(restoredMarkdown);
+                  captureThematicBreaks(markerUpdate.markdown);
+                onChange(
+                  restoreMarkdownBoundaryWhitespace(
+                    markerUpdate.markdown,
+                    boundaryWhitespace,
+                  ),
+                );
               }
-              const markerUpdate = applyTocMarkerViewChange(
-                activeViewModeRef.current === "rich-text"
-                  ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
-                  : restoredMarkdown,
-                tocMarkersRef.current!,
-                activeViewModeRef.current,
-              );
-              tocMarkersRef.current = markerUpdate.snapshot;
-              thematicBreaksRef.current = captureThematicBreaks(
-                markerUpdate.markdown,
-              );
-              onChange(
-                restoreMarkdownBoundaryWhitespace(
-                  markerUpdate.markdown,
-                  boundaryWhitespace,
-                ),
-              );
-            }
-          }}
-          onError={({ error, source }) => {
-            const diagnostic = {
-              message: error,
-              source,
-              location: locateMarkdownError(source, error),
-            };
-            if (onMarkdownError) {
-              onMarkdownError(diagnostic);
-            } else {
-              onError(error);
-            }
-          }}
-        />
+            }}
+            onError={({ error, source }) => {
+              const diagnostic = {
+                message: error,
+                source,
+                location: locateMarkdownError(source, error),
+              };
+              if (onMarkdownError) {
+                onMarkdownError(diagnostic);
+              } else {
+                onError(error);
+              }
+            }}
+          />
+        </DenoteCodeBlockEditorSettingsProvider>
       </SafeRichHtmlRenderProvider>
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
@@ -1352,14 +1354,9 @@ function RichCodeBlockCopyButtons({
       const next = [
         ...root.querySelectorAll<HTMLElement>(".denote-editor-content pre"),
         ...root.querySelectorAll<HTMLElement>(
-          ".denote-editor-content .cm-editor",
+          ".denote-editor-content [data-denote-code-block-editor]",
         ),
       ]
-        .map((target) =>
-          target.matches("pre")
-            ? target
-            : (target.parentElement?.parentElement ?? target),
-        )
         .filter(
           (target, index, values) =>
             values.indexOf(target) === index && target.isConnected,

@@ -93,13 +93,26 @@ enabled editor display guides still use source mode for safety without changing
 the vault choice.
 
 Programming and markup files outside Markdown use the source editor. Recognized
-extensions such as `.js`, `.ts`, `.py`, `.rs`, `.json`, and many others load
-CodeMirror syntax highlighting automatically.
+filenames load CodeMirror syntax highlighting automatically. Core extensions
+include `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.jsp`, `.go`, `.rs`, `.py`,
+`.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hpp`, `.cs`, `.kt`, `.kts`, `.swift`,
+`.rb`, `.php`, `.phtml`, `.dart`, `.lua`, `.r`, `.R`, `.scala`, `.sc`, `.ex`,
+`.exs`, `.json`, `.xml`, `.html`, `.htm`, `.css`, `.md`, `.markdown`, `.sh`,
+`.bash`, `.zsh`, `.yaml`, `.yml`, `.toml`, `.sql`, `.ps1`, `.scss`, and
+`.less`; `Dockerfile`, `Gemfile`, `Rakefile`, `BUILD`, `BUCK`, and `PKGBUILD`
+are recognized by filename.
 
-Rich fenced blocks support common aliases and languages including `js`,
-`javascript`, `ts`, `typescript`, `php`, `java`, C/C++, C#, Go, Python, Ruby,
-Kotlin, Swift, Scala, shells, HTML/XML, CSS/SCSS/LESS, JSON, YAML, TOML, SQL,
-Markdown, and Dockerfiles.
+Rich fenced blocks use the same registry. The active block's language control
+opens a searchable combobox that matches names, aliases, and extensions.
+**Automatic** removes the fence identifier and uses readable plain code;
+**Plain text** writes `text`. Searching does not edit the document. Unknown
+identifiers remain visible and unchanged until you explicitly choose a supported
+language, and the language change is undoable without changing the block text.
+
+Supported languages are JavaScript, JSX, TypeScript, TSX, Java, JSP, Go, Rust,
+Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON,
+XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and
+Dockerfiles. JSP uses HTML highlighting; Java scriptlets remain uncolored.
 
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.

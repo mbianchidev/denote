@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileNode, WorkspaceSnapshot } from "./types";
 
@@ -63,21 +64,30 @@ vi.mock("./components/PlainTextEditor", () => ({
     ariaLabel,
     value,
     readOnly,
+    spellCheck,
+    languageOverride,
     onChange,
   }: {
     ariaLabel: string;
     value: string;
     readOnly: boolean;
+    spellCheck: boolean;
+    languageOverride?: string | null;
     onChange: (value: string) => void;
   }) => (
-    <button
-      type="button"
-      aria-label={`Change ${ariaLabel}`}
-      disabled={readOnly}
-      onClick={() => onChange(`${value} changed`)}
-    >
-      Change content
-    </button>
+    <>
+      <output data-testid="plain-editor-language">
+        {languageOverride ?? "auto"}:{String(spellCheck)}
+      </output>
+      <button
+        type="button"
+        aria-label={`Change ${ariaLabel}`}
+        disabled={readOnly}
+        onClick={() => onChange(`${value} changed`)}
+      >
+        Change content
+      </button>
+    </>
   ),
 }));
 vi.mock("./components/FileTree", () => ({
@@ -305,6 +315,69 @@ describe("App initial file-tree expansion", () => {
     expect(
       screen.getByRole("tab", { name: /alpha\.txt.*unsaved changes/i }),
     ).toBeInTheDocument();
+  });
+
+  it("applies a tab-local source language override without editing or saving", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("sample.ts", "text"),
+        fileNode("other.py", "text"),
+      ]),
+    );
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open sample.ts" }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source language: TypeScript (Automatic)",
+      }),
+    );
+    await user.type(
+      screen.getByRole("combobox", { name: "Search source language" }),
+      "plain text",
+    );
+    await user.click(screen.getByRole("option", { name: "Plain text" }));
+
+    expect(
+      screen.getByRole("button", {
+        name: "Source language: Plain text (Override)",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+      "text:true",
+    );
+    expect(mockApi.recordEdit).not.toHaveBeenCalledWith("sample.ts");
+    expect(mockApi.saveNote).not.toHaveBeenCalledWith(
+      "sample.ts",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open other.py" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Source language: Python (Automatic)",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+      "auto:false",
+    );
+    expect(mockApi.recordEdit).not.toHaveBeenCalledWith("other.py");
+    expect(mockApi.saveNote).not.toHaveBeenCalledWith(
+      "other.py",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("refreshes the full ignored set after a project change", async () => {

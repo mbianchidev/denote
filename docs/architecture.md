@@ -150,6 +150,10 @@ menu injection, and general import/export hooks. Editor actions use command
 registrations so every privileged operation remains tied to an explicit,
 short-lived user action. New declarative contribution surfaces can be added
 compatibly; executable UI surfaces require a new API major and isolation review.
+Baseline syntax highlighting is core and never waits for plugin startup. A
+future specialized grammar contribution would require a separately approved,
+typed, bundled host contract with deterministic disposal and fallback; API
+version 1 does not expose editor grammars or runtime grammar downloads.
 
 The native plugin manager embeds only `packages/plugins/catalog.json`. Plugin
 artifacts remain separate repository files and are downloaded over HTTPS after
@@ -528,13 +532,41 @@ opens bypass restore.
 Session metadata failures are surfaced but never block saving note content,
 closing tabs, switching vaults, or exiting.
 
-Plain UTF-8 files remain source-only. The frontend resolves their filenames
-against CodeMirror's language catalog and asynchronously reconfigures a language
-compartment, so JavaScript, TypeScript, Python, and other recognized programming
-or markup files receive syntax highlighting without remounting the editor.
-Rich fenced blocks share a central catalog of common aliases, including `js`,
-`ts`, PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell, web, data, and
-configuration formats, and autoload the same CodeMirror language support.
+Plain UTF-8 files remain source-only. `src/lib/syntaxLanguages.ts` is the typed
+authoritative registry for both source files and rich fenced blocks. Each entry
+owns its stable ID, display name, preferred fence identifier, searchable aliases,
+explicit extensions or filenames, and bundled asynchronous loader. The registry
+covers JavaScript/JSX/TypeScript/TSX, Java, JSP, Go, Rust, Python, C/C++, C#,
+Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS,
+Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and Dockerfiles.
+CodeMirror's packaged language-data loaders cover the standard entries;
+`codemirror-lang-elixir` is a bundled lazy chunk. JSP deliberately uses the HTML
+grammar, so scriptlets stay readable without introducing an unmaintained parser.
+
+`PlainTextEditor` resolves the filename plus the tab's optional override, clears
+the previous language immediately, and asynchronously reconfigures a stable
+language compartment. A request counter rejects stale completions, successful or
+in-flight loaders are cached, and a failed load removes its cache entry, reports
+the error, and leaves plain text available for retry. Grammar effects do not
+change CodeMirror documents and therefore cannot enter autosave.
+
+Rich blocks use a Denote-owned catch-all `CodeBlockEditorDescriptor` rather than
+MDXEditor's built-in editor and select. The custom editor uses the same theme,
+history, indentation, read-only, and language-compartment behavior as source
+files. Its searchable ARIA combobox edits a fence language only after explicit
+selection; typing, opening, theme changes, and unknown identifiers are
+presentation-only. Automatic serializes an empty identifier, Plain text uses
+`text`, and the code document is never replaced during a language change.
+Copy-button discovery uses the stable Denote code-block wrapper and reads
+`EditorView.state.doc`, including virtualized lines.
+
+The focused UTF-8 source tab exposes its effective language in the status bar.
+`EditorTab.languageOverride` is frontend-only state: pane moves preserve the live
+tab, while navigation, close/reopen, and session restore return to Automatic. It
+is absent from tab-session JSON, SQLite, Rust models, file names, save hashes, and
+plugin context. Theme changes remain CSS-variable updates and do not remount
+either editor. CodeMirror and Lezer perform incremental viewport parsing; Denote
+adds no synchronous whole-document highlighting scan.
 
 Markdown source mode registers a highest-precedence Command-K / Control-K
 CodeMirror command. It wraps a range as `[selected text]()` or inserts `[]()` at

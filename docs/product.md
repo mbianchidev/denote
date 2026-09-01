@@ -80,8 +80,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Every regular file up to 25 MB can be opened and edited.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.
-- Source-only programming and markup files use filename-driven CodeMirror
-  language support when the language catalog recognizes them.
+- Source-only programming and markup files use one filename-driven core
+  CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
+  TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
+  PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML,
+  TOML, SQL, PowerShell, SCSS, LESS, and Dockerfiles.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
 - Full, collapsed, and shortcut Markdown reference links render and remain
@@ -217,9 +220,18 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   automatically.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
-- Rich fenced blocks and source files recognize common JavaScript/TypeScript
-  aliases plus PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell,
-  web, data, and configuration languages.
+- Rich fenced blocks use the same core registry and recognize language names,
+  common aliases, and registered extensions. Unknown identifiers remain
+  untouched and render as readable plain text.
+- The active rich code block exposes a searchable, keyboard-operable language
+  combobox with Automatic and Plain text choices. Filtering does not edit the
+  fence; an explicit selection changes only its identifier through normal undo.
+- Source-only UTF-8 tabs expose their detected language in the status bar and
+  accept a transient per-tab override. Automatic returns to filename detection;
+  Plain text disables highlighting. Overrides never rename, dirty, save, or
+  persist with the file.
+- JSP uses the bundled HTML grammar as a safe baseline, leaving Java scriptlets
+  readable but uncolored.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live
   code document rather than only visible lines.
 - About Denote exposes the packaged semantic version and immutable Git commit

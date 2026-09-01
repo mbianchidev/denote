@@ -1,8 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { syntaxTree } from "@codemirror/language";
 import { EditorView, runScopeHandlers } from "@codemirror/view";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
+import { applyTheme } from "../lib/theme";
 import { PlainTextEditor } from "./PlainTextEditor";
 
 describe("PlainTextEditor", () => {
@@ -305,5 +307,52 @@ describe("PlainTextEditor", () => {
       view.state.selection.main.from,
       view.state.selection.main.to,
     )).toBe("needle");
+  });
+
+  it("reconfigures language and theme without remounting or changing source", async () => {
+    const onChange = vi.fn();
+    const props = {
+      value: "const total = 3;",
+      ariaLabel: "Edit highlighted source",
+      readOnly: false,
+      binary: false,
+      filePath: "synthetic.ts",
+      lineEnding: "crlf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      onChange,
+    };
+    const { container, rerender } = render(
+      <PlainTextEditor {...props} spellCheck={false} />,
+    );
+    const editorElement =
+      container.querySelector<HTMLElement>(".cm-editor")!;
+    const view = EditorView.findFromDOM(editorElement)!;
+    await vi.waitFor(() =>
+      expect(syntaxTree(view.state).type.name).not.toBe(""),
+    );
+    view.dispatch({ selection: { anchor: 6, head: 11 } });
+    const selection = view.state.selection.main;
+
+    rerender(
+      <PlainTextEditor
+        {...props}
+        spellCheck
+        languageOverride="text"
+      />,
+    );
+    applyTheme("light");
+
+    await vi.waitFor(() => expect(syntaxTree(view.state).type.name).toBe(""));
+    expect(EditorView.findFromDOM(editorElement)).toBe(view);
+    expect(view.state.doc.toString()).toBe(props.value);
+    expect(view.state.selection.main).toMatchObject({
+      from: selection.from,
+      to: selection.to,
+    });
+    expect(
+      screen.getByRole("textbox", { name: "Edit highlighted source" }),
+    ).toHaveAttribute("spellcheck", "true");
+    expect(onChange).not.toHaveBeenCalled();
+    applyTheme("dark");
   });
 });

@@ -50,6 +50,23 @@ the project restores normal behavior immediately.
 `.mdx` files remain non-executing, JSX-highlighted source files; project context
 does not add rich editing.
 
+## Source language
+
+Source-only UTF-8 files show **Language:** in the status bar. Denote detects the
+language from the filename using its built-in registry. Open the control to
+search names, aliases, or extensions and apply an override to the current tab.
+
+**Automatic** returns to filename detection. **Plain text** disables syntax
+highlighting. An override does not rename or edit the file, does not trigger
+autosave, and is discarded when the tab is closed or navigates to another file.
+It is not restored with the next session.
+
+The built-in registry covers JavaScript, JSX, TypeScript, TSX, Java, JSP, Go,
+Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir,
+JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS,
+and Dockerfiles. JSP uses HTML highlighting; Java scriptlets remain readable but
+uncolored.
+
 ## Session restore
 
 **Reopen tabs from the last session** is enabled by default for each vault. It

@@ -388,6 +388,17 @@ blue, and neutral ink variants with WCAG AA contrast. Gutters, selections,
 active lines, matching brackets, and editable fenced blocks share the same
 semantic palette. Rich fenced blocks add one compact copy action; editable blocks
 place it at the lower edge so the language and delete controls remain clear.
+The language control is a compact trigger opening an anchored searchable
+combobox. Automatic and Plain text lead the list; names, aliases, and extensions
+filter the remaining options. The active and current options use both shape or
+weight and color, focus remains visible, Escape restores the trigger, and an
+unknown existing identifier stays visible until a supported choice is selected.
+
+Source-only tabs show **Language:** in the status bar. Its compact combobox uses
+the same interaction pattern and marks whether the value is Automatic or an
+Override. The status control is display state, not a file setting, and remains
+available in read mode. Forced-color environments use system focus, selection,
+and current-option colors instead of relying on the theme palette.
 
 ### Replace Preview
 

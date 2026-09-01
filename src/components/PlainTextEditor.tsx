@@ -1,16 +1,11 @@
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { Compartment, EditorState } from "@codemirror/state";
 import {
   EditorView,
-  drawSelection,
-  dropCursor,
-  highlightActiveLine,
-  highlightSpecialChars,
-  keymap,
   placeholder,
 } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import {
+  createCodeMirrorBehaviorExtensions,
   createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
   createPluginDecorationExtensions,
@@ -21,7 +16,11 @@ import {
 import type { PluginEditorDecoration } from "@denote/plugin-sdk";
 import type { EditorDisplaySettings } from "../lib/editorDisplay";
 import type { MarkdownErrorLocation } from "../lib/markdownErrors";
-import { loadSourceLanguage } from "../lib/sourceLanguage";
+import {
+  loadSyntaxLanguage,
+  resolveSourceLanguage,
+  type SourceLanguageOverride,
+} from "../lib/syntaxLanguages";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
 
@@ -34,6 +33,7 @@ interface PlainTextEditorProps {
   filePath: string | null;
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
+  languageOverride?: SourceLanguageOverride;
   markdownSource?: boolean;
   errorLocation?: MarkdownErrorLocation;
   errorNavigationRequest?: number;
@@ -52,6 +52,7 @@ export function PlainTextEditor({
   filePath,
   lineEnding,
   displaySettings,
+  languageOverride = null,
   markdownSource = false,
   errorLocation,
   errorNavigationRequest = 0,
@@ -65,6 +66,7 @@ export function PlainTextEditor({
   const onChangeRef = useRef(onChange);
   const currentValueRef = useRef(value);
   const syncingValue = useRef(false);
+  const attributesCompartment = useRef(new Compartment()).current;
   const displayCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
   const languageCompartment = useRef(new Compartment()).current;
@@ -86,22 +88,18 @@ export function PlainTextEditor({
       state: EditorState.create({
         doc: value,
         extensions: [
-          history(),
+          ...createCodeMirrorBehaviorExtensions(),
           denoteCodeMirrorTheme,
-          drawSelection(),
-          dropCursor(),
-          highlightActiveLine(),
-          highlightSpecialChars(),
-          EditorView.lineWrapping,
           ...(markdownSource
             ? [markdownLinkKeymap, ...createEditorDiagnosticExtensions()]
             : []),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
           placeholder("Start writing…"),
-          EditorView.contentAttributes.of({
-            "aria-label": ariaLabel,
-            spellcheck: spellCheck ? "true" : "false",
-          }),
+          attributesCompartment.of(
+            EditorView.contentAttributes.of({
+              "aria-label": ariaLabel,
+              spellcheck: spellCheck ? "true" : "false",
+            }),
+          ),
           readOnlyCompartment.of([
             EditorState.readOnly.of(readOnly),
             EditorView.editable.of(!readOnly),
@@ -129,14 +127,24 @@ export function PlainTextEditor({
       editorRef.current = null;
     };
   }, [
-    ariaLabel,
+    attributesCompartment,
     displayCompartment,
     languageCompartment,
     markdownSource,
     pluginDecorationCompartment,
     readOnlyCompartment,
-    spellCheck,
   ]);
+
+  useEffect(() => {
+    editorRef.current?.dispatch({
+      effects: attributesCompartment.reconfigure(
+        EditorView.contentAttributes.of({
+          "aria-label": ariaLabel,
+          spellcheck: spellCheck ? "true" : "false",
+        }),
+      ),
+    });
+  }, [ariaLabel, attributesCompartment, spellCheck]);
 
   useEffect(() => {
     editorRef.current?.dispatch({
@@ -148,17 +156,21 @@ export function PlainTextEditor({
 
   useEffect(() => {
     const request = ++languageRequest.current;
+    editorRef.current?.dispatch({
+      effects: languageCompartment.reconfigure([]),
+    });
     if (binary || !filePath) {
-      editorRef.current?.dispatch({
-        effects: languageCompartment.reconfigure([]),
-      });
       return;
     }
-    void loadSourceLanguage(filePath)
-      .then((language) => {
+    const language = resolveSourceLanguage(filePath, languageOverride).language;
+    if (!language) {
+      return;
+    }
+    void loadSyntaxLanguage(language.id)
+      .then((support) => {
         if (request === languageRequest.current && editorRef.current) {
           editorRef.current.dispatch({
-            effects: languageCompartment.reconfigure(language ? [language] : []),
+            effects: languageCompartment.reconfigure(support),
           });
         }
       })
@@ -167,7 +179,13 @@ export function PlainTextEditor({
           onError?.(caught);
         }
       });
-  }, [binary, filePath, languageCompartment, onError]);
+  }, [
+    binary,
+    filePath,
+    languageCompartment,
+    languageOverride,
+    onError,
+  ]);
 
   useEffect(() => {
     editorRef.current?.dispatch({

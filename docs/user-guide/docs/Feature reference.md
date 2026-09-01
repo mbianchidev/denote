@@ -122,11 +122,20 @@ more detail and examples.
 - Render safe `<details>` / `<summary>` disclosure blocks with Markdown content.
 - Render `>![info]`, `>![warning]`, and `>![danger]` as callout boxes.
 - Copy rich-mode fenced code blocks from their inline **Copy** button.
-- Highlight supported programming and markup files by filename in the source
-  editor.
-- Highlight rich fenced blocks for JavaScript, TypeScript, PHP, Java, C/C++,
-  C#, Go, Python, Ruby, Kotlin, Swift, Scala, shells, web, data, and config
-  languages.
+- Highlight supported programming and markup files from one built-in filename
+  and extension registry.
+- Show the effective source language in the status bar and apply a non-persistent
+  per-tab Automatic, Plain text, or explicit language override without changing
+  the file.
+- Highlight source files and rich fences for JavaScript, JSX, TypeScript, TSX,
+  Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua,
+  R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL,
+  PowerShell, SCSS, LESS, and Dockerfiles. JSP uses HTML highlighting.
+- Search code-block languages by name, alias, or extension from a keyboard
+  combobox. Keep unknown identifiers until a supported option is explicitly
+  selected, and change only the fence identifier through undoable editing.
+- Fall back to readable plain text for unknown identifiers, extensions, or
+  grammar-load failures.
 - Preserve mixed Unicode scripts and emoji in one file.
 - Open unsupported rich syntax such as MDX, other raw HTML, footnotes, math,
   reference definitions, and escaped hashtags in locked source mode for safety.
@@ -194,6 +203,8 @@ more detail and examples.
   packaged version and full Git commit.
 - Scale editor text without scaling application chrome.
 - Adapt code blocks and syntax colors to the active theme.
+- Preserve source and fenced editor instances, selection, undo history, and
+  content while themes or presentation-only language state change.
 - Resize the vault sidebar by pointer or keyboard.
 - Show optional line numbers, spaces/tabs, exact line endings, and trailing
   whitespace.

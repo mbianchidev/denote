@@ -80,6 +80,22 @@ npm run tauri build
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
 
+## Extend core syntax highlighting
+
+Built-in languages are declared in `src/lib/syntaxLanguages.ts`. Add or change a
+language there rather than creating separate source-file and Markdown maps.
+Every entry must define a stable ID, display name, preferred fence identifier,
+search aliases, explicit extensions or filenames, and a bundled asynchronous
+CodeMirror loader.
+
+Add synthetic table-driven coverage in `src/lib/syntaxLanguages.test.ts`, plus
+editor or combobox coverage when behavior changes. Update the product,
+architecture, design, and canonical user guide language lists together. New
+grammar dependencies must be direct dependencies, lazy-loaded, included in
+`package-lock.json`, and pass `npm audit`; Denote never downloads grammars at
+runtime. Specialized plugin grammar support requires a separately approved typed
+host contract and is not part of plugin API version 1.
+
 ## Prepare a release
 
 From an up-to-date `main` branch, update every Denote version source, commit and

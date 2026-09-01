@@ -74,6 +74,7 @@ import {
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
+import { SourceLanguageStatus } from "./components/SourceLanguageStatus";
 import { TableOfContents } from "./components/TableOfContents";
 import { TagChip } from "./components/TagChip";
 import { Tabs } from "./components/Tabs";
@@ -120,7 +121,10 @@ import {
   type SearchFilters,
   type SearchRequest,
 } from "./lib/search";
-import { sourceLanguageName } from "./lib/sourceLanguage";
+import {
+  resolveSourceLanguage,
+  type SourceLanguageOverride,
+} from "./lib/syntaxLanguages";
 import { buildProjectCommands } from "./lib/projectCommands";
 import { welcomePageTarget } from "./lib/welcomePage";
 import {
@@ -3365,6 +3369,17 @@ function App() {
     [commitTabs, saveTab, showError],
   );
 
+  const updateTabLanguageOverride = useCallback(
+    (path: string, languageOverride: SourceLanguageOverride) => {
+      commitTabs((current) =>
+        current.map((tab) =>
+          tab.path === path ? { ...tab, languageOverride } : tab,
+        ),
+      );
+    },
+    [commitTabs],
+  );
+
   const closeTabs = useCallback(
     async (paths: string[]) => {
       const closing = new Set(paths);
@@ -6567,6 +6582,13 @@ function App() {
         : null;
     const paneUsesProjectMarkdownSource =
       usesProjectMarkdownSourceEditor(paneTab, paneProject);
+    const paneSourceLanguage =
+      paneTab.encoding === "utf8"
+        ? resolveSourceLanguage(
+            paneTab.path,
+            paneTab.languageOverride ?? null,
+          ).language
+        : null;
     return (
       <>
         {paneTab.kind === "image" && !paneTab.rawEditing ? (
@@ -6626,12 +6648,13 @@ function App() {
               readOnly={paneReadOnly}
               spellCheck={
                 paneTab.encoding === "utf8" &&
-                sourceLanguageName(paneTab.path) === null
+                paneSourceLanguage === null
               }
               binary={paneTab.encoding === "base64"}
               filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
               lineEnding={paneTab.lineEnding}
               displaySettings={paneDisplaySettings}
+              languageOverride={paneTab.languageOverride}
               markdownSource={paneUsesProjectMarkdownSource}
               errorLocation={
                 paneUsesProjectMarkdownSource
@@ -7394,6 +7417,18 @@ function App() {
             >
               Project: {projectRootLabel(activeProject)}
             </span>
+          ) : null}
+          {activeFileTab &&
+          activeFileTab.encoding === "utf8" &&
+          activeFileTab.kind !== "image" &&
+          !usesRichMarkdownEditor(activeFileTab, activeProject) ? (
+            <SourceLanguageStatus
+              path={activeFileTab.path}
+              override={activeFileTab.languageOverride ?? null}
+              onChange={(languageOverride) =>
+                updateTabLanguageOverride(activeFileTab.path, languageOverride)
+              }
+            />
           ) : null}
           {panes.length > 1 ? (
             <span>{`Pane ${focusedPaneIndex + 1} of ${panes.length}`}</span>
