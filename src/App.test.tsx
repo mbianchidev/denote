@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
+import type { PluginSourceControlContribution } from "./plugins/workerRuntime";
 import type { FileNode, WorkspaceSnapshot } from "./types";
 
 const mockApi = vi.hoisted(() => ({
@@ -15,6 +17,31 @@ const mockApi = vi.hoisted(() => ({
   createEntry: vi.fn(),
   trashEntry: vi.fn(),
   restoreTrashItem: vi.fn(),
+}));
+
+const mockPluginController = vi.hoisted(() => ({
+  plugins: [],
+  bundles: [],
+  commands: [],
+  sidebarViews: [],
+  statusItems: [],
+  decorations: [],
+  sourceControlProviders: [] as PluginSourceControlContribution[],
+  loading: false,
+  busyPluginIds: new Set<string>(),
+  refresh: vi.fn(),
+  enable: vi.fn(),
+  disable: vi.fn(),
+  disableAll: vi.fn(),
+  clearData: vi.fn(),
+  clearCredentials: vi.fn(),
+  updateSettings: vi.fn(),
+  importSettings: vi.fn(),
+  runCommand: vi.fn(),
+  runSourceControlAction: vi.fn().mockResolvedValue(undefined),
+  emitNoteEvent: vi.fn(),
+  invalidateActionLeases: vi.fn(),
+  shutdown: vi.fn(),
 }));
 
 vi.mock("./lib/api", () => ({
@@ -36,30 +63,7 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: vi.fn(),
 }));
 vi.mock("./plugins/usePlugins", () => ({
-  usePlugins: () => ({
-    plugins: [],
-    bundles: [],
-    commands: [],
-    sidebarViews: [],
-    statusItems: [],
-    decorations: [],
-    sourceControlProviders: [],
-    loading: false,
-    busyPluginIds: new Set<string>(),
-    refresh: vi.fn(),
-    enable: vi.fn(),
-    disable: vi.fn(),
-    disableAll: vi.fn(),
-    clearData: vi.fn(),
-    clearCredentials: vi.fn(),
-    updateSettings: vi.fn(),
-    importSettings: vi.fn(),
-    runCommand: vi.fn(),
-    runSourceControlAction: vi.fn(),
-    emitNoteEvent: vi.fn(),
-    invalidateActionLeases: vi.fn(),
-    shutdown: vi.fn(),
-  }),
+  usePlugins: () => mockPluginController,
 }));
 vi.mock("./components/PlainTextEditor", () => ({
   PlainTextEditor: ({
@@ -199,6 +203,8 @@ describe("App initial file-tree expansion", () => {
       isDirectory: false,
     });
     mockApi.restoreTrashItem.mockResolvedValue(fileNode(".gitignore"));
+    mockPluginController.sourceControlProviders = [];
+    mockPluginController.runSourceControlAction.mockResolvedValue(undefined);
   });
 
   it("opens only the first eight eligible top-level folders", async () => {
@@ -532,6 +538,99 @@ describe("App initial file-tree expansion", () => {
       );
     });
   });
+
+  it("runs source control actions, keeps provider models live, and cleans up removed providers", async () => {
+    const user = userEvent.setup();
+    const contribution: PluginSourceControlContribution = {
+      pluginId: "denote.synthetic",
+      id: "git",
+      title: "Synthetic Git",
+      model: appSourceControlModel("Synthetic repository"),
+    };
+    mockPluginController.sourceControlProviders = [contribution];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    const { rerender } = render(<App />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source control: Synthetic Git",
+      }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Synthetic repository" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+      "denote.synthetic",
+      "git",
+      { id: "refresh" },
+      "/synthetic-vault",
+    );
+
+    mockPluginController.sourceControlProviders = [
+      {
+        ...contribution,
+        model: appSourceControlModel("Updated repository"),
+      },
+    ];
+    rerender(<App />);
+    expect(
+      screen.getByRole("heading", { name: "Updated repository" }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Search" }));
+    expect(
+      screen.getByRole("button", { name: "Search" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.queryByRole("heading", { name: "Updated repository" }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Source control: Synthetic Git",
+      }),
+    );
+    mockPluginController.sourceControlProviders = [];
+    rerender(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    });
+    expect(screen.getByTestId("file-tree-expanded")).toBeInTheDocument();
+  });
+
+  it("reports source control action failures through the app error surface", async () => {
+    const user = userEvent.setup();
+    mockPluginController.sourceControlProviders = [
+      {
+        pluginId: "denote.synthetic",
+        id: "git",
+        title: "Synthetic Git",
+        model: appSourceControlModel("Synthetic repository"),
+      },
+    ];
+    mockPluginController.runSourceControlAction.mockRejectedValueOnce(
+      new Error("Synthetic source control failure"),
+    );
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source control: Synthetic Git",
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(
+      await screen.findByText("Synthetic source control failure"),
+    ).toBeInTheDocument();
+  });
 });
 
 function fileNode(
@@ -587,5 +686,41 @@ function noteStats() {
     lastEditedAt: null,
     lastSavedAt: null,
     bookmarked: false,
+  };
+}
+
+function appSourceControlModel(
+  label: string,
+): PluginSourceControlViewModel {
+  return {
+    selectedTab: "changes",
+    selectedView: { kind: "repository" },
+    repository: {
+      repositoryId: "synthetic-repository",
+      label,
+      initialized: true,
+      branch: "main",
+      upstream: null,
+      ahead: 0,
+      behind: 0,
+      latestCommit: null,
+      busy: false,
+    },
+    resourceGroups: [],
+    branches: [
+      {
+        name: "main",
+        current: true,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+    ],
+    remotes: [],
+    history: [],
+    diffFiles: [],
+    conflicts: [],
+    recovery: { state: "idle" },
   };
 }

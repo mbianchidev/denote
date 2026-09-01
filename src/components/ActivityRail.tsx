@@ -2,6 +2,7 @@ import {
   Bookmark,
   Clock3,
   Files,
+  GitBranch,
   Info,
   Moon,
   Plug,
@@ -11,14 +12,24 @@ import {
 } from "lucide-react";
 import type { SidebarView } from "../types";
 import type { Theme } from "../lib/theme";
+import type { PluginSourceControlContribution } from "../plugins/workerRuntime";
 
 interface ActivityRailProps {
   activeView: SidebarView;
   activePluginView: string | null;
+  activeSourceControlProvider: {
+    pluginId: string;
+    providerId: string;
+  } | null;
   pluginViews: Array<{ id: string; title: string }>;
+  sourceControlProviders: PluginSourceControlContribution[];
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
   onPluginViewChange: (viewId: string) => void;
+  onSourceControlProviderChange: (
+    pluginId: string,
+    providerId: string,
+  ) => void;
   onAbout: () => void;
   onThemeToggle: () => void;
 }
@@ -38,10 +49,13 @@ const views: Array<{
 export function ActivityRail({
   activeView,
   activePluginView,
+  activeSourceControlProvider,
   pluginViews,
+  sourceControlProviders,
   theme,
   onViewChange,
   onPluginViewChange,
+  onSourceControlProviderChange,
   onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
@@ -57,7 +71,11 @@ export function ActivityRail({
             type="button"
             key={id}
             aria-label={label}
-            aria-pressed={activePluginView === null && activeView === id}
+            aria-pressed={
+              activePluginView === null &&
+              activeSourceControlProvider === null &&
+              activeView === id
+            }
             title={
               id === "search"
                 ? `Search (${
@@ -83,6 +101,43 @@ export function ActivityRail({
             <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
           </button>
         ))}
+        {sourceControlProviders.map((provider) => {
+          const selected =
+            activeSourceControlProvider?.pluginId === provider.pluginId &&
+            activeSourceControlProvider.providerId === provider.id;
+          const duplicateTitle = sourceControlProviders.some(
+            (candidate) =>
+              candidate !== provider && candidate.title === provider.title,
+          );
+          const duplicateWithinPlugin = sourceControlProviders.some(
+            (candidate) =>
+              candidate !== provider &&
+              candidate.pluginId === provider.pluginId &&
+              candidate.title === provider.title,
+          );
+          const label = `Source control: ${provider.title}${
+            duplicateWithinPlugin
+              ? ` (${provider.id})`
+              : duplicateTitle
+                ? ` (${provider.pluginId})`
+                : ""
+          }`;
+          return (
+            <button
+              className="icon-button activity-rail__button"
+              type="button"
+              key={`${provider.pluginId}:${provider.id}`}
+              aria-label={label}
+              aria-pressed={selected}
+              title={label}
+              onClick={() =>
+                onSourceControlProviderChange(provider.pluginId, provider.id)
+              }
+            >
+              <GitBranch aria-hidden="true" size={19} strokeWidth={1.8} />
+            </button>
+          );
+        })}
       </div>
       <button
         className="icon-button activity-rail__button"

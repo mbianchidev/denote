@@ -280,6 +280,11 @@ semantic meaning.
 
 The activity rail is icon-led and uses an active indicator on the leading edge.
 File rows, tabs, and outline entries share compact hover and selected states.
+Plugin source-control providers receive distinct, named rail buttons without
+becoming static sidebar views. Their host-rendered sidebar uses visible branch
+and commit fields, native controls, semantic lists and headings, keyboard
+operable tabs, structured diffs, and polite status regions for progress,
+recovery, and limitations. Plugin data never supplies arbitrary markup.
 Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
 moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a
@@ -411,8 +416,9 @@ highlighting.
 The picker also includes LaTeX, Jinja, Vue, Angular templates, React JSX/TSX,
 common SQL dialects, and the supported functional, scientific, legacy, and
 configuration languages. Automatic detection does not guess when extensions are
-ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Diff rendering
-is absent from core and belongs to the Git plugin's future surfaces.
+ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Editor diff
+highlighting remains absent from core; optional source-control plugins provide
+typed diff data that Denote renders in the host sidebar.
 Terraform/HCL uses its bundled parser. Helm `.tpl` files and explicit Helm
 overrides use a restrained YAML-plus-template tokenizer that distinguishes
 values, actions, functions, variables, and control blocks without executing

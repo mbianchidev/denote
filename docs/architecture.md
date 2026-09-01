@@ -131,6 +131,12 @@ Source-control providers contribute host-rendered repository, resource, branch,
 remote, history, diff, conflict, and recovery data; they cannot render HTML or
 execute Git directly. The separate `automatic-local-commit` permission is only a
 marker for future host operations and exposes no activation capability.
+Each provider is addressed by its `(pluginId, providerId)` pair. The activity
+rail and vault sidebar render only the typed model with native host controls;
+standardized user actions are returned to the owning provider through a
+workspace-scoped action lease. Provider updates replace the displayed model
+live, while unregistering or disabling the provider clears its selection and
+returns the sidebar to Files.
 Workspace text reads return
 a content version that writes must present unchanged, reusing the canonical
 vault boundary and conflict hashes;

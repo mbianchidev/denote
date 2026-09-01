@@ -75,6 +75,7 @@ import {
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
+import { SourceControlPanel } from "./components/SourceControlPanel";
 import { SourceOutline } from "./components/SourceOutline";
 import { SourceLanguageStatus } from "./components/SourceLanguageStatus";
 import { TableOfContents } from "./components/TableOfContents";
@@ -353,6 +354,16 @@ function App() {
   const [activePluginSidebar, setActivePluginSidebar] = useState<string | null>(
     null,
   );
+  const [activeSourceControlProvider, setActiveSourceControlProvider] =
+    useState<{
+      pluginId: string;
+      providerId: string;
+    } | null>(null);
+  const showSidebarView = useCallback((view: SidebarView) => {
+    setActiveSourceControlProvider(null);
+    setActivePluginSidebar(null);
+    setSidebarView(view);
+  }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showDotfiles, setShowDotfiles] = useState(() => getShowDotfiles());
@@ -4830,7 +4841,7 @@ function App() {
           }
           return next;
         });
-        setSidebarView("files");
+        showSidebarView("files");
         setSelectedPath(restoredNode.path);
         setStatus(`Restored ${restoredNode.name}`);
         restored = true;
@@ -5699,9 +5710,9 @@ function App() {
 
   const focusVaultSearch = useCallback(() => {
     setSearchLocation(activeFileTab?.path ?? "*");
-    setSidebarView("search");
+    showSidebarView("search");
     setSearchQueryFocusRequest((current) => current + 1);
-  }, [activeFileTab?.path]);
+  }, [activeFileTab?.path, showSidebarView]);
 
   const navigateToEditorError = useCallback(() => {
     if (activePath) {
@@ -6050,7 +6061,7 @@ function App() {
       description: "Open the file-tree sidebar.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("files"),
+      run: () => showSidebarView("files"),
     },
     {
       id: "view.search",
@@ -6058,7 +6069,7 @@ function App() {
       description: "Open and focus the search sidebar.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("search"),
+      run: () => showSidebarView("search"),
     },
     {
       id: "view.bookmarks",
@@ -6066,7 +6077,7 @@ function App() {
       description: "Open bookmarked files.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("bookmarks"),
+      run: () => showSidebarView("bookmarks"),
     },
     {
       id: "view.recent",
@@ -6074,7 +6085,7 @@ function App() {
       description: "Open recently viewed files.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("recent"),
+      run: () => showSidebarView("recent"),
     },
     {
       id: "view.trash",
@@ -6082,7 +6093,7 @@ function App() {
       description: "Open deleted files that can be restored.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("trash"),
+      run: () => showSidebarView("trash"),
     },
     {
       id: "file.new",
@@ -6680,6 +6691,20 @@ function App() {
     pluginController.sidebarViews.find(
       (view) => view.id === activePluginSidebar,
     ) ?? null;
+  const activeSourceControlContribution =
+    pluginController.sourceControlProviders.find(
+      (provider) =>
+        provider.pluginId === activeSourceControlProvider?.pluginId &&
+        provider.id === activeSourceControlProvider.providerId,
+    ) ?? null;
+
+  useEffect(() => {
+    if (activeSourceControlProvider && !activeSourceControlContribution) {
+      setActiveSourceControlProvider(null);
+      setActivePluginSidebar(null);
+      setSidebarView("files");
+    }
+  }, [activeSourceControlContribution, activeSourceControlProvider]);
 
   if (!workspace) {
     return (
@@ -6919,7 +6944,7 @@ function App() {
                 editable
                 key={tag}
                 onActivate={() => {
-                  setSidebarView("search");
+                  showSidebarView("search");
                   setSearchLocation("*");
                   setSearchQuery("");
                   setSearchFilters({
@@ -6960,13 +6985,21 @@ function App() {
       <ActivityRail
         activeView={sidebarView}
         activePluginView={activePluginSidebarView?.id ?? null}
+        activeSourceControlProvider={activeSourceControlProvider}
         pluginViews={pluginController.sidebarViews}
+        sourceControlProviders={pluginController.sourceControlProviders}
         theme={theme}
         onViewChange={(view) => {
-          setActivePluginSidebar(null);
-          setSidebarView(view);
+          showSidebarView(view);
         }}
-        onPluginViewChange={setActivePluginSidebar}
+        onPluginViewChange={(viewId) => {
+          setActiveSourceControlProvider(null);
+          setActivePluginSidebar(viewId);
+        }}
+        onSourceControlProviderChange={(pluginId, providerId) => {
+          setActivePluginSidebar(null);
+          setActiveSourceControlProvider({ pluginId, providerId });
+        }}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={() =>
           setTheme((current) => (current === "dark" ? "light" : "dark"))
@@ -7003,7 +7036,23 @@ function App() {
             </button>
           </div>
         </header>
-        {activePluginSidebarView ? (
+        {activeSourceControlContribution ? (
+          <SourceControlPanel
+            key={`${activeSourceControlContribution.pluginId}:${activeSourceControlContribution.id}`}
+            title={activeSourceControlContribution.title}
+            model={activeSourceControlContribution.model}
+            onAction={(action) => {
+              void pluginController
+                .runSourceControlAction(
+                  activeSourceControlContribution.pluginId,
+                  activeSourceControlContribution.id,
+                  action,
+                  workspace.vaultPath,
+                )
+                .catch(showError);
+            }}
+          />
+        ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">
             <div className="sidebar-view__title">
               <h2>{activePluginSidebarView.title}</h2>
