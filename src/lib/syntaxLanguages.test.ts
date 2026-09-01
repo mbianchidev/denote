@@ -72,6 +72,9 @@ const requestedFollowupLanguages = [
   "VB.NET",
   "Cobol",
   "Puppet",
+  "Terraform / HCL",
+  "Helm template",
+  "Common Lisp",
 ] as const;
 
 const requiredExtensions: Record<string, string> = {
@@ -243,6 +246,13 @@ describe("core syntax language registry", () => {
       "Program.vb": "VB.NET",
       "ledger.cob": "Cobol",
       "copybook.cpy": "Cobol",
+      "main.tf": "Terraform / HCL",
+      "variables.tfvars": "Terraform / HCL",
+      ".terraform.lock.hcl": "Terraform / HCL",
+      "_helpers.tpl": "Helm template",
+      "macros.tpl": "Helm template",
+      "system.cl": "Common Lisp",
+      "system.lisp": "Common Lisp",
     };
 
     for (const [path, language] of Object.entries(requestedFiles)) {
@@ -259,6 +269,15 @@ describe("core syntax language registry", () => {
     expect(languageForFence("puppet")?.name).toBe("Puppet");
   });
 
+  it("keeps Helm YAML automatic detection as YAML until explicitly overridden", () => {
+    expect(detectSourceLanguage("chart/templates/deployment.yaml")?.name).toBe(
+      "YAML",
+    );
+    expect(detectSourceLanguage("chart/Chart.yaml")?.name).toBe("YAML");
+    expect(languageForFence("helm")?.name).toBe("Helm template");
+    expect(languageForFence("gotemplate")?.name).toBe("Helm template");
+  });
+
   it("resolves fence aliases case-insensitively", () => {
     expect(languageForFence("JS")?.name).toBe("JavaScript");
     expect(languageForFence("c++")?.name).toBe("C++");
@@ -270,6 +289,9 @@ describe("core syntax language registry", () => {
     expect(languageForFence("angular-template")?.name).toBe(
       "Angular template",
     );
+    expect(languageForFence("terraform")?.name).toBe("Terraform / HCL");
+    expect(languageForFence("hcl")?.name).toBe("Terraform / HCL");
+    expect(languageForFence("common-lisp")?.name).toBe("Common Lisp");
     expect(languageForFence("unsupported")).toBeNull();
     expect(languageForFence("diff")).toBeNull();
   });
@@ -382,11 +404,82 @@ describe("core syntax language registry", () => {
       "vbnet",
       "cobol",
       "puppet",
+      "terraform",
+      "helm",
+      "commonlisp",
     ] as const;
 
     const supports = await Promise.all(requestedIds.map(loadSyntaxLanguage));
 
     expect(supports).toHaveLength(requestedIds.length);
     expect(supports.every((support) => Boolean(support.extension))).toBe(true);
+  });
+
+  it("highlights Terraform and Helm template syntax", async () => {
+    const [terraform, helm] = await Promise.all([
+      loadSyntaxLanguage("terraform"),
+      loadSyntaxLanguage("helm"),
+    ]);
+    const terraformState = EditorState.create({
+      doc: 'resource "synthetic_service" "example" {\n  enabled = true\n}',
+      extensions: [terraform],
+    });
+    const helmState = EditorState.create({
+      doc: 'image: "{{ required "image is required" .Values.image }}"\n{{- if .Values.enabled }}\nenabled: true\n{{- end }}',
+      extensions: [helm],
+    });
+    const helmNodes: string[] = [];
+
+    syntaxTree(helmState).iterate({
+      enter: (node) => {
+        helmNodes.push(node.name);
+      },
+    });
+
+    expect(syntaxTree(terraformState).length).toBe(terraformState.doc.length);
+    expect(helmNodes).toEqual(
+      expect.arrayContaining([
+        "propertyName",
+        "operator",
+        "helm-function",
+        "variableName",
+        "keyword",
+      ]),
+    );
+  });
+
+  it("keeps Helm comments outside quoted YAML strings", async () => {
+    const helm = await loadSyntaxLanguage("helm");
+    const doc =
+      'name: "my-app" # pinned\nimage: "prefix-{{ .Values.image }}-suffix"\npath: "a\\"b c"';
+    const state = EditorState.create({ doc, extensions: [helm] });
+    const tokens: Array<{ name: string; text: string }> = [];
+
+    syntaxTree(state).iterate({
+      enter: (node) => {
+        if (node.name !== "Document") {
+          tokens.push({
+            name: node.name,
+            text: state.doc.sliceString(node.from, node.to),
+          });
+        }
+      },
+    });
+
+    expect(tokens).toContainEqual({ name: "comment", text: "# pinned" });
+    expect(
+      tokens.some(
+        ({ name, text }) => name === "string" && text.includes("# pinned"),
+      ),
+    ).toBe(false);
+    expect(tokens).toContainEqual({
+      name: "variableName",
+      text: ".Values.image",
+    });
+    expect(
+      tokens.some(
+        ({ name, text }) => name === "string" && text.includes('"a\\"b c"'),
+      ),
+    ).toBe(true);
   });
 });

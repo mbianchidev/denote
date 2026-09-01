@@ -412,6 +412,11 @@ common SQL dialects, and the supported functional, scientific, legacy, and
 configuration languages. Automatic detection does not guess when extensions are
 ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Diff rendering
 is absent from core and belongs to the Git plugin's future surfaces.
+Terraform/HCL uses its bundled parser. Helm `.tpl` files and explicit Helm
+overrides use a restrained YAML-plus-template tokenizer that distinguishes
+values, actions, functions, variables, and control blocks without executing
+templates. Ordinary Helm `.yaml` files stay YAML under Automatic because their
+path alone is not enough to distinguish them safely.
 
 ### Replace Preview
 

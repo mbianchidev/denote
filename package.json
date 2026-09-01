@@ -38,6 +38,7 @@
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "codemirror-lang-elixir": "^4.0.1",
+    "codemirror-lang-hcl": "^0.2.0",
     "lucide-react": "^1.37.0",
     "mdast-util-from-markdown": "^2.0.3",
     "micromark-extension-mdx-jsx": "^3.0.2",

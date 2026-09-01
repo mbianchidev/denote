@@ -541,11 +541,12 @@ Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS,
 Markdown, shell, YAML, TOML, SQL and its packaged dialects, PowerShell, SCSS,
 LESS, Dockerfiles, LaTeX, Jinja, Vue, Angular templates, Haskell,
 Clojure/ClojureScript, Erlang, OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET,
-Cobol, and Puppet. React uses the existing JSX and TSX grammars rather than a
-separate parser.
+Cobol, Puppet, Common Lisp, Terraform/HCL, and Helm templates. React uses the
+existing JSX and TSX grammars rather than a separate parser.
 CodeMirror's packaged language-data loaders cover the standard entries;
-`codemirror-lang-elixir` is a bundled lazy chunk. JSP deliberately uses the HTML
-grammar, so scriptlets stay readable without introducing an unmaintained parser.
+`codemirror-lang-elixir` and `codemirror-lang-hcl` are bundled lazy chunks. JSP
+deliberately uses the HTML grammar, so scriptlets stay readable without
+introducing an unmaintained parser.
 The same registry recognizes auxiliary project files: `go.mod`, `go.sum`,
 `go.work`, `go.work.sum`, CMake files, Makefiles, Gradle/Groovy, Protocol
 Buffers, `.ini`/`.cfg`/properties files, Cargo/Poetry/uv locks, Visual Studio
@@ -561,6 +562,12 @@ MariaDB, MS SQL, PL/SQL, SQLite SQL, and CQL; plain `.sql` remains standard SQL,
 while dialect-specific suffixes or an explicit tab override select a dialect.
 Diff is deliberately not registered by core because Git diff presentation and
 future diff-specific interaction belong to the Git plugin.
+Helm has no maintained CodeMirror package, so core supplies a bounded
+`StreamLanguage` tokenizer for YAML structure plus `{{ }}` actions, built-in
+functions, `.Values`-style variables, and control keywords. `.tpl` files select
+it automatically. YAML chart templates remain YAML under Automatic to avoid
+misclassifying unrelated `templates/` folders and can use the per-tab Helm
+override.
 
 `PlainTextEditor` resolves the filename plus the tab's optional override, clears
 the previous language immediately, and asynchronously reconfigures a stable

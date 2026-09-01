@@ -107,6 +107,8 @@ include `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.jsp`, `.go`, `.rs`, `.py`,
 `.lhs`, `.clj`, `.cljc`, `.cljx`, `.cljs`, `.erl`, `.hrl`, `.ml`, `.mli`,
 `.mll`, `.mly`, `.fs`, `.fsx`, `.fsi`, `.f77`, `.f90`, `.f95`, `.f03`,
 `.f08`, `.jl`, `.pl`, `.pm`, `.pas`, `.vb`, `.cob`, `.cpy`, and `.cbl`.
+Terraform/HCL adds `.tf`, `.tfvars`, and `.hcl`; Common Lisp adds `.cl`,
+`.lisp`, and `.lsp`; Helm `.tpl` files use the Helm template grammar.
 Angular `*.component.html` files use the Angular template grammar. Dialect
 compound suffixes include `.mariadb.sql`, `.mssql.sql`, and `.sqlite.sql`.
 `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `CMakeLists.txt`,
@@ -131,11 +133,15 @@ XML project manifests are also highlighted. Additional choices include LaTeX,
 PostgreSQL, MySQL, MariaDB, MS SQL, PL/SQL, SQLite SQL, CQL, Jinja, Vue,
 Angular templates, Haskell, Clojure/ClojureScript, Erlang, OCaml, F#, Fortran,
 Julia, Perl, Pascal, VB.NET, Cobol, and Puppet. JSX and TSX cover React. JSP
-uses HTML highlighting; Java scriptlets remain uncolored.
+uses HTML highlighting; Java scriptlets remain uncolored. Common Lisp,
+Terraform/HCL, and Helm templates are also available.
 
 Because `.pp` is shared by Pascal and Puppet, Automatic leaves it plain; select
 the intended language from the status bar. Diff highlighting is deferred to the
 Git plugin.
+Helm chart YAML stays ordinary YAML under Automatic because a `templates`
+directory is not sufficient proof that a file is a Helm template. Select
+**Helm template** as a per-tab override for those files.
 
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.

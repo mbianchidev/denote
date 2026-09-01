@@ -140,6 +140,8 @@ more detail and examples.
   CQL, Jinja, Vue, Angular templates, Haskell, Clojure/ClojureScript, Erlang,
   OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET, Cobol, and Puppet. React uses
   JSX or TSX.
+- Highlight Common Lisp, Terraform/HCL (`.tf`, `.tfvars`, `.hcl`), and Helm
+  `.tpl` files. Offer Helm as a per-tab override for chart YAML templates.
 - Keep ambiguous `.pp` files plain under Automatic and allow an explicit Pascal
   or Puppet tab override. Leave diff highlighting to the Git plugin.
 - Search code-block languages by name, alias, or extension from a keyboard

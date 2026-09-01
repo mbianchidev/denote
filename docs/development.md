@@ -96,6 +96,11 @@ grammar dependencies must be direct dependencies, lazy-loaded, included in
 runtime. Specialized plugin grammar support requires a separately approved typed
 host contract and is not part of plugin API version 1.
 
+Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
+maintained package, so its small core stream tokenizer stays in
+`src/lib/syntaxLanguages.ts` and must retain synthetic coverage for YAML keys,
+template actions, functions, variables, comments, and control blocks.
+
 ## Prepare a release
 
 From an up-to-date `main` branch, update every Denote version source, commit and

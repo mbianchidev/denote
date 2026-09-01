@@ -88,7 +88,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   CMake, Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
   Visual Studio solutions, common XML project manifests, LaTeX, Jinja, Vue,
   Angular templates, Haskell, Clojure/ClojureScript, Erlang, OCaml, F#,
-  Fortran, Julia, Perl, Pascal, VB.NET, Cobol, Puppet, and common SQL dialects.
+  Fortran, Julia, Perl, Pascal, VB.NET, Cobol, Puppet, Common Lisp,
+  Terraform/HCL, Helm templates, and common SQL dialects.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
 - Full, collapsed, and shortcut Markdown reference links render and remain

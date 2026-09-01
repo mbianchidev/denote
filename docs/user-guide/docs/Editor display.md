@@ -69,12 +69,16 @@ Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
 XML project manifests. It also includes LaTeX, PostgreSQL, MySQL, MariaDB,
 MS SQL, PL/SQL, SQLite SQL, CQL, Jinja, Vue, Angular templates, Haskell,
 Clojure/ClojureScript, Erlang, OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET,
-Cobol, and Puppet. JSX and TSX cover React syntax. JSP uses HTML highlighting;
-Java scriptlets remain readable but uncolored.
+Cobol, Puppet, Common Lisp, Terraform/HCL, and Helm templates. JSX and TSX cover
+React syntax. JSP uses HTML highlighting; Java scriptlets remain readable but
+uncolored.
 
 Automatic detection leaves `.pp` as plain text because both Pascal and Puppet
 use it. Choose either language from the tab override when needed. Diff
 highlighting is reserved for the optional Git plugin.
+Terraform files use `.tf`, `.tfvars`, or `.hcl`. Helm `.tpl` files are detected
+automatically; Helm YAML templates stay YAML until **Helm template** is selected
+as the tab override.
 
 ## Session restore
 

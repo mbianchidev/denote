@@ -4,6 +4,7 @@ import {
   type StringStream,
 } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
+import { tags } from "@lezer/highlight";
 
 export const AUTOMATIC_LANGUAGE = "auto";
 export const PLAIN_TEXT_LANGUAGE = "text";
@@ -216,6 +217,26 @@ const LANGUAGE_DEFINITIONS = [
       const { elixir } = await import("codemirror-lang-elixir");
       return elixir();
     },
+  },
+  {
+    id: "terraform",
+    name: "Terraform / HCL",
+    fence: "terraform",
+    aliases: ["terraform", "hcl", "tf"],
+    extensions: ["tf", "hcl", "tfvars"],
+    load: async () => {
+      const { hcl } = await import("codemirror-lang-hcl");
+      return hcl();
+    },
+  },
+  {
+    id: "helm",
+    name: "Helm template",
+    fence: "helm",
+    aliases: ["helm", "gotemplate", "go-template"],
+    extensions: ["tpl"],
+    filenames: [/^_helpers\.tpl$/i],
+    load: async () => helmTemplateSupport,
   },
   {
     id: "json",
@@ -432,6 +453,14 @@ const LANGUAGE_DEFINITIONS = [
     aliases: ["clojure", "clj"],
     extensions: ["clj", "cljc", "cljx"],
     catalogName: "Clojure",
+  },
+  {
+    id: "commonlisp",
+    name: "Common Lisp",
+    fence: "lisp",
+    aliases: ["common-lisp", "commonlisp", "lisp"],
+    extensions: ["cl", "lisp", "lsp"],
+    catalogName: "Common Lisp",
   },
   {
     id: "clojurescript",
@@ -902,6 +931,154 @@ const makefileSupport = new LanguageSupport(
       }
       consumeAuxiliaryToken(stream);
       return null;
+    },
+  }),
+);
+
+interface HelmTemplateState {
+  inAction: boolean;
+  inComment: boolean;
+  quote: '"' | "'" | null;
+}
+
+const helmTemplateSupport = new LanguageSupport(
+  StreamLanguage.define<HelmTemplateState>({
+    name: "helm-template",
+    startState: () => ({ inAction: false, inComment: false, quote: null }),
+    copyState: (state) => ({ ...state }),
+    tokenTable: {
+      "helm-function": tags.function(tags.variableName),
+    },
+    token(stream, state) {
+      if (state.inComment) {
+        if (stream.skipTo("*/")) {
+          stream.match("*/");
+          state.inComment = false;
+        } else {
+          stream.skipToEnd();
+        }
+        return "comment";
+      }
+      if (state.inAction) {
+        if (stream.eatSpace()) {
+          return null;
+        }
+        if (stream.match(/^\/\*/)) {
+          state.inComment = true;
+          return "comment";
+        }
+        if (stream.match(/^-?\}\}/)) {
+          state.inAction = false;
+          return "operator";
+        }
+        if (
+          stream.match(
+            /^(?:if|else|end|range|with|define|block|template)\b/,
+          )
+        ) {
+          return "keyword";
+        }
+        if (
+          stream.match(
+            /^(?:include|required|tpl|lookup|default|quote|squote|toYaml|fromYaml|indent|nindent|fail|printf|print|println)\b/,
+          )
+        ) {
+          return "helm-function";
+        }
+        if (
+          stream.match(
+            /^(?:\$(?:[A-Za-z_][\w]*)?|\.(?:Values|Release|Chart|Capabilities|Files|Template)(?:\.[\w-]+)*)/,
+          )
+        ) {
+          return "variableName";
+        }
+        if (stream.match(/^"(?:[^"\\]|\\.)*"|^`[^`]*`/)) {
+          return "string";
+        }
+        if (stream.match(/^(?:true|false|nil)\b/)) {
+          return "atom";
+        }
+        if (stream.match(/^-?\d+(?:\.\d+)?\b/)) {
+          return "number";
+        }
+        if (stream.match(/^(?::=|=|\||,|\(|\))/)) {
+          return "operator";
+        }
+        if (stream.match(/^[A-Za-z_][\w-]*/)) {
+          return "variableName";
+        }
+        stream.next();
+        return null;
+      }
+      if (stream.sol() && state.quote) {
+        state.quote = null;
+      }
+      if (state.quote) {
+        if (stream.match(/^\{\{-?/)) {
+          state.inAction = true;
+          return "operator";
+        }
+        if (state.quote === "'" && stream.match("''")) {
+          return "string";
+        }
+        if (state.quote === '"' && stream.peek() === "\\") {
+          stream.next();
+          if (!stream.eol()) {
+            stream.next();
+          }
+          return "string";
+        }
+        if (stream.eatSpace()) {
+          return null;
+        }
+        if (stream.peek() === state.quote) {
+          stream.next();
+          state.quote = null;
+          return "string";
+        }
+        while (
+          !stream.eol() &&
+          stream.peek() !== state.quote &&
+          !stream.string.startsWith("{{", stream.pos)
+        ) {
+          stream.next();
+        }
+        return "string";
+      }
+      if (stream.match(/^\{\{-?/)) {
+        state.inAction = true;
+        return "operator";
+      }
+      if (stream.match("#")) {
+        stream.skipToEnd();
+        return "comment";
+      }
+      if (stream.match(/^(?:---|\.\.\.)$/)) {
+        return "meta";
+      }
+      if (stream.match(/^[\w.-]+(?=\s*:)/)) {
+        return "propertyName";
+      }
+      const quote = stream.peek();
+      if (quote === '"' || quote === "'") {
+        stream.next();
+        state.quote = quote;
+        return "string";
+      }
+      if (stream.match(/^(?:true|false|null|~)\b/i)) {
+        return "atom";
+      }
+      if (stream.match(/^-?\d+(?:\.\d+)?\b/)) {
+        return "number";
+      }
+      if (stream.match(/^[&*][\w.-]+/)) {
+        return "variableName";
+      }
+      if (stream.match(/^(?:-|\[|\]|\{|\}|,|:)/)) {
+        return "operator";
+      }
+      consumeAuxiliaryToken(stream);
+      return "string";
     },
   }),
 );
