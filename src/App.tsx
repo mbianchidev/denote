@@ -127,6 +127,10 @@ import {
   resolveSourceLanguage,
   type SourceLanguageOverride,
 } from "./lib/syntaxLanguages";
+import {
+  shouldPublishOutline,
+  type StableOutlineSnapshot,
+} from "./lib/outlineStability";
 import { buildProjectCommands } from "./lib/projectCommands";
 import { welcomePageTarget } from "./lib/welcomePage";
 import {
@@ -311,6 +315,27 @@ interface LinkRewriteSave {
   lineEnding: EditorTab["lineEnding"];
 }
 
+interface OutlineCacheEntry {
+  ready: boolean;
+  snapshot: StableOutlineSnapshot | null;
+}
+
+function outlineCacheKey(
+  vaultPath: string,
+  path: string,
+  languageId: string | null,
+): string {
+  return `${vaultPath}\u0000${path}\u0000${languageId ?? "markdown"}`;
+}
+
+function sourceViewportCacheKey(
+  vaultPath: string,
+  paneId: string,
+  path: string,
+): string {
+  return `${vaultPath}\u0000${paneId}\u0000${path}`;
+}
+
 const DOCK_POSITION_LABELS: Record<PaneDockPosition, string> = {
   center: "into the pane",
   "tab-strip": "into the pane",
@@ -379,15 +404,13 @@ function App() {
     path: string;
     content: string;
     links: string[];
-    headings: HeadingItem[];
-    symbols: SourceSymbol[];
-    minimap: SourceMinimapLine[];
   } | null>(null);
-  const documentAnalysisGeneration = useRef(0);
-  const [sourceViewport, setSourceViewport] = useState<{
-    path: string;
-    viewport: SourceViewport;
-  } | null>(null);
+  const outlineCache = useRef(new Map<string, OutlineCacheEntry>());
+  const outlineGeneration = useRef(new Map<string, number>());
+  const [, setOutlineRevision] = useState(0);
+  const [sourceViewports, setSourceViewports] = useState<
+    Record<string, SourceViewport>
+  >({});
   const [sourceNavigation, setSourceNavigation] = useState<
     (SourceEditorNavigation & { path: string }) | null
   >(null);
@@ -633,9 +656,6 @@ function App() {
     setSourceNavigation((current) =>
       current?.path === activePath ? current : null,
     );
-    setSourceViewport((current) =>
-      current?.path === activePath ? current : null,
-    );
   }, [activePath]);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
@@ -753,33 +773,57 @@ function App() {
         : [],
     [activeFileTab],
   );
+  const activeOutlineKey =
+    workspace && activeFileTab
+      ? outlineCacheKey(
+          workspace.vaultPath,
+          activeFileTab.path,
+          activeFileTab.kind === "markdown" ? null : activeSourceLanguageId,
+        )
+      : null;
+  const activeOutlineEntry = activeOutlineKey
+    ? outlineCache.current.get(activeOutlineKey)
+    : undefined;
+  const stableOutline = activeOutlineEntry?.snapshot ?? null;
+  const outlineLoading = activeOutlineEntry?.ready !== true;
   const analysisMatchesActiveFile =
     activeFileTab &&
     activeDocumentAnalysis?.path === activeFileTab.path &&
     activeDocumentAnalysis.content === activeFileTab.content;
   const headings =
-    analysisMatchesActiveFile && activeFileTab.kind === "markdown"
-      ? activeDocumentAnalysis.headings
+    activeFileTab?.kind === "markdown"
+      ? (stableOutline?.headings ?? [])
       : [];
   const sourceSymbols =
-    analysisMatchesActiveFile && activeSourceOutlineAvailable
-      ? activeDocumentAnalysis.symbols
+    activeSourceOutlineAvailable
+      ? (stableOutline?.symbols ?? [])
       : [];
   const sourceMinimap =
-    analysisMatchesActiveFile && activeSourceOutlineAvailable
-      ? activeDocumentAnalysis.minimap
+    activeSourceOutlineAvailable
+      ? (stableOutline?.minimap ?? [])
       : [];
   const activeWebLinks = analysisMatchesActiveFile
     ? activeDocumentAnalysis.links
     : [];
   useEffect(() => {
-    const generation = ++documentAnalysisGeneration.current;
-    setActiveDocumentAnalysis(null);
-    if (!activeFileTab || activeFileTab.encoding !== "utf8") {
+    if (
+      !activeFileTab ||
+      activeFileTab.encoding !== "utf8" ||
+      !activeOutlineKey
+    ) {
       return;
     }
+    const generation = (outlineGeneration.current.get(activeOutlineKey) ?? 0) + 1;
+    outlineGeneration.current.set(activeOutlineKey, generation);
+    const currentEntry = outlineCache.current.get(activeOutlineKey);
+    outlineCache.current.set(activeOutlineKey, {
+      ready: currentEntry?.ready ?? false,
+      snapshot: currentEntry?.snapshot ?? null,
+    });
+    setOutlineRevision((current) => current + 1);
 
     let worker: Worker | null = null;
+    let settleTimer: number | null = null;
     const timer = window.setTimeout(() => {
       try {
         worker = new Worker(
@@ -792,38 +836,83 @@ function App() {
             headings?: HeadingItem[];
             symbols?: SourceSymbol[];
             minimap?: SourceMinimapLine[];
+            incompleteHeading?: boolean;
             error?: string;
           }>,
         ) => {
           worker?.terminate();
           worker = null;
-          if (generation !== documentAnalysisGeneration.current) {
+          if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
             return;
           }
           if (event.data.error) {
             console.error(
               `Unable to analyze ${activeFileTab.path}: ${event.data.error}`,
             );
+            const failedEntry = outlineCache.current.get(activeOutlineKey);
+            outlineCache.current.set(activeOutlineKey, {
+              ready: failedEntry?.ready ?? false,
+              snapshot: failedEntry?.snapshot ?? null,
+            });
+            setOutlineRevision((current) => current + 1);
             return;
           }
           setActiveDocumentAnalysis({
             path: activeFileTab.path,
             content: activeFileTab.content,
             links: event.data.links ?? [],
+          });
+          const candidate: StableOutlineSnapshot = {
             headings: event.data.headings ?? [],
             symbols: event.data.symbols ?? [],
             minimap: event.data.minimap ?? [],
-          });
+          };
+          const publish = () => {
+            if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
+              return;
+            }
+            outlineCache.current.set(activeOutlineKey, {
+              ready: true,
+              snapshot: candidate,
+            });
+            setOutlineRevision((current) => current + 1);
+          };
+          const previous =
+            outlineCache.current.get(activeOutlineKey)?.snapshot ?? null;
+          const incomplete = event.data.incompleteHeading === true;
+          if (
+            shouldPublishOutline(previous, candidate, {
+              incomplete,
+              settled: false,
+            })
+          ) {
+            publish();
+          } else if (!incomplete) {
+            settleTimer = window.setTimeout(publish, 400);
+          } else {
+            const pendingEntry = outlineCache.current.get(activeOutlineKey);
+            outlineCache.current.set(activeOutlineKey, {
+              ready: pendingEntry?.ready ?? false,
+              snapshot: pendingEntry?.snapshot ?? null,
+            });
+            setOutlineRevision((current) => current + 1);
+          }
         };
         worker.onerror = (event) => {
           worker?.terminate();
           worker = null;
-          if (generation !== documentAnalysisGeneration.current) {
+          if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
             return;
           }
           console.error(
             `Unable to analyze ${activeFileTab.path}: ${event.message}`,
           );
+          const failedEntry = outlineCache.current.get(activeOutlineKey);
+          outlineCache.current.set(activeOutlineKey, {
+            ready: failedEntry?.ready ?? false,
+            snapshot: failedEntry?.snapshot ?? null,
+          });
+          setOutlineRevision((current) => current + 1);
         };
         worker.postMessage({
           markdown: activeFileTab.content,
@@ -839,16 +928,20 @@ function App() {
     }, 200);
 
     return () => {
-      if (generation === documentAnalysisGeneration.current) {
-        documentAnalysisGeneration.current += 1;
+      if (outlineGeneration.current.get(activeOutlineKey) === generation) {
+        outlineGeneration.current.set(activeOutlineKey, generation + 1);
       }
       window.clearTimeout(timer);
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+      }
       worker?.terminate();
     };
   }, [
     activeFileTab?.content,
     activeFileTab?.encoding,
     activeFileTab?.path,
+    activeOutlineKey,
     activeSourceOutlineAvailable,
     activeSourceLanguageId,
   ]);
@@ -6792,16 +6885,25 @@ function App() {
                 pane.id === focusedPaneId &&
                 paneSourceOutlineAvailable &&
                 outlineVisible
-                  ? (viewport) =>
-                      setSourceViewport((current) =>
-                        current?.path === paneTab.path &&
-                        current.viewport.firstLine === viewport.firstLine &&
-                        current.viewport.lastLine === viewport.lastLine &&
-                        current.viewport.totalLines === viewport.totalLines &&
-                        current.viewport.progress === viewport.progress
-                          ? current
-                          : { path: paneTab.path, viewport },
-                      )
+                  ? (viewport) => {
+                      const key = sourceViewportCacheKey(
+                        workspace.vaultPath,
+                        pane.id,
+                        paneTab.path,
+                      );
+                      setSourceViewports((current) => {
+                        const existing = current[key];
+                        if (
+                          existing?.firstLine === viewport.firstLine &&
+                          existing.lastLine === viewport.lastLine &&
+                          existing.totalLines === viewport.totalLines &&
+                          existing.progress === viewport.progress
+                        ) {
+                          return current;
+                        }
+                        return { ...current, [key]: viewport };
+                      });
+                    }
                   : undefined
               }
               onError={showError}
@@ -7515,16 +7617,23 @@ function App() {
           {outlineVisible && activeFileTab?.kind === "markdown" ? (
             <TableOfContents
               headings={headings}
+              loading={outlineLoading}
               onNavigate={navigateToHeading}
             />
           ) : outlineVisible && activeSourceOutlineAvailable ? (
             <SourceOutline
               symbols={sourceSymbols}
               minimap={sourceMinimap}
-              loading={!analysisMatchesActiveFile}
+              loading={outlineLoading}
               viewport={
-                sourceViewport?.path === activeFileTab?.path
-                  ? sourceViewport.viewport
+                activeFileTab
+                  ? (sourceViewports[
+                      sourceViewportCacheKey(
+                        workspace.vaultPath,
+                        focusedPaneId,
+                        activeFileTab.path,
+                      )
+                    ] ?? null)
                   : null
               }
               onNavigateLine={navigateToSourceLine}

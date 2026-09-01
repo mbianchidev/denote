@@ -3,11 +3,13 @@ import type { HeadingItem } from "../types";
 
 interface TableOfContentsProps {
   headings: HeadingItem[];
+  loading?: boolean;
   onNavigate: (heading: HeadingItem) => void;
 }
 
 export function TableOfContents({
   headings,
+  loading = false,
   onNavigate,
 }: TableOfContentsProps) {
   return (
@@ -29,6 +31,10 @@ export function TableOfContents({
             </button>
           ))}
         </nav>
+      ) : loading ? (
+        <p className="toc-empty" role="status">
+          Building outline…
+        </p>
       ) : (
         <p className="toc-empty">Add headings to build an outline.</p>
       )}

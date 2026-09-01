@@ -321,6 +321,9 @@ function markdownHeadingRecords(
       fromMarkdown(markdown) as unknown as HeadingAstNode,
       (heading) => {
         const text = markdownNodeText(heading).trim();
+        if (!text) {
+          return;
+        }
         headings.push({
           line: heading.position?.start.line ?? 1,
           heading: {

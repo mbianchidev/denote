@@ -134,4 +134,25 @@ describe("SourceOutline", () => {
       screen.getByRole("slider", { name: "Document position" }),
     ).toBeInTheDocument();
   });
+
+  it("keeps stable symbols visible while replacement analysis is loading", () => {
+    render(
+      <SourceOutline
+        symbols={symbols}
+        minimap={minimap}
+        viewport={viewport}
+        loading
+        onNavigateLine={vi.fn()}
+        onNavigateProgress={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: /loadProfile.*function.*12/i }),
+    ).toBeVisible();
+    expect(screen.queryByText("Building outline…")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No functions or symbols found."),
+    ).not.toBeInTheDocument();
+  });
 });
