@@ -37,7 +37,7 @@ The search shortcut keeps the active file in **Where to search** and focuses
 **Search text**. Type `*` in the location field to search the vault or a pattern
 such as `*.html` to limit file types.
 
-`Escape` hides the table of contents when it is open. Sidebar and pane dividers
+`Escape` hides the document outline when it is open. Sidebar and pane dividers
 use arrow keys and Home. File-tree context menus use arrow keys and
 Escape. Press Escape then Tab to move focus out of a source/code editor when Tab
 is configured to indent. Tab context menus expose bulk close, group, and
@@ -46,6 +46,10 @@ Folder and root context menus include separate project and workspace marking.
 Use the command palette for whole-vault actions and unavailable project/workspace
 roots. Active-project changes, including workspace-discovered projects, are
 visible in the status bar and announced to screen readers.
+The source outline's code-minimap slider uses arrows for small moves, Page
+Up/Down for viewport moves, and Home/End for the file boundaries.
+The outline divider uses Left/Right, Shift for a larger step, Home for its
+default width, and End for its maximum width.
 All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
 

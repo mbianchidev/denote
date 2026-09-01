@@ -93,13 +93,55 @@ enabled editor display guides still use source mode for safety without changing
 the vault choice.
 
 Programming and markup files outside Markdown use the source editor. Recognized
-extensions such as `.js`, `.ts`, `.py`, `.rs`, `.json`, and many others load
-CodeMirror syntax highlighting automatically.
+filenames load CodeMirror syntax highlighting automatically. Core extensions
+include `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.jsp`, `.go`, `.rs`, `.py`,
+`.c`, `.h`, `.cc`, `.cpp`, `.cxx`, `.hpp`, `.cs`, `.kt`, `.kts`, `.swift`,
+`.rb`, `.php`, `.phtml`, `.dart`, `.lua`, `.r`, `.R`, `.scala`, `.sc`, `.ex`,
+`.exs`, `.json`, `.xml`, `.html`, `.htm`, `.css`, `.md`, `.markdown`, `.sh`,
+`.bash`, `.zsh`, `.yaml`, `.yml`, `.toml`, `.sql`, `.ps1`, `.scss`, and
+`.less`. Auxiliary formats include `.csproj`, `.fsproj`, `.vbproj`, `.vcxproj`,
+`.props`, `.targets`, `.nuspec`, `.slnx`, `.sln`, `.cmake`, `.cmake.in`, `.mk`,
+`.mak`, `.gradle`, `.groovy`, `.properties`, `.ini`, `.cfg`, `.editorconfig`,
+`.proto`, `.tex`, `.ltx`, `.psql`, `.pgsql`, `.mysql`, `.tsql`, `.pls`,
+`.plsql`, `.pkb`, `.pks`, `.cql`, `.j2`, `.jinja`, `.jinja2`, `.vue`, `.hs`,
+`.lhs`, `.clj`, `.cljc`, `.cljx`, `.cljs`, `.erl`, `.hrl`, `.ml`, `.mli`,
+`.mll`, `.mly`, `.fs`, `.fsx`, `.fsi`, `.f77`, `.f90`, `.f95`, `.f03`,
+`.f08`, `.jl`, `.pl`, `.pm`, `.pas`, `.vb`, `.cob`, `.cpy`, and `.cbl`.
+Terraform/HCL adds `.tf`, `.tfvars`, and `.hcl`; Common Lisp adds `.cl`,
+`.lisp`, and `.lsp`; Helm `.tpl` files use the Helm template grammar.
+Angular `*.component.html` files use the Angular template grammar. Dialect
+compound suffixes include `.mariadb.sql`, `.mssql.sql`, and `.sqlite.sql`.
+`go.mod`, `go.sum`, `go.work`, `go.work.sum`, `CMakeLists.txt`,
+`Makefile`, `GNUmakefile`, `Cargo.lock`, `poetry.lock`, `uv.lock`,
+`Jenkinsfile`, `.editorconfig`, `.env` variants, `Procfile`, `Gemfile`,
+`Rakefile`, `BUILD`, `BUILD.bazel`, `BUCK`, `WORKSPACE`, `MODULE.bazel`,
+`meson.build`, and `meson_options.txt` are recognized by filename.
 
-Rich fenced blocks support common aliases and languages including `js`,
-`javascript`, `ts`, `typescript`, `php`, `java`, C/C++, C#, Go, Python, Ruby,
-Kotlin, Swift, Scala, shells, HTML/XML, CSS/SCSS/LESS, JSON, YAML, TOML, SQL,
-Markdown, and Dockerfiles.
+Rich fenced blocks use the same registry. The active block's language control
+opens a searchable combobox that matches names, aliases, and extensions.
+**Automatic** removes the fence identifier and uses readable plain code;
+**Plain text** writes `text`. Searching does not edit the document. Unknown
+identifiers remain visible and unchanged until you explicitly choose a supported
+language, and the language change is undoable without changing the block text.
+
+Supported languages are JavaScript, JSX, TypeScript, TSX, Java, JSP, Go, Rust,
+Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON,
+XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and
+Dockerfiles. Go module/workspace files, CMake, Makefiles, Gradle/Groovy,
+Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
+XML project manifests are also highlighted. Additional choices include LaTeX,
+PostgreSQL, MySQL, MariaDB, MS SQL, PL/SQL, SQLite SQL, CQL, Jinja, Vue,
+Angular templates, Haskell, Clojure/ClojureScript, Erlang, OCaml, F#, Fortran,
+Julia, Perl, Pascal, VB.NET, Cobol, and Puppet. JSX and TSX cover React. JSP
+uses HTML highlighting; Java scriptlets remain uncolored. Common Lisp,
+Terraform/HCL, and Helm templates are also available.
+
+Because `.pp` is shared by Pascal and Puppet, Automatic leaves it plain; select
+the intended language from the status bar. Diff highlighting is deferred to the
+Git plugin.
+Helm chart YAML stays ordinary YAML under Automatic because a `templates`
+directory is not sufficient proof that a file is a Helm template. Select
+**Helm template** as a per-tab override for those files.
 
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.

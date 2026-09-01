@@ -66,6 +66,9 @@ Use the folder control beside New folder to expand every nested folder or
 collapse the complete tree. Expand all leaves folders named `.git` and
 `node_modules` collapsed unless you opened them directly.
 
+To change only one branch, right-click its folder or focus it and press Shift-F10
+or the Context Menu key, then choose **Expand folder** or **Collapse folder**.
+
 Use the eye control to hide or show files and folders whose names start with
 `.`. The choice is stored locally and applies only to the file tree. Hiding a
 dot folder hides its subtree without closing open tabs or removing anything from
@@ -91,6 +94,15 @@ project** makes that folder an explicit project root. **Mark as workspace**
 treats each safe, real direct child folder as a separate implicit project. The
 two marks are independent, so one folder can be a project, a workspace, or both.
 Their separate unmark actions appear in the same menu.
+
+For the whole vault, press `Command-P` or `Ctrl-P` and run **Mark vault as
+workspace**. This makes each safe direct child folder an implicit project. Run
+**Mark vault as project** as well when files stored directly at the vault root
+should receive project context. Syntax highlighting works in ordinary vaults
+too; project context additionally forces line numbers and byte-preserving
+Markdown source mode, shows the active project, and enables code-tooling
+recommendations. Project files and files in a vault-root workspace also use the
+wider source layout and source-symbol outline.
 
 From the keyboard, focus a folder and press Shift-F10 or the Context Menu key.
 The command palette provides separate project and workspace commands for the

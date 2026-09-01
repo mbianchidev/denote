@@ -218,8 +218,9 @@ costumes ordinary controls as technical.
 The desktop workspace uses a fixed 48px activity rail, a user-resizable vault
 sidebar that defaults to 272px, a five-pixel divider target, and a flexible
 one-to-four-pane editor grid. Pane dividers are pointer- and keyboard-resizable.
-The focused pane may add a 218px outline panel. Below 1100px, the outline drops
-and the document padding tightens; below 860px, the rail contracts.
+The focused pane may add a 280px default, resizable outline panel. Below 1100px,
+the outline overlays the editor and the document padding tightens; below 860px,
+the rail contracts.
 
 Chrome uses compact 24–42px rows. Document content has substantially more
 vertical space than surrounding controls. The writing column remains centered
@@ -304,6 +305,9 @@ slightly reduced opacity plus explicit screen-reader text; hover, selection, and
 keyboard focus restore full legibility.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
+Folder entry menus begin their entry-specific actions with **Expand folder** or
+**Collapse folder**, reflecting the current disclosure state without affecting
+other branches.
 The root and folder menus expose independent **Mark as project** / **Unmark
 project** and **Mark as workspace** / **Unmark workspace** actions, so either or
 both roles can apply to one folder. Shift-F10 and the Context Menu key open the
@@ -388,6 +392,32 @@ blue, and neutral ink variants with WCAG AA contrast. Gutters, selections,
 active lines, matching brackets, and editable fenced blocks share the same
 semantic palette. Rich fenced blocks add one compact copy action; editable blocks
 place it at the lower edge so the language and delete controls remain clear.
+The language control is a compact trigger opening an anchored searchable
+combobox. Automatic and Plain text lead the list; names, aliases, and extensions
+filter the remaining options. The active and current options use both shape or
+weight and color, focus remains visible, Escape restores the trigger, and an
+unknown existing identifier stays visible until a supported choice is selected.
+
+Source-only tabs show **Language:** in the status bar. Its compact combobox uses
+the same interaction pattern and marks whether the value is Automatic or an
+Override. The status control is display state, not a file setting, and remains
+available in read mode. Forced-color environments use system focus, selection,
+and current-option colors instead of relying on the theme palette.
+Auxiliary build and project files use the closest bundled syntax: Go module and
+Makefile formats have lightweight core tokenizers; CMake and Groovy use bundled
+catalog grammars; `.csproj` and related manifests use XML; `.sln`,
+`.properties`, `.ini`, `.cfg`, and `.editorconfig` use properties-style
+highlighting.
+The picker also includes LaTeX, Jinja, Vue, Angular templates, React JSX/TSX,
+common SQL dialects, and the supported functional, scientific, legacy, and
+configuration languages. Automatic detection does not guess when extensions are
+ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Diff rendering
+is absent from core and belongs to the Git plugin's future surfaces.
+Terraform/HCL uses its bundled parser. Helm `.tpl` files and explicit Helm
+overrides use a restrained YAML-plus-template tokenizer that distinguishes
+values, actions, functions, variables, and control blocks without executing
+templates. Ordinary Helm `.yaml` files stay YAML under Automatic because their
+path alone is not enough to distinguish them safely.
 
 ### Replace Preview
 
@@ -438,6 +468,27 @@ directory, a non-modal suggestion appears in the workspace chrome. It offers
 **Mark as project** and **No thanks**, never marks automatically, and disappears
 permanently for that vault after either dismissal or manual root
 project/workspace marking.
+
+### Source Outline
+
+Project source uses the available pane width rather than the centered writing
+measure. The outline becomes a compact 280px source navigator. Its upper section
+is a scrollable monospace symbol list showing function, type, module, resource,
+or section plus the source line; visible-range rows use the quiet selected
+surface.
+
+Below the symbols, a code minimap preserves the file's vertical distribution,
+indentation, relative line lengths, comments, and emphasized declaration lines.
+A moss-outlined window overlays the live viewport. Pointer clicks or drags jump
+proportionally through the file. The complete minimap is one keyboard-focusable
+vertical slider: arrows move by a small fraction of the viewport, Page Up/Down
+move by one viewport, and Home/End jump to the boundaries. Its accessible value
+announces the visible line range and total lines.
+
+A five-pixel divider sits before both Markdown and source outlines. Dragging
+resizes the panel from 180 to 480px; keyboard Left/Right changes width, Shift
+uses a larger step, Home restores 280px, and End uses the maximum. Focus uses
+the standard moss ring and the chosen width persists locally.
 
 ### Vault Security
 

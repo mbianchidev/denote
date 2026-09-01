@@ -38,6 +38,7 @@ more detail and examples.
   file from its context menu or the focused-file three-dot menu.
 - Expand every folder except `.git` and `node_modules` unless opened directly,
   or collapse the complete file tree.
+- Expand or collapse one folder from its context menu.
 - Persistently hide or show dotfiles and complete dot-folder subtrees in the
   local file-tree presentation without changing vault data or open tabs.
 - Keep `.gitignore` matches visible and interactive with reduced emphasis and an
@@ -122,11 +123,32 @@ more detail and examples.
 - Render safe `<details>` / `<summary>` disclosure blocks with Markdown content.
 - Render `>![info]`, `>![warning]`, and `>![danger]` as callout boxes.
 - Copy rich-mode fenced code blocks from their inline **Copy** button.
-- Highlight supported programming and markup files by filename in the source
-  editor.
-- Highlight rich fenced blocks for JavaScript, TypeScript, PHP, Java, C/C++,
-  C#, Go, Python, Ruby, Kotlin, Swift, Scala, shells, web, data, and config
-  languages.
+- Highlight supported programming and markup files from one built-in filename
+  and extension registry.
+- Show the effective source language in the status bar and apply a non-persistent
+  per-tab Automatic, Plain text, or explicit language override without changing
+  the file.
+- Highlight source files and rich fences for JavaScript, JSX, TypeScript, TSX,
+  Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua,
+  R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL,
+  PowerShell, SCSS, LESS, and Dockerfiles. JSP uses HTML highlighting.
+- Highlight `go.mod`, `go.sum`, `go.work`, `go.work.sum`, CMake files,
+  Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
+  Cargo/Poetry/uv locks, Visual Studio solutions, `.csproj`-family XML project
+  manifests, and other documented project filenames.
+- Highlight LaTeX, PostgreSQL, MySQL, MariaDB, MS SQL, PL/SQL, SQLite SQL,
+  CQL, Jinja, Vue, Angular templates, Haskell, Clojure/ClojureScript, Erlang,
+  OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET, Cobol, and Puppet. React uses
+  JSX or TSX.
+- Highlight Common Lisp, Terraform/HCL (`.tf`, `.tfvars`, `.hcl`), and Helm
+  `.tpl` files. Offer Helm as a per-tab override for chart YAML templates.
+- Keep ambiguous `.pp` files plain under Automatic and allow an explicit Pascal
+  or Puppet tab override. Leave diff highlighting to the Git plugin.
+- Search code-block languages by name, alias, or extension from a keyboard
+  combobox. Keep unknown identifiers until a supported option is explicitly
+  selected, and change only the fence identifier through undoable editing.
+- Fall back to readable plain text for unknown identifiers, extensions, or
+  grammar-load failures.
 - Preserve mixed Unicode scripts and emoji in one file.
 - Open unsupported rich syntax such as MDX, other raw HTML, footnotes, math,
   reference definitions, and escaped hashtags in locked source mode for safety.
@@ -194,6 +216,14 @@ more detail and examples.
   packaged version and full Git commit.
 - Scale editor text without scaling application chrome.
 - Adapt code blocks and syntax colors to the active theme.
+- Preserve source and fenced editor instances, selection, undo history, and
+  content while themes or presentation-only language state change.
+- Expand project and vault-workspace source editors to the available pane width.
+- Show a bounded project source outline of functions and other declarations,
+  navigate directly to a symbol line, and use an accessible code minimap with a
+  live viewport window to jump anywhere in long files.
+- Resize Markdown and source outlines by pointer or keyboard and persist the
+  bounded width locally.
 - Resize the vault sidebar by pointer or keyboard.
 - Show optional line numbers, spaces/tabs, exact line endings, and trailing
   whitespace.

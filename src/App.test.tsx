@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { FileNode, WorkspaceSnapshot } from "./types";
 
@@ -63,21 +64,36 @@ vi.mock("./components/PlainTextEditor", () => ({
     ariaLabel,
     value,
     readOnly,
+    spellCheck,
+    languageOverride,
+    projectMode,
+    onViewportChange,
     onChange,
   }: {
     ariaLabel: string;
     value: string;
     readOnly: boolean;
+    spellCheck: boolean;
+    languageOverride?: string | null;
+    projectMode?: boolean;
+    onViewportChange?: (viewport: unknown) => void;
     onChange: (value: string) => void;
   }) => (
-    <button
-      type="button"
-      aria-label={`Change ${ariaLabel}`}
-      disabled={readOnly}
-      onClick={() => onChange(`${value} changed`)}
-    >
-      Change content
-    </button>
+    <>
+      <output data-testid="plain-editor-language">
+        {languageOverride ?? "auto"}:{String(spellCheck)}:
+        {projectMode ? "project" : "standard"}:
+        {onViewportChange ? "tracked" : "untracked"}
+      </output>
+      <button
+        type="button"
+        aria-label={`Change ${ariaLabel}`}
+        disabled={readOnly}
+        onClick={() => onChange(`${value} changed`)}
+      >
+        Change content
+      </button>
+    </>
   ),
 }));
 vi.mock("./components/FileTree", () => ({
@@ -306,6 +322,125 @@ describe("App initial file-tree expansion", () => {
       screen.getByRole("tab", { name: /alpha\.txt.*unsaved changes/i }),
     ).toBeInTheDocument();
   });
+
+  it("applies a tab-local source language override without editing or saving", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("sample.ts", "text"),
+        fileNode("other.py", "text"),
+      ]),
+    );
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open sample.ts" }),
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source language: TypeScript (Automatic)",
+      }),
+    );
+    await user.type(
+      screen.getByRole("combobox", { name: "Search source language" }),
+      "plain text",
+    );
+    await user.click(screen.getByRole("option", { name: "Plain text" }));
+
+    expect(
+      screen.getByRole("button", {
+        name: "Source language: Plain text (Override)",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+      "text:true",
+    );
+    expect(mockApi.recordEdit).not.toHaveBeenCalledWith("sample.ts");
+    expect(mockApi.saveNote).not.toHaveBeenCalledWith(
+      "sample.ts",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open other.py" }));
+    expect(
+      await screen.findByRole("button", {
+        name: "Source language: Python (Automatic)",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+      "auto:false",
+    );
+    expect(mockApi.recordEdit).not.toHaveBeenCalledWith("other.py");
+    expect(mockApi.saveNote).not.toHaveBeenCalledWith(
+      "other.py",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it.each(["project", "workspace"] as const)(
+    "uses the expanded source view and outline in a vault %s context",
+    async (context) => {
+      const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+      if (context === "project") {
+        snapshot.projectRoots = [
+          {
+            id: "vault-project",
+            rootPath: "",
+            available: true,
+            explicit: true,
+            workspaceId: null,
+          },
+        ];
+      } else {
+        snapshot.projectWorkspaces = [
+          {
+            id: "vault-workspace",
+            rootPath: "",
+            available: true,
+          },
+        ];
+      }
+      mockApi.getLastVault.mockResolvedValue(snapshot);
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open sample.py" }),
+      );
+
+      expect(
+        await screen.findByRole("button", { name: "Hide outline" }),
+      ).toBeEnabled();
+      expect(screen.getByLabelText("Source outline")).toBeInTheDocument();
+      expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+        "auto:false:project:tracked",
+      );
+      fireEvent.keyDown(
+        screen.getByRole("separator", {
+          name: "Resize document outline",
+        }),
+        { key: "ArrowLeft" },
+      );
+      expect(localStorage.getItem("denote-outline-width")).toBe("292");
+      fireEvent.click(screen.getByRole("button", { name: "Hide outline" }));
+      expect(
+        screen.queryByRole("separator", {
+          name: "Resize document outline",
+        }),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+        "auto:false:project:untracked",
+      );
+    },
+  );
 
   it("refreshes the full ignored set after a project change", async () => {
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));

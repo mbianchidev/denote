@@ -80,8 +80,16 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Every regular file up to 25 MB can be opened and edited.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.
-- Source-only programming and markup files use filename-driven CodeMirror
-  language support when the language catalog recognizes them.
+- Source-only programming and markup files use one filename-driven core
+  CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
+  TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
+  PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML,
+  TOML, SQL, PowerShell, SCSS, LESS, Dockerfiles, Go module/workspace files,
+  CMake, Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
+  Visual Studio solutions, common XML project manifests, LaTeX, Jinja, Vue,
+  Angular templates, Haskell, Clojure/ClojureScript, Erlang, OCaml, F#,
+  Fortran, Julia, Perl, Pascal, VB.NET, Cobol, Puppet, Common Lisp,
+  Terraform/HCL, Helm templates, and common SQL dialects.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
 - Full, collapsed, and shortcut Markdown reference links render and remain
@@ -175,6 +183,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   control and closes it when focus changes to another file.
 - One file-tree control expands every folder except `.git` and `node_modules`,
   which stay collapsed unless opened directly, or collapses the complete tree.
+- A folder's context menu exposes **Expand folder** or **Collapse folder** for
+  that single subtree, with the same keyboard-operable menu behavior.
 - A persistent local file-tree control can hide entries whose basename starts
   with `.`, including complete dot-folder subtrees, without changing vault data,
   search results, project metadata, or open tabs.
@@ -210,6 +220,20 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   removing its governing mark restores the saved line-number setting and vault
   Markdown preference immediately; these constraints never persist as editor
   preferences.
+- Source editors use the full pane width when the focused file has project
+  context or the vault root is marked as a workspace, while ordinary vault text
+  keeps the narrower writing measure.
+- The optional outline lists bounded, language-aware source symbols for project
+  files. Selecting a symbol moves to its line; a miniature code map below the
+  symbols reflects indentation and declaration structure, overlays the live
+  viewport, and jumps to any proportional position.
+- The Markdown or source outline width is pointer- and keyboard-resizable,
+  persists locally, and remains bounded so the editor keeps usable space.
+- Syntax highlighting remains available for recognized files in any vault.
+  Marking a folder as a project additionally enables project status, forced line
+  numbers, byte-preserving project Markdown, and code-tooling recommendations.
+  Marking a folder as a workspace discovers each safe direct child as an
+  implicit project; root-level files need the same folder marked as a project.
 - Markdown parser failures expose line and column details, force a temporary
   source fallback without changing the vault preference, highlight the failing
   line, and provide keyboard-accessible error navigation. Errors remain scoped
@@ -217,9 +241,24 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   automatically.
 - Code blocks, syntax highlighting, gutters, and selections use complete dark
   and light palettes rather than a fixed editor theme.
-- Rich fenced blocks and source files recognize common JavaScript/TypeScript
-  aliases plus PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell,
-  web, data, and configuration languages.
+- Rich fenced blocks use the same core registry and recognize language names,
+  common aliases, and registered extensions. Unknown identifiers remain
+  untouched and render as readable plain text.
+- The active rich code block exposes a searchable, keyboard-operable language
+  combobox with Automatic and Plain text choices. Filtering does not edit the
+  fence; an explicit selection changes only its identifier through normal undo.
+- Source-only UTF-8 tabs expose their detected language in the status bar and
+  accept a transient per-tab override. Automatic returns to filename detection;
+  Plain text disables highlighting. Overrides never rename, dirty, save, or
+  persist with the file.
+- JSP uses the bundled HTML grammar as a safe baseline, leaving Java scriptlets
+  readable but uncolored.
+- JSX and TSX provide React syntax; Angular component templates and Vue
+  single-file components use their bundled grammars.
+- `.pp` remains automatic plain text because both Pascal and Puppet claim it;
+  users can select either language as a transient per-tab override.
+- Core does not register diff highlighting. Git-owned diff presentation remains
+  part of the optional Git plugin.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live
   code document rather than only visible lines.
 - About Denote exposes the packaged semantic version and immutable Git commit

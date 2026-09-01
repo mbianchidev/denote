@@ -80,6 +80,34 @@ npm run tauri build
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
 
+## Extend core syntax highlighting
+
+Built-in languages are declared in `src/lib/syntaxLanguages.ts`. Add or change a
+language there rather than creating separate source-file and Markdown maps.
+Every entry must define a stable ID, display name, preferred fence identifier,
+search aliases, explicit extensions or filenames, and a bundled asynchronous
+CodeMirror loader.
+
+Add synthetic table-driven coverage in `src/lib/syntaxLanguages.test.ts`, plus
+editor or combobox coverage when behavior changes. Update the product,
+architecture, design, and canonical user guide language lists together. New
+grammar dependencies must be direct dependencies, lazy-loaded, included in
+`package-lock.json`, and pass `npm audit`; Denote never downloads grammars at
+runtime. Specialized plugin grammar support requires a separately approved typed
+host contract and is not part of plugin API version 1.
+
+Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
+maintained package, so its small core stream tokenizer stays in
+`src/lib/syntaxLanguages.ts` and must retain synthetic coverage for YAML keys,
+template actions, functions, variables, comments, and control blocks.
+
+Source outline declaration heuristics live in `src/lib/sourceOutline.ts`.
+Extending a language should add the smallest anchored declaration patterns,
+synthetic line-number tests, and no unbounded backtracking. Keep extraction in
+the document-analysis worker, preserve the 20 KB line and 1,000-symbol bounds,
+cap the proportional code minimap at 500 strokes, and never force a complete
+CodeMirror parse for outline generation.
+
 ## Prepare a release
 
 From an up-to-date `main` branch, update every Denote version source, commit and

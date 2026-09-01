@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
@@ -7,6 +8,7 @@ import { createRef, StrictMode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { api } from "../lib/api";
+import { applyTheme } from "../lib/theme";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 describe("MarkdownEditor links", () => {
@@ -2046,6 +2048,238 @@ describe("MarkdownEditor links", () => {
 
     expect(copy).toHaveBeenCalledWith("const answer = 42;");
     copy.mockRestore();
+  });
+
+  it("preserves an unknown fence until an explicit language selection", async () => {
+    const user = userEvent.setup();
+    const editorRef = createRef<MDXEditorMethods>();
+    const onChange = vi.fn();
+    const source =
+      "# Synthetic\n\n```syntheticlang\nconst answer = 42;\n```\n\nTail";
+    const { container } = render(
+      <MarkdownEditor
+        ref={editorRef}
+        notePath="synthetic.md"
+        markdown={source}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const trigger = await screen.findByRole("button", {
+      name: "Code block language: Unknown: syntheticlang",
+    });
+    expect(editorRef.current?.getMarkdown()).toBe(source);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(
+      EditorView.findFromDOM(
+        container.querySelector<HTMLElement>(
+          "[data-denote-code-block-editor] .cm-editor",
+        )!,
+      )?.state.doc.toString(),
+    ).toBe("const answer = 42;");
+
+    await user.click(trigger);
+    await user.type(
+      screen.getByRole("combobox", {
+        name: "Search code block language",
+      }),
+      "python",
+    );
+    expect(onChange).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("option", { name: "Python" }));
+
+    await waitFor(() =>
+      expect(editorRef.current?.getMarkdown()).toBe(
+        "# Synthetic\n\n```python\nconst answer = 42;\n```\n\nTail",
+      ),
+    );
+    expect(
+      EditorView.findFromDOM(
+        container.querySelector<HTMLElement>(
+          "[data-denote-code-block-editor] .cm-editor",
+        )!,
+      )?.state.doc.toString(),
+    ).toBe("const answer = 42;");
+
+    await user.click(screen.getByRole("radio", { name: /Undo/ }));
+    await waitFor(() =>
+      expect(editorRef.current?.getMarkdown()).toBe(source),
+    );
+  });
+
+  it("creates new fenced blocks with Automatic language", async () => {
+    const user = userEvent.setup();
+    const editorRef = createRef<MDXEditorMethods>();
+    render(
+      <MarkdownEditor
+        ref={editorRef}
+        notePath="synthetic.md"
+        markdown=""
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Insert Code Block" }),
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Code block language: Automatic",
+      }),
+    ).toBeInTheDocument();
+    expect(editorRef.current?.getMarkdown()).toContain("```\n```");
+  });
+
+  it("keeps language and delete controls disabled in read mode", async () => {
+    render(
+      <MarkdownEditor
+        notePath="synthetic.md"
+        markdown={"```ts\nconst total = 3;\n```"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("button", {
+        name: "Code block language: TypeScript",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Delete code block" }),
+    ).toBeDisabled();
+    expect(screen.getByRole("textbox", { name: "Read code block" })).toHaveAttribute(
+      "contenteditable",
+      "false",
+    );
+  });
+
+  it("updates the code block accessible label when read mode changes", async () => {
+    const props = {
+      notePath: "synthetic.md",
+      markdown: "```ts\nconst total = 3;\n```",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor {...props} readOnly={false} />,
+    );
+    const editable = await screen.findByRole("textbox", {
+      name: "Edit code block",
+    });
+    const editorElement =
+      container.querySelector<HTMLElement>(
+        "[data-denote-code-block-editor] .cm-editor",
+      )!;
+    const view = EditorView.findFromDOM(editorElement);
+
+    rerender(<MarkdownEditor {...props} readOnly />);
+
+    expect(
+      await screen.findByRole("textbox", { name: "Read code block" }),
+    ).toBe(editable);
+    expect(editable).toHaveAttribute("contenteditable", "false");
+    expect(EditorView.findFromDOM(editorElement)).toBe(view);
+  });
+
+  it("copies a large live code document from the custom editor", async () => {
+    const user = userEvent.setup();
+    const code = Array.from(
+      { length: 2_500 },
+      (_, index) => `const value${index} = ${index};`,
+    ).join("\n");
+    const copy = vi.spyOn(api, "copyFileContent").mockResolvedValue();
+    render(
+      <MarkdownEditor
+        notePath="large-synthetic.md"
+        markdown={`\`\`\`js\n${code}\n\`\`\``}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Copy code block" }),
+    );
+
+    expect(copy).toHaveBeenCalledWith(code);
+    copy.mockRestore();
+  });
+
+  it("updates fenced-code theme colors without remounting or changing history", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="theme-synthetic.md"
+        markdown={"```ts\nconst total = 3;\n```"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const editorElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(
+        "[data-denote-code-block-editor] .cm-editor",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const view = EditorView.findFromDOM(editorElement)!;
+    await vi.waitFor(() =>
+      expect(syntaxTree(view.state).type.name).not.toBe(""),
+    );
+    view.dispatch({ selection: { anchor: 6, head: 11 } });
+
+    applyTheme("light");
+
+    expect(EditorView.findFromDOM(editorElement)).toBe(view);
+    expect(view.state.selection.main).toMatchObject({ from: 6, to: 11 });
+    expect(view.state.doc.toString()).toBe("const total = 3;");
+    expect(onChange).not.toHaveBeenCalled();
+    applyTheme("dark");
   });
 });
 

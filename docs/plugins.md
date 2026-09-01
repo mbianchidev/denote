@@ -160,6 +160,11 @@ the same user-action lease and permission checks. Adding a new surface requires 
 typed declarative contract, deterministic disposal, accessibility behavior,
 security review, and an additive SDK release; executable UI injection requires a
 new API major and a separately documented isolation model.
+Core source and fenced-code syntax highlighting is available before plugins
+start and does not use a plugin capability. Specialized future grammars would
+need a separately approved typed contribution contract and bundled package;
+plugins cannot inject parsers or download executable grammar code through API
+version 1.
 Persistent terminals, long-running language-server sessions, and their protocol
 APIs remain separate future plugin work rather than extensions of bounded
 `process.run`.

@@ -150,6 +150,10 @@ menu injection, and general import/export hooks. Editor actions use command
 registrations so every privileged operation remains tied to an explicit,
 short-lived user action. New declarative contribution surfaces can be added
 compatibly; executable UI surfaces require a new API major and isolation review.
+Baseline syntax highlighting is core and never waits for plugin startup. A
+future specialized grammar contribution would require a separately approved,
+typed, bundled host contract with deterministic disposal and fallback; API
+version 1 does not expose editor grammars or runtime grammar downloads.
 
 The native plugin manager embeds only `packages/plugins/catalog.json`. Plugin
 artifacts remain separate repository files and are downloaded over HTTPS after
@@ -487,6 +491,9 @@ project cannot normalize callout or other Markdown syntax. The override does
 not write the saved display settings or vault Markdown preference, so switching
 focus outside the project or unmarking it restores ordinary behavior
 immediately. `.mdx` remains independently source-only.
+Source files with active project context, plus source files in a vault-root
+workspace, receive an in-memory wide-layout class; the file and editor settings
+remain unchanged.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every
@@ -528,13 +535,94 @@ opens bypass restore.
 Session metadata failures are surfaced but never block saving note content,
 closing tabs, switching vaults, or exiting.
 
-Plain UTF-8 files remain source-only. The frontend resolves their filenames
-against CodeMirror's language catalog and asynchronously reconfigures a language
-compartment, so JavaScript, TypeScript, Python, and other recognized programming
-or markup files receive syntax highlighting without remounting the editor.
-Rich fenced blocks share a central catalog of common aliases, including `js`,
-`ts`, PHP, Java, C/C++, C#, Go, Ruby, Kotlin, Swift, Scala, shell, web, data, and
-configuration formats, and autoload the same CodeMirror language support.
+Plain UTF-8 files remain source-only. `src/lib/syntaxLanguages.ts` is the typed
+authoritative registry for both source files and rich fenced blocks. Each entry
+owns its stable ID, display name, preferred fence identifier, searchable aliases,
+explicit extensions or filenames, and bundled asynchronous loader. The registry
+covers JavaScript/JSX/TypeScript/TSX, Java, JSP, Go, Rust, Python, C/C++, C#,
+Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS,
+Markdown, shell, YAML, TOML, SQL and its packaged dialects, PowerShell, SCSS,
+LESS, Dockerfiles, LaTeX, Jinja, Vue, Angular templates, Haskell,
+Clojure/ClojureScript, Erlang, OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET,
+Cobol, Puppet, Common Lisp, Terraform/HCL, and Helm templates. React uses the
+existing JSX and TSX grammars rather than a separate parser.
+CodeMirror's packaged language-data loaders cover the standard entries;
+`codemirror-lang-elixir` and `codemirror-lang-hcl` are bundled lazy chunks. JSP
+deliberately uses the HTML grammar, so scriptlets stay readable without
+introducing an unmaintained parser.
+The same registry recognizes auxiliary project files: `go.mod`, `go.sum`,
+`go.work`, `go.work.sum`, CMake files, Makefiles, Gradle/Groovy, Protocol
+Buffers, `.ini`/`.cfg`/properties files, Cargo/Poetry/uv locks, Visual Studio
+solutions, and XML project formats such as `.csproj`, `.props`, and `.targets`.
+Small bounded `StreamLanguage` tokenizers cover Go module and Makefile syntax;
+the remaining formats reuse packaged XML, TOML, JSON, Python, Groovy, CMake, or
+properties grammars. Compound suffixes such as `.cmake.in` are matched
+longest-first before ordinary extensions.
+Alias and extension lookup records collisions instead of using registry order.
+The shared `.pp` extension is therefore intentionally unresolved until the user
+chooses Pascal or Puppet. SQL dialect choices include PostgreSQL, MySQL,
+MariaDB, MS SQL, PL/SQL, SQLite SQL, and CQL; plain `.sql` remains standard SQL,
+while dialect-specific suffixes or an explicit tab override select a dialect.
+Diff is deliberately not registered by core because Git diff presentation and
+future diff-specific interaction belong to the Git plugin.
+Helm has no maintained CodeMirror package, so core supplies a bounded
+`StreamLanguage` tokenizer for YAML structure plus `{{ }}` actions, built-in
+functions, `.Values`-style variables, and control keywords. `.tpl` files select
+it automatically. YAML chart templates remain YAML under Automatic to avoid
+misclassifying unrelated `templates/` folders and can use the per-tab Helm
+override.
+
+`PlainTextEditor` resolves the filename plus the tab's optional override, clears
+the previous language immediately, and asynchronously reconfigures a stable
+language compartment. A request counter rejects stale completions, successful or
+in-flight loaders are cached, and a failed load removes its cache entry, reports
+the error, and leaves plain text available for retry. Grammar effects do not
+change CodeMirror documents and therefore cannot enter autosave.
+
+Rich blocks use a Denote-owned catch-all `CodeBlockEditorDescriptor` rather than
+MDXEditor's built-in editor and select. The custom editor uses the same theme,
+history, indentation, read-only, and language-compartment behavior as source
+files. Its searchable ARIA combobox edits a fence language only after explicit
+selection; typing, opening, theme changes, and unknown identifiers are
+presentation-only. Automatic serializes an empty identifier, Plain text uses
+`text`, and the code document is never replaced during a language change.
+Copy-button discovery uses the stable Denote code-block wrapper and reads
+`EditorView.state.doc`, including virtualized lines.
+
+The focused UTF-8 source tab exposes its effective language in the status bar.
+`EditorTab.languageOverride` is frontend-only state: pane moves preserve the live
+tab, while navigation, close/reopen, and session restore return to Automatic. It
+is absent from tab-session JSON, SQLite, Rust models, file names, save hashes, and
+plugin context. Theme changes remain CSS-variable updates and do not remount
+either editor. CodeMirror and Lezer perform incremental viewport parsing; Denote
+adds no synchronous whole-document highlighting scan.
+
+The existing delayed document-analysis worker also runs
+`extractSourceSymbols` for source files when project or vault-workspace context
+enables the source outline. The extractor walks normalized text once without a
+line-array copy, skips pathological lines over 20 KB, and caps results at 1,000.
+Language families use bounded declaration heuristics for functions, methods,
+types, modules, resources, and sections; unknown languages return no symbols.
+Worker generation checks prevent stale results from crossing tab or language
+changes.
+
+The worker also reduces source into at most 500 minimap strokes, choosing one
+representative line per proportional bucket and retaining indentation, relative
+length, comment tone, and symbol emphasis. It never transfers raw rendered DOM
+or forces CodeMirror parsing.
+
+`PlainTextEditor` reports its live CodeMirror viewport through a
+requestAnimationFrame-coalesced callback. The source outline sends monotonic
+navigation requests back
+to the focused editor: symbol requests select and center a line, while code
+minimap requests set proportional scroll position. These effects do not change
+the document, history, language, or autosave state.
+
+The outline divider stores one global local width through
+`src/lib/outlineWidth.ts`, clamped to 180–480px with a 280px default. Pointer
+movement is reversed for the right-aligned panel; keyboard resizing and reset
+use the same clamping path. At narrow breakpoints the outline and divider become
+right-aligned overlays without changing the persisted value.
 
 Markdown source mode registers a highest-precedence Command-K / Control-K
 CodeMirror command. It wraps a range as `[selected text]()` or inserts `[]()` at

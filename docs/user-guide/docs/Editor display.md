@@ -50,6 +50,53 @@ the project restores normal behavior immediately.
 `.mdx` files remain non-executing, JSX-highlighted source files; project context
 does not add rich editing.
 
+Project source files use the full editor pane instead of the narrower writing
+column. A vault marked as a workspace uses the same wider source layout even
+before a direct child project is focused.
+
+Open **Outline** to list detected functions, methods, types, modules, resources,
+or sections with their line numbers. Select one to center and focus that line.
+The code minimap below shows miniature line structure, indentation, comments,
+and highlighted declaration lines. Its outlined window shows the current
+viewport; click or drag anywhere on the minimap to jump through a long file.
+With keyboard focus on it, use arrows, Page Up/Down, Home, or End. The slider
+announces its visible line range.
+
+Drag the divider beside the outline to resize it. Focus the divider and use
+Left/Right for small changes, Shift-Left/Right for larger changes, Home to
+restore the 280px default, or End for the maximum. The width is stored locally
+and applies to Markdown and source outlines.
+
+## Source language
+
+Source-only UTF-8 files show **Language:** in the status bar. Denote detects the
+language from the filename using its built-in registry. Open the control to
+search names, aliases, or extensions and apply an override to the current tab.
+
+**Automatic** returns to filename detection. **Plain text** disables syntax
+highlighting. An override does not rename or edit the file, does not trigger
+autosave, and is discarded when the tab is closed or navigates to another file.
+It is not restored with the next session.
+
+The built-in registry covers JavaScript, JSX, TypeScript, TSX, Java, JSP, Go,
+Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir,
+JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS,
+Dockerfiles, Go module/workspace files, CMake, Makefiles, Gradle/Groovy,
+Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
+XML project manifests. It also includes LaTeX, PostgreSQL, MySQL, MariaDB,
+MS SQL, PL/SQL, SQLite SQL, CQL, Jinja, Vue, Angular templates, Haskell,
+Clojure/ClojureScript, Erlang, OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET,
+Cobol, Puppet, Common Lisp, Terraform/HCL, and Helm templates. JSX and TSX cover
+React syntax. JSP uses HTML highlighting; Java scriptlets remain readable but
+uncolored.
+
+Automatic detection leaves `.pp` as plain text because both Pascal and Puppet
+use it. Choose either language from the tab override when needed. Diff
+highlighting is reserved for the optional Git plugin.
+Terraform files use `.tf`, `.tfvars`, or `.hcl`. Helm `.tpl` files are detected
+automatically; Helm YAML templates stay YAML until **Helm template** is selected
+as the tab override.
+
 ## Session restore
 
 **Reopen tabs from the last session** is enabled by default for each vault. It

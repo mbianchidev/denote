@@ -1,4 +1,9 @@
-import { indentWithTab } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
 import {
   HighlightStyle,
   indentUnit,
@@ -16,6 +21,10 @@ import {
   Decoration,
   EditorView,
   ViewPlugin,
+  drawSelection,
+  dropCursor,
+  highlightActiveLine,
+  highlightSpecialChars,
   type DecorationSet,
   type ViewUpdate,
   WidgetType,
@@ -119,6 +128,18 @@ export const denoteCodeMirrorTheme: Extension = [
     ),
   ),
 ];
+
+export function createCodeMirrorBehaviorExtensions(): Extension[] {
+  return [
+    history(),
+    drawSelection(),
+    dropCursor(),
+    highlightActiveLine(),
+    highlightSpecialChars(),
+    EditorView.lineWrapping,
+    keymap.of([...defaultKeymap, ...historyKeymap]),
+  ];
+}
 
 export function createEditorDisplayExtensions(
   settings: EditorDisplaySettings,

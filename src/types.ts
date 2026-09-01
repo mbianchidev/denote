@@ -1,4 +1,5 @@
 import type { MarkdownViewMode } from "./lib/markdownView";
+import type { SourceLanguageOverride } from "./lib/syntaxLanguages";
 import type {
   PluginBundle,
   PluginCatalogEntry,
@@ -300,6 +301,7 @@ export interface EditorTab {
   imageDataUrl?: string;
   rawEditing: boolean;
   readOnly?: boolean;
+  languageOverride?: SourceLanguageOverride;
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
