@@ -7,6 +7,10 @@ const mockApi = vi.hoisted(() => ({
   listSearchDocuments: vi.fn(),
   markProjectRoot: vi.fn(),
   refreshGitignoreStatus: vi.fn(),
+  readNote: vi.fn(),
+  recordEdit: vi.fn(),
+  saveNote: vi.fn(),
+  saveTabSession: vi.fn(),
   createEntry: vi.fn(),
   trashEntry: vi.fn(),
   restoreTrashItem: vi.fn(),
@@ -54,6 +58,28 @@ vi.mock("./plugins/usePlugins", () => ({
     shutdown: vi.fn(),
   }),
 }));
+vi.mock("./components/PlainTextEditor", () => ({
+  PlainTextEditor: ({
+    ariaLabel,
+    value,
+    readOnly,
+    onChange,
+  }: {
+    ariaLabel: string;
+    value: string;
+    readOnly: boolean;
+    onChange: (value: string) => void;
+  }) => (
+    <button
+      type="button"
+      aria-label={`Change ${ariaLabel}`}
+      disabled={readOnly}
+      onClick={() => onChange(`${value} changed`)}
+    >
+      Change content
+    </button>
+  ),
+}));
 vi.mock("./components/FileTree", () => ({
   FileTree: ({
     expandedPaths,
@@ -87,6 +113,18 @@ vi.mock("./components/FileTree", () => ({
           Select synthetic entry
         </button>
       ) : null}
+      {onSelect
+        ? nodes.map((node) => (
+            <button
+              key={node.path}
+              type="button"
+              aria-label={`Open ${node.name}`}
+              onClick={() => onSelect(node)}
+            >
+              Open synthetic file
+            </button>
+          ))
+        : null}
       {onDelete && nodes[0] ? (
         <button type="button" onClick={() => onDelete(nodes[0])}>
           Delete synthetic entry
@@ -117,6 +155,24 @@ describe("App initial file-tree expansion", () => {
       ignoredPaths: [],
       complete: true,
     });
+    mockApi.readNote.mockImplementation(async (path: string) => ({
+      path,
+      content: `${path} content`,
+      contentHash: `${path}-hash`,
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    }));
+    mockApi.recordEdit.mockResolvedValue(noteStats());
+    mockApi.saveNote.mockResolvedValue({
+      path: "synthetic.txt",
+      changed: true,
+      savedAt: "2026-01-01T00:00:00Z",
+      contentHash: "saved-hash",
+      historyCount: 1,
+      stats: noteStats(),
+    });
+    mockApi.saveTabSession.mockResolvedValue(undefined);
     mockApi.createEntry.mockResolvedValue(fileNode(".gitignore"));
     mockApi.trashEntry.mockResolvedValue({
       id: 7,
@@ -221,6 +277,34 @@ describe("App initial file-tree expansion", () => {
         screen.getByRole("button", { name: "Rename selected item" }),
       ).toBeDisabled();
     });
+  });
+
+  it("opens another file without saving a dirty tab", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("alpha.txt", "text"),
+        fileNode("beta.txt", "text"),
+      ]),
+    );
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open alpha.txt" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Change Edit alpha.txt" }),
+    );
+    await waitFor(() => {
+      expect(mockApi.recordEdit).toHaveBeenCalledWith("alpha.txt");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open beta.txt" }));
+    await waitFor(() => {
+      expect(mockApi.readNote).toHaveBeenCalledWith("beta.txt");
+    });
+    expect(mockApi.saveNote).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("tab", { name: /alpha\.txt.*unsaved changes/i }),
+    ).toBeInTheDocument();
   });
 
   it("refreshes the full ignored set after a project change", async () => {
@@ -354,5 +438,17 @@ function workspaceSnapshot(tree: FileNode[]): WorkspaceSnapshot {
       phase: null,
       remainingRecoveryCodes: 0,
     },
+  };
+}
+
+function noteStats() {
+  return {
+    openCount: 1,
+    editCount: 0,
+    saveCount: 0,
+    lastOpenedAt: null,
+    lastEditedAt: null,
+    lastSavedAt: null,
+    bookmarked: false,
   };
 }

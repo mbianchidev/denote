@@ -52,6 +52,7 @@ export function placeOpenedTab(
   tabs: EditorTab[],
   activePath: string | null,
   opened: EditorTab,
+  preserveUnsaved = true,
 ): EditorTab[] {
   if (tabs.some((tab) => tab.path === opened.path)) {
     return tabs;
@@ -71,12 +72,24 @@ export function placeOpenedTab(
   }
   const navigation = pushTabNavigation(tabs[activeIndex], opened.path);
   const next = [...tabs];
+  if (preserveUnsaved && tabHasUnsavedChanges(next[activeIndex])) {
+    next.splice(activeIndex + 1, 0, {
+      ...opened,
+      groupId: next[activeIndex].groupId,
+      ...navigation,
+    });
+    return tabsInVisualOrder(next);
+  }
   next.splice(activeIndex, 1, {
     ...opened,
     groupId: next[activeIndex].groupId,
     ...navigation,
   });
   return tabsInVisualOrder(next);
+}
+
+export function tabHasUnsavedChanges(tab: EditorTab): boolean {
+  return tab.content !== tab.savedContent;
 }
 
 export function placeTabInGroup(

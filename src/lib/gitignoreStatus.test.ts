@@ -50,23 +50,25 @@ describe("gitignore status updates", () => {
     ).toEqual(["existing.log"]);
   });
 
-  it("uses snapshot status unless a complete update applied in flight", () => {
+  it("overlays updates that applied while a snapshot was loading", () => {
     expect(
-      ignoredPathsAfterWorkspaceSnapshot(
-        ["snapshot.log"],
-        ["current.log"],
-        4,
-        4,
-      ),
+      ignoredPathsAfterWorkspaceSnapshot(["snapshot.log"], []),
     ).toEqual(["snapshot.log"]);
     expect(
       ignoredPathsAfterWorkspaceSnapshot(
-        ["snapshot.log"],
-        ["current.log"],
-        4,
-        5,
+        ["alpha/old.log", "snapshot.log"],
+        [
+          statusUpdate(["alpha"], ["alpha/new.log"]),
+          statusUpdate(["beta"], ["beta/new.log"]),
+        ],
       ),
-    ).toEqual(["current.log"]);
+    ).toEqual(["snapshot.log", "alpha/new.log", "beta/new.log"]);
+    expect(
+      ignoredPathsAfterWorkspaceSnapshot(
+        ["snapshot.log"],
+        [statusUpdate([], ["authoritative.log"])],
+      ),
+    ).toEqual(["authoritative.log"]);
   });
 
   it("serializes two disjoint scoped updates in invocation order", async () => {
@@ -125,9 +127,8 @@ describe("gitignore status updates", () => {
     expect(state.ignoredPaths()).toEqual(["final.log"]);
   });
 
-  it("uses a full snapshot after failed and incomplete scoped requests", async () => {
+  it("does not journal failed and incomplete scoped requests", async () => {
     const state = queuedStatusState(["current.log"]);
-    const revisionAtStart = state.revision();
     const failedUpdate = deferred<GitignoreStatusUpdate>();
     const incompleteUpdate = deferred<GitignoreStatusUpdate>();
     const failure = state.enqueue(() => failedUpdate.promise, ["alpha"]);
@@ -135,12 +136,7 @@ describe("gitignore status updates", () => {
 
     await Promise.resolve();
     expect(
-      ignoredPathsAfterWorkspaceSnapshot(
-        ["snapshot.log"],
-        state.ignoredPaths(),
-        revisionAtStart,
-        state.revision(),
-      ),
+      ignoredPathsAfterWorkspaceSnapshot(["snapshot.log"], state.journal()),
     ).toEqual(["snapshot.log"]);
 
     failedUpdate.reject(new Error("synthetic status failure"));
@@ -149,14 +145,9 @@ describe("gitignore status updates", () => {
       statusUpdate(["beta"], ["beta/new.log"], false),
     );
     await expect(incomplete).resolves.toBe(false);
-    expect(state.revision()).toBe(revisionAtStart);
+    expect(state.journal()).toEqual([]);
     expect(
-      ignoredPathsAfterWorkspaceSnapshot(
-        ["snapshot.log"],
-        state.ignoredPaths(),
-        revisionAtStart,
-        state.revision(),
-      ),
+      ignoredPathsAfterWorkspaceSnapshot(["snapshot.log"], state.journal()),
     ).toEqual(["snapshot.log"]);
   });
 
@@ -218,11 +209,13 @@ function queuedStatusState(initialIgnoredPaths: string[]) {
   let vaultPath = "/vault-one";
   let tail = Promise.resolve();
   const loads: string[][] = [];
+  const journal: GitignoreStatusUpdate[] = [];
 
   return {
     loads,
     ignoredPaths: () => ignoredPaths,
     revision: () => revision,
+    journal: () => journal,
     switchVault: (nextVaultPath: string) => {
       generation += 1;
       vaultPath = nextVaultPath;
@@ -253,6 +246,7 @@ function queuedStatusState(initialIgnoredPaths: string[]) {
           }
           ignoredPaths = applyGitignoreStatusUpdate(ignoredPaths, update);
           revision += 1;
+          journal.push(update);
           return true;
         } catch {
           return false;

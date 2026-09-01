@@ -143,6 +143,7 @@ import {
   placeTabInGroup,
   rekeyTabNavigation,
   restoreTabHistoryTarget,
+  tabHasUnsavedChanges,
   tabHistoryTarget,
   tabReferencedPaths,
   tabsReferencePath,
@@ -250,6 +251,7 @@ import type {
   EditorSearchNavigation,
   EditorTab,
   FileNode,
+  GitignoreStatusUpdate,
   HeadingItem,
   HistoryRevision,
   KnownVaultFile,
@@ -284,6 +286,7 @@ interface ActionDialogState {
 }
 
 interface PendingAttachmentInsertion {
+  completion: Promise<boolean>;
   source: string | null;
   settle: (succeeded: boolean) => void;
 }
@@ -445,7 +448,9 @@ function App() {
     Promise.resolve(),
   );
   const gitignoreStatusTail = useRef<Promise<void>>(Promise.resolve());
-  const gitignoreStatusRevision = useRef(0);
+  const gitignoreSnapshotUpdates = useRef(
+    new Map<number, GitignoreStatusUpdate[]>(),
+  );
   const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
@@ -1170,7 +1175,8 @@ function App() {
   const refreshCachedWorkspace = useCallback(
     async (generation: number) => {
       const request = ++workspaceRefreshRequest.current;
-      const ignoredRevision = gitignoreStatusRevision.current;
+      const ignoredUpdates: GitignoreStatusUpdate[] = [];
+      gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
       const configurationRevision = projectConfigurationRevision.current;
       try {
         const snapshot = await api.refreshVault();
@@ -1189,9 +1195,7 @@ function App() {
             ...next,
             ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
               next.ignoredPaths,
-              current?.ignoredPaths ?? [],
-              ignoredRevision,
-              gitignoreStatusRevision.current,
+              ignoredUpdates,
             ),
           };
         });
@@ -1204,6 +1208,8 @@ function App() {
           setIndexing(false);
           showError(caught);
         }
+      } finally {
+        gitignoreSnapshotUpdates.current.delete(request);
       }
     },
     [rebuildSearchIndex, showError],
@@ -1223,6 +1229,7 @@ function App() {
       }
       rebuildRequest.current += 1;
       workspaceRefreshRequest.current += 1;
+      gitignoreSnapshotUpdates.current.clear();
       queryRequest.current += 1;
       searchIndex.current = new VaultSearchIndex();
       searchIndexReady.current = false;
@@ -1337,7 +1344,8 @@ function App() {
     }
     const generation = vaultGeneration.current;
     const request = ++workspaceRefreshRequest.current;
-    const ignoredRevision = gitignoreStatusRevision.current;
+    const ignoredUpdates: GitignoreStatusUpdate[] = [];
+    gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
     const configurationRevision = projectConfigurationRevision.current;
     try {
       const snapshot = await api.refreshVault();
@@ -1354,9 +1362,7 @@ function App() {
             ...next,
             ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
               next.ignoredPaths,
-              current?.ignoredPaths ?? [],
-              ignoredRevision,
-              gitignoreStatusRevision.current,
+              ignoredUpdates,
             ),
           };
         });
@@ -1372,6 +1378,8 @@ function App() {
         setIndexing(false);
         showError(caught);
       }
+    } finally {
+      gitignoreSnapshotUpdates.current.delete(request);
     }
   }, [rebuildSearchIndex, showError, workspace]);
 
@@ -1418,7 +1426,9 @@ function App() {
           ) {
             return false;
           }
-          gitignoreStatusRevision.current += 1;
+          for (const updates of gitignoreSnapshotUpdates.current.values()) {
+            updates.push(update);
+          }
           setWorkspace((current) =>
             current?.vaultPath === expectedVaultPath
               ? {
@@ -2579,6 +2589,38 @@ function App() {
   }, [acquireWorkspaceLock, setWorkspaceLock, showError]);
   beginWorkspaceOperationRef.current = beginWorkspaceOperation;
 
+  const beginFileOpenOperation = useCallback(
+    async (replacedPath: string | null): Promise<void> => {
+      try {
+        await acquireWorkspaceLockAndDrainProjectMutations(
+          acquireWorkspaceLock,
+          () => projectConfigurationMutationTail.current,
+        );
+        await gitignoreStatusTail.current;
+        if (replacedPath) {
+          await saveQueues.current.get(replacedPath);
+        }
+        const pendingInsertions = replacedPath
+          ? pendingAttachmentInsertions.current.get(replacedPath)
+          : null;
+        if (pendingInsertions) {
+          const uploads = await Promise.all(
+            [...pendingInsertions].map(({ completion }) => completion),
+          );
+          if (uploads.some((succeeded) => !succeeded)) {
+            throw new Error(
+              `Unable to finish an attachment insertion in ${replacedPath}.`,
+            );
+          }
+        }
+      } catch (caught) {
+        setWorkspaceLock(false);
+        throw caught;
+      }
+    },
+    [acquireWorkspaceLock, setWorkspaceLock],
+  );
+
   const beginEntryMutation = useCallback(
     async (
       expectedGeneration: number,
@@ -2636,6 +2678,7 @@ function App() {
         resolveTracked = resolve;
       });
       const insertion: PendingAttachmentInsertion = {
+        completion: tracked,
         source: null,
         settle: () => {},
       };
@@ -2816,9 +2859,7 @@ function App() {
       setStatus(`Opening ${title}…`);
       let workspaceOperationStarted = false;
       try {
-        if (!(await beginWorkspaceOperation())) {
-          return;
-        }
+        await beginFileOpenOperation(replacePath);
         workspaceOperationStarted = true;
         if (!openRequestCurrent(paneId, request)) {
           return;
@@ -2833,6 +2874,25 @@ function App() {
         setHeadingNavigation(
           anchor ? { path, anchor } : null,
         );
+        const latestPane = paneStateRef.current.panes.find(
+          (pane) => pane.id === paneId,
+        );
+        const replacedTab = latestPane?.tabs.find(
+          (candidate) => candidate.path === replacePath,
+        );
+        const placementAddsTab =
+          replacedTab === undefined || tabHasUnsavedChanges(replacedTab);
+        if (
+          placementAddsTab &&
+          tabsRef.current.length >= MAX_TAB_SESSION_TABS
+        ) {
+          reportError(
+            `Close a tab before opening ${title}; the ${MAX_TAB_SESSION_TABS}-tab limit is reached.`,
+          );
+          return;
+        }
+        const shouldCancelReplacedPath =
+          replacedTab !== undefined && !tabHasUnsavedChanges(replacedTab);
         commitPaneState((current) => ({
           ...current,
           focusedPaneId: paneId,
@@ -2846,7 +2906,7 @@ function App() {
           type: "retain-markdown-paths",
           paths: tabReferencedPaths(tabsRef.current),
         });
-        if (replacePath) {
+        if (replacePath && shouldCancelReplacedPath) {
           cancelPendingPath(replacePath);
         }
         setSelectedPath(path);
@@ -2877,7 +2937,7 @@ function App() {
     },
     [
       activateTab,
-      beginWorkspaceOperation,
+      beginFileOpenOperation,
       cancelPendingPath,
       commitPaneState,
       openRequestCurrent,
@@ -2973,6 +3033,13 @@ function App() {
         if (!pane || !current || current.placeholder) {
           return;
         }
+        if (
+          tabHasUnsavedChanges(current) ||
+          pendingAttachmentInsertions.current.has(current.path)
+        ) {
+          setStatus("Wait for the current file to finish saving before navigating");
+          return;
+        }
         const target = tabHistoryTarget(current, direction);
         if (!target || !openRequestCurrent(paneId, request)) {
           return;
@@ -2997,9 +3064,7 @@ function App() {
         const generation = vaultGeneration.current;
         let workspaceOperationStarted = false;
         try {
-          if (!(await beginWorkspaceOperation())) {
-            return;
-          }
+          await beginFileOpenOperation(current.path);
           workspaceOperationStarted = true;
           if (!openRequestCurrent(paneId, request)) {
             return;
@@ -3011,6 +3076,10 @@ function App() {
             (tab) => tab.path === current.path,
           );
           if (!latestPane || !latestCurrent) {
+            return;
+          }
+          if (tabHasUnsavedChanges(latestCurrent)) {
+            setStatus("Wait for the current file to finish saving before navigating");
             return;
           }
           const existing = latestPane.tabs.find(
@@ -3028,7 +3097,12 @@ function App() {
             return;
           }
           const displaced = existing
-            ? placeOpenedTab([existing], existing.path, latestCurrent)[0]
+            ? placeOpenedTab(
+                [existing],
+                existing.path,
+                latestCurrent,
+                false,
+              )[0]
             : null;
           commitPaneState((state) => ({
             ...state,
@@ -3047,10 +3121,9 @@ function App() {
               activePath: target.path,
             })),
           }));
-          if (existing) {
-            cancelPendingPath(existing.path);
+          if (!existing) {
+            cancelPendingPath(current.path);
           }
-          cancelPendingPath(current.path);
           setSelectedPath(target.path);
           setStatus(`Opened ${title}`);
           setWorkspace((value) =>
@@ -3082,7 +3155,7 @@ function App() {
     },
     [
       activateTab,
-      beginWorkspaceOperation,
+      beginFileOpenOperation,
       cancelPendingPath,
       commitPaneState,
       nextOpenRequest,
@@ -3268,12 +3341,12 @@ function App() {
           if (editQueues.current.get(path) === editTask) {
             editQueues.current.delete(path);
           }
-          for (const insertion of [...(pendingInsertions ?? [])]) {
-            if (insertion.source && content.includes(insertion.source)) {
-              insertion.settle(true);
-            }
-          }
         });
+      }
+      for (const insertion of [...(pendingInsertions ?? [])]) {
+        if (insertion.source && content.includes(insertion.source)) {
+          insertion.settle(true);
+        }
       }
       const existingTimer = saveTimers.current.get(path);
       if (existingTimer) {

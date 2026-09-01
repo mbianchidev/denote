@@ -46,13 +46,13 @@ export function applyGitignoreStatusUpdate(
 
 export function ignoredPathsAfterWorkspaceSnapshot(
   snapshotIgnoredPaths: readonly string[],
-  currentIgnoredPaths: readonly string[],
-  revisionAtStart: number,
-  currentRevision: number,
+  updatesAppliedWhileLoading: readonly GitignoreStatusUpdate[],
 ): string[] {
-  return revisionAtStart === currentRevision
-    ? [...snapshotIgnoredPaths]
-    : [...currentIgnoredPaths];
+  return updatesAppliedWhileLoading.reduce(
+    (ignoredPaths, update) =>
+      applyGitignoreStatusUpdate(ignoredPaths, update),
+    [...snapshotIgnoredPaths],
+  );
 }
 
 export function removeIgnoredPathsAtOrBelow(
