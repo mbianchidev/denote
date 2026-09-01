@@ -67,7 +67,11 @@ interface FileTreeProps {
   onUnmarkProject?: (projectRoot: ProjectRoot) => void;
   onMarkWorkspace?: (path: string) => void;
   onUnmarkWorkspace?: (projectWorkspace: ProjectWorkspace) => void;
+  showDotfiles?: boolean;
+  ignoredPaths?: ReadonlySet<string>;
 }
+
+const EMPTY_IGNORED_PATHS = new Set<string>();
 
 export function FileTree({
   nodes,
@@ -87,6 +91,8 @@ export function FileTree({
   onUnmarkProject,
   onMarkWorkspace,
   onUnmarkWorkspace,
+  showDotfiles = true,
+  ignoredPaths = EMPTY_IGNORED_PATHS,
 }: FileTreeProps) {
   const navRef = useRef<HTMLElement>(null);
   const scrollFrame = useRef<number | null>(null);
@@ -115,8 +121,8 @@ export function FileTree({
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
   const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
   const rows = useMemo(
-    () => visibleWorkspaceRows(nodes, expandedPaths),
-    [expandedPaths, nodes],
+    () => visibleWorkspaceRows(nodes, expandedPaths, showDotfiles),
+    [expandedPaths, nodes, showDotfiles],
   );
   const rowIndexByPath = useMemo(
     () => new Map(rows.map(({ node }, index) => [node.path, index])),
@@ -543,6 +549,7 @@ export function FileTree({
         onPointerUp={finishPointerDrag}
         onPointerCancel={clearPointerDrag}
         suppressClickPath={suppressClickPath}
+        ignoredPaths={ignoredPaths}
       />,
     );
     previousRowIndex = rowIndex;
@@ -566,7 +573,7 @@ export function FileTree({
         className="file-tree"
         aria-label="Vault files"
         data-drop-target={dropTargetPath === ""}
-        tabIndex={nodes.length === 0 ? 0 : -1}
+        tabIndex={rows.length === 0 ? 0 : -1}
         onKeyDown={(event) => openKeyboardContextMenu(event, null)}
         onContextMenu={(event) => {
           if (event.target === event.currentTarget) {
@@ -781,6 +788,7 @@ function FileTreeRow({
   onPointerUp,
   onPointerCancel,
   suppressClickPath,
+  ignoredPaths,
 }: FileTreeRowProps) {
   const isFolder = node.kind === "folder";
   const expanded = isFolder && expandedPaths.has(node.path);
@@ -792,6 +800,7 @@ function FileTreeRow({
       ? FileImage
       : FileText;
   const style = { "--tree-depth": depth } as CSSProperties;
+  const ignored = ignoredPaths?.has(node.path) ?? false;
 
   return (
     <button
@@ -802,6 +811,7 @@ function FileTreeRow({
       data-selected={selectedPath === node.path}
       data-dragging={draggedPath === node.path}
       data-drop-target={isFolder && dropTargetPath === node.path}
+      data-ignored={ignored ? "true" : undefined}
       data-folder-drop-path={isFolder ? node.path : undefined}
       aria-current={selectedPath === node.path ? "true" : undefined}
       aria-expanded={isFolder ? expanded : undefined}
@@ -842,16 +852,21 @@ function FileTreeRow({
         strokeWidth={1.8}
       />
       <span className="file-tree__name">{node.name}</span>
+      {ignored ? (
+        <span className="sr-only">, Ignored by .gitignore</span>
+      ) : null}
       {node.pinned || node.bookmarked ? (
         <span className="file-tree__markers">
           {node.pinned ? (
-            <span className="file-tree__pin" aria-label="Pinned">
+            <span className="file-tree__pin">
               <Pin aria-hidden="true" size={11} />
+              <span className="sr-only">, Pinned</span>
             </span>
           ) : null}
           {node.bookmarked ? (
-            <span className="file-tree__bookmark" aria-label="Bookmarked">
-              •
+            <span className="file-tree__bookmark">
+              <span aria-hidden="true">•</span>
+              <span className="sr-only">, Bookmarked</span>
             </span>
           ) : null}
         </span>

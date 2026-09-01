@@ -46,6 +46,15 @@ rejects stale queued requests before using the active vault as the operation
 root. Project/workspace mutations hold the workspace write guard; read-only
 `.gitignore` status refreshes hold the shared read guard so they may run
 concurrently without racing a vault switch or mutation.
+Workspace snapshots also carry the vault-relative paths currently matched by
+`.gitignore` rules within each file's closest explicit or implicit project.
+Generation- and vault-guarded frontend status refreshes run through one ordered
+queue: complete root scopes replace the full set and complete narrow scopes merge
+in invocation order. Workspace snapshots preserve a queued result only when a
+complete status update applied while the snapshot was in flight; failed or
+incomplete requests do not suppress the snapshot's full set. This status is
+presentation metadata only: ignored files stay in the tree, cache, search index,
+project model, and open tabs.
 
 Explicit project roots and workspace roots are independent operational path
 metadata in the application-data SQLite database, never files or markers inside
@@ -257,6 +266,10 @@ Tree ordering is evaluated independently for each parent folder: pinned entries
 come first, then explicit custom positions, then the folders-first/name fallback.
 The up/down controls reorder only inside the selected entry's pinned or unpinned
 section, so ordinary entries cannot move above pins accidentally.
+Dotfile visibility is a renderer-local `localStorage` preference that defaults
+to visible. The iterative visible-row and expansion helpers omit dot entries and
+dot-folder subtrees only while rendering; the native tree and stored expansion
+paths remain unchanged.
 
 The vault switcher reads the 50 most recently opened rows from SQLite and opens
 them by trusted database ID rather than accepting a new arbitrary path from the

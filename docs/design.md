@@ -297,6 +297,11 @@ uses the normal two-pixel moss ring. Back and forward arrows act on the focused
 pane's active tab history, remain disabled when no destination exists, and never
 look like global application history.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
+The file-tree toolbar includes a compact eye control that persistently hides or
+shows dotfiles and dot folders locally. Hidden dot folders remove their complete
+subtree from the tree presentation only. Git-ignored rows remain in place with
+slightly reduced opacity plus explicit screen-reader text; hover, selection, and
+keyboard focus restore full legibility.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
 The root and folder menus expose independent **Mark as project** / **Unmark

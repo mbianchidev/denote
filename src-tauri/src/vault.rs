@@ -1103,6 +1103,7 @@ pub fn refresh_gitignore_status(
     db_path: &Path,
     vault_path: &str,
     scope_paths: Vec<String>,
+    vault_key: Option<&[u8; 32]>,
 ) -> AppResult<GitignoreStatusUpdate> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
@@ -1133,12 +1134,29 @@ pub fn refresh_gitignore_status(
         &tree,
         &configuration.project_roots,
         &scope_paths,
+        vault_key,
     );
     Ok(GitignoreStatusUpdate {
         scope_paths,
         ignored_paths,
         complete: true,
     })
+}
+
+pub fn recompute_snapshot_ignored_paths(
+    snapshot: &mut WorkspaceSnapshot,
+    vault_key: Option<&[u8; 32]>,
+) {
+    if snapshot.encryption.enabled && !snapshot.encryption.unlocked {
+        snapshot.ignored_paths.clear();
+        return;
+    }
+    snapshot.ignored_paths = gitignore::ignored_paths(
+        Path::new(&snapshot.vault_path),
+        &snapshot.tree,
+        &snapshot.project_roots,
+        vault_key,
+    );
 }
 
 pub(crate) fn resolve_project_root(
@@ -1825,8 +1843,7 @@ fn snapshot_with_tree(
         eprintln!("Unable to refresh project workspace children for snapshot: {error}");
     }
     let project_configuration = project_configuration(connection, vault_id, root)?;
-    let ignored_paths = gitignore::ignored_paths(root, &tree, &project_configuration.project_roots);
-    Ok(WorkspaceSnapshot {
+    let mut snapshot = WorkspaceSnapshot {
         vault_path,
         vault_name,
         default,
@@ -1842,10 +1859,14 @@ fn snapshot_with_tree(
         project_roots: project_configuration.project_roots,
         project_workspaces: project_configuration.project_workspaces,
         suggest_git_project: project_configuration.suggest_git_project,
-        ignored_paths,
+        ignored_paths: Vec::new(),
         from_cache,
         encryption: Default::default(),
-    })
+    };
+    if crypto::load_manifest(root)?.is_none() {
+        recompute_snapshot_ignored_paths(&mut snapshot, None);
+    }
+    Ok(snapshot)
 }
 
 fn project_roots(
@@ -4227,6 +4248,40 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_gitignore_recompute_uses_the_key_and_clears_locked_status() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("ignored.tmp"), "temporary").expect("temporary file");
+        fs::write(vault_path.join(".gitignore"), "*.tmp\n").expect("ignore");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "").expect("project root");
+        let mut snapshot =
+            open_vault(&db_path, vault_path.to_str().unwrap()).expect("workspace snapshot");
+        let key = [11u8; 32];
+        let encrypted = crypto::encrypt_file_content(&key, b"*.tmp\n").expect("encrypt gitignore");
+        fs::write(vault_path.join(".gitignore"), encrypted).expect("encrypted gitignore");
+
+        snapshot.encryption = crate::models::EncryptionStatus {
+            enabled: true,
+            unlocked: true,
+            phase: Some(crypto::EncryptionPhase::Encrypted),
+            remaining_recovery_codes: 1,
+        };
+        recompute_snapshot_ignored_paths(&mut snapshot, Some(&key));
+        assert_eq!(snapshot.ignored_paths, vec!["ignored.tmp"]);
+
+        snapshot.encryption.unlocked = false;
+        recompute_snapshot_ignored_paths(&mut snapshot, None);
+        assert!(snapshot.ignored_paths.is_empty());
+
+        snapshot.encryption.unlocked = true;
+        recompute_snapshot_ignored_paths(&mut snapshot, Some(&[12u8; 32]));
+        assert!(snapshot.ignored_paths.is_empty());
+    }
+
+    #[test]
     fn gitignore_refresh_is_scoped_and_reports_an_unavailable_cache() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -4242,6 +4297,7 @@ mod tests {
             &db_path,
             vault_path.to_str().unwrap(),
             vec!["app/deep".to_string()],
+            None,
         )
         .expect("unavailable cache response");
         assert_eq!(unavailable.scope_paths, vec!["app/deep"]);
@@ -4253,14 +4309,16 @@ mod tests {
             &db_path,
             vault_path.to_str().unwrap(),
             vec!["app/deep".to_string()],
+            None,
         )
         .expect("scoped response");
         assert_eq!(scoped.scope_paths, vec!["app/deep"]);
         assert_eq!(scoped.ignored_paths, vec!["app/deep/nested.tmp"]);
         assert!(scoped.complete);
 
-        let whole = refresh_gitignore_status(&db_path, vault_path.to_str().unwrap(), Vec::new())
-            .expect("whole response");
+        let whole =
+            refresh_gitignore_status(&db_path, vault_path.to_str().unwrap(), Vec::new(), None)
+                .expect("whole response");
         assert!(whole.scope_paths.is_empty());
         assert_eq!(
             whole.ignored_paths,

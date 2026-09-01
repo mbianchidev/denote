@@ -14,6 +14,8 @@ import {
   ChevronsUpDown,
   ClipboardCopy,
   Copy,
+  Eye,
+  EyeOff,
   ExternalLink as ExternalLinkIcon,
   FileCode2,
   FilePlus2,
@@ -122,6 +124,18 @@ import { sourceLanguageName } from "./lib/sourceLanguage";
 import { buildProjectCommands } from "./lib/projectCommands";
 import { welcomePageTarget } from "./lib/welcomePage";
 import {
+  getShowDotfiles,
+  saveShowDotfiles,
+} from "./lib/fileVisibility";
+import {
+  applyGitignoreStatusUpdate,
+  enqueueGitignoreStatusOperation,
+  gitignoreRefreshScope,
+  ignoredPathsAfterWorkspaceSnapshot,
+  isGitignorePath,
+  removeIgnoredPathsAtOrBelow,
+} from "./lib/gitignoreStatus";
+import {
   MAX_TAB_SESSION_GROUPS,
   MAX_TAB_SESSION_TABS,
   moveTabInLayout,
@@ -176,6 +190,7 @@ import {
   closestAvailableProjectRoot,
   initialWorkspaceFolderPaths,
   insertWorkspaceNode,
+  isDotEntry,
   projectConfigurationFields,
   projectRootLabel,
   removeProjectConfigurationAtOrBelow,
@@ -299,6 +314,8 @@ function App() {
   );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [showDotfiles, setShowDotfiles] = useState(() => getShowDotfiles());
+  const showDotfilesRef = useRef(showDotfiles);
   const [paneState, setPaneState] = useState<PaneWorkspaceState>(() =>
     createPaneWorkspace(),
   );
@@ -414,6 +431,10 @@ function App() {
   const newTabSequence = useRef(0);
   const tabGroupSequence = useRef(0);
   const vaultGeneration = useRef(0);
+  const workspaceVaultPathRef = useRef<string | null>(
+    workspace?.vaultPath ?? null,
+  );
+  workspaceVaultPathRef.current = workspace?.vaultPath ?? null;
   const closingWindow = useRef(false);
   const workspaceLockedRef = useRef(false);
   const modalOpenRef = useRef(false);
@@ -423,6 +444,8 @@ function App() {
   const projectConfigurationMutationTail = useRef<Promise<void>>(
     Promise.resolve(),
   );
+  const gitignoreStatusTail = useRef<Promise<void>>(Promise.resolve());
+  const gitignoreStatusRevision = useRef(0);
   const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
@@ -638,13 +661,17 @@ function App() {
   const folderExpansion = useMemo(
     () =>
       workspace
-        ? workspaceBulkExpansion(workspace.tree)
-        : { folderPaths: [], excludedRootPaths: [] },
-    [workspace],
+        ? workspaceBulkExpansion(workspace.tree, showDotfiles)
+        : { folderPaths: [], excludedRootPaths: [], hiddenRootPaths: [] },
+    [showDotfiles, workspace],
   );
   const folderBulkAction = useMemo(
     () => workspaceBulkActionState(folderExpansion, expandedPaths),
     [expandedPaths, folderExpansion],
+  );
+  const ignoredPaths = useMemo(
+    () => new Set(workspace?.ignoredPaths ?? []),
+    [workspace?.ignoredPaths],
   );
   const selectedMoveAvailability = useMemo(() => {
     if (!workspace || !selectedNode) {
@@ -771,6 +798,22 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
+  const toggleDotfileVisibility = useCallback(() => {
+    const next = !showDotfilesRef.current;
+    try {
+      saveShowDotfiles(next);
+      showDotfilesRef.current = next;
+      setShowDotfiles(next);
+      if (
+        !next &&
+        selectedPath?.split("/").some((segment) => isDotEntry(segment))
+      ) {
+        setSelectedPath(null);
+      }
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [selectedPath, showError]);
   const pluginProjectContext = useMemo(
     () =>
       activeProject
@@ -1127,6 +1170,7 @@ function App() {
   const refreshCachedWorkspace = useCallback(
     async (generation: number) => {
       const request = ++workspaceRefreshRequest.current;
+      const ignoredRevision = gitignoreStatusRevision.current;
       const configurationRevision = projectConfigurationRevision.current;
       try {
         const snapshot = await api.refreshVault();
@@ -1136,11 +1180,21 @@ function App() {
         ) {
           return;
         }
-        setWorkspace((current) =>
-          configurationRevision === projectConfigurationRevision.current
-            ? snapshot
-            : withProjectConfiguration(snapshot, current ?? snapshot),
-        );
+        setWorkspace((current) => {
+          const next =
+            configurationRevision === projectConfigurationRevision.current
+              ? snapshot
+              : withProjectConfiguration(snapshot, current ?? snapshot);
+          return {
+            ...next,
+            ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
+              next.ignoredPaths,
+              current?.ignoredPaths ?? [],
+              ignoredRevision,
+              gitignoreStatusRevision.current,
+            ),
+          };
+        });
         await rebuildSearchIndex(generation);
       } catch (caught) {
         if (
@@ -1215,7 +1269,15 @@ function App() {
       setMarkdownViewMode(vaultViewMode);
       setWorkspace({ ...snapshot, markdownViewMode: vaultViewMode });
       setSelectedPath(null);
-      setExpandedPaths(new Set(initialWorkspaceFolderPaths(snapshot.tree)));
+      setExpandedPaths(
+        new Set(
+          initialWorkspaceFolderPaths(
+            snapshot.tree,
+            8,
+            showDotfilesRef.current,
+          ),
+        ),
+      );
       if (resetTabs || vaultLocked) {
         for (const timer of saveTimers.current.values()) {
           window.clearTimeout(timer);
@@ -1275,6 +1337,7 @@ function App() {
     }
     const generation = vaultGeneration.current;
     const request = ++workspaceRefreshRequest.current;
+    const ignoredRevision = gitignoreStatusRevision.current;
     const configurationRevision = projectConfigurationRevision.current;
     try {
       const snapshot = await api.refreshVault();
@@ -1282,11 +1345,21 @@ function App() {
         generation === vaultGeneration.current &&
         request === workspaceRefreshRequest.current
       ) {
-        setWorkspace((current) =>
-        configurationRevision === projectConfigurationRevision.current
-            ? snapshot
-            : withProjectConfiguration(snapshot, current ?? snapshot),
-        );
+        setWorkspace((current) => {
+          const next =
+            configurationRevision === projectConfigurationRevision.current
+              ? snapshot
+              : withProjectConfiguration(snapshot, current ?? snapshot);
+          return {
+            ...next,
+            ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
+              next.ignoredPaths,
+              current?.ignoredPaths ?? [],
+              ignoredRevision,
+              gitignoreStatusRevision.current,
+            ),
+          };
+        });
         if (reindex || !searchIndexReady.current) {
           await rebuildSearchIndex(generation);
         }
@@ -1316,6 +1389,64 @@ function App() {
           ? withProjectConfiguration(current, configuration)
           : current,
       );
+    },
+    [],
+  );
+
+  const refreshIgnoredStatus = useCallback(
+    async (
+      expectedGeneration: number,
+      expectedVaultPath: string,
+      scopePaths: string[],
+    ): Promise<boolean> => {
+      const operation = async (): Promise<boolean> => {
+        if (
+          expectedGeneration !== vaultGeneration.current ||
+          workspaceVaultPathRef.current !== expectedVaultPath
+        ) {
+          return false;
+        }
+        try {
+          const update = await api.refreshGitignoreStatus(
+            expectedVaultPath,
+            scopePaths,
+          );
+          if (
+            expectedGeneration !== vaultGeneration.current ||
+            workspaceVaultPathRef.current !== expectedVaultPath ||
+            !update.complete
+          ) {
+            return false;
+          }
+          gitignoreStatusRevision.current += 1;
+          setWorkspace((current) =>
+            current?.vaultPath === expectedVaultPath
+              ? {
+                  ...current,
+                  ignoredPaths: applyGitignoreStatusUpdate(
+                    current.ignoredPaths,
+                    update,
+                  ),
+                }
+              : current,
+          );
+          return true;
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspaceVaultPathRef.current === expectedVaultPath
+          ) {
+            console.error("Unable to refresh .gitignore status:", caught);
+          }
+          return false;
+        }
+      };
+      const queued = enqueueGitignoreStatusOperation(
+        gitignoreStatusTail.current,
+        operation,
+      );
+      gitignoreStatusTail.current = queued.tail;
+      return await queued.result;
     },
     [],
   );
@@ -1351,6 +1482,11 @@ function App() {
             expectedVaultPath,
           );
           projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
           if (
             expectedGeneration === vaultGeneration.current &&
             workspace.vaultPath === expectedVaultPath
@@ -1376,6 +1512,7 @@ function App() {
     [
       applyProjectConfiguration,
       enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
       showError,
       workspace,
     ],
@@ -1403,6 +1540,11 @@ function App() {
             expectedVaultPath,
           );
           projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
           if (
             expectedGeneration === vaultGeneration.current &&
             workspace.vaultPath === expectedVaultPath
@@ -1431,6 +1573,7 @@ function App() {
     [
       applyProjectConfiguration,
       enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
       showError,
       workspace,
     ],
@@ -1478,6 +1621,11 @@ function App() {
       );
       if (changed) {
         projectConfigurationRevision.current += 1;
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          [],
+        );
       }
       if (failures.length > 0) {
         showError(
@@ -1503,6 +1651,7 @@ function App() {
   }, [
     applyProjectConfiguration,
     enqueueProjectConfigurationMutation,
+    refreshIgnoredStatus,
     showError,
     workspace,
   ]);
@@ -1529,6 +1678,11 @@ function App() {
             expectedVaultPath,
           );
           projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
           if (
             expectedGeneration === vaultGeneration.current &&
             workspace.vaultPath === expectedVaultPath
@@ -1554,6 +1708,7 @@ function App() {
     [
       applyProjectConfiguration,
       enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
       showError,
       workspace,
     ],
@@ -1581,6 +1736,11 @@ function App() {
             expectedVaultPath,
           );
           projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
           if (
             expectedGeneration === vaultGeneration.current &&
             workspace.vaultPath === expectedVaultPath
@@ -1609,6 +1769,7 @@ function App() {
     [
       applyProjectConfiguration,
       enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
       showError,
       workspace,
     ],
@@ -1657,6 +1818,11 @@ function App() {
       );
       if (changed) {
         projectConfigurationRevision.current += 1;
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          [],
+        );
       }
       if (failures.length > 0) {
         showError(
@@ -1682,6 +1848,7 @@ function App() {
   }, [
     applyProjectConfiguration,
     enqueueProjectConfigurationMutation,
+    refreshIgnoredStatus,
     showError,
     workspace,
   ]);
@@ -1747,6 +1914,11 @@ function App() {
             expectedVaultPath,
           );
           projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
         } catch (caught) {
           if (
             expectedGeneration === vaultGeneration.current &&
@@ -1765,6 +1937,7 @@ function App() {
     [
       applyProjectConfiguration,
       enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
       showError,
       workspace?.vaultPath,
     ],
@@ -2199,6 +2372,8 @@ function App() {
       if (!workspace) {
         return Promise.resolve(false);
       }
+      const expectedVaultPath = workspace.vaultPath;
+      const expectedVaultGeneration = vaultGeneration.current;
       commitTabs((current) =>
         current.map((tab) =>
           tab.path === path && tab.content === content
@@ -2259,6 +2434,13 @@ function App() {
             }
             setStatus(outcome.changed ? "Saved" : "No changes");
             scheduleIndexRebuild();
+            if (isGitignorePath(path)) {
+              await refreshIgnoredStatus(
+                expectedVaultGeneration,
+                expectedVaultPath,
+                gitignoreRefreshScope(path),
+              );
+            }
             return true;
           } catch (caught) {
             commitTabs((current) =>
@@ -2285,7 +2467,13 @@ function App() {
       });
       return task;
     },
-    [commitTabs, scheduleIndexRebuild, showError, workspace],
+    [
+      commitTabs,
+      refreshIgnoredStatus,
+      scheduleIndexRebuild,
+      showError,
+      workspace,
+    ],
   );
 
   const flushTab = useCallback(
@@ -2340,6 +2528,7 @@ function App() {
       acquireWorkspaceLock,
       () => projectConfigurationMutationTail.current,
     );
+    await gitignoreStatusTail.current;
     try {
       if (tabSessionTimer.current) {
         window.clearTimeout(tabSessionTimer.current);
@@ -2399,6 +2588,7 @@ function App() {
         acquireWorkspaceLock,
         () => projectConfigurationMutationTail.current,
       );
+      await gitignoreStatusTail.current;
       try {
         if (expectedGeneration !== vaultGeneration.current) {
           setWorkspaceLock(false);
@@ -3613,6 +3803,14 @@ function App() {
             expectedGeneration,
             expectedVaultPath,
           );
+        } else {
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            isGitignorePath(createdNode.path)
+              ? gitignoreRefreshScope(createdNode.path)
+              : [createdNode.path],
+          );
         }
         if (parentPath) {
           setExpandedPaths((current) => new Set(current).add(parentPath));
@@ -3638,6 +3836,7 @@ function App() {
       openFile,
       requestText,
       refreshProjectConfiguration,
+      refreshIgnoredStatus,
       scheduleIndexRebuild,
       selectedNode,
       selectedPath,
@@ -4083,6 +4282,10 @@ function App() {
                 recent: current.recent.filter(
                   (item) => !isAffected(item.path),
                 ),
+                ignoredPaths: removeIgnoredPathsAtOrBelow(
+                  current.ignoredPaths,
+                  node.path,
+                ),
                 ...projectConfiguration,
                 trash: [
                   trashItem,
@@ -4098,6 +4301,13 @@ function App() {
         current.filter((result) => !isAffected(result.document.path)),
       );
       setStatus(`Moved ${node.name} to Denote Trash`);
+      if (isGitignorePath(node.path)) {
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          gitignoreRefreshScope(node.path),
+        );
+      }
       trashed = true;
     } catch (caught) {
       showError(caught);
@@ -4115,6 +4325,7 @@ function App() {
     commitPaneState,
     invalidateOpenRequests,
     requestConfirmation,
+    refreshIgnoredStatus,
     scheduleIndexRebuild,
     selectedPath,
     setWorkspaceLock,
@@ -4160,6 +4371,13 @@ function App() {
               }
             : current,
         );
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          isGitignorePath(duplicate.path)
+            ? gitignoreRefreshScope(duplicate.path)
+            : [duplicate.path],
+        );
         setExpandedPaths((current) => {
           const next = new Set(current);
           for (const path of workspaceAncestorPaths(duplicate.path)) {
@@ -4183,6 +4401,7 @@ function App() {
     },
     [
       beginEntryMutation,
+      refreshIgnoredStatus,
       scheduleIndexRebuild,
       setWorkspaceLock,
       showError,
@@ -4348,6 +4567,14 @@ function App() {
             expectedGeneration,
             expectedVaultPath,
           );
+        } else {
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            isGitignorePath(restoredNode.path)
+              ? gitignoreRefreshScope(restoredNode.path)
+              : [restoredNode.path],
+          );
         }
         setExpandedPaths((current) => {
           const next = new Set(current);
@@ -4374,6 +4601,7 @@ function App() {
     [
       beginEntryMutation,
       refreshProjectConfiguration,
+      refreshIgnoredStatus,
       scheduleIndexRebuild,
       setWorkspaceLock,
       showError,
@@ -6502,6 +6730,24 @@ function App() {
                   <FolderOpen aria-hidden="true" size={16} />
                 )}
               </button>
+              <button
+                type="button"
+                className="icon-button"
+                title={
+                  showDotfiles
+                    ? "Hide dotfiles and folders"
+                    : "Show dotfiles and folders"
+                }
+                aria-label="Show dotfiles and folders"
+                aria-pressed={showDotfiles}
+                onClick={toggleDotfileVisibility}
+              >
+                {showDotfiles ? (
+                  <Eye aria-hidden="true" size={16} />
+                ) : (
+                  <EyeOff aria-hidden="true" size={16} />
+                )}
+              </button>
               <span className="toolbar-spacer" />
               <button
                 type="button"
@@ -6589,6 +6835,8 @@ function App() {
               nodes={workspace.tree}
               selectedPath={selectedPath}
               expandedPaths={expandedPaths}
+              showDotfiles={showDotfiles}
+              ignoredPaths={ignoredPaths}
               onSelect={(node) => {
                 setSelectedPath(node.path);
                 if (node.kind !== "folder") {

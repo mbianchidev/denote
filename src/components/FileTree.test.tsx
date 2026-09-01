@@ -5,6 +5,143 @@ import type { FileNode } from "../types";
 import { FileTree } from "./FileTree";
 
 describe("FileTree", () => {
+  it("hides dot entries without changing their stored expansion", () => {
+    const hiddenFolder: FileNode = {
+      path: ".config",
+      name: ".config",
+      kind: "folder",
+      children: [
+        {
+          path: ".config/settings.json",
+          name: "settings.json",
+          kind: "text",
+          children: [],
+          size: 1,
+          modifiedAt: null,
+          bookmarked: false,
+          pinned: false,
+        },
+      ],
+      size: 0,
+      modifiedAt: null,
+      bookmarked: false,
+      pinned: false,
+    };
+    const props = {
+      nodes: [hiddenFolder],
+      selectedPath: null,
+      expandedPaths: new Set([".config"]),
+      onSelect: vi.fn(),
+      onToggleFolder: vi.fn(),
+      onCreate: vi.fn(),
+      onRename: vi.fn(),
+      onDelete: vi.fn(),
+      onMove: vi.fn(),
+      onRequestMove: vi.fn(),
+    };
+    const { rerender } = render(<FileTree {...props} showDotfiles={false} />);
+
+    expect(screen.queryByRole("button", { name: ".config" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Vault files")).toHaveAttribute("tabindex", "0");
+
+    rerender(<FileTree {...props} showDotfiles />);
+    expect(screen.getByRole("button", { name: ".config" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "settings.json" }),
+    ).toBeInTheDocument();
+  });
+
+  it("marks ignored rows accessibly while preserving pointer and keyboard actions", async () => {
+    const user = userEvent.setup();
+    const ignoredNode = fileNodes(1)[0];
+    const onSelect = vi.fn();
+    render(
+      <FileTree
+        nodes={[ignoredNode]}
+        selectedPath={null}
+        expandedPaths={new Set()}
+        ignoredPaths={new Set([ignoredNode.path])}
+        onSelect={onSelect}
+        onToggleFolder={vi.fn()}
+        onCreate={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        onMove={vi.fn()}
+        onRequestMove={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByRole("button", {
+      name: /file-0\.md, ignored by \.gitignore/i,
+    });
+    expect(row).toHaveAttribute("data-ignored", "true");
+    await user.click(row);
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes ignored, pinned, and bookmarked row state together", () => {
+    const node = {
+      ...fileNodes(1)[0],
+      pinned: true,
+      bookmarked: true,
+    };
+    render(
+      <FileTree
+        nodes={[node]}
+        selectedPath={null}
+        expandedPaths={new Set()}
+        ignoredPaths={new Set([node.path])}
+        onSelect={vi.fn()}
+        onToggleFolder={vi.fn()}
+        onCreate={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        onMove={vi.fn()}
+        onRequestMove={vi.fn()}
+      />,
+    );
+
+    const row = screen.getByRole("button", {
+      name: "file-0.md, Ignored by .gitignore, Pinned, Bookmarked",
+    });
+    expect(row).toHaveAttribute("data-ignored", "true");
+    expect(row).toHaveTextContent("file-0.md");
+  });
+
+  it("keeps ignored styling when a hidden ignored entry is shown again", () => {
+    const ignoredNode = {
+      ...fileNodes(1)[0],
+      path: ".env",
+      name: ".env",
+    };
+    const props = {
+      nodes: [ignoredNode],
+      selectedPath: null,
+      expandedPaths: new Set<string>(),
+      ignoredPaths: new Set([".env"]),
+      onSelect: vi.fn(),
+      onToggleFolder: vi.fn(),
+      onCreate: vi.fn(),
+      onRename: vi.fn(),
+      onDelete: vi.fn(),
+      onMove: vi.fn(),
+      onRequestMove: vi.fn(),
+    };
+    const { rerender } = render(<FileTree {...props} showDotfiles={false} />);
+
+    expect(screen.queryByText(".env")).not.toBeInTheDocument();
+    rerender(<FileTree {...props} showDotfiles />);
+    expect(screen.getByRole("button", { name: /\.env, ignored/i })).toHaveAttribute(
+      "data-ignored",
+      "true",
+    );
+  });
+
   it("allows excluded folders to be opened directly", async () => {
     const user = userEvent.setup();
     const folder: FileNode = {
@@ -67,7 +204,9 @@ describe("FileTree", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Pinned")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "projects, Pinned" }),
+    ).toBeInTheDocument();
   });
 
   it("creates files and folders from a folder context menu", async () => {
@@ -983,6 +1122,30 @@ describe("FileTree", () => {
           screen.getByRole("button", { name: "file-80.md" }),
         ).toHaveAttribute("aria-current", "true");
       });
+    });
+
+    it("virtualizes ignored rows without losing their accessible status", async () => {
+      render(
+        <FileTree
+          nodes={fileNodes(100)}
+          selectedPath="file-80.md"
+          expandedPaths={new Set()}
+          ignoredPaths={new Set(["file-80.md"])}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={vi.fn()}
+          onRequestMove={vi.fn()}
+        />,
+      );
+
+      const row = await screen.findByRole("button", {
+        name: /file-80\.md, ignored by \.gitignore/i,
+      });
+      expect(row).toHaveAttribute("data-ignored", "true");
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
     });
 
     it("does not expand ancestors to reveal an external selection", async () => {

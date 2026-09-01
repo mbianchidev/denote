@@ -405,6 +405,20 @@ describe("workspace tree mutations", () => {
     ).toEqual(eligibleFolders.slice(0, 8).map(({ path }) => path));
   });
 
+  it("omits dot folders from initial expansion when hidden", () => {
+    expect(
+      initialWorkspaceFolderPaths(
+        [
+          node(".config", "folder"),
+          node("node_modules", "folder"),
+          node("notes", "folder"),
+        ],
+        8,
+        false,
+      ),
+    ).toEqual(["notes"]);
+  });
+
   it("excludes only .git and node_modules subtrees from bulk expansion", () => {
     const tree = [
       node("code", "folder", [
@@ -422,7 +436,36 @@ describe("workspace tree mutations", () => {
     expect(workspaceBulkExpansion(tree)).toEqual({
       folderPaths: ["code", "code/.github", "code/node_modules-old"],
       excludedRootPaths: ["code/.GIT", "code/Node_Modules"],
+      hiddenRootPaths: [],
     });
+  });
+
+  it("hides dot folders and their subtrees from bulk expansion independently", () => {
+    const tree = [
+      node(".cache", "folder", [node(".cache/nested", "folder")]),
+      node("node_modules", "folder", [
+        node("node_modules/package", "folder"),
+      ]),
+      node("src", "folder", [node("src/.generated", "folder")]),
+    ];
+
+    expect(workspaceBulkExpansion(tree, false)).toEqual({
+      folderPaths: ["src"],
+      excludedRootPaths: ["node_modules"],
+      hiddenRootPaths: [".cache", "src/.generated"],
+    });
+    expect(
+      workspaceBulkActionState(
+        workspaceBulkExpansion([tree[0]], false),
+        new Set([".cache", ".cache/nested"]),
+      ),
+    ).toEqual({ action: "expand", disabled: true });
+    expect(
+      mergeBulkExpandedPaths(
+        workspaceBulkExpansion(tree, false),
+        new Set([".cache", ".cache/nested"]),
+      ),
+    ).toEqual(new Set(["src", ".cache", ".cache/nested"]));
   });
 
   it("preserves explicit excluded expansion until collapse all clears it", () => {
@@ -537,6 +580,40 @@ describe("workspace tree mutations", () => {
     ).toEqual([
       ["notes", 0],
       ["root.md", 0],
+    ]);
+  });
+
+  it("hides dot entries and complete dot-folder subtrees from visible rows", () => {
+    const tree = [
+      node(".env"),
+      node(".settings", "folder", [node(".settings/visible-name.md")]),
+      node("src", "folder", [
+        node("src/.cache", "folder", [node("src/.cache/output.js")]),
+        node("src/main.ts"),
+      ]),
+    ];
+
+    expect(
+      visibleWorkspaceRows(
+        tree,
+        new Set([".settings", "src", "src/.cache"]),
+        false,
+      ).map(({ node: rowNode }) => rowNode.path),
+    ).toEqual(["src", "src/main.ts"]);
+    expect(
+      visibleWorkspaceRows(
+        tree,
+        new Set([".settings", "src", "src/.cache"]),
+        true,
+      ).map(({ node: rowNode }) => rowNode.path),
+    ).toEqual([
+      ".env",
+      ".settings",
+      ".settings/visible-name.md",
+      "src",
+      "src/.cache",
+      "src/.cache/output.js",
+      "src/main.ts",
     ]);
   });
 

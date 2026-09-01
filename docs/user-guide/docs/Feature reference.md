@@ -38,6 +38,11 @@ more detail and examples.
   file from its context menu or the focused-file three-dot menu.
 - Expand every folder except `.git` and `node_modules` unless opened directly,
   or collapse the complete file tree.
+- Persistently hide or show dotfiles and complete dot-folder subtrees in the
+  local file-tree presentation without changing vault data or open tabs.
+- Keep `.gitignore` matches visible and interactive with reduced emphasis and an
+  accessible ignored indicator. Rules come from the closest code project and do
+  not remove files from Denote, search, or project data.
 - Update relative Markdown links automatically after file/folder rename or move,
   with explicit reporting for skipped or conflicting files.
 

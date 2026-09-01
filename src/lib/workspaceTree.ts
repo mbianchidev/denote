@@ -168,13 +168,18 @@ export function workspaceFolderPaths(nodes: FileNode[]): string[] {
 export function initialWorkspaceFolderPaths(
   nodes: FileNode[],
   limit = 8,
+  showDotfiles = true,
 ): string[] {
   const paths: string[] = [];
   for (const node of nodes) {
     if (paths.length >= limit) {
       break;
     }
-    if (node.kind !== "folder" || isBulkExpansionExcludedFolder(node.name)) {
+    if (
+      node.kind !== "folder" ||
+      (!showDotfiles && isDotEntry(node.name)) ||
+      isBulkExpansionExcludedFolder(node.name)
+    ) {
       continue;
     }
     paths.push(node.path);
@@ -190,6 +195,7 @@ export interface VisibleWorkspaceRow {
 export function visibleWorkspaceRows(
   nodes: FileNode[],
   expandedPaths: ReadonlySet<string>,
+  showDotfiles = true,
 ): VisibleWorkspaceRow[] {
   const rows: VisibleWorkspaceRow[] = [];
   const stack: VisibleWorkspaceRow[] = [];
@@ -198,6 +204,9 @@ export function visibleWorkspaceRows(
   }
   while (stack.length > 0) {
     const row = stack.pop()!;
+    if (!showDotfiles && isDotEntry(row.node.name)) {
+      continue;
+    }
     rows.push(row);
     if (
       row.node.kind !== "folder" ||
@@ -216,6 +225,7 @@ export function visibleWorkspaceRows(
 export interface WorkspaceBulkExpansion {
   folderPaths: string[];
   excludedRootPaths: string[];
+  hiddenRootPaths: string[];
 }
 
 export interface WorkspaceBulkActionState {
@@ -225,12 +235,20 @@ export interface WorkspaceBulkActionState {
 
 export function workspaceBulkExpansion(
   nodes: FileNode[],
+  showDotfiles = true,
 ): WorkspaceBulkExpansion {
   const folderPaths: string[] = [];
   const excludedRootPaths: string[] = [];
+  const hiddenRootPaths: string[] = [];
   const stack = [...nodes].reverse();
   while (stack.length > 0) {
     const node = stack.pop()!;
+    if (!showDotfiles && isDotEntry(node.name)) {
+      if (node.kind === "folder") {
+        hiddenRootPaths.push(node.path);
+      }
+      continue;
+    }
     if (node.kind !== "folder") {
       continue;
     }
@@ -244,7 +262,7 @@ export function workspaceBulkExpansion(
       stack.push(children[index]);
     }
   }
-  return { folderPaths, excludedRootPaths };
+  return { folderPaths, excludedRootPaths, hiddenRootPaths };
 }
 
 export function mergeBulkExpandedPaths(
@@ -252,11 +270,14 @@ export function mergeBulkExpandedPaths(
   expandedPaths: ReadonlySet<string>,
 ): Set<string> {
   const next = new Set(expansion.folderPaths);
-  const excludedRoots = new Set(expansion.excludedRootPaths);
+  const preservedRoots = new Set([
+    ...expansion.excludedRootPaths,
+    ...expansion.hiddenRootPaths,
+  ]);
   for (const path of expandedPaths) {
     let candidate = path;
     while (candidate !== "") {
-      if (excludedRoots.has(candidate)) {
+      if (preservedRoots.has(candidate)) {
         next.add(path);
         break;
       }
@@ -273,15 +294,23 @@ export function workspaceBulkActionState(
   expandedPaths: ReadonlySet<string>,
 ): WorkspaceBulkActionState {
   const hasBulkFolders = expansion.folderPaths.length > 0;
+  const bulkFolders = new Set(expansion.folderPaths);
+  const hasVisibleExpandedFolder = [...expandedPaths].some(
+    (path) =>
+      bulkFolders.has(path) ||
+      expansion.excludedRootPaths.some((rootPath) =>
+        workspacePathMatches(path, rootPath),
+      ),
+  );
   const allBulkFoldersExpanded =
     hasBulkFolders &&
     expansion.folderPaths.every((path) => expandedPaths.has(path));
   return {
     action:
-      allBulkFoldersExpanded || (!hasBulkFolders && expandedPaths.size > 0)
+      allBulkFoldersExpanded || (!hasBulkFolders && hasVisibleExpandedFolder)
         ? "collapse"
         : "expand",
-    disabled: !hasBulkFolders && expandedPaths.size === 0,
+    disabled: !hasBulkFolders && !hasVisibleExpandedFolder,
   };
 }
 
@@ -297,6 +326,10 @@ export function applyWorkspaceBulkAction(
 function isBulkExpansionExcludedFolder(name: string): boolean {
   const foldedName = name.toLowerCase();
   return foldedName === ".git" || foldedName === "node_modules";
+}
+
+export function isDotEntry(name: string): boolean {
+  return name.startsWith(".");
 }
 
 function insertAtPath(

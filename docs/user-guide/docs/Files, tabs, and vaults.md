@@ -66,6 +66,15 @@ Use the folder control beside New folder to expand every nested folder or
 collapse the complete tree. Expand all leaves folders named `.git` and
 `node_modules` collapsed unless you opened them directly.
 
+Use the eye control to hide or show files and folders whose names start with
+`.`. The choice is stored locally and applies only to the file tree. Hiding a
+dot folder hides its subtree without closing open tabs or removing anything from
+search, projects, or the vault.
+
+Files matched by `.gitignore` remain visible and usable, with reduced emphasis
+and an ignored description for screen readers. Rules apply within the closest
+explicit or implicit code project and never remove files from Denote.
+
 Drag a file or folder onto another folder to move it there, or onto empty tree
 space to move it to the vault root. Use **Move to folder…** from the context menu
 for the keyboard-accessible equivalent. Denote then updates relative inline

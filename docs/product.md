@@ -175,6 +175,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   control and closes it when focus changes to another file.
 - One file-tree control expands every folder except `.git` and `node_modules`,
   which stay collapsed unless opened directly, or collapses the complete tree.
+- A persistent local file-tree control can hide entries whose basename starts
+  with `.`, including complete dot-folder subtrees, without changing vault data,
+  search results, project metadata, or open tabs.
+- Files matched by the closest code project's `.gitignore` rules remain visible
+  and interactive in the file tree with an accessible, reduced-emphasis ignored
+  state; ignore rules never remove files from Denote.
 - Renaming or moving a file/folder updates relative inline links, images, and
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.

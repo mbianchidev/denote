@@ -367,7 +367,18 @@ button:disabled {
   background: var(--accent-muted);
 }
 
-.file-tree__row[data-dragging="true"] {
+.file-tree__row[data-ignored="true"] {
+  opacity: 0.7;
+}
+
+.file-tree__row[data-ignored="true"]:hover,
+.file-tree__row[data-ignored="true"]:focus-visible,
+.file-tree__row[data-ignored="true"][data-selected="true"] {
+  opacity: 1;
+}
+
+.file-tree__row[data-dragging="true"],
+.file-tree__row[data-ignored="true"][data-dragging="true"] {
   opacity: 0.5;
   cursor: grabbing;
 }

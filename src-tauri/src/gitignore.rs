@@ -11,11 +11,13 @@ use ignore::{
 };
 
 use crate::{
+    crypto,
     error::{AppError, AppResult},
     models::{FileKind, FileNode, ProjectRoot},
 };
 
 const MAX_GITIGNORE_BYTES: u64 = 1024 * 1024;
+const MAX_STORED_GITIGNORE_BYTES: u64 = MAX_GITIGNORE_BYTES + 64 * 1024;
 
 #[derive(Clone)]
 struct AvailableProjectRoot<'a> {
@@ -31,7 +33,12 @@ enum ScopeRelation {
     InScope,
 }
 
-pub fn ignored_paths(root: &Path, tree: &[FileNode], project_roots: &[ProjectRoot]) -> Vec<String> {
+pub fn ignored_paths(
+    root: &Path,
+    tree: &[FileNode],
+    project_roots: &[ProjectRoot],
+    vault_key: Option<&[u8; 32]>,
+) -> Vec<String> {
     let roots = available_project_roots(project_roots);
     let mut ignored = BTreeSet::new();
 
@@ -41,7 +48,7 @@ pub fn ignored_paths(root: &Path, tree: &[FileNode], project_roots: &[ProjectRoo
         };
         let project_directory = root.join(&project.path);
         let mut matchers = Vec::new();
-        if let Some(matcher) = load_gitignore(&project_directory) {
+        if let Some(matcher) = load_gitignore(&project_directory, vault_key) {
             matchers.push(matcher);
         }
         evaluate_nodes(
@@ -51,6 +58,7 @@ pub fn ignored_paths(root: &Path, tree: &[FileNode], project_roots: &[ProjectRoo
             &roots,
             &mut matchers,
             &mut ignored,
+            vault_key,
         );
     }
 
@@ -62,12 +70,20 @@ pub fn ignored_paths_in_scopes(
     tree: &[FileNode],
     project_roots: &[ProjectRoot],
     scope_paths: &[String],
+    vault_key: Option<&[u8; 32]>,
 ) -> Vec<String> {
     if scope_paths.is_empty() || scope_paths.iter().any(String::is_empty) {
-        return ignored_paths(root, tree, project_roots);
+        return ignored_paths(root, tree, project_roots, vault_key);
     }
 
-    ignored_paths_in_scopes_with(root, tree, project_roots, scope_paths, &mut |_| {})
+    ignored_paths_in_scopes_with(
+        root,
+        tree,
+        project_roots,
+        scope_paths,
+        vault_key,
+        &mut |_| {},
+    )
 }
 
 pub fn normalize_scope_paths(scope_paths: Vec<String>) -> AppResult<Vec<String>> {
@@ -150,6 +166,7 @@ fn ignored_paths_in_scopes_with(
     tree: &[FileNode],
     project_roots: &[ProjectRoot],
     scope_paths: &[String],
+    vault_key: Option<&[u8; 32]>,
     visit: &mut impl FnMut(&str),
 ) -> Vec<String> {
     let roots = available_project_roots(project_roots);
@@ -164,7 +181,7 @@ fn ignored_paths_in_scopes_with(
         };
         let project_directory = root.join(&project.path);
         let mut matchers = Vec::new();
-        if let Some(matcher) = load_gitignore(&project_directory) {
+        if let Some(matcher) = load_gitignore(&project_directory, vault_key) {
             matchers.push(matcher);
         }
         evaluate_scoped_nodes(
@@ -175,6 +192,7 @@ fn ignored_paths_in_scopes_with(
             scope_paths,
             &mut matchers,
             &mut ignored,
+            vault_key,
             visit,
         );
     }
@@ -189,6 +207,7 @@ fn evaluate_nodes(
     project_roots: &[AvailableProjectRoot<'_>],
     matchers: &mut Vec<Gitignore>,
     ignored: &mut BTreeSet<String>,
+    vault_key: Option<&[u8; 32]>,
 ) {
     for node in nodes {
         if closest_project_id(&node.path, project_roots) != Some(project_id) {
@@ -209,7 +228,7 @@ fn evaluate_nodes(
             continue;
         }
 
-        let matcher = load_gitignore(&absolute_path);
+        let matcher = load_gitignore(&absolute_path, vault_key);
         let loaded_matcher = matcher.is_some();
         if let Some(matcher) = matcher {
             matchers.push(matcher);
@@ -221,6 +240,7 @@ fn evaluate_nodes(
             project_roots,
             matchers,
             ignored,
+            vault_key,
         );
         if loaded_matcher {
             matchers.pop();
@@ -237,6 +257,7 @@ fn evaluate_scoped_nodes(
     scope_paths: &[String],
     matchers: &mut Vec<Gitignore>,
     ignored: &mut BTreeSet<String>,
+    vault_key: Option<&[u8; 32]>,
     visit: &mut impl FnMut(&str),
 ) {
     for node in nodes {
@@ -273,7 +294,7 @@ fn evaluate_scoped_nodes(
             continue;
         }
 
-        let matcher = load_gitignore(&absolute_path);
+        let matcher = load_gitignore(&absolute_path, vault_key);
         let loaded_matcher = matcher.is_some();
         if let Some(matcher) = matcher {
             matchers.push(matcher);
@@ -286,6 +307,7 @@ fn evaluate_scoped_nodes(
             scope_paths,
             matchers,
             ignored,
+            vault_key,
             visit,
         );
         if loaded_matcher {
@@ -411,11 +433,15 @@ fn safe_real_directory(path: &Path) -> bool {
     }
 }
 
-fn load_gitignore(directory: &Path) -> Option<Gitignore> {
-    load_gitignore_with(directory, |_| {})
+fn load_gitignore(directory: &Path, vault_key: Option<&[u8; 32]>) -> Option<Gitignore> {
+    load_gitignore_with(directory, vault_key, |_| {})
 }
 
-fn load_gitignore_with(directory: &Path, before_open: impl FnOnce(&Path)) -> Option<Gitignore> {
+fn load_gitignore_with(
+    directory: &Path,
+    vault_key: Option<&[u8; 32]>,
+    before_open: impl FnOnce(&Path),
+) -> Option<Gitignore> {
     let path = directory.join(".gitignore");
     let metadata = match fs::symlink_metadata(&path) {
         Ok(metadata) => metadata,
@@ -436,12 +462,12 @@ fn load_gitignore_with(directory: &Path, before_open: impl FnOnce(&Path)) -> Opt
         );
         return None;
     }
-    if metadata.len() > MAX_GITIGNORE_BYTES {
+    if metadata.len() > MAX_STORED_GITIGNORE_BYTES {
         eprintln!(
-            "Skipping oversized .gitignore {} ({} bytes; limit is {} bytes)",
+            "Skipping oversized stored .gitignore {} ({} bytes; limit is {} bytes)",
             path.display(),
             metadata.len(),
-            MAX_GITIGNORE_BYTES
+            MAX_STORED_GITIGNORE_BYTES
         );
         return None;
     }
@@ -471,25 +497,58 @@ fn load_gitignore_with(directory: &Path, before_open: impl FnOnce(&Path)) -> Opt
         );
         return None;
     }
-    if opened_metadata.len() > MAX_GITIGNORE_BYTES {
+    if opened_metadata.len() > MAX_STORED_GITIGNORE_BYTES {
         eprintln!(
-            "Skipping oversized .gitignore {} ({} bytes; limit is {} bytes)",
+            "Skipping oversized stored .gitignore {} ({} bytes; limit is {} bytes)",
             path.display(),
             opened_metadata.len(),
-            MAX_GITIGNORE_BYTES
+            MAX_STORED_GITIGNORE_BYTES
         );
         return None;
     }
 
     let mut bytes = Vec::new();
-    if let Err(error) = file.take(MAX_GITIGNORE_BYTES + 1).read_to_end(&mut bytes) {
+    if let Err(error) = file
+        .take(MAX_STORED_GITIGNORE_BYTES + 1)
+        .read_to_end(&mut bytes)
+    {
         eprintln!("Unable to read .gitignore {}: {error}", path.display());
         return None;
     }
+    if bytes.len() as u64 > MAX_STORED_GITIGNORE_BYTES {
+        eprintln!(
+            "Skipping stored .gitignore {} because it grew beyond the {} byte limit",
+            path.display(),
+            MAX_STORED_GITIGNORE_BYTES
+        );
+        return None;
+    }
+    let bytes = if crypto::is_encrypted_file(&bytes) {
+        let Some(vault_key) = vault_key else {
+            eprintln!(
+                "Skipping encrypted .gitignore {} because the vault is locked",
+                path.display()
+            );
+            return None;
+        };
+        match crypto::decrypt_file_content(vault_key, &bytes) {
+            Ok(plaintext) => plaintext,
+            Err(error) => {
+                eprintln!(
+                    "Unable to decrypt encrypted .gitignore {}: {error}",
+                    path.display()
+                );
+                return None;
+            }
+        }
+    } else {
+        bytes
+    };
     if bytes.len() as u64 > MAX_GITIGNORE_BYTES {
         eprintln!(
-            "Skipping .gitignore {} because it grew beyond the {} byte limit",
+            "Skipping .gitignore {} because its plaintext is {} bytes; limit is {} bytes",
             path.display(),
+            bytes.len(),
             MAX_GITIGNORE_BYTES
         );
         return None;
@@ -509,9 +568,9 @@ fn load_gitignore_with(directory: &Path, before_open: impl FnOnce(&Path)) -> Opt
         } else {
             line
         };
-        if let Err(error) = builder.add_line(Some(path.clone()), line) {
+        if builder.add_line(Some(path.clone()), line).is_err() {
             eprintln!(
-                "Skipping malformed .gitignore rule in {} at line {} ({line:?}): {error}",
+                "Skipping malformed .gitignore rule in {} at line {}",
                 path.display(),
                 index + 1
             );
@@ -642,7 +701,7 @@ mod tests {
             ),
         ];
 
-        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)]);
+        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)], None);
 
         assert_eq!(
             ignored,
@@ -702,6 +761,7 @@ mod tests {
                 project("nested", "outer/nested", true, true),
                 project("implicit", "workspace/child", true, false),
             ],
+            None,
         );
 
         assert_eq!(
@@ -734,6 +794,7 @@ mod tests {
                 project("available", "available", true, true),
                 project("missing", "missing", false, true),
             ],
+            None,
         );
 
         assert_eq!(ignored, vec!["available/ignored.tmp"]);
@@ -754,7 +815,7 @@ mod tests {
             )],
         )];
 
-        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)]);
+        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)], None);
 
         assert_eq!(
             ignored,
@@ -786,7 +847,7 @@ mod tests {
             folder("linked", vec![file("linked/also-kept.tmp")]),
         ];
 
-        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)]);
+        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)], None);
 
         assert!(ignored.is_empty());
     }
@@ -798,15 +859,17 @@ mod tests {
         let ignore_path = root.join(".gitignore");
 
         fs::write(&ignore_path, [0xff, 0xfe]).expect("invalid utf8");
-        assert!(load_gitignore(root).is_none());
+        assert!(load_gitignore(root, None).is_none());
 
         fs::write(&ignore_path, vec![b'x'; (MAX_GITIGNORE_BYTES + 1) as usize]).expect("oversized");
-        assert!(load_gitignore(root).is_none());
+        assert!(load_gitignore(root, None).is_none());
 
         fs::write(&ignore_path, "*.tmp\n").expect("deletion race");
         assert!(
-            load_gitignore_with(root, |path| fs::remove_file(path).expect("delete ignore"))
-                .is_none()
+            load_gitignore_with(root, None, |path| {
+                fs::remove_file(path).expect("delete ignore")
+            })
+            .is_none()
         );
     }
 
@@ -819,7 +882,7 @@ mod tests {
         let path = directory.path().join(".gitignore");
         fs::write(&path, "*.tmp\n").expect("ignore");
         fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).expect("permissions");
-        let loaded = load_gitignore(directory.path());
+        let loaded = load_gitignore(directory.path(), None);
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).expect("restore permissions");
 
         assert!(loaded.is_none());
@@ -832,7 +895,7 @@ mod tests {
         fs::write(root.join(".gitignore"), "*.tmp\n[z-a]\n*.log\n").expect("ignore");
         let tree = vec![file("before.tmp"), file("kept.txt"), file("after.log")];
 
-        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)]);
+        let ignored = ignored_paths(root, &tree, &[project("root", "", true, true)], None);
 
         assert_eq!(ignored, vec!["after.log", "before.tmp"]);
     }
@@ -873,6 +936,7 @@ mod tests {
                 project("other", "other", true, true),
             ],
             &scopes,
+            None,
             &mut |path| visited.push(path.to_string()),
         );
 
@@ -933,6 +997,7 @@ mod tests {
                 project("nested", "outer/nested", true, true),
             ],
             &scopes,
+            None,
         );
 
         assert_eq!(
@@ -956,8 +1021,59 @@ mod tests {
         let projects = [project("root", "", true, true)];
 
         assert_eq!(
-            ignored_paths_in_scopes(root, &tree, &projects, &["".to_string()]),
-            ignored_paths(root, &tree, &projects)
+            ignored_paths_in_scopes(root, &tree, &projects, &["".to_string()], None),
+            ignored_paths(root, &tree, &projects, None)
         );
+    }
+
+    #[test]
+    fn encrypted_root_and_nested_rules_match_only_with_the_active_key() {
+        let directory = tempdir().expect("temp directory");
+        let root = directory.path();
+        fs::create_dir(root.join("src")).expect("source directory");
+        let key = [7u8; 32];
+        fs::write(
+            root.join(".gitignore"),
+            crypto::encrypt_file_content(&key, b"*.tmp\n").expect("encrypt root ignore"),
+        )
+        .expect("root ignore");
+        fs::write(
+            root.join("src/.gitignore"),
+            crypto::encrypt_file_content(&key, b"*.log\n").expect("encrypt nested ignore"),
+        )
+        .expect("nested ignore");
+        let tree = vec![
+            file("draft.tmp"),
+            folder(
+                "src",
+                vec![
+                    file("src/cache.tmp"),
+                    file("src/debug.log"),
+                    file("src/kept.txt"),
+                ],
+            ),
+        ];
+        let projects = [project("root", "", true, true)];
+
+        assert_eq!(
+            ignored_paths(root, &tree, &projects, Some(&key)),
+            vec!["draft.tmp", "src/cache.tmp", "src/debug.log"]
+        );
+        assert!(ignored_paths(root, &tree, &projects, None).is_empty());
+        assert!(ignored_paths(root, &tree, &projects, Some(&[8u8; 32])).is_empty());
+    }
+
+    #[test]
+    fn encrypted_gitignore_plaintext_limit_is_enforced_after_decryption() {
+        let directory = tempdir().expect("temp directory");
+        let root = directory.path();
+        let key = [9u8; 32];
+        let plaintext = vec![b'x'; (MAX_GITIGNORE_BYTES + 1) as usize];
+        let encrypted =
+            crypto::encrypt_file_content(&key, &plaintext).expect("encrypt oversized ignore");
+        assert!(encrypted.len() as u64 <= MAX_STORED_GITIGNORE_BYTES);
+        fs::write(root.join(".gitignore"), encrypted).expect("encrypted ignore");
+
+        assert!(load_gitignore(root, Some(&key)).is_none());
     }
 }

@@ -115,6 +115,14 @@ fn populate_encryption_status(
 ) -> AppResult<()> {
     snapshot.encryption =
         vault::encryption_status(&snapshot.vault_path, state.vault_is_unlocked()?)?;
+    if snapshot.encryption.enabled {
+        let key = if snapshot.encryption.unlocked {
+            active_key(state, Path::new(&snapshot.vault_path))?
+        } else {
+            None
+        };
+        vault::recompute_snapshot_ignored_paths(snapshot, key.as_deref());
+    }
     Ok(())
 }
 
@@ -346,17 +354,21 @@ pub async fn choose_vault(
 
 #[tauri::command]
 pub async fn refresh_vault(state: State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
-    let (db_path, root, unlocked) = {
+    let (db_path, root, unlocked, key) = {
         let _vault_access = state.read_vault_access()?;
-        (
-            state.db_path.clone(),
-            state.active_vault()?,
-            state.vault_is_unlocked()?,
-        )
+        let root = state.active_vault()?;
+        let unlocked = state.vault_is_unlocked()?;
+        let key = if unlocked {
+            active_key(&state, &root)?
+        } else {
+            None
+        };
+        (state.db_path.clone(), root, unlocked, key)
     };
     run_blocking(move || {
         let mut snapshot = vault::refresh_vault(&db_path, &root.to_string_lossy())?;
         snapshot.encryption = vault::encryption_status(&snapshot.vault_path, unlocked)?;
+        vault::recompute_snapshot_ignored_paths(&mut snapshot, key.as_deref());
         Ok(snapshot)
     })
     .await
@@ -970,7 +982,17 @@ pub fn refresh_gitignore_status(
     scope_paths: Vec<String>,
 ) -> AppResult<GitignoreStatusUpdate> {
     with_expected_project_configuration_vault_read(&state, &expected_vault_path, |root| {
-        vault::refresh_gitignore_status(&state.db_path, &root.to_string_lossy(), scope_paths)
+        let key = if state.vault_is_unlocked()? {
+            active_key(&state, root)?
+        } else {
+            None
+        };
+        vault::refresh_gitignore_status(
+            &state.db_path,
+            &root.to_string_lossy(),
+            scope_paths,
+            key.as_deref(),
+        )
     })
 }
 
