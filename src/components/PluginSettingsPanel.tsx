@@ -31,6 +31,8 @@ const PERMISSION_LABELS: Record<string, string> = {
   "editor-decoration": "Decorate editor content",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",
+  "source-control": "Provide source control status and actions",
+  "automatic-local-commit": "Allow automatic local commits",
   "workspace-read": "Read vault content",
   "workspace-write": "Change vault content after an explicit action",
   network: "Connect to declared network hosts",

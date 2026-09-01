@@ -11,11 +11,13 @@ import { usePlugins } from "./usePlugins";
 
 interface MockRuntimeInstance {
   onCommandsChanged: unknown;
+  onSourceControlProvidersChanged?: unknown;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
+  runSourceControlAction: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
   invalidateActionLeases: ReturnType<typeof vi.fn>;
@@ -57,6 +59,7 @@ vi.mock("./workerRuntime", () => {
     });
     isRunning = vi.fn(() => true);
     runCommand = vi.fn(async () => {});
+    runSourceControlAction = vi.fn(async () => {});
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
     invalidateActionLeases = vi.fn();
@@ -67,6 +70,7 @@ vi.mock("./workerRuntime", () => {
       public onSidebarViewsChanged?: unknown,
       public onStatusItemsChanged?: unknown,
       public onDecorationsChanged?: unknown,
+      public onSourceControlProvidersChanged?: unknown,
     ) {
       runtimeInstances.push(this);
     }
@@ -402,6 +406,84 @@ describe("usePlugins", () => {
       pluginId,
       "denote.reference.synthetic",
       { workspaceScope: "/vault", projectId: null },
+    );
+  });
+
+  it("publishes source control providers and scopes their actions", async () => {
+    const projectContext = {
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    };
+    const rendered = await mountReady(
+      [makePlugin({ enabled: true })],
+      projectContext,
+    );
+    const model = {
+      selectedTab: "changes",
+      selectedView: { kind: "repository" },
+      repository: {
+        repositoryId: "repo-1",
+        label: "Synthetic repository",
+        initialized: true,
+        branch: "main",
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        latestCommit: null,
+        busy: false,
+      },
+      resourceGroups: [],
+      branches: [],
+      remotes: [],
+      history: [],
+      diffFiles: [],
+      conflicts: [],
+      recovery: { state: "idle" },
+    } as const;
+    const publishProviders = runtimeInstances[0]
+      .onSourceControlProvidersChanged as (
+      providers: Array<{
+        pluginId: string;
+        id: string;
+        title: string;
+        model: typeof model;
+      }>,
+    ) => void;
+
+    act(() => {
+      publishProviders([
+        {
+          pluginId,
+          id: "denote.reference.git",
+          title: "Git",
+          model,
+        },
+      ]);
+    });
+    expect(rendered.result.current.sourceControlProviders).toEqual([
+      {
+        pluginId,
+        id: "denote.reference.git",
+        title: "Git",
+        model,
+      },
+    ]);
+
+    await act(async () => {
+      await rendered.result.current.runSourceControlAction(
+        pluginId,
+        "denote.reference.git",
+        { id: "refresh", values: { force: true } },
+        "/vault",
+      );
+    });
+    expect(
+      runtimeInstances[0].runSourceControlAction,
+    ).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.git",
+      { id: "refresh", values: { force: true } },
+      { workspaceScope: "/vault", projectId: "project-alpha" },
     );
   });
 });

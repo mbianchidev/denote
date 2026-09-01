@@ -126,7 +126,12 @@ cannot receive a capability absent from its signed manifest. Enabling alone must
 not invoke any workspace mutation. Plugin API version 1 intentionally exposes
 command registration, static sidebar views, note events, plugin-scoped
 state/settings, optional secure storage, status items, literal source-editor
-decorations, and explicit command-action services. Workspace text reads return
+decorations, typed source-control view models, and explicit user-action services.
+Source-control providers contribute host-rendered repository, resource, branch,
+remote, history, diff, conflict, and recovery data; they cannot render HTML or
+execute Git directly. The separate `automatic-local-commit` permission is only a
+marker for future host operations and exposes no activation capability.
+Workspace text reads return
 a content version that writes must present unchanged, reusing the canonical
 vault boundary and conflict hashes;
 network requests require HTTPS and declared hosts; clipboard, notifications, and
@@ -138,8 +143,9 @@ explicit or implicit project's opaque ID and vault-relative root plus change eve
 absolute path and no dependency on editor or project-root implementation
 objects.
 
-Each explicit plugin command lease snapshots both vault scope and active project
-identity. Changing project identity invalidates outstanding leases. Existing
+Each explicit plugin command or source-control action lease snapshots both vault
+scope and active project identity. Changing project identity invalidates
+outstanding leases. Existing
 bounded process execution resolves the captured ID through native SQLite,
 revalidates that it still belongs to the active vault and names a safe available
 directory, and uses that directory as `cwd`. Persistent terminal sessions and
@@ -172,8 +178,10 @@ DOM or direct Tauri bindings; the CSP denies direct network connections, and the
 host terminates the worker on invalid protocol messages or timeouts. Messages are
 scoped to the plugin ID by the host, so plugin code cannot choose the ID used for
 native storage or keychain calls.
-Command contributions require the plugin ID prefix, remain staged until
-activation succeeds, and disappear when the worker terminates.
+Command and source-control contributions require the plugin ID prefix, remain
+staged until activation succeeds, and disappear when the worker terminates.
+Source-control model updates use the original registration handle and do not
+re-register the provider.
 
 Plugin state lives in `plugins/state.json` under application data. Package code
 lives under `plugins/packages/<plugin-id>/<version>/`; transient downloads use

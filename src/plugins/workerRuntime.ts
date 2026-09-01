@@ -4,6 +4,7 @@ import type {
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginSourceControlAction,
 } from "@denote/plugin-sdk";
 import {
   privilegedHostOperation,
@@ -16,6 +17,7 @@ import {
   type PluginDecorationContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
+  type PluginSourceControlContribution,
   type PluginStatusContribution,
   type PluginWorkerConnectMessage,
 } from "./runtimeMessages";
@@ -24,6 +26,7 @@ export type {
   PluginCommandContribution,
   PluginDecorationContribution,
   PluginSidebarContribution,
+  PluginSourceControlContribution,
   PluginStatusContribution,
 } from "./runtimeMessages";
 export type { PluginActionLeaseScope } from "./hostOperations";
@@ -36,6 +39,10 @@ interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: number;
+  expectedType:
+    | "command-result"
+    | "source-control-action-result"
+    | "deactivated";
 }
 
 interface PendingHandshake {
@@ -54,6 +61,8 @@ interface Runtime {
   stagedStatusItems: Map<string, PluginStatusContribution>;
   decorations: Map<string, PluginDecorationContribution>;
   stagedDecorations: Map<string, PluginDecorationContribution>;
+  sourceControlProviders: Map<string, PluginSourceControlContribution>;
+  stagedSourceControlProviders: Map<string, PluginSourceControlContribution>;
   permissions: Set<string>;
   pending: Map<string, PendingRequest>;
   activeActions: Map<string, PluginActionLeaseScope>;
@@ -88,6 +97,9 @@ export class PluginWorkerRuntime {
     ) => void = () => {},
     private readonly onDecorationsChanged: (
       decorations: PluginDecorationContribution[],
+    ) => void = () => {},
+    private readonly onSourceControlProvidersChanged: (
+      providers: PluginSourceControlContribution[],
     ) => void = () => {},
   ) {}
 
@@ -149,6 +161,7 @@ export class PluginWorkerRuntime {
       runtime,
       requestId,
       DEACTIVATION_TIMEOUT_MS,
+      "deactivated",
     );
     runtime.port.postMessage({ type: "deactivate", requestId });
     try {
@@ -194,8 +207,14 @@ export class PluginWorkerRuntime {
     if (!runtime.activated || !runtime.commands.has(commandId)) {
       throw new Error(`Plugin command ${commandId} is not registered.`);
     }
+
     const requestId = crypto.randomUUID();
-    const result = this.waitForRequest(runtime, requestId, COMMAND_TIMEOUT_MS);
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      COMMAND_TIMEOUT_MS,
+      "command-result",
+    );
     runtime.activeActions.set(requestId, {
       ...actionScope,
       projectId: runtime.permissions.has("project-context")
@@ -205,6 +224,47 @@ export class PluginWorkerRuntime {
     runtime.port.postMessage({
       type: "run-command",
       commandId,
+      requestId,
+    });
+    try {
+      await result;
+    } finally {
+      runtime.activeActions.delete(requestId);
+    }
+  }
+
+  async runSourceControlAction(
+    pluginId: string,
+    providerId: string,
+    action: PluginSourceControlAction,
+    actionScope: PluginActionLeaseScope,
+  ): Promise<void> {
+    const runtime = this.requireRuntime(pluginId);
+    if (
+      !runtime.activated ||
+      !runtime.sourceControlProviders.has(providerId)
+    ) {
+      throw new Error(
+        `Plugin source control provider ${providerId} is not registered.`,
+      );
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      COMMAND_TIMEOUT_MS,
+      "source-control-action-result",
+    );
+    runtime.activeActions.set(requestId, {
+      ...actionScope,
+      projectId: runtime.permissions.has("project-context")
+        ? actionScope.projectId
+        : null,
+    });
+    runtime.port.postMessage({
+      type: "run-source-control-action",
+      providerId,
+      action,
       requestId,
     });
     try {
@@ -285,6 +345,8 @@ export class PluginWorkerRuntime {
       stagedStatusItems: new Map(),
       decorations: new Map(),
       stagedDecorations: new Map(),
+      sourceControlProviders: new Map(),
+      stagedSourceControlProviders: new Map(),
       permissions: new Set(
         plugin.approvedPermissions.map(
           (permission) => permission.capability,
@@ -364,10 +426,15 @@ export class PluginWorkerRuntime {
         runtime.decorations.set(decorationId, decoration);
       }
       runtime.stagedDecorations.clear();
+      for (const [providerId, provider] of runtime.stagedSourceControlProviders) {
+        runtime.sourceControlProviders.set(providerId, provider);
+      }
+      runtime.stagedSourceControlProviders.clear();
       this.publishCommands();
       this.publishSidebarViews();
       this.publishStatusItems();
       this.publishDecorations();
+      this.publishSourceControlProviders();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -513,6 +580,76 @@ export class PluginWorkerRuntime {
         runtime.stagedDecorations.delete(message.id);
         this.publishDecorations();
         return;
+      case "register-source-control": {
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("source-control") ||
+          !message.id.startsWith(`${pluginId}.`)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized source control registration.`,
+            ),
+          );
+          return;
+        }
+        if (
+          this.sourceControlProviderIdRegistered(message.id)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted a duplicate source control registration.`,
+            ),
+          );
+          return;
+        }
+        const provider: PluginSourceControlContribution = {
+          pluginId,
+          id: message.id,
+          title: message.title,
+          model: message.model,
+        };
+        if (runtime.activated) {
+          runtime.sourceControlProviders.set(message.id, provider);
+          this.publishSourceControlProviders();
+        } else {
+          runtime.stagedSourceControlProviders.set(message.id, provider);
+        }
+        return;
+      }
+      case "update-source-control": {
+        const current =
+          runtime.sourceControlProviders.get(message.id) ??
+          runtime.stagedSourceControlProviders.get(message.id);
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("source-control") ||
+          !current
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted to update an unregistered source control provider.`,
+            ),
+          );
+          return;
+        }
+        const updated = { ...current, model: message.model };
+        if (runtime.activated) {
+          runtime.sourceControlProviders.set(message.id, updated);
+          this.publishSourceControlProviders();
+        } else {
+          runtime.stagedSourceControlProviders.set(message.id, updated);
+        }
+        return;
+      }
+      case "unregister-source-control":
+        runtime.sourceControlProviders.delete(message.id);
+        runtime.stagedSourceControlProviders.delete(message.id);
+        this.publishSourceControlProviders();
+        return;
       case "host-request":
         if (
           privilegedHostOperation(message.operation) &&
@@ -549,11 +686,24 @@ export class PluginWorkerRuntime {
         }
         return;
       case "command-result":
+      case "source-control-action-result": {
+        if (!this.settle(runtime, message.requestId, message.type, message.error)) {
+          this.protocolViolation(
+            pluginId,
+            `unexpected ${message.type} for pending request`,
+          );
+          return;
+        }
         runtime.activeActions.delete(message.requestId);
-        this.settle(runtime, message.requestId, message.error);
         return;
+      }
       case "deactivated":
-        this.settle(runtime, message.requestId, message.error);
+        if (!this.settle(runtime, message.requestId, message.type, message.error)) {
+          this.protocolViolation(
+            pluginId,
+            `unexpected ${message.type} for pending request`,
+          );
+        }
         return;
       case "runtime-error":
         void this.failRuntime(pluginId, new Error(message.error));
@@ -651,20 +801,34 @@ export class PluginWorkerRuntime {
     runtime: Runtime,
     requestId: string,
     timeoutMs: number,
+    expectedType: PendingRequest["expectedType"],
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         runtime.pending.delete(requestId);
         reject(new Error("Plugin operation timed out."));
       }, timeoutMs);
-      runtime.pending.set(requestId, { resolve, reject, timeout });
+      runtime.pending.set(requestId, {
+        resolve,
+        reject,
+        timeout,
+        expectedType,
+      });
     });
   }
 
-  private settle(runtime: Runtime, requestId: string, error?: string): void {
+  private settle(
+    runtime: Runtime,
+    requestId: string,
+    responseType: PendingRequest["expectedType"],
+    error?: string,
+  ): boolean {
     const pending = runtime.pending.get(requestId);
     if (!pending) {
-      return;
+      return true;
+    }
+    if (pending.expectedType !== responseType) {
+      return false;
     }
     window.clearTimeout(pending.timeout);
     runtime.pending.delete(requestId);
@@ -673,6 +837,19 @@ export class PluginWorkerRuntime {
     } else {
       pending.resolve(undefined);
     }
+    return true;
+  }
+
+  private sourceControlProviderIdRegistered(id: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (
+        runtime.sourceControlProviders.has(id) ||
+        runtime.stagedSourceControlProviders.has(id)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private terminate(pluginId: string): void {
@@ -693,6 +870,7 @@ export class PluginWorkerRuntime {
     this.publishSidebarViews();
     this.publishStatusItems();
     this.publishDecorations();
+    this.publishSourceControlProviders();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -753,6 +931,14 @@ export class PluginWorkerRuntime {
     this.onDecorationsChanged(
       [...this.runtimes.values()].flatMap((runtime) => [
         ...runtime.decorations.values(),
+      ]),
+    );
+  }
+
+  private publishSourceControlProviders(): void {
+    this.onSourceControlProvidersChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.sourceControlProviders.values(),
       ]),
     );
   }

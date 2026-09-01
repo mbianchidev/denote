@@ -104,6 +104,32 @@ describe("plugin manifest validation", () => {
     );
   });
 
+  it("accepts source control permissions as unconstrained API v1 capabilities", () => {
+    expect(
+      validatePluginManifest({
+        ...referenceManifestJson,
+        permissions: [
+          { capability: "source-control" },
+          { capability: "automatic-local-commit" },
+        ],
+      }),
+    ).toMatchObject({ valid: true, errors: [] });
+
+    const constrained = validatePluginManifest({
+      ...referenceManifestJson,
+      permissions: [
+        {
+          capability: "source-control",
+          executables: { macos: ["/usr/bin/git"] },
+        },
+      ],
+    });
+    expect(constrained.valid).toBe(false);
+    expect(constrained.errors).toContain(
+      "permissions[0].executables is only valid for process permission.",
+    );
+  });
+
   it("validates named bundle roles and allows unavailable candidates", () => {
     const result = validatePluginBundles(
       [

@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import catalogJson from "../../packages/plugins/catalog.json";
-import { assertValidPluginCatalogEntry } from "@denote/plugin-sdk";
+import {
+  assertValidPluginCatalogEntry,
+  type PluginSourceControlViewModel,
+} from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
 import { PluginWorkerRuntime } from "./workerRuntime";
@@ -25,6 +28,28 @@ vi.mock("../lib/api", () => ({
 const catalogValue: unknown = catalogJson[0];
 assertValidPluginCatalogEntry(catalogValue);
 const catalog = catalogValue;
+const sourceControlModel: PluginSourceControlViewModel = {
+  selectedTab: "changes",
+  selectedView: { kind: "repository" },
+  repository: {
+    repositoryId: "repo-1",
+    label: "Synthetic repository",
+    initialized: true,
+    branch: "main",
+    upstream: "origin/main",
+    ahead: 0,
+    behind: 0,
+    latestCommit: null,
+    busy: false,
+  },
+  resourceGroups: [],
+  branches: [],
+  remotes: [],
+  history: [],
+  diffFiles: [],
+  conflicts: [],
+  recovery: { state: "idle" },
+};
 
 class FakePort extends EventTarget {
   peer: FakePort | null = null;
@@ -59,6 +84,14 @@ class FakeMessageChannel {
 class FakeWorker extends EventTarget {
   static instances: FakeWorker[] = [];
   static completeCommands = true;
+  static commandIdOnActivate = "denote.reference.ping";
+  static completeSourceControlActions = true;
+  static sourceControlModelOnActivate: PluginSourceControlViewModel | null = null;
+  static sourceControlProviderIdOnActivate = "denote.reference.git";
+  static sourceControlActionResultType:
+    | "source-control-action-result"
+    | "command-result" = "source-control-action-result";
+  static failActivationAfterSourceControl = false;
   terminated = false;
   runtimePort: FakePort | null = null;
   received: unknown[] = [];
@@ -88,9 +121,24 @@ class FakeWorker extends EventTarget {
       if (data.type === "activate") {
         port.postMessage({
           type: "register-command",
-          id: "denote.reference.ping",
+          id: FakeWorker.commandIdOnActivate,
           title: "Reference command",
         });
+        if (FakeWorker.sourceControlModelOnActivate) {
+          port.postMessage({
+            type: "register-source-control",
+            id: FakeWorker.sourceControlProviderIdOnActivate,
+            title: "Git",
+            model: FakeWorker.sourceControlModelOnActivate,
+          });
+        }
+        if (FakeWorker.failActivationAfterSourceControl) {
+          port.postMessage({
+            type: "activation-error",
+            error: "Synthetic activation failure",
+          });
+          return;
+        }
         port.postMessage({ type: "activated" });
       } else if (
         data.type === "run-command" &&
@@ -99,6 +147,15 @@ class FakeWorker extends EventTarget {
       ) {
         port.postMessage({
           type: "command-result",
+          requestId: data.requestId,
+        });
+      } else if (
+        data.type === "run-source-control-action" &&
+        typeof data.requestId === "string" &&
+        FakeWorker.completeSourceControlActions
+      ) {
+        port.postMessage({
+          type: FakeWorker.sourceControlActionResultType,
           requestId: data.requestId,
         });
       } else if (
@@ -141,11 +198,39 @@ function pluginWithProjectContext(): PluginView {
   };
 }
 
+function pluginWithSourceControl(projectContext = false): PluginView {
+  return {
+    ...plugin(),
+    approvedPermissions: [
+      ...catalog.manifest.permissions,
+      { capability: "source-control" },
+      ...(projectContext ? [{ capability: "project-context" } as const] : []),
+    ],
+  };
+}
+
+function pluginWithSourceControlId(pluginId: string): PluginView {
+  const source = pluginWithSourceControl();
+  return {
+    ...source,
+    catalog: {
+      ...source.catalog,
+      manifest: { ...source.catalog.manifest, id: pluginId },
+    },
+  };
+}
+
 describe("PluginWorkerRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     FakeWorker.instances = [];
     FakeWorker.completeCommands = true;
+    FakeWorker.commandIdOnActivate = "denote.reference.ping";
+    FakeWorker.completeSourceControlActions = true;
+    FakeWorker.sourceControlModelOnActivate = null;
+    FakeWorker.sourceControlProviderIdOnActivate = "denote.reference.git";
+    FakeWorker.sourceControlActionResultType = "source-control-action-result";
+    FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
     vi.stubGlobal("MessageChannel", FakeMessageChannel);
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "request-id") });
@@ -196,6 +281,229 @@ describe("PluginWorkerRuntime", () => {
         }),
       ]),
     );
+  });
+
+  it("stages, updates, dispatches, and removes source control contributions", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    const onSourceControlChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      onSourceControlChanged,
+    );
+
+    await runtime.start(pluginWithSourceControl());
+    const worker = FakeWorker.instances[0];
+    expect(onSourceControlChanged).toHaveBeenLastCalledWith([
+      {
+        pluginId: "denote.reference",
+        id: "denote.reference.git",
+        title: "Git",
+        model: sourceControlModel,
+      },
+    ]);
+
+    const updatedModel: PluginSourceControlViewModel = {
+      ...sourceControlModel,
+      repository: {
+        ...sourceControlModel.repository,
+        busy: true,
+        busyMessage: "Refreshing",
+      },
+    };
+    worker.runtimePort?.postMessage({
+      type: "update-source-control",
+      id: "denote.reference.git",
+      model: updatedModel,
+    });
+    await vi.waitFor(() => {
+      expect(onSourceControlChanged).toHaveBeenLastCalledWith([
+        expect.objectContaining({ model: updatedModel }),
+      ]);
+    });
+
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh", values: { force: true } },
+      { workspaceScope: "/vault", projectId: null },
+    );
+    expect(worker.received).toContainEqual({
+      type: "run-source-control-action",
+      providerId: "denote.reference.git",
+      action: { id: "refresh", values: { force: true } },
+      requestId: "request-id",
+    });
+
+    await runtime.stop("denote.reference");
+    expect(onSourceControlChanged).toHaveBeenLastCalledWith([]);
+  });
+
+  it("rolls back staged source control contributions when activation fails", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.failActivationAfterSourceControl = true;
+    const onSourceControlChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      onSourceControlChanged,
+    );
+
+    await expect(runtime.start(pluginWithSourceControl())).rejects.toThrow(
+      "Synthetic activation failure",
+    );
+
+    expect(
+      onSourceControlChanged.mock.calls.some(
+        ([providers]) => Array.isArray(providers) && providers.length > 0,
+      ),
+    ).toBe(false);
+    expect(FakeWorker.instances[0].terminated).toBe(true);
+  });
+
+  it("terminates duplicate source control registrations", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+    await runtime.start(pluginWithSourceControl());
+    const worker = FakeWorker.instances[0];
+
+    worker.runtimePort?.postMessage({
+      type: "register-source-control",
+      id: "denote.reference.git",
+      title: "Duplicate",
+      model: sourceControlModel,
+    });
+
+    await vi.waitFor(() => {
+      expect(worker.terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/duplicate source control/i),
+        }),
+      );
+    });
+  });
+
+  it("rejects source control provider IDs that collide across plugins", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.commandIdOnActivate = "denote.reference.git.ping";
+    FakeWorker.sourceControlProviderIdOnActivate =
+      "denote.reference.git.provider";
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+    await runtime.start(pluginWithSourceControlId("denote.reference"));
+
+    await runtime
+      .start(pluginWithSourceControlId("denote.reference.git"))
+      .catch(() => {});
+
+    await vi.waitFor(() => {
+      expect(FakeWorker.instances[1]?.terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference.git",
+        expect.objectContaining({
+          message: expect.stringMatching(/duplicate source control/i),
+        }),
+      );
+    });
+  });
+
+  it("rejects mismatched source control action result types", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.sourceControlActionResultType = "command-result";
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+    await runtime.start(pluginWithSourceControl());
+
+    await expect(
+      runtime.runSourceControlAction(
+        "denote.reference",
+        "denote.reference.git",
+        { id: "refresh" },
+        { workspaceScope: "/vault", projectId: null },
+      ),
+    ).rejects.toThrow();
+
+    expect(FakeWorker.instances[0].terminated).toBe(true);
+    expect(onError).toHaveBeenCalledWith(
+      "denote.reference",
+      expect.objectContaining({
+        message: expect.stringMatching(/unexpected command-result/i),
+      }),
+    );
+  });
+
+  it("expires source control action leases when project identity changes", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.completeSourceControlActions = false;
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(pluginWithSourceControl(true));
+    const worker = FakeWorker.instances[0];
+
+    const action = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh" },
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    runtime.setProjectContext({
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "source-control-host-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: [] },
+    });
+
+    await vi.waitFor(() => {
+      expect(worker.received).toContainEqual({
+        type: "host-response",
+        requestId: "source-control-host-request",
+        error: "Plugin action capability lease is invalid or expired.",
+      });
+    });
+    expect(api.pluginProcessRequest).not.toHaveBeenCalled();
+    worker.runtimePort?.postMessage({
+      type: "source-control-action-result",
+      requestId: "request-id",
+    });
+    await action;
   });
 
   it("carries the captured project ID through process requests after a same-ID root move", async () => {
@@ -361,8 +669,6 @@ describe("PluginWorkerRuntime", () => {
     await vi.waitFor(() => {
       expect(port.messages).toContainEqual({ type: "ready" });
     });
-    // The module import path should have run after ambient capabilities were
-    // blocked, and the host-facing onmessage handler should be disarmed.
     expect(workerScope.onmessage).toBeNull();
     expect(workerScope.fetch).toBeUndefined();
     expect(workerScope.Worker).toBeUndefined();
@@ -405,6 +711,173 @@ describe("PluginWorkerRuntime", () => {
       expect(port.messages).toContainEqual({
         type: "command-result",
         requestId: "action-id",
+      });
+    });
+  });
+
+  it("registers, updates, runs, and disposes real source control providers", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const updatedModel: PluginSourceControlViewModel = {
+      ...sourceControlModel,
+      repository: {
+        ...sourceControlModel.repository,
+        label: "Updated repository",
+      },
+    };
+    const pluginModule = dataModuleUrl(`
+      let registration;
+      const initialModel = ${JSON.stringify(sourceControlModel)};
+      const updatedModel = ${JSON.stringify(updatedModel)};
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          registration = context.capabilities.sourceControl.register({
+            id: "denote.reference.git",
+            title: "Git",
+            initialModel,
+            async runAction(action, userAction) {
+              await userAction.capabilities.workspaceRead.readText("note.md");
+              registration.update(updatedModel);
+            },
+          });
+          context.subscriptions.add(registration);
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["source-control", "workspace-read"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => expect(port.messages).toContainEqual({ type: "ready" }));
+    port.onmessage?.(
+      new MessageEvent("message", { data: { type: "activate" } }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "register-source-control",
+        id: "denote.reference.git",
+        title: "Git",
+        model: sourceControlModel,
+      });
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "run-source-control-action",
+          providerId: "denote.reference.git",
+          action: { id: "stage", values: { path: "note.md" } },
+          requestId: "source-action-id",
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual(
+        expect.objectContaining({
+          type: "host-request",
+          operation: "workspace.read",
+          actionId: "source-action-id",
+        }),
+      );
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "host-response",
+          requestId: "request-id",
+          value: { content: "synthetic", version: "version-1" },
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "update-source-control",
+        id: "denote.reference.git",
+        model: updatedModel,
+      });
+      expect(port.messages).toContainEqual({
+        type: "source-control-action-result",
+        requestId: "source-action-id",
+      });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: { type: "deactivate", requestId: "deactivate-source-control" },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "unregister-source-control",
+        id: "denote.reference.git",
+      });
+    });
+  });
+
+  it("rejects duplicate source control provider IDs in the plugin worker", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+    const pluginModule = dataModuleUrl(`
+      const model = ${JSON.stringify(sourceControlModel)};
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        activate(context) {
+          const provider = {
+            id: "denote.reference.git",
+            title: "Git",
+            initialModel: model,
+            runAction() {},
+          };
+          context.capabilities.sourceControl.register(provider);
+          context.capabilities.sourceControl.register(provider);
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["source-control"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => expect(port.messages).toContainEqual({ type: "ready" }));
+    port.onmessage?.(
+      new MessageEvent("message", { data: { type: "activate" } }),
+    );
+
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "activation-error",
+        error:
+          "Source control provider denote.reference.git is already registered.",
       });
     });
   });

@@ -22,6 +22,8 @@ export const PLUGIN_CAPABILITIES = [
   "editor-decoration",
   "note-events",
   "project-context",
+  "source-control",
+  "automatic-local-commit",
   "workspace-read",
   "workspace-write",
   "network",
@@ -293,6 +295,189 @@ export interface PluginProjectContextCapability {
   ) => PluginDisposable;
 }
 
+export interface PluginSourceControlCommitSummary {
+  id: string;
+  shortId: string;
+  summary: string;
+  authorName: string;
+  authoredAt: string;
+}
+
+export interface PluginSourceControlRepositorySummary {
+  repositoryId: string;
+  label: string;
+  initialized: boolean;
+  branch: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  latestCommit: PluginSourceControlCommitSummary | null;
+  busy: boolean;
+  busyMessage?: string;
+}
+
+export type PluginSourceControlResourceGroupKind =
+  | "staged"
+  | "unstaged"
+  | "untracked"
+  | "conflicted"
+  | "ignored";
+
+export type PluginSourceControlResourceStatus =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "type-changed"
+  | "unmerged"
+  | "unknown";
+
+export interface PluginSourceControlResource {
+  path: string;
+  status: PluginSourceControlResourceStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+}
+
+export interface PluginSourceControlResourceGroup {
+  kind: PluginSourceControlResourceGroupKind;
+  label: string;
+  resources: PluginSourceControlResource[];
+}
+
+export interface PluginSourceControlBranchChoice {
+  name: string;
+  current: boolean;
+  remote: boolean;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+}
+
+export interface PluginSourceControlRemote {
+  name: string;
+  fetchUrl: string | null;
+  pushUrl: string | null;
+}
+
+export interface PluginSourceControlHistoryEntry
+  extends PluginSourceControlCommitSummary {
+  parentIds: string[];
+  refs: string[];
+}
+
+export type PluginSourceControlDiffLineKind =
+  | "context"
+  | "addition"
+  | "deletion";
+
+export interface PluginSourceControlDiffLine {
+  kind: PluginSourceControlDiffLineKind;
+  oldLineNumber: number | null;
+  newLineNumber: number | null;
+  content: string;
+}
+
+export interface PluginSourceControlDiffHunk {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: PluginSourceControlDiffLine[];
+}
+
+export interface PluginSourceControlDiffFile {
+  path: string;
+  previousPath: string | null;
+  status: PluginSourceControlResourceStatus;
+  additions: number;
+  deletions: number;
+  binary: boolean;
+  hunks: PluginSourceControlDiffHunk[];
+}
+
+export interface PluginSourceControlConflictEntry {
+  path: string;
+  status: PluginSourceControlResourceStatus;
+  oursLabel: string;
+  theirsLabel: string;
+  baseLabel: string | null;
+}
+
+export type PluginSourceControlRecoveryState =
+  | { state: "idle" }
+  | {
+      state: "running";
+      operationId: string;
+      message: string;
+    }
+  | {
+      state: "failed";
+      operationId: string;
+      message: string;
+      retryActionId?: string;
+      dismissActionId?: string;
+    };
+
+interface PluginSourceControlViewModelBase {
+  repository: PluginSourceControlRepositorySummary;
+  resourceGroups: PluginSourceControlResourceGroup[];
+  branches: PluginSourceControlBranchChoice[];
+  remotes: PluginSourceControlRemote[];
+  history: PluginSourceControlHistoryEntry[];
+  diffFiles: PluginSourceControlDiffFile[];
+  conflicts: PluginSourceControlConflictEntry[];
+  recovery: PluginSourceControlRecoveryState;
+}
+
+export type PluginSourceControlViewModel =
+  | (PluginSourceControlViewModelBase & {
+      selectedTab: "changes";
+      selectedView:
+        | { kind: "repository" }
+        | { kind: "diff"; path: string }
+        | { kind: "conflict"; path: string };
+    })
+  | (PluginSourceControlViewModelBase & {
+      selectedTab: "history";
+      selectedView:
+        | { kind: "history" }
+        | { kind: "commit"; commitId: string }
+        | { kind: "diff"; path: string; commitId: string };
+    })
+  | (PluginSourceControlViewModelBase & {
+      selectedTab: "branches";
+      selectedView: { kind: "branches" } | { kind: "remotes" };
+    });
+
+export interface PluginSourceControlAction {
+  id: string;
+  values?: Record<string, string | boolean | number>;
+}
+
+export interface PluginSourceControlProvider {
+  id: string;
+  title: string;
+  initialModel: PluginSourceControlViewModel;
+  runAction: (
+    action: PluginSourceControlAction,
+    context: PluginUserActionContext,
+  ) => void | Promise<void>;
+}
+
+export interface PluginSourceControlRegistration extends PluginDisposable {
+  update: (model: PluginSourceControlViewModel) => void;
+}
+
+export interface PluginSourceControlCapability {
+  register: (
+    provider: PluginSourceControlProvider,
+  ) => PluginSourceControlRegistration;
+}
+
 export interface PluginTextDocument {
   content: string;
   version: string;
@@ -358,6 +543,7 @@ export interface PluginCapabilities {
   editorDecoration?: PluginEditorDecorationCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
+  sourceControl?: PluginSourceControlCapability;
   secureStorage?: PluginSecureStorage;
 }
 

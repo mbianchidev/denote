@@ -543,6 +543,20 @@ fn catalog_accepts_unconstrained_project_context_capability() {
 }
 
 #[test]
+fn catalog_accepts_unconstrained_source_control_capabilities() {
+    let mut catalog = catalog();
+    for capability in ["source-control", "automatic-local-commit"] {
+        catalog.manifest.permissions.push(PluginPermission {
+            capability: capability.to_string(),
+            hosts: vec![],
+            executables: BTreeMap::new(),
+        });
+    }
+
+    assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
 fn catalog_rejects_project_context_constraints() {
     let mut catalog = catalog();
     catalog.manifest.permissions.push(PluginPermission {

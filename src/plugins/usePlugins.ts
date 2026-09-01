@@ -5,6 +5,7 @@ import type {
   PluginNoteEvent,
   PluginPermissionRequest,
   PluginProjectContext,
+  PluginSourceControlAction,
 } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
@@ -13,6 +14,7 @@ import {
   type PluginSidebarContribution,
   type PluginStatusContribution,
   type PluginDecorationContribution,
+  type PluginSourceControlContribution,
 } from "./workerRuntime";
 
 export interface PluginController {
@@ -22,6 +24,7 @@ export interface PluginController {
   sidebarViews: PluginSidebarContribution[];
   statusItems: PluginStatusContribution[];
   decorations: PluginDecorationContribution[];
+  sourceControlProviders: PluginSourceControlContribution[];
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
@@ -47,6 +50,12 @@ export interface PluginController {
     commandId: string,
     workspaceScope: string,
   ) => Promise<void>;
+  runSourceControlAction: (
+    pluginId: string,
+    providerId: string,
+    action: PluginSourceControlAction,
+    workspaceScope: string,
+  ) => Promise<void>;
   emitNoteEvent: (event: PluginNoteEvent) => void;
   invalidateActionLeases: () => void;
   shutdown: () => Promise<void>;
@@ -65,6 +74,9 @@ export function usePlugins(
   const [statusItems, setStatusItems] = useState<PluginStatusContribution[]>([]);
   const [decorations, setDecorations] = useState<
     PluginDecorationContribution[]
+  >([]);
+  const [sourceControlProviders, setSourceControlProviders] = useState<
+    PluginSourceControlContribution[]
   >([]);
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
@@ -105,6 +117,7 @@ export function usePlugins(
       setSidebarViews,
       setStatusItems,
       setDecorations,
+      setSourceControlProviders,
     );
     runtime.setProjectContext(projectContext);
     runtimeRef.current = runtime;
@@ -356,6 +369,32 @@ export function usePlugins(
     [projectContext],
   );
 
+  const runSourceControlAction = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      action: PluginSourceControlAction,
+      workspaceScope: string,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      runtime.setProjectContext(projectContext);
+      const actionScope: PluginActionLeaseScope = {
+        workspaceScope,
+        projectId: projectContext?.projectId ?? null,
+      };
+      await runtime.runSourceControlAction(
+        pluginId,
+        providerId,
+        action,
+        actionScope,
+      );
+    },
+    [projectContext],
+  );
+
   const importSettings = useCallback(
     async (
       pluginId: string,
@@ -392,6 +431,7 @@ export function usePlugins(
     sidebarViews,
     statusItems,
     decorations,
+    sourceControlProviders,
     loading,
     busyPluginIds,
     refresh,
@@ -403,6 +443,7 @@ export function usePlugins(
     updateSettings,
     importSettings,
     runCommand,
+    runSourceControlAction,
     emitNoteEvent,
     invalidateActionLeases,
     shutdown,

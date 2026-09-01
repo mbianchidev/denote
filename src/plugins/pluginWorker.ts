@@ -13,6 +13,8 @@ import type {
   PluginProcessResult,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginSourceControlProvider,
+  PluginSourceControlViewModel,
   PluginTextDocument,
   PluginUserActionContext,
 } from "@denote/plugin-sdk";
@@ -21,6 +23,10 @@ import type {
   PluginRuntimeMessage,
   PluginWorkerConnectMessage,
 } from "./runtimeMessages";
+import {
+  isPluginHostMessage,
+  isPluginSourceControlViewModel,
+} from "./runtimeMessages";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -28,6 +34,10 @@ interface PendingRequest {
 }
 
 const commandHandlers = new Map<string, PluginCommand["run"]>();
+const sourceControlHandlers = new Map<
+  string,
+  PluginSourceControlProvider["runAction"]
+>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
@@ -276,6 +286,53 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("source-control")) {
+    capabilities.sourceControl = {
+      register(provider) {
+        validateContribution(provider, "source control provider");
+        if (typeof provider.runAction !== "function") {
+          throw new Error("Invalid source control provider registration.");
+        }
+        validateSourceControlModel(provider.initialModel);
+        if (sourceControlHandlers.has(provider.id)) {
+          throw new Error(
+            `Source control provider ${provider.id} is already registered.`,
+          );
+        }
+        sourceControlHandlers.set(provider.id, provider.runAction);
+        let disposed = false;
+        send({
+          type: "register-source-control",
+          id: provider.id,
+          title: provider.title,
+          model: provider.initialModel,
+        });
+        return {
+          update(model) {
+            if (disposed || !sourceControlHandlers.has(provider.id)) {
+              throw new Error(
+                `Source control provider ${provider.id} is no longer registered.`,
+              );
+            }
+            validateSourceControlModel(model);
+            send({
+              type: "update-source-control",
+              id: provider.id,
+              model,
+            });
+          },
+          dispose() {
+            if (disposed) {
+              return;
+            }
+            disposed = true;
+            sourceControlHandlers.delete(provider.id);
+            send({ type: "unregister-source-control", id: provider.id });
+          },
+        };
+      },
+    };
+  }
   if (permissions.has("secure-storage")) {
     capabilities.secureStorage = {
       get: (key) => hostRequest<string | null>("secret.get", key),
@@ -331,6 +388,14 @@ function validateContributionId(id: string, kind: string): void {
   }
 }
 
+function validateSourceControlModel(
+  model: PluginSourceControlViewModel,
+): void {
+  if (!isPluginSourceControlViewModel(model)) {
+    throw new Error("Invalid source control view model.");
+  }
+}
+
 function disposable(dispose: () => void): PluginDisposable {
   return { dispose };
 }
@@ -373,6 +438,7 @@ async function cleanup(): Promise<unknown[]> {
   noteListeners.clear();
   projectContextListeners.clear();
   commandHandlers.clear();
+  sourceControlHandlers.clear();
   return failures;
 }
 
@@ -440,6 +506,26 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     } catch (error) {
       send({
         type: "command-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "run-source-control-action") {
+    try {
+      const run = sourceControlHandlers.get(message.providerId);
+      if (!run) {
+        throw new Error("Source control provider is no longer registered.");
+      }
+      await run(message.action, userActionContext(message.requestId));
+      send({
+        type: "source-control-action-result",
+        requestId: message.requestId,
+      });
+    } catch (error) {
+      send({
+        type: "source-control-action-result",
         requestId: message.requestId,
         error: errorMessage(error),
       });
@@ -529,13 +615,18 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
   permissions = new Set(message.permissions);
   port = event.ports[0];
   self.onmessage = null;
-  port.onmessage = (portEvent: MessageEvent<PluginHostMessage>) => {
-    if (portEvent.data.type === "host-response") {
-      void handleMessage(portEvent.data);
+  port.onmessage = (portEvent: MessageEvent<unknown>) => {
+    if (!isPluginHostMessage(portEvent.data)) {
+      send({ type: "runtime-error", error: "Invalid plugin host message." });
+      return;
+    }
+    const hostMessage: PluginHostMessage = portEvent.data;
+    if (hostMessage.type === "host-response") {
+      void handleMessage(hostMessage);
       return;
     }
     hostMessageQueue = hostMessageQueue
-      .then(() => handleMessage(portEvent.data))
+      .then(() => handleMessage(hostMessage))
       .catch((error) => {
         send({ type: "runtime-error", error: errorMessage(error) });
       });
