@@ -66,6 +66,8 @@ vi.mock("./components/PlainTextEditor", () => ({
     readOnly,
     spellCheck,
     languageOverride,
+    projectMode,
+    onViewportChange,
     onChange,
   }: {
     ariaLabel: string;
@@ -73,11 +75,15 @@ vi.mock("./components/PlainTextEditor", () => ({
     readOnly: boolean;
     spellCheck: boolean;
     languageOverride?: string | null;
+    projectMode?: boolean;
+    onViewportChange?: (viewport: unknown) => void;
     onChange: (value: string) => void;
   }) => (
     <>
       <output data-testid="plain-editor-language">
-        {languageOverride ?? "auto"}:{String(spellCheck)}
+        {languageOverride ?? "auto"}:{String(spellCheck)}:
+        {projectMode ? "project" : "standard"}:
+        {onViewportChange ? "tracked" : "untracked"}
       </output>
       <button
         type="button"
@@ -379,6 +385,50 @@ describe("App initial file-tree expansion", () => {
       expect.anything(),
     );
   });
+
+  it.each(["project", "workspace"] as const)(
+    "uses the expanded source view and outline in a vault %s context",
+    async (context) => {
+      const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+      if (context === "project") {
+        snapshot.projectRoots = [
+          {
+            id: "vault-project",
+            rootPath: "",
+            available: true,
+            explicit: true,
+            workspaceId: null,
+          },
+        ];
+      } else {
+        snapshot.projectWorkspaces = [
+          {
+            id: "vault-workspace",
+            rootPath: "",
+            available: true,
+          },
+        ];
+      }
+      mockApi.getLastVault.mockResolvedValue(snapshot);
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open sample.py" }),
+      );
+
+      expect(
+        await screen.findByRole("button", { name: "Hide outline" }),
+      ).toBeEnabled();
+      expect(screen.getByLabelText("Source outline")).toBeInTheDocument();
+      expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+        "auto:false:project:tracked",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Hide outline" }));
+      expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
+        "auto:false:project:untracked",
+      );
+    },
+  );
 
   it("refreshes the full ignored set after a project change", async () => {
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));

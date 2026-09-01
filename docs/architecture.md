@@ -491,6 +491,9 @@ project cannot normalize callout or other Markdown syntax. The override does
 not write the saved display settings or vault Markdown preference, so switching
 focus outside the project or unmarking it restores ordinary behavior
 immediately. `.mdx` remains independently source-only.
+Source files with active project context, plus source files in a vault-root
+workspace, receive an in-memory wide-layout class; the file and editor settings
+remain unchanged.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every
@@ -593,6 +596,27 @@ is absent from tab-session JSON, SQLite, Rust models, file names, save hashes, a
 plugin context. Theme changes remain CSS-variable updates and do not remount
 either editor. CodeMirror and Lezer perform incremental viewport parsing; Denote
 adds no synchronous whole-document highlighting scan.
+
+The existing delayed document-analysis worker also runs
+`extractSourceSymbols` for source files when project or vault-workspace context
+enables the source outline. The extractor walks normalized text once without a
+line-array copy, skips pathological lines over 20 KB, and caps results at 1,000.
+Language families use bounded declaration heuristics for functions, methods,
+types, modules, resources, and sections; unknown languages return no symbols.
+Worker generation checks prevent stale results from crossing tab or language
+changes.
+
+The worker also reduces source into at most 500 minimap strokes, choosing one
+representative line per proportional bucket and retaining indentation, relative
+length, comment tone, and symbol emphasis. It never transfers raw rendered DOM
+or forces CodeMirror parsing.
+
+`PlainTextEditor` reports its live CodeMirror viewport through a
+requestAnimationFrame-coalesced callback. The source outline sends monotonic
+navigation requests back
+to the focused editor: symbol requests select and center a line, while code
+minimap requests set proportional scroll position. These effects do not change
+the document, history, language, or autosave state.
 
 Markdown source mode registers a highest-precedence Command-K / Control-K
 CodeMirror command. It wraps a range as `[selected text]()` or inserts `[]()` at

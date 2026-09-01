@@ -218,6 +218,10 @@ more detail and examples.
 - Adapt code blocks and syntax colors to the active theme.
 - Preserve source and fenced editor instances, selection, undo history, and
   content while themes or presentation-only language state change.
+- Expand project and vault-workspace source editors to the available pane width.
+- Show a bounded project source outline of functions and other declarations,
+  navigate directly to a symbol line, and use an accessible code minimap with a
+  live viewport window to jump anywhere in long files.
 - Resize the vault sidebar by pointer or keyboard.
 - Show optional line numbers, spaces/tabs, exact line endings, and trailing
   whitespace.

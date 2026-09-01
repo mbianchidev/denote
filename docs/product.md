@@ -220,6 +220,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   removing its governing mark restores the saved line-number setting and vault
   Markdown preference immediately; these constraints never persist as editor
   preferences.
+- Source editors use the full pane width when the focused file has project
+  context or the vault root is marked as a workspace, while ordinary vault text
+  keeps the narrower writing measure.
+- The optional outline lists bounded, language-aware source symbols for project
+  files. Selecting a symbol moves to its line; a miniature code map below the
+  symbols reflects indentation and declaration structure, overlays the live
+  viewport, and jumps to any proportional position.
 - Syntax highlighting remains available for recognized files in any vault.
   Marking a folder as a project additionally enables project status, forced line
   numbers, byte-preserving project Markdown, and code-tooling recommendations.

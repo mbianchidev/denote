@@ -355,4 +355,115 @@ describe("PlainTextEditor", () => {
     expect(onChange).not.toHaveBeenCalled();
     applyTheme("dark");
   });
+
+  it("widens project source and reports its live viewport", async () => {
+    const onViewportChange = vi.fn();
+    const { container } = render(
+      <PlainTextEditor
+        value={"first\nsecond\nthird"}
+        ariaLabel="Edit project source"
+        readOnly={false}
+        spellCheck={false}
+        binary={false}
+        filePath="project/source.py"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        projectMode
+        onChange={vi.fn()}
+        onViewportChange={onViewportChange}
+      />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      "plain-code-editor--project",
+    );
+    await vi.waitFor(() =>
+      expect(onViewportChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          firstLine: 1,
+          totalLines: 3,
+        }),
+      ),
+    );
+  });
+
+  it("reports the current viewport when an already mounted pane gains focus", async () => {
+    const props = {
+      value: "first\nsecond\nthird",
+      ariaLabel: "Edit split source",
+      readOnly: false,
+      spellCheck: false,
+      binary: false,
+      filePath: "project/split.py",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      onChange: vi.fn(),
+    };
+    const { rerender } = render(<PlainTextEditor {...props} />);
+    const onViewportChange = vi.fn();
+
+    rerender(
+      <PlainTextEditor
+        {...props}
+        onViewportChange={onViewportChange}
+      />,
+    );
+
+    expect(onViewportChange).toHaveBeenCalledWith(
+      expect.objectContaining({ firstLine: 1, totalLines: 3 }),
+    );
+  });
+
+  it("navigates to a source line and proportional scroll position in place", async () => {
+    const props = {
+      value: Array.from(
+        { length: 100 },
+        (_, index) => `line ${index + 1}`,
+      ).join("\n"),
+      ariaLabel: "Edit navigable source",
+      readOnly: false,
+      spellCheck: false,
+      binary: false,
+      filePath: "project/source.py",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      onChange: vi.fn(),
+    };
+    const { container, rerender } = render(<PlainTextEditor {...props} />);
+    const editorElement =
+      container.querySelector<HTMLElement>(".cm-editor")!;
+    const view = EditorView.findFromDOM(editorElement)!;
+
+    rerender(
+      <PlainTextEditor
+        {...props}
+        sourceNavigation={{ request: 1, line: 75 }}
+      />,
+    );
+    await vi.waitFor(() =>
+      expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(
+        75,
+      ),
+    );
+    expect(view.hasFocus).toBe(true);
+    expect(EditorView.findFromDOM(editorElement)).toBe(view);
+
+    Object.defineProperty(view.scrollDOM, "scrollHeight", {
+      configurable: true,
+      value: 1_000,
+    });
+    Object.defineProperty(view.scrollDOM, "clientHeight", {
+      configurable: true,
+      value: 200,
+    });
+    rerender(
+      <PlainTextEditor
+        {...props}
+        sourceNavigation={{ request: 2, progress: 0.5 }}
+      />,
+    );
+
+    expect(view.scrollDOM.scrollTop).toBe(400);
+    expect(EditorView.findFromDOM(editorElement)).toBe(view);
+  });
 });

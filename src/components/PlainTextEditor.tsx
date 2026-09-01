@@ -21,6 +21,10 @@ import {
   resolveSourceLanguage,
   type SourceLanguageOverride,
 } from "../lib/syntaxLanguages";
+import type {
+  SourceEditorNavigation,
+  SourceViewport,
+} from "../lib/sourceOutline";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
 
@@ -34,12 +38,15 @@ interface PlainTextEditorProps {
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
   languageOverride?: SourceLanguageOverride;
+  projectMode?: boolean;
   markdownSource?: boolean;
   errorLocation?: MarkdownErrorLocation;
   errorNavigationRequest?: number;
   searchNavigation?: EditorSearchNavigation;
+  sourceNavigation?: SourceEditorNavigation;
   pluginDecorations?: PluginEditorDecoration[];
   onChange: (value: string) => void;
+  onViewportChange?: (viewport: SourceViewport) => void;
   onError?: (error: unknown) => void;
 }
 
@@ -53,17 +60,22 @@ export function PlainTextEditor({
   lineEnding,
   displaySettings,
   languageOverride = null,
+  projectMode = false,
   markdownSource = false,
   errorLocation,
   errorNavigationRequest = 0,
   searchNavigation,
+  sourceNavigation,
   pluginDecorations = [],
   onChange,
+  onViewportChange,
   onError,
 }: PlainTextEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
+  const onViewportChangeRef = useRef(onViewportChange);
+  const viewportReportingActive = useRef(Boolean(onViewportChange));
   const currentValueRef = useRef(value);
   const syncingValue = useRef(false);
   const attributesCompartment = useRef(new Compartment()).current;
@@ -73,16 +85,35 @@ export function PlainTextEditor({
   const pluginDecorationCompartment = useRef(new Compartment()).current;
   const languageRequest = useRef(0);
   const handledErrorNavigationRequest = useRef(0);
+  const handledSourceNavigationRequest = useRef(0);
 
   useEffect(() => {
     onChangeRef.current = onChange;
   }, [onChange]);
 
   useEffect(() => {
+    const becameActive =
+      Boolean(onViewportChange) && !viewportReportingActive.current;
+    onViewportChangeRef.current = onViewportChange;
+    const editor = editorRef.current;
+    if (editor && onViewportChange && becameActive) {
+      onViewportChange(editorViewport(editor));
+    }
+    viewportReportingActive.current = Boolean(onViewportChange);
+  }, [onViewportChange]);
+
+  useEffect(() => {
     const parent = containerRef.current;
     if (!parent) {
       return;
     }
+    let viewportFrame = 0;
+    const reportViewport = (view: EditorView) => {
+      window.cancelAnimationFrame(viewportFrame);
+      viewportFrame = window.requestAnimationFrame(() => {
+        onViewportChangeRef.current?.(editorViewport(view));
+      });
+    };
     const editor = new EditorView({
       parent,
       state: EditorState.create({
@@ -117,12 +148,26 @@ export function PlainTextEditor({
               currentValueRef.current = nextValue;
               onChangeRef.current(nextValue);
             }
+            if (
+              update.docChanged ||
+              update.geometryChanged ||
+              update.viewportChanged
+            ) {
+              reportViewport(update.view);
+            }
           }),
         ],
       }),
     });
     editorRef.current = editor;
+    const handleScroll = () => reportViewport(editor);
+    editor.scrollDOM.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
+    reportViewport(editor);
     return () => {
+      window.cancelAnimationFrame(viewportFrame);
+      editor.scrollDOM.removeEventListener("scroll", handleScroll);
       editor.destroy();
       editorRef.current = null;
     };
@@ -273,14 +318,62 @@ export function PlainTextEditor({
     editor.focus();
   }, [searchNavigation]);
 
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (
+      !editor ||
+      !sourceNavigation ||
+      sourceNavigation.request <= 0 ||
+      handledSourceNavigationRequest.current === sourceNavigation.request
+    ) {
+      return;
+    }
+    handledSourceNavigationRequest.current = sourceNavigation.request;
+    if (sourceNavigation.line !== undefined) {
+      const line = editor.state.doc.line(
+        Math.max(1, Math.min(sourceNavigation.line, editor.state.doc.lines)),
+      );
+      editor.dispatch({
+        selection: { anchor: line.from },
+        effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+      });
+      editor.focus();
+      return;
+    }
+    if (sourceNavigation.progress !== undefined) {
+      const maximum = Math.max(
+        0,
+        editor.scrollDOM.scrollHeight - editor.scrollDOM.clientHeight,
+      );
+      editor.scrollDOM.scrollTop =
+        maximum * Math.min(1, Math.max(0, sourceNavigation.progress));
+    }
+  }, [sourceNavigation]);
+
   return (
     <div
       ref={containerRef}
       className={`plain-code-editor${
         binary ? " plain-code-editor--binary" : ""
-      }`}
+      }${projectMode ? " plain-code-editor--project" : ""}`}
     />
   );
+}
+
+function editorViewport(editor: EditorView): SourceViewport {
+  const maximum = Math.max(
+    0,
+    editor.scrollDOM.scrollHeight - editor.scrollDOM.clientHeight,
+  );
+  return {
+    firstLine: editor.state.doc.lineAt(editor.viewport.from).number,
+    lastLine: editor.state.doc.lineAt(editor.viewport.to).number,
+    totalLines: editor.state.doc.lines,
+    progress:
+      maximum > 0
+        ? Math.min(1, Math.max(0, editor.scrollDOM.scrollTop / maximum))
+        : 0,
+  };
 }
 
 function resolveSourcePosition(

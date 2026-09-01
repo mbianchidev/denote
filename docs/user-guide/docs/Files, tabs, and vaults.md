@@ -101,7 +101,8 @@ workspace**. This makes each safe direct child folder an implicit project. Run
 should receive project context. Syntax highlighting works in ordinary vaults
 too; project context additionally forces line numbers and byte-preserving
 Markdown source mode, shows the active project, and enables code-tooling
-recommendations.
+recommendations. Project files and files in a vault-root workspace also use the
+wider source layout and source-symbol outline.
 
 From the keyboard, focus a folder and press Shift-F10 or the Context Menu key.
 The command palette provides separate project and workspace commands for the

@@ -50,6 +50,18 @@ the project restores normal behavior immediately.
 `.mdx` files remain non-executing, JSX-highlighted source files; project context
 does not add rich editing.
 
+Project source files use the full editor pane instead of the narrower writing
+column. A vault marked as a workspace uses the same wider source layout even
+before a direct child project is focused.
+
+Open **Outline** to list detected functions, methods, types, modules, resources,
+or sections with their line numbers. Select one to center and focus that line.
+The code minimap below shows miniature line structure, indentation, comments,
+and highlighted declaration lines. Its outlined window shows the current
+viewport; click or drag anywhere on the minimap to jump through a long file.
+With keyboard focus on it, use arrows, Page Up/Down, Home, or End. The slider
+announces its visible line range.
+
 ## Source language
 
 Source-only UTF-8 files show **Language:** in the status bar. Denote detects the

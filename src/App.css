@@ -1528,6 +1528,15 @@ button:disabled {
   background: var(--editor-bg);
 }
 
+.plain-code-editor--project {
+  width: 100%;
+  margin: 0;
+}
+
+.plain-code-editor--project .cm-content {
+  padding-inline: clamp(28px, 4vw, 72px);
+}
+
 .plain-code-editor .cm-editor {
   height: 100%;
 }
@@ -1821,6 +1830,152 @@ button.tag-chip:active,
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.source-outline {
+  display: flex;
+  width: 280px;
+  min-width: 280px;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.source-outline__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source-outline__symbol-section,
+.source-outline__minimap-section {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.source-outline__symbol-section {
+  max-height: 42%;
+}
+
+.source-outline__minimap-section {
+  flex: 1;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+
+.source-outline__symbol-section > h3,
+.source-outline__minimap-section > h3 {
+  display: flex;
+  min-height: 20px;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  padding: 0 7px 6px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-outline__symbols {
+  min-height: 0;
+  overflow: auto;
+}
+
+.source-outline__symbols button {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  padding: 6px 7px 6px
+    calc(7px + var(--symbol-depth, 0) * 8px);
+  overflow: hidden;
+  color: var(--text-secondary);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.source-outline__symbols button:hover,
+.source-outline__symbols button[data-visible="true"] {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.source-outline__symbols button > span,
+.source-outline__symbols button > small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-outline__symbols button > span {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+}
+
+.source-outline__symbols button > small {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.source-outline__minimap {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--code-gutter-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.source-outline__minimap:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.source-outline__minimap-lines {
+  position: absolute;
+  inset: 3px;
+  pointer-events: none;
+}
+
+.source-outline__minimap-lines > span {
+  position: absolute;
+  height: 1px;
+  min-width: 3px;
+  background: var(--text-tertiary);
+  border-radius: 3px;
+  opacity: 0.56;
+}
+
+.source-outline__minimap-lines > span[data-kind="comment"] {
+  background: var(--syntax-comment);
+  opacity: 0.4;
+}
+
+.source-outline__minimap-lines > span[data-kind="symbol"] {
+  height: 2px;
+  background: var(--accent-strong);
+  opacity: 0.84;
+}
+
+.source-outline__viewport-window {
+  position: absolute;
+  right: 2px;
+  left: 2px;
+  min-height: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--editor-bg) 52%, transparent);
+  pointer-events: none;
 }
 
 .toc-list {
@@ -4066,6 +4221,10 @@ kbd {
       color-mix(in srgb, var(--app-bg) 72%, transparent);
   }
 
+  .source-outline {
+    display: flex;
+  }
+
   .denote-editor-content,
   .plain-code-editor .cm-content {
     padding-inline: 42px;
@@ -4107,6 +4266,15 @@ kbd {
   .denote-code-block-editor__delete {
     border-color: ButtonText;
     box-shadow: none;
+  }
+
+  .source-outline__minimap {
+    border-color: ButtonText;
+  }
+
+  .source-outline__viewport-window {
+    background: Highlight;
+    border-color: HighlightText;
   }
 
   .language-combobox__option[data-active],

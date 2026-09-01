@@ -74,6 +74,7 @@ import {
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
+import { SourceOutline } from "./components/SourceOutline";
 import { SourceLanguageStatus } from "./components/SourceLanguageStatus";
 import { TableOfContents } from "./components/TableOfContents";
 import { TagChip } from "./components/TagChip";
@@ -252,6 +253,12 @@ import {
 } from "./lib/links";
 import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
 import type {
+  SourceEditorNavigation,
+  SourceMinimapLine,
+  SourceSymbol,
+  SourceViewport,
+} from "./lib/sourceOutline";
+import type {
   EditorSearchNavigation,
   EditorTab,
   FileNode,
@@ -371,8 +378,18 @@ function App() {
     content: string;
     links: string[];
     headings: HeadingItem[];
+    symbols: SourceSymbol[];
+    minimap: SourceMinimapLine[];
   } | null>(null);
   const documentAnalysisGeneration = useRef(0);
+  const [sourceViewport, setSourceViewport] = useState<{
+    path: string;
+    viewport: SourceViewport;
+  } | null>(null);
+  const [sourceNavigation, setSourceNavigation] = useState<
+    (SourceEditorNavigation & { path: string }) | null
+  >(null);
+  const sourceNavigationSequence = useRef(0);
   const errorSequence = useRef(0);
   const [headingNavigation, setHeadingNavigation] = useState<{
     path: string;
@@ -610,6 +627,12 @@ function App() {
     setSearchNavigation((current) =>
       current?.path === activePath ? current : null,
     );
+    setSourceNavigation((current) =>
+      current?.path === activePath ? current : null,
+    );
+    setSourceViewport((current) =>
+      current?.path === activePath ? current : null,
+    );
   }, [activePath]);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
@@ -624,6 +647,28 @@ function App() {
       ),
     [activeFileTab?.path, workspace?.projectRoots],
   );
+  const vaultIsWorkspace =
+    workspace?.projectWorkspaces.some(
+      (projectWorkspace) =>
+        projectWorkspace.available && projectWorkspace.rootPath === "",
+    ) ?? false;
+  const activeCodeContext = activeProject !== null || vaultIsWorkspace;
+  const activeSourceOutlineAvailable =
+    activeCodeContext &&
+    activeFileTab !== null &&
+    activeFileTab.encoding === "utf8" &&
+    activeFileTab.kind !== "markdown" &&
+    activeFileTab.kind !== "image";
+  const activeSourceLanguageId = activeSourceOutlineAvailable
+    ? (resolveSourceLanguage(
+        activeFileTab.path,
+        activeFileTab.languageOverride ?? null,
+      ).language?.id ?? null)
+    : null;
+  const outlineAvailable =
+    activeFileTab?.encoding === "utf8" &&
+    (activeFileTab.kind === "markdown" || activeSourceOutlineAvailable);
+  const outlineVisible = showOutline && outlineAvailable;
   useEffect(() => {
     const nextProjectId = activeProject?.id ?? null;
     if (nextProjectId === previousActiveProjectId.current) {
@@ -713,6 +758,14 @@ function App() {
     analysisMatchesActiveFile && activeFileTab.kind === "markdown"
       ? activeDocumentAnalysis.headings
       : [];
+  const sourceSymbols =
+    analysisMatchesActiveFile && activeSourceOutlineAvailable
+      ? activeDocumentAnalysis.symbols
+      : [];
+  const sourceMinimap =
+    analysisMatchesActiveFile && activeSourceOutlineAvailable
+      ? activeDocumentAnalysis.minimap
+      : [];
   const activeWebLinks = analysisMatchesActiveFile
     ? activeDocumentAnalysis.links
     : [];
@@ -734,6 +787,8 @@ function App() {
           event: MessageEvent<{
             links?: string[];
             headings?: HeadingItem[];
+            symbols?: SourceSymbol[];
+            minimap?: SourceMinimapLine[];
             error?: string;
           }>,
         ) => {
@@ -744,7 +799,7 @@ function App() {
           }
           if (event.data.error) {
             console.error(
-              `Unable to extract links from ${activeFileTab.path}: ${event.data.error}`,
+              `Unable to analyze ${activeFileTab.path}: ${event.data.error}`,
             );
             return;
           }
@@ -753,6 +808,8 @@ function App() {
             content: activeFileTab.content,
             links: event.data.links ?? [],
             headings: event.data.headings ?? [],
+            symbols: event.data.symbols ?? [],
+            minimap: event.data.minimap ?? [],
           });
         };
         worker.onerror = (event) => {
@@ -762,13 +819,17 @@ function App() {
             return;
           }
           console.error(
-            `Unable to extract links from ${activeFileTab.path}: ${event.message}`,
+            `Unable to analyze ${activeFileTab.path}: ${event.message}`,
           );
         };
-        worker.postMessage({ markdown: activeFileTab.content });
+        worker.postMessage({
+          markdown: activeFileTab.content,
+          languageId: activeSourceLanguageId,
+          includeSourceOutline: activeSourceOutlineAvailable,
+        });
       } catch (caught) {
         console.error(
-          `Unable to extract links from ${activeFileTab.path}:`,
+          `Unable to analyze ${activeFileTab.path}:`,
           caught,
         );
       }
@@ -785,6 +846,8 @@ function App() {
     activeFileTab?.content,
     activeFileTab?.encoding,
     activeFileTab?.path,
+    activeSourceOutlineAvailable,
+    activeSourceLanguageId,
   ]);
   const tagColorMap = useMemo<TagColorMap>(
     () =>
@@ -5501,6 +5564,32 @@ function App() {
     }
   }, [activePath]);
 
+  const navigateToSourceLine = useCallback(
+    (line: number) => {
+      if (activePath) {
+        setSourceNavigation({
+          path: activePath,
+          request: ++sourceNavigationSequence.current,
+          line,
+        });
+      }
+    },
+    [activePath],
+  );
+
+  const navigateToSourceProgress = useCallback(
+    (progress: number) => {
+      if (activePath) {
+        setSourceNavigation({
+          path: activePath,
+          request: ++sourceNavigationSequence.current,
+          progress,
+        });
+      }
+    },
+    [activePath],
+  );
+
   const focusVaultSearch = useCallback(() => {
     setSearchLocation(activeFileTab?.path ?? "*");
     setSidebarView("search");
@@ -6292,11 +6381,9 @@ function App() {
     {
       id: "editor.outline",
       title: showOutline ? "Hide document outline" : "Show document outline",
-      description: "Toggle the Markdown table of contents.",
+      description: "Toggle headings, source symbols, and document navigation.",
       category: "View",
-      disabled:
-        activeFileTab?.kind !== "markdown" ||
-        activeFileTab.encoding !== "utf8",
+      disabled: !outlineAvailable,
       run: () => setShowOutline((current) => !current),
     },
     {
@@ -6582,6 +6669,12 @@ function App() {
         : null;
     const paneUsesProjectMarkdownSource =
       usesProjectMarkdownSourceEditor(paneTab, paneProject);
+    const paneCodeContext = paneProject !== null || vaultIsWorkspace;
+    const paneSourceOutlineAvailable =
+      paneCodeContext &&
+      paneTab.encoding === "utf8" &&
+      paneTab.kind !== "markdown" &&
+      paneTab.kind !== "image";
     const paneSourceLanguage =
       paneTab.encoding === "utf8"
         ? resolveSourceLanguage(
@@ -6655,6 +6748,7 @@ function App() {
               lineEnding={paneTab.lineEnding}
               displaySettings={paneDisplaySettings}
               languageOverride={paneTab.languageOverride}
+              projectMode={paneCodeContext}
               markdownSource={paneUsesProjectMarkdownSource}
               errorLocation={
                 paneUsesProjectMarkdownSource
@@ -6673,7 +6767,29 @@ function App() {
                   ? searchNavigation
                   : undefined
               }
+              sourceNavigation={
+                pane.id === focusedPaneId &&
+                sourceNavigation?.path === paneTab.path
+                  ? sourceNavigation
+                  : undefined
+              }
               onChange={(content) => changeTabContent(paneTab.path, content)}
+              onViewportChange={
+                pane.id === focusedPaneId &&
+                paneSourceOutlineAvailable &&
+                outlineVisible
+                  ? (viewport) =>
+                      setSourceViewport((current) =>
+                        current?.path === paneTab.path &&
+                        current.viewport.firstLine === viewport.firstLine &&
+                        current.viewport.lastLine === viewport.lastLine &&
+                        current.viewport.totalLines === viewport.totalLines &&
+                        current.viewport.progress === viewport.progress
+                          ? current
+                          : { path: paneTab.path, viewport },
+                      )
+                  : undefined
+              }
               onError={showError}
             />
           </>
@@ -7230,30 +7346,10 @@ function App() {
             <button
               type="button"
               className="icon-button"
-              aria-label={`${
-                showOutline &&
-                activeFileTab?.kind === "markdown" &&
-                activeFileTab.encoding === "utf8"
-                  ? "Hide"
-                  : "Show"
-              } outline`}
-              title={`${
-                showOutline &&
-                activeFileTab?.kind === "markdown" &&
-                activeFileTab.encoding === "utf8"
-                  ? "Hide"
-                  : "Show"
-              } outline`}
-              aria-pressed={
-                activeFileTab?.kind === "markdown" &&
-                activeFileTab.encoding === "utf8" &&
-                showOutline
-              }
-              disabled={
-                !activeFileTab ||
-                activeFileTab.kind !== "markdown" ||
-                activeFileTab.encoding !== "utf8"
-              }
+              aria-label={`${outlineVisible ? "Hide" : "Show"} outline`}
+              title={`${outlineVisible ? "Hide" : "Show"} outline`}
+              aria-pressed={outlineVisible}
+              disabled={!outlineAvailable}
               onClick={() => setShowOutline((current) => !current)}
             >
               <ListTree aria-hidden="true" size={16} />
@@ -7393,12 +7489,23 @@ function App() {
               />
             ))}
           </div>
-          {showOutline &&
-          activeFileTab?.kind === "markdown" &&
-          activeFileTab.encoding === "utf8" ? (
+          {outlineVisible && activeFileTab?.kind === "markdown" ? (
             <TableOfContents
               headings={headings}
               onNavigate={navigateToHeading}
+            />
+          ) : outlineVisible && activeSourceOutlineAvailable ? (
+            <SourceOutline
+              symbols={sourceSymbols}
+              minimap={sourceMinimap}
+              loading={!analysisMatchesActiveFile}
+              viewport={
+                sourceViewport?.path === activeFileTab?.path
+                  ? sourceViewport.viewport
+                  : null
+              }
+              onNavigateLine={navigateToSourceLine}
+              onNavigateProgress={navigateToSourceProgress}
             />
           ) : null}
         </div>

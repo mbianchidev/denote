@@ -468,6 +468,22 @@ directory, a non-modal suggestion appears in the workspace chrome. It offers
 permanently for that vault after either dismissal or manual root
 project/workspace marking.
 
+### Source Outline
+
+Project source uses the available pane width rather than the centered writing
+measure. The outline becomes a compact 280px source navigator. Its upper section
+is a scrollable monospace symbol list showing function, type, module, resource,
+or section plus the source line; visible-range rows use the quiet selected
+surface.
+
+Below the symbols, a code minimap preserves the file's vertical distribution,
+indentation, relative line lengths, comments, and emphasized declaration lines.
+A moss-outlined window overlays the live viewport. Pointer clicks or drags jump
+proportionally through the file. The complete minimap is one keyboard-focusable
+vertical slider: arrows move by a small fraction of the viewport, Page Up/Down
+move by one viewport, and Home/End jump to the boundaries. Its accessible value
+announces the visible line range and total lines.
+
 ### Vault Security
 
 The locked vault replaces the workspace with one focused unlock surface and

@@ -101,6 +101,13 @@ maintained package, so its small core stream tokenizer stays in
 `src/lib/syntaxLanguages.ts` and must retain synthetic coverage for YAML keys,
 template actions, functions, variables, comments, and control blocks.
 
+Source outline declaration heuristics live in `src/lib/sourceOutline.ts`.
+Extending a language should add the smallest anchored declaration patterns,
+synthetic line-number tests, and no unbounded backtracking. Keep extraction in
+the document-analysis worker, preserve the 20 KB line and 1,000-symbol bounds,
+cap the proportional code minimap at 500 strokes, and never force a complete
+CodeMirror parse for outline generation.
+
 ## Prepare a release
 
 From an up-to-date `main` branch, update every Denote version source, commit and
