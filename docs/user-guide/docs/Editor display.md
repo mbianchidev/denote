@@ -64,8 +64,10 @@ It is not restored with the next session.
 The built-in registry covers JavaScript, JSX, TypeScript, TSX, Java, JSP, Go,
 Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir,
 JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS,
-and Dockerfiles. JSP uses HTML highlighting; Java scriptlets remain readable but
-uncolored.
+Dockerfiles, Go module/workspace files, CMake, Makefiles, Gradle/Groovy,
+Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
+XML project manifests. JSP uses HTML highlighting; Java scriptlets remain
+readable but uncolored.
 
 ## Session restore
 

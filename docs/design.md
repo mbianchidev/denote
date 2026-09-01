@@ -304,6 +304,9 @@ slightly reduced opacity plus explicit screen-reader text; hover, selection, and
 keyboard focus restore full legibility.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
+Folder entry menus begin their entry-specific actions with **Expand folder** or
+**Collapse folder**, reflecting the current disclosure state without affecting
+other branches.
 The root and folder menus expose independent **Mark as project** / **Unmark
 project** and **Mark as workspace** / **Unmark workspace** actions, so either or
 both roles can apply to one folder. Shift-F10 and the Context Menu key open the
@@ -399,6 +402,11 @@ the same interaction pattern and marks whether the value is Automatic or an
 Override. The status control is display state, not a file setting, and remains
 available in read mode. Forced-color environments use system focus, selection,
 and current-option colors instead of relying on the theme palette.
+Auxiliary build and project files use the closest bundled syntax: Go module and
+Makefile formats have lightweight core tokenizers; CMake and Groovy use bundled
+catalog grammars; `.csproj` and related manifests use XML; `.sln`,
+`.properties`, `.ini`, `.cfg`, and `.editorconfig` use properties-style
+highlighting.
 
 ### Replace Preview
 

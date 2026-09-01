@@ -66,6 +66,9 @@ Use the folder control beside New folder to expand every nested folder or
 collapse the complete tree. Expand all leaves folders named `.git` and
 `node_modules` collapsed unless you opened them directly.
 
+To change only one branch, right-click its folder or focus it and press Shift-F10
+or the Context Menu key, then choose **Expand folder** or **Collapse folder**.
+
 Use the eye control to hide or show files and folders whose names start with
 `.`. The choice is stored locally and applies only to the file tree. Hiding a
 dot folder hides its subtree without closing open tabs or removing anything from

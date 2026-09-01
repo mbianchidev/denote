@@ -1,4 +1,8 @@
-import type { LanguageSupport } from "@codemirror/language";
+import {
+  LanguageSupport,
+  StreamLanguage,
+  type StringStream,
+} from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 
 export const AUTOMATIC_LANGUAGE = "auto";
@@ -88,6 +92,15 @@ const LANGUAGE_DEFINITIONS = [
     catalogName: "Go",
   },
   {
+    id: "gomod",
+    name: "Go module",
+    fence: "gomod",
+    aliases: ["gomod", "go.mod", "go.sum", "go.work"],
+    extensions: [],
+    filenames: [/^go\.(?:mod|sum|work|work\.sum)$/i],
+    load: async () => goModuleSupport,
+  },
+  {
     id: "rust",
     name: "Rust",
     fence: "rust",
@@ -101,7 +114,7 @@ const LANGUAGE_DEFINITIONS = [
     fence: "python",
     aliases: ["python", "py"],
     extensions: ["py", "pyw", "bzl"],
-    filenames: [/^(?:BUCK|BUILD)$/],
+    filenames: [/^(?:BUCK|BUILD(?:\.bazel)?|WORKSPACE|MODULE\.bazel)$/],
     catalogName: "Python",
   },
   {
@@ -210,6 +223,7 @@ const LANGUAGE_DEFINITIONS = [
     fence: "json",
     aliases: ["json", "json5"],
     extensions: ["json", "json5", "map"],
+    filenames: [/^(?:Pipfile|composer)\.lock$/i],
     catalogName: "JSON",
   },
   {
@@ -217,7 +231,20 @@ const LANGUAGE_DEFINITIONS = [
     name: "XML",
     fence: "xml",
     aliases: ["xml", "rss", "wsdl", "xsd"],
-    extensions: ["xml", "xsl", "xsd", "svg"],
+    extensions: [
+      "xml",
+      "xsl",
+      "xsd",
+      "svg",
+      "csproj",
+      "fsproj",
+      "vbproj",
+      "vcxproj",
+      "props",
+      "targets",
+      "nuspec",
+      "slnx",
+    ],
     catalogName: "XML",
   },
   {
@@ -266,7 +293,7 @@ const LANGUAGE_DEFINITIONS = [
     fence: "sh",
     aliases: ["shell", "bash", "sh", "zsh"],
     extensions: ["sh", "bash", "zsh", "ksh"],
-    filenames: [/^PKGBUILD$/],
+    filenames: [/^PKGBUILD$/, /^Procfile$/i, /^\.env(?:\..+)?$/i],
     catalogName: "Shell",
   },
   {
@@ -291,6 +318,7 @@ const LANGUAGE_DEFINITIONS = [
     fence: "toml",
     aliases: ["toml"],
     extensions: ["toml"],
+    filenames: [/^(?:Cargo|poetry|uv)\.lock$/i],
     catalogName: "TOML",
   },
   {
@@ -309,6 +337,67 @@ const LANGUAGE_DEFINITIONS = [
     extensions: [],
     filenames: [/^Dockerfile$/i],
     catalogName: "Dockerfile",
+  },
+  {
+    id: "cmake",
+    name: "CMake",
+    fence: "cmake",
+    aliases: ["cmake"],
+    extensions: ["cmake", "cmake.in"],
+    filenames: [/^CMakeLists\.txt$/i],
+    catalogName: "CMake",
+  },
+  {
+    id: "makefile",
+    name: "Makefile",
+    fence: "makefile",
+    aliases: ["makefile", "make", "gnumake"],
+    extensions: ["mk", "mak"],
+    filenames: [/^(?:GNUmakefile|Makefile)(?:\..+)?$/i],
+    load: async () => makefileSupport,
+  },
+  {
+    id: "groovy",
+    name: "Groovy",
+    fence: "groovy",
+    aliases: ["groovy", "gradle"],
+    extensions: ["groovy", "gradle"],
+    filenames: [/^Jenkinsfile$/i],
+    catalogName: "Groovy",
+  },
+  {
+    id: "properties",
+    name: "Properties",
+    fence: "properties",
+    aliases: ["properties", "ini", "editorconfig"],
+    extensions: ["properties", "ini", "cfg", "editorconfig"],
+    filenames: [/^\.editorconfig$/i],
+    catalogName: "Properties files",
+  },
+  {
+    id: "protobuf",
+    name: "Protocol Buffers",
+    fence: "proto",
+    aliases: ["protobuf", "proto"],
+    extensions: ["proto"],
+    catalogName: "ProtoBuf",
+  },
+  {
+    id: "solution",
+    name: "Visual Studio solution",
+    fence: "sln",
+    aliases: ["solution", "sln"],
+    extensions: ["sln"],
+    catalogName: "Properties files",
+  },
+  {
+    id: "meson",
+    name: "Meson",
+    fence: "meson",
+    aliases: ["meson"],
+    extensions: [],
+    filenames: [/^(?:meson\.build|meson_options\.txt)$/i],
+    catalogName: "Python",
   },
 ] as const satisfies readonly CoreSyntaxLanguageDefinition[];
 
@@ -365,7 +454,6 @@ const languageById = new Map(
   CORE_SYNTAX_LANGUAGES.map((language) => [language.id, language]),
 );
 const languageByFence = new Map<string, CoreSyntaxLanguage>();
-const languageByExtension = new Map<string, CoreSyntaxLanguage>();
 const definitionById = new Map<
   CoreSyntaxLanguageId,
   CoreSyntaxLanguageDefinition
@@ -384,12 +472,14 @@ for (const language of CORE_SYNTAX_LANGUAGES) {
   ]) {
     languageByFence.set(normalizeLookup(value), language);
   }
-  for (const extension of language.extensions) {
-    if (!languageByExtension.has(extension.toLocaleLowerCase())) {
-      languageByExtension.set(extension.toLocaleLowerCase(), language);
-    }
-  }
 }
+
+const sourceExtensionMatchers = CORE_SYNTAX_LANGUAGES.flatMap((language) =>
+  language.extensions.map((extension) => ({
+    extension: extension.toLocaleLowerCase(),
+    language,
+  })),
+).sort((left, right) => right.extension.length - left.extension.length);
 
 export function coreSyntaxLanguage(
   id: CoreSyntaxLanguageId,
@@ -411,16 +501,20 @@ export function detectSourceLanguage(path: string): CoreSyntaxLanguage | null {
   const pathParts = path.split(/[\\/]/);
   const fileName = pathParts[pathParts.length - 1] ?? path;
   for (const language of CORE_SYNTAX_LANGUAGES) {
-    if (language.filenames.some((pattern) => pattern.test(fileName))) {
+    if (
+      language.filenames.some((pattern) => {
+        pattern.lastIndex = 0;
+        return pattern.test(fileName);
+      })
+    ) {
       return language;
     }
   }
-  const dot = fileName.lastIndexOf(".");
-  if (dot < 0 || dot === fileName.length - 1) {
-    return null;
-  }
+  const normalizedFileName = fileName.toLocaleLowerCase();
   return (
-    languageByExtension.get(fileName.slice(dot + 1).toLocaleLowerCase()) ?? null
+    sourceExtensionMatchers.find(({ extension }) =>
+      normalizedFileName.endsWith(`.${extension}`),
+    )?.language ?? null
   );
 }
 
@@ -516,4 +610,88 @@ async function loadCatalogLanguage(
     throw new Error(`Bundled syntax grammar is unavailable: ${catalogName}`);
   }
   return description.load();
+}
+
+const goModuleSupport = new LanguageSupport(
+  StreamLanguage.define<Record<never, never>>({
+    name: "go-module",
+    startState: () => ({}),
+    token(stream) {
+      if (stream.eatSpace()) {
+        return null;
+      }
+      if (stream.match("//")) {
+        stream.skipToEnd();
+        return "comment";
+      }
+      if (
+        stream.match(
+          /^(?:module|go|toolchain|require|exclude|replace|retract|use|godebug|tool)\b/,
+        )
+      ) {
+        return "keyword";
+      }
+      if (stream.match(/^(?:=>|\(|\))/)) {
+        return "operator";
+      }
+      if (stream.match(/^"(?:[^"\\]|\\.)*"/)) {
+        return "string";
+      }
+      if (
+        stream.match(
+          /^(?:v\d+\.\d+\.\d+(?:-[0-9A-Za-z.+-]+)?|go\d+\.\d+(?:\.\d+)?|h1:[A-Za-z0-9+/=]+)/,
+        )
+      ) {
+        return "number";
+      }
+      consumeAuxiliaryToken(stream);
+      return "string";
+    },
+  }),
+);
+
+const makefileSupport = new LanguageSupport(
+  StreamLanguage.define<Record<never, never>>({
+    name: "makefile",
+    startState: () => ({}),
+    token(stream) {
+      if (stream.eatSpace()) {
+        return null;
+      }
+      if (stream.match("#")) {
+        stream.skipToEnd();
+        return "comment";
+      }
+      if (
+        stream.match(
+          /^(?:include|-include|sinclude|define|endef|ifeq|ifneq|ifdef|ifndef|else|endif|override|export|unexport|private|vpath)\b/,
+        )
+      ) {
+        return "keyword";
+      }
+      if (stream.match(/^\$\([^)]+\)|^\$\{[^}]+\}/)) {
+        return "variableName";
+      }
+      if (
+        stream.sol() &&
+        stream.match(/^[^\s:=][^:=]*:(?![=])/)
+      ) {
+        return "labelName";
+      }
+      if (stream.match(/^(?::=|\?=|\+=|!=|=|::|:)/)) {
+        return "operator";
+      }
+      if (stream.match(/^"(?:[^"\\]|\\.)*"|^'(?:[^'\\]|\\.)*'/)) {
+        return "string";
+      }
+      consumeAuxiliaryToken(stream);
+      return null;
+    },
+  }),
+);
+
+function consumeAuxiliaryToken(stream: StringStream): void {
+  if (!stream.eatWhile(/[^\s(){}:=]/)) {
+    stream.next();
+  }
 }

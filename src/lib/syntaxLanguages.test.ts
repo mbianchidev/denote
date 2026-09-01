@@ -1,3 +1,5 @@
+import { EditorState } from "@codemirror/state";
+import { syntaxTree } from "@codemirror/language";
 import { describe, expect, it } from "vitest";
 import {
   AUTOMATIC_LANGUAGE,
@@ -93,7 +95,20 @@ describe("core syntax language registry", () => {
     const names = CORE_SYNTAX_LANGUAGES.map((language) => language.name);
     expect(names).toEqual(expect.arrayContaining([...requiredLanguages]));
     expect(names).toEqual(
-      expect.arrayContaining(["PowerShell", "SCSS", "LESS", "Dockerfile"]),
+      expect.arrayContaining([
+        "PowerShell",
+        "SCSS",
+        "LESS",
+        "Dockerfile",
+        "Go module",
+        "CMake",
+        "Makefile",
+        "Groovy",
+        "Properties",
+        "Protocol Buffers",
+        "Visual Studio solution",
+        "Meson",
+      ]),
     );
   });
 
@@ -112,6 +127,51 @@ describe("core syntax language registry", () => {
     expect(detectSourceLanguage("synthetic\\Gemfile")?.name).toBe("Ruby");
     expect(detectSourceLanguage("synthetic/BUILD")?.name).toBe("Python");
     expect(detectSourceLanguage("synthetic/PKGBUILD")?.name).toBe("Shell");
+  });
+
+  it("detects common project and build auxiliary files", () => {
+    const auxiliaryFiles: Record<string, string> = {
+      "go.mod": "Go module",
+      "go.sum": "Go module",
+      "go.work": "Go module",
+      "go.work.sum": "Go module",
+      "project.csproj": "XML",
+      "project.fsproj": "XML",
+      "project.vbproj": "XML",
+      "project.vcxproj": "XML",
+      "Directory.Build.props": "XML",
+      "Directory.Build.targets": "XML",
+      "package.nuspec": "XML",
+      "solution.slnx": "XML",
+      "solution.sln": "Visual Studio solution",
+      "CMakeLists.txt": "CMake",
+      "toolchain.cmake": "CMake",
+      "template.cmake.in": "CMake",
+      Makefile: "Makefile",
+      GNUmakefile: "Makefile",
+      "rules.mk": "Makefile",
+      "Cargo.lock": "TOML",
+      "poetry.lock": "TOML",
+      "uv.lock": "TOML",
+      Jenkinsfile: "Groovy",
+      "build.gradle": "Groovy",
+      ".editorconfig": "Properties",
+      "settings.ini": "Properties",
+      "tool.cfg": "Properties",
+      "schema.proto": "Protocol Buffers",
+      "meson.build": "Meson",
+      "meson_options.txt": "Meson",
+      ".env.local": "Shell",
+      Procfile: "Shell",
+      "Pipfile.lock": "JSON",
+      "composer.lock": "JSON",
+    };
+
+    for (const [path, language] of Object.entries(auxiliaryFiles)) {
+      expect(detectSourceLanguage(`synthetic/${path}`)?.name, path).toBe(
+        language,
+      );
+    }
   });
 
   it("resolves fence aliases case-insensitively", () => {
@@ -169,5 +229,38 @@ describe("core syntax language registry", () => {
     expect(elixirAgain).toBe(elixir);
     expect(elixir.extension).toBeTruthy();
     expect(jsp.extension).toBeTruthy();
+  });
+
+  it("highlights Go module and Makefile auxiliary syntax", async () => {
+    const [goModule, makefile] = await Promise.all([
+      loadSyntaxLanguage("gomod"),
+      loadSyntaxLanguage("makefile"),
+    ]);
+    const goState = EditorState.create({
+      doc: "module example.test/app\nrequire example.test/lib v1.2.3",
+      extensions: [goModule],
+    });
+    const makeState = EditorState.create({
+      doc: "build: input\n\techo ready",
+      extensions: [makefile],
+    });
+    const goNodes: string[] = [];
+    const makeNodes: string[] = [];
+
+    syntaxTree(goState).iterate({
+      enter: (node) => {
+        goNodes.push(node.name);
+      },
+    });
+    syntaxTree(makeState).iterate({
+      enter: (node) => {
+        makeNodes.push(node.name);
+      },
+    });
+
+    expect(goNodes).toEqual(
+      expect.arrayContaining(["keyword", "string", "number"]),
+    );
+    expect(makeNodes).toContain("labelName");
   });
 });

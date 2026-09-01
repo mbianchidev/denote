@@ -542,6 +542,14 @@ Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and Dockerfiles.
 CodeMirror's packaged language-data loaders cover the standard entries;
 `codemirror-lang-elixir` is a bundled lazy chunk. JSP deliberately uses the HTML
 grammar, so scriptlets stay readable without introducing an unmaintained parser.
+The same registry recognizes auxiliary project files: `go.mod`, `go.sum`,
+`go.work`, `go.work.sum`, CMake files, Makefiles, Gradle/Groovy, Protocol
+Buffers, `.ini`/`.cfg`/properties files, Cargo/Poetry/uv locks, Visual Studio
+solutions, and XML project formats such as `.csproj`, `.props`, and `.targets`.
+Small bounded `StreamLanguage` tokenizers cover Go module and Makefile syntax;
+the remaining formats reuse packaged XML, TOML, JSON, Python, Groovy, CMake, or
+properties grammars. Compound suffixes such as `.cmake.in` are matched
+longest-first before ordinary extensions.
 
 `PlainTextEditor` resolves the filename plus the tab's optional override, clears
 the previous language immediately, and asynchronously reconfigures a stable

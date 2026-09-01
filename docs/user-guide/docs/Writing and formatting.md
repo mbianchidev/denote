@@ -99,8 +99,14 @@ include `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.jsp`, `.go`, `.rs`, `.py`,
 `.rb`, `.php`, `.phtml`, `.dart`, `.lua`, `.r`, `.R`, `.scala`, `.sc`, `.ex`,
 `.exs`, `.json`, `.xml`, `.html`, `.htm`, `.css`, `.md`, `.markdown`, `.sh`,
 `.bash`, `.zsh`, `.yaml`, `.yml`, `.toml`, `.sql`, `.ps1`, `.scss`, and
-`.less`; `Dockerfile`, `Gemfile`, `Rakefile`, `BUILD`, `BUCK`, and `PKGBUILD`
-are recognized by filename.
+`.less`. Auxiliary formats include `.csproj`, `.fsproj`, `.vbproj`, `.vcxproj`,
+`.props`, `.targets`, `.nuspec`, `.slnx`, `.sln`, `.cmake`, `.cmake.in`, `.mk`,
+`.mak`, `.gradle`, `.groovy`, `.properties`, `.ini`, `.cfg`, `.editorconfig`,
+and `.proto`. `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `CMakeLists.txt`,
+`Makefile`, `GNUmakefile`, `Cargo.lock`, `poetry.lock`, `uv.lock`,
+`Jenkinsfile`, `.editorconfig`, `.env` variants, `Procfile`, `Gemfile`,
+`Rakefile`, `BUILD`, `BUILD.bazel`, `BUCK`, `WORKSPACE`, `MODULE.bazel`,
+`meson.build`, and `meson_options.txt` are recognized by filename.
 
 Rich fenced blocks use the same registry. The active block's language control
 opens a searchable combobox that matches names, aliases, and extensions.
@@ -112,7 +118,10 @@ language, and the language change is undoable without changing the block text.
 Supported languages are JavaScript, JSX, TypeScript, TSX, Java, JSP, Go, Rust,
 Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON,
 XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and
-Dockerfiles. JSP uses HTML highlighting; Java scriptlets remain uncolored.
+Dockerfiles. Go module/workspace files, CMake, Makefiles, Gradle/Groovy,
+Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
+XML project manifests are also highlighted. JSP uses HTML highlighting; Java
+scriptlets remain uncolored.
 
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.

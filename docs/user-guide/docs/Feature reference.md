@@ -38,6 +38,7 @@ more detail and examples.
   file from its context menu or the focused-file three-dot menu.
 - Expand every folder except `.git` and `node_modules` unless opened directly,
   or collapse the complete file tree.
+- Expand or collapse one folder from its context menu.
 - Persistently hide or show dotfiles and complete dot-folder subtrees in the
   local file-tree presentation without changing vault data or open tabs.
 - Keep `.gitignore` matches visible and interactive with reduced emphasis and an
@@ -131,6 +132,10 @@ more detail and examples.
   Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua,
   R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL,
   PowerShell, SCSS, LESS, and Dockerfiles. JSP uses HTML highlighting.
+- Highlight `go.mod`, `go.sum`, `go.work`, `go.work.sum`, CMake files,
+  Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
+  Cargo/Poetry/uv locks, Visual Studio solutions, `.csproj`-family XML project
+  manifests, and other documented project filenames.
 - Search code-block languages by name, alias, or extension from a keyboard
   combobox. Keep unknown identifiers until a supported option is explicitly
   selected, and change only the fence identifier through undoable editing.

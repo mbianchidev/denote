@@ -84,7 +84,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
   TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
   PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML,
-  TOML, SQL, PowerShell, SCSS, LESS, and Dockerfiles.
+  TOML, SQL, PowerShell, SCSS, LESS, Dockerfiles, Go module/workspace files,
+  CMake, Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
+  Visual Studio solutions, and common XML project manifests.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
 - Full, collapsed, and shortcut Markdown reference links render and remain
@@ -178,6 +180,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   control and closes it when focus changes to another file.
 - One file-tree control expands every folder except `.git` and `node_modules`,
   which stay collapsed unless opened directly, or collapses the complete tree.
+- A folder's context menu exposes **Expand folder** or **Collapse folder** for
+  that single subtree, with the same keyboard-operable menu behavior.
 - A persistent local file-tree control can hide entries whose basename starts
   with `.`, including complete dot-folder subtrees, without changing vault data,
   search results, project metadata, or open tabs.

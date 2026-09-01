@@ -250,6 +250,56 @@ describe("FileTree", () => {
     expect(onCreate).toHaveBeenCalledWith("projects", true);
   });
 
+  it("expands and collapses one folder from its context menu", async () => {
+    const user = userEvent.setup();
+    const onToggleFolder = vi.fn();
+    const node = {
+      path: "projects",
+      name: "projects",
+      kind: "folder" as const,
+      children: [],
+      size: 0,
+      modifiedAt: null,
+      bookmarked: false,
+      pinned: false,
+    };
+    const props = {
+      nodes: [node],
+      selectedPath: null,
+      onSelect: vi.fn(),
+      onToggleFolder,
+      onCreate: vi.fn(),
+      onRename: vi.fn(),
+      onDelete: vi.fn(),
+      onMove: vi.fn(),
+      onRequestMove: vi.fn(),
+    };
+    const { rerender } = render(
+      <FileTree {...props} expandedPaths={new Set()} />,
+    );
+    const row = screen.getByRole("button", { name: /projects/i });
+
+    fireEvent.contextMenu(row);
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Expand folder" }),
+    );
+    expect(onToggleFolder).toHaveBeenLastCalledWith("projects");
+    expect(row).toHaveFocus();
+
+    rerender(
+      <FileTree {...props} expandedPaths={new Set(["projects"])} />,
+    );
+    fireEvent.keyDown(
+      screen.getByRole("button", { name: /projects/i }),
+      { key: "ContextMenu" },
+    );
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Collapse folder" }),
+    );
+    expect(onToggleFolder).toHaveBeenLastCalledWith("projects");
+    expect(onToggleFolder).toHaveBeenCalledTimes(2);
+  });
+
   it("returns focus to the tree row when its context menu is dismissed", async () => {
     const user = userEvent.setup();
     render(

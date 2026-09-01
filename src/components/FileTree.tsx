@@ -210,6 +210,7 @@ export function FileTree({
     contextProjectPath === null
       ? null
       : projectWorkspaceAtPath(projectWorkspaces, contextProjectPath);
+  const contextMenuNode = contextMenu?.node ?? null;
 
   useEffect(() => {
     const nav = navRef.current;
@@ -700,6 +701,25 @@ export function FileTree({
                    />
                   ) : (
                    <>
+                     {contextMenuNode?.kind === "folder" ? (
+                       <button
+                         type="button"
+                         role="menuitem"
+                         onClick={() => {
+                           closeContextMenu(true);
+                           onToggleFolder(contextMenuNode.path);
+                         }}
+                       >
+                         {expandedPaths.has(contextMenuNode.path) ? (
+                           <ChevronDown aria-hidden="true" size={15} />
+                         ) : (
+                           <ChevronRight aria-hidden="true" size={15} />
+                         )}
+                         {expandedPaths.has(contextMenuNode.path)
+                           ? "Collapse folder"
+                           : "Expand folder"}
+                       </button>
+                     ) : null}
                      <button
                        type="button"
                        role="menuitem"
