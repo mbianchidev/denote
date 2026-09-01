@@ -1,7 +1,7 @@
 use std::fs;
 
 use serde_json::Value;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_notification::NotificationExt;
 
@@ -15,8 +15,9 @@ use crate::{
 use super::{
     PluginManager,
     types::{
-        InstalledPlugin, PluginNetworkRequest, PluginNetworkResponse, PluginPermission,
-        PluginProcessRequest, PluginProcessResult, PluginTextDocument, PluginView,
+        InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
+        PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,
+        PluginView,
     },
 };
 
@@ -33,6 +34,11 @@ where
 #[tauri::command]
 pub fn list_plugins(state: State<'_, PluginManager>) -> AppResult<Vec<PluginView>> {
     state.list()
+}
+
+#[tauri::command]
+pub fn list_plugin_bundles(state: State<'_, PluginManager>) -> AppResult<Vec<PluginBundle>> {
+    state.bundles()
 }
 
 #[tauri::command]
@@ -344,10 +350,47 @@ pub fn plugin_show_notification(
 
 #[tauri::command]
 pub async fn plugin_process_request(
+    app: AppHandle,
     state: State<'_, PluginManager>,
     plugin_id: String,
     request: PluginProcessRequest,
+    project_id: Option<String>,
 ) -> AppResult<PluginProcessResult> {
     let manager = state.inner().clone();
-    run_blocking(move || manager.process_request(&plugin_id, request)).await
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        process_request_with_app_state(
+            &manager,
+            &app_state,
+            &plugin_id,
+            request,
+            project_id.as_deref(),
+        )
+    })
+    .await
+}
+
+pub(super) fn process_request_with_app_state(
+    manager: &PluginManager,
+    app_state: &AppState,
+    plugin_id: &str,
+    request: PluginProcessRequest,
+    project_id: Option<&str>,
+) -> AppResult<PluginProcessResult> {
+    let _vault_access = if project_id.is_some() {
+        Some(app_state.read_vault_access()?)
+    } else {
+        None
+    };
+    let current_dir = if let Some(project_id) = project_id {
+        let root = app_state.active_vault()?;
+        Some(vault::resolve_project_root(
+            &app_state.db_path,
+            &root.to_string_lossy(),
+            project_id,
+        )?)
+    } else {
+        None
+    };
+    manager.process_request(plugin_id, request, current_dir.as_deref())
 }

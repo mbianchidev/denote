@@ -10,6 +10,364 @@ import { api } from "../lib/api";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 describe("MarkdownEditor links", () => {
+  it("renders full, collapsed, and shortcut references without processing errors", async () => {
+    const onMarkdownError = vi.fn();
+    const onLinkOpen = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          '[Guide text][guide-home]\n\n[Guide text][]\n\n[guide-home]\n\n[guide-home]: https://docs.example.test/guide "Optional title"\n[guide text]: notes/start.md'
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onMarkdownError={onMarkdownError}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const links = await screen.findAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual([
+      "Guide text",
+      "Guide text",
+      "guide-home",
+    ]);
+    fireEvent.click(links[0]);
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "https://docs.example.test/guide",
+      "Guide text",
+    );
+    expect(links[1]).toHaveAttribute("href", "notes/start.md");
+    fireEvent.click(links[1]);
+    expect(onLinkOpen).toHaveBeenCalledWith("notes/start.md", "Guide text");
+    expect(
+      container.querySelectorAll("[data-denote-reference-definition]"),
+    ).toHaveLength(1);
+    expect(onMarkdownError).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("radio", { name: "Rich text", checked: true }),
+    ).toBeInTheDocument();
+  });
+
+  it("uses the first duplicate definition and keeps unused definitions invisible", async () => {
+    const onLinkOpen = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          "[Read][topic]\n\n[topic]: https://first.example.test/page\n[TOPIC]: https://second.example.test/page\n[unused]: notes/hidden.md"
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("link", { name: "Read" }));
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "https://first.example.test/page",
+      "Read",
+    );
+    expect(screen.queryByText("notes/hidden.md")).not.toBeInTheDocument();
+    expect(
+      container.querySelectorAll("[data-denote-reference-definition]"),
+    ).toHaveLength(1);
+  });
+
+  it("preserves exact definitions after an unrelated rich edit", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const first =
+      "  [guide-home]:  <https://docs.example.test/guide>  'Optional title'";
+    const second =
+      '[repo-card]: <copilot-ref kind="repo" target-id="https://example.test/acme/widget" label="acme/widget" />';
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={`[Guide][guide-home]\n\n${first}\n${second}\n\nEdit here`}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const paragraph = await screen.findByText("Edit here");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const output = onChange.mock.lastCall?.[0] as string;
+    expect(output).toContain(first);
+    expect(output).toContain(second);
+    expect(output.indexOf(first)).toBeLessThan(output.indexOf(second));
+  });
+
+  it.each([
+    {
+      name: "LF with no blank line",
+      definitions: "  [one]:  /one\n[Two]: <notes/two.md>",
+    },
+    {
+      name: "LF with one blank line",
+      definitions: "[one]: /one\n\n   [two]:  /two",
+    },
+    {
+      name: "CRLF with no blank line",
+      definitions: "   [one]: /one\r\n[two]:  <notes/two.md>",
+    },
+    {
+      name: "CRLF with one blank line",
+      definitions: "[one]:  /one\r\n\r\n  [two]: /two",
+    },
+  ])("preserves consecutive definition spacing exactly: $name", async ({
+    definitions,
+  }) => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={`[Read][one]\n\n${definitions}\n\nEdit here`}
+        lineEnding={definitions.includes("\r\n") ? "crlf" : "lf"}
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const paragraph = await screen.findByText("Edit here");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.lastCall?.[0]).toContain(definitions);
+  });
+
+  it("keeps content-separated definition groups in their relative positions", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const firstGroup = "[one]: /one\n[two]: /two";
+    const secondGroup = "  [three]: /three\n\n[FOUR]: /four";
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={`[Read][one]\n\n${firstGroup}\n\nMiddle content\n\n${secondGroup}\n\nEdit here`}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const paragraph = await screen.findByText("Edit here");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const output = onChange.mock.lastCall?.[0] as string;
+    expect(output).toContain(firstGroup);
+    expect(output).toContain(secondGroup);
+    expect(output.indexOf(firstGroup)).toBeLessThan(
+      output.indexOf("Middle content"),
+    );
+    expect(output.indexOf("Middle content")).toBeLessThan(
+      output.indexOf(secondGroup),
+    );
+  });
+
+  it("resolves strict generated repository definitions through normal link interception", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          '[Open repository][repo-card]\n\n[repo-card]: <copilot-ref kind="repo" target-id="https://example.test/acme/widget" label="acme/widget" />'
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("link", { name: "Open repository" }),
+    );
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "https://example.test/acme/widget",
+      "Open repository",
+    );
+  });
+
+  it("routes custom-scheme reference destinations through Denote interception", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"[Open app][target]\n\n[target]: sample-app://open/item"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const link = await screen.findByRole("link", { name: "Open app" });
+    expect(link).toHaveAttribute("href", "about:blank");
+    fireEvent.click(link);
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "sample-app://open/item",
+      "Open app",
+    );
+  });
+
+  it("keeps invalid generated and unresolved references literal and source-safe", async () => {
+    const onMarkdownError = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={
+          '[Unsafe][repo-card]\n\n[Missing][unknown]\n\n[repo-card]: <copilot-ref kind="repo" target-id="javascript:alert(1)" label="acme/widget" />'
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onMarkdownError={onMarkdownError}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByText("[Unsafe][repo-card]")).toBeInTheDocument();
+    expect(screen.getByText("[Missing][unknown]")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).not.toBeInTheDocument();
+    expect(onMarkdownError).not.toHaveBeenCalled();
+  });
+
+  it("neutralizes unsafe ordinary reference destinations", async () => {
+    const onLinkOpen = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"[Unsafe][target]\n\n[target]: javascript:alert(1)"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={onLinkOpen}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const link = await screen.findByRole("link", { name: "Unsafe" });
+    expect(link).toHaveAttribute("href", "about:blank");
+    fireEvent.click(link);
+    expect(onLinkOpen).toHaveBeenCalledWith("about:blank", "Unsafe");
+  });
+
+  it("treats source-mode definition edits as authoritative for later rich rendering", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const props = {
+      notePath: "note.md",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange,
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor
+        {...props}
+        markdown={"[Guide][guide]\n\n[guide]: https://old.example.test/path"}
+      />,
+    );
+    await screen.findByRole("link", { name: "Guide" });
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    const sourceElement = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    const sourceView = EditorView.findFromDOM(sourceElement)!;
+    const updated =
+      '[Guide][guide]\n\n[guide]:  <https://new.example.test/path>  "New title"';
+    sourceView.dispatch({
+      changes: { from: 0, to: sourceView.state.doc.length, insert: updated },
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(updated));
+
+    rerender(<MarkdownEditor {...props} markdown={updated} />);
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    fireEvent.click(await screen.findByRole("link", { name: "Guide" }));
+    expect(props.onLinkOpen).toHaveBeenCalledWith(
+      "https://new.example.test/path",
+      "Guide",
+    );
+
+    const paragraph = screen.getByText("Guide").closest("p")!;
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+    await waitFor(() =>
+      expect(onChange.mock.lastCall?.[0]).toContain(
+        '[guide]:  <https://new.example.test/path>  "New title"',
+      ),
+    );
+  });
+
   it("routes an ordinary external-link click through the host opener", async () => {
     const onLinkOpen = vi.fn();
     render(
@@ -344,6 +702,100 @@ describe("MarkdownEditor links", () => {
         name: "Disable line numbers and invisible-character guides to switch editor modes.",
       }),
     ).toHaveAttribute("tabindex", "0");
+    expect(onViewModeChange).not.toHaveBeenCalled();
+  });
+
+  it("transiently enforces project source mode and restores saved preferences", async () => {
+    const onChange = vi.fn();
+    const onViewModeChange = vi.fn();
+    const props = {
+      notePath: "code/guide.md",
+      lineEnding: "lf" as const,
+      preferredViewMode: "rich-text" as const,
+      readOnly: false,
+      onChange,
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange,
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <StrictMode>
+        <MarkdownEditor
+          {...props}
+          markdown="# Workspace guide"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          projectSourceMode={false}
+        />
+      </StrictMode>,
+    );
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <StrictMode>
+        <MarkdownEditor
+          {...props}
+          markdown="# Workspace guide"
+          displaySettings={{
+            ...DEFAULT_EDITOR_DISPLAY_SETTINGS,
+            showLineNumbers: true,
+          }}
+          projectSourceMode
+        />
+      </StrictMode>,
+    );
+
+    expect(
+      await screen.findByText("Code workspace source mode"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", {
+        name: "Rich text mode unavailable inside a code workspace",
+      }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("note", {
+        name: "Rich text mode is unavailable because this file is inside a code workspace.",
+      }),
+    ).toHaveAttribute("tabindex", "0");
+    const sourceEditor = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-editor");
+      expect(element).not.toBeNull();
+      return EditorView.findFromDOM(element!)!;
+    });
+    sourceEditor.dispatch({
+      changes: {
+        from: sourceEditor.state.doc.length,
+        insert: "\n\nKept content",
+      },
+    });
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const updatedMarkdown = onChange.mock.lastCall?.[0] ?? "";
+
+    rerender(
+      <StrictMode>
+        <MarkdownEditor
+          {...props}
+          markdown={updatedMarkdown}
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          projectSourceMode={false}
+        />
+      </StrictMode>,
+    );
+
+    expect(
+      await screen.findByRole("radio", {
+        name: "Rich text",
+        checked: true,
+      }),
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Kept content")).toBeInTheDocument();
+    expect(container.querySelector(".cm-lineNumbers")).toBeNull();
     expect(onViewModeChange).not.toHaveBeenCalled();
   });
 
@@ -1225,6 +1677,211 @@ describe("MarkdownEditor links", () => {
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith("```\n```"),
     );
+  });
+
+  it("renders safe README HTML with intercepted links, native images, and adjacent directives", async () => {
+    const readImage = vi
+      .spyOn(api, "readImageDataUrl")
+      .mockResolvedValue("data:image/svg+xml;base64,PHN2Zy8+");
+    const onLinkOpen = vi.fn();
+    try {
+      const { container } = render(
+        <MarkdownEditor
+          notePath="notes/project.md"
+          markdown={
+            '<p align="center">\n  <a href="guides/start.md">Read <strong>the guide</strong></a>\n  <img src="assets/leaf.svg" alt="Project leaf" width="64" height="64" />\n  <img src="https://badges.example.test/check.svg" alt="Checks passing" />\n</p>\n\n:::caution\nKeep a local copy.\n:::'
+          }
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={vi.fn()}
+          onError={vi.fn()}
+          onLinkOpen={onLinkOpen}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+
+      const link = await screen.findByRole("link", { name: "Read the guide" });
+      fireEvent.click(link);
+      expect(onLinkOpen).toHaveBeenCalledWith(
+        "guides/start.md",
+        "Read the guide",
+      );
+      expect(link.querySelector("strong")).toHaveTextContent("the guide");
+      expect(
+        container.querySelector(".safe-rich-html__block"),
+      ).toHaveStyle({ textAlign: "center" });
+      const localImage = await screen.findByRole("img", {
+        name: "Project leaf",
+      });
+      expect(localImage).toHaveAttribute(
+        "src",
+        "data:image/svg+xml;base64,PHN2Zy8+",
+      );
+      expect(localImage).toHaveAttribute("width", "64");
+      expect(localImage).toHaveAttribute("height", "64");
+      const remoteImage = screen.getByRole("img", {
+        name: "Checks passing",
+      });
+      expect(remoteImage).toHaveAttribute(
+        "src",
+        "https://badges.example.test/check.svg",
+      );
+      expect(remoteImage).toHaveAttribute("loading", "lazy");
+      expect(remoteImage).toHaveAttribute("referrerpolicy", "no-referrer");
+      expect(await screen.findByText("Keep a local copy.")).toBeInTheDocument();
+      expect(readImage).toHaveBeenCalledWith(
+        "assets/leaf.svg",
+        "notes/project.md",
+      );
+    } finally {
+      readImage.mockRestore();
+    }
+  });
+
+  it("renders a safe standalone HTML screenshot", async () => {
+    render(
+      <MarkdownEditor
+        notePath="docs/overview.md"
+        markdown={
+          '<img src="https://images.example.test/overview.png" alt="Example overview" width="900" height="540" />'
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("img", { name: "Example overview" }),
+    ).toHaveAttribute("src", "https://images.example.test/overview.png");
+  });
+
+  it("preserves safe HTML bytes after an unrelated rich edit", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const raw =
+      '<h2 align="right"><a href="notes/roadmap.md">Read <strong>next</strong></a></h2>';
+    render(
+      <MarkdownEditor
+        notePath="notes/project.md"
+        markdown={`${raw}\n\nEdit here`}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const paragraph = await screen.findByText("Edit here");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.lastCall?.[0]).toContain(raw);
+    expect(
+      onChange.mock.lastCall?.[0].slice(
+        onChange.mock.lastCall?.[0].indexOf("<h2"),
+        onChange.mock.lastCall?.[0].indexOf("</h2>") + "</h2>".length,
+      ),
+    ).toBe(raw);
+  });
+
+  it("keeps unsafe and mixed-details HTML out of the rich DOM", async () => {
+    const { container, rerender } = render(
+      <MarkdownEditor
+        notePath="notes/project.md"
+        markdown={'<p><img src="data:image/png;base64,AA==" alt="Unsafe" /></p>'}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByText("Source-only Markdown syntax"),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".safe-rich-html")).toBeNull();
+    expect(screen.queryByRole("img", { name: "Unsafe" })).toBeNull();
+
+    rerender(
+      <MarkdownEditor
+        notePath="notes/project.md"
+        markdown={
+          '<details>\n<summary>More</summary>\n\nHidden.\n\n</details>\n\n<p align="center">Visible</p>'
+        }
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    expect(
+      await screen.findByText("Source-only Markdown syntax"),
+    ).toBeInTheDocument();
+    expect(container.querySelector(".safe-rich-html")).toBeNull();
+  });
+
+  it("surfaces safe local HTML image loading failures", async () => {
+    const readImage = vi
+      .spyOn(api, "readImageDataUrl")
+      .mockRejectedValue(new Error("Image path was rejected"));
+    const onError = vi.fn();
+    try {
+      render(
+        <MarkdownEditor
+          notePath="notes/project.md"
+          markdown={
+            '<p align="center"><img src="assets/missing.svg" alt="Missing mark" /></p>'
+          }
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={vi.fn()}
+          onError={onError}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+
+      expect(
+        await screen.findByText("Image unavailable: Missing mark"),
+      ).toBeInTheDocument();
+      expect(onError).toHaveBeenCalledWith("Image path was rejected");
+      expect(readImage).toHaveBeenCalledWith(
+        "assets/missing.svg",
+        "notes/project.md",
+      );
+    } finally {
+      readImage.mockRestore();
+    }
   });
 
   it("loads local Markdown images through the host image API", async () => {

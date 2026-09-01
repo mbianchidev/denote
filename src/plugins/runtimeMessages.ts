@@ -1,6 +1,8 @@
 import type {
   PluginCapability,
   PluginNoteEvent,
+  PluginProjectContext,
+  PluginProjectContextChangeEvent,
 } from "@denote/plugin-sdk";
 
 export interface PluginCommandContribution {
@@ -39,9 +41,16 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
-  | { type: "activate" }
+  | {
+      type: "activate";
+      projectContext?: PluginProjectContext | null;
+    }
   | { type: "run-command"; commandId: string; requestId: string }
   | { type: "note-event"; event: PluginNoteEvent }
+  | {
+      type: "project-context-change";
+      event: PluginProjectContextChangeEvent;
+    }
   | { type: "deactivate"; requestId: string }
   | {
       type: "host-response";

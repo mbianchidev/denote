@@ -63,7 +63,17 @@ the platform file manager. The focused file exposes the same actions from the
 three-dot menu. Switching files closes that menu.
 
 Use the folder control beside New folder to expand every nested folder or
-collapse the complete tree.
+collapse the complete tree. Expand all leaves folders named `.git` and
+`node_modules` collapsed unless you opened them directly.
+
+Use the eye control to hide or show files and folders whose names start with
+`.`. The choice is stored locally and applies only to the file tree. Hiding a
+dot folder hides its subtree without closing open tabs or removing anything from
+search, projects, or the vault.
+
+Files matched by `.gitignore` remain visible and usable, with reduced emphasis
+and an ignored description for screen readers. Rules apply within the closest
+explicit or implicit code project and never remove files from Denote.
 
 Drag a file or folder onto another folder to move it there, or onto empty tree
 space to move it to the vault root. Use **Move to folder…** from the context menu
@@ -73,6 +83,43 @@ large, unreadable, or conflicting files that could not be rewritten.
 
 Drag the divider beside the file tree to resize the sidebar. Focus it and use
 Left/Right arrows, or press Home to reset the default width.
+
+## Mark projects and workspaces
+
+Right-click empty tree space for the vault root, or an existing folder. **Mark as
+project** makes that folder an explicit project root. **Mark as workspace**
+treats each safe, real direct child folder as a separate implicit project. The
+two marks are independent, so one folder can be a project, a workspace, or both.
+Their separate unmark actions appear in the same menu.
+
+From the keyboard, focus a folder and press Shift-F10 or the Context Menu key.
+The command palette provides separate project and workspace commands for the
+vault, selected folder, recorded roots, and unmark-all actions. Unavailable roots
+remain removable there.
+
+Nested content belongs to its workspace child project. Files directly in the
+workspace container do not become an implicit project unless an explicit project
+root also covers them. New direct child folders are discovered automatically.
+You can still mark projects inside those children; the closest root to the
+focused file wins. The active project appears in the status bar, while a blank
+tab or file outside every project has none.
+
+Workspace child projects keep stable local identities when renamed or moved
+through Denote. Marking an implicit child as a project promotes it to explicit.
+Unmarking the workspace removes implicit-only children but preserves explicit
+children.
+
+Folders deleted outside Denote remain as unavailable local project/workspace
+metadata. Denote Trash clears affected metadata. Restoring a child under a
+still-marked workspace causes Denote to discover it as a new implicit project.
+All of this metadata stays in app-data SQLite; Denote does not add files or
+markers to the vault.
+
+If the vault root safely contains a `.git` file or directory and is not already
+a root project or workspace, Denote shows a non-modal suggestion. **Mark as
+project** accepts it. **No thanks** permanently dismisses it for that vault.
+Manually marking the root as a project or workspace also dismisses it. Denote
+never marks a Git repository automatically.
 
 ## Switch vaults
 

@@ -40,6 +40,27 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Tauri desktop application with React and TypeScript.
 - macOS, Windows, and Linux support.
 - A user-selected local folder is the active vault.
+- The vault root and any existing subfolder can independently be marked or
+  unmarked as an explicit project root, a multi-project workspace, or both
+  through separate folder/root context actions or command-palette commands.
+- Each safe, real direct child folder of a workspace is discovered as an
+  implicit project. Nested content belongs to that child project, while files
+  directly in the workspace container need a separate explicit project root.
+  New direct child folders are discovered automatically.
+- Explicit and implicit project roots may be nested. The closest available root
+  of the focused file is active, so an explicit nested project wins over its
+  workspace child ancestor. No focused project file means no active project.
+- The active project appears in the status bar. Workspace child projects keep
+  stable local identities through Denote rename/move and can be promoted to
+  explicit projects. Unmarking a workspace removes only implicit-only children.
+- Missing project and workspace folders remain as unavailable local metadata
+  until removed through the command palette. Denote Trash clears affected
+  project/workspace metadata; restoring a direct child under a still-marked
+  workspace discovers it as a new implicit project.
+- When an otherwise unmarked vault root safely contains a `.git` file or
+  directory, Denote suggests—but never automatically applies—**Mark as
+  project**. **No thanks** permanently dismisses the suggestion for that vault;
+  manually marking the root as a project or workspace also dismisses it.
 - Every installation includes an offline Denote Welcome vault with an editable
   feature tour and task-focused documentation; seeded files are never
   overwritten after creation.
@@ -63,6 +84,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   language support when the language catalog recognizes them.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
+- Full, collapsed, and shortcut Markdown reference links render and remain
+  editable in Rich mode. Definitions stay invisible and retain their exact
+  source formatting and ordering.
 - `.md` files treat ordinary angle-bracket comparisons and placeholders as
   Markdown text rather than MDX JSX. `.mdx` and `.jsx` remain non-executing,
   JSX-highlighted source files.
@@ -72,7 +96,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   comments remain locked to source mode.
 - Well-formed `<details>` blocks with a plain `<summary>` line render as native,
   keyboard-operable disclosure sections while preserving Markdown content
-  inside. Other raw HTML remains source-only.
+  inside. A separately validated README-style subset of paragraphs, headings,
+  links, strong text, and local or HTTP(S) images renders as atomic Rich blocks
+  while preserving its raw source exactly. Other raw HTML remains source-only.
 - Markdown thematic breaks render as consistent full-width document separators.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.
@@ -107,7 +133,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   default.
 - SQLite stores local workspace metadata, including open, edit, and save
   counters, bookmarks, recent activity, ordering, tag color overrides, trash
-  records, and revision history.
+  records, revision history, stable project/workspace identities and paths, and
+  Git-suggestion dismissal. These records never alter vault or project files.
+- Denote rename and move operations preserve explicit and implicit project
+  identities while updating their paths. Moving a marked folder or its ancestor
+  to Denote Trash removes affected project/workspace metadata.
 - ZBSearch provides local full-text search with a separate location glob and
   visual filters for tags, filename, path, content, file type, bookmarks, and
   recency.
@@ -143,7 +173,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   version history, open in a new tab, and reveal the file in the operating
   system file manager. The focused file exposes the same menu from a three-dot
   control and closes it when focus changes to another file.
-- One file-tree control recursively expands every folder or collapses the tree.
+- One file-tree control expands every folder except `.git` and `node_modules`,
+  which stay collapsed unless opened directly, or collapses the complete tree.
+- A persistent local file-tree control can hide entries whose basename starts
+  with `.`, including complete dot-folder subtrees, without changing vault data,
+  search results, project metadata, or open tabs.
+- Files matched by the closest code project's `.gitignore` rules remain visible
+  and interactive in the file tree with an accessible, reduced-emphasis ignored
+  state; ignore rules never remove files from Denote.
 - Renaming or moving a file/folder updates relative inline links, images, and
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.
@@ -167,6 +204,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   size without changing the surrounding application chrome.
 - Display guides visibly disable rich/source controls and explain that guides
   must be turned off before mode switching.
+- Files inside an explicit or implicit project temporarily force line numbers.
+  Project Markdown uses the byte-preserving source editor so opening a code
+  project cannot normalize stored Markdown syntax. Leaving the project or
+  removing its governing mark restores the saved line-number setting and vault
+  Markdown preference immediately; these constraints never persist as editor
+  preferences.
 - Markdown parser failures expose line and column details, force a temporary
   source fallback without changing the vault preference, highlight the failing
   line, and provide keyboard-accessible error navigation. Errors remain scoped
@@ -188,6 +231,18 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   decrypted successfully first.
 - The core application stays minimal. Additional capabilities are tracked as
   optional plugins rather than bundled into the first release.
+- Approved plugins may request the additive API version 1 `project-context`
+  capability. It exposes only a stable opaque project ID, a vault-relative root,
+  and context-change events, never an absolute path or editor implementation.
+- Plugin command leases capture the current project identity. Existing bounded
+  process execution validates that identity again and uses the current project
+  root as its working directory. Persistent terminal and language-server APIs
+  remain separate future plugin work.
+- **Settings → Plugins** shows a non-blocking **Code tooling** recommendation
+  only when the focused file has an active explicit or implicit project. Git,
+  Terminal, Language server, Linter, Compiler, and Code navigation roles show
+  unavailable, disabled, or enabled status; Denote never downloads or enables
+  them automatically, and core project behavior does not depend on plugins.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 
@@ -215,5 +270,8 @@ available. Future work must not fabricate them.
 ## Accessibility & Inclusion
 
 Core workflows must be keyboard operable with visible focus, semantic controls,
-and accessible names. Text handling must preserve full Unicode content and
-emoji without language-specific restrictions.
+accessible names, and screen-reader status updates. Separate folder project and
+workspace actions are available with Shift-F10 or the Context Menu key;
+whole-vault and unavailable project/workspace roots remain operable through the
+command palette. Text handling must preserve full Unicode content and emoji
+without language-specific restrictions.

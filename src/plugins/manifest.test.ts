@@ -4,6 +4,7 @@ import {
   checkPluginCompatibility,
   parsePluginManifest,
   validatePluginCatalogEntry,
+  validatePluginBundles,
   validatePluginManifest,
 } from "@denote/plugin-sdk";
 
@@ -76,6 +77,88 @@ describe("plugin manifest validation", () => {
       expect.arrayContaining([
         expect.stringMatching(/hosts must be a non-empty array/i),
         expect.stringMatching(/type must be boolean, string, number, or select/i),
+      ]),
+    );
+  });
+
+  it("accepts project context as an unconstrained API v1 capability", () => {
+    expect(
+      validatePluginManifest({
+        ...referenceManifestJson,
+        permissions: [{ capability: "project-context" }],
+      }),
+    ).toMatchObject({ valid: true, errors: [] });
+
+    const constrained = validatePluginManifest({
+      ...referenceManifestJson,
+      permissions: [
+        {
+          capability: "project-context",
+          hosts: ["projects.example"],
+        },
+      ],
+    });
+    expect(constrained.valid).toBe(false);
+    expect(constrained.errors).toContain(
+      "permissions[0].hosts is only valid for network permission.",
+    );
+  });
+
+  it("validates named bundle roles and allows unavailable candidates", () => {
+    const result = validatePluginBundles(
+      [
+        {
+          id: "synthetic-tools",
+          name: "Synthetic tools",
+          categories: ["code"],
+          roles: [
+            {
+              id: "language-server",
+              name: "Language server",
+              candidatePluginIds: [],
+            },
+          ],
+        },
+      ],
+      new Set(["denote.synthetic"]),
+    );
+
+    expect(result).toMatchObject({ valid: true, errors: [] });
+  });
+
+  it("rejects duplicate roles, candidates, and unknown catalog IDs", () => {
+    const result = validatePluginBundles(
+      [
+        {
+          id: "synthetic-tools",
+          name: "Synthetic tools",
+          categories: ["unknown"],
+          roles: [
+            {
+              id: "terminal",
+              name: "Terminal",
+              candidatePluginIds: ["denote.missing", "denote.missing", 42],
+            },
+            {
+              id: "terminal",
+              name: "Terminal",
+              candidatePluginIds: [],
+            },
+          ],
+        },
+      ],
+      new Set(["denote.synthetic"]),
+    );
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/categories\[0\] must be one of/i),
+        expect.stringMatching(/unknown catalog plugin denote\.missing/i),
+        expect.stringMatching(/contains duplicate denote\.missing/i),
+        expect.stringMatching(/candidatePluginIds\[2\] must be a string/i),
+        expect.stringMatching(/roles\[1\]\.id duplicates terminal/i),
+        expect.stringMatching(/roles\[1\]\.name duplicates the name terminal/i),
       ]),
     );
   });

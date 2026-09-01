@@ -39,6 +39,20 @@ describe("tab placement", () => {
     ).toEqual(["three.md", "two.md"]);
   });
 
+  it("keeps a dirty active tab during ordinary file navigation", () => {
+    const dirty = { ...tab("one.md"), content: "changed" };
+
+    expect(
+      placeOpenedTab([dirty, tab("two.md")], "one.md", tab("three.md")).map(
+        ({ path, content }) => ({ path, content }),
+      ),
+    ).toEqual([
+      { path: "one.md", content: "changed" },
+      { path: "three.md", content: "" },
+      { path: "two.md", content: "" },
+    ]);
+  });
+
   it("preserves the active tab group during ordinary file navigation", () => {
     expect(
       placeOpenedTab(
@@ -98,7 +112,12 @@ describe("tab placement", () => {
     };
     const existing = tab("one.md");
     const navigated = restoreTabHistoryTarget(current, existing, 0);
-    const displaced = placeOpenedTab([existing], existing.path, current)[0];
+    const displaced = placeOpenedTab(
+      [{ ...existing, content: "dirty" }],
+      existing.path,
+      current,
+      false,
+    )[0];
 
     expect([navigated.path, displaced.path]).toEqual(["one.md", "two.md"]);
     expect(navigated.navigationIndex).toBe(0);

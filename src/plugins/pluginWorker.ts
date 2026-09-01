@@ -11,6 +11,8 @@ import type {
   PluginNetworkResponse,
   PluginNoteEvent,
   PluginProcessResult,
+  PluginProjectContext,
+  PluginProjectContextChangeEvent,
   PluginTextDocument,
   PluginUserActionContext,
 } from "@denote/plugin-sdk";
@@ -29,6 +31,9 @@ const commandHandlers = new Map<string, PluginCommand["run"]>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
+const projectContextListeners = new Set<
+  (event: PluginProjectContextChangeEvent) => void | Promise<void>
+>();
 const subscriptions: PluginDisposable[] = [];
 const pending = new Map<string, PendingRequest>();
 let pluginId = "";
@@ -37,6 +42,8 @@ let permissions = new Set<PluginCapability>();
 let plugin: DenotePlugin | null = null;
 let port: MessagePort | null = null;
 let cleaned = false;
+let projectContext: PluginProjectContext | null = null;
+let hostMessageQueue = Promise.resolve();
 
 function send(message: PluginRuntimeMessage): void {
   if (!port) {
@@ -257,6 +264,18 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("project-context")) {
+    capabilities.projectContext = {
+      getCurrent: () => cloneProjectContext(projectContext),
+      subscribe(listener) {
+        if (typeof listener !== "function") {
+          throw new Error("Project context listener must be a function.");
+        }
+        projectContextListeners.add(listener);
+        return disposable(() => projectContextListeners.delete(listener));
+      },
+    };
+  }
   if (permissions.has("secure-storage")) {
     capabilities.secureStorage = {
       get: (key) => hostRequest<string | null>("secret.get", key),
@@ -316,6 +335,23 @@ function disposable(dispose: () => void): PluginDisposable {
   return { dispose };
 }
 
+function cloneProjectContext(
+  context: PluginProjectContext | null,
+): PluginProjectContext | null {
+  return context
+    ? { projectId: context.projectId, rootPath: context.rootPath }
+    : null;
+}
+
+function cloneProjectContextChangeEvent(
+  event: PluginProjectContextChangeEvent,
+): PluginProjectContextChangeEvent {
+  return {
+    previous: cloneProjectContext(event.previous),
+    current: cloneProjectContext(event.current),
+  };
+}
+
 async function cleanup(): Promise<unknown[]> {
   if (cleaned) {
     return [];
@@ -334,6 +370,9 @@ async function cleanup(): Promise<unknown[]> {
       failures.push(error);
     }
   }
+  noteListeners.clear();
+  projectContextListeners.clear();
+  commandHandlers.clear();
   return failures;
 }
 
@@ -360,11 +399,33 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
       ) {
         throw new Error("Loaded plugin does not match catalog metadata.");
       }
+      if (
+        permissions.has("project-context") &&
+        Object.prototype.hasOwnProperty.call(message, "projectContext")
+      ) {
+        projectContext = cloneProjectContext(message.projectContext ?? null);
+      }
       await plugin.activate(runtimeContext());
       send({ type: "activated" });
     } catch (error) {
       await cleanup();
       send({ type: "activation-error", error: errorMessage(error) });
+    }
+    return;
+  }
+  if (message.type === "project-context-change") {
+    if (!permissions.has("project-context")) {
+      return;
+    }
+    projectContext = cloneProjectContext(message.event.current);
+    const event = cloneProjectContextChangeEvent(message.event);
+    for (const listener of projectContextListeners) {
+      try {
+        await listener(cloneProjectContextChangeEvent(event));
+      } catch (error) {
+        send({ type: "runtime-error", error: errorMessage(error) });
+        return;
+      }
     }
     return;
   }
@@ -469,7 +530,15 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
   port = event.ports[0];
   self.onmessage = null;
   port.onmessage = (portEvent: MessageEvent<PluginHostMessage>) => {
-    void handleMessage(portEvent.data);
+    if (portEvent.data.type === "host-response") {
+      void handleMessage(portEvent.data);
+      return;
+    }
+    hostMessageQueue = hostMessageQueue
+      .then(() => handleMessage(portEvent.data))
+      .catch((error) => {
+        send({ type: "runtime-error", error: errorMessage(error) });
+      });
   };
   port.start();
   try {

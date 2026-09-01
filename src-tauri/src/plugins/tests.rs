@@ -1,10 +1,11 @@
 use std::collections::BTreeSet;
+use std::{sync::mpsc, thread, time::Duration};
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 use super::{
-    catalog::{catalog_fingerprint, compatibility_error, validate_catalog},
+    catalog::{catalog_fingerprint, compatibility_error, validate_bundles, validate_catalog},
     sandbox::{current_platform, enforce_storage_quota, host_matches},
     settings::{migrate_settings, validate_settings},
     *,
@@ -12,6 +13,8 @@ use super::{
 use flate2::{Compression, write::GzEncoder};
 use tar::Builder;
 use tempfile::TempDir;
+
+use crate::{db, vault};
 
 fn catalog() -> PluginCatalogEntry {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON)
@@ -54,6 +57,8 @@ fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> Plug
             app_data_dir: data.path().to_path_buf(),
             app_cache_dir: cache.path().to_path_buf(),
             catalog: vec![catalog],
+            bundles: vec![],
+            bundle_error: None,
             state: Mutex::new(PersistentPluginState::default()),
             pending_transactions: Mutex::new(BTreeMap::new()),
             preparation_lock: Mutex::new(()),
@@ -469,6 +474,87 @@ fn catalog_rejects_mismatched_provenance() {
 }
 
 #[test]
+fn bundle_metadata_accepts_empty_candidates_and_rejects_invalid_references() {
+    let catalog = catalog();
+    let valid = PluginBundle {
+        id: "synthetic-tools".to_string(),
+        name: "Synthetic tools".to_string(),
+        categories: vec!["code".to_string()],
+        roles: vec![PluginBundleRole {
+            id: "terminal".to_string(),
+            name: "Terminal".to_string(),
+            candidate_plugin_ids: vec![],
+        }],
+    };
+    assert!(validate_bundles(std::slice::from_ref(&valid), std::slice::from_ref(&catalog)).is_ok());
+
+    let mut invalid = valid;
+    invalid.roles.push(PluginBundleRole {
+        id: "terminal".to_string(),
+        name: "Other terminal".to_string(),
+        candidate_plugin_ids: vec!["denote.missing".to_string()],
+    });
+    assert!(validate_bundles(&[invalid], &[catalog]).is_err());
+}
+
+#[test]
+fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
+    let catalog =
+        serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON).expect("catalog metadata");
+    let bundles = serde_json::from_str::<Vec<PluginBundle>>(BUNDLES_JSON).expect("bundle metadata");
+
+    validate_bundles(&bundles, &catalog).expect("valid bundles");
+    let code_tooling = bundles
+        .iter()
+        .find(|bundle| bundle.id == "code-tooling")
+        .expect("code tooling bundle");
+    assert_eq!(code_tooling.roles.len(), 6);
+    assert!(
+        code_tooling
+            .roles
+            .iter()
+            .all(|role| role.candidate_plugin_ids.is_empty())
+    );
+}
+
+#[test]
+fn bundle_errors_do_not_block_the_plugin_catalog() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut manager = manager(catalog(), &data, &cache);
+    Arc::get_mut(&mut manager.inner)
+        .expect("unique manager")
+        .bundle_error = Some("Synthetic bundle error".to_string());
+
+    assert!(manager.list().is_ok());
+    assert!(manager.bundles().is_err());
+}
+
+#[test]
+fn catalog_accepts_unconstrained_project_context_capability() {
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "project-context".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::new(),
+    });
+
+    assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
+fn catalog_rejects_project_context_constraints() {
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "project-context".to_string(),
+        hosts: vec!["projects.example".to_string()],
+        executables: BTreeMap::new(),
+    });
+
+    assert!(validate_catalog(&[catalog]).is_err());
+}
+
+#[test]
 fn removed_catalog_entries_drop_namespaced_state() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
@@ -651,6 +737,7 @@ fn process_capability_runs_only_an_approved_absolute_executable() {
                 executable: "/usr/bin/printf".to_string(),
                 arguments: vec!["hello".to_string()],
             },
+            None,
         )
         .expect("process");
 
@@ -664,9 +751,225 @@ fn process_capability_runs_only_an_approved_absolute_executable() {
                     executable: "/bin/sh".to_string(),
                     arguments: vec![],
                 },
+                None,
             )
             .is_err()
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn process_capability_uses_an_approved_project_working_directory() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let project = data.path().join("synthetic-project");
+    fs::create_dir(&project).expect("project");
+    let project = fs::canonicalize(project).expect("canonical project");
+    let mut catalog = catalog();
+    let permission = PluginPermission {
+        capability: "process".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::from([(
+            current_platform().to_string(),
+            vec!["/bin/pwd".to_string()],
+        )]),
+    };
+    catalog.manifest.permissions.push(permission);
+    let manager = manager(catalog.clone(), &data, &cache);
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
+    }
+
+    let result = manager
+        .process_request(
+            &catalog.manifest.id,
+            PluginProcessRequest {
+                executable: "/bin/pwd".to_string(),
+                arguments: vec![],
+            },
+            Some(&project),
+        )
+        .expect("process");
+
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(result.stdout.trim(), project.to_string_lossy());
+}
+
+#[cfg(unix)]
+#[test]
+fn project_process_waits_for_project_root_mutations() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let db_path = data.path().join("denote.db");
+    db::initialize(&db_path).expect("database");
+    let vault_root = data.path().join("synthetic-vault");
+    let project_root = vault_root.join("code");
+    fs::create_dir_all(&project_root).expect("project");
+    let vault_root = fs::canonicalize(vault_root).expect("canonical vault");
+    let project_root = fs::canonicalize(project_root).expect("canonical project");
+    let connection = db::open(&db_path).expect("connection");
+    let vault_id = db::ensure_vault(
+        &connection,
+        &vault_root.to_string_lossy(),
+        "Synthetic Vault",
+    )
+    .expect("vault record");
+    let project_id =
+        db::ensure_project_root(&connection, vault_id, "code", true).expect("project record");
+    drop(connection);
+
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "process".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::from([(
+            current_platform().to_string(),
+            vec!["/bin/pwd".to_string()],
+        )]),
+    });
+    let manager = manager(catalog.clone(), &data, &cache);
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
+    }
+    let app_state = Arc::new(db::AppState::new(db_path, Some(vault_root)));
+    let worker_state = Arc::clone(&app_state);
+    let worker_manager = manager.clone();
+    let plugin_id = catalog.manifest.id.clone();
+    let mutation_guard = app_state.write_vault_access().expect("mutation guard");
+    let (started_tx, started_rx) = mpsc::channel();
+    let (result_tx, result_rx) = mpsc::channel();
+    let worker = thread::spawn(move || {
+        started_tx.send(()).expect("started");
+        let result = super::commands::process_request_with_app_state(
+            &worker_manager,
+            &worker_state,
+            &plugin_id,
+            PluginProcessRequest {
+                executable: "/bin/pwd".to_string(),
+                arguments: vec![],
+            },
+            Some(&project_id),
+        );
+        result_tx.send(result).expect("result");
+    });
+
+    started_rx.recv().expect("worker started");
+    assert!(matches!(
+        result_rx.recv_timeout(Duration::from_millis(100)),
+        Err(mpsc::RecvTimeoutError::Timeout)
+    ));
+    drop(mutation_guard);
+    let result = result_rx
+        .recv_timeout(Duration::from_secs(5))
+        .expect("process result")
+        .expect("process");
+    worker.join().expect("worker");
+
+    assert_eq!(result.stdout.trim(), project_root.to_string_lossy());
+}
+
+#[test]
+fn project_process_resolution_uses_current_path_and_rejects_stale_identity() {
+    let data = TempDir::new().expect("data");
+    let db_path = data.path().join("denote.db");
+    db::initialize(&db_path).expect("database");
+    let trusted_vault = data.path().join("trusted-vault");
+    let other_vault = data.path().join("other-vault");
+    fs::create_dir(&trusted_vault).expect("trusted vault");
+    fs::create_dir(&other_vault).expect("other vault");
+    fs::create_dir_all(trusted_vault.join("code").join("before")).expect("initial project");
+    fs::create_dir_all(trusted_vault.join("code").join("after")).expect("moved project");
+    let trusted_vault = fs::canonicalize(trusted_vault).expect("canonical trusted vault");
+    let other_vault = fs::canonicalize(other_vault).expect("canonical other vault");
+    let connection = db::open(&db_path).expect("connection");
+    let trusted_vault_id = db::ensure_vault(
+        &connection,
+        &trusted_vault.to_string_lossy(),
+        "Trusted Vault",
+    )
+    .expect("trusted vault record");
+    let other_vault_id =
+        db::ensure_vault(&connection, &other_vault.to_string_lossy(), "Other Vault")
+            .expect("other vault record");
+    let project_id = db::ensure_project_root(&connection, trusted_vault_id, "code/before", true)
+        .expect("project");
+    let other_project_id =
+        db::ensure_project_root(&connection, other_vault_id, "", true).expect("other project");
+    connection
+        .execute(
+            "UPDATE project_roots SET root_path = 'code/after' WHERE id = ?1",
+            [&project_id],
+        )
+        .expect("move project metadata");
+    drop(connection);
+
+    assert_eq!(
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id,)
+            .expect("current project path"),
+        trusted_vault.join("code").join("after"),
+    );
+    fs::remove_dir_all(trusted_vault.join("code").join("after")).expect("remove project folder");
+    let unavailable_error =
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
+            .expect_err("unavailable project");
+    assert!(unavailable_error.to_string().contains("unavailable"));
+    let other_error = vault::resolve_project_root(
+        &db_path,
+        &trusted_vault.to_string_lossy(),
+        &other_project_id,
+    )
+    .expect_err("other vault project");
+    assert!(other_error.to_string().contains("current vault"));
+
+    let mut connection = db::open(&db_path).expect("connection");
+    db::clear_explicit_project_root(&mut connection, trusted_vault_id, &project_id)
+        .expect("unmark project");
+    drop(connection);
+    let missing_error =
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
+            .expect_err("unmarked project");
+    assert!(missing_error.to_string().contains("no longer marked"));
+}
+
+#[cfg(unix)]
+#[test]
+fn project_process_resolution_rejects_a_symlinked_project_folder() {
+    use std::os::unix::fs::symlink;
+
+    let data = TempDir::new().expect("data");
+    let db_path = data.path().join("denote.db");
+    db::initialize(&db_path).expect("database");
+    let trusted_vault = data.path().join("trusted-vault");
+    let outside = data.path().join("outside");
+    fs::create_dir(&trusted_vault).expect("trusted vault");
+    fs::create_dir(&outside).expect("outside");
+    symlink(&outside, trusted_vault.join("linked-project")).expect("project symlink");
+    let trusted_vault = fs::canonicalize(trusted_vault).expect("canonical trusted vault");
+    let connection = db::open(&db_path).expect("connection");
+    let vault_id = db::ensure_vault(
+        &connection,
+        &trusted_vault.to_string_lossy(),
+        "Trusted Vault",
+    )
+    .expect("vault record");
+    let project_id = db::ensure_project_root(&connection, vault_id, "linked-project", true)
+        .expect("project record");
+    drop(connection);
+
+    let error =
+        vault::resolve_project_root(&db_path, &trusted_vault.to_string_lossy(), &project_id)
+            .expect_err("symlinked project");
+    assert!(error.to_string().contains("safe real directory"));
 }
 
 #[cfg(unix)]

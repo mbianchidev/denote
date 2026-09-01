@@ -12,7 +12,7 @@ mod tests;
 pub use commands::*;
 pub use types::*;
 
-use catalog::validate_catalog;
+use catalog::{validate_bundles, validate_catalog};
 use package::ensure_managed_directory;
 use sandbox::load_credential_ledger;
 
@@ -34,6 +34,8 @@ struct PluginManagerInner {
     app_data_dir: PathBuf,
     app_cache_dir: PathBuf,
     catalog: Vec<PluginCatalogEntry>,
+    bundles: Vec<PluginBundle>,
+    bundle_error: Option<String>,
     state: Mutex<PersistentPluginState>,
     pending_transactions: Mutex<BTreeMap<String, PreparedPluginTransaction>>,
     preparation_lock: Mutex<()>,
@@ -66,17 +68,24 @@ impl Drop for PluginOperation {
 
 impl PluginManager {
     pub fn new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> Self {
-        let (manager, initialized) =
-            match Self::try_new(app_data_dir.clone(), app_cache_dir.clone()) {
-                Ok(manager) => (manager, true),
-                Err(error) => {
-                    eprintln!("Plugin manager started disabled: {error}");
-                    (
+        let (manager, initialized) = match Self::try_new(
+            app_data_dir.clone(),
+            app_cache_dir.clone(),
+        ) {
+            Ok(manager) => (manager, true),
+            Err(error) => {
+                eprintln!("Plugin manager started disabled: {error}");
+                (
                         Self {
                             inner: Arc::new(PluginManagerInner {
                                 app_data_dir,
                                 app_cache_dir,
                                 catalog: vec![],
+                                bundles: vec![],
+                                bundle_error: Some(
+                                    "Plugin bundle metadata is unavailable because the plugin manager failed to initialize."
+                                        .to_string(),
+                                ),
                                 state: Mutex::new(PersistentPluginState::default()),
                                 pending_transactions: Mutex::new(BTreeMap::new()),
                                 preparation_lock: Mutex::new(()),
@@ -87,8 +96,8 @@ impl PluginManager {
                         },
                         false,
                     )
-                }
-            };
+            }
+        };
         if initialized && let Err(error) = manager.reconcile_packages() {
             eprintln!("Plugin recovery failed; plugins remain disabled: {error}");
             if let Ok(mut state) = manager.inner.state.lock() {
@@ -107,6 +116,20 @@ impl PluginManager {
         let catalog: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON)
             .map_err(|error| AppError::Plugin(format!("Invalid embedded catalog: {error}")))?;
         validate_catalog(&catalog)?;
+        let (bundles, bundle_error) = match serde_json::from_str::<Vec<PluginBundle>>(BUNDLES_JSON)
+        {
+            Ok(bundles) => match validate_bundles(&bundles, &catalog) {
+                Ok(()) => (bundles, None),
+                Err(error) => (
+                    vec![],
+                    Some(format!("Invalid embedded plugin bundles: {error}")),
+                ),
+            },
+            Err(error) => (
+                vec![],
+                Some(format!("Invalid embedded plugin bundles: {error}")),
+            ),
+        };
         let plugins_dir = app_data_dir.join("plugins");
         ensure_managed_directory(&plugins_dir)?;
         ensure_managed_directory(&plugins_dir.join("packages"))?;
@@ -166,6 +189,8 @@ impl PluginManager {
                 app_data_dir,
                 app_cache_dir,
                 catalog,
+                bundles,
+                bundle_error,
                 state: Mutex::new(state),
                 pending_transactions: Mutex::new(BTreeMap::new()),
                 preparation_lock: Mutex::new(()),
@@ -325,5 +350,12 @@ impl PluginManager {
             .lock()
             .map(|error| error.clone())
             .map_err(|_| AppError::State("Plugin initialization lock is poisoned".to_string()))
+    }
+
+    pub(crate) fn bundles(&self) -> AppResult<Vec<PluginBundle>> {
+        if let Some(error) = &self.inner.bundle_error {
+            return Err(AppError::Plugin(error.clone()));
+        }
+        Ok(self.inner.bundles.clone())
     }
 }

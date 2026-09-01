@@ -14,6 +14,8 @@ import {
   ChevronsUpDown,
   ClipboardCopy,
   Copy,
+  Eye,
+  EyeOff,
   ExternalLink as ExternalLinkIcon,
   FileCode2,
   FilePlus2,
@@ -56,6 +58,7 @@ import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
 import { ExternalLinkDialog } from "./components/ExternalLinkDialog";
 import { FileTree } from "./components/FileTree";
+import { GitProjectSuggestion } from "./components/GitProjectSuggestion";
 import {
   FileActionsDropdown,
   type FileActionHandlers,
@@ -118,7 +121,20 @@ import {
   type SearchRequest,
 } from "./lib/search";
 import { sourceLanguageName } from "./lib/sourceLanguage";
+import { buildProjectCommands } from "./lib/projectCommands";
 import { welcomePageTarget } from "./lib/welcomePage";
+import {
+  getShowDotfiles,
+  saveShowDotfiles,
+} from "./lib/fileVisibility";
+import {
+  applyGitignoreStatusUpdate,
+  enqueueGitignoreStatusOperation,
+  gitignoreRefreshScope,
+  ignoredPathsAfterWorkspaceSnapshot,
+  isGitignorePath,
+  removeIgnoredPathsAtOrBelow,
+} from "./lib/gitignoreStatus";
 import {
   MAX_TAB_SESSION_GROUPS,
   MAX_TAB_SESSION_TABS,
@@ -127,6 +143,7 @@ import {
   placeTabInGroup,
   rekeyTabNavigation,
   restoreTabHistoryTarget,
+  tabHasUnsavedChanges,
   tabHistoryTarget,
   tabReferencedPaths,
   tabsReferencePath,
@@ -170,12 +187,26 @@ import {
   type PaneDockTarget,
 } from "./lib/paneDocking";
 import {
+  applyWorkspaceBulkAction,
+  closestAvailableProjectRoot,
+  initialWorkspaceFolderPaths,
   insertWorkspaceNode,
+  isDotEntry,
+  projectConfigurationFields,
+  projectRootLabel,
+  removeProjectConfigurationAtOrBelow,
   removeWorkspacePath,
+  workspaceBulkActionState,
+  workspaceBulkExpansion,
   workspaceAncestorPaths,
-  workspaceFolderPaths,
   workspacePathMatches,
+  withProjectConfiguration,
 } from "./lib/workspaceTree";
+import {
+  usesProjectMarkdownSourceEditor,
+  usesRichMarkdownEditor,
+} from "./lib/editorRouting";
+import { acquireWorkspaceLockAndDrainProjectMutations } from "./lib/workspaceOperation";
 import { resolveTagColor, type TagColorMap } from "./lib/tagColors";
 import {
   editorZoomShortcut,
@@ -220,10 +251,14 @@ import type {
   EditorSearchNavigation,
   EditorTab,
   FileNode,
+  GitignoreStatusUpdate,
   HeadingItem,
   HistoryRevision,
   KnownVaultFile,
   PaneLayoutKind,
+  ProjectConfiguration,
+  ProjectRoot,
+  ProjectWorkspace,
   SearchResult,
   SidebarView,
   TabGroup,
@@ -251,6 +286,7 @@ interface ActionDialogState {
 }
 
 interface PendingAttachmentInsertion {
+  completion: Promise<boolean>;
   source: string | null;
   settle: (succeeded: boolean) => void;
 }
@@ -281,6 +317,8 @@ function App() {
   );
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
+  const [showDotfiles, setShowDotfiles] = useState(() => getShowDotfiles());
+  const showDotfilesRef = useRef(showDotfiles);
   const [paneState, setPaneState] = useState<PaneWorkspaceState>(() =>
     createPaneWorkspace(),
   );
@@ -396,10 +434,23 @@ function App() {
   const newTabSequence = useRef(0);
   const tabGroupSequence = useRef(0);
   const vaultGeneration = useRef(0);
+  const workspaceVaultPathRef = useRef<string | null>(
+    workspace?.vaultPath ?? null,
+  );
+  workspaceVaultPathRef.current = workspace?.vaultPath ?? null;
   const closingWindow = useRef(false);
   const workspaceLockedRef = useRef(false);
   const modalOpenRef = useRef(false);
   const commandPaletteCommandsRef = useRef<CommandPaletteCommand[]>([]);
+  const previousActiveProjectId = useRef<string | null>(null);
+  const projectConfigurationRevision = useRef(0);
+  const projectConfigurationMutationTail = useRef<Promise<void>>(
+    Promise.resolve(),
+  );
+  const gitignoreStatusTail = useRef<Promise<void>>(Promise.resolve());
+  const gitignoreSnapshotUpdates = useRef(
+    new Map<number, GitignoreStatusUpdate[]>(),
+  );
   const workspaceLockTail = useRef<Promise<void>>(Promise.resolve());
   const workspaceLockRelease = useRef<(() => void) | null>(null);
   const actionDialogResolver = useRef<((value: string | null) => void) | null>(
@@ -561,8 +612,30 @@ function App() {
     [activePath, tabs],
   );
   const activeFileTab = activeTab?.placeholder ? null : activeTab;
+  const activeProject = useMemo(
+    () =>
+      closestAvailableProjectRoot(
+        workspace?.projectRoots ?? [],
+        activeFileTab?.path ?? null,
+      ),
+    [activeFileTab?.path, workspace?.projectRoots],
+  );
+  useEffect(() => {
+    const nextProjectId = activeProject?.id ?? null;
+    if (nextProjectId === previousActiveProjectId.current) {
+      return;
+    }
+    previousActiveProjectId.current = nextProjectId;
+    setStatus(
+      activeProject
+        ? `Active project: ${activeProject.rootPath || "Vault root"}`
+        : "No active project",
+    );
+  }, [activeProject]);
   const activeMarkdownSource =
-    activeFileTab?.kind === "markdown" && activeFileTab.encoding === "utf8"
+    activeProject === null &&
+    activeFileTab?.kind === "markdown" &&
+    activeFileTab.encoding === "utf8"
       ? markdownErrorSourceIdentity(
           markdownEditorSource(activeFileTab.content),
         )
@@ -590,13 +663,21 @@ function App() {
     () => (workspace ? flattenNodes(workspace.tree) : []),
     [workspace],
   );
-  const folderPaths = useMemo(
-    () => (workspace ? workspaceFolderPaths(workspace.tree) : []),
-    [workspace],
+  const folderExpansion = useMemo(
+    () =>
+      workspace
+        ? workspaceBulkExpansion(workspace.tree, showDotfiles)
+        : { folderPaths: [], excludedRootPaths: [], hiddenRootPaths: [] },
+    [showDotfiles, workspace],
   );
-  const allFoldersExpanded =
-    folderPaths.length > 0 &&
-    folderPaths.every((path) => expandedPaths.has(path));
+  const folderBulkAction = useMemo(
+    () => workspaceBulkActionState(folderExpansion, expandedPaths),
+    [expandedPaths, folderExpansion],
+  );
+  const ignoredPaths = useMemo(
+    () => new Set(workspace?.ignoredPaths ?? []),
+    [workspace?.ignoredPaths],
+  );
   const selectedMoveAvailability = useMemo(() => {
     if (!workspace || !selectedNode) {
       return { up: false, down: false };
@@ -722,7 +803,33 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
-  const pluginController = usePlugins(showError);
+  const toggleDotfileVisibility = useCallback(() => {
+    const next = !showDotfilesRef.current;
+    try {
+      saveShowDotfiles(next);
+      showDotfilesRef.current = next;
+      setShowDotfiles(next);
+      if (
+        !next &&
+        selectedPath?.split("/").some((segment) => isDotEntry(segment))
+      ) {
+        setSelectedPath(null);
+      }
+    } catch (caught) {
+      showError(caught);
+    }
+  }, [selectedPath, showError]);
+  const pluginProjectContext = useMemo(
+    () =>
+      activeProject
+        ? {
+            projectId: activeProject.id,
+            rootPath: activeProject.rootPath,
+          }
+        : null,
+    [activeProject?.id, activeProject?.rootPath],
+  );
+  const pluginController = usePlugins(showError, pluginProjectContext);
   const pluginDecorationKey = pluginController.decorations
     .map(
       (decoration) =>
@@ -1068,6 +1175,9 @@ function App() {
   const refreshCachedWorkspace = useCallback(
     async (generation: number) => {
       const request = ++workspaceRefreshRequest.current;
+      const ignoredUpdates: GitignoreStatusUpdate[] = [];
+      gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
+      const configurationRevision = projectConfigurationRevision.current;
       try {
         const snapshot = await api.refreshVault();
         if (
@@ -1076,7 +1186,19 @@ function App() {
         ) {
           return;
         }
-        setWorkspace(snapshot);
+        setWorkspace((current) => {
+          const next =
+            configurationRevision === projectConfigurationRevision.current
+              ? snapshot
+              : withProjectConfiguration(snapshot, current ?? snapshot);
+          return {
+            ...next,
+            ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
+              next.ignoredPaths,
+              ignoredUpdates,
+            ),
+          };
+        });
         await rebuildSearchIndex(generation);
       } catch (caught) {
         if (
@@ -1086,6 +1208,8 @@ function App() {
           setIndexing(false);
           showError(caught);
         }
+      } finally {
+        gitignoreSnapshotUpdates.current.delete(request);
       }
     },
     [rebuildSearchIndex, showError],
@@ -1105,6 +1229,7 @@ function App() {
       }
       rebuildRequest.current += 1;
       workspaceRefreshRequest.current += 1;
+      gitignoreSnapshotUpdates.current.clear();
       queryRequest.current += 1;
       searchIndex.current = new VaultSearchIndex();
       searchIndexReady.current = false;
@@ -1153,10 +1278,11 @@ function App() {
       setSelectedPath(null);
       setExpandedPaths(
         new Set(
-          snapshot.tree
-            .filter((node) => node.kind === "folder")
-            .slice(0, 8)
-            .map((node) => node.path),
+          initialWorkspaceFolderPaths(
+            snapshot.tree,
+            8,
+            showDotfilesRef.current,
+          ),
         ),
       );
       if (resetTabs || vaultLocked) {
@@ -1218,13 +1344,28 @@ function App() {
     }
     const generation = vaultGeneration.current;
     const request = ++workspaceRefreshRequest.current;
+    const ignoredUpdates: GitignoreStatusUpdate[] = [];
+    gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
+    const configurationRevision = projectConfigurationRevision.current;
     try {
       const snapshot = await api.refreshVault();
       if (
         generation === vaultGeneration.current &&
         request === workspaceRefreshRequest.current
       ) {
-        setWorkspace(snapshot);
+        setWorkspace((current) => {
+          const next =
+            configurationRevision === projectConfigurationRevision.current
+              ? snapshot
+              : withProjectConfiguration(snapshot, current ?? snapshot);
+          return {
+            ...next,
+            ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
+              next.ignoredPaths,
+              ignoredUpdates,
+            ),
+          };
+        });
         if (reindex || !searchIndexReady.current) {
           await rebuildSearchIndex(generation);
         }
@@ -1237,8 +1378,580 @@ function App() {
         setIndexing(false);
         showError(caught);
       }
+    } finally {
+      gitignoreSnapshotUpdates.current.delete(request);
     }
   }, [rebuildSearchIndex, showError, workspace]);
+
+  const applyProjectConfiguration = useCallback(
+    (
+      configuration: ProjectConfiguration,
+      expectedGeneration: number,
+      expectedVaultPath: string,
+    ) => {
+      if (expectedGeneration !== vaultGeneration.current) {
+        return;
+      }
+      setWorkspace((current) =>
+        current?.vaultPath === expectedVaultPath
+          ? withProjectConfiguration(current, configuration)
+          : current,
+      );
+    },
+    [],
+  );
+
+  const refreshIgnoredStatus = useCallback(
+    async (
+      expectedGeneration: number,
+      expectedVaultPath: string,
+      scopePaths: string[],
+    ): Promise<boolean> => {
+      const operation = async (): Promise<boolean> => {
+        if (
+          expectedGeneration !== vaultGeneration.current ||
+          workspaceVaultPathRef.current !== expectedVaultPath
+        ) {
+          return false;
+        }
+        try {
+          const update = await api.refreshGitignoreStatus(
+            expectedVaultPath,
+            scopePaths,
+          );
+          if (
+            expectedGeneration !== vaultGeneration.current ||
+            workspaceVaultPathRef.current !== expectedVaultPath ||
+            !update.complete
+          ) {
+            return false;
+          }
+          for (const updates of gitignoreSnapshotUpdates.current.values()) {
+            updates.push(update);
+          }
+          setWorkspace((current) =>
+            current?.vaultPath === expectedVaultPath
+              ? {
+                  ...current,
+                  ignoredPaths: applyGitignoreStatusUpdate(
+                    current.ignoredPaths,
+                    update,
+                  ),
+                }
+              : current,
+          );
+          return true;
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspaceVaultPathRef.current === expectedVaultPath
+          ) {
+            console.error("Unable to refresh .gitignore status:", caught);
+          }
+          return false;
+        }
+      };
+      const queued = enqueueGitignoreStatusOperation(
+        gitignoreStatusTail.current,
+        operation,
+      );
+      gitignoreStatusTail.current = queued.tail;
+      return await queued.result;
+    },
+    [],
+  );
+
+  const enqueueProjectConfigurationMutation = useCallback(
+    async (operation: () => Promise<void>) => {
+      const queued = projectConfigurationMutationTail.current.then(operation);
+      projectConfigurationMutationTail.current = queued.catch(() => {});
+      await queued;
+    },
+    [],
+  );
+
+  const markProject = useCallback(
+    async (path: string) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.markProjectRoot(
+            expectedVaultPath,
+            path,
+          );
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              path === ""
+                ? "Marked the vault root as a project"
+                : `Marked ${path} as a project`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(`Unable to mark project root ${path}:`, caught);
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
+      showError,
+      workspace,
+    ],
+  );
+
+  const unmarkProject = useCallback(
+    async (projectRoot: ProjectRoot) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.unmarkProjectRoot(
+            expectedVaultPath,
+            projectRoot.id,
+          );
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              projectRoot.rootPath === ""
+                ? "Unmarked the vault root project"
+                : `Unmarked ${projectRoot.rootPath} as a project`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(
+              `Unable to unmark project root ${projectRoot.rootPath}:`,
+              caught,
+            );
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
+      showError,
+      workspace,
+    ],
+  );
+
+  const unmarkAllProjects = useCallback(async () => {
+    const explicitProjectRoots =
+      workspace?.projectRoots.filter((projectRoot) => projectRoot.explicit) ?? [];
+    if (
+      !workspace ||
+      workspaceLockedRef.current ||
+      explicitProjectRoots.length === 0
+    ) {
+      return;
+    }
+    const expectedGeneration = vaultGeneration.current;
+    const expectedVaultPath = workspace.vaultPath;
+    await enqueueProjectConfigurationMutation(async () => {
+      const failures: string[] = [];
+      let authoritativeConfiguration = projectConfigurationFields(workspace);
+      let changed = false;
+      for (const projectRoot of explicitProjectRoots) {
+        if (
+          expectedGeneration !== vaultGeneration.current ||
+          workspace.vaultPath !== expectedVaultPath
+        ) {
+          return;
+        }
+        try {
+          authoritativeConfiguration = await api.unmarkProjectRoot(
+            expectedVaultPath,
+            projectRoot.id,
+          );
+          changed = true;
+        } catch (caught) {
+          failures.push(
+            `${projectRoot.rootPath || "Vault root"}: ${errorMessage(caught)}`,
+          );
+        }
+      }
+      applyProjectConfiguration(
+        authoritativeConfiguration,
+        expectedGeneration,
+        expectedVaultPath,
+      );
+      if (changed) {
+        projectConfigurationRevision.current += 1;
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          [],
+        );
+      }
+      if (failures.length > 0) {
+        showError(
+          new Error(
+            `Could not unmark ${failures.length} project root${
+              failures.length === 1 ? "" : "s"
+            }. ${failures.join(" ")}`,
+          ),
+        );
+        return;
+      }
+      if (
+        expectedGeneration === vaultGeneration.current &&
+        workspace.vaultPath === expectedVaultPath
+      ) {
+        setStatus(
+          `Unmarked ${explicitProjectRoots.length} project root${
+            explicitProjectRoots.length === 1 ? "" : "s"
+          }`,
+        );
+      }
+    });
+  }, [
+    applyProjectConfiguration,
+    enqueueProjectConfigurationMutation,
+    refreshIgnoredStatus,
+    showError,
+    workspace,
+  ]);
+
+  const markWorkspace = useCallback(
+    async (path: string) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.markProjectWorkspace(
+            expectedVaultPath,
+            path,
+          );
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              path === ""
+                ? "Marked the vault root as a workspace"
+                : `Marked ${path} as a workspace`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(`Unable to mark workspace root ${path}:`, caught);
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
+      showError,
+      workspace,
+    ],
+  );
+
+  const unmarkWorkspace = useCallback(
+    async (projectWorkspace: ProjectWorkspace) => {
+      if (!workspace || workspaceLockedRef.current) {
+        return;
+      }
+      const expectedGeneration = vaultGeneration.current;
+      const expectedVaultPath = workspace.vaultPath;
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration = await api.unmarkProjectWorkspace(
+            expectedVaultPath,
+            projectWorkspace.id,
+          );
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            setStatus(
+              projectWorkspace.rootPath === ""
+                ? "Unmarked the vault root workspace"
+                : `Unmarked ${projectWorkspace.rootPath} as a workspace`,
+            );
+          }
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(
+              `Unable to unmark workspace root ${projectWorkspace.rootPath}:`,
+              caught,
+            );
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
+      showError,
+      workspace,
+    ],
+  );
+
+  const unmarkAllWorkspaces = useCallback(async () => {
+    if (
+      !workspace ||
+      workspaceLockedRef.current ||
+      workspace.projectWorkspaces.length === 0
+    ) {
+      return;
+    }
+    const expectedGeneration = vaultGeneration.current;
+    const expectedVaultPath = workspace.vaultPath;
+    const projectWorkspaces = [...workspace.projectWorkspaces];
+    await enqueueProjectConfigurationMutation(async () => {
+      const failures: string[] = [];
+      let authoritativeConfiguration = projectConfigurationFields(workspace);
+      let changed = false;
+      for (const projectWorkspace of projectWorkspaces) {
+        if (
+          expectedGeneration !== vaultGeneration.current ||
+          workspace.vaultPath !== expectedVaultPath
+        ) {
+          return;
+        }
+        try {
+          authoritativeConfiguration = await api.unmarkProjectWorkspace(
+            expectedVaultPath,
+            projectWorkspace.id,
+          );
+          changed = true;
+        } catch (caught) {
+          failures.push(
+            `${projectWorkspace.rootPath || "Vault root"}: ${errorMessage(
+              caught,
+            )}`,
+          );
+        }
+      }
+      applyProjectConfiguration(
+        authoritativeConfiguration,
+        expectedGeneration,
+        expectedVaultPath,
+      );
+      if (changed) {
+        projectConfigurationRevision.current += 1;
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          [],
+        );
+      }
+      if (failures.length > 0) {
+        showError(
+          new Error(
+            `Could not unmark ${failures.length} workspace root${
+              failures.length === 1 ? "" : "s"
+            }. ${failures.join(" ")}`,
+          ),
+        );
+        return;
+      }
+      if (
+        expectedGeneration === vaultGeneration.current &&
+        workspace.vaultPath === expectedVaultPath
+      ) {
+        setStatus(
+          `Unmarked ${projectWorkspaces.length} workspace root${
+            projectWorkspaces.length === 1 ? "" : "s"
+          }`,
+        );
+      }
+    });
+  }, [
+    applyProjectConfiguration,
+    enqueueProjectConfigurationMutation,
+    refreshIgnoredStatus,
+    showError,
+    workspace,
+  ]);
+
+  const dismissGitProjectSuggestion = useCallback(async () => {
+    if (!workspace || workspaceLockedRef.current) {
+      return;
+    }
+    const expectedGeneration = vaultGeneration.current;
+    const expectedVaultPath = workspace.vaultPath;
+    await enqueueProjectConfigurationMutation(async () => {
+      if (expectedGeneration !== vaultGeneration.current) {
+        return;
+      }
+      try {
+        const configuration =
+          await api.dismissGitProjectSuggestion(expectedVaultPath);
+        applyProjectConfiguration(
+          configuration,
+          expectedGeneration,
+          expectedVaultPath,
+        );
+        projectConfigurationRevision.current += 1;
+        if (
+          expectedGeneration === vaultGeneration.current &&
+          workspace.vaultPath === expectedVaultPath
+        ) {
+          setStatus("Dismissed the Git project suggestion");
+        }
+      } catch (caught) {
+        if (
+          expectedGeneration === vaultGeneration.current &&
+          workspace.vaultPath === expectedVaultPath
+        ) {
+          showError(caught);
+        } else {
+          console.error(
+            "Unable to dismiss the Git project suggestion:",
+            caught,
+          );
+        }
+      }
+    });
+  }, [
+    applyProjectConfiguration,
+    enqueueProjectConfigurationMutation,
+    showError,
+    workspace,
+  ]);
+
+  const refreshProjectConfiguration = useCallback(
+    async (expectedGeneration: number, expectedVaultPath: string) => {
+      await enqueueProjectConfigurationMutation(async () => {
+        if (expectedGeneration !== vaultGeneration.current) {
+          return;
+        }
+        try {
+          const configuration =
+            await api.refreshProjectConfiguration(expectedVaultPath);
+          applyProjectConfiguration(
+            configuration,
+            expectedGeneration,
+            expectedVaultPath,
+          );
+          projectConfigurationRevision.current += 1;
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            [],
+          );
+        } catch (caught) {
+          if (
+            expectedGeneration === vaultGeneration.current &&
+            workspace?.vaultPath === expectedVaultPath
+          ) {
+            showError(caught);
+          } else {
+            console.error(
+              "Unable to refresh project configuration:",
+              caught,
+            );
+          }
+        }
+      });
+    },
+    [
+      applyProjectConfiguration,
+      enqueueProjectConfigurationMutation,
+      refreshIgnoredStatus,
+      showError,
+      workspace?.vaultPath,
+    ],
+  );
 
   useEffect(() => {
     applyTheme(theme);
@@ -1669,6 +2382,8 @@ function App() {
       if (!workspace) {
         return Promise.resolve(false);
       }
+      const expectedVaultPath = workspace.vaultPath;
+      const expectedVaultGeneration = vaultGeneration.current;
       commitTabs((current) =>
         current.map((tab) =>
           tab.path === path && tab.content === content
@@ -1729,6 +2444,13 @@ function App() {
             }
             setStatus(outcome.changed ? "Saved" : "No changes");
             scheduleIndexRebuild();
+            if (isGitignorePath(path)) {
+              await refreshIgnoredStatus(
+                expectedVaultGeneration,
+                expectedVaultPath,
+                gitignoreRefreshScope(path),
+              );
+            }
             return true;
           } catch (caught) {
             commitTabs((current) =>
@@ -1755,7 +2477,13 @@ function App() {
       });
       return task;
     },
-    [commitTabs, scheduleIndexRebuild, showError, workspace],
+    [
+      commitTabs,
+      refreshIgnoredStatus,
+      scheduleIndexRebuild,
+      showError,
+      workspace,
+    ],
   );
 
   const flushTab = useCallback(
@@ -1806,7 +2534,11 @@ function App() {
   flushAllTabsRef.current = flushAllTabs;
 
   const beginWorkspaceOperation = useCallback(async (): Promise<boolean> => {
-    await acquireWorkspaceLock();
+    await acquireWorkspaceLockAndDrainProjectMutations(
+      acquireWorkspaceLock,
+      () => projectConfigurationMutationTail.current,
+    );
+    await gitignoreStatusTail.current;
     try {
       if (tabSessionTimer.current) {
         window.clearTimeout(tabSessionTimer.current);
@@ -1857,12 +2589,48 @@ function App() {
   }, [acquireWorkspaceLock, setWorkspaceLock, showError]);
   beginWorkspaceOperationRef.current = beginWorkspaceOperation;
 
+  const beginFileOpenOperation = useCallback(
+    async (replacedPath: string | null): Promise<void> => {
+      try {
+        await acquireWorkspaceLockAndDrainProjectMutations(
+          acquireWorkspaceLock,
+          () => projectConfigurationMutationTail.current,
+        );
+        await gitignoreStatusTail.current;
+        if (replacedPath) {
+          await saveQueues.current.get(replacedPath);
+        }
+        const pendingInsertions = replacedPath
+          ? pendingAttachmentInsertions.current.get(replacedPath)
+          : null;
+        if (pendingInsertions) {
+          const uploads = await Promise.all(
+            [...pendingInsertions].map(({ completion }) => completion),
+          );
+          if (uploads.some((succeeded) => !succeeded)) {
+            throw new Error(
+              `Unable to finish an attachment insertion in ${replacedPath}.`,
+            );
+          }
+        }
+      } catch (caught) {
+        setWorkspaceLock(false);
+        throw caught;
+      }
+    },
+    [acquireWorkspaceLock, setWorkspaceLock],
+  );
+
   const beginEntryMutation = useCallback(
     async (
       expectedGeneration: number,
       isAffected: (path: string) => boolean,
     ): Promise<boolean> => {
-      await acquireWorkspaceLock();
+      await acquireWorkspaceLockAndDrainProjectMutations(
+        acquireWorkspaceLock,
+        () => projectConfigurationMutationTail.current,
+      );
+      await gitignoreStatusTail.current;
       try {
         if (expectedGeneration !== vaultGeneration.current) {
           setWorkspaceLock(false);
@@ -1910,6 +2678,7 @@ function App() {
         resolveTracked = resolve;
       });
       const insertion: PendingAttachmentInsertion = {
+        completion: tracked,
         source: null,
         settle: () => {},
       };
@@ -2090,9 +2859,7 @@ function App() {
       setStatus(`Opening ${title}…`);
       let workspaceOperationStarted = false;
       try {
-        if (!(await beginWorkspaceOperation())) {
-          return;
-        }
+        await beginFileOpenOperation(replacePath);
         workspaceOperationStarted = true;
         if (!openRequestCurrent(paneId, request)) {
           return;
@@ -2107,6 +2874,25 @@ function App() {
         setHeadingNavigation(
           anchor ? { path, anchor } : null,
         );
+        const latestPane = paneStateRef.current.panes.find(
+          (pane) => pane.id === paneId,
+        );
+        const replacedTab = latestPane?.tabs.find(
+          (candidate) => candidate.path === replacePath,
+        );
+        const placementAddsTab =
+          replacedTab === undefined || tabHasUnsavedChanges(replacedTab);
+        if (
+          placementAddsTab &&
+          tabsRef.current.length >= MAX_TAB_SESSION_TABS
+        ) {
+          reportError(
+            `Close a tab before opening ${title}; the ${MAX_TAB_SESSION_TABS}-tab limit is reached.`,
+          );
+          return;
+        }
+        const shouldCancelReplacedPath =
+          replacedTab !== undefined && !tabHasUnsavedChanges(replacedTab);
         commitPaneState((current) => ({
           ...current,
           focusedPaneId: paneId,
@@ -2120,7 +2906,7 @@ function App() {
           type: "retain-markdown-paths",
           paths: tabReferencedPaths(tabsRef.current),
         });
-        if (replacePath) {
+        if (replacePath && shouldCancelReplacedPath) {
           cancelPendingPath(replacePath);
         }
         setSelectedPath(path);
@@ -2151,7 +2937,7 @@ function App() {
     },
     [
       activateTab,
-      beginWorkspaceOperation,
+      beginFileOpenOperation,
       cancelPendingPath,
       commitPaneState,
       openRequestCurrent,
@@ -2247,6 +3033,13 @@ function App() {
         if (!pane || !current || current.placeholder) {
           return;
         }
+        if (
+          tabHasUnsavedChanges(current) ||
+          pendingAttachmentInsertions.current.has(current.path)
+        ) {
+          setStatus("Wait for the current file to finish saving before navigating");
+          return;
+        }
         const target = tabHistoryTarget(current, direction);
         if (!target || !openRequestCurrent(paneId, request)) {
           return;
@@ -2271,9 +3064,7 @@ function App() {
         const generation = vaultGeneration.current;
         let workspaceOperationStarted = false;
         try {
-          if (!(await beginWorkspaceOperation())) {
-            return;
-          }
+          await beginFileOpenOperation(current.path);
           workspaceOperationStarted = true;
           if (!openRequestCurrent(paneId, request)) {
             return;
@@ -2285,6 +3076,10 @@ function App() {
             (tab) => tab.path === current.path,
           );
           if (!latestPane || !latestCurrent) {
+            return;
+          }
+          if (tabHasUnsavedChanges(latestCurrent)) {
+            setStatus("Wait for the current file to finish saving before navigating");
             return;
           }
           const existing = latestPane.tabs.find(
@@ -2302,7 +3097,12 @@ function App() {
             return;
           }
           const displaced = existing
-            ? placeOpenedTab([existing], existing.path, latestCurrent)[0]
+            ? placeOpenedTab(
+                [existing],
+                existing.path,
+                latestCurrent,
+                false,
+              )[0]
             : null;
           commitPaneState((state) => ({
             ...state,
@@ -2321,10 +3121,9 @@ function App() {
               activePath: target.path,
             })),
           }));
-          if (existing) {
-            cancelPendingPath(existing.path);
+          if (!existing) {
+            cancelPendingPath(current.path);
           }
-          cancelPendingPath(current.path);
           setSelectedPath(target.path);
           setStatus(`Opened ${title}`);
           setWorkspace((value) =>
@@ -2356,7 +3155,7 @@ function App() {
     },
     [
       activateTab,
-      beginWorkspaceOperation,
+      beginFileOpenOperation,
       cancelPendingPath,
       commitPaneState,
       nextOpenRequest,
@@ -2542,12 +3341,12 @@ function App() {
           if (editQueues.current.get(path) === editTask) {
             editQueues.current.delete(path);
           }
-          for (const insertion of [...(pendingInsertions ?? [])]) {
-            if (insertion.source && content.includes(insertion.source)) {
-              insertion.settle(true);
-            }
-          }
         });
+      }
+      for (const insertion of [...(pendingInsertions ?? [])]) {
+        if (insertion.source && content.includes(insertion.source)) {
+          insertion.settle(true);
+        }
       }
       const existingTimer = saveTimers.current.get(path);
       if (existingTimer) {
@@ -3072,6 +3871,20 @@ function App() {
               }
             : current,
         );
+        if (directory) {
+          await refreshProjectConfiguration(
+            expectedGeneration,
+            expectedVaultPath,
+          );
+        } else {
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            isGitignorePath(createdNode.path)
+              ? gitignoreRefreshScope(createdNode.path)
+              : [createdNode.path],
+          );
+        }
         if (parentPath) {
           setExpandedPaths((current) => new Set(current).add(parentPath));
         }
@@ -3095,6 +3908,8 @@ function App() {
       beginEntryMutation,
       openFile,
       requestText,
+      refreshProjectConfiguration,
+      refreshIgnoredStatus,
       scheduleIndexRebuild,
       selectedNode,
       selectedPath,
@@ -3520,6 +4335,11 @@ function App() {
                 isAffected(current.welcomePage.customPath)
                   ? null
                   : current.welcomePage.customPath;
+              const projectConfiguration =
+                removeProjectConfigurationAtOrBelow(
+                  projectConfigurationFields(current),
+                  node.path,
+                );
               return {
                 ...current,
                 tree,
@@ -3529,25 +4349,38 @@ function App() {
                     customPath ??
                     defaultWelcomePagePath(tree, current.default),
                 },
-              bookmarks: current.bookmarks.filter(
-                (item) => !isAffected(item.path),
-              ),
-              recent: current.recent.filter(
-                (item) => !isAffected(item.path),
-              ),
-              trash: [
-                trashItem,
-                ...current.trash.filter((item) => item.id !== trashItem.id),
-              ],
+                bookmarks: current.bookmarks.filter(
+                  (item) => !isAffected(item.path),
+                ),
+                recent: current.recent.filter(
+                  (item) => !isAffected(item.path),
+                ),
+                ignoredPaths: removeIgnoredPathsAtOrBelow(
+                  current.ignoredPaths,
+                  node.path,
+                ),
+                ...projectConfiguration,
+                trash: [
+                  trashItem,
+                  ...current.trash.filter((item) => item.id !== trashItem.id),
+                ],
               };
             })()
           : current,
       );
+      projectConfigurationRevision.current += 1;
       searchIndex.current.removePaths(isAffected);
       setSearchResults((current) =>
         current.filter((result) => !isAffected(result.document.path)),
       );
       setStatus(`Moved ${node.name} to Denote Trash`);
+      if (isGitignorePath(node.path)) {
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          gitignoreRefreshScope(node.path),
+        );
+      }
       trashed = true;
     } catch (caught) {
       showError(caught);
@@ -3565,6 +4398,7 @@ function App() {
     commitPaneState,
     invalidateOpenRequests,
     requestConfirmation,
+    refreshIgnoredStatus,
     scheduleIndexRebuild,
     selectedPath,
     setWorkspaceLock,
@@ -3610,6 +4444,13 @@ function App() {
               }
             : current,
         );
+        await refreshIgnoredStatus(
+          expectedGeneration,
+          expectedVaultPath,
+          isGitignorePath(duplicate.path)
+            ? gitignoreRefreshScope(duplicate.path)
+            : [duplicate.path],
+        );
         setExpandedPaths((current) => {
           const next = new Set(current);
           for (const path of workspaceAncestorPaths(duplicate.path)) {
@@ -3633,6 +4474,7 @@ function App() {
     },
     [
       beginEntryMutation,
+      refreshIgnoredStatus,
       scheduleIndexRebuild,
       setWorkspaceLock,
       showError,
@@ -3793,6 +4635,20 @@ function App() {
               }
             : current,
         );
+        if (restoredNode.kind === "folder") {
+          await refreshProjectConfiguration(
+            expectedGeneration,
+            expectedVaultPath,
+          );
+        } else {
+          await refreshIgnoredStatus(
+            expectedGeneration,
+            expectedVaultPath,
+            isGitignorePath(restoredNode.path)
+              ? gitignoreRefreshScope(restoredNode.path)
+              : [restoredNode.path],
+          );
+        }
         setExpandedPaths((current) => {
           const next = new Set(current);
           for (const path of workspaceAncestorPaths(restoredNode.path)) {
@@ -3817,6 +4673,8 @@ function App() {
     },
     [
       beginEntryMutation,
+      refreshProjectConfiguration,
+      refreshIgnoredStatus,
       scheduleIndexRebuild,
       setWorkspaceLock,
       showError,
@@ -4885,6 +5743,21 @@ function App() {
     "var(--pane-gap)",
   );
   const splitPaneShortcut = macOS ? "⌘\\" : "Ctrl+\\";
+  const selectedDirectory =
+    selectedNode?.kind === "folder" ? selectedNode : null;
+  const projectCommands = buildProjectCommands({
+    workspaceReady,
+    workspaceLocked,
+    projectRoots: workspace?.projectRoots ?? [],
+    projectWorkspaces: workspace?.projectWorkspaces ?? [],
+    selectedDirectoryPath: selectedDirectory?.path ?? null,
+    onMarkProject: markProject,
+    onUnmarkProject: unmarkProject,
+    onUnmarkAllProjects: unmarkAllProjects,
+    onMarkWorkspace: markWorkspace,
+    onUnmarkWorkspace: unmarkWorkspace,
+    onUnmarkAllWorkspaces: unmarkAllWorkspaces,
+  });
   const fileActionHandlers: FileActionHandlers = {
     welcomePage: workspace?.welcomePage ?? {
       customPath: null,
@@ -4959,6 +5832,7 @@ function App() {
       disabled: !workspaceReady,
       run: refreshAndReindex,
     },
+    ...projectCommands,
     {
       id: "view.files",
       title: "Show files",
@@ -5649,7 +6523,10 @@ function App() {
     );
   }
 
-  const renderPaneSurface = (pane: WorkspacePane) => {
+  const renderPaneSurface = (
+    pane: WorkspacePane,
+    paneProject: ProjectRoot | null,
+  ) => {
     const paneTab = pane.tabs.find((tab) => tab.path === pane.activePath) ?? null;
     if (paneTab?.placeholder) {
       return (
@@ -5675,14 +6552,21 @@ function App() {
       );
     }
     const paneReadOnly = workspaceLocked || (paneTab.readOnly ?? false);
+    const paneDisplaySettings =
+      paneProject && !editorDisplaySettings.showLineNumbers
+        ? { ...editorDisplaySettings, showLineNumbers: true }
+        : editorDisplaySettings;
+    const paneUsesRichMarkdown = usesRichMarkdownEditor(paneTab, paneProject);
     const paneMarkdownError =
-      paneTab.kind === "markdown" && paneTab.encoding === "utf8"
+      paneUsesRichMarkdown
         ? markdownAppErrorForPath(
             errors,
             paneTab.path,
             markdownErrorSourceIdentity(markdownEditorSource(paneTab.content)),
           )
         : null;
+    const paneUsesProjectMarkdownSource =
+      usesProjectMarkdownSourceEditor(paneTab, paneProject);
     return (
       <>
         {paneTab.kind === "image" && !paneTab.rawEditing ? (
@@ -5690,15 +6574,13 @@ function App() {
             <img src={paneTab.imageDataUrl} alt={paneTab.title} />
             <figcaption>{paneTab.path}</figcaption>
           </figure>
-        ) : paneTab.kind === "markdown" &&
-          paneTab.encoding === "utf8" &&
-          !paneTab.path.toLocaleLowerCase().endsWith(".mdx") ? (
+        ) : paneUsesRichMarkdown ? (
           <MarkdownEditor
             key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}:${pluginDecorationKey}`}
             notePath={paneTab.path}
             markdown={paneTab.content}
             lineEnding={paneTab.lineEnding}
-            displaySettings={editorDisplaySettings}
+            displaySettings={paneDisplaySettings}
             pluginDecorations={pluginController.decorations}
             preferredViewMode={markdownViewMode}
             readOnly={paneReadOnly}
@@ -5725,6 +6607,12 @@ function App() {
           />
         ) : (
           <>
+            {paneUsesProjectMarkdownSource ? (
+              <div className="code-workspace-source-notice" role="note">
+                Code workspace source mode. Markdown syntax is edited exactly as
+                stored on disk.
+              </div>
+            ) : null}
             {paneTab.encoding === "base64" ? (
               <div className="binary-editor-notice" role="note">
                 Binary file shown as reversible Base64. Invalid Base64 will not
@@ -5743,7 +6631,18 @@ function App() {
               binary={paneTab.encoding === "base64"}
               filePath={paneTab.encoding === "utf8" ? paneTab.path : null}
               lineEnding={paneTab.lineEnding}
-              displaySettings={editorDisplaySettings}
+              displaySettings={paneDisplaySettings}
+              markdownSource={paneUsesProjectMarkdownSource}
+              errorLocation={
+                paneUsesProjectMarkdownSource
+                  ? paneMarkdownError?.location
+                  : undefined
+              }
+              errorNavigationRequest={
+                paneUsesProjectMarkdownSource
+                  ? (paneMarkdownError?.navigationRequest ?? 0)
+                  : 0
+              }
               pluginDecorations={pluginController.decorations}
               searchNavigation={
                 pane.id === focusedPaneId &&
@@ -5881,21 +6780,45 @@ function App() {
               <button
                 type="button"
                 className="icon-button"
-                title={allFoldersExpanded ? "Collapse all folders" : "Expand all folders"}
-                aria-label={
-                  allFoldersExpanded ? "Collapse all folders" : "Expand all folders"
+                title={
+                  folderBulkAction.action === "collapse"
+                    ? "Collapse all folders"
+                    : "Expand all folders"
                 }
-                disabled={folderPaths.length === 0}
+                aria-label={
+                  folderBulkAction.action === "collapse"
+                    ? "Collapse all folders"
+                    : "Expand all folders"
+                }
+                disabled={folderBulkAction.disabled}
                 onClick={() =>
-                  setExpandedPaths(
-                    allFoldersExpanded ? new Set() : new Set(folderPaths),
+                  setExpandedPaths((current) =>
+                    applyWorkspaceBulkAction(folderExpansion, current),
                   )
                 }
               >
-                {allFoldersExpanded ? (
+                {folderBulkAction.action === "collapse" ? (
                   <Folder aria-hidden="true" size={16} />
                 ) : (
                   <FolderOpen aria-hidden="true" size={16} />
+                )}
+              </button>
+              <button
+                type="button"
+                className="icon-button"
+                title={
+                  showDotfiles
+                    ? "Hide dotfiles and folders"
+                    : "Show dotfiles and folders"
+                }
+                aria-label="Show dotfiles and folders"
+                aria-pressed={showDotfiles}
+                onClick={toggleDotfileVisibility}
+              >
+                {showDotfiles ? (
+                  <Eye aria-hidden="true" size={16} />
+                ) : (
+                  <EyeOff aria-hidden="true" size={16} />
                 )}
               </button>
               <span className="toolbar-spacer" />
@@ -5985,6 +6908,8 @@ function App() {
               nodes={workspace.tree}
               selectedPath={selectedPath}
               expandedPaths={expandedPaths}
+              showDotfiles={showDotfiles}
+              ignoredPaths={ignoredPaths}
               onSelect={(node) => {
                 setSelectedPath(node.path);
                 if (node.kind !== "folder") {
@@ -6012,6 +6937,14 @@ function App() {
               }
               onRequestMove={(node) => void requestMoveNode(node)}
               fileActions={fileActionHandlers}
+              projectRoots={workspace.projectRoots}
+              projectWorkspaces={workspace.projectWorkspaces}
+              onMarkProject={(path) => void markProject(path)}
+              onUnmarkProject={(projectRoot) => void unmarkProject(projectRoot)}
+              onMarkWorkspace={(path) => void markWorkspace(path)}
+              onUnmarkWorkspace={(projectWorkspace) =>
+                void unmarkWorkspace(projectWorkspace)
+              }
             />
           </>
         ) : sidebarView === "search" ? (
@@ -6310,6 +7243,12 @@ function App() {
           </div>
         </header>
         {errorBanner}
+        {workspace.suggestGitProject && !workspaceLocked ? (
+          <GitProjectSuggestion
+            onAccept={() => markProject("")}
+            onDecline={dismissGitProjectSuggestion}
+          />
+        ) : null}
         <div className="editor-layout">
           <div
             className="pane-grid"
@@ -6323,6 +7262,12 @@ function App() {
             {panes.map((pane, index) => {
               const area = paneAreaList[index];
               const focused = pane.id === focusedPaneId;
+              const paneActiveTab =
+                pane.tabs.find((tab) => tab.path === pane.activePath) ?? null;
+              const paneProject = closestAvailableProjectRoot(
+                workspace.projectRoots,
+                paneActiveTab?.placeholder ? null : (paneActiveTab?.path ?? null),
+              );
               return (
                 <section
                   key={pane.id}
@@ -6384,7 +7329,10 @@ function App() {
                     ) : null}
                   </div>
                   <div className="editor-pane">
-                    {renderPaneSurface(pane)}
+                    {renderPaneSurface(
+                      pane,
+                      focused ? activeProject : paneProject,
+                    )}
                     {dockTarget?.paneId === pane.id ? (
                       <PaneDockOverlay position={dockTarget.position} />
                     ) : null}
@@ -6434,6 +7382,19 @@ function App() {
         <footer className="status-bar">
           <span>{activeFileTab?.path ?? activeTab?.title ?? workspace.vaultPath}</span>
           <span className="status-bar__spacer" />
+          {activeProject ? (
+            <span
+              className="status-bar__project"
+              title={`Active project: ${
+                activeProject.rootPath || "Vault root"
+              }`}
+              aria-label={`Active project: ${
+                activeProject.rootPath || "Vault root"
+              }`}
+            >
+              Project: {projectRootLabel(activeProject)}
+            </span>
+          ) : null}
           {panes.length > 1 ? (
             <span>{`Pane ${focusedPaneIndex + 1} of ${panes.length}`}</span>
           ) : null}
@@ -6497,6 +7458,8 @@ function App() {
         externalDomains={externalDomainPolicy.domains}
         allowAllExternalDomains={externalDomainPolicy.allowAll}
         plugins={pluginController.plugins}
+        pluginBundles={pluginController.bundles}
+        activeProject={activeProject}
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}
         onChange={updateEditorDisplaySettings}
@@ -6621,24 +7584,35 @@ function SidebarNoteList({
 }
 
 function flattenNodes(nodes: FileNode[]): FileNode[] {
-  return nodes.flatMap((node) => [
-    node,
-    ...(node.kind === "folder" ? flattenNodes(node.children) : []),
-  ]);
+  const flattened: FileNode[] = [];
+  const stack = [...nodes].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    flattened.push(node);
+    if (node.kind === "folder") {
+      const children = node.children;
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        stack.push(children[index]);
+      }
+    }
+  }
+  return flattened;
 }
 
 function findNode(nodes: FileNode[], path: string | null): FileNode | null {
   if (!path) {
     return null;
   }
-  for (const node of nodes) {
+  const stack = [...nodes].reverse();
+  while (stack.length > 0) {
+    const node = stack.pop()!;
     if (node.path === path) {
       return node;
     }
     if (node.kind === "folder") {
-      const nested = findNode(node.children, path);
-      if (nested) {
-        return nested;
+      const children = node.children;
+      for (let index = children.length - 1; index >= 0; index -= 1) {
+        stack.push(children[index]);
       }
     }
   }

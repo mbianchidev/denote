@@ -5,6 +5,37 @@
     "categories": [
       "code"
     ],
-    "pluginIds": []
+    "roles": [
+      {
+        "id": "git",
+        "name": "Git",
+        "candidatePluginIds": []
+      },
+      {
+        "id": "terminal",
+        "name": "Terminal",
+        "candidatePluginIds": []
+      },
+      {
+        "id": "language-server",
+        "name": "Language server",
+        "candidatePluginIds": []
+      },
+      {
+        "id": "linter",
+        "name": "Linter",
+        "candidatePluginIds": []
+      },
+      {
+        "id": "compiler",
+        "name": "Compiler",
+        "candidatePluginIds": []
+      },
+      {
+        "id": "code-navigation",
+        "name": "Code navigation",
+        "candidatePluginIds": []
+      }
+    ]
   }
 ]

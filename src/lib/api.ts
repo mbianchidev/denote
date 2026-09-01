@@ -4,6 +4,7 @@ import type {
   FileEncoding,
   FileNode,
   FileLineEnding,
+  GitignoreStatusUpdate,
   DocumentBatch,
   EncryptionSetupResult,
   KnownVault,
@@ -14,6 +15,8 @@ import type {
   NoteStats,
   InstalledPlugin,
   PluginView,
+  PluginBundleMetadata,
+  ProjectConfiguration,
   RecoveryCodesResult,
   SaveOutcome,
   TabSessionState,
@@ -43,6 +46,45 @@ export const api = {
     invoke<void>("delete_known_vault", { vaultId, trashFiles }),
   chooseVault: () => invoke<WorkspaceSnapshot | null>("choose_vault"),
   refreshVault: () => invoke<WorkspaceSnapshot>("refresh_vault"),
+  markProjectRoot: (expectedVaultPath: string, path: string) =>
+    invoke<ProjectConfiguration>("mark_project_root", {
+      expectedVaultPath,
+      path,
+    }),
+  unmarkProjectRoot: (expectedVaultPath: string, projectRootId: string) =>
+    invoke<ProjectConfiguration>("unmark_project_root", {
+      expectedVaultPath,
+      projectRootId,
+    }),
+  markProjectWorkspace: (expectedVaultPath: string, path: string) =>
+    invoke<ProjectConfiguration>("mark_project_workspace", {
+      expectedVaultPath,
+      path,
+    }),
+  unmarkProjectWorkspace: (
+    expectedVaultPath: string,
+    projectWorkspaceId: string,
+  ) =>
+    invoke<ProjectConfiguration>("unmark_project_workspace", {
+      expectedVaultPath,
+      projectWorkspaceId,
+    }),
+  dismissGitProjectSuggestion: (expectedVaultPath: string) =>
+    invoke<ProjectConfiguration>("dismiss_git_project_suggestion", {
+      expectedVaultPath,
+    }),
+  refreshProjectConfiguration: (expectedVaultPath: string) =>
+    invoke<ProjectConfiguration>("refresh_project_configuration", {
+      expectedVaultPath,
+    }),
+  refreshGitignoreStatus: (
+    expectedVaultPath: string,
+    scopePaths: string[],
+  ) =>
+    invoke<GitignoreStatusUpdate>("refresh_gitignore_status", {
+      expectedVaultPath,
+      scopePaths,
+    }),
   enableVaultEncryption: (password: string) =>
     invoke<EncryptionSetupResult>("enable_vault_encryption", { password }),
   unlockVaultWithPassword: (password: string) =>
@@ -166,6 +208,8 @@ export const api = {
     });
   },
   listPlugins: () => invoke<PluginView[]>("list_plugins"),
+  listPluginBundles: () =>
+    invoke<PluginBundleMetadata[]>("list_plugin_bundles"),
   preparePluginEnable: (
     pluginId: string,
     approvedPermissions: PluginPermissionRequest[],
@@ -284,10 +328,15 @@ export const api = {
       title,
       body: body ?? null,
     }),
-  pluginProcessRequest: (pluginId: string, request: PluginProcessRequest) =>
+  pluginProcessRequest: (
+    pluginId: string,
+    request: PluginProcessRequest,
+    projectId: string | null,
+  ) =>
     invoke<PluginProcessResult>("plugin_process_request", {
       pluginId,
       request,
+      projectId,
     }),
 };
 

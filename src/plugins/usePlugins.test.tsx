@@ -1,7 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import catalogJson from "../../packages/plugins/catalog.json";
-import { assertValidPluginCatalogEntry } from "@denote/plugin-sdk";
+import {
+  assertValidPluginCatalogEntry,
+  type PluginProjectContext,
+} from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
@@ -14,6 +17,7 @@ interface MockRuntimeInstance {
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
+  setProjectContext: ReturnType<typeof vi.fn>;
   invalidateActionLeases: ReturnType<typeof vi.fn>;
 }
 
@@ -27,6 +31,7 @@ const { runtimeInstances, callOrder } = vi.hoisted(() => ({
 vi.mock("../lib/api", () => ({
   api: {
     listPlugins: vi.fn(),
+    listPluginBundles: vi.fn(),
     preparePluginEnable: vi.fn(),
     commitPluginEnable: vi.fn(),
     rollbackPluginEnable: vi.fn(),
@@ -53,6 +58,7 @@ vi.mock("./workerRuntime", () => {
     isRunning = vi.fn(() => true);
     runCommand = vi.fn(async () => {});
     broadcastNoteEvent = vi.fn();
+    setProjectContext = vi.fn();
     invalidateActionLeases = vi.fn();
 
     constructor(
@@ -108,11 +114,21 @@ function queueRecoverTransactions() {
  * afterward. The startup effect unconditionally calls `api.listPlugins`
  * twice: once for the initial catalog fetch and once after the restore loop.
  */
-async function mountReady(initialPlugins: PluginView[]) {
+async function mountReady(
+  initialPlugins: PluginView[],
+  projectContext: PluginProjectContext | null = null,
+) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
   queueListPlugins(initialPlugins);
-  const rendered = renderHook(() => usePlugins(reportError));
+  const rendered = renderHook(
+    ({
+      currentProjectContext,
+    }: {
+      currentProjectContext: PluginProjectContext | null;
+    }) => usePlugins(reportError, currentProjectContext),
+    { initialProps: { currentProjectContext: projectContext } },
+  );
   await waitFor(() => expect(rendered.result.current.loading).toBe(false));
   callOrder.length = 0;
   vi.mocked(api.recoverPluginTransactions).mockClear();
@@ -124,11 +140,46 @@ const reportError = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.listPluginBundles).mockResolvedValue([]);
   runtimeInstances.length = 0;
   callOrder.length = 0;
 });
 
 describe("usePlugins", () => {
+  it("keeps the catalog usable when bundle metadata fails to load", async () => {
+    vi.mocked(api.listPluginBundles).mockRejectedValueOnce(
+      new Error("Invalid embedded plugin bundles"),
+    );
+    const { result } = await mountReady([makePlugin()]);
+
+    expect(result.current.plugins).toEqual([makePlugin()]);
+    expect(result.current.bundles).toEqual([]);
+    expect(reportError).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Invalid embedded plugin bundles" }),
+    );
+  });
+
+  it("exposes bundle metadata independently from the plugin catalog", async () => {
+    vi.mocked(api.listPluginBundles).mockResolvedValueOnce([
+      {
+        id: "code-tooling",
+        name: "Code tooling",
+        categories: ["code"],
+        roles: [
+          {
+            id: "terminal",
+            name: "Terminal",
+            candidatePluginIds: [],
+          },
+        ],
+      },
+    ]);
+    const { result } = await mountReady([makePlugin()]);
+
+    await waitFor(() => expect(result.current.bundles).toHaveLength(1));
+    expect(result.current.bundles[0].roles[0].name).toBe("Terminal");
+  });
+
   it("enables a plugin in prepare -> runtime.start -> commit -> refresh order", async () => {
     const notEnabled = makePlugin({ enabled: false });
     const { result } = await mountReady([notEnabled]);
@@ -293,5 +344,64 @@ describe("usePlugins", () => {
         title: "Plugin host: verify keychain isolation",
       },
     ]);
+  });
+
+  it("provides the current project before startup and forwards later changes", async () => {
+    const initial = {
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    };
+    const rendered = await mountReady([makePlugin({ enabled: true })], initial);
+
+    expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(initial);
+
+    const next = {
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    };
+    rendered.rerender({ currentProjectContext: next });
+    await waitFor(() => {
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(next);
+    });
+
+    rendered.rerender({ currentProjectContext: null });
+    await waitFor(() => {
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(null);
+    });
+  });
+
+  it("captures the current nullable project ID when a command starts", async () => {
+    const initial = {
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    };
+    const rendered = await mountReady([makePlugin({ enabled: true })], initial);
+
+    await act(async () => {
+      await rendered.result.current.runCommand(
+        pluginId,
+        "denote.reference.synthetic",
+        "/vault",
+      );
+    });
+    expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.synthetic",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+
+    rendered.rerender({ currentProjectContext: null });
+    await act(async () => {
+      await rendered.result.current.runCommand(
+        pluginId,
+        "denote.reference.synthetic",
+        "/vault",
+      );
+    });
+    expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.synthetic",
+      { workspaceScope: "/vault", projectId: null },
+    );
   });
 });

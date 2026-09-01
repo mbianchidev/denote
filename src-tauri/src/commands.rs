@@ -20,10 +20,10 @@ use crate::{
     db::{self, AppState},
     error::{AppError, AppResult},
     models::{
-        DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, HistoryRevision,
-        KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode, MoveEntryResult,
-        NoteDocument, RecoveryCodesResult, SaveOutcome, TabSessionState, TagColor,
-        WelcomePagePreference, WorkspaceSnapshot,
+        DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, GitignoreStatusUpdate,
+        HistoryRevision, KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode,
+        MoveEntryResult, NoteDocument, ProjectConfiguration, RecoveryCodesResult, SaveOutcome,
+        TabSessionState, TagColor, WelcomePagePreference, WorkspaceSnapshot,
     },
     vault,
 };
@@ -115,6 +115,14 @@ fn populate_encryption_status(
 ) -> AppResult<()> {
     snapshot.encryption =
         vault::encryption_status(&snapshot.vault_path, state.vault_is_unlocked()?)?;
+    if snapshot.encryption.enabled {
+        let key = if snapshot.encryption.unlocked {
+            active_key(state, Path::new(&snapshot.vault_path))?
+        } else {
+            None
+        };
+        vault::recompute_snapshot_ignored_paths(snapshot, key.as_deref());
+    }
     Ok(())
 }
 
@@ -130,6 +138,40 @@ fn seal_active_vault_before_switch(state: &State<'_, AppState>) -> AppResult<()>
         vault::seal_vault_contents(&state.db_path, &root.to_string_lossy(), &key)?;
     }
     Ok(())
+}
+
+fn with_expected_project_configuration_vault<T>(
+    state: &AppState,
+    expected_vault_path: &str,
+    operation: impl FnOnce(&Path) -> AppResult<T>,
+) -> AppResult<T> {
+    let _vault_access = state.write_vault_access()?;
+    let root = state.active_vault()?;
+    if root != Path::new(expected_vault_path) {
+        return Err(AppError::State(format!(
+            "Project configuration request belongs to vault \"{}\", but the active vault is \"{}\"",
+            expected_vault_path,
+            root.display()
+        )));
+    }
+    operation(&root)
+}
+
+fn with_expected_project_configuration_vault_read<T>(
+    state: &AppState,
+    expected_vault_path: &str,
+    operation: impl FnOnce(&Path) -> AppResult<T>,
+) -> AppResult<T> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    if root != Path::new(expected_vault_path) {
+        return Err(AppError::State(format!(
+            "Project configuration request belongs to vault \"{}\", but the active vault is \"{}\"",
+            expected_vault_path,
+            root.display()
+        )));
+    }
+    operation(&root)
 }
 
 #[tauri::command]
@@ -312,17 +354,21 @@ pub async fn choose_vault(
 
 #[tauri::command]
 pub async fn refresh_vault(state: State<'_, AppState>) -> AppResult<WorkspaceSnapshot> {
-    let (db_path, root, unlocked) = {
+    let (db_path, root, unlocked, key) = {
         let _vault_access = state.read_vault_access()?;
-        (
-            state.db_path.clone(),
-            state.active_vault()?,
-            state.vault_is_unlocked()?,
-        )
+        let root = state.active_vault()?;
+        let unlocked = state.vault_is_unlocked()?;
+        let key = if unlocked {
+            active_key(&state, &root)?
+        } else {
+            None
+        };
+        (state.db_path.clone(), root, unlocked, key)
     };
     run_blocking(move || {
         let mut snapshot = vault::refresh_vault(&db_path, &root.to_string_lossy())?;
         snapshot.encryption = vault::encryption_status(&snapshot.vault_path, unlocked)?;
+        vault::recompute_snapshot_ignored_paths(&mut snapshot, key.as_deref());
         Ok(snapshot)
     })
     .await
@@ -862,6 +908,95 @@ pub fn set_welcome_page_path(
 }
 
 #[tauri::command]
+pub fn mark_project_root(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+    path: String,
+) -> AppResult<ProjectConfiguration> {
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::mark_project_root(&state.db_path, &root.to_string_lossy(), &path)
+    })
+}
+
+#[tauri::command]
+pub fn unmark_project_root(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+    project_root_id: String,
+) -> AppResult<ProjectConfiguration> {
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::unmark_project_root(&state.db_path, &root.to_string_lossy(), &project_root_id)
+    })
+}
+
+#[tauri::command]
+pub fn mark_project_workspace(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+    path: String,
+) -> AppResult<ProjectConfiguration> {
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::mark_project_workspace(&state.db_path, &root.to_string_lossy(), &path)
+    })
+}
+
+#[tauri::command]
+pub fn unmark_project_workspace(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+    project_workspace_id: String,
+) -> AppResult<ProjectConfiguration> {
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::unmark_project_workspace(
+            &state.db_path,
+            &root.to_string_lossy(),
+            &project_workspace_id,
+        )
+    })
+}
+
+#[tauri::command]
+pub fn dismiss_git_project_suggestion(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+) -> AppResult<ProjectConfiguration> {
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::dismiss_git_project_suggestion(&state.db_path, &root.to_string_lossy())
+    })
+}
+
+#[tauri::command]
+pub fn refresh_project_configuration(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+) -> AppResult<ProjectConfiguration> {
+    with_expected_project_configuration_vault(&state, &expected_vault_path, |root| {
+        vault::refresh_project_configuration(&state.db_path, &root.to_string_lossy())
+    })
+}
+
+#[tauri::command]
+pub fn refresh_gitignore_status(
+    state: State<'_, AppState>,
+    expected_vault_path: String,
+    scope_paths: Vec<String>,
+) -> AppResult<GitignoreStatusUpdate> {
+    with_expected_project_configuration_vault_read(&state, &expected_vault_path, |root| {
+        let key = if state.vault_is_unlocked()? {
+            active_key(&state, root)?
+        } else {
+            None
+        };
+        vault::refresh_gitignore_status(
+            &state.db_path,
+            &root.to_string_lossy(),
+            scope_paths,
+            key.as_deref(),
+        )
+    })
+}
+
+#[tauri::command]
 pub fn save_tab_session(state: State<'_, AppState>, session: TabSessionState) -> AppResult<()> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
@@ -1044,6 +1179,133 @@ mod tests {
         );
         assert!(validate_vault_trash_path(&home, &home, &app_data).is_err());
         assert!(validate_vault_trash_path(directory.path(), &home, &app_data).is_err());
+    }
+
+    #[test]
+    fn project_configuration_guard_rejects_an_old_vault_before_mutation() {
+        let directory = tempdir().expect("temp directory");
+        let active = directory.path().join("active-vault");
+        let old = directory.path().join("old-vault");
+        fs::create_dir_all(&active).expect("active vault");
+        fs::create_dir_all(&old).expect("old vault");
+        let state = AppState::new(
+            directory.path().join("denote.sqlite3"),
+            Some(active.clone()),
+        );
+        let mut mutated = false;
+
+        let error =
+            with_expected_project_configuration_vault(&state, old.to_str().unwrap(), |_| {
+                mutated = true;
+                Ok(())
+            })
+            .expect_err("old vault request must be rejected");
+
+        assert!(!mutated);
+        assert!(error.to_string().contains("belongs to vault"));
+        assert!(error.to_string().contains(active.to_str().unwrap()));
+    }
+
+    #[test]
+    fn project_configuration_read_guard_rejects_an_old_vault() {
+        let directory = tempdir().expect("temp directory");
+        let active = directory.path().join("active-vault");
+        let old = directory.path().join("old-vault");
+        fs::create_dir_all(&active).expect("active vault");
+        fs::create_dir_all(&old).expect("old vault");
+        let state = AppState::new(
+            directory.path().join("denote.sqlite3"),
+            Some(active.clone()),
+        );
+        let mut read = false;
+
+        let error =
+            with_expected_project_configuration_vault_read(&state, old.to_str().unwrap(), |_| {
+                read = true;
+                Ok(())
+            })
+            .expect_err("old vault request must be rejected");
+
+        assert!(!read);
+        assert!(error.to_string().contains("belongs to vault"));
+        assert!(error.to_string().contains(active.to_str().unwrap()));
+    }
+
+    #[test]
+    fn project_configuration_read_guards_share_access_while_mutation_waits() {
+        use std::{sync::mpsc, thread, time::Duration};
+
+        let directory = tempdir().expect("temp directory");
+        let active = directory.path().join("active-vault");
+        fs::create_dir_all(&active).expect("active vault");
+        let state = Arc::new(AppState::new(
+            directory.path().join("denote.sqlite3"),
+            Some(active.clone()),
+        ));
+        let expected = active.to_string_lossy().into_owned();
+        let (reader_one_entered_tx, reader_one_entered_rx) = mpsc::channel();
+        let (reader_one_release_tx, reader_one_release_rx) = mpsc::channel();
+        let reader_one_state = Arc::clone(&state);
+        let reader_one_expected = expected.clone();
+        let reader_one = thread::spawn(move || {
+            with_expected_project_configuration_vault_read(
+                &reader_one_state,
+                &reader_one_expected,
+                |_| {
+                    reader_one_entered_tx.send(()).expect("reader one entered");
+                    reader_one_release_rx.recv().expect("release reader one");
+                    Ok(())
+                },
+            )
+            .expect("reader one");
+        });
+        reader_one_entered_rx.recv().expect("reader one started");
+
+        let (reader_two_entered_tx, reader_two_entered_rx) = mpsc::channel();
+        let (reader_two_release_tx, reader_two_release_rx) = mpsc::channel();
+        let reader_two_state = Arc::clone(&state);
+        let reader_two_expected = expected.clone();
+        let reader_two = thread::spawn(move || {
+            with_expected_project_configuration_vault_read(
+                &reader_two_state,
+                &reader_two_expected,
+                |_| {
+                    reader_two_entered_tx.send(()).expect("reader two entered");
+                    reader_two_release_rx.recv().expect("release reader two");
+                    Ok(())
+                },
+            )
+            .expect("reader two");
+        });
+        reader_two_entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("read guards should share access");
+
+        let (writer_started_tx, writer_started_rx) = mpsc::channel();
+        let (writer_entered_tx, writer_entered_rx) = mpsc::channel();
+        let writer_state = Arc::clone(&state);
+        let writer = thread::spawn(move || {
+            writer_started_tx.send(()).expect("writer started");
+            with_expected_project_configuration_vault(&writer_state, &expected, |_| {
+                writer_entered_tx.send(()).expect("writer entered");
+                Ok(())
+            })
+            .expect("writer");
+        });
+        writer_started_rx.recv().expect("writer thread started");
+        assert!(matches!(
+            writer_entered_rx.recv_timeout(Duration::from_millis(100)),
+            Err(mpsc::RecvTimeoutError::Timeout)
+        ));
+
+        reader_one_release_tx.send(()).expect("release reader one");
+        reader_two_release_tx.send(()).expect("release reader two");
+        writer_entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("writer should run after readers");
+        reader_one.join().expect("reader one thread");
+        reader_two.join().expect("reader two thread");
+        writer.join().expect("writer thread");
     }
 
     #[cfg(unix)]

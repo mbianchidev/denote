@@ -16,6 +16,7 @@ vi.mock("../lib/api", () => ({
     pluginSecretGet: vi.fn(),
     pluginSecretSet: vi.fn(),
     pluginSecretDelete: vi.fn(),
+    pluginProcessRequest: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -57,6 +58,7 @@ class FakeMessageChannel {
 
 class FakeWorker extends EventTarget {
   static instances: FakeWorker[] = [];
+  static completeCommands = true;
   terminated = false;
   runtimePort: FakePort | null = null;
   received: unknown[] = [];
@@ -92,7 +94,8 @@ class FakeWorker extends EventTarget {
         port.postMessage({ type: "activated" });
       } else if (
         data.type === "run-command" &&
-        typeof data.requestId === "string"
+        typeof data.requestId === "string" &&
+        FakeWorker.completeCommands
       ) {
         port.postMessage({
           type: "command-result",
@@ -128,10 +131,21 @@ function plugin(): PluginView {
   };
 }
 
+function pluginWithProjectContext(): PluginView {
+  return {
+    ...plugin(),
+    approvedPermissions: [
+      ...catalog.manifest.permissions,
+      { capability: "project-context" },
+    ],
+  };
+}
+
 describe("PluginWorkerRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     FakeWorker.instances = [];
+    FakeWorker.completeCommands = true;
     vi.stubGlobal("Worker", FakeWorker);
     vi.stubGlobal("MessageChannel", FakeMessageChannel);
     vi.stubGlobal("crypto", { randomUUID: vi.fn(() => "request-id") });
@@ -172,7 +186,7 @@ describe("PluginWorkerRuntime", () => {
     await runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      "/vault",
+      { workspaceScope: "/vault", projectId: null },
     );
     expect(worker.runtimePort?.messages).toEqual(
       expect.arrayContaining([
@@ -182,6 +196,130 @@ describe("PluginWorkerRuntime", () => {
         }),
       ]),
     );
+  });
+
+  it("carries the captured project ID through process requests after a same-ID root move", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(pluginWithProjectContext());
+    const worker = FakeWorker.instances[0];
+    FakeWorker.completeCommands = false;
+
+    const command = runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "moved/alpha",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "process-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: ["hello"] },
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pluginProcessRequest).toHaveBeenCalledWith(
+        "denote.reference",
+        { executable: "/usr/bin/printf", arguments: ["hello"] },
+        "project-alpha",
+      );
+    });
+    worker.runtimePort?.postMessage({
+      type: "command-result",
+      requestId: "request-id",
+    });
+    await command;
+  });
+
+  it("keeps process-only commands unscoped across project changes", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(plugin());
+    const worker = FakeWorker.instances[0];
+    FakeWorker.completeCommands = false;
+
+    const command = runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    runtime.setProjectContext({
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "process-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: [] },
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pluginProcessRequest).toHaveBeenCalledWith(
+        "denote.reference",
+        { executable: "/usr/bin/printf", arguments: [] },
+        null,
+      );
+    });
+    worker.runtimePort?.postMessage({
+      type: "command-result",
+      requestId: "request-id",
+    });
+    await command;
+  });
+
+  it("invalidates a project-scoped command when project identity changes", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(pluginWithProjectContext());
+    const worker = FakeWorker.instances[0];
+    FakeWorker.completeCommands = false;
+
+    const command = runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    runtime.setProjectContext({
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    });
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "process-request",
+      actionId: "request-id",
+      operation: "process.run",
+      value: { executable: "/usr/bin/printf", arguments: [] },
+    });
+
+    await vi.waitFor(() => {
+      expect(worker.received).toContainEqual({
+        type: "host-response",
+        requestId: "process-request",
+        error: "Plugin action capability lease is invalid or expired.",
+      });
+    });
+    expect(api.pluginProcessRequest).not.toHaveBeenCalled();
+    worker.runtimePort?.postMessage({
+      type: "command-result",
+      requestId: "request-id",
+    });
+    await command;
   });
 
   it("provides action-scoped capabilities to real pluginWorker.ts commands", async () => {
@@ -267,6 +405,354 @@ describe("PluginWorkerRuntime", () => {
       expect(port.messages).toContainEqual({
         type: "command-result",
         requestId: "action-id",
+      });
+    });
+  });
+
+  it("provides current project context during activation and manages subscriptions", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const pluginModule = dataModuleUrl(`
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          const projects = context.capabilities.projectContext;
+          context.logger.info("activation-project", { current: projects.getCurrent() });
+          let once;
+          once = projects.subscribe((event) => {
+            context.logger.info("project-once", { current: event.current });
+            once.dispose();
+          });
+          projects.subscribe((event) => {
+            context.logger.info("project-retained", {
+              previous: event.previous,
+              current: event.current,
+            });
+          });
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["project-context"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "ready" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "activate",
+          projectContext: {
+            projectId: "project-alpha",
+            rootPath: "code/alpha",
+          },
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "log",
+        level: "info",
+        message: "activation-project",
+        details: {
+          current: {
+            projectId: "project-alpha",
+            rootPath: "code/alpha",
+          },
+        },
+      });
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "project-context-change",
+          event: {
+            previous: {
+              projectId: "project-alpha",
+              rootPath: "code/alpha",
+            },
+            current: {
+              projectId: "project-beta",
+              rootPath: "code/beta",
+            },
+          },
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(
+        port.messages.filter(
+          (message) =>
+            isRecord(message) && message.message === "project-once",
+        ),
+      ).toHaveLength(1);
+      expect(
+        port.messages.filter(
+          (message) =>
+            isRecord(message) && message.message === "project-retained",
+        ),
+      ).toHaveLength(1);
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "project-context-change",
+          event: {
+            previous: {
+              projectId: "project-beta",
+              rootPath: "code/beta",
+            },
+            current: null,
+          },
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(
+        port.messages.filter(
+          (message) =>
+            isRecord(message) && message.message === "project-retained",
+        ),
+      ).toHaveLength(2);
+      expect(
+        port.messages.filter(
+          (message) =>
+            isRecord(message) && message.message === "project-once",
+        ),
+      ).toHaveLength(1);
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: { type: "deactivate", requestId: "deactivate-project" },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "deactivated",
+        requestId: "deactivate-project",
+      });
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "project-context-change",
+          event: {
+            previous: null,
+            current: {
+              projectId: "project-gamma",
+              rootPath: "code/gamma",
+            },
+          },
+        },
+      }),
+    );
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    expect(
+      port.messages.filter(
+        (message) =>
+          isRecord(message) && message.message === "project-retained",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("serializes project changes before commands while host responses bypass the queue", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const pluginModule = dataModuleUrl(`
+      let projectChangeComplete = false;
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          context.capabilities.projectContext.subscribe(async () => {
+            await context.storage.get("project-change-gate");
+            projectChangeComplete = true;
+          });
+          context.capabilities.commands.register({
+            id: "denote.reference.after-project-change",
+            title: "Run after project change",
+            run() {
+              context.logger.info("command-order", { projectChangeComplete });
+            },
+          });
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["commands", "project-context"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "ready" });
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: { type: "activate", projectContext: null },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "project-context-change",
+          event: {
+            previous: null,
+            current: {
+              projectId: "project-alpha",
+              rootPath: "code/alpha",
+            },
+          },
+        },
+      }),
+    );
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "run-command",
+          commandId: "denote.reference.after-project-change",
+          requestId: "ordered-command",
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "host-request",
+        requestId: "request-id",
+        operation: "storage.get",
+        key: "project-change-gate",
+        value: undefined,
+        actionId: undefined,
+      });
+    });
+    expect(port.messages).not.toContainEqual({
+      type: "command-result",
+      requestId: "ordered-command",
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "host-response",
+          requestId: "request-id",
+          value: null,
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "log",
+        level: "info",
+        message: "command-order",
+        details: { projectChangeComplete: true },
+      });
+      expect(port.messages).toContainEqual({
+        type: "command-result",
+        requestId: "ordered-command",
+      });
+    });
+  });
+
+  it("reports project context listener failures through runtime errors", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+
+    const pluginModule = dataModuleUrl(`
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          context.capabilities.projectContext.subscribe(() => {
+            throw new Error("Synthetic project listener failure");
+          });
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["project-context"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "ready" });
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: { type: "activate", projectContext: null },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "project-context-change",
+          event: {
+            previous: null,
+            current: {
+              projectId: "project-failure",
+              rootPath: "synthetic",
+            },
+          },
+        },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "runtime-error",
+        error: "Synthetic project listener failure",
       });
     });
   });
@@ -412,6 +898,120 @@ describe("PluginWorkerRuntime", () => {
         },
       ]),
     );
+  });
+
+  it("retains, deduplicates, and delivers only approved project context", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    await runtime.start(pluginWithProjectContext());
+    const authorized = FakeWorker.instances[0];
+
+    expect(authorized.received).toContainEqual({
+      type: "activate",
+      projectContext: {
+        projectId: "project-alpha",
+        rootPath: "code/alpha",
+      },
+    });
+
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/renamed-alpha",
+    });
+    runtime.setProjectContext(null);
+    runtime.setProjectContext({
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    });
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+
+    expect(
+      authorized.received.filter(
+        (message) =>
+          isRecord(message) && message.type === "project-context-change",
+      ),
+    ).toEqual([
+      {
+        type: "project-context-change",
+        event: {
+          previous: {
+            projectId: "project-alpha",
+            rootPath: "code/alpha",
+          },
+          current: {
+            projectId: "project-alpha",
+            rootPath: "code/renamed-alpha",
+          },
+        },
+      },
+      {
+        type: "project-context-change",
+        event: {
+          previous: {
+            projectId: "project-alpha",
+            rootPath: "code/renamed-alpha",
+          },
+          current: null,
+        },
+      },
+      {
+        type: "project-context-change",
+        event: {
+          previous: null,
+          current: {
+            projectId: "project-beta",
+            rootPath: "code/beta",
+          },
+        },
+      },
+    ]);
+  });
+
+  it("does not expose project context to workers without approval", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setProjectContext({
+      projectId: "project-private",
+      rootPath: "private/root",
+    });
+    await runtime.start(plugin());
+    const unauthorized = FakeWorker.instances[0];
+
+    expect(unauthorized.received).toContainEqual({ type: "activate" });
+    expect(
+      unauthorized.received.some(
+        (message) =>
+          isRecord(message) &&
+          ("projectContext" in message ||
+            message.type === "project-context-change"),
+      ),
+    ).toBe(false);
+
+    runtime.setProjectContext(null);
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+    expect(
+      unauthorized.received.some(
+        (message) =>
+          isRecord(message) && message.type === "project-context-change",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects absolute project roots before runtime delivery", () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+
+    expect(() =>
+      runtime.setProjectContext({
+        projectId: "project-invalid",
+        rootPath: "/Users/example/vault/code",
+      }),
+    ).toThrow(/vault-relative root path/i);
   });
 
   it("cancels a pending start before worker construction", async () => {

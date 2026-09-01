@@ -3,6 +3,7 @@ mod crypto;
 mod db;
 mod default_vault;
 mod error;
+mod gitignore;
 mod models;
 mod plugins;
 mod vault;
@@ -305,6 +306,13 @@ pub fn run() {
             commands::set_vault_markdown_view_mode,
             commands::set_restore_tabs,
             commands::set_welcome_page_path,
+            commands::mark_project_root,
+            commands::unmark_project_root,
+            commands::mark_project_workspace,
+            commands::unmark_project_workspace,
+            commands::dismiss_git_project_suggestion,
+            commands::refresh_project_configuration,
+            commands::refresh_gitignore_status,
             commands::save_tab_session,
             commands::list_history,
             commands::restore_revision,
@@ -314,6 +322,7 @@ pub fn run() {
             commands::read_image_data_url,
             commands::save_attachment,
             plugins::list_plugins,
+            plugins::list_plugin_bundles,
             plugins::prepare_plugin_enable,
             plugins::commit_plugin_enable,
             plugins::rollback_plugin_enable,

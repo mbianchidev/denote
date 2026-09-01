@@ -6,7 +6,11 @@ import {
   type PluginPermissionRequest,
   type PluginSettingDefinition,
 } from "@denote/plugin-sdk";
-import type { PluginView } from "../types";
+import type {
+  PluginBundleMetadata,
+  PluginView,
+  ProjectRoot,
+} from "../types";
 
 const CATEGORY_LABELS: Record<PluginCategory, string> = {
   code: "Code",
@@ -26,6 +30,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   status: "Add status bar items",
   "editor-decoration": "Decorate editor content",
   "note-events": "Observe note lifecycle events",
+  "project-context": "Observe the focused project root",
   "workspace-read": "Read vault content",
   "workspace-write": "Change vault content after an explicit action",
   network: "Connect to declared network hosts",
@@ -38,6 +43,8 @@ const PERMISSION_LABELS: Record<string, string> = {
 
 interface PluginSettingsPanelProps {
   plugins: PluginView[];
+  bundles: PluginBundleMetadata[];
+  activeProject: ProjectRoot | null;
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   onEnable: (
@@ -62,6 +69,8 @@ interface PluginSettingsPanelProps {
 
 export function PluginSettingsPanel({
   plugins,
+  bundles,
+  activeProject,
   loading,
   busyPluginIds,
   onEnable,
@@ -192,6 +201,10 @@ export function PluginSettingsPanel({
           </button>
         ) : null}
       </header>
+
+      {activeProject && !loading ? (
+        <CodeToolingRecommendations bundles={bundles} plugins={plugins} />
+      ) : null}
 
       <div className="plugin-settings__filters">
         <label className="plugin-settings__search">
@@ -636,6 +649,77 @@ export function PluginSettingsPanel({
   );
 }
 
+function CodeToolingRecommendations({
+  bundles,
+  plugins,
+}: {
+  bundles: PluginBundleMetadata[];
+  plugins: PluginView[];
+}) {
+  const bundle = bundles.find((candidate) => candidate.id === "code-tooling");
+  if (!bundle) {
+    return null;
+  }
+  const pluginsById = new Map(
+    plugins.map((plugin) => [plugin.catalog.manifest.id, plugin]),
+  );
+  return (
+    <section
+      className="plugin-bundle"
+      aria-labelledby={`plugin-bundle-${bundle.id}`}
+    >
+      <div className="plugin-bundle__header">
+        <h4 id={`plugin-bundle-${bundle.id}`}>{bundle.name}</h4>
+        <p>
+          Optional recommendations for the focused project. Review and enable
+          plugins individually below.
+        </p>
+      </div>
+      <ul className="plugin-bundle__roles">
+        {bundle.roles.map((role) => {
+          const candidates = role.candidatePluginIds.flatMap((pluginId) => {
+            const plugin = pluginsById.get(pluginId);
+            return plugin ? [plugin] : [];
+          });
+          const state =
+            candidates.length === 0
+              ? "Unavailable"
+              : candidates.some((candidate) => candidate.enabled)
+                ? "Enabled"
+                : "Disabled";
+          return (
+            <li key={role.id} className="plugin-bundle__role">
+              <div className="plugin-bundle__role-header">
+                <h5>{role.name}</h5>
+                <span
+                  className={`plugin-status plugin-status--${state.toLowerCase()}`}
+                >
+                  {state}
+                </span>
+              </div>
+              {candidates.length === 0 ? (
+                <p>No catalog plugin is currently available for this role.</p>
+              ) : (
+                <ul className="plugin-bundle__candidates">
+                  {candidates.map((candidate) => (
+                    <li key={candidate.catalog.manifest.id}>
+                      <strong>{candidate.catalog.manifest.name}</strong>
+                      <span>
+                        {candidateStatusLabel(candidate)}
+                        {candidate.error ? ` — ${candidate.error}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
 function PluginSetting({
   id,
   definition,
@@ -776,6 +860,17 @@ function statusLabel(plugin: PluginView): string {
     case "enabled":
       return "Disabled";
   }
+}
+
+function candidateStatusLabel(plugin: PluginView): string {
+  if (
+    plugin.status === "failed" ||
+    plugin.status === "incompatible" ||
+    plugin.status === "update-available"
+  ) {
+    return statusLabel({ ...plugin, enabled: false });
+  }
+  return statusLabel(plugin);
 }
 
 function settingDefaults(

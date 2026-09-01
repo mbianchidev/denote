@@ -36,9 +36,42 @@ more detail and examples.
 - Duplicate files with a non-conflicting sibling name.
 - Bookmark, copy a path, open version history, open in a new tab, or reveal a
   file from its context menu or the focused-file three-dot menu.
-- Recursively expand every folder or collapse the complete file tree.
+- Expand every folder except `.git` and `node_modules` unless opened directly,
+  or collapse the complete file tree.
+- Persistently hide or show dotfiles and complete dot-folder subtrees in the
+  local file-tree presentation without changing vault data or open tabs.
+- Keep `.gitignore` matches visible and interactive with reduced emphasis and an
+  accessible ignored indicator. Rules come from the closest code project and do
+  not remove files from Denote, search, or project data.
 - Update relative Markdown links automatically after file/folder rename or move,
   with explicit reporting for skipped or conflicting files.
+
+## Projects and workspaces
+
+- Independently mark or unmark the vault root or an existing folder as an
+  explicit project, a multi-project workspace, or both through its context menu
+  or the command palette.
+- Discover each safe, real direct child folder of a workspace as an implicit
+  project, including new child folders added later. Nested content belongs to
+  that child; files directly in the workspace container need an applicable
+  explicit project root.
+- Keep multiple or nested roots; use the closest available root of the focused
+  file as the active project, so explicit nested projects win.
+- Show the active project in the status bar and announce project changes to
+  screen readers. A blank tab or non-project file has no active project.
+- Preserve stable local identity and update paths through Denote rename/move.
+  Promote an implicit child to explicit without replacing its identity.
+- Remove only implicit-only children when unmarking a workspace; preserve
+  explicit children.
+- Keep missing roots and children as unavailable local metadata until removed
+  through the command palette.
+- Clear affected project/workspace metadata on trash. Rediscover a restored
+  direct child of a still-marked workspace as a new implicit project.
+- Suggest marking an otherwise unmarked Git vault root as a project, without
+  automatic marking. Accept with **Mark as project**, permanently dismiss with
+  **No thanks**, or dismiss by manually marking the root as project/workspace.
+- Store project/workspace roots and suggestion dismissal only in app-data
+  SQLite, never in vault content.
 
 ## Tabs, groups, and panes
 
@@ -166,14 +199,30 @@ more detail and examples.
   whitespace.
 - Keep rich/source buttons visible but disabled while display guides require
   source mode, with guidance for turning guides off.
+- Force line numbers for explicit and implicit project files and Source mode for
+  project Markdown without changing saved editor settings or the vault Markdown
+  preference.
 - Operate core workflows with keyboard controls, visible focus, named dialogs,
   menus, tab semantics, and screen-reader status updates.
 
 ## Optional plugins
 
-Git synchronization, graph view, Kanban, Mermaid, task enhancements, reminders,
-comments, highlighting, TTS/dictation, calendar, time tracking, and colorful text
-are tracked as optional plugins rather than built into the minimal core.
+- Approved API version 1 plugins can observe the active explicit or implicit
+  project's stable opaque ID and vault-relative root through `project-context`
+  change events, without receiving absolute paths or Denote implementation
+  objects.
+- Plugin command leases capture project identity. Existing bounded process
+  execution revalidates it and uses the current project root as `cwd`; persistent
+  terminal and language-server APIs remain future work.
+- For a focused active explicit or implicit project, Plugins settings recommends
+  Git, Terminal, Language server, Linter, Compiler, and Code navigation roles
+  with unavailable, disabled, or enabled status. Recommendations never
+  auto-download or enable.
+- Core project behavior remains independent of missing, disabled, or failed
+  plugins.
+- Git synchronization, graph view, Kanban, Mermaid, task enhancements,
+  reminders, comments, highlighting, TTS/dictation, calendar, time tracking, and
+  colorful text remain optional rather than built into the minimal core.
 
 [Back to Welcome](../Welcome.md)
 

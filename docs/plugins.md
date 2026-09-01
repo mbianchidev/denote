@@ -69,6 +69,12 @@ declarative settings, enable/disable controls, and explicit data or credential
 cleanup. Permissions must be approved before download. Structured permission
 objects are persisted and compared with the current manifest, so any permission
 change requires approval again.
+When the focused file has an active explicit or implicit project, Settings also
+shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
+server, Linter, Compiler, and Code navigation roles report unavailable,
+disabled, or enabled catalog status. Recommendations never download or enable a
+plugin, and missing, disabled, or failed plugins do not affect core project
+behavior.
 
 The manager also provides **Disable all plugins** as a recovery action. Plugin
 workers start after the core editor is usable, activation is time-limited, and a
@@ -98,6 +104,10 @@ installed packages when Denote starts.
 ## Security and data boundaries
 
 - Plugins receive no raw vault path or editor implementation object.
+- An approved additive API version 1 `project-context` capability provides only
+  the active explicit or implicit project's stable opaque ID and vault-relative
+  root, with change events. It exposes no absolute filesystem path or project
+  implementation object.
 - Plugin API version 1 exposes command registration, static sidebar views,
   note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
   explicit-command-action capabilities for versioned workspace text,
@@ -120,6 +130,11 @@ installed packages when Denote starts.
   only in command action context. The host validates the current plugin
   permission before every read, write, network, clipboard, notification, or
   process operation.
+- Plugin command leases capture project identity as well as vault scope. Existing
+  bounded process execution resolves and validates that captured project again,
+  then runs with its current root as the working directory. Unmarking, switching
+  projects, moving to another vault, or making the root unavailable prevents a
+  stale lease from selecting a directory.
 - Disabled plugins have no executable package left locally. User-authored
   content is never deleted as part of disablement.
 - Plugin state is limited to 256 keys, 256 KiB per value, and 2 MiB total.
@@ -134,8 +149,9 @@ installed packages when Denote starts.
 
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
-secure storage. Sensitive workspace, network, clipboard, notification, and
-process operations exist only inside an explicit command action.
+secure storage. Approved plugins may also observe `project-context`. Sensitive
+workspace, network, clipboard, notification, and process operations exist only
+inside an explicit command action.
 
 Arbitrary renderer code, embedded webviews, custom React components, menu
 injection, and general import/export hooks are deliberately not approved
@@ -144,6 +160,9 @@ the same user-action lease and permission checks. Adding a new surface requires 
 typed declarative contract, deterministic disposal, accessibility behavior,
 security review, and an additive SDK release; executable UI injection requires a
 new API major and a separately documented isolation model.
+Persistent terminals, long-running language-server sessions, and their protocol
+APIs remain separate future plugin work rather than extensions of bounded
+`process.run`.
 
 Content-oriented capabilities remain unavailable while an encrypted vault is
 locked. Plugins must use host APIs rather than reading decrypted temporary

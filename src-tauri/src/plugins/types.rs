@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub(crate) const CATALOG_JSON: &str = include_str!("../../../packages/plugins/catalog.json");
+pub(crate) const BUNDLES_JSON: &str = include_str!("../../../packages/plugins/bundles.json");
 pub(crate) const MAX_PLUGIN_PACKAGE_BYTES: usize = 25 * 1024 * 1024;
 pub(crate) const MAX_PLUGIN_ENTRYPOINT_BYTES: u64 = 5 * 1024 * 1024;
 pub(crate) const MAX_PLUGIN_SETTINGS_BYTES: usize = 256 * 1024;
@@ -91,6 +92,23 @@ pub struct PluginCatalogEntry {
     #[serde(default)]
     pub revoked: Option<PluginRevocation>,
     pub guide: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginBundleRole {
+    pub id: String,
+    pub name: String,
+    pub candidate_plugin_ids: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginBundle {
+    pub id: String,
+    pub name: String,
+    pub categories: Vec<String>,
+    pub roles: Vec<PluginBundleRole>,
 }
 
 #[derive(Clone, Debug, Serialize)]

@@ -38,6 +38,18 @@ pub struct KnownVaultRecord {
     pub default: bool,
 }
 
+pub struct ProjectRootRecord {
+    pub id: String,
+    pub root_path: String,
+    pub is_explicit: bool,
+    pub workspace_id: Option<String>,
+}
+
+pub struct ProjectWorkspaceRecord {
+    pub id: String,
+    pub root_path: String,
+}
+
 pub struct AppState {
     pub db_path: PathBuf,
     active_vault: RwLock<Option<PathBuf>>,
@@ -154,7 +166,8 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           last_opened_at TEXT NOT NULL,
           markdown_view_mode TEXT CHECK (markdown_view_mode IN ('rich-text', 'source')),
           restore_tabs INTEGER NOT NULL DEFAULT 1,
-          welcome_page_path TEXT
+          welcome_page_path TEXT,
+          git_project_suggestion_dismissed INTEGER NOT NULL DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS note_stats (
@@ -274,6 +287,48 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
         "#,
     )?;
     let migration = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    migration.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS project_roots (
+          id TEXT PRIMARY KEY,
+          vault_id INTEGER NOT NULL,
+          root_path TEXT NOT NULL,
+          is_explicit INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (vault_id, root_path),
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS project_workspaces (
+          id TEXT PRIMARY KEY,
+          vault_id INTEGER NOT NULL,
+          root_path TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE (vault_id, root_path),
+          FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS workspace_child_projects (
+          workspace_id TEXT NOT NULL,
+          project_id TEXT NOT NULL UNIQUE,
+          PRIMARY KEY (workspace_id, project_id),
+          FOREIGN KEY (workspace_id) REFERENCES project_workspaces(id) ON DELETE CASCADE,
+          FOREIGN KEY (project_id) REFERENCES project_roots(id) ON DELETE CASCADE
+        );
+        "#,
+    )?;
+    if !column_exists(&migration, "project_roots", "is_explicit")? {
+        migration.execute(
+            "ALTER TABLE project_roots ADD COLUMN is_explicit INTEGER NOT NULL DEFAULT 1",
+            [],
+        )?;
+    }
+    if !column_exists(&migration, "vaults", "git_project_suggestion_dismissed")? {
+        migration.execute(
+            "ALTER TABLE vaults ADD COLUMN git_project_suggestion_dismissed INTEGER NOT NULL DEFAULT 0",
+            [],
+        )?;
+    }
     let added_encoding = !column_exists(&migration, "history", "encoding")?;
     if added_encoding {
         migration.execute(
@@ -369,6 +424,14 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (13, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (14, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (15, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -620,6 +683,221 @@ pub fn known_vault(connection: &Connection, vault_id: i64) -> AppResult<Option<K
             },
         )
         .optional()?)
+}
+
+pub fn ensure_project_root(
+    connection: &Connection,
+    vault_id: i64,
+    root_path: &str,
+    is_explicit: bool,
+) -> AppResult<String> {
+    let id = Uuid::new_v4().to_string();
+    let timestamp = now();
+    connection.execute(
+        r#"
+        INSERT INTO project_roots(
+          id, vault_id, root_path, is_explicit, created_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        ON CONFLICT(vault_id, root_path) DO UPDATE SET
+          is_explicit = MAX(project_roots.is_explicit, excluded.is_explicit),
+          updated_at = CASE
+            WHEN excluded.is_explicit > project_roots.is_explicit THEN excluded.updated_at
+            ELSE project_roots.updated_at
+          END
+        "#,
+        params![id, vault_id, root_path, i64::from(is_explicit), timestamp],
+    )?;
+    Ok(connection.query_row(
+        "SELECT id FROM project_roots WHERE vault_id = ?1 AND root_path = ?2",
+        params![vault_id, root_path],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn list_project_roots(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<Vec<ProjectRootRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT project_roots.id, project_roots.root_path, project_roots.is_explicit,
+                workspace_child_projects.workspace_id
+         FROM project_roots
+         LEFT JOIN workspace_child_projects
+           ON workspace_child_projects.project_id = project_roots.id
+         WHERE vault_id = ?1
+         ORDER BY root_path COLLATE NOCASE, root_path",
+    )?;
+    let rows = statement.query_map(params![vault_id], |row| {
+        Ok(ProjectRootRecord {
+            id: row.get(0)?,
+            root_path: row.get(1)?,
+            is_explicit: row.get::<_, i64>(2)? != 0,
+            workspace_id: row.get(3)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn ensure_project_workspace(
+    connection: &Connection,
+    vault_id: i64,
+    root_path: &str,
+) -> AppResult<String> {
+    let id = Uuid::new_v4().to_string();
+    let timestamp = now();
+    connection.execute(
+        r#"
+        INSERT OR IGNORE INTO project_workspaces(
+          id, vault_id, root_path, created_at, updated_at
+        )
+        VALUES (?1, ?2, ?3, ?4, ?4)
+        "#,
+        params![id, vault_id, root_path, timestamp],
+    )?;
+    Ok(connection.query_row(
+        "SELECT id FROM project_workspaces WHERE vault_id = ?1 AND root_path = ?2",
+        params![vault_id, root_path],
+        |row| row.get(0),
+    )?)
+}
+
+pub fn list_project_workspaces(
+    connection: &Connection,
+    vault_id: i64,
+) -> AppResult<Vec<ProjectWorkspaceRecord>> {
+    let mut statement = connection.prepare(
+        "SELECT id, root_path
+         FROM project_workspaces
+         WHERE vault_id = ?1
+         ORDER BY root_path COLLATE NOCASE, root_path",
+    )?;
+    let rows = statement.query_map(params![vault_id], |row| {
+        Ok(ProjectWorkspaceRecord {
+            id: row.get(0)?,
+            root_path: row.get(1)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+pub fn associate_workspace_child(
+    connection: &Connection,
+    workspace_id: &str,
+    project_id: &str,
+) -> AppResult<()> {
+    connection.execute(
+        r#"
+        INSERT INTO workspace_child_projects(workspace_id, project_id)
+        VALUES (?1, ?2)
+        ON CONFLICT(project_id) DO UPDATE SET workspace_id = excluded.workspace_id
+        "#,
+        params![workspace_id, project_id],
+    )?;
+    Ok(())
+}
+
+pub fn clear_explicit_project_root(
+    connection: &mut Connection,
+    vault_id: i64,
+    project_root_id: &str,
+) -> AppResult<bool> {
+    let transaction = connection.transaction()?;
+    let changed = transaction.execute(
+        "UPDATE project_roots
+         SET is_explicit = 0, updated_at = ?1
+         WHERE vault_id = ?2 AND id = ?3 AND is_explicit = 1",
+        params![now(), vault_id, project_root_id],
+    )? > 0;
+    let exists = transaction
+        .query_row(
+            "SELECT 1 FROM project_roots WHERE vault_id = ?1 AND id = ?2",
+            params![vault_id, project_root_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !exists {
+        return Ok(false);
+    }
+    transaction.execute(
+        "DELETE FROM project_roots
+         WHERE vault_id = ?1 AND id = ?2 AND is_explicit = 0
+           AND NOT EXISTS (
+             SELECT 1 FROM workspace_child_projects
+             WHERE project_id = project_roots.id
+           )",
+        params![vault_id, project_root_id],
+    )?;
+    transaction.commit()?;
+    Ok(changed || exists)
+}
+
+pub fn delete_project_workspace(
+    connection: &mut Connection,
+    vault_id: i64,
+    workspace_id: &str,
+) -> AppResult<bool> {
+    let transaction = connection.transaction()?;
+    let deleted = transaction.execute(
+        "DELETE FROM project_workspaces WHERE vault_id = ?1 AND id = ?2",
+        params![vault_id, workspace_id],
+    )? > 0;
+    if deleted {
+        delete_orphan_implicit_projects_tx(&transaction, vault_id)?;
+    }
+    transaction.commit()?;
+    Ok(deleted)
+}
+
+pub fn git_project_suggestion_dismissed(connection: &Connection, vault_id: i64) -> AppResult<bool> {
+    Ok(connection.query_row(
+        "SELECT git_project_suggestion_dismissed FROM vaults WHERE id = ?1",
+        params![vault_id],
+        |row| Ok(row.get::<_, i64>(0)? != 0),
+    )?)
+}
+
+pub fn dismiss_git_project_suggestion(connection: &Connection, vault_id: i64) -> AppResult<()> {
+    connection.execute(
+        "UPDATE vaults
+         SET git_project_suggestion_dismissed = 1, updated_at = ?1
+         WHERE id = ?2",
+        params![now(), vault_id],
+    )?;
+    Ok(())
+}
+
+pub fn project_root_location(
+    connection: &Connection,
+    project_root_id: &str,
+) -> AppResult<Option<(String, String)>> {
+    Ok(connection
+        .query_row(
+            "SELECT vaults.path, project_roots.root_path
+             FROM project_roots
+             JOIN vaults ON vaults.id = project_roots.vault_id
+             WHERE project_roots.id = ?1",
+            params![project_root_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?)
+}
+
+fn delete_orphan_implicit_projects_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+) -> AppResult<()> {
+    transaction.execute(
+        "DELETE FROM project_roots
+         WHERE vault_id = ?1 AND is_explicit = 0
+           AND NOT EXISTS (
+             SELECT 1 FROM workspace_child_projects
+             WHERE project_id = project_roots.id
+           )",
+        params![vault_id],
+    )?;
+    Ok(())
 }
 
 pub fn delete_known_vault(connection: &mut Connection, vault_id: i64, path: &str) -> AppResult<()> {
@@ -1340,6 +1618,7 @@ pub fn trash_metadata(
         ],
     )?;
     clear_welcome_page_for_path_tx(&transaction, vault_id, original_path)?;
+    delete_project_metadata_for_path_tx(&transaction, vault_id, original_path)?;
     rekey_content_metadata_tx(&transaction, vault_id, original_path, trash_path)?;
     finish_file_operation_tx(&transaction, operation_id)?;
     let item_id = transaction.last_insert_rowid();
@@ -1474,12 +1753,148 @@ fn rename_metadata_tx(
 ) -> AppResult<()> {
     delete_content_metadata_tx(transaction, vault_id, new_path)?;
     rekey_content_metadata_tx(transaction, vault_id, old_path, new_path)?;
+    if is_directory && !is_denote_trash_path(new_path) {
+        delete_project_metadata_for_path_tx(transaction, vault_id, new_path)?;
+        rekey_project_workspaces_tx(transaction, vault_id, old_path, new_path)?;
+        rekey_project_roots_tx(transaction, vault_id, old_path, new_path)?;
+        reconcile_workspace_associations_tx(transaction, vault_id)?;
+    }
     if is_directory || is_markdown_path(new_path) {
         rekey_welcome_page_path_tx(transaction, vault_id, old_path, new_path)?;
     } else {
         clear_welcome_page_for_path_tx(transaction, vault_id, old_path)?;
     }
     Ok(())
+}
+
+fn is_denote_trash_path(path: &str) -> bool {
+    path == ".denote/trash" || path.starts_with(".denote/trash/")
+}
+
+fn rekey_project_roots_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        UPDATE project_roots
+        SET root_path = ?1 || substr(root_path, length(?2) + 1),
+            updated_at = ?3
+        WHERE vault_id = ?4
+          AND (
+            root_path = ?2
+            OR substr(root_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![new_path, old_path, now(), vault_id],
+    )?;
+    Ok(())
+}
+
+fn rekey_project_workspaces_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    old_path: &str,
+    new_path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        UPDATE project_workspaces
+        SET root_path = ?1 || substr(root_path, length(?2) + 1),
+            updated_at = ?3
+        WHERE vault_id = ?4
+          AND (
+            root_path = ?2
+            OR substr(root_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![new_path, old_path, now(), vault_id],
+    )?;
+    Ok(())
+}
+
+fn delete_project_metadata_for_path_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+    path: &str,
+) -> AppResult<()> {
+    transaction.execute(
+        r#"
+        DELETE FROM project_workspaces
+        WHERE vault_id = ?1
+          AND (
+            root_path = ?2
+            OR substr(root_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![vault_id, path],
+    )?;
+    transaction.execute(
+        r#"
+        DELETE FROM project_roots
+        WHERE vault_id = ?1
+          AND (
+            root_path = ?2
+            OR substr(root_path, 1, length(?2) + 1) = ?2 || '/'
+          )
+        "#,
+        params![vault_id, path],
+    )?;
+    delete_orphan_implicit_projects_tx(transaction, vault_id)?;
+    Ok(())
+}
+
+fn reconcile_workspace_associations_tx(
+    transaction: &Transaction<'_>,
+    vault_id: i64,
+) -> AppResult<()> {
+    let workspaces = {
+        let mut statement = transaction
+            .prepare("SELECT id, root_path FROM project_workspaces WHERE vault_id = ?1")?;
+        let rows = statement.query_map(params![vault_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    let workspace_by_path = workspaces
+        .into_iter()
+        .map(|(id, path)| (path, id))
+        .collect::<HashMap<_, _>>();
+    let projects = {
+        let mut statement = transaction.prepare(
+            "SELECT project_roots.id, project_roots.root_path
+             FROM project_roots
+             JOIN workspace_child_projects
+               ON workspace_child_projects.project_id = project_roots.id
+             WHERE project_roots.vault_id = ?1",
+        )?;
+        let rows = statement.query_map(params![vault_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>()?
+    };
+    for (project_id, root_path) in projects {
+        let parent_path = root_path
+            .rsplit_once('/')
+            .map(|(parent, _)| parent)
+            .unwrap_or("");
+        if let Some(workspace_id) = workspace_by_path.get(parent_path) {
+            transaction.execute(
+                "UPDATE workspace_child_projects
+                 SET workspace_id = ?1
+                 WHERE project_id = ?2",
+                params![workspace_id, project_id],
+            )?;
+        } else {
+            transaction.execute(
+                "DELETE FROM workspace_child_projects WHERE project_id = ?1",
+                params![project_id],
+            )?;
+        }
+    }
+    delete_orphan_implicit_projects_tx(transaction, vault_id)
 }
 
 fn is_markdown_path(path: &str) -> bool {
@@ -1943,6 +2358,138 @@ mod tests {
                 .expect("welcome page migration"),
             1
         );
+    }
+
+    #[test]
+    fn stores_project_roots_with_stable_ids_and_vault_cascade() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("project-roots.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let mut connection = open(&db_path).expect("database opened");
+        let vault_path = "/vaults/synthetic";
+        let vault_id = ensure_vault(&connection, vault_path, "synthetic").expect("vault");
+
+        let whole_vault =
+            ensure_project_root(&connection, vault_id, "", true).expect("whole-vault root");
+        let duplicate = ensure_project_root(&connection, vault_id, "", true)
+            .expect("duplicate whole-vault root");
+        let nested =
+            ensure_project_root(&connection, vault_id, "packages/tool", true).expect("nested root");
+
+        assert_eq!(whole_vault, duplicate);
+        assert_ne!(whole_vault, nested);
+        assert!(Uuid::parse_str(&whole_vault).is_ok());
+        assert_eq!(
+            list_project_roots(&connection, vault_id)
+                .expect("project roots")
+                .into_iter()
+                .map(|root| root.root_path)
+                .collect::<Vec<_>>(),
+            ["", "packages/tool"]
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'table' AND name = 'project_roots'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("project roots table"),
+            1
+        );
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 14",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("project roots migration"),
+            1
+        );
+
+        delete_known_vault(&mut connection, vault_id, vault_path).expect("delete vault");
+        assert!(
+            list_project_roots(&connection, vault_id)
+                .expect("cascaded project roots")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn migrates_project_workspaces_with_explicit_backfill_and_cascades() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("workspace-migration.sqlite3");
+        let connection = Connection::open(&db_path).expect("legacy database");
+        connection
+            .execute_batch(
+                r#"
+                PRAGMA foreign_keys = ON;
+                CREATE TABLE vaults (
+                  id INTEGER PRIMARY KEY,
+                  path TEXT NOT NULL UNIQUE,
+                  name TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  last_opened_at TEXT NOT NULL
+                );
+                CREATE TABLE project_roots (
+                  id TEXT PRIMARY KEY,
+                  vault_id INTEGER NOT NULL,
+                  root_path TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE (vault_id, root_path),
+                  FOREIGN KEY (vault_id) REFERENCES vaults(id) ON DELETE CASCADE
+                );
+                INSERT INTO vaults(
+                  id, path, name, created_at, updated_at, last_opened_at
+                ) VALUES (1, '/vaults/legacy', 'legacy', 'now', 'now', 'now');
+                INSERT INTO project_roots(
+                  id, vault_id, root_path, created_at, updated_at
+                ) VALUES ('legacy-project', 1, 'code', 'now', 'now');
+                "#,
+            )
+            .expect("legacy schema");
+        drop(connection);
+
+        initialize(&db_path).expect("migrate database");
+        let mut connection = open(&db_path).expect("database opened");
+        let roots = list_project_roots(&connection, 1).expect("migrated roots");
+        assert_eq!(roots.len(), 1);
+        assert!(roots[0].is_explicit);
+        assert_eq!(roots[0].workspace_id, None);
+        assert!(!git_project_suggestion_dismissed(&connection, 1).expect("dismissal flag"));
+
+        let workspace = ensure_project_workspace(&connection, 1, "").expect("workspace record");
+        let implicit =
+            ensure_project_root(&connection, 1, "child", false).expect("implicit project");
+        associate_workspace_child(&connection, &workspace, &implicit).expect("association");
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 15",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("workspace migration"),
+            1
+        );
+
+        delete_known_vault(&mut connection, 1, "/vaults/legacy").expect("delete vault");
+        for table in [
+            "project_roots",
+            "project_workspaces",
+            "workspace_child_projects",
+        ] {
+            let count = connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                    row.get::<_, i64>(0)
+                })
+                .expect("cascaded table");
+            assert_eq!(count, 0, "{table} should cascade with the vault");
+        }
     }
 
     #[test]

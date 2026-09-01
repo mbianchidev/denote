@@ -10,7 +10,7 @@ use std::{
 use atomic_write_file::AtomicWriteFile;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use fs2::FileExt as Fs2FileExt;
-use rusqlite::Connection;
+use rusqlite::{Connection, TransactionBehavior};
 use sha2::{Digest, Sha256};
 use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
@@ -19,11 +19,13 @@ use walkdir::WalkDir;
 use crate::{
     crypto, db,
     error::{AppError, AppResult},
+    gitignore,
     models::{
-        DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, HistoryRevision,
-        KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES, MarkdownViewMode,
-        NoteDocument, SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab,
-        TagColor, TrashItem, WelcomePagePreference, WorkspaceSnapshot,
+        DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, GitignoreStatusUpdate,
+        HistoryRevision, KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES,
+        MarkdownViewMode, NoteDocument, ProjectConfiguration, ProjectRoot, ProjectWorkspace,
+        SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab, TagColor, TrashItem,
+        WelcomePagePreference, WorkspaceSnapshot,
     },
 };
 
@@ -676,6 +678,9 @@ pub fn rename_entry(
             error,
         ));
     }
+    if let Err(error) = reconcile_workspace_children(&mut connection, vault_id, &root) {
+        eprintln!("Unable to refresh project workspace children after rename: {error}");
+    }
     Ok(new_relative)
 }
 
@@ -749,6 +754,9 @@ pub fn move_entry(
             &source,
             error,
         ));
+    }
+    if let Err(error) = reconcile_workspace_children(&mut connection, vault_id, &root) {
+        eprintln!("Unable to refresh project workspace children after move: {error}");
     }
     Ok(new_relative)
 }
@@ -874,6 +882,9 @@ pub fn restore_trash_item(db_path: &Path, vault_path: &str, item_id: i64) -> App
     if let Some(parent) = source.parent() {
         let _ = fs::remove_dir(parent);
     }
+    if let Err(error) = reconcile_workspace_children(&mut connection, vault_id, &root) {
+        eprintln!("Unable to refresh project workspace children after restore: {error}");
+    }
     let stats = db::stats_map(&connection, vault_id)?;
     let placements = db::entry_placement_map(&connection, vault_id)?;
     let node = scan_path(&root, &destination, &stats, &placements, 0)?;
@@ -990,6 +1001,204 @@ pub fn set_welcome_page_path(
         &root,
         db::is_default_vault(&connection, &path_to_string(&root))?,
     )
+}
+
+pub fn mark_project_root(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let root_path = validated_project_root_path(&root, relative_path)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::ensure_project_root(&connection, vault_id, &root_path, true)?;
+    if root_path.is_empty() {
+        db::dismiss_git_project_suggestion(&connection, vault_id)?;
+    }
+    project_configuration(&connection, vault_id, &root)
+}
+
+pub fn unmark_project_root(
+    db_path: &Path,
+    vault_path: &str,
+    project_root_id: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    if !db::clear_explicit_project_root(&mut connection, vault_id, project_root_id)? {
+        return Err(AppError::NotFound(format!(
+            "Project root {project_root_id}"
+        )));
+    }
+    project_configuration(&connection, vault_id, &root)
+}
+
+pub fn mark_project_workspace(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let root_path = validated_project_root_path(&root, relative_path)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    db::ensure_project_workspace(&transaction, vault_id, &root_path)?;
+    if root_path.is_empty() {
+        db::dismiss_git_project_suggestion(&transaction, vault_id)?;
+    }
+    reconcile_workspace_children_inner(&transaction, vault_id, &root)?;
+    let configuration = project_configuration(&transaction, vault_id, &root)?;
+    transaction.commit()?;
+    Ok(configuration)
+}
+
+pub fn unmark_project_workspace(
+    db_path: &Path,
+    vault_path: &str,
+    workspace_id: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    if !db::delete_project_workspace(&mut connection, vault_id, workspace_id)? {
+        return Err(AppError::NotFound(format!(
+            "Project workspace {workspace_id}"
+        )));
+    }
+    project_configuration(&connection, vault_id, &root)
+}
+
+pub fn dismiss_git_project_suggestion(
+    db_path: &Path,
+    vault_path: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::dismiss_git_project_suggestion(&connection, vault_id)?;
+    project_configuration(&connection, vault_id, &root)
+}
+
+pub fn refresh_project_configuration(
+    db_path: &Path,
+    vault_path: &str,
+) -> AppResult<ProjectConfiguration> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    reconcile_workspace_children(&mut connection, vault_id, &root)?;
+    project_configuration(&connection, vault_id, &root)
+}
+
+pub fn refresh_gitignore_status(
+    db_path: &Path,
+    vault_path: &str,
+    scope_paths: Vec<String>,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<GitignoreStatusUpdate> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let scope_paths = gitignore::normalize_scope_paths(scope_paths)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let tree = match db::workspace_tree_cache(&connection, vault_id) {
+        Ok(Some(tree)) => tree,
+        Ok(None) => {
+            return Ok(GitignoreStatusUpdate {
+                scope_paths,
+                ignored_paths: Vec::new(),
+                complete: false,
+            });
+        }
+        Err(error) => {
+            eprintln!("Unable to read the vault tree cache for .gitignore refresh: {error}");
+            return Ok(GitignoreStatusUpdate {
+                scope_paths,
+                ignored_paths: Vec::new(),
+                complete: false,
+            });
+        }
+    };
+    let configuration = project_configuration(&connection, vault_id, &root)?;
+    let ignored_paths = gitignore::ignored_paths_in_scopes(
+        &root,
+        &tree,
+        &configuration.project_roots,
+        &scope_paths,
+        vault_key,
+    );
+    Ok(GitignoreStatusUpdate {
+        scope_paths,
+        ignored_paths,
+        complete: true,
+    })
+}
+
+pub fn recompute_snapshot_ignored_paths(
+    snapshot: &mut WorkspaceSnapshot,
+    vault_key: Option<&[u8; 32]>,
+) {
+    if snapshot.encryption.enabled && !snapshot.encryption.unlocked {
+        snapshot.ignored_paths.clear();
+        return;
+    }
+    snapshot.ignored_paths = gitignore::ignored_paths(
+        Path::new(&snapshot.vault_path),
+        &snapshot.tree,
+        &snapshot.project_roots,
+        vault_key,
+    );
+}
+
+pub(crate) fn resolve_project_root(
+    db_path: &Path,
+    vault_path: &str,
+    project_root_id: &str,
+) -> AppResult<PathBuf> {
+    let root = canonical_vault(vault_path)
+        .map_err(|_| AppError::Plugin("The current vault is unavailable".to_string()))?;
+    let _vault_lock = acquire_vault_lock(&root, false).map_err(|_| {
+        AppError::Plugin("Unable to verify the selected project folder".to_string())
+    })?;
+    let connection = db::open(db_path)?;
+    let Some((project_vault_path, root_path)) =
+        db::project_root_location(&connection, project_root_id)?
+    else {
+        return Err(AppError::Plugin(
+            "The selected project is no longer marked or does not exist".to_string(),
+        ));
+    };
+    if project_vault_path != path_to_string(&root) {
+        return Err(AppError::Plugin(
+            "The selected project does not belong to the current vault".to_string(),
+        ));
+    }
+    let project_root = if root_path.is_empty() {
+        root
+    } else {
+        existing_entry(&root, &root_path).map_err(|_| {
+            AppError::Plugin(
+                "The selected project folder is unavailable or is not a safe real directory"
+                    .to_string(),
+            )
+        })?
+    };
+    if !project_root.is_dir() {
+        return Err(AppError::Plugin(
+            "The selected project folder is unavailable or is not a safe real directory"
+                .to_string(),
+        ));
+    }
+    Ok(project_root)
 }
 
 pub fn save_tab_session(
@@ -1630,7 +1839,11 @@ fn snapshot_with_tree(
     let vault_path = path_to_string(root);
     let default = db::is_default_vault(connection, &vault_path)?;
     let welcome_page = welcome_page_preference(connection, vault_id, root, default)?;
-    Ok(WorkspaceSnapshot {
+    if let Err(error) = reconcile_workspace_children(connection, vault_id, root) {
+        eprintln!("Unable to refresh project workspace children for snapshot: {error}");
+    }
+    let project_configuration = project_configuration(connection, vault_id, root)?;
+    let mut snapshot = WorkspaceSnapshot {
         vault_path,
         vault_name,
         default,
@@ -1643,9 +1856,203 @@ fn snapshot_with_tree(
         restore_tabs,
         tab_session,
         welcome_page,
+        project_roots: project_configuration.project_roots,
+        project_workspaces: project_configuration.project_workspaces,
+        suggest_git_project: project_configuration.suggest_git_project,
+        ignored_paths: Vec::new(),
         from_cache,
         encryption: Default::default(),
+    };
+    if crypto::load_manifest(root)?.is_none() {
+        recompute_snapshot_ignored_paths(&mut snapshot, None);
+    }
+    Ok(snapshot)
+}
+
+fn project_roots(
+    connection: &Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<Vec<ProjectRoot>> {
+    Ok(db::list_project_roots(connection, vault_id)?
+        .into_iter()
+        .map(|record| ProjectRoot {
+            available: project_root_available(root, &record.root_path),
+            id: record.id,
+            root_path: record.root_path,
+            explicit: record.is_explicit,
+            workspace_id: record.workspace_id,
+        })
+        .collect())
+}
+
+fn project_workspaces(
+    connection: &Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<Vec<ProjectWorkspace>> {
+    Ok(db::list_project_workspaces(connection, vault_id)?
+        .into_iter()
+        .map(|record| ProjectWorkspace {
+            available: project_root_available(root, &record.root_path),
+            id: record.id,
+            root_path: record.root_path,
+        })
+        .collect())
+}
+
+fn project_configuration(
+    connection: &Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<ProjectConfiguration> {
+    let project_roots = project_roots(connection, vault_id, root)?;
+    let project_workspaces = project_workspaces(connection, vault_id, root)?;
+    let root_is_explicit = project_roots
+        .iter()
+        .any(|project| project.root_path.is_empty() && project.explicit);
+    let root_is_workspace = project_workspaces
+        .iter()
+        .any(|workspace| workspace.root_path.is_empty());
+    let suggest_git_project = !root_is_explicit
+        && !root_is_workspace
+        && !db::git_project_suggestion_dismissed(connection, vault_id)?
+        && safe_git_marker_exists(root);
+    Ok(ProjectConfiguration {
+        project_roots,
+        project_workspaces,
+        suggest_git_project,
     })
+}
+
+fn reconcile_workspace_children(
+    connection: &mut Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<()> {
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    reconcile_workspace_children_inner(&transaction, vault_id, root)?;
+    transaction.commit()?;
+    Ok(())
+}
+
+fn reconcile_workspace_children_inner(
+    connection: &Connection,
+    vault_id: i64,
+    root: &Path,
+) -> AppResult<()> {
+    for workspace in db::list_project_workspaces(connection, vault_id)? {
+        let workspace_path = if workspace.root_path.is_empty() {
+            root.to_path_buf()
+        } else {
+            match existing_entry(root, &workspace.root_path) {
+                Ok(path) if path.is_dir() => path,
+                Ok(path) => {
+                    eprintln!(
+                        "Skipping unavailable project workspace {} because {} is not a directory",
+                        workspace.root_path,
+                        path.display()
+                    );
+                    continue;
+                }
+                Err(error) => {
+                    eprintln!(
+                        "Skipping unavailable project workspace {}: {error}",
+                        workspace.root_path
+                    );
+                    continue;
+                }
+            }
+        };
+        let entries = match fs::read_dir(&workspace_path) {
+            Ok(entries) => entries,
+            Err(error) => {
+                eprintln!(
+                    "Unable to discover project children in workspace {}: {error}",
+                    workspace_path.display()
+                );
+                continue;
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to inspect an entry in project workspace {}: {error}",
+                        workspace_path.display()
+                    );
+                    continue;
+                }
+            };
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.eq_ignore_ascii_case(".denote") || name.eq_ignore_ascii_case(".git") {
+                continue;
+            }
+            let path = entry.path();
+            let metadata = match fs::symlink_metadata(&path) {
+                Ok(metadata) => metadata,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to inspect project workspace child {}: {error}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            if metadata_is_link(&metadata) || !metadata.is_dir() {
+                continue;
+            }
+            if let Err(error) = ensure_no_symlinks(root, &path, false) {
+                eprintln!(
+                    "Skipping unsafe project workspace child {}: {error}",
+                    path.display()
+                );
+                continue;
+            }
+            let canonical_path = match fs::canonicalize(&path) {
+                Ok(canonical_path) => canonical_path,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to resolve project workspace child {}: {error}",
+                        path.display()
+                    );
+                    continue;
+                }
+            };
+            let root_path = match relative_string(root, &canonical_path) {
+                Ok(root_path) => root_path,
+                Err(error) => {
+                    eprintln!(
+                        "Unable to convert project workspace child {} to a vault-relative path: {error}",
+                        canonical_path.display()
+                    );
+                    continue;
+                }
+            };
+            let project_id = db::ensure_project_root(connection, vault_id, &root_path, false)?;
+            db::associate_workspace_child(connection, &workspace.id, &project_id)?;
+        }
+    }
+    Ok(())
+}
+
+fn safe_git_marker_exists(root: &Path) -> bool {
+    let marker = root.join(".git");
+    match fs::symlink_metadata(marker) {
+        Ok(metadata) => !metadata_is_link(&metadata) && (metadata.is_file() || metadata.is_dir()),
+        Err(_) => false,
+    }
+}
+
+fn project_root_available(root: &Path, root_path: &str) -> bool {
+    if root_path.is_empty() {
+        return root.is_dir();
+    }
+    existing_entry(root, root_path)
+        .map(|path| path.is_dir())
+        .unwrap_or(false)
 }
 
 fn welcome_page_preference(
@@ -2120,6 +2527,19 @@ fn existing_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
         return Err(AppError::InvalidPath(relative_path.to_string()));
     }
     Ok(candidate)
+}
+
+fn validated_project_root_path(root: &Path, relative_path: &str) -> AppResult<String> {
+    if relative_path.is_empty() {
+        return Ok(String::new());
+    }
+    let candidate = existing_entry(root, relative_path)?;
+    if !candidate.is_dir() {
+        return Err(AppError::InvalidPath(format!(
+            "{relative_path} is not a folder"
+        )));
+    }
+    relative_string(root, &candidate)
 }
 
 fn is_encryption_control_file(root: &Path, path: &Path) -> bool {
@@ -3781,6 +4201,1068 @@ mod tests {
     }
 
     #[test]
+    fn fresh_and_cached_snapshots_recompute_live_gitignore_without_removing_tree_nodes() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("app")).expect("project directory");
+        fs::write(vault_path.join("app/ignored.tmp"), "temporary").expect("temporary file");
+        fs::write(vault_path.join("app/kept.txt"), "kept").expect("kept file");
+        fs::write(vault_path.join("app/.gitignore"), "*.tmp\n").expect("ignore");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "app").expect("project root");
+
+        let fresh = open_vault(&db_path, vault_path.to_str().unwrap()).expect("fresh snapshot");
+        assert_eq!(fresh.ignored_paths, vec!["app/ignored.tmp"]);
+        let fresh_app = fresh
+            .tree
+            .iter()
+            .find(|node| node.path == "app")
+            .expect("app tree node");
+        assert_eq!(fresh_app.children.len(), 3);
+
+        fs::write(vault_path.join("app/.gitignore"), "*.txt\n").expect("edit ignore");
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached snapshot");
+
+        assert!(cached.from_cache);
+        assert_eq!(cached.ignored_paths, vec!["app/kept.txt"]);
+        let cached_app = cached
+            .tree
+            .iter()
+            .find(|node| node.path == "app")
+            .expect("cached app tree node");
+        assert_eq!(cached_app.children.len(), 3);
+        assert!(
+            cached_app
+                .children
+                .iter()
+                .any(|node| node.path == "app/ignored.tmp")
+        );
+        assert!(
+            cached_app
+                .children
+                .iter()
+                .any(|node| node.path == "app/kept.txt")
+        );
+    }
+
+    #[test]
+    fn snapshot_gitignore_recompute_uses_the_key_and_clears_locked_status() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::write(vault_path.join("ignored.tmp"), "temporary").expect("temporary file");
+        fs::write(vault_path.join(".gitignore"), "*.tmp\n").expect("ignore");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "").expect("project root");
+        let mut snapshot =
+            open_vault(&db_path, vault_path.to_str().unwrap()).expect("workspace snapshot");
+        let key = [11u8; 32];
+        let encrypted = crypto::encrypt_file_content(&key, b"*.tmp\n").expect("encrypt gitignore");
+        fs::write(vault_path.join(".gitignore"), encrypted).expect("encrypted gitignore");
+
+        snapshot.encryption = crate::models::EncryptionStatus {
+            enabled: true,
+            unlocked: true,
+            phase: Some(crypto::EncryptionPhase::Encrypted),
+            remaining_recovery_codes: 1,
+        };
+        recompute_snapshot_ignored_paths(&mut snapshot, Some(&key));
+        assert_eq!(snapshot.ignored_paths, vec!["ignored.tmp"]);
+
+        snapshot.encryption.unlocked = false;
+        recompute_snapshot_ignored_paths(&mut snapshot, None);
+        assert!(snapshot.ignored_paths.is_empty());
+
+        snapshot.encryption.unlocked = true;
+        recompute_snapshot_ignored_paths(&mut snapshot, Some(&[12u8; 32]));
+        assert!(snapshot.ignored_paths.is_empty());
+    }
+
+    #[test]
+    fn gitignore_refresh_is_scoped_and_reports_an_unavailable_cache() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("app/deep")).expect("project directory");
+        fs::write(vault_path.join("app/top.tmp"), "top").expect("top file");
+        fs::write(vault_path.join("app/deep/nested.tmp"), "nested").expect("nested file");
+        fs::write(vault_path.join("app/.gitignore"), "*.tmp\n").expect("ignore");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "app").expect("project root");
+
+        let unavailable = refresh_gitignore_status(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            vec!["app/deep".to_string()],
+            None,
+        )
+        .expect("unavailable cache response");
+        assert_eq!(unavailable.scope_paths, vec!["app/deep"]);
+        assert!(unavailable.ignored_paths.is_empty());
+        assert!(!unavailable.complete);
+
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("populate cache");
+        let scoped = refresh_gitignore_status(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            vec!["app/deep".to_string()],
+            None,
+        )
+        .expect("scoped response");
+        assert_eq!(scoped.scope_paths, vec!["app/deep"]);
+        assert_eq!(scoped.ignored_paths, vec!["app/deep/nested.tmp"]);
+        assert!(scoped.complete);
+
+        let whole =
+            refresh_gitignore_status(&db_path, vault_path.to_str().unwrap(), Vec::new(), None)
+                .expect("whole response");
+        assert!(whole.scope_paths.is_empty());
+        assert_eq!(
+            whole.ignored_paths,
+            vec!["app/deep/nested.tmp", "app/top.tmp"]
+        );
+        assert!(whole.complete);
+    }
+
+    #[test]
+    fn persists_project_roots_outside_the_tree_cache_and_tracks_availability() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("apps/web")).expect("project folders");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let initial = open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        assert!(initial.project_roots.is_empty());
+
+        let roots =
+            mark_project_root(&db_path, vault_path.to_str().unwrap(), "").expect("whole vault");
+        assert_eq!(roots.project_roots.len(), 1);
+        assert_eq!(roots.project_roots[0].root_path, "");
+        assert!(roots.project_roots[0].available);
+
+        let roots = mark_project_root(&db_path, vault_path.to_str().unwrap(), "apps/web")
+            .expect("nested project root");
+        let nested = roots
+            .project_roots
+            .iter()
+            .find(|root| root.root_path == "apps/web")
+            .expect("nested root")
+            .clone();
+        let duplicate = mark_project_root(&db_path, vault_path.to_str().unwrap(), "apps/web")
+            .expect("duplicate nested project root");
+        assert_eq!(
+            duplicate
+                .project_roots
+                .iter()
+                .find(|root| root.root_path == "apps/web")
+                .expect("duplicate root")
+                .id,
+            nested.id
+        );
+
+        fs::remove_dir_all(vault_path.join("apps")).expect("external project removal");
+
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached vault");
+        assert!(cached.from_cache);
+        assert!(
+            !cached
+                .project_roots
+                .iter()
+                .find(|root| root.id == nested.id)
+                .expect("missing cached project root")
+                .available
+        );
+        assert!(
+            cached
+                .project_roots
+                .iter()
+                .find(|root| root.root_path.is_empty())
+                .expect("whole-vault root")
+                .available
+        );
+        let refreshed =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("refreshed vault");
+        assert!(
+            !refreshed
+                .project_roots
+                .iter()
+                .find(|root| root.id == nested.id)
+                .expect("missing refreshed project root")
+                .available
+        );
+
+        let remaining = unmark_project_root(&db_path, vault_path.to_str().unwrap(), &nested.id)
+            .expect("remove missing project root");
+        assert_eq!(remaining.project_roots.len(), 1);
+        assert_eq!(remaining.project_roots[0].root_path, "");
+    }
+
+    #[test]
+    fn materializes_only_safe_direct_workspace_children_and_keeps_missing_rows() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("mono/app/src")).expect("nested app");
+        fs::create_dir_all(vault_path.join("mono/lib")).expect("library");
+        fs::create_dir_all(vault_path.join("mono/.git")).expect("git metadata");
+        fs::write(vault_path.join("mono/README.md"), "workspace file").expect("workspace file");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            symlink(
+                directory.path().join("outside"),
+                vault_path.join("mono/linked"),
+            )
+            .expect("workspace symlink");
+        }
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        let marked = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "mono")
+            .expect("mark workspace");
+        assert_eq!(marked.project_workspaces.len(), 1);
+        assert_eq!(
+            marked
+                .project_roots
+                .iter()
+                .map(|project| project.root_path.as_str())
+                .collect::<Vec<_>>(),
+            ["mono/app", "mono/lib"]
+        );
+        assert!(
+            marked
+                .project_roots
+                .iter()
+                .all(|project| !project.explicit && project.workspace_id.is_some())
+        );
+        let app_id = marked
+            .project_roots
+            .iter()
+            .find(|project| project.root_path == "mono/app")
+            .expect("app project")
+            .id
+            .clone();
+
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached snapshot");
+        assert_eq!(
+            cached
+                .project_roots
+                .iter()
+                .find(|project| project.root_path == "mono/app")
+                .expect("cached app")
+                .id,
+            app_id
+        );
+
+        fs::create_dir(vault_path.join("mono/new-child")).expect("new direct child");
+        let discovered = refresh_project_configuration(&db_path, vault_path.to_str().unwrap())
+            .expect("lightweight project discovery");
+        assert!(
+            discovered
+                .project_roots
+                .iter()
+                .any(|project| project.root_path == "mono/new-child")
+        );
+
+        fs::remove_dir_all(vault_path.join("mono/lib")).expect("external child removal");
+        let missing =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("missing child snapshot");
+        assert!(
+            !missing
+                .project_roots
+                .iter()
+                .find(|project| project.root_path == "mono/lib")
+                .expect("retained missing child")
+                .available
+        );
+        fs::remove_dir_all(vault_path.join("mono")).expect("external workspace removal");
+        let unavailable = refresh_vault(&db_path, vault_path.to_str().unwrap())
+            .expect("unavailable workspace snapshot");
+        assert!(!unavailable.project_workspaces[0].available);
+        assert!(
+            unavailable
+                .project_roots
+                .iter()
+                .all(|project| !project.available)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cached_snapshot_skips_an_unreadable_workspace() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let workspace_path = vault_path.join("workspace");
+        fs::create_dir_all(workspace_path.join("child")).expect("workspace child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("mark workspace");
+
+        fs::set_permissions(&workspace_path, fs::Permissions::from_mode(0o000))
+            .expect("make workspace unreadable");
+        let snapshot = open_cached_vault(&db_path, vault_path.to_str().unwrap());
+        fs::set_permissions(&workspace_path, fs::Permissions::from_mode(0o755))
+            .expect("restore workspace permissions");
+
+        let snapshot = snapshot.expect("unreadable workspace should not block cached snapshot");
+        assert_eq!(snapshot.project_workspaces.len(), 1);
+        assert_eq!(snapshot.project_roots.len(), 1);
+    }
+
+    #[test]
+    fn failed_workspace_mark_rolls_back_new_metadata_and_preserves_existing_workspace() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("new/child")).expect("new workspace child");
+        fs::create_dir_all(vault_path.join("existing/child")).expect("existing workspace child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        let root = canonical_vault(vault_path.to_str().unwrap()).expect("canonical vault");
+        let connection = db::open(&db_path).expect("database");
+        let (vault_id, _) = ensure_vault(&connection, &root).expect("vault row");
+        let existing_id =
+            db::ensure_project_workspace(&connection, vault_id, "existing").expect("workspace");
+        connection
+            .execute_batch(
+                "CREATE TRIGGER fail_workspace_child_association
+                 BEFORE INSERT ON workspace_child_projects
+                 BEGIN
+                   SELECT RAISE(ABORT, 'synthetic association failure');
+                 END;",
+            )
+            .expect("failure trigger");
+        drop(connection);
+
+        assert!(
+            mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "new").is_err(),
+            "material association failure should reject a new workspace mark"
+        );
+        assert!(
+            mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "existing").is_err(),
+            "material association failure should reject an idempotent workspace mark"
+        );
+
+        let connection = db::open(&db_path).expect("database");
+        let workspaces = db::list_project_workspaces(&connection, vault_id).expect("workspaces");
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].id, existing_id);
+        assert_eq!(workspaces[0].root_path, "existing");
+        assert!(
+            db::list_project_roots(&connection, vault_id)
+                .expect("project roots")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn snapshots_keep_last_committed_projects_when_workspace_reconciliation_fails() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("workspace/existing")).expect("existing child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("mark workspace");
+        let existing_id = initial.project_roots[0].id.clone();
+        fs::create_dir(vault_path.join("workspace/new-child")).expect("new child");
+
+        let connection = db::open(&db_path).expect("database");
+        connection
+            .execute_batch(
+                "CREATE TRIGGER fail_new_workspace_child_association
+                 BEFORE INSERT ON workspace_child_projects
+                 WHEN (
+                   SELECT root_path FROM project_roots WHERE id = NEW.project_id
+                 ) = 'workspace/new-child'
+                 BEGIN
+                   SELECT RAISE(ABORT, 'synthetic association failure');
+                 END;",
+            )
+            .expect("failure trigger");
+        drop(connection);
+
+        let cached =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("cached snapshot");
+        assert!(cached.from_cache);
+        assert_eq!(cached.project_roots.len(), 1);
+        assert_eq!(cached.project_roots[0].id, existing_id);
+
+        let full = refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("full snapshot");
+        assert!(!full.from_cache);
+        assert_eq!(full.project_roots.len(), 1);
+        assert_eq!(full.project_roots[0].id, existing_id);
+        assert!(
+            refresh_project_configuration(&db_path, vault_path.to_str().unwrap()).is_err(),
+            "explicit refresh must expose reconciliation failures"
+        );
+
+        let connection = db::open(&db_path).expect("database");
+        let root = canonical_vault(vault_path.to_str().unwrap()).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &root).expect("vault row");
+        let projects = db::list_project_roots(&connection, vault_id).expect("project roots");
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].id, existing_id);
+        assert!(
+            projects
+                .iter()
+                .all(|project| project.root_path != "workspace/new-child"),
+            "failed snapshots must roll back the partially inserted implicit root"
+        );
+    }
+
+    #[test]
+    fn workspace_deletion_serializes_before_reconciliation_without_ghost_projects() {
+        use std::sync::mpsc;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("workspace/existing")).expect("existing child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("mark workspace");
+        let workspace_id = initial.project_workspaces[0].id.clone();
+        fs::create_dir(vault_path.join("workspace/new-child")).expect("new child");
+
+        let root = canonical_vault(vault_path.to_str().unwrap()).expect("canonical vault");
+        let mut reconciling_connection = db::open(&db_path).expect("reconciling connection");
+        let mut deleting_connection = db::open(&db_path).expect("deleting connection");
+        let (vault_id, _) = ensure_vault(&deleting_connection, &root).expect("vault row");
+        let deletion = deleting_connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .expect("deletion transaction");
+        deletion
+            .execute(
+                "DELETE FROM project_workspaces WHERE vault_id = ?1 AND id = ?2",
+                rusqlite::params![vault_id, workspace_id],
+            )
+            .expect("delete workspace");
+        deletion
+            .execute(
+                "DELETE FROM project_roots
+                 WHERE vault_id = ?1 AND is_explicit = 0
+                   AND NOT EXISTS (
+                     SELECT 1 FROM workspace_child_projects
+                     WHERE project_id = project_roots.id
+                   )",
+                [vault_id],
+            )
+            .expect("delete orphan implicit projects");
+
+        let (started_tx, started_rx) = mpsc::channel();
+        let (result_tx, result_rx) = mpsc::channel();
+        let reconciliation_root = root.clone();
+        let handle = std::thread::spawn(move || {
+            started_tx.send(()).expect("signal refresh start");
+            let result = reconcile_workspace_children(
+                &mut reconciling_connection,
+                vault_id,
+                &reconciliation_root,
+            )
+            .and_then(|()| {
+                project_configuration(&reconciling_connection, vault_id, &reconciliation_root)
+            });
+            result_tx.send(result).expect("send refresh result");
+        });
+        started_rx.recv().expect("refresh started");
+        assert!(
+            matches!(
+                result_rx.recv_timeout(Duration::from_millis(250)),
+                Err(mpsc::RecvTimeoutError::Timeout)
+            ),
+            "reconciliation must wait for the workspace deletion transaction"
+        );
+
+        deletion.commit().expect("commit workspace deletion");
+        let configuration = result_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("refresh completed")
+            .expect("refresh configuration");
+        handle.join().expect("refresh thread");
+        assert!(configuration.project_workspaces.is_empty());
+        assert!(configuration.project_roots.is_empty());
+
+        let connection = db::open(&db_path).expect("verification connection");
+        assert!(
+            db::list_project_roots(&connection, vault_id)
+                .expect("project roots")
+                .is_empty(),
+            "workspace deletion must not leave an unassociated implicit root"
+        );
+        let snapshot =
+            open_cached_vault(&db_path, vault_path.to_str().unwrap()).expect("usable snapshot");
+        assert!(snapshot.project_workspaces.is_empty());
+        assert!(snapshot.project_roots.is_empty());
+    }
+
+    #[test]
+    fn preserves_explicit_and_workspace_provenance_through_unmarking() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("ws/child")).expect("workspace child");
+        fs::create_dir(vault_path.join("explicit-only")).expect("explicit folder");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        let implicit = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "ws")
+            .expect("mark workspace");
+        let workspace_id = implicit.project_workspaces[0].id.clone();
+        let child_id = implicit.project_roots[0].id.clone();
+        assert!(!implicit.project_roots[0].explicit);
+
+        let explicit = mark_project_root(&db_path, vault_path.to_str().unwrap(), "ws/child")
+            .expect("explicit child");
+        let child = explicit
+            .project_roots
+            .iter()
+            .find(|project| project.root_path == "ws/child")
+            .expect("explicit child project");
+        assert_eq!(child.id, child_id);
+        assert!(child.explicit);
+        assert_eq!(child.workspace_id.as_deref(), Some(workspace_id.as_str()));
+
+        let implicit_again = unmark_project_root(&db_path, vault_path.to_str().unwrap(), &child_id)
+            .expect("clear explicit provenance");
+        let child = implicit_again
+            .project_roots
+            .iter()
+            .find(|project| project.id == child_id)
+            .expect("retained implicit child");
+        assert!(!child.explicit);
+        assert_eq!(child.workspace_id.as_deref(), Some(workspace_id.as_str()));
+
+        let explicit_only =
+            mark_project_root(&db_path, vault_path.to_str().unwrap(), "explicit-only")
+                .expect("explicit-only project");
+        let explicit_only_id = explicit_only
+            .project_roots
+            .iter()
+            .find(|project| project.root_path == "explicit-only")
+            .expect("explicit-only root")
+            .id
+            .clone();
+        let unmarked =
+            unmark_project_workspace(&db_path, vault_path.to_str().unwrap(), &workspace_id)
+                .expect("unmark workspace");
+        assert!(unmarked.project_workspaces.is_empty());
+        assert!(
+            !unmarked
+                .project_roots
+                .iter()
+                .any(|project| project.id == child_id)
+        );
+        assert!(
+            unmarked
+                .project_roots
+                .iter()
+                .any(|project| project.id == explicit_only_id && project.explicit)
+        );
+    }
+
+    #[test]
+    fn supports_nested_workspaces_with_one_direct_association_per_project() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("parent/child/deep")).expect("nested workspaces");
+        fs::create_dir(vault_path.join("sibling")).expect("root sibling");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        let root_workspace = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "")
+            .expect("root workspace");
+        let root_workspace_id = root_workspace.project_workspaces[0].id.clone();
+        let nested = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "parent")
+            .expect("nested workspace");
+        let nested_workspace_id = nested
+            .project_workspaces
+            .iter()
+            .find(|workspace| workspace.root_path == "parent")
+            .expect("nested workspace record")
+            .id
+            .clone();
+        assert_eq!(nested.project_workspaces.len(), 2);
+        assert_eq!(
+            nested
+                .project_roots
+                .iter()
+                .find(|project| project.root_path == "parent")
+                .expect("parent project")
+                .workspace_id
+                .as_deref(),
+            Some(root_workspace_id.as_str())
+        );
+        assert_eq!(
+            nested
+                .project_roots
+                .iter()
+                .find(|project| project.root_path == "parent/child")
+                .expect("nested child project")
+                .workspace_id
+                .as_deref(),
+            Some(nested_workspace_id.as_str())
+        );
+        assert!(
+            !nested
+                .project_roots
+                .iter()
+                .any(|project| project.root_path == "parent/child/deep")
+        );
+    }
+
+    #[test]
+    fn managed_moves_reconcile_workspace_associations_and_preserve_ids() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("a/item")).expect("first workspace child");
+        fs::create_dir_all(vault_path.join("a/keep")).expect("explicit child");
+        fs::create_dir(vault_path.join("b")).expect("second workspace");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "a")
+            .expect("first workspace");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "b")
+            .expect("second workspace");
+        let item_id = initial
+            .project_roots
+            .iter()
+            .find(|project| project.root_path == "a/item")
+            .expect("implicit item")
+            .id
+            .clone();
+        let b_workspace_id = initial
+            .project_workspaces
+            .iter()
+            .find(|workspace| workspace.root_path == "b")
+            .expect("second workspace")
+            .id
+            .clone();
+
+        rename_entry(&db_path, vault_path.to_str().unwrap(), "a/item", "renamed")
+            .expect("rename child");
+        move_entry(&db_path, vault_path.to_str().unwrap(), "a/renamed", "b")
+            .expect("move between workspaces");
+        let moved = refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("moved snapshot");
+        let project = moved
+            .project_roots
+            .iter()
+            .find(|project| project.id == item_id)
+            .expect("moved implicit project");
+        assert_eq!(project.root_path, "b/renamed");
+        assert_eq!(
+            project.workspace_id.as_deref(),
+            Some(b_workspace_id.as_str())
+        );
+
+        move_entry(&db_path, vault_path.to_str().unwrap(), "b/renamed", "")
+            .expect("move outside workspaces");
+        let outside =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("outside snapshot");
+        assert!(
+            !outside
+                .project_roots
+                .iter()
+                .any(|project| project.id == item_id)
+        );
+
+        let explicit = mark_project_root(&db_path, vault_path.to_str().unwrap(), "a/keep")
+            .expect("explicit implicit child");
+        let explicit_id = explicit
+            .project_roots
+            .iter()
+            .find(|project| project.root_path == "a/keep")
+            .expect("explicit child")
+            .id
+            .clone();
+        move_entry(&db_path, vault_path.to_str().unwrap(), "a/keep", "")
+            .expect("move explicit project outside workspace");
+        let explicit_outside =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("explicit snapshot");
+        let project = explicit_outside
+            .project_roots
+            .iter()
+            .find(|project| project.id == explicit_id)
+            .expect("preserved explicit project");
+        assert_eq!(project.root_path, "keep");
+        assert!(project.explicit);
+        assert_eq!(project.workspace_id, None);
+    }
+
+    #[test]
+    fn workspace_rename_and_recovery_keep_workspace_and_project_ids() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("container/project")).expect("workspace project");
+        fs::create_dir_all(vault_path.join("other")).expect("other workspace");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "container")
+            .expect("workspace");
+        let workspace_id = initial.project_workspaces[0].id.clone();
+        let project_id = initial.project_roots[0].id.clone();
+        mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "other")
+            .expect("other workspace");
+
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "container",
+            "renamed",
+        )
+        .expect("rename workspace");
+        let renamed =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("renamed snapshot");
+        assert!(
+            renamed
+                .project_workspaces
+                .iter()
+                .any(|workspace| workspace.id == workspace_id && workspace.root_path == "renamed")
+        );
+        assert!(
+            renamed
+                .project_roots
+                .iter()
+                .any(|project| project.id == project_id
+                    && project.root_path == "renamed/project"
+                    && project.workspace_id.as_deref() == Some(workspace_id.as_str()))
+        );
+
+        let canonical = fs::canonicalize(&vault_path).expect("canonical vault");
+        let connection = db::open(&db_path).expect("database opened");
+        let (vault_id, _) = ensure_vault(&connection, &canonical).expect("vault");
+        db::begin_file_operation(
+            &connection,
+            vault_id,
+            "rename",
+            "renamed/project",
+            "other/project",
+            None,
+            true,
+        )
+        .expect("recovery journal");
+        fs::rename(
+            vault_path.join("renamed/project"),
+            vault_path.join("other/project"),
+        )
+        .expect("interrupted move");
+        drop(connection);
+
+        let recovered =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("recover move");
+        let other_workspace_id = recovered
+            .project_workspaces
+            .iter()
+            .find(|workspace| workspace.root_path == "other")
+            .expect("other workspace")
+            .id
+            .clone();
+        let project = recovered
+            .project_roots
+            .iter()
+            .find(|project| project.id == project_id)
+            .expect("recovered project");
+        assert_eq!(project.root_path, "other/project");
+        assert_eq!(
+            project.workspace_id.as_deref(),
+            Some(other_workspace_id.as_str())
+        );
+    }
+
+    #[test]
+    fn trash_and_restore_rediscover_workspace_children_with_new_ids() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("ws/child")).expect("workspace child");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let initial = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "ws")
+            .expect("workspace");
+        let original_id = initial.project_roots[0].id.clone();
+
+        let trash =
+            trash_entry(&db_path, vault_path.to_str().unwrap(), "ws/child").expect("trash child");
+        let after_trash =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("trashed snapshot");
+        assert!(
+            !after_trash
+                .project_roots
+                .iter()
+                .any(|project| project.id == original_id)
+        );
+
+        restore_trash_item(&db_path, vault_path.to_str().unwrap(), trash.id)
+            .expect("restore child");
+        let restored =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("restored snapshot");
+        let restored_project = restored
+            .project_roots
+            .iter()
+            .find(|project| project.root_path == "ws/child")
+            .expect("rediscovered child");
+        assert_ne!(restored_project.id, original_id);
+        assert!(!restored_project.explicit);
+
+        trash_entry(&db_path, vault_path.to_str().unwrap(), "ws").expect("trash workspace");
+        let removed =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("removed workspace");
+        assert!(removed.project_workspaces.is_empty());
+        assert!(removed.project_roots.is_empty());
+    }
+
+    #[test]
+    fn suggests_safe_root_git_projects_once_per_vault() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let dismissed_vault = directory.path().join("dismissed");
+        fs::create_dir_all(dismissed_vault.join(".git")).expect("git directory");
+        let snapshot = open_vault(&db_path, dismissed_vault.to_str().unwrap()).expect("git vault");
+        assert!(snapshot.suggest_git_project);
+        let dismissed = dismiss_git_project_suggestion(&db_path, dismissed_vault.to_str().unwrap())
+            .expect("dismiss suggestion");
+        assert!(!dismissed.suggest_git_project);
+        assert!(
+            !refresh_vault(&db_path, dismissed_vault.to_str().unwrap())
+                .expect("dismissed refresh")
+                .suggest_git_project
+        );
+
+        let project_vault = directory.path().join("project");
+        fs::create_dir(&project_vault).expect("project vault");
+        fs::write(project_vault.join(".git"), "gitdir: metadata").expect("git file");
+        assert!(
+            open_vault(&db_path, project_vault.to_str().unwrap())
+                .expect("git file vault")
+                .suggest_git_project
+        );
+        let marked = mark_project_root(&db_path, project_vault.to_str().unwrap(), "")
+            .expect("mark root project");
+        let project_id = marked.project_roots[0].id.clone();
+        assert!(!marked.suggest_git_project);
+        unmark_project_root(&db_path, project_vault.to_str().unwrap(), &project_id)
+            .expect("unmark root project");
+        assert!(
+            !refresh_vault(&db_path, project_vault.to_str().unwrap())
+                .expect("unmarked project refresh")
+                .suggest_git_project
+        );
+
+        let workspace_vault = directory.path().join("workspace");
+        fs::create_dir_all(workspace_vault.join(".git")).expect("workspace git directory");
+        let marked = mark_project_workspace(&db_path, workspace_vault.to_str().unwrap(), "")
+            .expect("mark root workspace");
+        let workspace_id = marked.project_workspaces[0].id.clone();
+        assert!(!marked.suggest_git_project);
+        unmark_project_workspace(&db_path, workspace_vault.to_str().unwrap(), &workspace_id)
+            .expect("unmark root workspace");
+        assert!(
+            !refresh_vault(&db_path, workspace_vault.to_str().unwrap())
+                .expect("unmarked workspace refresh")
+                .suggest_git_project
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+            let symlink_vault = directory.path().join("symlink");
+            let external_git = directory.path().join("external-git");
+            fs::create_dir(&symlink_vault).expect("symlink vault");
+            fs::create_dir(&external_git).expect("external git");
+            symlink(&external_git, symlink_vault.join(".git")).expect("git symlink");
+            assert!(
+                !open_vault(&db_path, symlink_vault.to_str().unwrap())
+                    .expect("symlink git vault")
+                    .suggest_git_project
+            );
+        }
+    }
+
+    #[test]
+    fn resolves_implicit_project_ids_to_safe_project_directories() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("ws/project")).expect("workspace project");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        let configuration = mark_project_workspace(&db_path, vault_path.to_str().unwrap(), "ws")
+            .expect("workspace");
+        let project_id = configuration.project_roots[0].id.clone();
+
+        let resolved = resolve_project_root(&db_path, vault_path.to_str().unwrap(), &project_id)
+            .expect("implicit project resolution");
+        assert_eq!(
+            resolved,
+            fs::canonicalize(vault_path.join("ws/project")).expect("canonical project")
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_project_root_paths() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let outside = directory.path().join("outside");
+        fs::create_dir_all(vault_path.join("folder")).expect("vault folders");
+        fs::create_dir(&outside).expect("outside folder");
+        fs::write(vault_path.join("note.md"), "synthetic note").expect("synthetic file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        for path in [
+            "note.md",
+            "missing",
+            "../outside",
+            ".denote",
+            vault_path.join("folder").to_str().unwrap(),
+        ] {
+            assert!(
+                mark_project_root(&db_path, vault_path.to_str().unwrap(), path).is_err(),
+                "expected invalid project root: {path}"
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::symlink;
+
+            symlink(&outside, vault_path.join("linked")).expect("outside symlink");
+            assert!(mark_project_root(&db_path, vault_path.to_str().unwrap(), "linked").is_err());
+        }
+    }
+
+    #[test]
+    fn rename_and_move_rekey_nested_project_roots_with_stable_ids() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("workspace/app")).expect("project folders");
+        fs::create_dir_all(vault_path.join("workspace-old")).expect("sibling project");
+        fs::create_dir_all(vault_path.join("destination")).expect("move destination");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "workspace")
+            .expect("workspace root");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "workspace/app")
+            .expect("nested root");
+        let initial = mark_project_root(&db_path, vault_path.to_str().unwrap(), "workspace-old")
+            .expect("sibling root");
+        let workspace_id = initial
+            .project_roots
+            .iter()
+            .find(|root| root.root_path == "workspace")
+            .expect("workspace root")
+            .id
+            .clone();
+        let nested_id = initial
+            .project_roots
+            .iter()
+            .find(|root| root.root_path == "workspace/app")
+            .expect("nested root")
+            .id
+            .clone();
+        let sibling_id = initial
+            .project_roots
+            .iter()
+            .find(|root| root.root_path == "workspace-old")
+            .expect("sibling root")
+            .id
+            .clone();
+
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "workspace",
+            "renamed",
+        )
+        .expect("rename project");
+        let connection = db::open(&db_path).expect("database opened");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        let renamed = db::list_project_roots(&connection, vault_id).expect("renamed roots");
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == workspace_id)
+                .expect("renamed workspace")
+                .root_path,
+            "renamed"
+        );
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == nested_id)
+                .expect("renamed nested root")
+                .root_path,
+            "renamed/app"
+        );
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == sibling_id)
+                .expect("unrelated sibling")
+                .root_path,
+            "workspace-old"
+        );
+
+        assert_eq!(
+            move_entry(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "renamed",
+                "destination",
+            )
+            .expect("move project"),
+            "destination/renamed"
+        );
+        let moved = db::list_project_roots(&connection, vault_id).expect("moved roots");
+        assert_eq!(
+            moved
+                .iter()
+                .find(|root| root.id == workspace_id)
+                .expect("moved workspace")
+                .root_path,
+            "destination/renamed"
+        );
+        assert_eq!(
+            moved
+                .iter()
+                .find(|root| root.id == nested_id)
+                .expect("moved nested root")
+                .root_path,
+            "destination/renamed/app"
+        );
+        assert_eq!(
+            moved
+                .iter()
+                .find(|root| root.id == sibling_id)
+                .expect("unrelated sibling")
+                .root_path,
+            "workspace-old"
+        );
+    }
+
+    #[test]
     fn stages_current_editor_content_as_a_clipboard_file() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -4011,6 +5493,134 @@ mod tests {
     }
 
     #[test]
+    fn trash_clears_project_roots_below_the_entry_without_restoring_them() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("parent/project/nested")).expect("project folders");
+        fs::create_dir_all(vault_path.join("parent/project-old")).expect("sibling project");
+        fs::create_dir_all(vault_path.join("parent/note.md-project")).expect("file-prefix sibling");
+        fs::write(vault_path.join("parent/note.md"), "synthetic note").expect("synthetic file");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+
+        for root_path in [
+            "",
+            "parent",
+            "parent/project",
+            "parent/project/nested",
+            "parent/project-old",
+            "parent/note.md-project",
+        ] {
+            mark_project_root(&db_path, vault_path.to_str().unwrap(), root_path)
+                .expect("mark project root");
+        }
+        let connection = db::open(&db_path).expect("database opened");
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        let initial = db::list_project_roots(&connection, vault_id).expect("initial roots");
+        let whole_vault_id = initial
+            .iter()
+            .find(|root| root.root_path.is_empty())
+            .expect("whole-vault root")
+            .id
+            .clone();
+        let parent_id = initial
+            .iter()
+            .find(|root| root.root_path == "parent")
+            .expect("parent root")
+            .id
+            .clone();
+        let sibling_id = initial
+            .iter()
+            .find(|root| root.root_path == "parent/project-old")
+            .expect("sibling root")
+            .id
+            .clone();
+        let file_prefix_sibling_id = initial
+            .iter()
+            .find(|root| root.root_path == "parent/note.md-project")
+            .expect("file-prefix sibling root")
+            .id
+            .clone();
+
+        let trashed_file = trash_entry(&db_path, vault_path.to_str().unwrap(), "parent/note.md")
+            .expect("trash file");
+        assert_eq!(
+            db::list_project_roots(&connection, vault_id)
+                .expect("roots after file trash")
+                .len(),
+            initial.len()
+        );
+        restore_trash_item(&db_path, vault_path.to_str().unwrap(), trashed_file.id)
+            .expect("restore file");
+
+        let trashed_project = trash_entry(&db_path, vault_path.to_str().unwrap(), "parent/project")
+            .expect("trash project");
+        let remaining =
+            db::list_project_roots(&connection, vault_id).expect("roots after project trash");
+        assert_eq!(remaining.len(), 4);
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == whole_vault_id)
+                .expect("whole-vault root")
+                .root_path,
+            ""
+        );
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == parent_id)
+                .expect("ancestor root")
+                .root_path,
+            "parent"
+        );
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == sibling_id)
+                .expect("sibling root")
+                .root_path,
+            "parent/project-old"
+        );
+        assert_eq!(
+            remaining
+                .iter()
+                .find(|root| root.id == file_prefix_sibling_id)
+                .expect("file-prefix sibling root")
+                .root_path,
+            "parent/note.md-project"
+        );
+        assert!(
+            remaining
+                .iter()
+                .all(|root| !root.root_path.starts_with(".denote/trash"))
+        );
+
+        restore_trash_item(&db_path, vault_path.to_str().unwrap(), trashed_project.id)
+            .expect("restore project");
+        let after_restore =
+            db::list_project_roots(&connection, vault_id).expect("roots after restore");
+        assert_eq!(after_restore.len(), remaining.len());
+        for (id, path) in [
+            (&whole_vault_id, ""),
+            (&parent_id, "parent"),
+            (&sibling_id, "parent/project-old"),
+            (&file_prefix_sibling_id, "parent/note.md-project"),
+        ] {
+            assert_eq!(
+                after_restore
+                    .iter()
+                    .find(|root| &root.id == id)
+                    .expect("preserved root")
+                    .root_path,
+                path
+            );
+        }
+    }
+
+    #[test]
     fn trashed_note_metadata_does_not_leak_to_replacement_file() {
         let directory = tempdir().expect("temp directory");
         let vault_path = directory.path().join("vault");
@@ -4149,6 +5759,108 @@ mod tests {
             read_note(&db_path, vault_path.to_str().unwrap(), "new.md").expect("new note");
         assert_eq!(new_document.stats.open_count, 2);
         let connection = db::open(&db_path).expect("database reopened");
+        assert!(
+            db::pending_file_operations(&connection, vault_id)
+                .expect("pending operations")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn reconciles_project_roots_after_interrupted_directory_operations() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir_all(vault_path.join("old/nested")).expect("project folders");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+        open_vault(&db_path, vault_path.to_str().unwrap()).expect("open vault");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "").expect("whole-vault root");
+        mark_project_root(&db_path, vault_path.to_str().unwrap(), "old").expect("project root");
+        let initial = mark_project_root(&db_path, vault_path.to_str().unwrap(), "old/nested")
+            .expect("nested root");
+        let whole_vault_id = initial
+            .project_roots
+            .iter()
+            .find(|root| root.root_path.is_empty())
+            .expect("whole-vault root")
+            .id
+            .clone();
+        let project_id = initial
+            .project_roots
+            .iter()
+            .find(|root| root.root_path == "old")
+            .expect("project root")
+            .id
+            .clone();
+        let nested_id = initial
+            .project_roots
+            .iter()
+            .find(|root| root.root_path == "old/nested")
+            .expect("nested root")
+            .id
+            .clone();
+
+        let canonical_vault_path = fs::canonicalize(&vault_path).expect("canonical vault");
+        let connection = db::open(&db_path).expect("database opened");
+        let (vault_id, _) = ensure_vault(&connection, &canonical_vault_path).expect("vault");
+        db::begin_file_operation(&connection, vault_id, "rename", "old", "new", None, true)
+            .expect("rename journal");
+        fs::rename(vault_path.join("old"), vault_path.join("new")).expect("rename directory");
+
+        refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("reconcile rename");
+        let renamed = db::list_project_roots(&connection, vault_id).expect("renamed roots");
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == project_id)
+                .expect("renamed project")
+                .root_path,
+            "new"
+        );
+        assert_eq!(
+            renamed
+                .iter()
+                .find(|root| root.id == nested_id)
+                .expect("renamed nested root")
+                .root_path,
+            "new/nested"
+        );
+
+        let trash_relative = ".denote/trash/recovery-operation/new";
+        fs::create_dir_all(vault_path.join(".denote/trash/recovery-operation"))
+            .expect("trash directory");
+        db::begin_file_operation(
+            &connection,
+            vault_id,
+            "trash",
+            "new",
+            trash_relative,
+            None,
+            true,
+        )
+        .expect("trash journal");
+        fs::rename(vault_path.join("new"), vault_path.join(trash_relative))
+            .expect("trash directory");
+
+        let recovered =
+            refresh_vault(&db_path, vault_path.to_str().unwrap()).expect("reconcile trash");
+        let remaining =
+            db::list_project_roots(&connection, vault_id).expect("roots after recovered trash");
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, whole_vault_id);
+        assert!(remaining[0].root_path.is_empty());
+        assert_eq!(recovered.trash.len(), 1);
+        restore_trash_item(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            recovered.trash[0].id,
+        )
+        .expect("restore recovered project");
+        let restored =
+            db::list_project_roots(&connection, vault_id).expect("roots after recovered restore");
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].id, whole_vault_id);
+        assert!(restored[0].root_path.is_empty());
         assert!(
             db::pending_file_operations(&connection, vault_id)
                 .expect("pending operations")

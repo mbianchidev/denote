@@ -10,10 +10,10 @@ not a later runtime checkout or mutable environment value.
 ## Data boundaries
 
 The selected vault is the content boundary. Every regular file up to 25 MB can
-be opened. Markdown (`.md`, `.markdown`, `.mdx`) gets the rich/source editor,
-other valid UTF-8 files use the plain editor, and invalid UTF-8 uses a
-byte-preserving Base64 representation. Images keep their visual preview and
-offer a raw-edit toggle.
+be opened. Markdown (`.md`, `.markdown`) gets the rich/source editor, `.mdx`
+uses non-executing JSX-highlighted source editing, other valid UTF-8 files use
+the plain editor, and invalid UTF-8 uses a byte-preserving Base64
+representation. Images keep their visual preview and offer a raw-edit toggle.
 
 Consistent LF, CRLF, and CR files are normalized in the editor and restored to
 their original line-ending style when saved. Mixed line endings use Base64 so
@@ -40,6 +40,56 @@ commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
+Project-configuration IPC carries the originating snapshot's vault path only as
+an identity guard. Rust compares that value to the current active vault and
+rejects stale queued requests before using the active vault as the operation
+root. Project/workspace mutations hold the workspace write guard; read-only
+`.gitignore` status refreshes hold the shared read guard so they may run
+concurrently without racing a vault switch or mutation.
+Workspace snapshots also carry the vault-relative paths currently matched by
+`.gitignore` rules within each file's closest explicit or implicit project.
+Generation- and vault-guarded frontend status refreshes run through one ordered
+queue: complete root scopes replace the full set and complete narrow scopes merge
+in invocation order. Workspace snapshots preserve a queued result only when a
+complete status update applied while the snapshot was in flight; failed or
+incomplete requests do not suppress the snapshot's full set. This status is
+presentation metadata only: ignored files stay in the tree, cache, search index,
+project model, and open tabs.
+
+Explicit project roots and workspace roots are independent operational path
+metadata in the application-data SQLite database, never files or markers inside
+vault/project content. Each root has a stable opaque ID and validated
+vault-relative folder path; one folder may hold both roles.
+
+A workspace discovers each safe, real direct child directory as an implicit
+project with its own stable opaque ID. Descendants resolve to that child, while
+files directly in the workspace container receive no implicit project. Refresh
+discovers new direct children. Explicit nested roots still win through
+closest-root resolution, and marking an implicit child as a project promotes the
+same identity rather than replacing it.
+Filesystem discovery is optional: an unavailable workspace or child is logged
+and skipped without blocking cached or full vault snapshots. Each complete
+reconciliation lists workspaces, materializes implicit roots, and associates
+them in one SQLite immediate transaction, serializing concurrent workspace
+removal and rolling back all partial metadata on error. Snapshot reconciliation
+errors are logged and the last committed project configuration remains usable;
+explicit mark and refresh commands return the error. Marking a workspace also
+includes its new workspace row and root-suggestion dismissal in that transaction.
+
+Denote-managed rename and move operations rekey explicit roots, workspaces, and
+implicit children without changing their IDs. Unmarking a workspace deletes
+only implicit-only children; promoted explicit children remain. Missing roots
+and children stay recorded but unavailable. Trash clears affected project and
+workspace metadata. If a trashed child is restored beneath a still-marked
+workspace, refresh discovers it as a new implicit project.
+
+The root Git suggestion is derived only when the canonical vault safely contains
+a `.git` regular file or directory and the root is neither an explicit project
+nor a workspace. Acceptance creates an explicit root project. Dismissal and
+manual root project/workspace marking persist a per-vault dismissal; no
+filesystem marker is written and no root is marked automatically. IDs, paths,
+and dismissal state are outside vault content encryption, like other operational
+path metadata.
 
 ## Plugin boundary
 
@@ -83,6 +133,17 @@ network requests require HTTPS and declared hosts; clipboard, notifications, and
 processes require separate permissions; processes use platform-qualified exact
 absolute executable allowlists, cross-platform process groups, bounded output,
 and a timeout.
+The additive API version 1 `project-context` capability exposes only the active
+explicit or implicit project's opaque ID and vault-relative root plus change events. It provides no
+absolute path and no dependency on editor or project-root implementation
+objects.
+
+Each explicit plugin command lease snapshots both vault scope and active project
+identity. Changing project identity invalidates outstanding leases. Existing
+bounded process execution resolves the captured ID through native SQLite,
+revalidates that it still belongs to the active vault and names a safe available
+directory, and uses that directory as `cwd`. Persistent terminal sessions and
+language-server protocols are not part of this API.
 
 API version 1 intentionally excludes arbitrary renderers, embedded plugin UI,
 menu injection, and general import/export hooks. Editor actions use command
@@ -193,7 +254,10 @@ The application-data database stores:
 - per-vault tag color overrides keyed by normalized tag;
 - the previous 10 distinct saved contents per note, encrypted when vault
   encryption is enabled;
-- trash records used by restore.
+- trash records used by restore;
+- stable explicit/implicit project and workspace IDs and vault-relative paths,
+  including unavailable roots and children;
+- per-vault Git-project-suggestion dismissal.
 
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative
 if the metadata database is removed.
@@ -202,6 +266,10 @@ Tree ordering is evaluated independently for each parent folder: pinned entries
 come first, then explicit custom positions, then the folders-first/name fallback.
 The up/down controls reorder only inside the selected entry's pinned or unpinned
 section, so ordinary entries cannot move above pins accidentally.
+Dotfile visibility is a renderer-local `localStorage` preference that defaults
+to visible. The iterative visible-row and expansion helpers omit dot entries and
+dot-folder subtrees only while rendering; the native tree and stored expansion
+paths remain unchanged.
 
 The vault switcher reads the 50 most recently opened rows from SQLite and opens
 them by trusted database ID rather than accepting a new arbitrary path from the
@@ -246,6 +314,11 @@ the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.
 Renames and moves rekey an explicit welcome path transactionally. Moving that
 path or an ancestor to Denote Trash clears the override.
+Denote directory rename and move operations similarly rekey equal and descendant
+project/workspace paths without replacing their IDs. Trash deletes affected
+project/workspace metadata transactionally. Restore does not recreate those
+records directly; a restored direct child of a still-marked workspace is later
+discovered as a new implicit project.
 
 ## Search
 
@@ -313,16 +386,36 @@ Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
-For `.md`, MDXEditor's HTML/JSX processing is normally suppressed so
+For `.md`, MDXEditor's HTML/JSX processing remains suppressed so
 CommonMark/GFM owns autolinks, indented code, raw HTML, comparisons, hearts, and
 placeholders. A high-priority standard-HTML visitor imports HTML tokens as
 literal text and inherits surrounding formatting; canonical TOC comments remain
-structural markers. Well-formed top-level `<details>` blocks are the restricted
-exception: Denote validates the exact `details`/`summary` tag shape, escapes
-unrelated angle syntax, and enables MDXEditor's native generic HTML nodes for
-that document. Attributes other than boolean `open`, nested raw HTML, malformed
-blocks, and other raw HTML remain locked to lossless source mode. Serializer
-escapes are reconciled against the previous source only after Rich edits.
+structural markers. A higher-priority custom atomic node validates a narrow
+README-style subset (`p`, headings, `a`, `strong`, and `img`), renders only typed
+React elements, resolves local images through the native preview command, and
+exports the original raw HTML bytes. It never uses generic MDX HTML processing.
+Well-formed top-level `<details>` blocks remain a separate restricted exception:
+Denote validates the exact `details`/`summary` tag shape, escapes unrelated angle
+syntax, and enables MDXEditor's native generic HTML nodes for that document.
+Documents mixing both exceptions stay in lossless source mode. Attributes other
+than each exception's allowlist, nested raw HTML, malformed blocks, and other raw
+HTML remain locked to source mode. Serializer escapes are reconciled against the
+previous source only after Rich edits.
+Reference links use dedicated Lexical link nodes carrying their CommonMark
+identifier, label, and reference type. Definition nodes are invisible atomic
+blocks that retain the exact source range. A whole-document snapshot resolves
+references before tree import, applies first-definition-wins semantics, and
+refreshes after Source edits. Rich export keeps a reference while its definition
+still supplies the destination, otherwise it safely degrades to an inline link.
+Unresolved references import as literal Markdown text.
+
+Generated repository definitions using a self-closing `copilot-ref` destination
+are parsed separately from generic HTML. Only the exact tag with unique `kind`,
+`target-id`, and `label` attributes is accepted; `kind` must be `repo` and the
+target must be HTTP(S). The renderer uses the validated target while the atomic
+definition exports its original bytes. Invalid generated targets remain inert,
+and Lexical plus the ordinary Denote link pipeline continue to neutralize unsafe
+schemes.
 `.mdx` and `.jsx` bypass the rich editor and use non-executing JSX-highlighted
 source editing.
 
@@ -386,6 +479,14 @@ Because rendered rich Markdown has no stable one-to-one source-line mapping,
 enabling any guide temporarily constrains Markdown editing to source mode.
 Disabled rich/source controls remain visible and point back to the display
 settings.
+For a file whose closest explicit or implicit project root is active, the
+frontend applies line numbers through an in-memory display-settings overlay.
+Markdown in that project routes directly to the byte-preserving CodeMirror
+source editor rather than initializing the rich editor, so opening a code
+project cannot normalize callout or other Markdown syntax. The override does
+not write the saved display settings or vault Markdown preference, so switching
+focus outside the project or unmarking it restores ordinary behavior
+immediately. `.mdx` remains independently source-only.
 
 The most recent rich-text/source choice remains the fallback for vaults without
 a saved preference. Each vault stores one mode in its SQLite row, and every
@@ -459,6 +560,12 @@ Command-N / Control-N resolves the selected folder or selected file's parent and
 uses the existing validated create command. The file tree exposes the same
 parent-resolution logic through a keyboard-operable contextual menu; right-click
 on empty tree space targets the vault root.
+Visible file-tree rows are flattened iteratively and large trees render a
+fixed-height overscanned window immediately, using a bounded fallback viewport
+until the sidebar is measured. Logical row indices drive arrow, Home/End, and
+cross-window Tab focus without expanding collapsed ancestors. Bulk expansion
+skips `.git` and `node_modules` subtrees while retaining folders opened directly;
+collapse-all clears every expanded path.
 
 Cross-folder moves resolve a folder or vault-root destination inside the
 canonical vault, reject self/descendant folder moves and conflicts, then reuse

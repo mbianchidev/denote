@@ -23,6 +23,7 @@
 | Previous tab | `Ctrl-Shift-Tab` | `Ctrl-Shift-Tab` |
 | Move tab left/right | `Option-Shift-Left/Right` | `Alt-Shift-Left/Right` |
 | Switch vault | `Shift-Command-O` | `Ctrl-Shift-O` |
+| Open focused folder context menu for project/workspace actions | `Shift-F10` or Context Menu key | `Shift-F10` or Context Menu key |
 
 The command palette lists assigned shortcuts beside their commands. Type a
 command name, category, description, keyword, or filename; use Up/Down and
@@ -41,6 +42,10 @@ use arrow keys and Home. File-tree context menus use arrow keys and
 Escape. Press Escape then Tab to move focus out of a source/code editor when Tab
 is configured to indent. Tab context menus expose bulk close, group, and
 cross-pane actions.
+Folder and root context menus include separate project and workspace marking.
+Use the command palette for whole-vault actions and unavailable project/workspace
+roots. Active-project changes, including workspace-discovered projects, are
+visible in the status bar and announced to screen readers.
 All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
 

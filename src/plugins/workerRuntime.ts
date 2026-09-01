@@ -1,9 +1,14 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
-import type { PluginNoteEvent } from "@denote/plugin-sdk";
+import type {
+  PluginNoteEvent,
+  PluginProjectContext,
+  PluginProjectContextChangeEvent,
+} from "@denote/plugin-sdk";
 import {
   privilegedHostOperation,
   runHostOperation,
+  type PluginActionLeaseScope,
 } from "./hostOperations";
 import {
   isPluginRuntimeMessage,
@@ -21,6 +26,7 @@ export type {
   PluginSidebarContribution,
   PluginStatusContribution,
 } from "./runtimeMessages";
+export type { PluginActionLeaseScope } from "./hostOperations";
 
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
@@ -50,7 +56,7 @@ interface Runtime {
   stagedDecorations: Map<string, PluginDecorationContribution>;
   permissions: Set<string>;
   pending: Map<string, PendingRequest>;
-  activeActions: Map<string, string>;
+  activeActions: Map<string, PluginActionLeaseScope>;
   hostRequests: Set<Promise<void>>;
   handshakes: Set<PendingHandshake>;
   activated: boolean;
@@ -67,6 +73,7 @@ export class PluginWorkerRuntime {
   private readonly starts = new Map<string, PendingStart>();
   private readonly stops = new Map<string, Promise<void>>();
   private readonly generations = new Map<string, number>();
+  private projectContext: PluginProjectContext | null = null;
 
   constructor(
     private readonly onCommandsChanged: (
@@ -181,7 +188,7 @@ export class PluginWorkerRuntime {
   async runCommand(
     pluginId: string,
     commandId: string,
-    workspaceScope: string,
+    actionScope: PluginActionLeaseScope,
   ): Promise<void> {
     const runtime = this.requireRuntime(pluginId);
     if (!runtime.activated || !runtime.commands.has(commandId)) {
@@ -189,7 +196,12 @@ export class PluginWorkerRuntime {
     }
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(runtime, requestId, COMMAND_TIMEOUT_MS);
-    runtime.activeActions.set(requestId, workspaceScope);
+    runtime.activeActions.set(requestId, {
+      ...actionScope,
+      projectId: runtime.permissions.has("project-context")
+        ? actionScope.projectId
+        : null,
+    });
     runtime.port.postMessage({
       type: "run-command",
       commandId,
@@ -217,9 +229,34 @@ export class PluginWorkerRuntime {
     }
   }
 
+  setProjectContext(context: PluginProjectContext | null): void {
+    validateProjectContext(context);
+    if (sameProjectContext(this.projectContext, context)) {
+      return;
+    }
+    if (projectIdentity(this.projectContext) !== projectIdentity(context)) {
+      this.invalidateActionLeases();
+    }
+    const event: PluginProjectContextChangeEvent = {
+      previous: cloneProjectContext(this.projectContext),
+      current: cloneProjectContext(context),
+    };
+    this.projectContext = cloneProjectContext(context);
+    for (const runtime of this.runtimes.values()) {
+      if (
+        (runtime.phase === "activating" || runtime.phase === "active") &&
+        runtime.permissions.has("project-context")
+      ) {
+        runtime.port.postMessage({ type: "project-context-change", event });
+      }
+    }
+  }
+
   invalidateActionLeases(): void {
     for (const runtime of this.runtimes.values()) {
-      runtime.activeActions.clear();
+      if (runtime.permissions.has("project-context")) {
+        runtime.activeActions.clear();
+      }
     }
   }
 
@@ -299,7 +336,14 @@ export class PluginWorkerRuntime {
         ACTIVATION_TIMEOUT_MS,
       );
       runtime.phase = "activating";
-      runtime.port.postMessage({ type: "activate" });
+      runtime.port.postMessage(
+        runtime.permissions.has("project-context")
+          ? {
+              type: "activate",
+              projectContext: cloneProjectContext(this.projectContext),
+            }
+          : { type: "activate" },
+      );
       await activated;
       this.assertCurrent(pluginId, generation);
       runtime.activated = true;
@@ -542,7 +586,7 @@ export class PluginWorkerRuntime {
     pluginId: string,
     runtime: Runtime,
     message: Extract<PluginRuntimeMessage, { type: "host-request" }>,
-    workspaceScope?: string,
+    actionScope?: PluginActionLeaseScope,
   ): Promise<void> {
     try {
       const value = await runHostOperation(
@@ -550,7 +594,7 @@ export class PluginWorkerRuntime {
         message.operation,
         message.key,
         message.value,
-        workspaceScope,
+        actionScope,
       );
       runtime.port.postMessage({
         type: "host-response",
@@ -741,4 +785,47 @@ function dataModuleUrl(source: string): string {
     binary += String.fromCharCode(byte);
   }
   return `data:text/javascript;base64,${btoa(binary)}`;
+}
+
+function cloneProjectContext(
+  context: PluginProjectContext | null,
+): PluginProjectContext | null {
+  return context
+    ? { projectId: context.projectId, rootPath: context.rootPath }
+    : null;
+}
+
+function sameProjectContext(
+  left: PluginProjectContext | null,
+  right: PluginProjectContext | null,
+): boolean {
+  return (
+    left === right ||
+    (left !== null &&
+      right !== null &&
+      left.projectId === right.projectId &&
+      left.rootPath === right.rootPath)
+  );
+}
+
+function projectIdentity(context: PluginProjectContext | null): string | null {
+  return context?.projectId ?? null;
+}
+
+function validateProjectContext(context: PluginProjectContext | null): void {
+  if (context === null) {
+    return;
+  }
+  if (
+    typeof context.projectId !== "string" ||
+    context.projectId.length === 0 ||
+    typeof context.rootPath !== "string" ||
+    context.rootPath.includes("\0") ||
+    context.rootPath.startsWith("/") ||
+    context.rootPath.startsWith("\\") ||
+    /^[A-Za-z]:[\\/]/.test(context.rootPath) ||
+    context.rootPath.split(/[\\/]/).some((segment) => segment === "..")
+  ) {
+    throw new Error("Plugin project context must use a vault-relative root path.");
+  }
 }

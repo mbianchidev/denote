@@ -1,9 +1,12 @@
 import type { MarkdownViewMode } from "./lib/markdownView";
 import type {
+  PluginBundle,
   PluginCatalogEntry,
   PluginLifecycleState,
   PluginPermissionRequest,
 } from "@denote/plugin-sdk";
+
+export type PluginBundleMetadata = PluginBundle;
 
 export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
 export type FileEncoding = "utf8" | "base64";
@@ -141,6 +144,32 @@ export interface WelcomePagePreference {
   effectivePath: string | null;
 }
 
+export interface ProjectRoot {
+  id: string;
+  rootPath: string;
+  available: boolean;
+  explicit: boolean;
+  workspaceId: string | null;
+}
+
+export interface ProjectWorkspace {
+  id: string;
+  rootPath: string;
+  available: boolean;
+}
+
+export interface ProjectConfiguration {
+  projectRoots: ProjectRoot[];
+  projectWorkspaces: ProjectWorkspace[];
+  suggestGitProject: boolean;
+}
+
+export interface GitignoreStatusUpdate {
+  scopePaths: string[];
+  ignoredPaths: string[];
+  complete: boolean;
+}
+
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
@@ -154,6 +183,10 @@ export interface WorkspaceSnapshot {
   restoreTabs: boolean;
   tabSession: TabSessionState | null;
   welcomePage: WelcomePagePreference;
+  projectRoots: ProjectRoot[];
+  projectWorkspaces: ProjectWorkspace[];
+  suggestGitProject: boolean;
+  ignoredPaths: string[];
   fromCache: boolean;
   encryption: EncryptionStatus;
 }

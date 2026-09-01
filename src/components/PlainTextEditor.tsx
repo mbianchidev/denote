@@ -11,12 +11,16 @@ import {
 } from "@codemirror/view";
 import { useEffect, useRef } from "react";
 import {
+  createEditorDiagnosticExtensions,
   createEditorDisplayExtensions,
   createPluginDecorationExtensions,
   denoteCodeMirrorTheme,
+  markdownLinkKeymap,
+  setEditorDiagnostic,
 } from "../lib/editorExtensions";
 import type { PluginEditorDecoration } from "@denote/plugin-sdk";
 import type { EditorDisplaySettings } from "../lib/editorDisplay";
+import type { MarkdownErrorLocation } from "../lib/markdownErrors";
 import { loadSourceLanguage } from "../lib/sourceLanguage";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
@@ -30,6 +34,9 @@ interface PlainTextEditorProps {
   filePath: string | null;
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
+  markdownSource?: boolean;
+  errorLocation?: MarkdownErrorLocation;
+  errorNavigationRequest?: number;
   searchNavigation?: EditorSearchNavigation;
   pluginDecorations?: PluginEditorDecoration[];
   onChange: (value: string) => void;
@@ -45,6 +52,9 @@ export function PlainTextEditor({
   filePath,
   lineEnding,
   displaySettings,
+  markdownSource = false,
+  errorLocation,
+  errorNavigationRequest = 0,
   searchNavigation,
   pluginDecorations = [],
   onChange,
@@ -60,6 +70,7 @@ export function PlainTextEditor({
   const languageCompartment = useRef(new Compartment()).current;
   const pluginDecorationCompartment = useRef(new Compartment()).current;
   const languageRequest = useRef(0);
+  const handledErrorNavigationRequest = useRef(0);
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -82,6 +93,9 @@ export function PlainTextEditor({
           highlightActiveLine(),
           highlightSpecialChars(),
           EditorView.lineWrapping,
+          ...(markdownSource
+            ? [markdownLinkKeymap, ...createEditorDiagnosticExtensions()]
+            : []),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           placeholder("Start writing…"),
           EditorView.contentAttributes.of({
@@ -118,6 +132,7 @@ export function PlainTextEditor({
     ariaLabel,
     displayCompartment,
     languageCompartment,
+    markdownSource,
     pluginDecorationCompartment,
     readOnlyCompartment,
     spellCheck,
@@ -188,6 +203,40 @@ export function PlainTextEditor({
   }, [value]);
 
   useEffect(() => {
+    if (!markdownSource) {
+      return;
+    }
+    editorRef.current?.dispatch({
+      effects: setEditorDiagnostic.of(errorLocation ?? null),
+    });
+  }, [errorLocation?.column, errorLocation?.line, markdownSource]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (
+      !markdownSource ||
+      !editor ||
+      !errorLocation ||
+      errorNavigationRequest <= 0 ||
+      handledErrorNavigationRequest.current === errorNavigationRequest
+    ) {
+      return;
+    }
+    handledErrorNavigationRequest.current = errorNavigationRequest;
+    const anchor = resolveSourcePosition(editor, errorLocation);
+    editor.dispatch({
+      selection: { anchor },
+      effects: EditorView.scrollIntoView(anchor, { y: "center" }),
+    });
+    editor.focus();
+  }, [
+    errorLocation?.column,
+    errorLocation?.line,
+    errorNavigationRequest,
+    markdownSource,
+  ]);
+
+  useEffect(() => {
     const editor = editorRef.current;
     if (!editor || !searchNavigation || searchNavigation.request <= 0) {
       return;
@@ -213,6 +262,19 @@ export function PlainTextEditor({
         binary ? " plain-code-editor--binary" : ""
       }`}
     />
+  );
+}
+
+function resolveSourcePosition(
+  editor: EditorView,
+  location: MarkdownErrorLocation,
+): number {
+  const line = editor.state.doc.line(
+    Math.max(1, Math.min(location.line, editor.state.doc.lines)),
+  );
+  return Math.min(
+    line.to,
+    line.from + Math.max(0, location.column - 1),
   );
 }
 

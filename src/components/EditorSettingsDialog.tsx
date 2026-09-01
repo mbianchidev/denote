@@ -7,7 +7,11 @@ import {
   normalizeEditorFontSize,
   type EditorDisplaySettings,
 } from "../lib/editorDisplay";
-import type { PluginView } from "../types";
+import type {
+  PluginBundleMetadata,
+  PluginView,
+  ProjectRoot,
+} from "../types";
 import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 import { PluginSettingsPanel } from "./PluginSettingsPanel";
 
@@ -19,6 +23,8 @@ interface EditorSettingsDialogProps {
   externalDomains: string[];
   allowAllExternalDomains: boolean;
   plugins: PluginView[];
+  pluginBundles: PluginBundleMetadata[];
+  activeProject: ProjectRoot | null;
   pluginsLoading: boolean;
   busyPluginIds: ReadonlySet<string>;
   onChange: (settings: EditorDisplaySettings) => void;
@@ -54,6 +60,8 @@ export function EditorSettingsDialog({
   externalDomains,
   allowAllExternalDomains,
   plugins,
+  pluginBundles,
+  activeProject,
   pluginsLoading,
   busyPluginIds,
   onChange,
@@ -336,6 +344,8 @@ export function EditorSettingsDialog({
       ) : (
         <PluginSettingsPanel
           plugins={plugins}
+          bundles={pluginBundles}
+          activeProject={activeProject}
           loading={pluginsLoading}
           busyPluginIds={busyPluginIds}
           onEnable={onEnablePlugin}

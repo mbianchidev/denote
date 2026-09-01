@@ -21,6 +21,7 @@ export const PLUGIN_CAPABILITIES = [
   "status",
   "editor-decoration",
   "note-events",
+  "project-context",
   "workspace-read",
   "workspace-write",
   "network",
@@ -148,11 +149,17 @@ export interface PluginRevocation {
   revokedAt: string;
 }
 
+export interface PluginBundleRole {
+  id: string;
+  name: string;
+  candidatePluginIds: string[];
+}
+
 export interface PluginBundle {
   id: string;
   name: string;
   categories: PluginCategory[];
-  pluginIds: string[];
+  roles: PluginBundleRole[];
 }
 
 export interface PluginCatalogEntry {
@@ -267,6 +274,25 @@ export interface PluginNoteEventsCapability {
   ) => PluginDisposable;
 }
 
+export interface PluginProjectContext {
+  projectId: string;
+  rootPath: string;
+}
+
+export interface PluginProjectContextChangeEvent {
+  previous: PluginProjectContext | null;
+  current: PluginProjectContext | null;
+}
+
+export interface PluginProjectContextCapability {
+  getCurrent: () => PluginProjectContext | null;
+  subscribe: (
+    listener: (
+      event: PluginProjectContextChangeEvent,
+    ) => void | Promise<void>,
+  ) => PluginDisposable;
+}
+
 export interface PluginTextDocument {
   content: string;
   version: string;
@@ -331,6 +357,7 @@ export interface PluginCapabilities {
   status?: PluginStatusCapability;
   editorDecoration?: PluginEditorDecorationCapability;
   noteEvents?: PluginNoteEventsCapability;
+  projectContext?: PluginProjectContextCapability;
   secureStorage?: PluginSecureStorage;
 }
 

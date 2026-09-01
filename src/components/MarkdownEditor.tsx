@@ -57,6 +57,7 @@ import { Link2 } from "lucide-react";
 import type { Html, Paragraph, Parent } from "mdast";
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -65,6 +66,11 @@ import {
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
+import {
+  SafeRichHtmlRenderProvider,
+  safeRichHtmlPlugin,
+} from "./SafeRichHtmlNode";
+import { referenceMarkdownPlugin } from "./ReferenceMarkdownNode";
 import { api, errorMessage } from "../lib/api";
 import { CODE_BLOCK_LANGUAGES } from "../lib/codeBlockLanguages";
 import {
@@ -108,6 +114,7 @@ import {
   restoreThematicBreaks,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
+import { captureReferenceMarkdown } from "../lib/referenceMarkdown";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
@@ -267,6 +274,7 @@ interface MarkdownEditorProps {
   displaySettings: EditorDisplaySettings;
   pluginDecorations?: PluginEditorDecoration[];
   preferredViewMode: MarkdownViewMode;
+  projectSourceMode?: boolean;
   readOnly: boolean;
   errorLocation?: MarkdownErrorLocation;
   errorNavigationRequest?: number;
@@ -298,6 +306,7 @@ export const MarkdownEditor = forwardRef<
     displaySettings,
     pluginDecorations = [],
     preferredViewMode,
+    projectSourceMode = false,
     readOnly,
     errorLocation,
     errorNavigationRequest = 0,
@@ -318,6 +327,12 @@ export const MarkdownEditor = forwardRef<
     [markdown],
   );
   const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
+  const referenceSnapshot = useMemo(
+    () => captureReferenceMarkdown(editorSource),
+    [editorSource],
+  );
+  const referenceSnapshotRef = useRef(referenceSnapshot);
+  referenceSnapshotRef.current = referenceSnapshot;
   const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
   const renderDetails = hasSupportedDetailsMarkdown(markdown);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -328,7 +343,7 @@ export const MarkdownEditor = forwardRef<
     hasEditorDisplayGuides(displaySettings);
   const initialSourceOnly = useRef(detectedSourceOnly).current;
   const initialViewMode: MarkdownViewMode =
-    initialSourceOnly || displayGuidesForceSource
+    projectSourceMode || initialSourceOnly || displayGuidesForceSource
       ? "source"
       : initialPreferredViewMode;
   const activeViewModeRef = useRef<MarkdownViewMode>(initialViewMode);
@@ -346,11 +361,27 @@ export const MarkdownEditor = forwardRef<
       activeViewMode === "rich-text" &&
       hasIncompleteStandardMarkdownAngle(markdown)
     );
-  const forceSource = sourceOnly || displayGuidesForceSource;
+  const forceSource =
+    projectSourceMode || sourceOnly || displayGuidesForceSource;
+  const previousCommittedForceSource = useRef(forceSource);
+  const [restorePreferredViewMode, setRestorePreferredViewMode] = useState(false);
+  const clearPreferredViewModeRestoration = useCallback(
+    () => setRestorePreferredViewMode(false),
+    [],
+  );
   const sourceForcedRef = useRef(forceSource);
   sourceForcedRef.current = forceSource;
+  const transientViewModeChangeRef = useRef(false);
   const searchForcedSourceRef = useRef(false);
   const handledSearchRequest = useRef(0);
+  useEffect(() => {
+    const shouldRestore =
+      previousCommittedForceSource.current && !forceSource;
+    previousCommittedForceSource.current = forceSource;
+    if (shouldRestore) {
+      setRestorePreferredViewMode(true);
+    }
+  }, [forceSource]);
   useEffect(() => {
     if (
       activeViewMode === "rich-text" &&
@@ -369,7 +400,16 @@ export const MarkdownEditor = forwardRef<
   ]);
   const sourceLock = useMemo(
     () =>
-      sourceOnly
+      projectSourceMode
+        ? {
+            guidance:
+              "Rich text mode is unavailable because this file is inside a code workspace.",
+            richLabel:
+              "Rich text mode unavailable inside a code workspace",
+            sourceLabel: "Source mode locked inside a code workspace",
+            status: "Code workspace source mode",
+          }
+        : sourceOnly
         ? {
             guidance:
               "Rich text mode is unavailable because this file contains source-only Markdown syntax.",
@@ -386,7 +426,7 @@ export const MarkdownEditor = forwardRef<
             sourceLabel: "Source mode locked while display guides are enabled",
             status: "Guides lock source mode",
           },
-    [sourceOnly],
+    [projectSourceMode, sourceOnly],
   );
   const displayExtensions = useMemo(
     () => [
@@ -477,11 +517,15 @@ export const MarkdownEditor = forwardRef<
           ...pluginDecorationExtensions,
         ],
       }),
+      safeRichHtmlPlugin(),
+      referenceMarkdownPlugin({ snapshot: referenceSnapshotRef }),
       standardMarkdownCompatibilityPlugin(),
       viewModePreferencePlugin({
         mode: realmInitialViewMode,
         isSourceForced: () => sourceForcedRef.current,
-        suppressPersistence: () => searchForcedSourceRef.current,
+        suppressPersistence: () =>
+          searchForcedSourceRef.current ||
+          transientViewModeChangeRef.current,
         onChange: onViewModeChange,
         onErrorCleared: onMarkdownErrorCleared,
         onModeChange: (mode) => {
@@ -514,6 +558,13 @@ export const MarkdownEditor = forwardRef<
             </>
           ) : (
             <>
+              {restorePreferredViewMode ? (
+                <RestorePreferredViewMode
+                  mode={preferredViewMode}
+                  onRestored={clearPreferredViewModeRestoration}
+                  suppressPersistence={transientViewModeChangeRef}
+                />
+              ) : null}
               <DiffSourceToggleWrapper
                 options={["rich-text", "source"]}
                 SourceToolbar={<UndoRedo />}
@@ -566,6 +617,7 @@ export const MarkdownEditor = forwardRef<
     ],
     [
       displayExtensions,
+      clearPreferredViewModeRestoration,
       sourceLock,
       forceSource,
       initialViewMode,
@@ -576,6 +628,9 @@ export const MarkdownEditor = forwardRef<
       onMarkdownErrorCleared,
       onViewModeChange,
       pluginDecorationExtensions,
+      preferredViewMode,
+      projectSourceMode,
+      restorePreferredViewMode,
       sourceOnly,
       tabExtensions,
     ],
@@ -786,64 +841,66 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
     >
-      <MDXEditor
-        key={htmlProcessing ? "details-html" : "standard-markdown"}
-        ref={ref}
-        markdown={editorSource}
-        plugins={plugins}
-        className="denote-editor-root mdxeditor-full-height"
-        contentEditableClassName="denote-editor-content"
-        placeholder="Start writing…"
-        readOnly={readOnly}
-        suppressHtmlProcessing={!htmlProcessing}
-        trim={false}
-        spellCheck
-        onChange={(value, initialNormalize) => {
-          if (!initialNormalize) {
-            let restoredMarkdown = restoreRichTextTagSyntax(
-              directivesToCallouts(value),
-            );
-            if (activeViewModeRef.current === "rich-text") {
-              restoredMarkdown = restoreThematicBreaks(
-                restoredMarkdown,
-                thematicBreaksRef.current!,
+      <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
+        <MDXEditor
+          key={htmlProcessing ? "details-html" : "standard-markdown"}
+          ref={ref}
+          markdown={editorSource}
+          plugins={plugins}
+          className="denote-editor-root mdxeditor-full-height"
+          contentEditableClassName="denote-editor-content"
+          placeholder="Start writing…"
+          readOnly={readOnly}
+          suppressHtmlProcessing={!htmlProcessing}
+          trim={false}
+          spellCheck
+          onChange={(value, initialNormalize) => {
+            if (!initialNormalize) {
+              let restoredMarkdown = restoreRichTextTagSyntax(
+                directivesToCallouts(value),
               );
-            } else {
-              thematicBreaksRef.current =
-                captureThematicBreaks(restoredMarkdown);
-            }
-            const markerUpdate = applyTocMarkerViewChange(
-              activeViewModeRef.current === "rich-text"
-                ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
-                : restoredMarkdown,
-              tocMarkersRef.current!,
-              activeViewModeRef.current,
-            );
-            tocMarkersRef.current = markerUpdate.snapshot;
-            thematicBreaksRef.current = captureThematicBreaks(
-              markerUpdate.markdown,
-            );
-            onChange(
-              restoreMarkdownBoundaryWhitespace(
+              if (activeViewModeRef.current === "rich-text") {
+                restoredMarkdown = restoreThematicBreaks(
+                  restoredMarkdown,
+                  thematicBreaksRef.current!,
+                );
+              } else {
+                thematicBreaksRef.current =
+                  captureThematicBreaks(restoredMarkdown);
+              }
+              const markerUpdate = applyTocMarkerViewChange(
+                activeViewModeRef.current === "rich-text"
+                  ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
+                  : restoredMarkdown,
+                tocMarkersRef.current!,
+                activeViewModeRef.current,
+              );
+              tocMarkersRef.current = markerUpdate.snapshot;
+              thematicBreaksRef.current = captureThematicBreaks(
                 markerUpdate.markdown,
-                boundaryWhitespace,
-              ),
-            );
-          }
-        }}
-        onError={({ error, source }) => {
-          const diagnostic = {
-            message: error,
-            source,
-            location: locateMarkdownError(source, error),
-          };
-          if (onMarkdownError) {
-            onMarkdownError(diagnostic);
-          } else {
-            onError(error);
-          }
-        }}
-      />
+              );
+              onChange(
+                restoreMarkdownBoundaryWhitespace(
+                  markerUpdate.markdown,
+                  boundaryWhitespace,
+                ),
+              );
+            }
+          }}
+          onError={({ error, source }) => {
+            const diagnostic = {
+              message: error,
+              source,
+              location: locateMarkdownError(source, error),
+            };
+            if (onMarkdownError) {
+              onMarkdownError(diagnostic);
+            } else {
+              onError(error);
+            }
+          }}
+        />
+      </SafeRichHtmlRenderProvider>
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
   );
@@ -870,6 +927,28 @@ function EnforceSourceMode() {
   useEffect(() => {
     setViewMode("source");
   }, [setViewMode]);
+  return null;
+}
+
+function RestorePreferredViewMode({
+  mode,
+  onRestored,
+  suppressPersistence,
+}: {
+  mode: MarkdownViewMode;
+  onRestored: () => void;
+  suppressPersistence: RefObject<boolean>;
+}) {
+  const setViewMode = usePublisher(viewMode$);
+  useEffect(() => {
+    suppressPersistence.current = true;
+    try {
+      setViewMode(mode);
+      onRestored();
+    } finally {
+      suppressPersistence.current = false;
+    }
+  }, [mode, onRestored, setViewMode, suppressPersistence]);
   return null;
 }
 
@@ -1389,6 +1468,13 @@ function renderedLink(
   }
   const href = link.getAttribute("href") ?? "";
   const text = link.textContent ?? "";
+  const referenceTarget = link.dataset.denoteReferenceTarget;
+  if (referenceTarget !== undefined) {
+    return { href: referenceTarget, text };
+  }
+  if (link.hasAttribute("data-denote-safe-rich-html-link")) {
+    return { href, text };
+  }
   return {
     href: recoverMarkdownLinkTarget(markdown, text, href) ?? href,
     text,

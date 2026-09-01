@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
-import type { PluginView } from "../types";
-import type { PluginPermissionRequest } from "@denote/plugin-sdk";
-import type { PluginNoteEvent } from "@denote/plugin-sdk";
+import type { PluginBundleMetadata, PluginView } from "../types";
+import type {
+  PluginNoteEvent,
+  PluginPermissionRequest,
+  PluginProjectContext,
+} from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
+  type PluginActionLeaseScope,
   type PluginCommandContribution,
   type PluginSidebarContribution,
   type PluginStatusContribution,
@@ -13,6 +17,7 @@ import {
 
 export interface PluginController {
   plugins: PluginView[];
+  bundles: PluginBundleMetadata[];
   commands: PluginCommandContribution[];
   sidebarViews: PluginSidebarContribution[];
   statusItems: PluginStatusContribution[];
@@ -49,8 +54,10 @@ export interface PluginController {
 
 export function usePlugins(
   reportError: (error: unknown) => void,
+  projectContext: PluginProjectContext | null = null,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
+  const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
   const [commands, setCommands] = useState<PluginCommandContribution[]>([]);
   const [sidebarViews, setSidebarViews] = useState<
     PluginSidebarContribution[]
@@ -99,7 +106,20 @@ export function usePlugins(
       setStatusItems,
       setDecorations,
     );
+    runtime.setProjectContext(projectContext);
     runtimeRef.current = runtime;
+    void api
+      .listPluginBundles()
+      .then((available) => {
+        if (!cancelled) {
+          setBundles(available);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          reportError(error);
+        }
+      });
     void api
       .recoverPluginTransactions()
       .then(api.listPlugins)
@@ -146,6 +166,10 @@ export function usePlugins(
         .catch(reportError);
     };
   }, [refresh, reportError]);
+
+  useEffect(() => {
+    runtimeRef.current?.setProjectContext(projectContext);
+  }, [projectContext]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -322,9 +346,14 @@ export function usePlugins(
       if (!runtime) {
         throw new Error("Plugin runtime is unavailable.");
       }
-      await runtime.runCommand(pluginId, commandId, workspaceScope);
+      runtime.setProjectContext(projectContext);
+      const actionScope: PluginActionLeaseScope = {
+        workspaceScope,
+        projectId: projectContext?.projectId ?? null,
+      };
+      await runtime.runCommand(pluginId, commandId, actionScope);
     },
-    [],
+    [projectContext],
   );
 
   const importSettings = useCallback(
@@ -358,6 +387,7 @@ export function usePlugins(
 
   return {
     plugins,
+    bundles,
     commands,
     sidebarViews,
     statusItems,

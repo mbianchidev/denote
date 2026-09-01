@@ -4,6 +4,11 @@ import type {
 } from "@denote/plugin-sdk";
 import { api } from "../lib/api";
 
+export interface PluginActionLeaseScope {
+  workspaceScope: string;
+  projectId: string | null;
+}
+
 export function privilegedHostOperation(operation: string): boolean {
   return (
     operation.startsWith("workspace.") ||
@@ -19,7 +24,7 @@ export async function runHostOperation(
   operation: string,
   key?: string,
   value?: unknown,
-  workspaceScope?: string,
+  actionScope?: PluginActionLeaseScope,
 ): Promise<unknown> {
   switch (operation) {
     case "storage.get":
@@ -44,20 +49,20 @@ export async function runHostOperation(
     case "workspace.read":
       return api.pluginWorkspaceRead(
         pluginId,
-        requireWorkspaceScope(workspaceScope),
+        requireActionScope(actionScope).workspaceScope,
         requireObjectValue(value, "path"),
       );
     case "workspace.read-write":
       return api.pluginWorkspaceRead(
         pluginId,
-        requireWorkspaceScope(workspaceScope),
+        requireActionScope(actionScope).workspaceScope,
         requireObjectValue(value, "path"),
         true,
       );
     case "workspace.write":
       return api.pluginWorkspaceWrite(
         pluginId,
-        requireWorkspaceScope(workspaceScope),
+        requireActionScope(actionScope).workspaceScope,
         requireObjectValue(value, "path"),
         requireObjectValue(value, "content"),
         requireObjectValue(value, "version"),
@@ -81,7 +86,11 @@ export async function runHostOperation(
         typeof value.body === "string" ? value.body : undefined,
       );
     case "process.run":
-      return api.pluginProcessRequest(pluginId, parseProcessRequest(value));
+      return api.pluginProcessRequest(
+        pluginId,
+        parseProcessRequest(value),
+        requireActionScope(actionScope).projectId,
+      );
     default:
       throw new Error(`Unsupported plugin host operation: ${operation}`);
   }
@@ -101,8 +110,10 @@ function requireObjectValue(value: unknown, key: string): string {
   return value[key];
 }
 
-function requireWorkspaceScope(scope?: string): string {
-  if (!scope) {
+function requireActionScope(
+  scope?: PluginActionLeaseScope,
+): PluginActionLeaseScope {
+  if (!scope?.workspaceScope) {
     throw new Error("Workspace action lease has no vault scope.");
   }
   return scope;
