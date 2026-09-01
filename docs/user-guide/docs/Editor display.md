@@ -62,6 +62,11 @@ viewport; click or drag anywhere on the minimap to jump through a long file.
 With keyboard focus on it, use arrows, Page Up/Down, Home, or End. The slider
 announces its visible line range.
 
+Drag the divider beside the outline to resize it. Focus the divider and use
+Left/Right for small changes, Shift-Left/Right for larger changes, Home to
+restore the 280px default, or End for the maximum. The width is stored locally
+and applies to Markdown and source outlines.
+
 ## Source language
 
 Source-only UTF-8 files show **Language:** in the status bar. Denote detects the

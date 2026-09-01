@@ -63,6 +63,7 @@ import {
   FileActionsDropdown,
   type FileActionHandlers,
 } from "./components/FileActionsMenu";
+import { OutlineResizer } from "./components/OutlineResizer";
 import { PaneDockOverlay } from "./components/PaneDockOverlay";
 import { PaneResizer } from "./components/PaneResizer";
 import { SidebarResizer } from "./components/SidebarResizer";
@@ -233,6 +234,7 @@ import {
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
+import { getOutlineWidth, saveOutlineWidth } from "./lib/outlineWidth";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
   DEFAULT_EDITOR_FONT_SIZE,
@@ -396,6 +398,7 @@ function App() {
     anchor: string;
   } | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState(() => getSidebarWidth());
+  const [outlineWidth, setOutlineWidth] = useState(() => getOutlineWidth());
   const [workspaceLocked, setWorkspaceLocked] = useState(false);
   const [actionDialog, setActionDialog] = useState<ActionDialogState | null>(
     null,
@@ -5215,6 +5218,17 @@ function App() {
     [showError],
   );
 
+  const commitOutlineWidth = useCallback(
+    (width: number) => {
+      try {
+        setOutlineWidth(saveOutlineWidth(width));
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+
   const toggleRawEditing = useCallback(() => {
     if (!activePathRef.current) {
       return;
@@ -6828,6 +6842,7 @@ function App() {
       style={
         {
           "--sidebar-width": `${sidebarWidth}px`,
+          "--outline-width": `${outlineWidth}px`,
           "--editor-font-size": `${editorDisplaySettings.fontSize}px`,
         } as CSSProperties
       }
@@ -7489,6 +7504,14 @@ function App() {
               />
             ))}
           </div>
+          {outlineVisible ? (
+            <OutlineResizer
+              width={outlineWidth}
+              disabled={workspaceLocked}
+              onChange={setOutlineWidth}
+              onCommit={commitOutlineWidth}
+            />
+          ) : null}
           {outlineVisible && activeFileTab?.kind === "markdown" ? (
             <TableOfContents
               headings={headings}

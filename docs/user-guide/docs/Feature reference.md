@@ -222,6 +222,8 @@ more detail and examples.
 - Show a bounded project source outline of functions and other declarations,
   navigate directly to a symbol line, and use an accessible code minimap with a
   live viewport window to jump anywhere in long files.
+- Resize Markdown and source outlines by pointer or keyboard and persist the
+  bounded width locally.
 - Resize the vault sidebar by pointer or keyboard.
 - Show optional line numbers, spaces/tabs, exact line endings, and trailing
   whitespace.

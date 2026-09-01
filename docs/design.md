@@ -218,8 +218,9 @@ costumes ordinary controls as technical.
 The desktop workspace uses a fixed 48px activity rail, a user-resizable vault
 sidebar that defaults to 272px, a five-pixel divider target, and a flexible
 one-to-four-pane editor grid. Pane dividers are pointer- and keyboard-resizable.
-The focused pane may add a 218px outline panel. Below 1100px, the outline drops
-and the document padding tightens; below 860px, the rail contracts.
+The focused pane may add a 280px default, resizable outline panel. Below 1100px,
+the outline overlays the editor and the document padding tightens; below 860px,
+the rail contracts.
 
 Chrome uses compact 24–42px rows. Document content has substantially more
 vertical space than surrounding controls. The writing column remains centered
@@ -483,6 +484,11 @@ proportionally through the file. The complete minimap is one keyboard-focusable
 vertical slider: arrows move by a small fraction of the viewport, Page Up/Down
 move by one viewport, and Home/End jump to the boundaries. Its accessible value
 announces the visible line range and total lines.
+
+A five-pixel divider sits before both Markdown and source outlines. Dragging
+resizes the panel from 180 to 480px; keyboard Left/Right changes width, Shift
+uses a larger step, Home restores 280px, and End uses the maximum. Focus uses
+the standard moss ring and the chosen width persists locally.
 
 ### Vault Security
 

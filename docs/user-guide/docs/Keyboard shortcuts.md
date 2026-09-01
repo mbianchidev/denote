@@ -48,6 +48,8 @@ roots. Active-project changes, including workspace-discovered projects, are
 visible in the status bar and announced to screen readers.
 The source outline's code-minimap slider uses arrows for small moves, Page
 Up/Down for viewport moves, and Home/End for the file boundaries.
+The outline divider uses Left/Right, Shift for a larger step, Home for its
+default width, and End for its maximum width.
 All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
 

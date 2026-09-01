@@ -1812,12 +1812,42 @@ button.tag-chip:active,
 }
 
 .toc-panel {
-  width: 218px;
-  min-width: 218px;
+  width: var(--outline-width, 280px);
+  min-width: var(--outline-width, 280px);
   padding: 14px 10px 30px;
   background: var(--editor-raised);
   border-left: 1px solid var(--border);
   overflow: auto;
+}
+
+.outline-resizer {
+  position: relative;
+  z-index: 6;
+  width: 5px;
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--editor-raised);
+  touch-action: none;
+}
+
+.outline-resizer::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+  content: "";
+  background: var(--border);
+}
+
+.outline-resizer:hover::after,
+.outline-resizer:focus-visible::after {
+  background: var(--accent);
+}
+
+.outline-resizer:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
 }
 
 .toc-panel__title {
@@ -1834,8 +1864,6 @@ button.tag-chip:active,
 
 .source-outline {
   display: flex;
-  width: 280px;
-  min-width: 280px;
   flex-direction: column;
   overflow: hidden;
 }
@@ -4217,12 +4245,23 @@ kbd {
     right: 0;
     bottom: 0;
     display: block;
+    width: min(var(--outline-width, 280px), calc(100% - 48px));
+    min-width: 0;
+    max-width: calc(100% - 48px);
     box-shadow: -10px 0 28px
       color-mix(in srgb, var(--app-bg) 72%, transparent);
   }
 
   .source-outline {
     display: flex;
+  }
+
+  .outline-resizer {
+    position: absolute;
+    z-index: 11;
+    top: 0;
+    right: min(var(--outline-width, 280px), calc(100% - 48px));
+    bottom: 0;
   }
 
   .denote-editor-content,
@@ -4266,6 +4305,10 @@ kbd {
   .denote-code-block-editor__delete {
     border-color: ButtonText;
     box-shadow: none;
+  }
+
+  .outline-resizer::after {
+    background: ButtonText;
   }
 
   .source-outline__minimap {

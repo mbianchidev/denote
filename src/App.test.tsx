@@ -423,7 +423,19 @@ describe("App initial file-tree expansion", () => {
       expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
         "auto:false:project:tracked",
       );
+      fireEvent.keyDown(
+        screen.getByRole("separator", {
+          name: "Resize document outline",
+        }),
+        { key: "ArrowLeft" },
+      );
+      expect(localStorage.getItem("denote-outline-width")).toBe("292");
       fireEvent.click(screen.getByRole("button", { name: "Hide outline" }));
+      expect(
+        screen.queryByRole("separator", {
+          name: "Resize document outline",
+        }),
+      ).not.toBeInTheDocument();
       expect(screen.getByTestId("plain-editor-language")).toHaveTextContent(
         "auto:false:project:untracked",
       );

@@ -618,6 +618,12 @@ to the focused editor: symbol requests select and center a line, while code
 minimap requests set proportional scroll position. These effects do not change
 the document, history, language, or autosave state.
 
+The outline divider stores one global local width through
+`src/lib/outlineWidth.ts`, clamped to 180–480px with a 280px default. Pointer
+movement is reversed for the right-aligned panel; keyboard resizing and reset
+use the same clamping path. At narrow breakpoints the outline and divider become
+right-aligned overlays without changing the persisted value.
+
 Markdown source mode registers a highest-precedence Command-K / Control-K
 CodeMirror command. It wraps a range as `[selected text]()` or inserts `[]()` at
 a caret without opening a dialog. Rich mode uses MDXEditor's link dialog and

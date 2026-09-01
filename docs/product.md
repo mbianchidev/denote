@@ -227,6 +227,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   files. Selecting a symbol moves to its line; a miniature code map below the
   symbols reflects indentation and declaration structure, overlays the live
   viewport, and jumps to any proportional position.
+- The Markdown or source outline width is pointer- and keyboard-resizable,
+  persists locally, and remains bounded so the editor keeps usable space.
 - Syntax highlighting remains available for recognized files in any vault.
   Marking a folder as a project additionally enables project status, forced line
   numbers, byte-preserving project Markdown, and code-tooling recommendations.
