@@ -86,7 +86,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML,
   TOML, SQL, PowerShell, SCSS, LESS, Dockerfiles, Go module/workspace files,
   CMake, Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
-  Visual Studio solutions, and common XML project manifests.
+  Visual Studio solutions, common XML project manifests, LaTeX, Jinja, Vue,
+  Angular templates, Haskell, Clojure/ClojureScript, Erlang, OCaml, F#,
+  Fortran, Julia, Perl, Pascal, VB.NET, Cobol, Puppet, and common SQL dialects.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
 - Full, collapsed, and shortcut Markdown reference links render and remain
@@ -217,6 +219,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   removing its governing mark restores the saved line-number setting and vault
   Markdown preference immediately; these constraints never persist as editor
   preferences.
+- Syntax highlighting remains available for recognized files in any vault.
+  Marking a folder as a project additionally enables project status, forced line
+  numbers, byte-preserving project Markdown, and code-tooling recommendations.
+  Marking a folder as a workspace discovers each safe direct child as an
+  implicit project; root-level files need the same folder marked as a project.
 - Markdown parser failures expose line and column details, force a temporary
   source fallback without changing the vault preference, highlight the failing
   line, and provide keyboard-accessible error navigation. Errors remain scoped
@@ -236,6 +243,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   persist with the file.
 - JSP uses the bundled HTML grammar as a safe baseline, leaving Java scriptlets
   readable but uncolored.
+- JSX and TSX provide React syntax; Angular component templates and Vue
+  single-file components use their bundled grammars.
+- `.pp` remains automatic plain text because both Pascal and Puppet claim it;
+  users can select either language as a transient per-tab override.
+- Core does not register diff highlighting. Git-owned diff presentation remains
+  part of the optional Git plugin.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live
   code document rather than only visible lines.
 - About Denote exposes the packaged semantic version and immutable Git commit

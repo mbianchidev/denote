@@ -538,7 +538,11 @@ owns its stable ID, display name, preferred fence identifier, searchable aliases
 explicit extensions or filenames, and bundled asynchronous loader. The registry
 covers JavaScript/JSX/TypeScript/TSX, Java, JSP, Go, Rust, Python, C/C++, C#,
 Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS,
-Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and Dockerfiles.
+Markdown, shell, YAML, TOML, SQL and its packaged dialects, PowerShell, SCSS,
+LESS, Dockerfiles, LaTeX, Jinja, Vue, Angular templates, Haskell,
+Clojure/ClojureScript, Erlang, OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET,
+Cobol, and Puppet. React uses the existing JSX and TSX grammars rather than a
+separate parser.
 CodeMirror's packaged language-data loaders cover the standard entries;
 `codemirror-lang-elixir` is a bundled lazy chunk. JSP deliberately uses the HTML
 grammar, so scriptlets stay readable without introducing an unmaintained parser.
@@ -550,6 +554,13 @@ Small bounded `StreamLanguage` tokenizers cover Go module and Makefile syntax;
 the remaining formats reuse packaged XML, TOML, JSON, Python, Groovy, CMake, or
 properties grammars. Compound suffixes such as `.cmake.in` are matched
 longest-first before ordinary extensions.
+Alias and extension lookup records collisions instead of using registry order.
+The shared `.pp` extension is therefore intentionally unresolved until the user
+chooses Pascal or Puppet. SQL dialect choices include PostgreSQL, MySQL,
+MariaDB, MS SQL, PL/SQL, SQLite SQL, and CQL; plain `.sql` remains standard SQL,
+while dialect-specific suffixes or an explicit tab override select a dialect.
+Diff is deliberately not registered by core because Git diff presentation and
+future diff-specific interaction belong to the Git plugin.
 
 `PlainTextEditor` resolves the filename plus the tab's optional override, clears
 the previous language immediately, and asynchronously reconfigures a stable

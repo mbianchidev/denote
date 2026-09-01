@@ -95,6 +95,14 @@ treats each safe, real direct child folder as a separate implicit project. The
 two marks are independent, so one folder can be a project, a workspace, or both.
 Their separate unmark actions appear in the same menu.
 
+For the whole vault, press `Command-P` or `Ctrl-P` and run **Mark vault as
+workspace**. This makes each safe direct child folder an implicit project. Run
+**Mark vault as project** as well when files stored directly at the vault root
+should receive project context. Syntax highlighting works in ordinary vaults
+too; project context additionally forces line numbers and byte-preserving
+Markdown source mode, shows the active project, and enables code-tooling
+recommendations.
+
 From the keyboard, focus a folder and press Shift-F10 or the Context Menu key.
 The command palette provides separate project and workspace commands for the
 vault, selected folder, recorded roots, and unmark-all actions. Unavailable roots

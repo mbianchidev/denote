@@ -47,7 +47,7 @@ const LANGUAGE_DEFINITIONS = [
     id: "jsx",
     name: "JSX",
     fence: "jsx",
-    aliases: ["jsx", "react"],
+    aliases: ["jsx", "react", "reactjs", "react-jsx"],
     extensions: ["jsx", "mdx"],
     catalogName: "JSX",
   },
@@ -63,7 +63,7 @@ const LANGUAGE_DEFINITIONS = [
     id: "tsx",
     name: "TSX",
     fence: "tsx",
-    aliases: ["tsx", "typescriptreact"],
+    aliases: ["tsx", "typescriptreact", "reacttsx", "react-tsx"],
     extensions: ["tsx"],
     catalogName: "TSX",
   },
@@ -330,6 +330,198 @@ const LANGUAGE_DEFINITIONS = [
     catalogName: "SQL",
   },
   {
+    id: "postgresql",
+    name: "PostgreSQL",
+    fence: "postgresql",
+    aliases: ["postgresql", "postgres", "pgsql", "psql"],
+    extensions: ["pgsql", "psql"],
+    catalogName: "PostgreSQL",
+  },
+  {
+    id: "mysql",
+    name: "MySQL",
+    fence: "mysql",
+    aliases: ["mysql"],
+    extensions: ["mysql"],
+    catalogName: "MySQL",
+  },
+  {
+    id: "mariadb",
+    name: "MariaDB SQL",
+    fence: "mariadb",
+    aliases: ["mariadb", "mariadb-sql"],
+    extensions: ["mariadb.sql"],
+    catalogName: "MariaDB SQL",
+  },
+  {
+    id: "mssql",
+    name: "MS SQL",
+    fence: "mssql",
+    aliases: ["mssql", "ms-sql", "tsql"],
+    extensions: ["mssql.sql", "tsql"],
+    catalogName: "MS SQL",
+  },
+  {
+    id: "plsql",
+    name: "PL/SQL",
+    fence: "plsql",
+    aliases: ["plsql", "oracle-sql"],
+    extensions: ["pls", "plsql", "pkb", "pks"],
+    catalogName: "PLSQL",
+  },
+  {
+    id: "sqlite",
+    name: "SQLite SQL",
+    fence: "sqlite",
+    aliases: ["sqlite", "sqlite-sql"],
+    extensions: ["sqlite.sql"],
+    catalogName: "SQLite",
+  },
+  {
+    id: "cql",
+    name: "CQL",
+    fence: "cql",
+    aliases: ["cql", "cassandra"],
+    extensions: ["cql"],
+    catalogName: "CQL",
+  },
+  {
+    id: "latex",
+    name: "LaTeX",
+    fence: "latex",
+    aliases: ["latex", "tex"],
+    extensions: ["tex", "ltx"],
+    catalogName: "LaTeX",
+  },
+  {
+    id: "jinja",
+    name: "Jinja",
+    fence: "jinja",
+    aliases: ["jinja", "jinja2", "j2"],
+    extensions: ["j2", "jinja", "jinja2"],
+    catalogName: "Jinja",
+  },
+  {
+    id: "vue",
+    name: "Vue",
+    fence: "vue",
+    aliases: ["vue", "vuejs"],
+    extensions: ["vue"],
+    catalogName: "Vue",
+  },
+  {
+    id: "angular",
+    name: "Angular template",
+    fence: "angular",
+    aliases: ["angular", "angular-template"],
+    extensions: ["component.html", "component.htm"],
+    catalogName: "Angular Template",
+  },
+  {
+    id: "haskell",
+    name: "Haskell",
+    fence: "haskell",
+    aliases: ["haskell", "hs"],
+    extensions: ["hs", "lhs"],
+    catalogName: "Haskell",
+  },
+  {
+    id: "clojure",
+    name: "Clojure",
+    fence: "clojure",
+    aliases: ["clojure", "clj"],
+    extensions: ["clj", "cljc", "cljx"],
+    catalogName: "Clojure",
+  },
+  {
+    id: "clojurescript",
+    name: "ClojureScript",
+    fence: "clojurescript",
+    aliases: ["clojurescript", "cljs"],
+    extensions: ["cljs"],
+    catalogName: "ClojureScript",
+  },
+  {
+    id: "erlang",
+    name: "Erlang",
+    fence: "erlang",
+    aliases: ["erlang", "erl"],
+    extensions: ["erl", "hrl"],
+    catalogName: "Erlang",
+  },
+  {
+    id: "ocaml",
+    name: "OCaml",
+    fence: "ocaml",
+    aliases: ["ocaml"],
+    extensions: ["ml", "mli", "mll", "mly"],
+    catalogName: "OCaml",
+  },
+  {
+    id: "fsharp",
+    name: "F#",
+    fence: "fsharp",
+    aliases: ["fsharp", "f#"],
+    extensions: ["fs", "fsx", "fsi"],
+    catalogName: "F#",
+  },
+  {
+    id: "fortran",
+    name: "Fortran",
+    fence: "fortran",
+    aliases: ["fortran"],
+    extensions: ["f", "for", "f77", "f90", "f95", "f03", "f08"],
+    catalogName: "Fortran",
+  },
+  {
+    id: "julia",
+    name: "Julia",
+    fence: "julia",
+    aliases: ["julia", "jl"],
+    extensions: ["jl"],
+    catalogName: "Julia",
+  },
+  {
+    id: "perl",
+    name: "Perl",
+    fence: "perl",
+    aliases: ["perl"],
+    extensions: ["pl", "pm", "t"],
+    catalogName: "Perl",
+  },
+  {
+    id: "pascal",
+    name: "Pascal",
+    fence: "pascal",
+    aliases: ["pascal"],
+    extensions: ["p", "pas", "pp"],
+    catalogName: "Pascal",
+  },
+  {
+    id: "vbnet",
+    name: "VB.NET",
+    fence: "vbnet",
+    aliases: ["vbnet", "vb.net", "visual-basic"],
+    extensions: ["vb"],
+    catalogName: "VB.NET",
+  },
+  {
+    id: "cobol",
+    name: "Cobol",
+    fence: "cobol",
+    aliases: ["cobol"],
+    extensions: ["cob", "cpy", "cbl"],
+    catalogName: "Cobol",
+  },
+  {
+    id: "puppet",
+    name: "Puppet",
+    fence: "puppet",
+    aliases: ["puppet"],
+    extensions: ["pp"],
+    catalogName: "Puppet",
+  },
+  {
     id: "dockerfile",
     name: "Dockerfile",
     fence: "dockerfile",
@@ -453,7 +645,7 @@ export const LANGUAGE_OPTIONS: readonly LanguageOption[] = [
 const languageById = new Map(
   CORE_SYNTAX_LANGUAGES.map((language) => [language.id, language]),
 );
-const languageByFence = new Map<string, CoreSyntaxLanguage>();
+const languageByFence = new Map<string, CoreSyntaxLanguage | null>();
 const definitionById = new Map<
   CoreSyntaxLanguageId,
   CoreSyntaxLanguageDefinition
@@ -470,16 +662,27 @@ for (const language of CORE_SYNTAX_LANGUAGES) {
     ...language.aliases,
     ...language.extensions,
   ]) {
-    languageByFence.set(normalizeLookup(value), language);
+    registerUnambiguousLanguage(
+      languageByFence,
+      normalizeLookup(value),
+      language,
+    );
   }
 }
 
-const sourceExtensionMatchers = CORE_SYNTAX_LANGUAGES.flatMap((language) =>
-  language.extensions.map((extension) => ({
-    extension: extension.toLocaleLowerCase(),
-    language,
-  })),
-).sort((left, right) => right.extension.length - left.extension.length);
+const languageByExtension = new Map<string, CoreSyntaxLanguage | null>();
+for (const language of CORE_SYNTAX_LANGUAGES) {
+  for (const extension of language.extensions) {
+    registerUnambiguousLanguage(
+      languageByExtension,
+      extension.toLocaleLowerCase(),
+      language,
+    );
+  }
+}
+const sourceExtensionMatchers = [...languageByExtension.entries()]
+  .map(([extension, language]) => ({ extension, language }))
+  .sort((left, right) => right.extension.length - left.extension.length);
 
 export function coreSyntaxLanguage(
   id: CoreSyntaxLanguageId,
@@ -511,11 +714,10 @@ export function detectSourceLanguage(path: string): CoreSyntaxLanguage | null {
     }
   }
   const normalizedFileName = fileName.toLocaleLowerCase();
-  return (
-    sourceExtensionMatchers.find(({ extension }) =>
-      normalizedFileName.endsWith(`.${extension}`),
-    )?.language ?? null
+  const matched = sourceExtensionMatchers.find(({ extension }) =>
+    normalizedFileName.endsWith(`.${extension}`),
   );
+  return matched?.language ?? null;
 }
 
 export function resolveSourceLanguage(
@@ -600,6 +802,20 @@ export function fenceIdentifierForChoice(choice: LanguageChoice): string {
 
 function normalizeLookup(value: string): string {
   return value.trim().toLocaleLowerCase();
+}
+
+function registerUnambiguousLanguage(
+  registry: Map<string, CoreSyntaxLanguage | null>,
+  key: string,
+  language: CoreSyntaxLanguage,
+): void {
+  if (!registry.has(key)) {
+    registry.set(key, language);
+    return;
+  }
+  if (registry.get(key)?.id !== language.id) {
+    registry.set(key, null);
+  }
 }
 
 async function loadCatalogLanguage(

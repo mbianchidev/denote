@@ -54,6 +54,8 @@ behavior and remains available before plugins start or when every plugin is
 disabled. Plugin API version 1 cannot inject or download grammars. A future
 specialized grammar extension would require a separately approved typed,
 bundled host contract.
+Diff highlighting and interactive diff presentation are intentionally not core
+language entries; they belong to the future Git plugin.
 
 These capabilities are planned as separately enabled plugins:
 

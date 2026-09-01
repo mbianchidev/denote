@@ -102,7 +102,14 @@ include `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.jsp`, `.go`, `.rs`, `.py`,
 `.less`. Auxiliary formats include `.csproj`, `.fsproj`, `.vbproj`, `.vcxproj`,
 `.props`, `.targets`, `.nuspec`, `.slnx`, `.sln`, `.cmake`, `.cmake.in`, `.mk`,
 `.mak`, `.gradle`, `.groovy`, `.properties`, `.ini`, `.cfg`, `.editorconfig`,
-and `.proto`. `go.mod`, `go.sum`, `go.work`, `go.work.sum`, `CMakeLists.txt`,
+`.proto`, `.tex`, `.ltx`, `.psql`, `.pgsql`, `.mysql`, `.tsql`, `.pls`,
+`.plsql`, `.pkb`, `.pks`, `.cql`, `.j2`, `.jinja`, `.jinja2`, `.vue`, `.hs`,
+`.lhs`, `.clj`, `.cljc`, `.cljx`, `.cljs`, `.erl`, `.hrl`, `.ml`, `.mli`,
+`.mll`, `.mly`, `.fs`, `.fsx`, `.fsi`, `.f77`, `.f90`, `.f95`, `.f03`,
+`.f08`, `.jl`, `.pl`, `.pm`, `.pas`, `.vb`, `.cob`, `.cpy`, and `.cbl`.
+Angular `*.component.html` files use the Angular template grammar. Dialect
+compound suffixes include `.mariadb.sql`, `.mssql.sql`, and `.sqlite.sql`.
+`go.mod`, `go.sum`, `go.work`, `go.work.sum`, `CMakeLists.txt`,
 `Makefile`, `GNUmakefile`, `Cargo.lock`, `poetry.lock`, `uv.lock`,
 `Jenkinsfile`, `.editorconfig`, `.env` variants, `Procfile`, `Gemfile`,
 `Rakefile`, `BUILD`, `BUILD.bazel`, `BUCK`, `WORKSPACE`, `MODULE.bazel`,
@@ -120,8 +127,15 @@ Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir, JSON,
 XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS, and
 Dockerfiles. Go module/workspace files, CMake, Makefiles, Gradle/Groovy,
 Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
-XML project manifests are also highlighted. JSP uses HTML highlighting; Java
-scriptlets remain uncolored.
+XML project manifests are also highlighted. Additional choices include LaTeX,
+PostgreSQL, MySQL, MariaDB, MS SQL, PL/SQL, SQLite SQL, CQL, Jinja, Vue,
+Angular templates, Haskell, Clojure/ClojureScript, Erlang, OCaml, F#, Fortran,
+Julia, Perl, Pascal, VB.NET, Cobol, and Puppet. JSX and TSX cover React. JSP
+uses HTML highlighting; Java scriptlets remain uncolored.
+
+Because `.pp` is shared by Pascal and Puppet, Automatic leaves it plain; select
+the intended language from the status bar. Diff highlighting is deferred to the
+Git plugin.
 
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.

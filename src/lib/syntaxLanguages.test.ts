@@ -47,6 +47,33 @@ const requiredLanguages = [
   "SQL",
 ] as const;
 
+const requestedFollowupLanguages = [
+  "LaTeX",
+  "PostgreSQL",
+  "MySQL",
+  "MariaDB SQL",
+  "MS SQL",
+  "PL/SQL",
+  "SQLite SQL",
+  "CQL",
+  "Jinja",
+  "Vue",
+  "Angular template",
+  "Haskell",
+  "Clojure",
+  "ClojureScript",
+  "Erlang",
+  "OCaml",
+  "F#",
+  "Fortran",
+  "Julia",
+  "Perl",
+  "Pascal",
+  "VB.NET",
+  "Cobol",
+  "Puppet",
+] as const;
+
 const requiredExtensions: Record<string, string> = {
   js: "JavaScript",
   jsx: "JSX",
@@ -94,6 +121,9 @@ describe("core syntax language registry", () => {
   it("contains every required language and retained documented format", () => {
     const names = CORE_SYNTAX_LANGUAGES.map((language) => language.name);
     expect(names).toEqual(expect.arrayContaining([...requiredLanguages]));
+    expect(names).toEqual(
+      expect.arrayContaining([...requestedFollowupLanguages]),
+    );
     expect(names).toEqual(
       expect.arrayContaining([
         "PowerShell",
@@ -174,12 +204,74 @@ describe("core syntax language registry", () => {
     }
   });
 
+  it("detects requested language and database dialect extensions", () => {
+    const requestedFiles: Record<string, string> = {
+      "paper.tex": "LaTeX",
+      "query.psql": "PostgreSQL",
+      "query.pgsql": "PostgreSQL",
+      "query.mysql": "MySQL",
+      "query.mariadb.sql": "MariaDB SQL",
+      "query.mssql.sql": "MS SQL",
+      "query.tsql": "MS SQL",
+      "query.pls": "PL/SQL",
+      "query.plsql": "PL/SQL",
+      "package.pkb": "PL/SQL",
+      "package.pks": "PL/SQL",
+      "query.sqlite.sql": "SQLite SQL",
+      "query.cql": "CQL",
+      "template.j2": "Jinja",
+      "template.jinja2": "Jinja",
+      "component.vue": "Vue",
+      "account.component.html": "Angular template",
+      "Main.hs": "Haskell",
+      "Main.lhs": "Haskell",
+      "core.clj": "Clojure",
+      "core.cljc": "Clojure",
+      "browser.cljs": "ClojureScript",
+      "server.erl": "Erlang",
+      "server.hrl": "Erlang",
+      "main.ml": "OCaml",
+      "main.mli": "OCaml",
+      "main.fs": "F#",
+      "script.fsx": "F#",
+      "model.f90": "Fortran",
+      "model.f08": "Fortran",
+      "analysis.jl": "Julia",
+      "script.pl": "Perl",
+      "module.pm": "Perl",
+      "program.pas": "Pascal",
+      "Program.vb": "VB.NET",
+      "ledger.cob": "Cobol",
+      "copybook.cpy": "Cobol",
+    };
+
+    for (const [path, language] of Object.entries(requestedFiles)) {
+      expect(detectSourceLanguage(`synthetic/${path}`)?.name, path).toBe(
+        language,
+      );
+    }
+  });
+
+  it("falls back for the ambiguous Pascal and Puppet .pp extension", () => {
+    expect(detectSourceLanguage("synthetic/ambiguous.pp")).toBeNull();
+    expect(languageForFence("pp")).toBeNull();
+    expect(languageForFence("pascal")?.name).toBe("Pascal");
+    expect(languageForFence("puppet")?.name).toBe("Puppet");
+  });
+
   it("resolves fence aliases case-insensitively", () => {
     expect(languageForFence("JS")?.name).toBe("JavaScript");
     expect(languageForFence("c++")?.name).toBe("C++");
     expect(languageForFence("CSharp")?.name).toBe("C#");
     expect(languageForFence("EXS")?.name).toBe("Elixir");
+    expect(languageForFence("react")?.name).toBe("JSX");
+    expect(languageForFence("reacttsx")?.name).toBe("TSX");
+    expect(languageForFence("postgres")?.name).toBe("PostgreSQL");
+    expect(languageForFence("angular-template")?.name).toBe(
+      "Angular template",
+    );
     expect(languageForFence("unsupported")).toBeNull();
+    expect(languageForFence("diff")).toBeNull();
   });
 
   it("keeps Automatic and Plain text as distinct first choices", () => {
@@ -262,5 +354,39 @@ describe("core syntax language registry", () => {
       expect.arrayContaining(["keyword", "string", "number"]),
     );
     expect(makeNodes).toContain("labelName");
+  });
+
+  it("loads every requested bundled catalog grammar", async () => {
+    const requestedIds = [
+      "latex",
+      "postgresql",
+      "mysql",
+      "mariadb",
+      "mssql",
+      "plsql",
+      "sqlite",
+      "cql",
+      "jinja",
+      "vue",
+      "angular",
+      "haskell",
+      "clojure",
+      "clojurescript",
+      "erlang",
+      "ocaml",
+      "fsharp",
+      "fortran",
+      "julia",
+      "perl",
+      "pascal",
+      "vbnet",
+      "cobol",
+      "puppet",
+    ] as const;
+
+    const supports = await Promise.all(requestedIds.map(loadSyntaxLanguage));
+
+    expect(supports).toHaveLength(requestedIds.length);
+    expect(supports.every((support) => Boolean(support.extension))).toBe(true);
   });
 });

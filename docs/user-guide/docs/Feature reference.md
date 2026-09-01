@@ -136,6 +136,12 @@ more detail and examples.
   Makefiles, Gradle/Groovy, Protocol Buffers, properties/INI/CFG files,
   Cargo/Poetry/uv locks, Visual Studio solutions, `.csproj`-family XML project
   manifests, and other documented project filenames.
+- Highlight LaTeX, PostgreSQL, MySQL, MariaDB, MS SQL, PL/SQL, SQLite SQL,
+  CQL, Jinja, Vue, Angular templates, Haskell, Clojure/ClojureScript, Erlang,
+  OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET, Cobol, and Puppet. React uses
+  JSX or TSX.
+- Keep ambiguous `.pp` files plain under Automatic and allow an explicit Pascal
+  or Puppet tab override. Leave diff highlighting to the Git plugin.
 - Search code-block languages by name, alias, or extension from a keyboard
   combobox. Keep unknown identifiers until a supported option is explicitly
   selected, and change only the fence identifier through undoable editing.

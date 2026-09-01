@@ -407,6 +407,11 @@ Makefile formats have lightweight core tokenizers; CMake and Groovy use bundled
 catalog grammars; `.csproj` and related manifests use XML; `.sln`,
 `.properties`, `.ini`, `.cfg`, and `.editorconfig` use properties-style
 highlighting.
+The picker also includes LaTeX, Jinja, Vue, Angular templates, React JSX/TSX,
+common SQL dialects, and the supported functional, scientific, legacy, and
+configuration languages. Automatic detection does not guess when extensions are
+ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Diff rendering
+is absent from core and belongs to the Git plugin's future surfaces.
 
 ### Replace Preview
 

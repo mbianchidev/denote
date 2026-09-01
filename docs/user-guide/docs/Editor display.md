@@ -66,8 +66,15 @@ Rust, Python, C/C++, C#, Kotlin, Swift, Ruby, PHP, Dart, Lua, R, Scala, Elixir,
 JSON, XML, HTML, CSS, Markdown, shell, YAML, TOML, SQL, PowerShell, SCSS, LESS,
 Dockerfiles, Go module/workspace files, CMake, Makefiles, Gradle/Groovy,
 Protocol Buffers, properties/INI/CFG files, Visual Studio solutions, and common
-XML project manifests. JSP uses HTML highlighting; Java scriptlets remain
-readable but uncolored.
+XML project manifests. It also includes LaTeX, PostgreSQL, MySQL, MariaDB,
+MS SQL, PL/SQL, SQLite SQL, CQL, Jinja, Vue, Angular templates, Haskell,
+Clojure/ClojureScript, Erlang, OCaml, F#, Fortran, Julia, Perl, Pascal, VB.NET,
+Cobol, and Puppet. JSX and TSX cover React syntax. JSP uses HTML highlighting;
+Java scriptlets remain readable but uncolored.
+
+Automatic detection leaves `.pp` as plain text because both Pascal and Puppet
+use it. Choose either language from the tab override when needed. Diff
+highlighting is reserved for the optional Git plugin.
 
 ## Session restore
 
