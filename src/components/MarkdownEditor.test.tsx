@@ -2178,6 +2178,40 @@ describe("MarkdownEditor links", () => {
     );
   });
 
+  it("updates the code block accessible label when read mode changes", async () => {
+    const props = {
+      notePath: "synthetic.md",
+      markdown: "```ts\nconst total = 3;\n```",
+      lineEnding: "lf" as const,
+      displaySettings: DEFAULT_EDITOR_DISPLAY_SETTINGS,
+      preferredViewMode: "rich-text" as const,
+      onChange: vi.fn(),
+      onError: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onViewModeChange: vi.fn(),
+      onImageUpload: vi.fn(),
+    };
+    const { container, rerender } = render(
+      <MarkdownEditor {...props} readOnly={false} />,
+    );
+    const editable = await screen.findByRole("textbox", {
+      name: "Edit code block",
+    });
+    const editorElement =
+      container.querySelector<HTMLElement>(
+        "[data-denote-code-block-editor] .cm-editor",
+      )!;
+    const view = EditorView.findFromDOM(editorElement);
+
+    rerender(<MarkdownEditor {...props} readOnly />);
+
+    expect(
+      await screen.findByRole("textbox", { name: "Read code block" }),
+    ).toBe(editable);
+    expect(editable).toHaveAttribute("contenteditable", "false");
+    expect(EditorView.findFromDOM(editorElement)).toBe(view);
+  });
+
   it("copies a large live code document from the custom editor", async () => {
     const user = userEvent.setup();
     const code = Array.from(

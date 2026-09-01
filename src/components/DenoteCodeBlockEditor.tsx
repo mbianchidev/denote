@@ -70,6 +70,7 @@ export function DenoteCodeBlockEditor({
   const setCodeRef = useRef(setCode);
   const onErrorRef = useRef(settings.onError);
   const languageRequestRef = useRef(0);
+  const attributesCompartment = useRef(new Compartment()).current;
   const languageCompartment = useRef(new Compartment()).current;
   const readOnlyCompartment = useRef(new Compartment()).current;
   const tabCompartment = useRef(new Compartment()).current;
@@ -89,12 +90,7 @@ export function DenoteCodeBlockEditor({
         extensions: [
           ...createCodeMirrorBehaviorExtensions(),
           denoteCodeMirrorTheme,
-          EditorView.contentAttributes.of({
-            "aria-label": settings.readOnly
-              ? "Read code block"
-              : "Edit code block",
-            spellcheck: "false",
-          }),
+          attributesCompartment.of(codeBlockAttributes(settings.readOnly)),
           EditorView.domEventHandlers({
             focus: () => {
               parentEditor.update(() => {
@@ -127,6 +123,7 @@ export function DenoteCodeBlockEditor({
       editorRef.current = null;
     };
   }, [
+    attributesCompartment,
     focusEmitter,
     languageCompartment,
     parentEditor,
@@ -136,11 +133,14 @@ export function DenoteCodeBlockEditor({
 
   useEffect(() => {
     editorRef.current?.dispatch({
-      effects: readOnlyCompartment.reconfigure(
-        readOnlyExtensions(settings.readOnly),
-      ),
+      effects: [
+        readOnlyCompartment.reconfigure(readOnlyExtensions(settings.readOnly)),
+        attributesCompartment.reconfigure(
+          codeBlockAttributes(settings.readOnly),
+        ),
+      ],
     });
-  }, [readOnlyCompartment, settings.readOnly]);
+  }, [attributesCompartment, readOnlyCompartment, settings.readOnly]);
 
   useEffect(() => {
     editorRef.current?.dispatch({
@@ -243,4 +243,11 @@ function readOnlyExtensions(readOnly: boolean): Extension[] {
     EditorState.readOnly.of(readOnly),
     EditorView.editable.of(!readOnly),
   ];
+}
+
+function codeBlockAttributes(readOnly: boolean): Extension {
+  return EditorView.contentAttributes.of({
+    "aria-label": readOnly ? "Read code block" : "Edit code block",
+    spellcheck: "false",
+  });
 }
