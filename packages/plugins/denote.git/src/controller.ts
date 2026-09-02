@@ -23,7 +23,10 @@ import type {
 import {
   conflictSideLabels,
   initialModel,
+  initialRemoteAccess,
+  initialScope,
   refreshedModel,
+  scopeFor,
   selectionOf,
   uninitializedModel,
   withBusy,
@@ -41,6 +44,7 @@ import {
   withoutCommitDetail,
   withoutConflictDetail,
   HISTORY_PAGE_SIZE,
+  UNREFRESHED_LABEL,
   type GitRepositoryScope,
   type GitSelection,
 } from "./model";
@@ -288,14 +292,32 @@ export class GitRepositoryController {
    * another path's name.
    */
   private conflictToken = 0;
+  private readonly repositorySnapshots = new Map<
+    string,
+    {
+      initialized: boolean;
+      branch: string | null;
+      changes: number;
+    }
+  >();
 
   constructor(
     scope: GitRepositoryScope,
     private readonly options: GitControllerOptions,
+    private repositories: GitRepositoryScope[] = [scope],
+    remoteAccess: PluginSourceControlRemoteAccess = initialRemoteAccess(),
   ) {
     this.scope = scope;
-    this.current = initialModel(scope);
+    this.current = initialModel(scope, remoteAccess, repositories);
     this.stable = this.current;
+    for (const repository of repositories) {
+      this.repositorySnapshots.set(repository.repositoryId, {
+        initialized: repository.detected === true,
+        branch: null,
+        changes: 0,
+      });
+    }
+    this.rememberRepository(this.current);
   }
 
   get model(): PluginSourceControlViewModel {
@@ -304,6 +326,44 @@ export class GitRepositoryController {
 
   get repositoryId(): string {
     return this.scope.repositoryId;
+  }
+
+  setRepositories(
+    repositories: GitRepositoryScope[],
+    currentProject: Parameters<typeof scopeFor>[0],
+    workspaceChanged: boolean,
+  ): void {
+    const available =
+      repositories.length > 0 ? repositories : [scopeFor(currentProject)];
+    const selected =
+      (!workspaceChanged &&
+        available.find(
+          (repository) => repository.repositoryId === this.scope.repositoryId,
+        )) ||
+      initialScope(currentProject, available);
+    const repositoriesChanged =
+      available.length !== this.repositories.length ||
+      available.some((repository, index) => {
+        const previous = this.repositories[index];
+        return (
+          previous?.repositoryId !== repository.repositoryId ||
+          previous.projectId !== repository.projectId ||
+          previous.name !== repository.name
+        );
+      });
+    this.repositories = available;
+    if (
+      workspaceChanged ||
+      selected.repositoryId !== this.scope.repositoryId
+    ) {
+      this.setScope(selected, workspaceChanged);
+      return;
+    }
+    if (!repositoriesChanged) {
+      return;
+    }
+    this.scope = selected;
+    this.publish(this.current);
   }
 
   /**
@@ -337,7 +397,7 @@ export class GitRepositoryController {
     // Remote and clone state describes how the user signs in and what a failed
     // clone left behind. Neither belongs to the repository that was open, so
     // both survive a scope change while everything read from Git is discarded.
-    this.current = initialModel(scope, this.remoteAccess);
+    this.current = initialModel(scope, this.remoteAccess, this.repositories);
     this.stable = this.current;
     if (abandoned) {
       this.options.report("Closed a conflict editor with an unsaved result.");
@@ -349,7 +409,7 @@ export class GitRepositoryController {
       });
       this.stable = this.current;
     }
-    this.options.publish(this.current);
+    this.publish(this.current);
     // Settings are host-persisted and can have been changed while another
     // vault was open, so the mode shown for the new scope is re-read rather
     // than carried over.
@@ -454,6 +514,15 @@ export class GitRepositoryController {
           text(action, "url"),
         );
         return;
+      case "select-workspace-repository":
+        if (this.refusesForUnsavedConflict("open another repository")) {
+          return;
+        }
+        await this.selectWorkspaceRepository(
+          text(action, "repositoryId"),
+          git,
+        );
+        return;
       case "cancel-operation":
         await this.cancel(text(action, "operationId"), git);
         return;
@@ -481,7 +550,108 @@ export class GitRepositoryController {
             operation === "stage" ? "Staging a change" : "Unstaging a change",
             { operation, scope: this.scope.kind, paths: [path] },
           );
-          await this.refresh(capability, generation);
+          await this.refreshWorkingTree(capability, generation);
+        });
+        return;
+      }
+      case "stage-all":
+      case "unstage-all": {
+        const operation = action.id === "stage-all" ? "stage" : "unstage";
+        const kinds =
+          operation === "stage"
+            ? (["unstaged", "untracked"] as const)
+            : (["staged"] as const);
+        const paths = kinds.flatMap((kind) => pathsIn(this.current, kind));
+        if (paths.length === 0) {
+          this.publishFailure(
+            new GitRefused(
+              operation === "stage"
+                ? "There are no eligible changes to stage."
+                : "There are no staged changes to unstage.",
+            ),
+          );
+          return;
+        }
+        await this.withOperation(git, async (capability, generation) => {
+          await this.perform(
+            capability,
+            generation,
+            operation === "stage"
+              ? "Staging all changes"
+              : "Unstaging all changes",
+            { operation, scope: this.scope.kind, paths },
+          );
+          await this.refreshWorkingTree(capability, generation);
+        });
+        return;
+      }
+      case "restore-from-upstream":
+      case "restore-all-from-upstream": {
+        const restoreAll = action.id === "restore-all-from-upstream";
+        const path = text(action, "path");
+        const paths = restoreAll
+          ? [
+              ...new Set(
+                (["staged", "unstaged"] as const).flatMap((kind) =>
+                  pathsIn(this.current, kind),
+                ),
+              ),
+            ]
+          : path
+            ? [path]
+            : [];
+        if (paths.length === 0) {
+          this.publishFailure(
+            new GitRefused(
+              restoreAll
+                ? "There are no tracked changes to restore."
+                : "Choose a tracked file to restore first.",
+            ),
+          );
+          return;
+        }
+        if (!this.current.repository.upstream) {
+          this.publishFailure(
+            new GitRefused(
+              "This branch has no upstream, so there is no current remote branch to restore from.",
+            ),
+          );
+          return;
+        }
+        if (
+          !restoreAll &&
+          !(["staged", "unstaged"] as const).some((kind) =>
+            pathsIn(this.current, kind).includes(path),
+          )
+        ) {
+          this.publishFailure(
+            new GitRefused(
+              "Only tracked staged or unstaged files can be restored from the current remote branch.",
+            ),
+          );
+          return;
+        }
+        await this.withOperation(git, async (capability, generation) => {
+          await this.perform(
+            capability,
+            generation,
+            `Restoring ${restoreAll ? "tracked changes" : path} from ${this.current.repository.upstream}`,
+            {
+              operation: "restore-from-upstream",
+              scope: this.scope.kind,
+              paths,
+            },
+          );
+          await this.refreshWorkingTree(capability, generation);
+          this.reviewed(
+            "Restore from remote",
+            "succeeded",
+            `${
+              restoreAll
+                ? `${paths.length} tracked file${paths.length === 1 ? "" : "s"} now match`
+                : `${path} now matches`
+            } ${this.current.repository.upstream}.`,
+          );
         });
         return;
       }
@@ -780,6 +950,27 @@ export class GitRepositoryController {
     );
   }
 
+  private async selectWorkspaceRepository(
+    repositoryId: string,
+    git: PluginGitCapability | undefined,
+  ): Promise<void> {
+    const scope = this.repositories.find(
+      (repository) => repository.repositoryId === repositoryId,
+    );
+    if (!scope) {
+      this.publishFailure(
+        new GitRefused(
+          "That repository is no longer available in this vault. Refresh the workspace and try again.",
+        ),
+      );
+      return;
+    }
+    this.setScope(scope);
+    await this.withOperation(git, (capability, generation) =>
+      this.refresh(capability, generation),
+    );
+  }
+
   private selectTab(tab: string): void {
     const selection: GitSelection | null =
       tab === "changes"
@@ -1047,6 +1238,7 @@ export class GitRepositoryController {
       this.publish(uninitializedModel(this.scope, this.remoteAccess));
       return;
     }
+
     const status = await this.perform(
       git,
       generation,
@@ -1113,6 +1305,69 @@ export class GitRepositoryController {
           error: null,
         },
         commitDetail: preservedCommitDetail(this.current, entries),
+        diffFiles,
+        diffSource: this.openDiff ? { kind: this.openDiff.target } : null,
+        conflictDetail: this.conflict ? detailOf(this.conflict, false) : null,
+        operationProgress,
+        operationPlan,
+        recovery: interruptedOperation(operationState, operationProgress),
+        remoteAccess: this.remoteAccess,
+        pendingBranchSwitch: this.pendingSwitch
+          ? this.current.pendingBranchSwitch
+          : null,
+      }),
+    );
+    if (notice) {
+      this.publish(
+        withReview(this.current, {
+          operation: "Conflict",
+          outcome: "cancelled",
+          summary: notice,
+          detail: null,
+        }),
+      );
+    }
+  }
+
+  private async refreshWorkingTree(
+    git: PluginGitCapability,
+    generation: number,
+  ): Promise<void> {
+    const status = await this.perform(
+      git,
+      generation,
+      "Reading the working tree",
+      { operation: "status", scope: this.scope.kind },
+    );
+    const state = await this.perform(
+      git,
+      generation,
+      "Reading the operation state",
+      { operation: "operation-state", scope: this.scope.kind },
+    );
+    const diffFiles = await this.readOpenDiff(git, generation);
+    const report = parseStatus(status.stdout);
+    const operationState = parseOperationState(state.stdout);
+    const operationProgress = operationProgressOf(
+      operationState,
+      report.conflicted.map((resource) => resource.path),
+    );
+    const notice = this.reconcileConflictEditor(report, operationProgress);
+    const operationPlan = this.reviewedPlan(
+      report.branch,
+      this.current.history[0]?.id ?? null,
+    );
+    this.publish(
+      refreshedModel(this.scope, selectionOf(this.current), {
+        status: report,
+        branches: this.current.branches,
+        remotes: this.current.remotes,
+        history: this.current.history,
+        historyPage: this.current.historyPage,
+        commitDetail: preservedCommitDetail(
+          this.current,
+          this.current.history,
+        ),
         diffFiles,
         diffSource: this.openDiff ? { kind: this.openDiff.target } : null,
         conflictDetail: this.conflict ? detailOf(this.conflict, false) : null,
@@ -1326,7 +1581,7 @@ export class GitRepositoryController {
         hunk: hunkRequest(hunk),
       },
     );
-    await this.refresh(git, generation);
+    await this.refreshWorkingTree(git, generation);
     this.reviewed(
       operation === "stage-hunk" ? "Stage hunk" : "Unstage hunk",
       "succeeded",
@@ -1375,15 +1630,17 @@ export class GitRepositoryController {
       );
     }
     const settings = readGitSettings(await this.options.readSettings());
-    const request: PluginGitRunRequest = settings.identity
-      ? {
-          operation: "commit",
-          scope: this.scope.kind,
-          message: trimmed,
-          authorName: settings.identity.authorName,
-          authorEmail: settings.identity.authorEmail,
-        }
-      : { operation: "commit", scope: this.scope.kind, message: trimmed };
+    const request: PluginGitRunRequest = {
+      operation: "commit",
+      scope: this.scope.kind,
+      message: trimmed,
+      ...(settings.identity
+        ? {
+            authorName: settings.identity.authorName,
+            authorEmail: settings.identity.authorEmail,
+          }
+        : {}),
+    };
     await this.perform(git, generation, "Committing staged changes", request);
     this.options.report("Committed staged changes.", {
       identity: settings.identity ? "configured" : "repository",
@@ -3098,7 +3355,9 @@ export class GitRepositoryController {
     if (generation !== this.generation) {
       throw new StaleScope();
     }
-    const operation = git.run(request);
+    const operation = git.run(request, {
+      projectId: this.scope.projectId ?? null,
+    });
     if (generation === this.generation) {
       this.currentOperationId = operation.operationId;
       this.publish(withBusy(this.current, busyMessage, operation.operationId));
@@ -3224,13 +3483,46 @@ export class GitRepositoryController {
   }
 
   private publish(model: PluginSourceControlViewModel): void {
-    this.current = model;
+    this.rememberRepository(model);
+    const decorated = {
+      ...model,
+      workspaceRepositories: this.repositories.map((repository) => {
+        const snapshot = this.repositorySnapshots.get(repository.repositoryId);
+        return {
+          repositoryId: repository.repositoryId,
+          label: repository.name,
+          selected:
+            repository.repositoryId === model.repository.repositoryId,
+          initialized: snapshot?.initialized ?? false,
+          branch: snapshot?.branch ?? null,
+          changes: snapshot?.changes ?? 0,
+        };
+      }),
+    } satisfies PluginSourceControlViewModel;
+    this.current = decorated;
     // A settled model is what a failure falls back to, so a failure never
     // replaces good data with an empty repository or with progress state.
-    if (!model.repository.busy) {
-      this.stable = model;
+    if (!decorated.repository.busy) {
+      this.stable = decorated;
     }
-    this.options.publish(model);
+    this.options.publish(decorated);
+  }
+
+  private rememberRepository(model: PluginSourceControlViewModel): void {
+    const previous = this.repositorySnapshots.get(
+      model.repository.repositoryId,
+    );
+    const unrefreshed = model.repository.label.endsWith(UNREFRESHED_LABEL);
+    this.repositorySnapshots.set(model.repository.repositoryId, {
+      initialized: unrefreshed
+        ? (previous?.initialized ?? model.repository.initialized)
+        : model.repository.initialized,
+      branch: model.repository.branch,
+      changes: model.resourceGroups.reduce(
+        (total, group) => total + group.resources.length,
+        0,
+      ),
+    });
   }
 }
 

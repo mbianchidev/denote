@@ -4,6 +4,7 @@ import type {
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginProjectRepositoryContext,
   PluginSourceControlAction,
 } from "@denote/plugin-sdk";
 import {
@@ -94,6 +95,7 @@ export class PluginWorkerRuntime {
   private readonly stops = new Map<string, Promise<void>>();
   private readonly generations = new Map<string, number>();
   private projectContext: PluginProjectContext | null = null;
+  private projectRepositories: PluginProjectRepositoryContext[] = [];
   /**
    * Identifies the workspace the host is showing. It never leaves the host: it
    * is compared here and only the resulting change flag is broadcast.
@@ -245,6 +247,9 @@ export class PluginWorkerRuntime {
       projectId: runtime.permissions.has("project-context")
         ? actionScope.projectId
         : null,
+      projectIds: runtime.permissions.has("project-context")
+        ? [...(actionScope.projectIds ?? [])]
+        : [],
       // A command is not a source-control action, so its lease authorises none
       // of the host operations that are bound to one.
       sourceControlActionId: null,
@@ -288,6 +293,9 @@ export class PluginWorkerRuntime {
       projectId: runtime.permissions.has("project-context")
         ? actionScope.projectId
         : null,
+      projectIds: runtime.permissions.has("project-context")
+        ? [...(actionScope.projectIds ?? [])]
+        : [],
       // The lease carries the action the host is running, so a host operation
       // reserved for one action cannot be reached from another.
       sourceControlActionId: action.id,
@@ -320,20 +328,32 @@ export class PluginWorkerRuntime {
     }
   }
 
-  setProjectContext(context: PluginProjectContext | null): void {
+  setProjectContext(
+    context: PluginProjectContext | null,
+    repositories: PluginProjectRepositoryContext[] = [],
+  ): void {
     validateProjectContext(context);
-    if (sameProjectContext(this.projectContext, context)) {
+    validateProjectRepositories(repositories);
+    if (
+      sameProjectContext(this.projectContext, context) &&
+      sameProjectRepositories(this.projectRepositories, repositories)
+    ) {
       return;
     }
     if (projectIdentity(this.projectContext) !== projectIdentity(context)) {
       this.invalidateActionLeases();
     }
+    const nextRepositories = cloneProjectRepositories(repositories);
     const event: PluginProjectContextChangeEvent = {
       previous: cloneProjectContext(this.projectContext),
       current: cloneProjectContext(context),
+      ...(nextRepositories.length > 0
+        ? { repositories: nextRepositories }
+        : {}),
       workspaceChanged: false,
     };
     this.projectContext = cloneProjectContext(context);
+    this.projectRepositories = nextRepositories;
     this.broadcastProjectContextChange(event);
   }
 
@@ -355,9 +375,11 @@ export class PluginWorkerRuntime {
     for (const runtime of this.runtimes.values()) {
       runtime.activeActions.clear();
     }
+    const repositories = cloneProjectRepositories(this.projectRepositories);
     this.broadcastProjectContextChange({
       previous: cloneProjectContext(this.projectContext),
       current: cloneProjectContext(this.projectContext),
+      ...(repositories.length > 0 ? { repositories } : {}),
       workspaceChanged: true,
     });
   }
@@ -468,6 +490,13 @@ export class PluginWorkerRuntime {
           ? {
               type: "activate",
               projectContext: cloneProjectContext(this.projectContext),
+              ...(this.projectRepositories.length > 0
+                ? {
+                    repositories: cloneProjectRepositories(
+                      this.projectRepositories,
+                    ),
+                  }
+                : {}),
             }
           : { type: "activate" },
       );
@@ -1107,6 +1136,29 @@ function cloneProjectContext(
     : null;
 }
 
+function cloneProjectRepositories(
+  repositories: PluginProjectRepositoryContext[],
+): PluginProjectRepositoryContext[] {
+  return repositories.map((repository) => ({ ...repository }));
+}
+
+function sameProjectRepositories(
+  left: PluginProjectRepositoryContext[],
+  right: PluginProjectRepositoryContext[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((repository, index) => {
+      const candidate = right[index];
+      return (
+        candidate?.repositoryId === repository.repositoryId &&
+        candidate.projectId === repository.projectId &&
+        candidate.label === repository.label
+      );
+    })
+  );
+}
+
 function sameProjectContext(
   left: PluginProjectContext | null,
   right: PluginProjectContext | null,
@@ -1139,5 +1191,24 @@ function validateProjectContext(context: PluginProjectContext | null): void {
     context.rootPath.split(/[\\/]/).some((segment) => segment === "..")
   ) {
     throw new Error("Plugin project context must use a vault-relative root path.");
+  }
+}
+
+function validateProjectRepositories(
+  repositories: PluginProjectRepositoryContext[],
+): void {
+  const ids = new Set<string>();
+  for (const repository of repositories) {
+    if (
+      !repository.repositoryId ||
+      !repository.label ||
+      (repository.projectId !== null && !repository.projectId) ||
+      ids.has(repository.repositoryId)
+    ) {
+      throw new Error(
+        "Plugin repository contexts must use unique host-issued identities.",
+      );
+    }
+    ids.add(repository.repositoryId);
   }
 }

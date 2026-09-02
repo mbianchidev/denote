@@ -10,6 +10,7 @@ import type {
   PluginGitPullStrategy,
   PluginGitPushMode,
   PluginGitRequest,
+  PluginGitRepositoryTarget,
   PluginGitScope,
   PluginGitSequencer,
   PluginGitStashAction,
@@ -36,7 +37,12 @@ const PULL_STRATEGIES: PluginGitPullStrategy[] = [
   "fast-forward-only",
 ];
 const PUSH_MODES: PluginGitPushMode[] = ["normal", "force-with-lease"];
-const AUTH_MODES: PluginGitAuthMode[] = ["public", "ssh-agent", "github-https"];
+const AUTH_MODES: PluginGitAuthMode[] = [
+  "system",
+  "public",
+  "ssh-agent",
+  "github-https",
+];
 const HUNK_LINE_KINDS: PluginGitHunkLineKind[] = [
   "context",
   "addition",
@@ -56,6 +62,7 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
   if (!isRecord(value) || typeof value.operation !== "string") {
     throw new Error("Plugin Git request must name an operation.");
   }
+
   if (value.operation === "cancel") {
     return {
       operation: "cancel",
@@ -79,6 +86,7 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
       };
     case "stage":
     case "unstage":
+    case "restore-from-upstream":
       return {
         operation: value.operation,
         scope,
@@ -254,6 +262,35 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
         `Unsupported plugin Git operation: ${String(value.operation)}`,
       );
   }
+}
+
+export function parsePluginGitInvocation(value: unknown): {
+  request: PluginGitRequest;
+  target: PluginGitRepositoryTarget | null;
+} {
+  if (isRecord(value) && "request" in value) {
+    return {
+      request: parsePluginGitRequest(value.request),
+      target:
+        value.target === null || value.target === undefined
+          ? null
+          : gitRepositoryTarget(value.target),
+    };
+  }
+  return { request: parsePluginGitRequest(value), target: null };
+}
+
+function gitRepositoryTarget(value: unknown): PluginGitRepositoryTarget {
+  if (
+    !isRecord(value) ||
+    (value.projectId !== null &&
+      (typeof value.projectId !== "string" ||
+        value.projectId.length === 0 ||
+        value.projectId.length > 128))
+  ) {
+    throw new Error("Plugin Git repository target is invalid.");
+  }
+  return { projectId: value.projectId as string | null };
 }
 
 function diffTarget(value: unknown): PluginGitDiffTarget {

@@ -78,6 +78,7 @@ export interface PluginBooleanSetting extends PluginSettingBase {
 export interface PluginStringSetting extends PluginSettingBase {
   type: "string";
   default: string;
+  sensitive?: boolean;
 }
 
 export interface PluginNumberSetting extends PluginSettingBase {
@@ -285,6 +286,7 @@ export interface PluginProjectContext {
 export interface PluginProjectContextChangeEvent {
   previous: PluginProjectContext | null;
   current: PluginProjectContext | null;
+  repositories?: PluginProjectRepositoryContext[];
   /**
    * True when the host switched to a different workspace, which invalidates
    * everything a plugin read from the previous one. It is reported even when
@@ -295,8 +297,20 @@ export interface PluginProjectContextChangeEvent {
   workspaceChanged: boolean;
 }
 
+/**
+ * One repository the host found at the vault root or at a configured project
+ * root. The opaque IDs can target typed Git operations; no filesystem path is
+ * exposed for inactive repositories.
+ */
+export interface PluginProjectRepositoryContext {
+  repositoryId: string;
+  projectId: string | null;
+  label: string;
+}
+
 export interface PluginProjectContextCapability {
   getCurrent: () => PluginProjectContext | null;
+  getRepositories: () => PluginProjectRepositoryContext[];
   subscribe: (
     listener: (
       event: PluginProjectContextChangeEvent,
@@ -328,6 +342,15 @@ export interface PluginSourceControlRepositorySummary {
    * a cancel control that returns the exact ID to the provider.
    */
   activeOperationId?: string;
+}
+
+export interface PluginSourceControlWorkspaceRepository {
+  repositoryId: string;
+  label: string;
+  selected: boolean;
+  initialized: boolean;
+  branch: string | null;
+  changes: number;
 }
 
 export type PluginSourceControlResourceGroupKind =
@@ -633,7 +656,11 @@ export interface PluginSourceControlConflictDetail {
  * GitHub adapter for credentials. A plugin only ever names the mode: no token,
  * key, or credential of any kind passes through it.
  */
-export type PluginSourceControlAuthMode = "public" | "ssh-agent" | "github-https";
+export type PluginSourceControlAuthMode =
+  | "system"
+  | "public"
+  | "ssh-agent"
+  | "github-https";
 
 /**
  * One repository the host's GitHub adapter offered for selection. Only this
@@ -760,6 +787,7 @@ export type PluginSourceControlRecoveryState =
 
 interface PluginSourceControlViewModelBase {
   repository: PluginSourceControlRepositorySummary;
+  workspaceRepositories?: PluginSourceControlWorkspaceRepository[];
   resourceGroups: PluginSourceControlResourceGroup[];
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
@@ -915,7 +943,16 @@ export type PluginGitPushMode = "normal" | "force-with-lease";
  * plugin boundary: the host resolves every credential itself and never returns
  * one.
  */
-export type PluginGitAuthMode = "public" | "ssh-agent" | "github-https";
+export type PluginGitAuthMode =
+  | "system"
+  | "public"
+  | "ssh-agent"
+  | "github-https";
+
+/** A host-issued repository target for one typed Git request. */
+export interface PluginGitRepositoryTarget {
+  projectId: string | null;
+}
 
 export type PluginGitDiffTarget =
   | { kind: "worktree" }
@@ -973,6 +1010,11 @@ export type PluginGitRunRequest =
   | { operation: "initialize"; scope: PluginGitScope; defaultBranch: string }
   | { operation: "stage"; scope: PluginGitScope; paths: string[] }
   | { operation: "unstage"; scope: PluginGitScope; paths: string[] }
+  | {
+      operation: "restore-from-upstream";
+      scope: PluginGitScope;
+      paths: string[];
+    }
   /**
    * Stages, or unstages, exactly one hunk of exactly one path. The host
    * reconstructs the patch and applies it to the index only, so neither the
@@ -1230,7 +1272,10 @@ export interface PluginGitCapability {
    * `gitExecutablePath` setting, so an invocation can never name a binary,
    * raw argument, flag, or environment value.
    */
-  run: (request: PluginGitRunRequest) => PluginGitOperation;
+  run: (
+    request: PluginGitRunRequest,
+    target?: PluginGitRepositoryTarget,
+  ) => PluginGitOperation;
   /**
    * Cancels one of this plugin's operations by ID. The resolved result
    * describes the cancelled operation, and `cancelled` is false when no

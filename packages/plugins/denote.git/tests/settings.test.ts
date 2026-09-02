@@ -16,6 +16,10 @@ describe("readGitSettings", () => {
     expect(DEFAULT_SETTINGS.defaultBranch).toBe("main");
     expect(DEFAULT_SETTINGS.autoCommitIntervalMinutes).toBe(0);
     expect(DEFAULT_SETTINGS.autoCommitMessage).toBe("Denote automatic commit");
+    expect(DEFAULT_SETTINGS.useSystemGitSettings).toBe(true);
+    expect(DEFAULT_SETTINGS.authMode).toBe("system");
+    expect(DEFAULT_SETTINGS.signingMode).toBe("system");
+    expect(DEFAULT_SETTINGS.signingKey).toBeNull();
   });
 
   it("reads a complete configuration", () => {
@@ -29,10 +33,17 @@ describe("readGitSettings", () => {
         autoCommitMessage: "Synthetic automatic commit",
         includePatterns: "notes, projects/alpha ,",
         excludePatterns: "scratch",
+        useSystemGitSettings: false,
+        authenticationMode: "github-https",
+        commitSigning: "always",
+        gpgSigningKey: "ABCDEF1234567890",
       }),
     ).toEqual({
-      authMode: "public",
+      useSystemGitSettings: false,
+      authMode: "github-https",
       pullStrategy: "fast-forward-only",
+      signingMode: "always",
+      signingKey: "ABCDEF1234567890",
       defaultBranch: "trunk",
       identity: {
         authorName: "Synthetic Author",

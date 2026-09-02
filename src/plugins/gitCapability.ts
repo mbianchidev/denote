@@ -8,6 +8,7 @@ import type {
   PluginGitHubListRequest,
   PluginGitHubRepository,
   PluginGitResult,
+  PluginGitRepositoryTarget,
   PluginGitRunRequest,
 } from "@denote/plugin-sdk";
 
@@ -41,9 +42,15 @@ export function createGitCapability(
   host: PluginGitHostDispatch,
 ): PluginGitCapability {
   return {
-    run: (request: PluginGitRunRequest) => {
+    run: (
+      request: PluginGitRunRequest,
+      target?: PluginGitRepositoryTarget,
+    ) => {
       const operationId = crypto.randomUUID();
-      return { operationId, result: dispatch(request, operationId) };
+      return {
+        operationId,
+        result: dispatch({ request, target: target ?? null }, operationId),
+      };
     },
     cancel: (operationId: string) =>
       dispatch({ operation: "cancel", operationId }, crypto.randomUUID()),

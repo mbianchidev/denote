@@ -18,12 +18,14 @@ use super::{
         GitTransportPolicy, GitWriteSource, PluginGitAuthMode, PluginGitConflictResolution,
         PluginGitConflictStage, PluginGitDiffTarget, PluginGitHunk, PluginGitHunkLine,
         PluginGitHunkLineKind, PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest,
-        PluginGitScope, PluginGitSequencer, PluginGitStashAction, apply_environment,
-        assert_repository_config_is_safe, detect_operation_state,
-        ensure_encrypted_repository_metadata, hardening_arguments, plan_git_request, redact,
-        resolve_git_directory, resolve_git_executable, validate_branch_name, validate_operation_id,
-        validate_remote_name, validate_remote_url, validate_revision, validated_path,
+        PluginGitScope, PluginGitSequencer, PluginGitStashAction, SystemGitSettings,
+        apply_environment, apply_system_git_settings, assert_repository_config_is_safe,
+        detect_operation_state, ensure_encrypted_repository_metadata, hardening_arguments,
+        plan_git_request, redact, resolve_git_directory, resolve_git_executable,
+        validate_branch_name, validate_operation_id, validate_remote_name, validate_remote_url,
+        validate_revision, validated_path,
     },
+    settings::{GitCommitSigningMode, GitSettingsPolicy},
     tests::{catalog, manager},
     types::PluginPermission,
 };
@@ -95,6 +97,20 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             paths: vec!["notes/alpha.md".to_string()],
         }),
         vec!["reset", "--quiet", "--", "notes/alpha.md"]
+    );
+    assert_eq!(
+        command_args(PluginGitRequest::RestoreFromUpstream {
+            scope: PluginGitScope::Vault,
+            paths: vec!["notes/alpha.md".to_string()],
+        }),
+        vec![
+            "restore",
+            "--source=@{upstream}",
+            "--staged",
+            "--worktree",
+            "--",
+            "notes/alpha.md"
+        ]
     );
     assert_eq!(
         command_args(PluginGitRequest::Commit {
@@ -355,6 +371,98 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             "synthetic"
         ]
     );
+}
+
+#[test]
+fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
+    let mut commit = plan_git_request(&PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    })
+    .expect("commit plan");
+    apply_system_git_settings(
+        &mut commit,
+        &PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::Always,
+            signing_key: Some("ABCDEF1234567890".to_string()),
+        },
+        &SystemGitSettings::from_pairs([
+            ("user.name", "Synthetic Author"),
+            ("user.email", "author@example.invalid"),
+            ("credential.helper", "osxkeychain"),
+            ("gpg.program", "/usr/local/bin/gpg"),
+        ]),
+    )
+    .expect("apply settings");
+    let args = match &commit[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(
+        args,
+        &[
+            "user.name=Synthetic Author",
+            "user.email=author@example.invalid",
+            "gpg.program=/usr/local/bin/gpg",
+            "commit.gpgSign=true",
+            "--gpg-sign=ABCDEF1234567890",
+        ],
+    );
+    assert!(!args.iter().any(|argument| argument == "--no-gpg-sign"));
+    assert!(!args.iter().any(|argument| argument.contains("passphrase")));
+
+    let mut fetch = plan_git_request(&PluginGitRequest::Fetch {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        prune: false,
+        auth_mode: PluginGitAuthMode::System,
+    })
+    .expect("fetch plan");
+    apply_system_git_settings(
+        &mut fetch,
+        &PluginGitRequest::Fetch {
+            scope: PluginGitScope::Vault,
+            remote: "origin".to_string(),
+            prune: false,
+            auth_mode: PluginGitAuthMode::System,
+        },
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::System,
+            signing_key: None,
+        },
+        &SystemGitSettings::from_pairs([("credential.helper", "osxkeychain")]),
+    )
+    .expect("apply credentials");
+    let args = match &fetch[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(args, &["credential.helper=osxkeychain", "fetch"]);
+}
+
+fn expect_args_in_order(args: &[String], expected: &[&str]) {
+    let mut position = 0;
+    for expected in expected {
+        let offset = args[position..]
+            .iter()
+            .position(|argument| argument == expected)
+            .unwrap_or_else(|| panic!("missing {expected:?} in {args:?}"));
+        position += offset + 1;
+    }
 }
 
 #[test]

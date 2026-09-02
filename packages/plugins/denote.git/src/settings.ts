@@ -3,11 +3,13 @@ export interface GitCommitIdentity {
   authorEmail: string;
 }
 
-export type GitAuthMode = "public" | "ssh-agent" | "github-https";
+export type GitAuthMode = "system" | "public" | "ssh-agent" | "github-https";
 export type GitPullStrategy = "merge" | "rebase" | "fast-forward-only";
+export type GitSigningMode = "system" | "always" | "never";
 
 export interface GitPluginSettings {
   defaultBranch: string;
+  useSystemGitSettings: boolean;
   identity: GitCommitIdentity | null;
   autoCommitIntervalMinutes: number;
   autoCommitMessage: string;
@@ -19,9 +21,17 @@ export interface GitPluginSettings {
    */
   authMode: GitAuthMode;
   pullStrategy: GitPullStrategy;
+  signingMode: GitSigningMode;
+  signingKey: string | null;
 }
 
-const AUTH_MODES: GitAuthMode[] = ["public", "ssh-agent", "github-https"];
+const AUTH_MODES: GitAuthMode[] = [
+  "system",
+  "public",
+  "ssh-agent",
+  "github-https",
+];
+const SIGNING_MODES: GitSigningMode[] = ["system", "always", "never"];
 const PULL_STRATEGIES: GitPullStrategy[] = [
   "merge",
   "rebase",
@@ -35,13 +45,16 @@ const MAX_MINUTES = 1440;
 
 export const DEFAULT_SETTINGS: GitPluginSettings = {
   defaultBranch: DEFAULT_BRANCH,
+  useSystemGitSettings: true,
   identity: null,
   autoCommitIntervalMinutes: 0,
   autoCommitMessage: DEFAULT_AUTO_COMMIT_MESSAGE,
   includePatterns: [],
   excludePatterns: [],
-  authMode: "public",
+  authMode: "system",
   pullStrategy: "fast-forward-only",
+  signingMode: "system",
+  signingKey: null,
 };
 
 /**
@@ -55,6 +68,7 @@ export function readGitSettings(value: unknown): GitPluginSettings {
   const settings = isRecord(value) ? value : {};
   return {
     defaultBranch: branchName(settings.defaultBranch),
+    useSystemGitSettings: booleanValue(settings.useSystemGitSettings, true),
     identity: commitIdentity(settings.authorName, settings.authorEmail),
     autoCommitIntervalMinutes: minutes(settings.autoCommitIntervalMinutes),
     autoCommitMessage:
@@ -62,13 +76,19 @@ export function readGitSettings(value: unknown): GitPluginSettings {
       DEFAULT_AUTO_COMMIT_MESSAGE,
     includePatterns: patterns(settings.includePatterns),
     excludePatterns: patterns(settings.excludePatterns),
-    authMode: choice(settings.authenticationMode, AUTH_MODES, "public"),
+    authMode: choice(settings.authenticationMode, AUTH_MODES, "system"),
     pullStrategy: choice(
       settings.pullStrategy,
       PULL_STRATEGIES,
       "fast-forward-only",
     ),
+    signingMode: choice(settings.commitSigning, SIGNING_MODES, "system"),
+    signingKey: trimmedText(settings.gpgSigningKey, MAX_IDENTITY_LENGTH),
   };
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 /**

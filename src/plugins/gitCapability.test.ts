@@ -38,7 +38,10 @@ describe("plugin Git capability", () => {
 
     expect(operation.operationId).toMatch(UUID);
     expect(dispatch).toHaveBeenCalledWith(
-      { operation: "status", scope: "vault" },
+      {
+        request: { operation: "status", scope: "vault" },
+        target: null,
+      },
       operation.operationId,
     );
     expect(resolvers).toHaveLength(1);
@@ -94,9 +97,29 @@ describe("plugin Git capability", () => {
     const operation = capability.run({ operation: "status", scope: "vault" });
 
     expect(dispatch.mock.calls[0]).toEqual([
-      { operation: "status", scope: "vault" },
+      {
+        request: { operation: "status", scope: "vault" },
+        target: null,
+      },
       operation.operationId,
     ]);
+  });
+
+  it("binds a request to a host-issued project target", () => {
+    const dispatch = vi.fn((_request: unknown, _operationId: string) =>
+      Promise.resolve(result("operation")),
+    );
+    const capability = createGitCapability(dispatch, hostDispatch());
+
+    capability.run(
+      { operation: "status", scope: "project" },
+      { projectId: "synthetic-project" },
+    );
+
+    expect(dispatch.mock.calls[0]?.[0]).toEqual({
+      request: { operation: "status", scope: "project" },
+      target: { projectId: "synthetic-project" },
+    });
   });
 
   it("routes host-owned Git operations away from the Git command dispatcher", async () => {

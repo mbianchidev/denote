@@ -31,6 +31,11 @@ interface ActivationHarness {
 
 function activationHarness(
   settings: Record<string, unknown> = {},
+  repositories: Array<{
+    repositoryId: string;
+    projectId: string | null;
+    label: string;
+  }> = [],
 ): ActivationHarness {
   const commands: PluginCommand[] = [];
   const statusItems: PluginStatusItem[] = [];
@@ -82,6 +87,7 @@ function activationHarness(
       },
       projectContext: {
         getCurrent: () => null,
+        getRepositories: () => repositories,
         subscribe: (listener) => {
           projectListeners.push(listener);
           return noop;
@@ -149,11 +155,14 @@ describe("Git plugin activation", () => {
     ).toEqual({
       gitExecutablePath: "",
       githubExecutablePath: "",
-      authenticationMode: "public",
+      useSystemGitSettings: true,
+      authenticationMode: "system",
       pullStrategy: "fast-forward-only",
       defaultBranch: "main",
       authorName: "",
       authorEmail: "",
+      commitSigning: "system",
+      gpgSigningKey: "",
       autoCommitIntervalMinutes: 0,
       autoCommitMessage: "Denote automatic commit",
       includePatterns: "",
@@ -162,7 +171,13 @@ describe("Git plugin activation", () => {
   });
 
   it("registers its surfaces without running Git or touching the vault", async () => {
-    const harness = activationHarness();
+    const harness = activationHarness({}, [
+      {
+        repositoryId: "project:synthetic-project",
+        projectId: "synthetic-project",
+        label: "Synthetic project",
+      },
+    ]);
 
     await plugin.activate(harness.context);
 
@@ -170,11 +185,21 @@ describe("Git plugin activation", () => {
     expect(harness.providers[0].id).toBe("denote.git.repository");
     expect(harness.providers[0].title).toBe("Git");
     expect(harness.providers[0].initialModel.repository).toMatchObject({
-      repositoryId: "vault",
-      label: "Vault · refresh required",
+      repositoryId: "project:synthetic-project",
+      label: "Synthetic project · refresh required",
       initialized: false,
       busy: false,
     });
+    expect(harness.providers[0].initialModel.workspaceRepositories).toEqual([
+      {
+        repositoryId: "project:synthetic-project",
+        label: "Synthetic project",
+        selected: true,
+        initialized: true,
+        branch: null,
+        changes: 0,
+      },
+    ]);
     expect(harness.statusItems).toEqual([
       { id: "denote.git.status", text: "Git: refresh required" },
     ]);
@@ -351,19 +376,19 @@ describe("Git plugin activation", () => {
 
     // Activation is where the host-persisted setting reaches the surface, so
     // the mode on screen is the one every remote operation will use.
-    expect(last(harness.models)?.remoteAccess).toMatchObject({
+    expect(harness.providers[0].initialModel.remoteAccess).toMatchObject({
       authMode: "github-https",
       githubAvailable: true,
     });
   });
 
-  it("starts on the safest mode when no authentication setting is stored", async () => {
+  it("starts with system stored credentials when no authentication setting is stored", async () => {
     const harness = activationHarness();
 
     await plugin.activate(harness.context);
 
     expect(harness.providers[0].initialModel.remoteAccess).toMatchObject({
-      authMode: "public",
+      authMode: "system",
       githubAvailable: false,
     });
   });
@@ -381,6 +406,7 @@ describe("Git plugin activation", () => {
       previous: null,
       current: null,
       workspaceChanged: false,
+      repositories: [],
     });
 
     expect(harness.models).toHaveLength(published);
@@ -388,5 +414,43 @@ describe("Git plugin activation", () => {
       branch: "main",
       initialized: true,
     });
+  });
+
+  it("updates the detected repository list from project context events", async () => {
+    const harness = activationHarness({}, [
+      {
+        repositoryId: "vault",
+        projectId: null,
+        label: "Vault",
+      },
+    ]);
+    await plugin.activate(harness.context);
+
+    await harness.projectListeners[0]({
+      previous: null,
+      current: null,
+      workspaceChanged: false,
+      repositories: [
+        {
+          repositoryId: "vault",
+          projectId: null,
+          label: "Vault",
+        },
+        {
+          repositoryId: "project:notes-app",
+          projectId: "notes-app",
+          label: "notes-app",
+        },
+      ],
+    });
+
+    expect(last(harness.models)?.workspaceRepositories).toEqual([
+      expect.objectContaining({ repositoryId: "vault", selected: true }),
+      expect.objectContaining({
+        repositoryId: "project:notes-app",
+        label: "notes-app",
+        selected: false,
+      }),
+    ]);
   });
 });

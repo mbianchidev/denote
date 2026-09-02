@@ -771,7 +771,13 @@ function PluginSetting({
       ) : (
         <input
           id={id}
-          type={definition.type === "number" ? "number" : "text"}
+          type={
+            definition.type === "number"
+              ? "number"
+              : definition.type === "string" && definition.sensitive
+                ? "password"
+                : "text"
+          }
           value={
             typeof value === definition.type
               ? String(value)
@@ -779,6 +785,11 @@ function PluginSetting({
           }
           min={definition.type === "number" ? definition.minimum : undefined}
           max={definition.type === "number" ? definition.maximum : undefined}
+          autoComplete={
+            definition.type === "string" && definition.sensitive
+              ? "off"
+              : undefined
+          }
           onChange={(event) =>
             onChange(
               definition.type === "number"

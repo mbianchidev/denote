@@ -9,12 +9,14 @@ import {
   parsePluginGitCleanupToken,
   parsePluginGitCloneVaultRequest,
   parsePluginGitHubListLimit,
+  parsePluginGitInvocation,
   parsePluginGitRequest,
 } from "./gitRequests";
 
 export interface PluginActionLeaseScope {
   workspaceScope: string;
   projectId: string | null;
+  projectIds?: string[];
   /**
    * The source-control action this lease was opened for, or `null` for a
    * command.
@@ -124,16 +126,48 @@ export async function runHostOperation(
       );
     case "git.run": {
       const scope = requireActionScope(actionScope);
+      const invocation = parsePluginGitInvocation(value);
+      const projectId = gitProjectId(invocation.request, invocation.target, scope);
       // The request is the only thing a plugin contributes. A custom Git
       // executable lives in host-owned plugin settings, so nothing here can
       // name one.
       return api.pluginGitRequest(
         pluginId,
-        parsePluginGitRequest(value),
+        invocation.request,
         scope.workspaceScope,
-        scope.projectId,
+        projectId,
         requireOperationId(operationId),
       );
+    }
+
+    function gitProjectId(
+      request: ReturnType<typeof parsePluginGitRequest>,
+      target: { projectId: string | null } | null,
+      scope: PluginActionLeaseScope,
+    ): string | null {
+      if (request.operation === "cancel") {
+        return null;
+      }
+      if (request.scope === "vault") {
+        if (target?.projectId) {
+          throw new Error("A vault Git request cannot target a project repository.");
+        }
+        return null;
+      }
+      const projectId = target?.projectId ?? scope.projectId;
+      if (!projectId) {
+        throw new Error("A project Git request has no repository target.");
+      }
+      const permitted = new Set([
+        ...(scope.projectIds ?? []),
+        ...(scope.projectId ? [scope.projectId] : []),
+      ]);
+      if (!permitted.has(projectId)) {
+        throw new Error(
+          "The selected Git repository is no longer available in this vault.",
+        );
+      }
+      return projectId;
     }
     case "git.list-github-repositories": {
       const scope = requireActionScope(actionScope);

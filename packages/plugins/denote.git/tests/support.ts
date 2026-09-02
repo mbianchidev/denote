@@ -8,12 +8,14 @@ import type {
   PluginGitHubListRequest,
   PluginGitHubRepository,
   PluginGitResult,
+  PluginGitRepositoryTarget,
   PluginGitRunRequest,
 } from "@denote/plugin-sdk";
 
 export interface RecordedGitCall {
   request: PluginGitRunRequest;
   operationId: string;
+  target: PluginGitRepositoryTarget | null;
 }
 
 export type GitResponder = (
@@ -106,10 +108,13 @@ export class FakeGit implements PluginGitCapability {
     );
   }
 
-  run(request: PluginGitRunRequest) {
+  run(
+    request: PluginGitRunRequest,
+    target?: PluginGitRepositoryTarget,
+  ) {
     this.counter += 1;
     const operationId = `operation-${this.counter}`;
-    this.calls.push({ request, operationId });
+    this.calls.push({ request, operationId, target: target ?? null });
     const result = Promise.resolve(this.responder(request)).then((partial) => ({
       operationId,
       exitCode: 0,

@@ -201,14 +201,16 @@ context. It is privileged, so it exists only inside an explicit command or
 source-control action lease. Only the source-control lease is extended to a
 bounded ten minutes; ordinary commands keep the 30 second lease.
 
-`git.run(request)` returns a `PluginGitOperation` handle,
+`git.run(request, target?)` returns a `PluginGitOperation` handle,
 `{ operationId, result }`, rather than a bare promise. The host generates the
 operation ID and hands it back before the operation completes, so a plugin can
 store it and call `git.cancel(operationId)` from a concurrent source-control
 action while the first operation is still running. The host validates every
 operation ID and refuses one that is already live. An invocation carries the
-request and nothing else: there is no options argument, so no raw argument,
-flag, environment value, or executable path can travel with a request. A user
+request plus an optional host-issued project target and nothing else: there is no
+raw argument, flag, environment value, executable path, or arbitrary filesystem
+path. The action lease lists every project ID currently issued for the vault, and
+the host rejects any target outside that set. A user
 who needs a Git that is not in a standard location fills in the plugin's
 `gitExecutablePath` setting, a host-rendered string whose default is empty; the
 host reads that setting itself for the requesting plugin and still requires the
@@ -230,11 +232,11 @@ command runs.
 
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
 unmerged-path listing, operation-state detection, initialize, stage, unstage,
-hunk stage and unstage, commit, branch and remote listing, history, diff, fetch,
+hunk stage and unstage, restore from the current upstream, commit, branch and remote listing, history, diff, fetch,
 pull, push, remote add/set/remove, branch create/checkout/rename/delete, stash,
 merge, rebase, cherry-pick, revert, continue/skip/abort, conflict-stage reads,
 conflict resolution, clone, and cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
-`public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
+`system`, `public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
 never a credential. Every operation names exact structured fields; there is no argument
 array, option flag, or shell input, and the native host maps each operation to a
 fixed argument template. A commit may carry an optional `authorName` and
@@ -296,14 +298,20 @@ encryption manifest, and staging by hunk, which has no plaintext lines to choose
 between — before it offers it, rather than failing after the user presses the
 control. The host refuses all three itself in any case.
 
-Requests are scoped to the active vault root or the captured active project, and
-vault scope works without a marked project. The host resolves and pins a
+Requests are scoped to the vault root or one of the host-issued project
+repository identities exposed by `projectContext.getRepositories()`, and vault
+scope works without a marked project. The host resolves and pins a
 canonical Git executable, refuses `PATH` lookup, disables hooks, filters,
-pagers, editors, prompts, signing, submodule recursion, credential helpers, and
+pagers, editors, prompts, submodule recursion, and
 every protocol except HTTPS and SSH, pins every command-bearing configuration
 key on the command line so repository configuration cannot win, replaces the
 user's global configuration with a host-owned empty file so nothing in `$HOME`
-can reintroduce a filter or a command, and rejects dangerous repository-local
+can reintroduce a filter or a command. When the plugin's host-owned
+`useSystemGitSettings` setting is true, the host reads the global config and
+reapplies only bounded allowlisted identity, credential-helper, line-ending, and
+GPG signing values after those hardening pins. Credential helpers are restored
+only for `system` authentication, and GPG programs only for signed manual
+commits; passphrases remain in system pinentry. The host still rejects dangerous repository-local
 configuration before running. Operations use process
 groups, output bounded at 8 MiB that fails rather than truncates, a ten minute
 hard timeout, and a native per-plugin cancellation registry that is also cleared
@@ -315,7 +323,8 @@ hunk request.
 
 ### Remote authentication
 
-`public` and `ssh-agent` need nothing beyond the hardened invocation: prompts
+`system` restores the user's allowlisted global credential helpers and is the
+default. `public` and `ssh-agent` need nothing beyond the hardened invocation: prompts
 are already disabled, so an unconfigured agent fails with Git's own error rather
 than waiting for input. `github-https` is served by a host-owned GitHub adapter.
 The host resolves the GitHub CLI from fixed platform locations or the reserved
@@ -370,7 +379,8 @@ use.
 
 ### Cloning a vault
 
-`cloneVault` is the one operation that creates a whole vault, so the host owns
+`cloneVault` is presented by the host in the Switch vault dialog and is the one
+operation that creates a whole vault, so the host owns
 every part of it. A plugin supplies a URL, an authentication mode, and an
 optional branch; it never supplies, learns, or influences a destination. The
 host opens a native folder chooser, and closing it is an ordinary `cancelled`

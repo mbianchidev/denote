@@ -1,5 +1,6 @@
 import type {
   PluginProjectContext,
+  PluginProjectRepositoryContext,
   PluginSourceControlAdvancedOperation,
   PluginSourceControlAuthMode,
   PluginSourceControlConflictDetail,
@@ -21,6 +22,7 @@ import type {
   PluginSourceControlResource,
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
+  PluginSourceControlWorkspaceRepository,
 } from "@denote/plugin-sdk";
 import type { GitStatusReport } from "./statusOutput";
 
@@ -33,6 +35,8 @@ export interface GitRepositoryScope {
   kind: GitScopeKind;
   /** Stable identity of the repository a model describes. */
   repositoryId: string;
+  projectId?: string | null;
+  detected?: boolean;
   name: string;
 }
 
@@ -55,6 +59,7 @@ export type GitSelection =
 
 export interface GitModelBase {
   repository: PluginSourceControlRepositorySummary;
+  workspaceRepositories: PluginSourceControlWorkspaceRepository[];
   resourceGroups: PluginSourceControlResourceGroup[];
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
@@ -92,7 +97,7 @@ export function emptyHistoryPage(): PluginSourceControlHistoryPage {
  * GitHub sign-in, so no adapter is consulted unless it was asked for.
  */
 export function initialRemoteAccess(
-  authMode: PluginSourceControlAuthMode = "public",
+  authMode: PluginSourceControlAuthMode = "system",
 ): PluginSourceControlRemoteAccess {
   return {
     authMode,
@@ -122,7 +127,13 @@ export function withReview(
 export const UNREFRESHED_LABEL = "refresh required";
 
 export function vaultScope(): GitRepositoryScope {
-  return { kind: "vault", repositoryId: "vault", name: "Vault" };
+  return {
+    kind: "vault",
+    repositoryId: "vault",
+    projectId: null,
+    detected: false,
+    name: "Vault",
+  };
 }
 
 export function scopeFor(
@@ -134,8 +145,40 @@ export function scopeFor(
   return {
     kind: "project",
     repositoryId: `project:${context.projectId}`,
+    projectId: context.projectId,
+    detected: false,
     name: folderName(context.rootPath) || "Project",
   };
+}
+
+export function scopeForRepository(
+  repository: PluginProjectRepositoryContext,
+): GitRepositoryScope {
+  return {
+    kind: repository.projectId === null ? "vault" : "project",
+    repositoryId: repository.repositoryId,
+    projectId: repository.projectId,
+    detected: true,
+    name: repository.label,
+  };
+}
+
+export function scopesFor(
+  repositories: PluginProjectRepositoryContext[],
+): GitRepositoryScope[] {
+  return repositories.map(scopeForRepository);
+}
+
+export function initialScope(
+  current: PluginProjectContext | null,
+  repositories: GitRepositoryScope[],
+): GitRepositoryScope {
+  const currentId = current ? `project:${current.projectId}` : "vault";
+  return (
+    repositories.find((repository) => repository.repositoryId === currentId) ??
+    repositories[0] ??
+    scopeFor(current)
+  );
 }
 
 /**
@@ -147,10 +190,12 @@ export function scopeFor(
 export function initialModel(
   scope: GitRepositoryScope,
   remoteAccess: PluginSourceControlRemoteAccess = initialRemoteAccess(),
+  repositories: GitRepositoryScope[] = [scope],
 ): PluginSourceControlViewModel {
   return compose(
     {
       repository: summary(scope, `${scope.name} · ${UNREFRESHED_LABEL}`, false),
+      workspaceRepositories: repositoryEntries(repositories, scope.repositoryId),
       resourceGroups: [],
       branches: [],
       remotes: [],
@@ -208,6 +253,7 @@ export function selectionOf(model: PluginSourceControlViewModel): GitSelection {
 export function baseOf(model: PluginSourceControlViewModel): GitModelBase {
   return {
     repository: model.repository,
+    workspaceRepositories: model.workspaceRepositories ?? [],
     resourceGroups: model.resourceGroups,
     branches: model.branches,
     remotes: model.remotes,
@@ -491,6 +537,7 @@ export function refreshedModel(
             }
           : null,
     },
+    workspaceRepositories: [],
     resourceGroups: countedGroups(resourceGroups(data.status), data.diffFiles),
     branches: data.branches,
     remotes: data.remotes,
@@ -522,6 +569,7 @@ export function uninitializedModel(
   return compose(
     {
       repository: summary(scope, scope.name, false),
+      workspaceRepositories: [],
       resourceGroups: [],
       branches: [],
       remotes: [],
@@ -647,6 +695,20 @@ function summary(
     latestCommit: null,
     busy: false,
   };
+}
+
+function repositoryEntries(
+  repositories: GitRepositoryScope[],
+  selectedId: string,
+): PluginSourceControlWorkspaceRepository[] {
+  return repositories.map((repository) => ({
+    repositoryId: repository.repositoryId,
+    label: repository.name,
+    selected: repository.repositoryId === selectedId,
+    initialized: repository.detected === true,
+    branch: null,
+    changes: 0,
+  }));
 }
 
 function idle(

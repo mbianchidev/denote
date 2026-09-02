@@ -1962,6 +1962,7 @@ fn snapshot_with_tree(
         project_roots: project_configuration.project_roots,
         project_workspaces: project_configuration.project_workspaces,
         suggest_git_project: project_configuration.suggest_git_project,
+        git_repository_root: project_configuration.git_repository_root,
         ignored_paths: Vec::new(),
         from_cache,
         encryption: Default::default(),
@@ -1981,6 +1982,7 @@ fn project_roots(
         .into_iter()
         .map(|record| ProjectRoot {
             available: project_root_available(root, &record.root_path),
+            git_repository: safe_git_marker_exists(&root.join(&record.root_path)),
             id: record.id,
             root_path: record.root_path,
             explicit: record.is_explicit,
@@ -2025,6 +2027,7 @@ fn project_configuration(
         project_roots,
         project_workspaces,
         suggest_git_project,
+        git_repository_root: safe_git_marker_exists(root),
     })
 }
 
@@ -5157,6 +5160,7 @@ mod tests {
         fs::create_dir_all(dismissed_vault.join(".git")).expect("git directory");
         let snapshot = open_vault(&db_path, dismissed_vault.to_str().unwrap()).expect("git vault");
         assert!(snapshot.suggest_git_project);
+        assert!(snapshot.git_repository_root);
         let dismissed = dismiss_git_project_suggestion(&db_path, dismissed_vault.to_str().unwrap())
             .expect("dismiss suggestion");
         assert!(!dismissed.suggest_git_project);
@@ -5177,6 +5181,7 @@ mod tests {
         let marked = mark_project_root(&db_path, project_vault.to_str().unwrap(), "")
             .expect("mark root project");
         let project_id = marked.project_roots[0].id.clone();
+        assert!(marked.project_roots[0].git_repository);
         assert!(!marked.suggest_git_project);
         unmark_project_root(&db_path, project_vault.to_str().unwrap(), &project_id)
             .expect("unmark root project");

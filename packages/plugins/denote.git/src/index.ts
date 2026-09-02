@@ -8,7 +8,12 @@ import {
 } from "@denote/plugin-sdk";
 import manifestJson from "../plugin.json";
 import { GitRepositoryController } from "./controller";
-import { scopeFor, statusText } from "./model";
+import {
+  initialRemoteAccess,
+  initialScope,
+  scopesFor,
+  statusText,
+} from "./model";
 import { readGitSettings } from "./settings";
 
 const manifest = parsePluginManifest(manifestJson);
@@ -39,8 +44,14 @@ const plugin: DenotePlugin = {
     const statusItem = createStatusItem(status, STATUS_ID);
     // Activation registers surfaces only. No Git command runs and no vault
     // content is touched until the user asks for one.
+    const repositories = scopesFor(projectContext?.getRepositories() ?? []);
+    const settings = readGitSettings(await context.settings.getAll());
+    const selectedScope = initialScope(
+      projectContext?.getCurrent() ?? null,
+      repositories,
+    );
     const controller = new GitRepositoryController(
-      scopeFor(projectContext?.getCurrent() ?? null),
+      selectedScope,
       {
         publish: (model) => {
           registration?.update(model);
@@ -49,6 +60,8 @@ const plugin: DenotePlugin = {
         readSettings: () => context.settings.getAll(),
         report: (message, details) => context.logger.info(message, details),
       },
+      repositories.length > 0 ? repositories : [selectedScope],
+      initialRemoteAccess(settings.authMode),
     );
 
     statusItem.set(statusText(controller.model));
@@ -69,7 +82,11 @@ const plugin: DenotePlugin = {
           // asks for a refresh instead of reusing the previous scope's data. A
           // workspace switch reaches the same vault-scoped identity over a
           // different repository, so it resets even when the scope looks equal.
-          controller.setScope(scopeFor(event.current), event.workspaceChanged);
+          controller.setRepositories(
+            scopesFor(event.repositories ?? []),
+            event.current,
+            event.workspaceChanged,
+          );
         }),
       );
     }

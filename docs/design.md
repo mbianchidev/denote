@@ -281,18 +281,21 @@ semantic meaning.
 The activity rail is icon-led and uses an active indicator on the leading edge.
 File rows, tabs, and outline entries share compact hover and selected states.
 Plugin source-control providers receive distinct, named rail buttons without
-becoming static sidebar views. Their host-rendered sidebar uses visible branch
-and commit fields, native controls, semantic lists and headings, keyboard
+becoming static sidebar views. Their host-rendered sidebar starts with a compact
+repository list for every detected vault or project repository, then uses visible
+branch, create-branch, sync, and commit fields, native controls, semantic lists and headings, keyboard
 operable tabs, structured diffs, and polite status regions for progress,
 recovery, and limitations. A busy provider that reports the operation it is
 running also shows a cancel control beside that status. Remote work uses the
 same vocabulary: labelled URL and name fields for adding, editing, and removing
 a remote, the configured authentication mode shown read-only beside a line
-directing the user to Settings, a clone form whose
-submit opens the host's own folder chooser, a list of offered repositories as
-ordinary buttons, and a review region for the last remote operation with Retry
+directing the user to Settings. Clone onboarding appears in the Switch vault
+dialog beside the ordinary folder action; its submit opens the host's own folder
+chooser, its offered repositories remain ordinary buttons, and failures retain a
+review region with Retry
 and Dismiss. Anything that reaches a remote, changes where one points, removes
-one, or deletes a folder is confirmed in the standard action dialog, which
+one, restores tracked content from an upstream, or deletes a folder is confirmed
+in the standard action dialog, which
 names the exact remote, URL, and branch, and a deletion uses the dangerous
 variant. History is paged rather than scrolled without end: named refresh,
 previous, and next controls sit above the commit list, each disabled when that

@@ -37,6 +37,7 @@ const REFRESH_SEQUENCE = [
   "operation-state",
   "list-history",
 ];
+const WORKTREE_REFRESH_SEQUENCE = ["status", "operation-state"];
 
 describe("GitRepositoryController", () => {
   it("starts by asking for a refresh instead of describing a repository", () => {
@@ -48,6 +49,53 @@ describe("GitRepositoryController", () => {
     expect(controller.model.recovery).toEqual({ state: "idle" });
     expect(controller.model.selectedTab).toBe("changes");
     expect(statusText(controller.model)).toBe("Git: refresh required");
+  });
+
+  it("selects and targets a host-issued repository identity", async () => {
+    const published: PluginSourceControlViewModel[] = [];
+    const controller = new GitRepositoryController(
+      vaultScope(),
+      {
+        publish: (model) => published.push(model),
+        readSettings: () => Promise.resolve({}),
+        report: () => {},
+      },
+      [
+        vaultScope(),
+        {
+          kind: "project",
+          repositoryId: "project:synthetic-project",
+          projectId: "synthetic-project",
+          name: "Synthetic project",
+        },
+      ],
+    );
+    const git = new FakeGit(repositoryResponder());
+
+    await controller.runAction(
+      {
+        id: "select-workspace-repository",
+        values: { repositoryId: "project:synthetic-project" },
+      },
+      git,
+    );
+
+    expect(controller.model.repository.repositoryId).toBe(
+      "project:synthetic-project",
+    );
+    expect(controller.model.workspaceRepositories).toEqual([
+      expect.objectContaining({ repositoryId: "vault", selected: false }),
+      expect.objectContaining({
+        repositoryId: "project:synthetic-project",
+        selected: true,
+        branch: "main",
+      }),
+    ]);
+    expect(git.calls[0]).toMatchObject({
+      request: { operation: "discover", scope: "project" },
+      target: { projectId: "synthetic-project" },
+    });
+    expect(published[published.length - 1]?.repository.branch).toBe("main");
   });
 
   it("reads the whole repository once per refresh", async () => {
@@ -183,7 +231,71 @@ describe("GitRepositoryController", () => {
       scope: "vault",
       paths: ["notes/staged.md"],
     });
-    expect(unstageGit.operations.slice(1)).toEqual(REFRESH_SEQUENCE);
+    expect(unstageGit.operations.slice(1)).toEqual(WORKTREE_REFRESH_SEQUENCE);
+    expect(unstageGit.operations).not.toContain("list-history");
+    expect(unstageGit.operations).not.toContain("list-branches");
+    expect(unstageGit.operations).not.toContain("list-remotes");
+  });
+
+  it("stages and unstages every eligible change in one action", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction({ id: "stage-all" }, git);
+    await controller.runAction({ id: "unstage-all" }, git);
+
+    const stage = [...git.calls]
+      .reverse()
+      .find((call) => call.request.operation === "stage")?.request;
+    const unstage = [...git.calls]
+      .reverse()
+      .find((call) => call.request.operation === "unstage")?.request;
+    expect(stage).toEqual({
+      operation: "stage",
+      scope: "vault",
+      paths: ["notes/changed.md", "notes/new.md"],
+    });
+
+    expect(unstage).toEqual({
+      operation: "unstage",
+      scope: "vault",
+      paths: ["notes/staged.md"],
+    });
+  });
+
+  it("restores a tracked file from the current upstream branch", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      {
+        id: "restore-from-upstream",
+        values: { path: "notes/changed.md" },
+      },
+      git,
+    );
+
+    expect(git.request("restore-from-upstream")).toEqual({
+      operation: "restore-from-upstream",
+      scope: "vault",
+      paths: ["notes/changed.md"],
+    });
+  });
+
+  it("restores all tracked changes without deleting untracked files", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction({ id: "restore-all-from-upstream" }, git);
+
+    expect(git.request("restore-from-upstream")).toEqual({
+      operation: "restore-from-upstream",
+      scope: "vault",
+      paths: ["notes/staged.md", "notes/changed.md"],
+    });
   });
 
   it("commits staged changes with the configured identity", async () => {
@@ -191,6 +303,7 @@ describe("GitRepositoryController", () => {
       authorName: "Synthetic Author",
       authorEmail: "author@example.invalid",
     });
+
     const git = new FakeGit(repositoryResponder());
     await controller.runAction({ id: "refresh" }, git);
 
@@ -748,7 +861,7 @@ describe("GitRepositoryController remotes and cloning", () => {
       remote: "origin",
       branch: "main",
       strategy: "merge",
-      authMode: "public",
+      authMode: "system",
     });
     expect(git.request("push")).toEqual({
       operation: "push",
@@ -759,7 +872,7 @@ describe("GitRepositoryController remotes and cloning", () => {
       // recorded.
       setUpstream: false,
       mode: "normal",
-      authMode: "public",
+      authMode: "system",
     });
   });
 

@@ -5,6 +5,7 @@ import type {
   PluginNoteEvent,
   PluginPermissionRequest,
   PluginProjectContext,
+  PluginProjectRepositoryContext,
   PluginSourceControlAction,
 } from "@denote/plugin-sdk";
 import {
@@ -18,6 +19,8 @@ import {
   type PluginDecorationContribution,
   type PluginSourceControlContribution,
 } from "./workerRuntime";
+
+const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 
 export interface PluginController {
   plugins: PluginView[];
@@ -79,6 +82,7 @@ export function usePlugins(
    * the new vault is.
    */
   onVaultCloned: PluginVaultClonedHandler = () => {},
+  projectRepositories: PluginProjectRepositoryContext[] = EMPTY_PROJECT_REPOSITORIES,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
@@ -143,7 +147,7 @@ export function usePlugins(
       (snapshot) => vaultClonedRef.current(snapshot),
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
-    runtime.setProjectContext(projectContext);
+    runtime.setProjectContext(projectContext, projectRepositories);
     runtimeRef.current = runtime;
     void api
       .listPluginBundles()
@@ -209,7 +213,7 @@ export function usePlugins(
     // before it is told which project inside it is now current.
     runtimeRef.current?.setWorkspaceIdentity(workspaceIdentity);
     runtimeRef.current?.setProjectContext(projectContext);
-  }, [projectContext, workspaceIdentity]);
+  }, [projectContext, projectRepositories, workspaceIdentity]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -420,11 +424,14 @@ export function usePlugins(
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
+        projectIds: projectRepositories.flatMap((repository) =>
+          repository.projectId ? [repository.projectId] : [],
+        ),
         sourceControlActionId: null,
       };
       await runtime.runCommand(pluginId, commandId, actionScope);
     },
-    [projectContext, workspaceIdentity],
+    [projectContext, projectRepositories, workspaceIdentity],
   );
 
   const runSourceControlAction = useCallback(
@@ -439,10 +446,13 @@ export function usePlugins(
         throw new Error("Plugin runtime is unavailable.");
       }
       runtime.setWorkspaceIdentity(workspaceIdentity);
-      runtime.setProjectContext(projectContext);
+      runtime.setProjectContext(projectContext, projectRepositories);
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
+        projectIds: projectRepositories.flatMap((repository) =>
+          repository.projectId ? [repository.projectId] : [],
+        ),
         sourceControlActionId: action.id,
       };
       await runtime.runSourceControlAction(
@@ -452,7 +462,7 @@ export function usePlugins(
         actionScope,
       );
     },
-    [projectContext, workspaceIdentity],
+    [projectContext, projectRepositories, workspaceIdentity],
   );
 
   const importSettings = useCallback(

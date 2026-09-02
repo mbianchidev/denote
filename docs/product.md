@@ -283,9 +283,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   unavailable, disabled, or enabled status; Denote never downloads or enables
   them automatically, and core project behavior does not depend on plugins.
 - The optional **Git vault versioning** plugin is the first production catalog
-  entry. It shows one host-rendered repository view for the active project, or
-  the vault when no project is marked, and supports refresh, initialize, stage,
-  unstage, commit of staged changes, and cancellation of a running operation. It
+  entry. Its host-rendered view lists the vault root and configured project roots
+  that contain a safe `.git` file or directory, keeps one explicitly selected,
+  and binds every action to that host-issued repository identity. It supports
+  refresh, initialize, stage, unstage, commit of staged changes, and cancellation
+  of a running operation. It
   requests no network, process, or workspace-write permission. Setting an
   automatic commit interval above zero also enables timed local commits: Denote
   saves open notes first, then commits only tracked changes that match the
@@ -306,7 +308,18 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   offered to the address the operation will really contact. The mode is a
   setting, so the view reports the configured one and sends you to Settings to
   change it.
-- Cloning asks you to choose an empty folder, clones into it, checks the result,
+- The default authentication mode uses the credential helpers and stored
+  credentials from the user's global Git configuration. Public, SSH-agent, and
+  host-owned GitHub CLI modes remain available. The host imports only bounded
+  allowlisted identity, credential-helper, line-ending, and signing values into
+  its otherwise isolated Git invocation; repository-local command configuration
+  remains rejected.
+- Manual commits can follow the global Git signing default, always sign, or
+  never sign. An optional masked GPG key setting selects the key. The system GPG
+  agent or pinentry owns any passphrase; Denote never stores or receives it.
+  Automatic commits remain unsigned and unattended.
+- **Clone repo as vault** lives in the Switch vault dialog beside **Open another
+  folder**. It asks you to choose an empty folder, clones into it, checks the result,
   and only then opens it as a vault, so an encrypted clone shows the usual
   unlock screen before any note. Open notes are saved before the clone starts,
   and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
@@ -322,6 +335,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   are on is never deleted, and nothing switches on its own after a fetch, a
   remote update, or startup. Each of these asks first and names the exact
   source and target; deleting is a dangerous confirmation.
+- The daily path stays compact: the selected repository row, branch selector,
+  create-and-switch field, pull and push controls, commit message, stage-all,
+  unstage-all, and per-file actions are available without opening advanced
+  history or branch management. A tracked file, or all tracked changes, can be
+  restored from the current upstream only after a dangerous confirmation.
+  Untracked files are never removed.
 - A switch that would disturb work never runs. Denote re-reads the working tree
   first: unresolved conflicts refuse the checkout outright, and any staged,
   changed, or untracked file produces a review that lists every affected path

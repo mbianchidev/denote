@@ -1386,6 +1386,10 @@ describe("App initial file-tree expansion", () => {
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Remove remote" }));
 
+    await user.click(screen.getByRole("button", { name: "Switch vault" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Clone repo as vault" }),
+    );
     await user.click(
       screen.getByRole("button", { name: "Clean incomplete clone" }),
     );
@@ -1482,8 +1486,9 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       screen.getByRole("button", { name: "Change Edit sample.py" }),
     );
+    await user.click(screen.getByRole("button", { name: "Switch vault" }));
     await user.click(
-      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+      await screen.findByRole("button", { name: "Clone repo as vault" }),
     );
     await user.type(
       screen.getByLabelText("Repository URL"),

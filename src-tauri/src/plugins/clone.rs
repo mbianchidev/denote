@@ -23,10 +23,11 @@ use super::{
     PluginManager,
     askpass::AskpassMaterial,
     git::{
-        GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken, GitTransportPolicy,
-        PluginGitAuthMode, assert_repository_config_is_safe, first_line, git_cli_path_string,
-        redact, resolve_git_directory, resolve_git_executable, run_git_command,
-        validate_branch_name, validate_remote_url_for,
+        GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken, GitOutputMode,
+        GitPlanStep, GitTransportPolicy, PluginGitAuthMode, PluginGitRequest, PluginGitScope,
+        SystemGitSettings, apply_system_git_settings, assert_repository_config_is_safe, first_line,
+        git_cli_path_string, read_system_git_settings, redact, resolve_git_directory,
+        resolve_git_executable, run_git_command, validate_branch_name, validate_remote_url_for,
     },
 };
 
@@ -176,6 +177,29 @@ impl PluginManager {
         let destination = validate_empty_destination(destination)?;
         let executable =
             resolve_git_executable(self.git_executable_setting(plugin_id)?.as_deref())?;
+        let policy = self.git_settings_policy(plugin_id)?;
+        let system_settings = if policy.use_system_settings {
+            read_system_git_settings(&executable)?
+        } else {
+            SystemGitSettings::default()
+        };
+        let policy_request = PluginGitRequest::Clone {
+            scope: PluginGitScope::Vault,
+            url: request.url.clone(),
+            directory: "clone-destination".to_string(),
+            branch: request.branch.clone(),
+            auth_mode: request.auth_mode,
+        };
+        let mut clone_plan = vec![GitPlanStep::Command {
+            args: clone_arguments(request, &destination),
+            mutating: true,
+            output: GitOutputMode::Redacted,
+        }];
+        apply_system_git_settings(&mut clone_plan, &policy_request, &policy, &system_settings)?;
+        let clone_arguments = match clone_plan.remove(0) {
+            GitPlanStep::Command { args, .. } => args,
+            _ => unreachable!("clone policy keeps one command"),
+        };
         let hooks_directory = self.git_hooks_directory()?;
         let global_config = self.git_global_config()?;
         // The operation is registered before any credential is read, so
@@ -201,7 +225,7 @@ impl PluginManager {
             encrypted: false,
             transport,
         };
-        match self.run_clone(&execution, &destination, request, token) {
+        match self.run_clone(&execution, &destination, &clone_arguments, token) {
             Ok(attempt) => Ok(attempt),
             Err(error) => Ok(CloneAttempt::Failed {
                 message: error.to_string(),
@@ -214,17 +238,11 @@ impl PluginManager {
         &self,
         execution: &GitExecution<'_>,
         destination: &Path,
-        request: &PluginGitCloneVaultRequest,
+        arguments: &[String],
         token: &GitOperationToken,
     ) -> AppResult<CloneAttempt> {
         let deadline = Instant::now() + GIT_TIMEOUT;
-        let outcome = run_git_command(
-            &clone_arguments(request, destination),
-            execution,
-            token,
-            deadline,
-            true,
-        )?;
+        let outcome = run_git_command(arguments, execution, token, deadline, true)?;
         if outcome.cancelled || token.is_cancelled() {
             return Ok(CloneAttempt::Failed {
                 message: "The clone was cancelled before it finished.".to_string(),
@@ -318,7 +336,9 @@ impl PluginManager {
         cancellation: Option<&GitOperationToken>,
     ) -> AppResult<Option<AskpassMaterial>> {
         match mode {
-            PluginGitAuthMode::Public | PluginGitAuthMode::SshAgent => Ok(None),
+            PluginGitAuthMode::System | PluginGitAuthMode::Public | PluginGitAuthMode::SshAgent => {
+                Ok(None)
+            }
             PluginGitAuthMode::GithubHttps => {
                 if urls.is_empty() || !urls.iter().all(|url| is_github_https_url(url)) {
                     return Err(AppError::Plugin(

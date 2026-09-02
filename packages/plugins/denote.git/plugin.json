@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.git",
   "name": "Git vault versioning",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
   "publisher": {
     "name": "Denote",
@@ -52,12 +52,22 @@
         "description": "Absolute path to the GitHub CLI (gh). Leave empty to use the one the host finds in its own fixed locations. Only used when authentication is set to GitHub sign-in.",
         "default": ""
       },
+      "useSystemGitSettings": {
+        "type": "boolean",
+        "title": "Use system Git settings",
+        "description": "Use your system and global Git configuration for identity, credential helpers, signing, and other ordinary defaults. Turn this off to use Denote's isolated Git settings instead.",
+        "default": true
+      },
       "authenticationMode": {
         "type": "select",
         "title": "Remote authentication",
-        "description": "How Denote authenticates fetch, pull, push, and clone. Public needs no credentials, SSH agent uses your running agent, and GitHub sign-in asks the host's GitHub CLI for a token that never reaches this plugin.",
-        "default": "public",
+        "description": "How Denote authenticates fetch, pull, push, and clone. System Git credentials uses your configured credential helper or keychain by default.",
+        "default": "system",
         "options": [
+          {
+            "value": "system",
+            "label": "System Git credentials"
+          },
           {
             "value": "public",
             "label": "Public repository"
@@ -109,6 +119,33 @@
         "title": "Commit author email",
         "description": "Optional email recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
         "default": ""
+      },
+      "commitSigning": {
+        "type": "select",
+        "title": "Commit signing",
+        "description": "Use the system Git default, always sign manual commits, or never sign manual commits. Automatic commits remain unsigned.",
+        "default": "system",
+        "options": [
+          {
+            "value": "system",
+            "label": "Use system Git default"
+          },
+          {
+            "value": "always",
+            "label": "Always sign manual commits"
+          },
+          {
+            "value": "never",
+            "label": "Never sign manual commits"
+          }
+        ]
+      },
+      "gpgSigningKey": {
+        "type": "string",
+        "title": "GPG signing key",
+        "description": "Optional GPG key ID, fingerprint, or identity for signed manual commits. The value is masked here. Your system GPG agent or pinentry asks for the passphrase; Denote never stores it.",
+        "default": "",
+        "sensitive": true
       },
       "autoCommitIntervalMinutes": {
         "type": "number",

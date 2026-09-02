@@ -48,6 +48,55 @@ describe("plugin Git host operation", () => {
     );
   });
 
+  it("targets another host-issued repository from the same vault", async () => {
+    await runHostOperation(
+      "denote.git",
+      "git.run",
+      undefined,
+      {
+        request: { operation: "status", scope: "project" },
+        target: { projectId: "project-2" },
+      },
+      {
+        workspaceScope: "/vaults/synthetic",
+        projectId: "project-1",
+        projectIds: ["project-1", "project-2"],
+        sourceControlActionId: null,
+      },
+      OPERATION_ID,
+    );
+
+    expect(api.pluginGitRequest).toHaveBeenCalledWith(
+      "denote.git",
+      { operation: "status", scope: "project" },
+      "/vaults/synthetic",
+      "project-2",
+      OPERATION_ID,
+    );
+  });
+
+  it("rejects a repository target that the host did not issue", async () => {
+    await expect(
+      runHostOperation(
+        "denote.git",
+        "git.run",
+        undefined,
+        {
+          request: { operation: "status", scope: "project" },
+          target: { projectId: "outside-project" },
+        },
+        {
+          workspaceScope: "/vaults/synthetic",
+          projectId: "project-1",
+          projectIds: ["project-1"],
+          sourceControlActionId: null,
+        },
+        OPERATION_ID,
+      ),
+    ).rejects.toThrow("no longer available in this vault");
+    expect(api.pluginGitRequest).not.toHaveBeenCalled();
+  });
+
   it("supports vault scope without a project", async () => {
     await runHostOperation(
       "denote.git",

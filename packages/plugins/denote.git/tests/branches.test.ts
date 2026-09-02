@@ -676,17 +676,9 @@ describe("selected staging and hunks", () => {
     });
     // The diff and the status are read again, so the surface never shows a
     // hunk that has already been staged.
-    expect(git.calls.slice(before + 1).map((call) => call.request.operation)).toEqual(
-      [
-        "discover",
-        "status",
-        "list-branches",
-        "list-remotes",
-        "operation-state",
-        "list-history",
-        "diff",
-      ],
-    );
+    expect(
+      git.calls.slice(before + 1).map((call) => call.request.operation),
+    ).toEqual(["status", "operation-state", "diff"]);
   });
 
   it("unstages a hunk from the staged diff", async () => {

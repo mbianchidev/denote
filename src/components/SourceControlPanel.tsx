@@ -43,6 +43,7 @@ const tabs = [
 type SourceControlTab = (typeof tabs)[number]["id"];
 
 const authModeLabels: Record<PluginSourceControlAuthMode, string> = {
+  system: "System Git credentials",
   public: "Public repository",
   "ssh-agent": "SSH agent",
   "github-https": "GitHub sign-in",
@@ -112,18 +113,70 @@ function action(
   return values ? { id, values } : { id };
 }
 
+function WorkspaceRepositories({
+  repositories,
+  busy,
+  onAction,
+}: {
+  repositories: NonNullable<
+    PluginSourceControlViewModel["workspaceRepositories"]
+  >;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  if (repositories.length === 0) {
+    return null;
+  }
+  return (
+    <section
+      className="source-control__workspace-repositories"
+      aria-labelledby="source-control-workspace-repositories"
+    >
+      <h3 id="source-control-workspace-repositories">Repositories</h3>
+      <ul>
+        {repositories.map((repository) => (
+          <li key={repository.repositoryId}>
+            <button
+              type="button"
+              aria-label={`Select ${repository.label} repository`}
+              aria-pressed={repository.selected}
+              disabled={busy || repository.selected}
+              onClick={() =>
+                onAction(
+                  action("select-workspace-repository", {
+                    repositoryId: repository.repositoryId,
+                  }),
+                )
+              }
+            >
+              <strong>{repository.label}</strong>
+              <span>
+                {repository.initialized
+                  ? `${repository.branch ?? "Detached"} · ${repository.changes} change${repository.changes === 1 ? "" : "s"}`
+                  : "Not initialized"}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ResourceGroup({
   group,
   busy,
   onAction,
   onOpenDiff,
   onOpenFile,
+  upstream,
 }: {
   group: PluginSourceControlResourceGroup;
   busy: boolean;
   onAction: SourceControlPanelProps["onAction"];
   onOpenDiff: (path: string, group: string) => void;
   onOpenFile?: (path: string) => void;
+  upstream: string | null;
 }) {
   if (group.resources.length === 0) {
     return null;
@@ -158,7 +211,7 @@ function ResourceGroup({
                 >
                   Unstage
                 </button>
-              ) : group.kind !== "ignored" ? (
+              ) : group.kind === "unstaged" || group.kind === "untracked" ? (
                 <button
                   type="button"
                   aria-label={`Stage ${resource.path}`}
@@ -168,6 +221,23 @@ function ResourceGroup({
                   }
                 >
                   Stage
+                </button>
+              ) : null}
+              {(group.kind === "staged" || group.kind === "unstaged") &&
+              upstream ? (
+                <button
+                  type="button"
+                  aria-label={`Restore ${resource.path} from ${upstream}`}
+                  disabled={busy}
+                  onClick={() =>
+                    onAction(
+                      action("restore-from-upstream", {
+                        path: resource.path,
+                      }),
+                    )
+                  }
+                >
+                  Restore
                 </button>
               ) : null}
               {group.kind === "staged" || group.kind === "unstaged" ? (
@@ -911,7 +981,7 @@ function localBranchNameFor(remoteBranch: string): string {
   return separator === -1 ? remoteBranch : remoteBranch.slice(separator + 1);
 }
 
-function CloneOnboarding({
+export function CloneOnboarding({
   remoteAccess,
   busy,
   onAction,
@@ -1770,6 +1840,7 @@ export function SourceControlPanel({
 }: SourceControlPanelProps) {
   const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
+  const [newBranchName, setNewBranchName] = useState("");
   const [chosenRemote, setChosenRemote] = useState("");
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
   const selectedBranch =
@@ -1794,6 +1865,9 @@ export function SourceControlPanel({
   const stagedChanges =
     model.resourceGroups.find((group) => group.kind === "staged")?.resources
       .length ?? 0;
+  const trackedChanges = model.resourceGroups
+    .filter((group) => group.kind === "staged" || group.kind === "unstaged")
+    .reduce((total, group) => total + group.resources.length, 0);
   const selectedConflictPath =
     model.selectedView.kind === "conflict" ? model.selectedView.path : null;
   const selectedConflict =
@@ -1829,6 +1903,7 @@ export function SourceControlPanel({
 
   useEffect(() => {
     setCommitMessage("");
+    setNewBranchName("");
     setChosenRemote("");
   }, [repository.repositoryId]);
 
@@ -1903,6 +1978,11 @@ export function SourceControlPanel({
         </button>
       </div>
       <div className="source-control__content">
+        <WorkspaceRepositories
+          repositories={model.workspaceRepositories ?? []}
+          busy={repository.busy}
+          onAction={onAction}
+        />
         <section
           className="source-control__repository"
           aria-labelledby="source-control-repository"
@@ -1964,6 +2044,46 @@ export function SourceControlPanel({
               )}
             </select>
           </label>
+          {repository.initialized ? (
+            <form
+              className="source-control__quick-branch"
+              onSubmit={(event) => {
+                event.preventDefault();
+                const name = newBranchName.trim();
+                if (!name) {
+                  return;
+                }
+                onAction(
+                  action("create-branch", {
+                    name,
+                    startPoint: selectedBranch,
+                    checkout: true,
+                    from: selectedBranch,
+                  }),
+                );
+                setNewBranchName("");
+              }}
+            >
+              <label className="source-control__field">
+                <span>New branch</span>
+                <input
+                  value={newBranchName}
+                  disabled={repository.busy}
+                  placeholder="feature/name"
+                  onChange={(event) =>
+                    setNewBranchName(event.currentTarget.value)
+                  }
+                />
+              </label>
+              <button
+                type="submit"
+                className="secondary-button"
+                disabled={repository.busy || newBranchName.trim().length === 0}
+              >
+                Create and switch branch
+              </button>
+            </form>
+          ) : null}
           <div className="source-control__actions">
             {!repository.initialized ? (
               <button
@@ -2153,6 +2273,46 @@ export function SourceControlPanel({
                       Commit staged changes
                     </button>
                   </form>
+                  <div
+                    className="source-control__change-actions"
+                    role="group"
+                    aria-label="Change staging"
+                  >
+                    <button
+                      type="button"
+                      disabled={
+                        repository.busy ||
+                        !model.resourceGroups.some(
+                          (group) =>
+                            (group.kind === "unstaged" ||
+                              group.kind === "untracked") &&
+                            group.resources.length > 0,
+                        )
+                      }
+                      onClick={() => onAction(action("stage-all"))}
+                    >
+                      Stage all changes
+                    </button>
+                    <button
+                      type="button"
+                      disabled={repository.busy || stagedChanges === 0}
+                      onClick={() => onAction(action("unstage-all"))}
+                    >
+                      Unstage all changes
+                    </button>
+                    {repository.upstream ? (
+                      <button
+                        type="button"
+                        aria-label={`Restore all tracked changes from ${repository.upstream}`}
+                        disabled={repository.busy || trackedChanges === 0}
+                        onClick={() =>
+                          onAction(action("restore-all-from-upstream"))
+                        }
+                      >
+                        Restore from remote
+                      </button>
+                    ) : null}
+                  </div>
                   {model.resourceGroups.some(
                     (group) => group.resources.length > 0,
                   ) ? (
@@ -2164,6 +2324,7 @@ export function SourceControlPanel({
                         onAction={onAction}
                         onOpenDiff={openDiff}
                         onOpenFile={onOpenFile}
+                        upstream={repository.upstream}
                       />
                     ))
                   ) : (
@@ -2333,12 +2494,6 @@ export function SourceControlPanel({
             onAction={onAction}
           />
         ) : null}
-
-        <CloneOnboarding
-          remoteAccess={remoteAccess}
-          busy={repository.busy}
-          onAction={onAction}
-        />
 
         <OperationReview
           remoteAccess={remoteAccess}

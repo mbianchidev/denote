@@ -70,8 +70,8 @@ These capabilities are planned as separately enabled plugins:
 - colorful text.
 
 **Git vault versioning** is now in the catalog. Enable it to get one Git view in
-the activity rail for the active project, or for the vault when no project is
-marked. It can refresh the repository, initialize one with your configured
+the activity rail that lists the vault root and every configured project root
+with a safe `.git` marker. Select one repository, then refresh or initialize it with your configured
 default branch, stage and unstage a file, commit staged changes with an optional
 configured author identity, and cancel a running operation. Enabling it does not
 run Git or change your vault, and it asks for no network, process, or
@@ -98,7 +98,8 @@ and a remote removal each ask you first and name the exact remote, URL, and
 branch involved, and only an ordinary push is offered: there is no force push.
 
 Choose how Denote signs in under **Remote authentication**, in the plugin's
-settings. *Public repository* needs no credentials, *SSH agent* uses the agent
+settings. *System Git credentials* is the default and uses your configured
+credential helper or OS keychain. *Public repository* needs no credentials, *SSH agent* uses the agent
 you already have running, and *GitHub sign-in* uses the GitHub CLI on your
 machine. The Git view shows the mode you configured and sends you to Settings to
 change it, so it always matches what the next fetch, pull, push, or clone will
@@ -111,7 +112,8 @@ GitHub but pushes somewhere else is refused rather than sent your token. If a
 mode is not set up, Denote says so instead of leaving Git waiting for a
 password.
 
-**Clone a repository** asks you to choose an empty folder, clones into it,
+Open **Switch vault**, choose **Clone repo as vault**, and enter the repository
+there. Denote asks you to choose an empty folder, clones into it,
 checks the result, and only then opens it as a vault. Your open notes are saved
 before the clone starts, so nothing you typed in the current vault is lost when
 the clone replaces it. Cancelling the folder chooser does nothing at all, and
@@ -132,6 +134,20 @@ refuses to delete the branch you are on, and nothing ever switches on its own
 after a fetch, a remote update, or startup. Each of these asks first and names
 the exact branch you are leaving and the one you are going to; deleting asks a
 dangerous confirmation.
+
+The main Changes view keeps common work close together: select or create and
+switch a branch, pull, stage or unstage one file or all eligible files, type a
+commit message, commit, and push. **Restore** replaces one tracked file with the
+current upstream version; **Restore from remote** does the same for all tracked
+staged and unstaged changes. Both require a dangerous confirmation and never
+delete untracked files.
+
+Under plugin settings, **Use system Git settings** is on by default. Denote
+imports only bounded allowlisted identity, credential-helper, line-ending, and
+GPG values into its hardened Git process. Manual commits can follow the system
+signing default, always sign, or never sign. The optional GPG key field is masked;
+your system GPG agent or pinentry asks for the passphrase, which Denote never
+stores. Automatic commits remain unsigned.
 
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and

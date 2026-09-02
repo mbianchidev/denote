@@ -246,7 +246,11 @@ argument template. Plugins never supply argument arrays, option flags, or shell
 input, and option-like values, control characters, path traversal, absolute or
 `.git` paths, pathspec magic, revision syntax in branch names, unsupported URL
 schemes, and embedded passwords are all rejected before a process starts.
-`discover` and `operation-state` are answered from the filesystem without
+`restore-from-upstream` maps to one fixed `git restore --source=@{upstream}
+--staged --worktree -- <paths>` template. The plugin supplies only bounded
+repository-relative tracked paths. The host confirmation names the selected
+repository and warns that local tracked changes are replaced; untracked paths
+are never included or removed. `discover` and `operation-state` are answered from the filesystem without
 running Git at all.
 
 A commit request may carry an optional `authorName` and `authorEmail`. Each is
@@ -305,10 +309,14 @@ presses the control. The host does not rely on it: an encrypted vault refuses a
 content conflict resolution, an untracked stash, and both hunk directions
 natively, before any Git command starts, whatever a surface offered.
 
-Every request is scoped to either the active vault root or the captured active
-project, and vault scope works with no project marked. The command layer
-revalidates the workspace scope and the project identity immediately before
-execution, so a vault switch or a moved project invalidates the lease. Git is
+Every request is scoped to either the vault root or a host-issued project
+repository identity. The project-context capability exposes a bounded list of
+repository IDs, project IDs, and labels for safe `.git` markers, never inactive
+filesystem paths. A Git action lease carries the complete set of project IDs
+issued for that vault; `git.run` may target one of them and rejects anything else.
+The command layer revalidates the workspace scope and resolves the selected
+project identity immediately before execution, so a vault switch, removed
+repository, or moved project invalidates the lease. Git is
 resolved to a pinned canonical absolute regular file from fixed per-platform
 locations, never `PATH`, and must identify itself as Git. A request carries no
 executable at all: `PluginManager::git_request` reads the reserved
@@ -320,9 +328,9 @@ a plugin declares it as an ordinary host-rendered string setting the user fills
 in, so nothing a plugin sends over the runtime bridge can choose the binary that
 runs.
 
-Every invocation disables the pager, editor, interactive prompts, hooks,
-fsmonitor, external diff and textconv, commit and tag signing, recursive
-submodules, credential helpers, automatic maintenance, and every protocol except
+Every invocation disables the pager, editor, interactive terminal prompts, hooks,
+fsmonitor, external diff and textconv, recursive submodules, automatic
+maintenance, and every protocol except
 HTTPS and SSH. Every remaining configuration key that names a command,
 including `core.sshCommand`, `core.askpass`, `core.editor`, `core.gitProxy`,
 `sequence.editor`, `diff.external`, and the `gpg` programs, is pinned on the
@@ -333,6 +341,20 @@ at a host-owned empty file kept beside the empty hooks directory, refused unless
 it is a regular file and truncated before use. Removing `GIT_CONFIG_GLOBAL`
 would only fall back to `$HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config`,
 either of which could reintroduce a filter or a command-bearing key.
+
+The Git plugin can explicitly opt into **Use system Git settings**, which is its
+default. The host reads the user's global configuration with the resolved Git
+binary, keeps only bounded values for `user.name`, `user.email`,
+`user.signingKey`, `commit.gpgSign`, the `gpg.*` program/format keys,
+`credential.helper`, `credential.useHttpPath`, `credential.username`, and the
+safe `core.autocrlf`, `core.eol`, `core.ignoreCase`, and
+`core.precomposeUnicode` values, then reapplies only the values needed by the
+typed operation after the hardening overrides. Credential helpers are enabled
+only for the `system` authentication mode. GPG programs and signing values are
+enabled only for a manual commit whose signing policy requires them. A masked
+key setting can override `user.signingKey`; the passphrase remains entirely in
+the system GPG agent or pinentry. Automatic commits keep the isolated unsigned
+path.
 
 Every Git child, including the executable probe, also has its inherited
 environment stripped. `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
@@ -364,7 +386,11 @@ discards a comment or a blank line before it ever looks for a trailing
 backslash, so neither `; \` nor `# \` can hide the dangerous line that follows
 it.
 
-Remote authentication is host-owned and is bound to the address the operation
+Remote authentication is host-owned. `system` uses the allowlisted global
+credential-helper configuration and is the default; Git terminal prompts remain
+disabled, so an unavailable helper fails instead of hanging. `public` clears the
+helper, `ssh-agent` uses the pinned SSH client and running agent, and
+`github-https` is bound to the address the operation
 will really contact. A `github-https` fetch or pull reads the remote's fetch
 URLs, and a push reads its push URLs, with `git remote get-url [--push] --all`,
 so a separate `pushurl` or a mirror list cannot route a GitHub token to another

@@ -31,6 +31,7 @@ use crate::error::{AppError, AppResult};
 use super::askpass::{
     ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial, apply_askpass_environment,
 };
+use super::settings::{GitCommitSigningMode, GitSettingsPolicy};
 
 /// Hard ceiling for one Git operation, matching the extended source-control
 /// action lease in the renderer.
@@ -145,10 +146,92 @@ pub enum PluginGitPushMode {
 #[serde(rename_all = "kebab-case")]
 pub enum PluginGitAuthMode {
     #[default]
+    System,
     Public,
     SshAgent,
     GithubHttps,
 }
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct SystemGitSettings {
+    values: Vec<(String, String)>,
+}
+
+impl SystemGitSettings {
+    #[cfg(test)]
+    pub(crate) fn from_pairs<K, V, I>(pairs: I) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        Self {
+            values: pairs
+                .into_iter()
+                .map(|(key, value)| (key.into(), value.into()))
+                .collect(),
+        }
+    }
+
+    fn values(&self, key: &str) -> impl Iterator<Item = &str> {
+        self.values
+            .iter()
+            .filter(move |(candidate, _)| candidate.eq_ignore_ascii_case(key))
+            .map(|(_, value)| value.as_str())
+    }
+
+    fn last(&self, key: &str) -> Option<&str> {
+        self.values(key).last()
+    }
+
+    fn parse(output: &[u8]) -> AppResult<Self> {
+        if output.len() as u64 > MAX_CONFIG_BYTES {
+            return Err(AppError::Plugin(
+                "The system Git configuration is too large to use".to_string(),
+            ));
+        }
+        let mut values = Vec::new();
+        for record in output
+            .split(|byte| *byte == 0)
+            .filter(|record| !record.is_empty())
+        {
+            let separator = record.iter().position(|byte| matches!(byte, b'\n' | b'='));
+            let Some(separator) = separator else {
+                continue;
+            };
+            let key = String::from_utf8_lossy(&record[..separator]).to_ascii_lowercase();
+            if !SYSTEM_GIT_SETTING_KEYS.contains(&key.as_str()) {
+                continue;
+            }
+            let value = String::from_utf8_lossy(&record[separator + 1..]).into_owned();
+            if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
+                return Err(AppError::Plugin(format!(
+                    "The system Git setting {key} is empty, too large, or contains control characters"
+                )));
+            }
+            values.push((key, value));
+        }
+        Ok(Self { values })
+    }
+}
+
+const SYSTEM_GIT_SETTING_KEYS: &[&str] = &[
+    "commit.gpgsign",
+    "core.autocrlf",
+    "core.eol",
+    "core.ignorecase",
+    "core.precomposeunicode",
+    "credential.helper",
+    "credential.usehttppath",
+    "credential.username",
+    "gpg.format",
+    "gpg.program",
+    "gpg.ssh.program",
+    "gpg.x509.program",
+    "user.email",
+    "user.name",
+    "user.signingkey",
+];
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(
@@ -241,6 +324,10 @@ pub enum PluginGitRequest {
         paths: Vec<String>,
     },
     Unstage {
+        scope: PluginGitScope,
+        paths: Vec<String>,
+    },
+    RestoreFromUpstream {
         scope: PluginGitScope,
         paths: Vec<String>,
     },
@@ -428,6 +515,7 @@ impl PluginGitRequest {
             | Self::Initialize { scope, .. }
             | Self::Stage { scope, .. }
             | Self::Unstage { scope, .. }
+            | Self::RestoreFromUpstream { scope, .. }
             | Self::StageHunk { scope, .. }
             | Self::UnstageHunk { scope, .. }
             | Self::Commit { scope, .. }
@@ -645,6 +733,17 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
         }
         PluginGitRequest::Unstage { paths, .. } => {
             let mut args = vec!["reset".into(), "--quiet".into(), "--".into()];
+            args.extend(validated_paths(paths)?);
+            vec![mutating(args)]
+        }
+        PluginGitRequest::RestoreFromUpstream { paths, .. } => {
+            let mut args = vec![
+                "restore".into(),
+                "--source=@{upstream}".into(),
+                "--staged".into(),
+                "--worktree".into(),
+                "--".into(),
+            ];
             args.extend(validated_paths(paths)?);
             vec![mutating(args)]
         }
@@ -1144,6 +1243,131 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
         }
     };
     Ok(steps)
+}
+
+pub(crate) fn apply_system_git_settings(
+    steps: &mut [GitPlanStep],
+    request: &PluginGitRequest,
+    policy: &GitSettingsPolicy,
+    settings: &SystemGitSettings,
+) -> AppResult<()> {
+    if !policy.use_system_settings {
+        return Ok(());
+    }
+    for step in steps {
+        let GitPlanStep::Command { args, .. } = step else {
+            continue;
+        };
+        let mut prefix = Vec::new();
+        for key in [
+            "user.name",
+            "user.email",
+            "core.autocrlf",
+            "core.eol",
+            "core.ignorecase",
+            "core.precomposeunicode",
+        ] {
+            if let Some(value) = settings.last(key) {
+                push_system_config(&mut prefix, key, value)?;
+            }
+        }
+        if matches!(request.auth_mode(), Some(PluginGitAuthMode::System)) {
+            for value in settings.values("credential.helper") {
+                push_system_config(&mut prefix, "credential.helper", value)?;
+            }
+            for key in ["credential.usehttppath", "credential.username"] {
+                if let Some(value) = settings.last(key) {
+                    push_system_config(&mut prefix, key, value)?;
+                }
+            }
+        }
+        if matches!(request, PluginGitRequest::Commit { .. }) {
+            let system_signing = settings
+                .last("commit.gpgsign")
+                .is_some_and(git_config_truthy);
+            let signing = match policy.signing {
+                GitCommitSigningMode::Always => true,
+                GitCommitSigningMode::Never => false,
+                GitCommitSigningMode::System => system_signing,
+            };
+            if signing {
+                for key in [
+                    "gpg.format",
+                    "gpg.program",
+                    "gpg.ssh.program",
+                    "gpg.x509.program",
+                    "user.signingkey",
+                ] {
+                    if let Some(value) = settings.last(key) {
+                        push_system_config(&mut prefix, key, value)?;
+                    }
+                }
+                if let Some(key) = policy.signing_key.as_deref() {
+                    push_system_config(&mut prefix, "user.signingkey", key)?;
+                }
+                push_system_config(&mut prefix, "commit.gpgSign", "true")?;
+                args.retain(|argument| argument != "--no-gpg-sign");
+                if matches!(policy.signing, GitCommitSigningMode::Always) {
+                    let flag = policy
+                        .signing_key
+                        .as_deref()
+                        .map(|key| format!("--gpg-sign={key}"))
+                        .unwrap_or_else(|| "--gpg-sign".to_string());
+                    let commit = args
+                        .iter()
+                        .position(|argument| argument == "commit")
+                        .ok_or_else(|| {
+                            AppError::Plugin(
+                                "The Git commit plan is missing its command".to_string(),
+                            )
+                        })?;
+                    args.insert(commit + 1, flag);
+                }
+            }
+        }
+        prefix.append(args);
+        *args = prefix;
+    }
+    Ok(())
+}
+
+fn push_system_config(arguments: &mut Vec<String>, key: &str, value: &str) -> AppResult<()> {
+    if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
+        return Err(AppError::Plugin(format!(
+            "The system Git setting {key} is empty, too large, or contains control characters"
+        )));
+    }
+    arguments.push("-c".to_string());
+    arguments.push(format!("{key}={value}"));
+    Ok(())
+}
+
+fn git_config_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "true" | "yes" | "on" | "1"
+    )
+}
+
+pub(crate) fn read_system_git_settings(executable: &Path) -> AppResult<SystemGitSettings> {
+    let mut command = Command::new(executable);
+    command.args(["config", "--global", "--includes", "--null", "--list"]);
+    remove_inherited_environment(&mut command);
+    command
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .stdout(Stdio::piped());
+    let output = command.output().map_err(|error| {
+        AppError::Plugin(format!("Unable to read the system Git settings: {error}"))
+    })?;
+    if !output.status.success() {
+        return Err(AppError::Plugin(format!(
+            "Unable to read the system Git settings: {}",
+            first_line(&String::from_utf8_lossy(&output.stderr))
+        )));
+    }
+    SystemGitSettings::parse(&output.stdout)
 }
 
 fn read_only(args: Vec<String>) -> GitPlanStep {
@@ -3360,9 +3584,16 @@ impl PluginManager {
                 ensure_encrypted_repository_metadata(&git_directory)?;
             }
         }
-        let steps = plan_git_request(&request)?;
+        let mut steps = plan_git_request(&request)?;
         let configured = self.git_executable_setting(plugin_id)?;
         let executable = resolve_git_executable(configured.as_deref())?;
+        let policy = self.git_settings_policy(plugin_id)?;
+        let system_settings = if policy.use_system_settings {
+            read_system_git_settings(&executable)?
+        } else {
+            SystemGitSettings::default()
+        };
+        apply_system_git_settings(&mut steps, &request, &policy, &system_settings)?;
         let hooks_directory = self.git_hooks_directory()?;
         let global_config = self.git_global_config()?;
         // The operation is registered before any credential is read, so
@@ -3417,7 +3648,7 @@ impl PluginManager {
         };
         if matches!(
             mode,
-            PluginGitAuthMode::Public | PluginGitAuthMode::SshAgent
+            PluginGitAuthMode::System | PluginGitAuthMode::Public | PluginGitAuthMode::SshAgent
         ) {
             return Ok(None);
         }

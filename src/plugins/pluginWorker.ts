@@ -14,6 +14,7 @@ import type {
   PluginProcessResult,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginProjectRepositoryContext,
   PluginSourceControlProvider,
   PluginSourceControlViewModel,
   PluginTextDocument,
@@ -64,6 +65,7 @@ let plugin: DenotePlugin | null = null;
 let port: MessagePort | null = null;
 let cleaned = false;
 let projectContext: PluginProjectContext | null = null;
+let projectRepositories: PluginProjectRepositoryContext[] = [];
 let projectContextObserved = false;
 let hostMessageQueue = Promise.resolve();
 let projectContextQueue = Promise.resolve();
@@ -306,6 +308,7 @@ function runtimeContext(): PluginActivationContext {
   if (permissions.has("project-context")) {
     capabilities.projectContext = {
       getCurrent: () => cloneProjectContext(projectContext),
+      getRepositories: () => cloneProjectRepositories(projectRepositories),
       subscribe(listener) {
         if (typeof listener !== "function") {
           throw new Error("Project context listener must be a function.");
@@ -491,11 +494,19 @@ function cloneProjectContext(
 function cloneProjectContextChangeEvent(
   event: PluginProjectContextChangeEvent,
 ): PluginProjectContextChangeEvent {
+  const repositories = cloneProjectRepositories(event.repositories ?? []);
   return {
     previous: cloneProjectContext(event.previous),
     current: cloneProjectContext(event.current),
+    ...(repositories.length > 0 ? { repositories } : {}),
     workspaceChanged: event.workspaceChanged === true,
   };
+}
+
+function cloneProjectRepositories(
+  repositories: PluginProjectRepositoryContext[],
+): PluginProjectRepositoryContext[] {
+  return repositories.map((repository) => ({ ...repository }));
 }
 
 async function cleanup(): Promise<unknown[]> {
@@ -555,6 +566,7 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
         // A change that arrived while activation was still running is newer
         // than the snapshot the activation message carried.
         projectContext = cloneProjectContext(message.projectContext ?? null);
+        projectRepositories = cloneProjectRepositories(message.repositories ?? []);
       }
       await plugin.activate(runtimeContext());
       send({ type: "activated" });
@@ -570,6 +582,7 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     }
     projectContextObserved = true;
     projectContext = cloneProjectContext(message.event.current);
+    projectRepositories = cloneProjectRepositories(message.event.repositories ?? []);
     const event = cloneProjectContextChangeEvent(message.event);
     for (const listener of projectContextListeners) {
       try {

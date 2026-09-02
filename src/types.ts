@@ -152,6 +152,7 @@ export interface ProjectRoot {
   available: boolean;
   explicit: boolean;
   workspaceId: string | null;
+  gitRepository?: boolean;
 }
 
 export interface ProjectWorkspace {
@@ -164,6 +165,7 @@ export interface ProjectConfiguration {
   projectRoots: ProjectRoot[];
   projectWorkspaces: ProjectWorkspace[];
   suggestGitProject: boolean;
+  gitRepositoryRoot?: boolean;
 }
 
 export interface GitignoreStatusUpdate {
@@ -188,6 +190,7 @@ export interface WorkspaceSnapshot {
   projectRoots: ProjectRoot[];
   projectWorkspaces: ProjectWorkspace[];
   suggestGitProject: boolean;
+  gitRepositoryRoot?: boolean;
   ignoredPaths: string[];
   fromCache: boolean;
   encryption: EncryptionStatus;

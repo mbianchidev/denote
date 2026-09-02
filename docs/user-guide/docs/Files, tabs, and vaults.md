@@ -133,10 +133,11 @@ project** accepts it. **No thanks** permanently dismisses it for that vault.
 Manually marking the root as a project or workspace also dismisses it. Denote
 never marks a Git repository automatically.
 
-When the optional Git plugin is enabled, its source-control view follows the
-same active-project rule. With no active project it operates on the vault root.
-Switching projects or vaults clears the previous repository state and requires a
-fresh status read.
+When the optional Git plugin is enabled, its source-control view lists the vault
+root and every configured project root that contains a safe `.git` file or
+directory. Selecting a repository changes only the Git view; every action remains
+bound to that exact host-issued repository. Switching vaults discards the old
+list and state.
 
 ## Switch vaults
 
@@ -150,7 +151,8 @@ Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
 
-The Git plugin can also clone into an empty folder chosen through the native
+When the Git plugin is enabled, **Clone repo as vault** appears in this Switch
+vault dialog beside **Open another folder**. It clones into an empty folder chosen through the native
 folder picker. Denote registers and opens that folder only after Git finishes
 and the checkout passes repository, path, link, branch, upstream, and Denote
 control-file validation. A failed or cancelled clone remains visible for retry

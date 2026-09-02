@@ -2,9 +2,49 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
-import { SourceControlPanel } from "./SourceControlPanel";
+import { CloneOnboarding, SourceControlPanel } from "./SourceControlPanel";
 
 describe("SourceControlPanel", () => {
+  it("lists detected repositories and selects one explicitly", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = changesModel();
+    model.workspaceRepositories = [
+      {
+        repositoryId: "vault",
+        label: "Notes vault",
+        selected: false,
+        initialized: true,
+        branch: "main",
+        changes: 0,
+      },
+      {
+        repositoryId: "project:synthetic",
+        label: "Synthetic repository",
+        selected: true,
+        initialized: true,
+        branch: "topic",
+        changes: 3,
+      },
+    ];
+
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Repositories" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("topic · 3 changes")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Select Notes vault repository" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "select-workspace-repository",
+      values: { repositoryId: "vault" },
+    });
+  });
+
   it("renders typed changes, conflicts, diffs, and standardized action payloads", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
@@ -47,6 +87,19 @@ describe("SourceControlPanel", () => {
       id: "switch-branch",
       values: { branch: "topic", from: "main" },
     });
+    await user.type(screen.getByLabelText("New branch"), "feature");
+    await user.click(
+      screen.getByRole("button", { name: "Create and switch branch" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "create-branch",
+      values: {
+        name: "feature",
+        startPoint: "main",
+        checkout: true,
+        from: "main",
+      },
+    });
 
     await user.click(
       screen.getByRole("button", { name: "Stage draft.md" }),
@@ -54,6 +107,30 @@ describe("SourceControlPanel", () => {
     expect(onAction).toHaveBeenCalledWith({
       id: "stage",
       values: { path: "draft.md" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Stage all changes" }));
+    await user.click(
+      screen.getByRole("button", { name: "Unstage all changes" }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Restore draft.md from origin/main",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Restore all tracked changes from origin/main",
+      }),
+    );
+    expect(onAction).toHaveBeenCalledWith({ id: "stage-all" });
+    expect(onAction).toHaveBeenCalledWith({ id: "unstage-all" });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "restore-from-upstream",
+      values: { path: "draft.md" },
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "restore-all-from-upstream",
     });
 
     await user.click(
@@ -298,7 +375,11 @@ describe("SourceControlPanel", () => {
       review: null,
     };
     render(
-      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+      <CloneOnboarding
+        remoteAccess={model.remoteAccess}
+        busy={false}
+        onAction={onAction}
+      />,
     );
 
     await user.click(
@@ -376,7 +457,11 @@ describe("SourceControlPanel", () => {
     const model = baseModel();
     model.remoteAccess = { ...model.remoteAccess, authMode: "ssh-agent" };
     render(
-      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+      <CloneOnboarding
+        remoteAccess={model.remoteAccess}
+        busy={false}
+        onAction={onAction}
+      />,
     );
 
     // The mode is a host-persisted setting, so the panel reports it and sends

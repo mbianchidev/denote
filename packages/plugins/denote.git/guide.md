@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This plugin keeps a Git history of your vault, or of the active project inside
-it, without leaving Denote. It adds one source control view that shows the
-repository, its working tree changes, its branches, its remotes, and its commit
+This plugin keeps a Git history of your vault and configured projects without
+leaving Denote. It adds one source control view that lists every safe detected
+repository, then shows the selected repository's working tree changes, branches, remotes, and commit
 history, and it lets you initialize a repository, stage and unstage a file or a
 single hunk, commit what you staged, create, switch, rename, and delete
 branches, and review a commit's own diff. It can also commit tracked changes for
@@ -28,8 +28,9 @@ Enabling requests these permissions:
 - **Status** shows one short repository state item.
 - **Source control** contributes the typed repository view Denote renders
   itself. The plugin supplies data only; it cannot render markup.
-- **Project context** scopes the view to the active project when one is marked,
-  and to the vault when none is.
+- **Project context** supplies host-issued identities for the vault and configured
+  projects that contain safe `.git` markers. The plugin receives labels and
+  opaque IDs for inactive repositories, not their paths.
 - **Git** runs the host's typed Git operations. Denote owns the Git executable,
   the argument templates, and the repository scope; the plugin can only name an
   operation and its structured fields.
@@ -50,7 +51,8 @@ either: the first automatic commit happens one whole interval later.
 
 ## Usage
 
-Open the Git view from the activity rail, or run `Git: Refresh repository`.
+Open the Git view from the activity rail, select a repository under
+**Repositories**, or run `Git: Refresh repository`.
 
 - **Refresh** discovers whether the scope is a repository and, when it is, reads
   status, branches, remotes, the recoverable operation state, and the latest
@@ -59,6 +61,11 @@ Open the Git view from the activity rail, or run `Git: Refresh repository`.
   configured default branch, then refreshes. Nothing is created until you use
   this action.
 - **Stage** and **Unstage** act on the exact file path in the row.
+- **Stage all changes** adds every eligible changed or untracked path, and
+  **Unstage all changes** resets every staged path.
+- **Restore** replaces one tracked staged or unstaged file with the current
+  upstream version. **Restore from remote** applies to all tracked changes.
+  Both ask for dangerous confirmation and never delete untracked files.
 - **Open diff** on a changed or staged row shows that file's hunks, with
   **Stage hunk** and **Unstage hunk** where a hunk can safely be applied on its
   own, and a **Working tree** / **Staged** switch when the file has both.
@@ -68,6 +75,8 @@ Open the Git view from the activity rail, or run `Git: Refresh repository`.
   commits at a time; selecting a commit shows its details and its exact diff.
 - **Commit staged changes** commits only what is staged, using the message you
   typed and the configured author identity when one is set.
+- **New branch** creates and switches to a branch from the current branch without
+  opening advanced branch management.
 - **Cancel operation** stops the Git operation that is running, including a
   clone and a GitHub browse. It targets the
   operation Denote is actually running, not the one the button was drawn for,
@@ -97,19 +106,23 @@ one remote to choose from.
   confirmation, showing the exact remote name and URL. Removing a remote leaves
   your commits and files untouched.
 
-After every operation the repository is read again, so what is on screen is
-never older than the action you just took. When an operation fails, the last
-known good state stays on screen and the failure is reported with Git's own
-message.
+After an operation Denote rereads the state it could have changed. Stage,
+unstage, and restore refresh only the working tree and operation state; branch,
+remote, history, and diff data are retained unless that action could change
+them. When an operation fails, the last known good state stays on screen and the
+failure is reported with Git's own message.
 
 ### Signing in to a remote
 
 **Remote authentication** decides how a fetch, pull, push, or clone
 authenticates. It is a plugin setting, so you change it in Denote's settings for
-this plugin. The Git view shows the configured mode beside the clone form and
+this plugin. The clone form in **Switch vault** shows the configured mode and
 never offers to change it there, so what you see is always what the next remote
 operation will use.
 
+- **System Git credentials** is the default. It uses the credential helpers and
+  stored credentials from your global Git configuration while terminal prompts
+  remain disabled.
 - **Public repository** uses no credentials at all.
 - **SSH agent** uses the agent already running on your machine. Denote never
   prompts, so an agent that is not set up fails with Git's own error instead of
@@ -128,12 +141,12 @@ operation will use.
 With GitHub sign-in selected, **Browse GitHub repositories** lists the
 repositories your `gh` account can reach. Only the name, the HTTPS and SSH URLs,
 the default branch, and whether it is private are shown. Selecting one fills in
-the clone form.
+the Switch vault clone form.
 
 ### Cloning a repository into a vault
 
-**Clone a repository** takes a URL and an optional branch, then asks you to
-choose a folder.
+Open **Switch vault** and choose **Clone repo as vault**. Enter a URL and
+optional branch there, then choose a folder.
 
 - The folder must be **empty**, and must be a real folder rather than a link.
 - Closing the chooser cancels the clone and changes nothing.
@@ -152,11 +165,10 @@ confirmation, deletes only that one folder, refuses if the folder is now a live
 vault or holds files that did not come from the failed clone, and cannot be used
 twice. Nothing is ever cleaned up automatically.
 
-Switching the active project resets the view to the new repository and asks for
-a refresh, so results from the previous scope are never shown as if they
-belonged to the new one. Switching vaults resets it the same way, even when
-neither vault has a project marked, because the two are different repositories
-that would otherwise look alike.
+Changing editor focus does not move an explicit repository selection. A removed
+repository disappears from the list, and switching vaults replaces the complete
+list and state, so results from the previous vault are never shown under the new
+one.
 
 ### Automatic commits
 
@@ -389,10 +401,14 @@ than done quietly; **Discard result** puts the merge Denote derived back.
   plugin never sees or sends an executable path.
 - **GitHub CLI executable** is the same kind of setting for `gh`, and is used
   only when authentication is set to GitHub sign-in.
-- **Remote authentication** is `Public repository`, `SSH agent`, or
-  `GitHub sign-in`, and it is set here rather than in the Git view. Only the
-  choice is stored. No token, password, or key is ever kept in plugin settings
-  or plugin storage.
+- **Remote authentication** defaults to `System Git credentials`; `Public
+  repository`, `SSH agent`, and `GitHub sign-in` remain available. It is set here
+  rather than in the Git view. No remote token or password is stored in plugin
+  settings or plugin storage.
+- **Commit signing** follows the system default, always signs manual commits, or
+  never signs them. **GPG signing key** is an optional masked key ID,
+  fingerprint, or identity. The system GPG agent or pinentry owns the
+  passphrase; Denote never stores it. Automatic commits are always unsigned.
 - **Pull strategy** is `Fast-forward only`, `Merge`, or `Rebase`. Fast-forward
   only never creates a merge commit and never rewrites history, so it is the
   default.
@@ -471,3 +487,6 @@ restores them.
 - **No automatic commits at all** usually means the interval is `0`, the vault
   is locked, or the plugin is disabled. The first commit is always one whole
   interval after enabling, unlocking, or switching vault or project.
+- **Use system Git settings** defaults on. Denote imports only bounded,
+  allowlisted global identity, credential-helper, line-ending, and signing values
+  into its otherwise isolated Git process.

@@ -46,7 +46,10 @@ import {
   useState,
   type CSSProperties,
 } from "react";
-import type { PluginSourceControlAction } from "@denote/plugin-sdk";
+import type {
+  PluginProjectRepositoryContext,
+  PluginSourceControlAction,
+} from "@denote/plugin-sdk";
 import { ActivityRail } from "./components/ActivityRail";
 import { AboutDialog } from "./components/AboutDialog";
 import { ActionDialog } from "./components/ActionDialog";
@@ -354,6 +357,10 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "initialize",
   "stage",
   "unstage",
+  "stage-all",
+  "unstage-all",
+  "restore-from-upstream",
+  "restore-all-from-upstream",
   "stage-hunk",
   "unstage-hunk",
   "commit",
@@ -451,6 +458,7 @@ function advancedOperation(values: Record<string, unknown>): string | null {
  */
 function sourceControlConfirmation(
   action: PluginSourceControlAction,
+  repositoryLabel = "",
 ): Omit<ActionDialogState, "mode" | "initialValue"> | null {
   const values = action.values ?? {};
   const value = (key: string) =>
@@ -460,6 +468,7 @@ function sourceControlConfirmation(
   const branch = value("branch");
   const name = value("name");
   const url = value("url");
+  const path = value("path");
   const from = value("from");
   const newName = value("newName");
   const startPoint = value("startPoint");
@@ -551,6 +560,27 @@ function sourceControlConfirmation(
         message: `Pull "${branch}" from "${remote}" into this vault? Denote saves open notes first, and the pull can change, add, or remove files in the vault.`,
         confirmLabel: "Pull",
         dangerous: false,
+      };
+    case "restore-from-upstream":
+    case "restore-all-from-upstream":
+      return {
+        title: "Restore from the remote branch",
+        message: `Replace ${
+          action.id === "restore-all-from-upstream"
+            ? "all tracked staged and working-tree changes"
+            : `the staged and working-tree versions of "${path}"`
+        }${
+          repositoryLabel ? ` in ${repositoryLabel}` : ""
+        } with the version on its current upstream branch? Local changes to ${
+          action.id === "restore-all-from-upstream"
+            ? "those tracked files"
+            : "this tracked file"
+        } will be lost. Untracked files are never removed.`,
+        confirmLabel:
+          action.id === "restore-all-from-upstream"
+            ? "Restore tracked files"
+            : "Restore file",
+        dangerous: true,
       };
     case "push":
       return {
@@ -1335,11 +1365,52 @@ function App() {
         : null,
     [activeProject?.id, activeProject?.rootPath],
   );
+  const pluginRepositoryKey = (workspace?.projectRoots ?? [])
+    .map(
+      (project) =>
+        `${project.id}\u0000${project.rootPath}\u0000${project.available}\u0000${project.gitRepository === true}`,
+    )
+    .join("\u0001");
+  const pluginProjectRepositories = useMemo<PluginProjectRepositoryContext[]>(
+    () => {
+      if (!workspace) {
+        return [];
+      }
+      const repositories: PluginProjectRepositoryContext[] = [];
+      if (workspace.gitRepositoryRoot) {
+        repositories.push({
+          repositoryId: "vault",
+          projectId: null,
+          label: workspace.vaultName,
+        });
+      }
+      for (const project of workspace.projectRoots) {
+        if (
+          project.available &&
+          project.gitRepository &&
+          project.rootPath.length > 0
+        ) {
+          repositories.push({
+            repositoryId: `project:${project.id}`,
+            projectId: project.id,
+            label: projectRootLabel(project),
+          });
+        }
+      }
+      return repositories;
+    },
+    [
+      pluginRepositoryKey,
+      workspace?.gitRepositoryRoot,
+      workspace?.vaultName,
+    ],
+  );
   const pluginController = usePlugins(
     showError,
     pluginProjectContext,
     workspace?.vaultPath ?? null,
     (snapshot) => clonedVaultHandler.current(snapshot),
+    pluginProjectRepositories,
   );
   const pluginDecorationKey = pluginController.decorations
     .map(
@@ -4408,11 +4479,12 @@ function App() {
       pluginId: string,
       providerId: string,
       action: PluginSourceControlAction,
+      repositoryLabel = "",
     ) => {
       if (!workspace) {
         return;
       }
-      const confirmation = sourceControlConfirmation(action);
+      const confirmation = sourceControlConfirmation(action, repositoryLabel);
       if (confirmation && !(await requestConfirmation(confirmation))) {
         return;
       }
@@ -4480,14 +4552,22 @@ function App() {
    * nothing.
    */
   const openSourceControlFile = useCallback(
-    (repositoryPath: string) => {
+    (repositoryPath: string, repositoryId: string) => {
       if (!workspace) {
         return;
       }
-      const vaultPath = vaultRelativePath(
-        activeProject?.rootPath ?? "",
-        repositoryPath,
-      );
+      const repositoryRoot =
+        repositoryId === "vault"
+          ? ""
+          : (workspace.projectRoots.find(
+              (project) => `project:${project.id}` === repositoryId,
+            )?.rootPath ??
+            activeProject?.rootPath ??
+            "");
+      const vaultPath =
+        repositoryRoot === null
+          ? null
+          : vaultRelativePath(repositoryRoot, repositoryPath);
       if (!vaultPath) {
         showError(
           `Denote cannot open ${repositoryPath} because it is not inside this vault.`,
@@ -4517,6 +4597,7 @@ function App() {
   const openClonedVault = useCallback(
     async (snapshot: WorkspaceSnapshot) => {
       clonedDuringAction.current = true;
+      setVaultSwitcherOpen(false);
       vaultGeneration.current += 1;
       await loadWorkspace(snapshot, true);
       setStatus(
@@ -7301,6 +7382,10 @@ function App() {
     };
   }, [showError]);
 
+  const gitSourceControlContribution =
+    pluginController.sourceControlProviders.find(
+      (provider) => provider.model.remoteAccess.cloneAvailable,
+    ) ?? null;
   const vaultSwitcherDialog = (
     <VaultSwitcherDialog
       open={vaultSwitcherOpen}
@@ -7308,6 +7393,21 @@ function App() {
       onSwitch={switchKnownVault}
       onDelete={deleteKnownVault}
       onChooseFolder={() => void chooseVault()}
+      clone={
+        workspace && gitSourceControlContribution
+          ? {
+              remoteAccess: gitSourceControlContribution.model.remoteAccess,
+              busy: gitSourceControlContribution.model.repository.busy,
+              onAction: (action) => {
+                void runSourceControlAction(
+                  gitSourceControlContribution.pluginId,
+                  gitSourceControlContribution.id,
+                  action,
+                );
+              },
+            }
+          : undefined
+      }
       onClose={() => setVaultSwitcherOpen(false)}
     />
   );
@@ -7702,9 +7802,15 @@ function App() {
                 activeSourceControlContribution.pluginId,
                 activeSourceControlContribution.id,
                 action,
+                activeSourceControlContribution.model.repository.label,
               );
             }}
-            onOpenFile={openSourceControlFile}
+            onOpenFile={(path) =>
+              openSourceControlFile(
+                path,
+                activeSourceControlContribution.model.repository.repositoryId,
+              )
+            }
           />
         ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">

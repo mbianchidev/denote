@@ -18,6 +18,23 @@ pub(crate) const GIT_EXECUTABLE_SETTING: &str = "gitExecutablePath";
 /// It is host-owned in exactly the same way as the Git executable: a plugin
 /// declares the key, the user fills it in, and no request can name a binary.
 pub(crate) const GITHUB_EXECUTABLE_SETTING: &str = "githubExecutablePath";
+pub(crate) const USE_SYSTEM_GIT_SETTINGS: &str = "useSystemGitSettings";
+pub(crate) const COMMIT_SIGNING_SETTING: &str = "commitSigning";
+pub(crate) const GPG_SIGNING_KEY_SETTING: &str = "gpgSigningKey";
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GitCommitSigningMode {
+    System,
+    Always,
+    Never,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct GitSettingsPolicy {
+    pub(crate) use_system_settings: bool,
+    pub(crate) signing: GitCommitSigningMode,
+    pub(crate) signing_key: Option<String>,
+}
 
 impl PluginManager {
     pub(crate) fn settings(&self, plugin_id: &str) -> AppResult<Value> {
@@ -122,6 +139,41 @@ impl PluginManager {
             .map(str::trim)
             .filter(|path| !path.is_empty())
             .map(str::to_string))
+    }
+
+    pub(crate) fn git_settings_policy(&self, plugin_id: &str) -> AppResult<GitSettingsPolicy> {
+        let settings = self.settings(plugin_id)?;
+        let use_system_settings = settings
+            .get(USE_SYSTEM_GIT_SETTINGS)
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let signing = match settings
+            .get(COMMIT_SIGNING_SETTING)
+            .and_then(Value::as_str)
+            .unwrap_or("never")
+        {
+            "always" => GitCommitSigningMode::Always,
+            "never" => GitCommitSigningMode::Never,
+            _ => GitCommitSigningMode::System,
+        };
+        let signing_key = settings
+            .get(GPG_SIGNING_KEY_SETTING)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if signing_key.as_ref().is_some_and(|value| {
+            value.len() > 255 || value.starts_with('-') || value.chars().any(char::is_control)
+        }) {
+            return Err(AppError::Plugin(
+                "The configured GPG signing key is invalid".to_string(),
+            ));
+        }
+        Ok(GitSettingsPolicy {
+            use_system_settings,
+            signing,
+            signing_key,
+        })
     }
 
     pub(crate) fn storage_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<Value>> {

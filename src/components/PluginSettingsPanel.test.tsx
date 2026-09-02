@@ -428,6 +428,43 @@ describe("PluginSettingsPanel", () => {
     );
   });
 
+  it("masks sensitive string settings", () => {
+    const configurableCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        settings: {
+          version: 1,
+          properties: {
+            signingKey: {
+              type: "string" as const,
+              title: "GPG signing key",
+              default: "",
+              sensitive: true,
+            },
+          },
+        },
+      },
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              catalog: configurableCatalog,
+              settings: { signingKey: "ABCDEF1234567890" },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByLabelText("GPG signing key")).toHaveAttribute(
+      "type",
+      "password",
+    );
+  });
+
   it("exposes the in-app usage guide before enablement", async () => {
     const user = userEvent.setup();
     render(<PluginSettingsPanel {...props()} />);

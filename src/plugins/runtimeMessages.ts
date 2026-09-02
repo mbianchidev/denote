@@ -3,6 +3,7 @@ import type {
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginProjectRepositoryContext,
   PluginSourceControlAction,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
@@ -62,6 +63,7 @@ export type PluginHostMessage =
   | {
       type: "activate";
       projectContext?: PluginProjectContext | null;
+      repositories?: PluginProjectRepositoryContext[];
     }
   | { type: "run-command"; commandId: string; requestId: string }
   | {
@@ -236,9 +238,11 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
   switch (value.type) {
     case "activate":
       return (
-        value.projectContext === undefined ||
-        value.projectContext === null ||
-        isProjectContext(value.projectContext)
+        (value.projectContext === undefined ||
+          value.projectContext === null ||
+          isProjectContext(value.projectContext)) &&
+        (value.repositories === undefined ||
+          isArrayOf(value.repositories, isProjectRepositoryContext))
       );
     case "run-command":
       return (
@@ -264,6 +268,8 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         isRecord(value.event) &&
         isNullableProjectContext(value.event.previous) &&
         isNullableProjectContext(value.event.current) &&
+        (value.event.repositories === undefined ||
+          isArrayOf(value.event.repositories, isProjectRepositoryContext)) &&
         typeof value.event.workspaceChanged === "boolean"
       );
     case "deactivate":
@@ -750,6 +756,18 @@ function isProjectContext(value: unknown): boolean {
     isRecord(value) &&
     typeof value.projectId === "string" &&
     typeof value.rootPath === "string"
+  );
+}
+
+function isProjectRepositoryContext(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.repositoryId === "string" &&
+    value.repositoryId.length > 0 &&
+    (value.projectId === null ||
+      (typeof value.projectId === "string" && value.projectId.length > 0)) &&
+    typeof value.label === "string" &&
+    value.label.length > 0
   );
 }
 
