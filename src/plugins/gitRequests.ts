@@ -66,6 +66,7 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
   switch (value.operation) {
     case "discover":
     case "status":
+    case "list-conflicts":
     case "operation-state":
     case "list-branches":
     case "list-remotes":

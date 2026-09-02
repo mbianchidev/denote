@@ -11,6 +11,7 @@ const accepted: PluginGitRequest[] = [
   { operation: "discover", scope: "vault" },
   { operation: "status", scope: "project" },
   { operation: "operation-state", scope: "vault" },
+  { operation: "list-conflicts", scope: "vault" },
   { operation: "initialize", scope: "vault", defaultBranch: "main" },
   { operation: "stage", scope: "vault", paths: ["notes/alpha.md"] },
   { operation: "unstage", scope: "vault", paths: ["notes/alpha.md"] },

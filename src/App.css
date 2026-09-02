@@ -2480,6 +2480,117 @@ button.tag-chip:active,
   padding: 9px 14px;
 }
 
+/* An operation waiting for review, one that is part way through, and the
+   conflict editor share the panel's sectioned layout. */
+.source-control__operation,
+.source-control__operation-plan,
+.source-control__conflict,
+.source-control__pending-switch {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__pending-paths {
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  margin: 0 0 9px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  list-style: none;
+}
+
+.source-control__pending-paths li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control__conflict-panes {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.source-control__conflict-pane {
+  overflow: hidden;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+}
+
+.source-control__conflict-pane h5 {
+  padding: 6px 7px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--code-gutter-bg);
+  border-bottom: 1px solid var(--code-border);
+}
+
+.source-control__conflict-pane pre,
+.source-control__conflict-lines pre {
+  max-height: 160px;
+  padding: 6px 7px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-primary);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.source-control__conflict-pane p {
+  padding: 6px 7px;
+  margin: 0;
+}
+
+.source-control__conflict-chunks {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0 0 10px;
+  list-style: none;
+}
+
+.source-control__conflict-chunks > li {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.source-control__conflict-lines {
+  display: grid;
+  gap: 4px;
+}
+
+.source-control__conflict textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 16px;
+  resize: vertical;
+}
+
+.source-control__conflict textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 1px;
+}
+
 .status-bar {
   display: flex;
   height: 24px;

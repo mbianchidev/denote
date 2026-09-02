@@ -53,6 +53,8 @@ const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 const MAX_HUNK_LINES: usize = 5_000;
 const MAX_HUNK_LINE_BYTES: usize = 8 * 1024;
 const MAX_PATCH_BYTES: usize = 1024 * 1024;
+/// The largest sequencer to-do list Denote reads to name a paused sequence.
+const MAX_SEQUENCER_TODO_BYTES: u64 = 1024 * 1024;
 const MAX_HUNK_LINE_NUMBER: u32 = 100_000_000;
 
 const ATTRIBUTES_BEGIN: &str = "# BEGIN Denote encrypted vault (managed)";
@@ -222,6 +224,9 @@ pub enum PluginGitRequest {
         scope: PluginGitScope,
     },
     Status {
+        scope: PluginGitScope,
+    },
+    ListConflicts {
         scope: PluginGitScope,
     },
     OperationState {
@@ -418,6 +423,7 @@ impl PluginGitRequest {
         match self {
             Self::Discover { scope }
             | Self::Status { scope }
+            | Self::ListConflicts { scope }
             | Self::OperationState { scope }
             | Self::Initialize { scope, .. }
             | Self::Stage { scope, .. }
@@ -611,6 +617,11 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
         PluginGitRequest::OperationState { .. } => {
             vec![GitPlanStep::Inspect(GitInspection::OperationState)]
         }
+        PluginGitRequest::ListConflicts { .. } => vec![read_only(vec![
+            "ls-files".into(),
+            "--unmerged".into(),
+            "-z".into(),
+        ])],
         PluginGitRequest::Status { .. } => vec![read_only(vec![
             "status".into(),
             "--porcelain=v2".into(),
@@ -1875,6 +1886,11 @@ pub(crate) struct GitOperationStateReport {
     pub(crate) rebase_in_progress: bool,
     pub(crate) rebase_kind: Option<String>,
     pub(crate) sequencer_in_progress: bool,
+    /// Which command a paused multi-commit sequence is replaying, read from
+    /// the sequencer's own to-do list. A sequence between two commits records
+    /// no head file, so this is the only thing that says whether continuing it
+    /// is a cherry-pick or a revert.
+    pub(crate) sequencer_kind: Option<String>,
     pub(crate) bisect_in_progress: bool,
 }
 
@@ -1886,14 +1902,131 @@ pub(crate) fn detect_operation_state(git_directory: &Path) -> GitOperationStateR
     } else {
         None
     };
+    let sequencer = git_directory.join("sequencer");
     GitOperationStateReport {
         merge_in_progress: git_directory.join("MERGE_HEAD").exists(),
         cherry_pick_in_progress: git_directory.join("CHERRY_PICK_HEAD").exists(),
         revert_in_progress: git_directory.join("REVERT_HEAD").exists(),
         rebase_in_progress: rebase_kind.is_some(),
         rebase_kind,
-        sequencer_in_progress: git_directory.join("sequencer").is_dir(),
+        sequencer_in_progress: sequencer.is_dir(),
+        sequencer_kind: read_sequencer_kind(&sequencer),
         bisect_in_progress: git_directory.join("BISECT_LOG").exists(),
+    }
+}
+
+/// Reads the command a paused sequence is replaying from its to-do list.
+///
+/// Only the two commands Denote runs are recognised, and only from the first
+/// instruction, so a to-do list Denote cannot read reports nothing rather than
+/// a guess.
+fn read_sequencer_kind(sequencer: &Path) -> Option<String> {
+    let todo = sequencer.join("todo");
+    let metadata = fs::metadata(&todo).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_SEQUENCER_TODO_BYTES {
+        return None;
+    }
+    let content = fs::read_to_string(&todo).ok()?;
+    content
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .and_then(|line| line.split_whitespace().next())
+        .and_then(|command| match command {
+            "pick" | "p" | "cherry-pick" => Some("cherry-pick".to_string()),
+            "revert" => Some("revert".to_string()),
+            _ => None,
+        })
+}
+
+impl GitOperationStateReport {
+    /// The operation Git is part way through, if any. A rebase is reported
+    /// before a merge because an interrupted rebase records `MERGE_HEAD` for
+    /// the commit it is replaying, and it is the rebase that has to finish.
+    fn in_progress(&self) -> Option<PluginGitSequencer> {
+        if self.rebase_in_progress {
+            return Some(PluginGitSequencer::Rebase);
+        }
+        if self.cherry_pick_in_progress {
+            return Some(PluginGitSequencer::CherryPick);
+        }
+        if self.revert_in_progress {
+            return Some(PluginGitSequencer::Revert);
+        }
+        if self.sequencer_runs("cherry-pick") {
+            return Some(PluginGitSequencer::CherryPick);
+        }
+        if self.sequencer_runs("revert") {
+            return Some(PluginGitSequencer::Revert);
+        }
+        if self.merge_in_progress {
+            return Some(PluginGitSequencer::Merge);
+        }
+        None
+    }
+
+    /// Whether the named sequencer is the one that can be continued, skipped,
+    /// or aborted right now.
+    ///
+    /// A cherry-pick or a revert of several commits keeps its state in the
+    /// sequencer directory between commits, so that counts as in progress even
+    /// while the head file for the current commit is gone.
+    /// Whether a paused sequence is replaying exactly this command. A sequence
+    /// whose to-do list Denote could not read is resumed as neither.
+    fn sequencer_runs(&self, command: &str) -> bool {
+        self.sequencer_in_progress && self.sequencer_kind.as_deref() == Some(command)
+    }
+
+    fn resumable(&self, sequencer: PluginGitSequencer) -> bool {
+        match sequencer {
+            PluginGitSequencer::Merge => self.merge_in_progress && !self.rebase_in_progress,
+            PluginGitSequencer::Rebase => self.rebase_in_progress,
+            PluginGitSequencer::CherryPick => {
+                self.cherry_pick_in_progress || self.sequencer_runs("cherry-pick")
+            }
+            PluginGitSequencer::Revert => self.revert_in_progress || self.sequencer_runs("revert"),
+        }
+    }
+}
+
+/// Refuses an operation the repository's current state cannot support.
+///
+/// Starting a merge, rebase, cherry-pick, or revert on top of one that is
+/// already part way through would either fail obscurely or bury the first
+/// operation's state, so it is refused before Git is reached. Continuing,
+/// skipping, or aborting is refused unless that exact operation is the one
+/// Git is actually running, so a stale surface can never resume something the
+/// repository is not doing.
+fn assert_operation_state_allows(
+    request: &PluginGitRequest,
+    git_directory: &Path,
+) -> AppResult<()> {
+    let state = detect_operation_state(git_directory);
+    match request {
+        PluginGitRequest::Merge { .. }
+        | PluginGitRequest::Rebase { .. }
+        | PluginGitRequest::CherryPick { .. }
+        | PluginGitRequest::Revert { .. } => {
+            if let Some(active) = state.in_progress() {
+                return Err(AppError::Plugin(format!(
+                    "This repository already has a {} in progress. Continue or abort it before starting another operation.",
+                    sequencer_command(active)
+                )));
+            }
+            Ok(())
+        }
+        PluginGitRequest::Continue { sequencer, .. }
+        | PluginGitRequest::Skip { sequencer, .. }
+        | PluginGitRequest::Abort { sequencer, .. } => {
+            if state.resumable(*sequencer) {
+                return Ok(());
+            }
+            Err(AppError::Plugin(format!(
+                "This repository has no {} in progress, so Denote will not continue, skip, or abort one.",
+                sequencer_command(*sequencer)
+            )))
+        }
+        _ => Ok(()),
     }
 }
 
@@ -3196,6 +3329,7 @@ impl PluginManager {
         if state == GitDirectoryState::Directory {
             let git_directory = repository_root.join(".git");
             assert_repository_config_is_safe(&git_directory)?;
+            assert_operation_state_allows(&request, &git_directory)?;
             if encrypted {
                 ensure_encrypted_repository_metadata(&git_directory)?;
             }

@@ -1,6 +1,8 @@
 import type {
   PluginProjectContext,
+  PluginSourceControlAdvancedOperation,
   PluginSourceControlAuthMode,
+  PluginSourceControlConflictDetail,
   PluginSourceControlBranchChoice,
   PluginSourceControlCommitDetail,
   PluginSourceControlConflictEntry,
@@ -8,6 +10,8 @@ import type {
   PluginSourceControlDiffSource,
   PluginSourceControlHistoryEntry,
   PluginSourceControlHistoryPage,
+  PluginSourceControlOperationPlan,
+  PluginSourceControlOperationProgress,
   PluginSourceControlOperationReview,
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRecoveryState,
@@ -60,6 +64,9 @@ export interface GitModelBase {
   diffFiles: PluginSourceControlDiffFile[];
   diffSource: PluginSourceControlDiffSource | null;
   conflicts: PluginSourceControlConflictEntry[];
+  conflictDetail: PluginSourceControlConflictDetail | null;
+  operationProgress: PluginSourceControlOperationProgress | null;
+  operationPlan: PluginSourceControlOperationPlan | null;
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
   pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
@@ -153,6 +160,9 @@ export function initialModel(
       diffFiles: [],
       diffSource: null,
       conflicts: [],
+      conflictDetail: null,
+      operationProgress: null,
+      operationPlan: null,
       recovery: { state: "idle" },
       pendingBranchSwitch: null,
       // Remote and clone state survives a scope change: it describes how the
@@ -164,11 +174,18 @@ export function initialModel(
   );
 }
 
+/**
+ * Builds one model from its data and its selection.
+ *
+ * Content that belongs to a view is dropped whenever the selection is not that
+ * view, so a model can never carry a diff, a commit, or a conflict editor that
+ * nothing on screen names.
+ */
 export function compose(
   base: GitModelBase,
   selection: GitSelection,
 ): PluginSourceControlViewModel {
-  const shared = { ...base };
+  const shared = pruned(base, selection);
   if (selection.tab === "history") {
     return { ...shared, selectedTab: "history", selectedView: selection.view };
   }
@@ -200,6 +217,9 @@ export function baseOf(model: PluginSourceControlViewModel): GitModelBase {
     diffFiles: model.diffFiles,
     diffSource: model.diffSource,
     conflicts: model.conflicts,
+    conflictDetail: model.conflictDetail,
+    operationProgress: model.operationProgress,
+    operationPlan: model.operationPlan,
     recovery: model.recovery,
     remoteAccess: model.remoteAccess,
     pendingBranchSwitch: model.pendingBranchSwitch,
@@ -222,6 +242,61 @@ export function withPendingBranchSwitch(
       pendingBranchSwitch,
     },
     selectionOf(model),
+  );
+}
+
+/**
+ * Publishes an advanced operation that has been prepared and not run, or
+ * clears one. A review never carries progress state, so the surface it
+ * replaces is the last settled one.
+ */
+export function withOperationPlan(
+  model: PluginSourceControlViewModel,
+  operationPlan: PluginSourceControlOperationPlan | null,
+): PluginSourceControlViewModel {
+  return compose(
+    {
+      ...baseOf(model),
+      repository: idle(model.repository),
+      operationPlan,
+    },
+    selectionOf(model),
+  );
+}
+
+/**
+ * Publishes the conflicted path a surface has open.
+ *
+ * The selection moves with it, so the model never carries a conflict editor
+ * for a path nothing on screen names.
+ */
+export function withConflictDetail(
+  model: PluginSourceControlViewModel,
+  conflictDetail: PluginSourceControlConflictDetail,
+): PluginSourceControlViewModel {
+  return compose(
+    {
+      ...baseOf(model),
+      repository: conflictDetail.loading
+        ? model.repository
+        : idle(model.repository),
+      conflictDetail,
+      // A conflict is not a diff: the working tree copy holds Git's markers,
+      // which Denote never renders as content.
+      diffFiles: [],
+      diffSource: null,
+    },
+    { tab: "changes", view: { kind: "conflict", path: conflictDetail.path } },
+  );
+}
+
+/** Closes the conflict editor, dropping every side it had read. */
+export function withoutConflictDetail(
+  model: PluginSourceControlViewModel,
+): PluginSourceControlViewModel {
+  return compose(
+    { ...baseOf(model), conflictDetail: null },
+    { tab: "changes", view: { kind: "repository" } },
   );
 }
 
@@ -378,6 +453,12 @@ export interface GitRefreshData {
   /** Diff content read for the selected path, when one is open. */
   diffFiles: PluginSourceControlDiffFile[];
   diffSource: PluginSourceControlDiffSource | null;
+  /** The conflict a surface has open, when it still exists. */
+  conflictDetail: PluginSourceControlConflictDetail | null;
+  /** The operation Git reports is in progress, when there is one. */
+  operationProgress: PluginSourceControlOperationProgress | null;
+  /** An advanced operation waiting for review, when one is waiting. */
+  operationPlan: PluginSourceControlOperationPlan | null;
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
   pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
@@ -418,7 +499,13 @@ export function refreshedModel(
     commitDetail: data.commitDetail,
     diffFiles: data.diffFiles,
     diffSource: data.diffSource,
-    conflicts: conflictEntries(data.status),
+    conflicts: conflictEntries(
+      data.status,
+      data.operationProgress?.operation ?? null,
+    ),
+    conflictDetail: data.conflictDetail,
+    operationProgress: data.operationProgress,
+    operationPlan: data.operationPlan,
     recovery: data.recovery,
     remoteAccess: data.remoteAccess,
     pendingBranchSwitch: data.pendingBranchSwitch,
@@ -444,6 +531,9 @@ export function uninitializedModel(
       diffFiles: [],
       diffSource: null,
       conflicts: [],
+      conflictDetail: null,
+      operationProgress: null,
+      operationPlan: null,
       recovery: { state: "idle" },
       remoteAccess,
       pendingBranchSwitch: null,
@@ -453,23 +543,35 @@ export function uninitializedModel(
 }
 
 /**
- * Drops diff and commit content the selection cannot display.
+ * Drops diff, commit, and conflict content the selection cannot display.
  *
- * Only two views hold content of their own: an open file diff, and an open
- * commit. Everything else clears both, so a diff read for the working tree is
- * never left behind under a commit, and a commit's files never survive a
- * return to the Changes tab.
+ * Only three views hold content of their own: an open file diff, an open
+ * commit, and an open conflict. Everything else clears them, so a diff read
+ * for the working tree is never left behind under a commit, a commit's files
+ * never survive a return to the Changes tab, and a conflict editor never
+ * survives moving to a different path.
  */
-function pruned(base: GitModelBase, selection: GitSelection): GitModelBase {
+export function pruned(
+  base: GitModelBase,
+  selection: GitSelection,
+): GitModelBase {
   const showsFileDiff =
     selection.tab === "changes" && selection.view.kind === "diff";
   const showsCommit =
     selection.tab === "history" && selection.view.kind === "commit";
+  const conflictPath =
+    selection.tab === "changes" && selection.view.kind === "conflict"
+      ? selection.view.path
+      : null;
   return {
     ...base,
     commitDetail: showsCommit ? base.commitDetail : null,
     diffFiles: showsFileDiff ? base.diffFiles : [],
     diffSource: showsFileDiff || showsCommit ? base.diffSource : null,
+    conflictDetail:
+      base.conflictDetail && base.conflictDetail.path === conflictPath
+        ? base.conflictDetail
+        : null,
   };
 }
 
@@ -616,17 +718,60 @@ function counted(
   };
 }
 
+/**
+ * Names the two sides of every conflicted path.
+ *
+ * Which side is which depends on the operation Git is running: a rebase and a
+ * cherry-pick replay a commit onto the branch, so "ours" is what the branch
+ * already held and "theirs" is the commit being replayed. Saying that plainly
+ * is what stops a user choosing the wrong side because a label assumed a
+ * merge.
+ */
 function conflictEntries(
   status: GitStatusReport,
+  operation: PluginSourceControlAdvancedOperation | null,
 ): PluginSourceControlConflictEntry[] {
-  const oursLabel = status.branch ?? "Current branch";
+  const labels = conflictSideLabels(status.branch, operation);
   return status.conflicted.map((resource) => ({
     path: resource.path,
     status: "unmerged" as const,
-    oursLabel,
-    theirsLabel: "Incoming change",
-    baseLabel: null,
+    oursLabel: labels.ours,
+    theirsLabel: labels.theirs,
+    baseLabel: labels.base,
   }));
+}
+
+/** The three side labels for one operation, or for an unknown one. */
+export function conflictSideLabels(
+  branch: string | null,
+  operation: PluginSourceControlAdvancedOperation | null,
+): { base: string; ours: string; theirs: string } {
+  const current = branch ?? "the current branch";
+  const base = "Common ancestor";
+  switch (operation) {
+    case "rebase":
+      return {
+        base,
+        ours: `Commits already on ${current}`,
+        theirs: "The commit being replayed",
+      };
+    case "cherry-pick":
+      return {
+        base,
+        ours: `${current} as it is now`,
+        theirs: "The commit being cherry-picked",
+      };
+    case "revert":
+      return {
+        base,
+        ours: `${current} as it is now`,
+        theirs: "The reversal of the commit",
+      };
+    case "merge":
+      return { base, ours: current, theirs: "The branch being merged in" };
+    default:
+      return { base, ours: current, theirs: "Incoming change" };
+  }
 }
 
 function folderName(rootPath: string): string {

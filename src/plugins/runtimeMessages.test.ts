@@ -36,6 +36,9 @@ const model: PluginSourceControlViewModel = {
   diffFiles: [],
   diffSource: null,
   conflicts: [],
+  conflictDetail: null,
+  operationProgress: null,
+  operationPlan: null,
   recovery: { state: "idle" },
   pendingBranchSwitch: null,
   remoteAccess: {
@@ -236,6 +239,125 @@ describe("plugin runtime source control messages", () => {
         requestId: "request-1",
       }),
     ).toBe(false);
+  });
+
+  it("accepts a conflict, an operation, and a review only when they are typed", () => {
+    const conflictDetail = {
+      path: "notes/alpha.md",
+      operation: "merge",
+      binary: false,
+      encrypted: false,
+      base: {
+        side: "base",
+        label: "Common ancestor",
+        present: true,
+        text: "one\n",
+        byteLength: 4,
+      },
+      ours: {
+        side: "ours",
+        label: "main",
+        present: true,
+        text: "OURS\n",
+        byteLength: 5,
+      },
+      theirs: {
+        side: "theirs",
+        label: "Incoming change",
+        present: false,
+        text: null,
+        byteLength: 0,
+      },
+      chunks: [
+        {
+          id: "chunk-0",
+          kind: "conflict",
+          base: ["one"],
+          ours: ["OURS"],
+          theirs: [],
+          choice: null,
+          automatic: false,
+        },
+      ],
+      result: "one\n",
+      unsavedResult: false,
+      unresolvedChunks: 1,
+      wholeSideOnly: false,
+      limitation: null,
+      status: null,
+      error: null,
+      loading: false,
+    };
+    const operationProgress = {
+      operation: "rebase",
+      summary: "A rebase is in progress.",
+      conflictedPaths: ["notes/alpha.md"],
+      continueAvailable: false,
+      continueUnavailableReason: "Resolve the conflict first.",
+      skipAvailable: true,
+      abortAvailable: true,
+    };
+    const operationPlan = {
+      operation: "cherry-pick",
+      source: "commit-1",
+      sourceDetail: "abc1234 · Synthetic commit",
+      currentBranch: "main",
+      risk: "creates-commit",
+      summary: "Record the change made by commit-1 as a new commit.",
+      affectedPaths: ["notes/alpha.md"],
+      affectedPathsLimitation: null,
+      startActionId: "cherry-pick",
+      cancelActionId: "cancel-operation-plan",
+    };
+
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: { ...model, conflictDetail, operationProgress, operationPlan },
+      }),
+    ).toBe(true);
+
+    // A side that names another stage, an operation Denote does not run, and a
+    // risk it has no wording for are all refused rather than rendered.
+    for (const invalid of [
+      { ...model, conflictDetail: { ...conflictDetail, ours: conflictDetail.base } },
+      {
+        ...model,
+        conflictDetail: {
+          ...conflictDetail,
+          chunks: [{ ...conflictDetail.chunks[0], choice: "mine" }],
+        },
+      },
+      { ...model, operationProgress: { ...operationProgress, operation: "bisect" } },
+      { ...model, operationPlan: { ...operationPlan, risk: "harmless" } },
+      {
+        ...model,
+        pendingBranchSwitch: {
+          operation: "reset",
+          target: "topic",
+          localBranch: null,
+          fromBranch: "main",
+          stagedPaths: [],
+          unstagedPaths: [],
+          untrackedPaths: [],
+          commitAvailable: true,
+          stashAvailable: true,
+          stashUnavailableReason: null,
+          commitActionId: "branch-switch-commit",
+          stashActionId: "branch-switch-stash",
+          cancelActionId: "branch-switch-cancel",
+        },
+      },
+    ]) {
+      expect(
+        isPluginRuntimeMessage({
+          type: "update-source-control",
+          id: "denote.synthetic.git",
+          model: invalid,
+        }),
+      ).toBe(false);
+    }
   });
 
   it("requires a workspace change flag on every project context change", () => {

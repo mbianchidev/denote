@@ -100,6 +100,7 @@ describe("branch workflows", () => {
 
     expect(git.operations).not.toContain("checkout-branch");
     expect(controller.model.pendingBranchSwitch).toEqual({
+      operation: "checkout",
       target: "topic",
       localBranch: null,
       fromBranch: "main",

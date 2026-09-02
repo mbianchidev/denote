@@ -133,8 +133,8 @@ the exact branch you are leaving and the one you are going to; deleting asks a
 dangerous confirmation.
 
 If switching would disturb work, Denote does not switch. It reads the working
-tree again first. Unresolved conflicts stop a checkout outright: finish or abort
-that operation with your own Git tooling, then refresh. Otherwise Denote lists
+tree again first. Unresolved conflicts stop a checkout outright: resolve them and
+continue, or abort the operation, then try again. Otherwise Denote lists
 every staged, changed, and untracked file and offers you three answers.
 **Commit all and switch** stages exactly those files and commits them with the
 message you type. **Stash and switch** puts them in the repository's stash;
@@ -177,8 +177,40 @@ renamed opens under its current name, and a file that has been deleted since is
 still shown in the commit but cannot be opened. If the file is no longer in the
 vault, Denote says so instead of opening nothing.
 
-Conflict resolution is not implemented in this version. An interrupted merge or
-rebase is reported so you can finish it with your own Git tooling.
+Merge and rebase act on a branch the repository already has, and cherry-pick and
+revert act on the commit you selected in the History tab. None of them starts
+when you press the button: Denote reads the repository again and shows a review
+naming the operation, its source, the branch it changes, what it risks, and the
+files it expects to touch. Starting one asks for confirmation, and a rebase asks
+a dangerous confirmation because it rewrites the commits on your branch. Work in
+the vault goes through the same commit-or-stash review a branch switch uses, and
+an operation never starts while another one is in progress. Cancelling the
+review cancels the whole operation, including the commit-or-stash question, and
+a review stops being valid once the branch it named moves: after a checkout, a
+pull, a commit, or a change made outside Denote, you are asked to preview the
+operation again rather than run the one you read about somewhere else.
+
+An operation that stopped stays where Git left it. Denote reads that state on
+every refresh and after a restart, and offers only the controls Git allows:
+**Continue** stays disabled until no file is unmerged, **Skip** appears only for
+a rebase, cherry-pick, or revert, and **Abort** puts the repository back where it
+was. Nothing resumes on its own.
+
+**Open conflict** reads the three sides Git recorded for a conflicted file — the
+common ancestor, your side, and the incoming side — from the index rather than
+from the file on disk, so a note that contains conflict-marker characters is
+never mistaken for one. Denote merges the sides itself: a change only one side
+made is already in the result, and a change both sides made differently is listed
+with **Base**, **Ours**, and **Theirs** to choose from. You can also take one
+whole side, or edit the merged result yourself, and **Mark resolved** writes it
+into the vault and stages it. A side the index does not hold is shown as not
+recorded rather than as empty content.
+
+Binary files and encrypted vaults never show line content and never receive
+plaintext: they offer the recorded sides as whole-file choices, and Denote writes
+the exact content Git holds for the side you pick. Resolving one file resolves
+only that file, and leaving the editor with an unsaved result is refused rather
+than done quietly.
 
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.

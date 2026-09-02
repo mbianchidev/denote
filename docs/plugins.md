@@ -229,11 +229,11 @@ and any other action ID is refused before the folder chooser opens or any native
 command runs.
 
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
-operation-state detection, initialize, stage, unstage, hunk stage and unstage,
-commit, branch and remote listing, history, diff, fetch, pull, push, remote
-add/set/remove, branch create/checkout/rename/delete, stash, merge, rebase,
-cherry-pick, revert, continue/skip/abort, conflict-stage reads, conflict
-resolution, clone, and cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
+unmerged-path listing, operation-state detection, initialize, stage, unstage,
+hunk stage and unstage, commit, branch and remote listing, history, diff, fetch,
+pull, push, remote add/set/remove, branch create/checkout/rename/delete, stash,
+merge, rebase, cherry-pick, revert, continue/skip/abort, conflict-stage reads,
+conflict resolution, clone, and cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
 `public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
 never a credential. Every operation names exact structured fields; there is no argument
 array, option flag, or shell input, and the native host maps each operation to a
@@ -247,7 +247,13 @@ whatever safe repository-local identity the repository already has.
 standard output, standard error, and whether the operation was cancelled.
 Conflict resolution requires the path to be genuinely unmerged in the index, so
 it can never overwrite an ordinary tracked or untracked file, and a resolution
-that is written but not staged is rolled back.
+that is written but not staged is rolled back. `list-conflicts` runs
+`ls-files --unmerged -z`, so a surface reads the exact repository-relative paths
+and the stages the index holds for each rather than inferring them. The host
+also refuses a merge, rebase, cherry-pick, or revert while any of those is
+already in progress, and refuses a continue, skip, or abort that names an
+operation the repository is not running, both decided from the repository's own
+state rather than from anything a plugin reported.
 
 `stage-hunk` and `unstage-hunk` carry one validated repository-relative path and
 one structured hunk: the four line numbers and an ordered list of lines, each a
@@ -483,9 +489,13 @@ status item, refresh and initialize commands, and, when its interval setting is
 above zero, one automatic local commit schedule. It supports refresh,
 initialize, stage, unstage, commit of staged changes, remote operations,
 cloning, branch work, staging by hunk, paged commit history with its commit
-diffs, working-tree and index diffs, and scheduled local commits of tracked
-changes. Conflict resolution is a later increment; the plugin reports it as
-unavailable instead of implying support.
+diffs, working-tree and index diffs, scheduled local commits of tracked changes,
+reviewed merge, rebase, cherry-pick and revert, detection and resumption of an
+interrupted operation, and three-way conflict resolution. The plugin merges the
+three recorded sides itself with a deterministic bounded line-based merge, so no
+conflict marker is ever read back out of the working tree, and it offers whole
+recorded sides only for binary or encrypted content, which it never decodes or
+replaces with plaintext.
 
 The provider's view model carries the page it read rather than the size of the
 log: a page index, a page size, and whether an earlier or later page exists,

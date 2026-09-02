@@ -212,8 +212,8 @@ leaving and the one you are going to. Deleting asks a dangerous confirmation.
 Denote reads the working tree again before every checkout and refuses to run one
 that would disturb your work.
 
-- **Unresolved conflicts** stop a checkout outright. Finish or abort that
-  operation with your own Git tooling, then refresh.
+- **Unresolved conflicts** stop a checkout outright. Resolve them and continue,
+  or abort the operation, then try the checkout again.
 - **Anything staged, changed, or untracked** produces a review that lists every
   affected path and offers exactly three answers.
   - **Commit all and switch** stages exactly the listed paths and commits them
@@ -296,9 +296,92 @@ path, and no Git command is involved in opening anything.
 - A file that is **no longer in the vault** is reported instead of opening
   nothing.
 
-Conflict resolution is **not implemented yet**. A repository with a merge,
-rebase, cherry-pick, or revert in progress is reported so you can finish it with
-your own Git tooling.
+### Merging, rebasing, cherry-picking, and reverting
+
+**Merge and rebase** on the Branches tab act on a branch this repository already
+has, so neither needs a network. **Review cherry-pick** and **Review revert** on
+an open commit act on that exact commit.
+
+Nothing starts when you press one of those. Denote reads the repository again
+and shows a review that names the operation, its source, the branch it would
+change, what it risks, and the files it expects to touch. A merge and a rebase
+list the files that differ between the two branches, and say so, because that is
+a wider list than the operation may actually change; a cherry-pick and a revert
+list the commit's own files exactly.
+
+**Start** then asks for confirmation. A rebase asks a dangerous confirmation,
+because it rewrites the commits on your branch: they are recorded again with new
+identities, and anyone who already has them sees a different history. Denote
+never resets anything and never force-pushes.
+
+Before an operation runs, the working tree goes through the same review a
+checkout does: anything staged, changed, or untracked is listed, and you choose
+to commit it, stash it, or cancel. A repository that already has an operation in
+progress refuses to start another one, and so does one with unresolved
+conflicts.
+
+**Cancel** on the review cancels the operation completely: the commit-or-stash
+question goes with it, so nothing is left on screen that could still run it.
+
+A review describes one comparison, read from one branch at one commit. Checking
+out, pulling, committing, finishing an interrupted operation, or a change made
+outside Denote moves one of them, and the review is dropped rather than run
+from: Denote asks you to preview the operation again from where the repository
+now is.
+
+### Finishing an interrupted operation
+
+Denote reads the repository's own state, so an operation that stopped is still
+there after a restart, a refresh, or a crash. Nothing resumes on its own.
+
+The view shows the operation Git reports and only the controls that are valid
+for it:
+
+- **Continue** stays disabled, with the reason on screen, until Git reports no
+  unmerged paths.
+- **Skip** appears for a rebase, a cherry-pick, and a revert. Git cannot skip a
+  merge, so a merge never offers one. Skipping asks a dangerous confirmation,
+  because the commit being replayed is dropped.
+- **Abort** puts the repository back where it was before the operation started,
+  and asks a dangerous confirmation, because every resolution made inside the
+  operation goes with it.
+
+Cancelling one of these leaves the repository exactly as Git left it: the index
+and the working tree are never split apart, and the operation can be finished or
+aborted afterwards.
+
+### Resolving a conflict
+
+**Open conflict** on a conflicted file checks with the index that the file is
+still unmerged, then reads the three sides Git recorded for it — the common
+ancestor, your side, and the incoming side. Nothing is read out of the working
+tree copy, so a note that legitimately contains `<<<<<<<` is never mistaken for
+a conflict marker, and the labels name what each side is for the operation that
+is running.
+
+For ordinary text, Denote merges the three sides itself:
+
+- Changes only one side made are already in the merged result.
+- Changes both sides made differently are listed one at a time, with **Base**,
+  **Ours**, and **Theirs** for each. Every side is kept on screen whichever one
+  you choose, so nothing is dropped.
+- **Use base**, **Use ours**, and **Use theirs** take one whole side as the
+  result.
+- The **Merged result** is editable, so you can write the resolution by hand.
+- **Mark resolved** writes that result into the vault and stages it. It is
+  unavailable while a change has no side chosen.
+
+A side the index does not hold — an ancestor that never existed, for instance —
+is shown as not recorded rather than as empty content.
+
+Binary files and encrypted vaults never show line content and never receive
+plaintext. They offer the recorded sides as whole-file choices instead, and
+Denote writes the exact blob Git holds for the side you pick.
+
+Every other conflicted file stays exactly as it is: resolving one file resolves
+one file. Leaving the editor with a result you have not saved is refused rather
+than done quietly; **Discard result** puts the merge Denote derived back.
+
 ## Settings
 
 - **Git executable** is an absolute path to Git. Leave it empty to use the Git

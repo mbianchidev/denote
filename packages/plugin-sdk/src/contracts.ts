@@ -475,6 +475,156 @@ export interface PluginSourceControlConflictEntry {
   baseLabel: string | null;
 }
 
+/** One operation that replays, combines, or reverses commits. */
+export type PluginSourceControlAdvancedOperation =
+  | "merge"
+  | "rebase"
+  | "cherry-pick"
+  | "revert";
+
+/**
+ * What an advanced operation can disturb, decided from the operation itself
+ * rather than from anything a surface renders.
+ */
+export type PluginSourceControlOperationRisk =
+  | "creates-commit"
+  | "may-conflict"
+  | "rewrites-history";
+
+/**
+ * One advanced operation that has been prepared and not run.
+ *
+ * It names the exact source, the branch it would change, what it risks, and
+ * the files it is expected to touch, so the operation on screen is reviewed
+ * before anything in the repository moves. Nothing here starts on its own: a
+ * refresh, an activation, or a restart only ever publishes the review.
+ *
+ * A review describes one comparison, read from one branch at one commit, so it
+ * stops being valid as soon as either moves. A provider is expected to publish
+ * `null` instead of a review it would no longer run, and the branch it names
+ * travels with the action a surface returns, so a host confirmation names the
+ * exact branch that changes.
+ */
+export interface PluginSourceControlOperationPlan {
+  operation: PluginSourceControlAdvancedOperation;
+  /** The branch, ref, or commit the operation reads from. */
+  source: string;
+  /** How Git described the source, such as a commit summary. */
+  sourceDetail: string | null;
+  /** The branch the operation changes, when the repository is on one. */
+  currentBranch: string | null;
+  risk: PluginSourceControlOperationRisk;
+  summary: string;
+  /** Bounded repository-relative paths the operation is expected to touch. */
+  affectedPaths: string[];
+  /** Why that list is partial or absent. Null while it is exact. */
+  affectedPathsLimitation: string | null;
+  startActionId: string;
+  cancelActionId: string;
+}
+
+/**
+ * An operation Git reports is in progress, and only the controls that are
+ * valid for it.
+ *
+ * A merge cannot be skipped, so it never offers one. Continue is offered only
+ * while Git reports no unmerged paths; until then the reason is stated instead
+ * of leaving a control that would fail.
+ */
+export interface PluginSourceControlOperationProgress {
+  operation: PluginSourceControlAdvancedOperation;
+  summary: string;
+  /** Repository-relative paths Git still reports as unmerged. */
+  conflictedPaths: string[];
+  continueAvailable: boolean;
+  /** Why Continue is unavailable. Null while it is offered. */
+  continueUnavailableReason: string | null;
+  skipAvailable: boolean;
+  abortAvailable: boolean;
+}
+
+/** Which recorded side of a conflict a choice or a pane refers to. */
+export type PluginSourceControlConflictSideKind = "base" | "ours" | "theirs";
+
+/**
+ * One recorded side of a conflicted path.
+ *
+ * `present` is what Git holds: an added/added conflict has no base, and a
+ * delete/modify conflict is missing one of the other two. A stage that is
+ * absent is reported as absent rather than shown as empty content that the
+ * repository does not contain. `text` is the exact UTF-8 of the stage, and is
+ * null whenever the content is binary, encrypted, absent, or too large to
+ * read.
+ */
+export interface PluginSourceControlConflictSide {
+  side: PluginSourceControlConflictSideKind;
+  label: string;
+  present: boolean;
+  text: string | null;
+  byteLength: number;
+}
+
+export type PluginSourceControlConflictChunkKind =
+  | "stable"
+  | "resolved"
+  | "conflict";
+
+/**
+ * One region of a three-way merge.
+ *
+ * `stable` is text every side holds, `resolved` is a change Denote could take
+ * without asking, and `conflict` carries all three sides with no answer until
+ * the user makes one. Every line of every side belongs to exactly one chunk,
+ * so nothing a side holds is ever dropped from the model.
+ */
+export interface PluginSourceControlConflictChunk {
+  id: string;
+  kind: PluginSourceControlConflictChunkKind;
+  base: string[];
+  ours: string[];
+  theirs: string[];
+  /** Which side supplies the chunk's lines, or null while unanswered. */
+  choice: PluginSourceControlConflictSideKind | null;
+  /** True when the merge chose the side, false when the user did. */
+  automatic: boolean;
+}
+
+/**
+ * The conflicted path a surface has open.
+ *
+ * Everything here was read from the index for exactly this path: nothing is
+ * derived from conflict markers in the working tree, because a note may
+ * legitimately contain them. Binary and encrypted conflicts never carry line
+ * content at all, and are resolved by choosing a whole recorded side.
+ */
+export interface PluginSourceControlConflictDetail {
+  path: string;
+  /** The operation the conflict belongs to, when Git reports one. */
+  operation: PluginSourceControlAdvancedOperation | null;
+  binary: boolean;
+  encrypted: boolean;
+  base: PluginSourceControlConflictSide;
+  ours: PluginSourceControlConflictSide;
+  theirs: PluginSourceControlConflictSide;
+  /** The three-way chunks, or empty when no line content may be shown. */
+  chunks: PluginSourceControlConflictChunk[];
+  /** The editable merged result, or null when there is no text to edit. */
+  result: string | null;
+  /** True while the result differs from the merge Denote last derived. */
+  unsavedResult: boolean;
+  /** How many chunks still need an answer. */
+  unresolvedChunks: number;
+  /** True while only a whole recorded side may be chosen. */
+  wholeSideOnly: boolean;
+  /** Why line content is unavailable. Null while the editor is complete. */
+  limitation: string | null;
+  /** What the editor is doing, or what it last did. */
+  status: string | null;
+  /** Why the last read or resolution stopped. Null while it succeeded. */
+  error: string | null;
+  loading: boolean;
+}
+
 /**
  * How a remote operation authenticates.
  *
@@ -543,16 +693,30 @@ export interface PluginSourceControlRemoteAccess {
 }
 
 /**
- * One checkout that has been prepared but not run, because the working tree
- * holds changes a checkout could block or alter.
+ * Which prepared operation a pending review belongs to. It is one of the typed
+ * operations Denote can run, so a host confirmation names what will run rather
+ * than repeating a label a provider supplied.
+ */
+export type PluginSourceControlPendingOperation =
+  | "checkout"
+  | PluginSourceControlAdvancedOperation;
+
+/**
+ * One checkout, or one advanced operation, that has been prepared but not run,
+ * because the working tree holds changes it could block or alter.
  *
- * The provider publishes it instead of running the checkout, so the user
+ * The provider publishes it instead of running the operation, so the user
  * chooses explicitly what happens to that work. Nothing here discards
  * anything: the only offers are to commit the listed paths, to stash them, or
  * to cancel.
  */
 export interface PluginSourceControlPendingBranchSwitch {
-  /** The exact ref the user asked to check out. */
+  /**
+   * Which operation is waiting. It is the typed operation, never a label, so
+   * the host confirms what will actually run.
+   */
+  operation: PluginSourceControlPendingOperation;
+  /** The exact ref the user asked to check out, merge, replay, or reverse. */
   target: string;
   /**
    * The local branch a remote-tracking checkout will create, or null when the
@@ -611,6 +775,21 @@ interface PluginSourceControlViewModelBase {
    */
   diffSource: PluginSourceControlDiffSource | null;
   conflicts: PluginSourceControlConflictEntry[];
+  /**
+   * The conflicted path a surface has open, with the three sides Git recorded
+   * for it. Null whenever no conflict is open.
+   */
+  conflictDetail: PluginSourceControlConflictDetail | null;
+  /**
+   * The merge, rebase, cherry-pick, or revert Git reports is in progress, with
+   * only the controls that are valid for it. Null while nothing is running.
+   */
+  operationProgress: PluginSourceControlOperationProgress | null;
+  /**
+   * An advanced operation that has been prepared for review and not started.
+   * Null whenever nothing is waiting for an answer.
+   */
+  operationPlan: PluginSourceControlOperationPlan | null;
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
   /**
@@ -784,6 +963,12 @@ export interface PluginGitHunk {
 export type PluginGitRunRequest =
   | { operation: "discover"; scope: PluginGitScope }
   | { operation: "status"; scope: PluginGitScope }
+  /**
+   * Reports every path the index currently holds unmerged, with the stages Git
+   * recorded for each one. It names exact repository-relative paths and reads
+   * nothing else, so a conflict surface never has to infer which sides exist.
+   */
+  | { operation: "list-conflicts"; scope: PluginGitScope }
   | { operation: "operation-state"; scope: PluginGitScope }
   | { operation: "initialize"; scope: PluginGitScope; defaultBranch: string }
   | { operation: "stage"; scope: PluginGitScope; paths: string[] }

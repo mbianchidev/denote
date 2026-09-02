@@ -501,6 +501,9 @@ describe("usePlugins", () => {
       diffFiles: [],
       diffSource: null,
       conflicts: [],
+      conflictDetail: null,
+      operationProgress: null,
+      operationPlan: null,
       recovery: { state: "idle" },
       remoteAccess: {
         authMode: "public" as const,

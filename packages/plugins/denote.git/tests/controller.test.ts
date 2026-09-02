@@ -645,32 +645,32 @@ describe("GitRepositoryController", () => {
     await controller.runAction({ id: "refresh" }, git);
     const operations = git.calls.length;
 
-    await controller.runAction({ id: "open-conflict" }, git);
+    await controller.runAction({ id: "rewrite-everything" }, git);
     expect(git.calls).toHaveLength(operations);
     expect(controller.model.recovery).toMatchObject({
       state: "failed",
-      operationId: "unsupported-open-conflict",
+      operationId: "unsupported-rewrite-everything",
       dismissActionId: "dismiss",
     });
     expect(
       controller.model.recovery.state === "failed"
         ? controller.model.recovery.message
         : "",
-    ).toContain("resolve conflicts");
+    ).toContain("rewrite-everything");
     expect(controller.model.repository.branch).toBe("main");
 
     await controller.runAction({ id: "dismiss" }, git);
     expect(controller.model.recovery).toEqual({ state: "idle" });
   });
 
-  it("reports an interrupted merge without offering an action it cannot run", async () => {
+  it("reports a state it cannot run without offering an action for it", async () => {
     const { controller } = harness();
     const git = new FakeGit(
       repositoryResponder({
         "operation-state": {
           stdout: JSON.stringify({
             ...JSON.parse(IDLE_OPERATION_STATE),
-            mergeInProgress: true,
+            bisectInProgress: true,
           }),
         },
         status: { stdout: SYNTHETIC_STATUS },
@@ -679,9 +679,12 @@ describe("GitRepositoryController", () => {
 
     await controller.runAction({ id: "refresh" }, git);
 
+    // Denote runs no bisect, so it is reported rather than offered as an
+    // action, and no operation controls are published for it.
+    expect(controller.model.operationProgress).toBeNull();
     expect(controller.model.recovery).toMatchObject({
       state: "failed",
-      operationId: "operation-state-merge",
+      operationId: "operation-state-bisect",
       retryActionId: "refresh",
     });
   });

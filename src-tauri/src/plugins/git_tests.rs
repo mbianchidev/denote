@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tempfile::TempDir;
 
 use super::{
@@ -1297,6 +1298,122 @@ fn reports_every_recoverable_operation_state() {
             .rebase_kind
             .as_deref(),
         Some("apply")
+    );
+}
+
+/// A sequence paused between two commits records no head file, so the command
+/// it is replaying is read from the sequencer's own to-do list. A list Denote
+/// cannot read names nothing rather than the wrong operation.
+#[test]
+fn names_a_paused_sequence_by_the_command_it_is_replaying() {
+    let directory = TempDir::new().expect("temp");
+    let git_directory = directory.path().join(".git");
+    let sequencer = git_directory.join("sequencer");
+    fs::create_dir_all(&sequencer).expect("sequencer");
+
+    assert_eq!(detect_operation_state(&git_directory).sequencer_kind, None);
+
+    fs::write(
+        sequencer.join("todo"),
+        "# comment
+
+revert 1111111 Record a synthetic note
+revert 2222222 Record another
+",
+    )
+    .expect("todo");
+    assert_eq!(
+        detect_operation_state(&git_directory)
+            .sequencer_kind
+            .as_deref(),
+        Some("revert")
+    );
+
+    fs::write(
+        sequencer.join("todo"),
+        "pick 1111111 Record a synthetic note
+",
+    )
+    .expect("todo");
+    assert_eq!(
+        detect_operation_state(&git_directory)
+            .sequencer_kind
+            .as_deref(),
+        Some("cherry-pick")
+    );
+
+    fs::write(
+        sequencer.join("todo"),
+        "squash 1111111 Something else
+",
+    )
+    .expect("todo");
+    assert_eq!(detect_operation_state(&git_directory).sequencer_kind, None);
+}
+
+/// A paused sequence may only be resumed as the command it is actually
+/// replaying, so a stale surface cannot cherry-pick-continue a revert.
+#[test]
+fn refuses_to_resume_a_paused_sequence_as_the_wrong_command() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(
+        fixture.vault_root.join("alpha.md"),
+        "base
+",
+    )
+    .expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record synthetic base");
+    // A sequence that is paused between commits, exactly as Git records one.
+    let sequencer = fixture.vault_root.join(".git").join("sequencer");
+    fs::create_dir_all(&sequencer).expect("sequencer");
+    fs::write(
+        sequencer.join("todo"),
+        "revert 1111111 Undo a synthetic note
+",
+    )
+    .expect("todo");
+
+    let wrong = run(
+        &fixture,
+        PluginGitRequest::Continue {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::CherryPick,
+        },
+        None,
+    )
+    .expect_err("cherry-pick continue");
+    assert!(
+        wrong.to_string().contains("no cherry-pick in progress"),
+        "{wrong}"
+    );
+
+    // The revert it really is passes the guard and reaches Git, which is then
+    // the only thing that decides the outcome.
+    let abort = run(
+        &fixture,
+        PluginGitRequest::Abort {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Revert,
+        },
+        None,
+    )
+    .expect("abort reaches Git");
+    assert!(
+        !abort.stderr.contains("Denote"),
+        "the host must not refuse the operation the sequence is replaying: {}",
+        abort.stderr
     );
 }
 
@@ -5903,4 +6020,1010 @@ fn encrypted_history_reports_binary_content_and_never_plaintext() {
     .stdout;
     assert!(history.contains("Record an encrypted note"), "{history}");
     assert!(!history.contains("synthetic note"), "{history}");
+}
+
+// ---------------------------------------------------------------------------
+// Advanced operations and conflict recovery
+// ---------------------------------------------------------------------------
+
+/// Commits exactly the named paths, so a fixture can build divergent branches
+/// without depending on the shape of any other test's repository.
+fn commit_paths(fixture: &GitFixture, paths: &[&str], message: &str) {
+    run(
+        fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        },
+        None,
+    )
+    .expect("stage");
+    let commit = run(
+        fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: message.to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    assert_eq!(commit.exit_code, 0, "{}", commit.stderr);
+}
+
+fn create_branch(fixture: &GitFixture, name: &str, checkout: bool) {
+    run(
+        fixture,
+        PluginGitRequest::CreateBranch {
+            scope: PluginGitScope::Vault,
+            name: name.to_string(),
+            start_point: None,
+            checkout,
+        },
+        None,
+    )
+    .expect("create branch");
+}
+
+fn checkout(fixture: &GitFixture, name: &str) {
+    let result = run(
+        fixture,
+        PluginGitRequest::CheckoutBranch {
+            scope: PluginGitScope::Vault,
+            name: name.to_string(),
+        },
+        None,
+    )
+    .expect("checkout");
+    assert_eq!(result.exit_code, 0, "{}", result.stderr);
+}
+
+fn head_commit(fixture: &GitFixture) -> String {
+    git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string()
+}
+
+fn operation_state(fixture: &GitFixture) -> String {
+    run(
+        fixture,
+        PluginGitRequest::OperationState {
+            scope: PluginGitScope::Vault,
+        },
+        None,
+    )
+    .expect("operation state")
+    .stdout
+}
+
+/// Two branches that changed different files, so every advanced operation has
+/// something real to replay without conflicting.
+fn divergent_fixture() -> Option<GitFixture> {
+    let fixture = fixture()?;
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record synthetic base");
+
+    create_branch(&fixture, "topic", true);
+    fs::write(fixture.vault_root.join("beta.md"), "topic note\n").expect("beta");
+    commit_paths(&fixture, &["beta.md"], "Record the topic note");
+
+    checkout(&fixture, "main");
+    fs::write(fixture.vault_root.join("gamma.md"), "main note\n").expect("gamma");
+    commit_paths(&fixture, &["gamma.md"], "Record the main note");
+    Some(fixture)
+}
+
+#[test]
+fn maps_conflict_listing_to_a_fixed_template() {
+    assert_eq!(
+        command_args(PluginGitRequest::ListConflicts {
+            scope: PluginGitScope::Vault
+        }),
+        vec!["ls-files", "--unmerged", "-z"]
+    );
+}
+
+#[test]
+fn lists_every_unmerged_path_with_its_recorded_stages() {
+    let Some(fixture) = conflicted_fixture() else {
+        return;
+    };
+
+    let listing = run(
+        &fixture,
+        PluginGitRequest::ListConflicts {
+            scope: PluginGitScope::Vault,
+        },
+        None,
+    )
+    .expect("list conflicts");
+
+    assert_eq!(listing.exit_code, 0, "{}", listing.stderr);
+    let records: Vec<&str> = listing
+        .stdout
+        .split('\0')
+        .filter(|record| !record.is_empty())
+        .collect();
+    // Three stages for each of the two conflicted notes, and nothing else.
+    assert_eq!(records.len(), 6, "{records:?}");
+    for path in ["alpha.md", "notes/delta.md"] {
+        for stage in ["1", "2", "3"] {
+            assert!(
+                records.iter().any(|record| {
+                    let Some((meta, name)) = record.split_once('\t') else {
+                        return false;
+                    };
+                    name == path && meta.split_whitespace().last() == Some(stage)
+                }),
+                "missing stage {stage} of {path} in {records:?}"
+            );
+        }
+    }
+    assert!(
+        !listing.stdout.contains("gamma.md"),
+        "an unconflicted file must not be listed"
+    );
+}
+
+#[test]
+fn merges_replays_and_reverses_commits_on_a_real_repository() {
+    let Some(fixture) = divergent_fixture() else {
+        return;
+    };
+
+    let merge = run(
+        &fixture,
+        PluginGitRequest::Merge {
+            scope: PluginGitScope::Vault,
+            r#ref: "topic".to_string(),
+            fast_forward_only: false,
+            no_commit: false,
+        },
+        None,
+    )
+    .expect("merge");
+
+    assert_eq!(merge.exit_code, 0, "{}", merge.stderr);
+    assert!(fixture.vault_root.join("beta.md").exists());
+    assert!(fixture.vault_root.join("gamma.md").exists());
+    assert!(!fixture.vault_root.join(".git").join("MERGE_HEAD").exists());
+
+    // Reverting the merged commit undoes exactly that commit's change.
+    let topic = git_output(&fixture.vault_root, &["rev-parse", "topic"])
+        .trim()
+        .to_string();
+    let revert = run(
+        &fixture,
+        PluginGitRequest::Revert {
+            scope: PluginGitScope::Vault,
+            commit: topic.clone(),
+        },
+        None,
+    )
+    .expect("revert");
+    assert_eq!(revert.exit_code, 0, "{}", revert.stderr);
+    assert!(!fixture.vault_root.join("beta.md").exists());
+
+    // Cherry-picking it back restores it as a new commit.
+    let before = head_commit(&fixture);
+    let cherry = run(
+        &fixture,
+        PluginGitRequest::CherryPick {
+            scope: PluginGitScope::Vault,
+            commit: topic,
+        },
+        None,
+    )
+    .expect("cherry-pick");
+    assert_eq!(cherry.exit_code, 0, "{}", cherry.stderr);
+    assert!(fixture.vault_root.join("beta.md").exists());
+    assert_ne!(before, head_commit(&fixture));
+}
+
+#[test]
+fn rebases_a_local_branch_without_contacting_a_remote() {
+    let Some(fixture) = divergent_fixture() else {
+        return;
+    };
+    checkout(&fixture, "topic");
+
+    let rebase = run(
+        &fixture,
+        PluginGitRequest::Rebase {
+            scope: PluginGitScope::Vault,
+            upstream: "main".to_string(),
+        },
+        None,
+    )
+    .expect("rebase");
+
+    assert_eq!(rebase.exit_code, 0, "{}", rebase.stderr);
+    // The replayed branch now holds both notes and sits on top of main.
+    assert!(fixture.vault_root.join("beta.md").exists());
+    assert!(fixture.vault_root.join("gamma.md").exists());
+    let ancestor = Command::new(resolve_git_executable(None).expect("git"))
+        .arg("-C")
+        .arg(&fixture.vault_root)
+        .args(["merge-base", "--is-ancestor", "main", "HEAD"])
+        .status()
+        .expect("merge-base");
+    assert!(ancestor.success(), "main must be an ancestor of the rebase");
+    assert!(
+        !fixture
+            .vault_root
+            .join(".git")
+            .join("rebase-merge")
+            .is_dir()
+    );
+    assert!(
+        !fixture
+            .vault_root
+            .join(".git")
+            .join("rebase-apply")
+            .is_dir()
+    );
+}
+
+#[test]
+fn refuses_to_start_an_operation_while_another_is_in_progress() {
+    let Some(fixture) = conflicted_fixture() else {
+        return;
+    };
+
+    for request in [
+        PluginGitRequest::Merge {
+            scope: PluginGitScope::Vault,
+            r#ref: "topic".to_string(),
+            fast_forward_only: false,
+            no_commit: false,
+        },
+        PluginGitRequest::Rebase {
+            scope: PluginGitScope::Vault,
+            upstream: "topic".to_string(),
+        },
+        PluginGitRequest::CherryPick {
+            scope: PluginGitScope::Vault,
+            commit: "topic".to_string(),
+        },
+        PluginGitRequest::Revert {
+            scope: PluginGitScope::Vault,
+            commit: "HEAD".to_string(),
+        },
+    ] {
+        let error = run(&fixture, request, None).expect_err("second operation");
+        assert!(
+            error
+                .to_string()
+                .contains("already has a merge in progress"),
+            "unexpected error: {error}"
+        );
+    }
+}
+
+#[test]
+fn refuses_to_resume_an_operation_the_repository_is_not_running() {
+    let Some(fixture) = divergent_fixture() else {
+        return;
+    };
+
+    for sequencer in [
+        PluginGitSequencer::Merge,
+        PluginGitSequencer::Rebase,
+        PluginGitSequencer::CherryPick,
+        PluginGitSequencer::Revert,
+    ] {
+        for request in [
+            PluginGitRequest::Continue {
+                scope: PluginGitScope::Vault,
+                sequencer,
+            },
+            PluginGitRequest::Abort {
+                scope: PluginGitScope::Vault,
+                sequencer,
+            },
+        ] {
+            let error = run(&fixture, request, None).expect_err("resume");
+            assert!(
+                error.to_string().contains("no"),
+                "unexpected error: {error}"
+            );
+            assert!(
+                error.to_string().contains("in progress"),
+                "unexpected error: {error}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_conflicted_merge_only_offers_the_controls_that_are_valid_for_it() {
+    let Some(fixture) = conflicted_fixture() else {
+        return;
+    };
+
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"mergeInProgress\":true"), "{state}");
+    assert!(state.contains("\"rebaseInProgress\":false"), "{state}");
+
+    // A merge cannot be skipped, and no other operation can be resumed.
+    let skip = run(
+        &fixture,
+        PluginGitRequest::Skip {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Merge,
+        },
+        None,
+    )
+    .expect_err("merge skip");
+    assert!(skip.to_string().contains("cannot be skipped"), "{skip}");
+
+    let rebase = run(
+        &fixture,
+        PluginGitRequest::Continue {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Rebase,
+        },
+        None,
+    )
+    .expect_err("rebase continue");
+    assert!(
+        rebase.to_string().contains("no rebase in progress"),
+        "{rebase}"
+    );
+}
+
+#[test]
+fn aborting_a_conflicted_merge_restores_the_state_before_it() {
+    let Some(fixture) = conflicted_fixture() else {
+        return;
+    };
+    let before = head_commit(&fixture);
+
+    let abort = run(
+        &fixture,
+        PluginGitRequest::Abort {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Merge,
+        },
+        None,
+    )
+    .expect("abort");
+
+    assert_eq!(abort.exit_code, 0, "{}", abort.stderr);
+    assert_eq!(head_commit(&fixture), before, "abort must not move HEAD");
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("alpha"),
+        "main side\n",
+        "abort must restore the branch's own content"
+    );
+    assert!(
+        git_output(&fixture.vault_root, &["ls-files", "--unmerged"]).is_empty(),
+        "abort must leave no unmerged paths"
+    );
+    assert!(!fixture.vault_root.join(".git").join("MERGE_HEAD").exists());
+    // The untracked file the fixture left behind is not the merge's to remove.
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("beta.md")).expect("beta"),
+        "untracked\n"
+    );
+}
+
+#[test]
+fn continuing_a_merge_is_only_possible_once_every_path_is_resolved() {
+    let Some(fixture) = conflicted_fixture() else {
+        return;
+    };
+
+    // Git itself refuses while paths are unmerged, so a surface that offered
+    // Continue too early would fail rather than corrupt anything.
+    let early = run(
+        &fixture,
+        PluginGitRequest::Continue {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Merge,
+        },
+        None,
+    )
+    .expect("early continue");
+    assert_ne!(early.exit_code, 0, "{}", early.stdout);
+
+    for path in ["alpha.md", "notes/delta.md"] {
+        let resolved = run(
+            &fixture,
+            PluginGitRequest::ResolveConflict {
+                scope: PluginGitScope::Vault,
+                path: path.to_string(),
+                // "merged\n"
+                resolution: PluginGitConflictResolution::Content {
+                    content_base64: "bWVyZ2VkCg==".to_string(),
+                },
+            },
+            None,
+        )
+        .expect("resolve");
+        assert_eq!(resolved.exit_code, 0, "{}", resolved.stderr);
+    }
+
+    let finished = run(
+        &fixture,
+        PluginGitRequest::Continue {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Merge,
+        },
+        None,
+    )
+    .expect("continue");
+
+    assert_eq!(finished.exit_code, 0, "{}", finished.stderr);
+    assert!(!fixture.vault_root.join(".git").join("MERGE_HEAD").exists());
+    assert!(git_output(&fixture.vault_root, &["ls-files", "--unmerged"]).is_empty());
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("alpha"),
+        "merged\n"
+    );
+}
+
+/// A rebase that stops on a conflict must stay recoverable across a restart:
+/// nothing in Denote holds the state, so the repository itself is asked again.
+#[test]
+fn a_conflicted_rebase_is_detected_skipped_and_continued() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record synthetic base");
+    create_branch(&fixture, "topic", true);
+    fs::write(fixture.vault_root.join("alpha.md"), "topic side\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the topic side");
+    fs::write(fixture.vault_root.join("beta.md"), "second topic note\n").expect("beta");
+    commit_paths(&fixture, &["beta.md"], "Record a second topic note");
+    checkout(&fixture, "main");
+    fs::write(fixture.vault_root.join("alpha.md"), "main side\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the main side");
+    checkout(&fixture, "topic");
+
+    let rebase = run(
+        &fixture,
+        PluginGitRequest::Rebase {
+            scope: PluginGitScope::Vault,
+            upstream: "main".to_string(),
+        },
+        None,
+    )
+    .expect("rebase");
+
+    assert_ne!(rebase.exit_code, 0, "the rebase must conflict");
+    // A fresh request reads the repository again, exactly as a restarted
+    // Denote would.
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"rebaseInProgress\":true"), "{state}");
+    assert!(
+        !git_output(&fixture.vault_root, &["ls-files", "--unmerged"]).is_empty(),
+        "the rebase must leave an unmerged path"
+    );
+
+    let skip = run(
+        &fixture,
+        PluginGitRequest::Skip {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Rebase,
+        },
+        None,
+    )
+    .expect("skip");
+    assert_eq!(skip.exit_code, 0, "{}", skip.stderr);
+
+    // Skipping the conflicting commit leaves the rest of the branch to replay,
+    // and the finished rebase reports nothing in progress.
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"rebaseInProgress\":false"), "{state}");
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("alpha"),
+        "main side\n"
+    );
+    assert!(fixture.vault_root.join("beta.md").exists());
+}
+
+#[test]
+fn a_conflicted_cherry_pick_is_resolved_and_continued() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record synthetic base");
+    create_branch(&fixture, "topic", true);
+    fs::write(fixture.vault_root.join("alpha.md"), "topic side\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the topic side");
+    let topic = head_commit(&fixture);
+    checkout(&fixture, "main");
+    fs::write(fixture.vault_root.join("alpha.md"), "main side\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the main side");
+
+    let cherry = run(
+        &fixture,
+        PluginGitRequest::CherryPick {
+            scope: PluginGitScope::Vault,
+            commit: topic,
+        },
+        None,
+    )
+    .expect("cherry-pick");
+    assert_ne!(cherry.exit_code, 0, "the cherry-pick must conflict");
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"cherryPickInProgress\":true"), "{state}");
+
+    let resolved = run(
+        &fixture,
+        PluginGitRequest::ResolveConflict {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            resolution: PluginGitConflictResolution::Stage {
+                stage: PluginGitConflictStage::Theirs,
+            },
+        },
+        None,
+    )
+    .expect("resolve");
+    assert_eq!(resolved.exit_code, 0, "{}", resolved.stderr);
+
+    let finished = run(
+        &fixture,
+        PluginGitRequest::Continue {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::CherryPick,
+        },
+        None,
+    )
+    .expect("continue");
+    assert_eq!(finished.exit_code, 0, "{}", finished.stderr);
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("alpha"),
+        "topic side\n"
+    );
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"cherryPickInProgress\":false"), "{state}");
+}
+
+#[test]
+fn a_conflicted_revert_is_aborted_back_to_where_it_started() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record synthetic base");
+    fs::write(fixture.vault_root.join("alpha.md"), "second\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the second version");
+    let second = head_commit(&fixture);
+    fs::write(fixture.vault_root.join("alpha.md"), "third\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the third version");
+    let before = head_commit(&fixture);
+
+    let revert = run(
+        &fixture,
+        PluginGitRequest::Revert {
+            scope: PluginGitScope::Vault,
+            commit: second,
+        },
+        None,
+    )
+    .expect("revert");
+    assert_ne!(revert.exit_code, 0, "the revert must conflict");
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"revertInProgress\":true"), "{state}");
+
+    let abort = run(
+        &fixture,
+        PluginGitRequest::Abort {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Revert,
+        },
+        None,
+    )
+    .expect("abort");
+    assert_eq!(abort.exit_code, 0, "{}", abort.stderr);
+    assert_eq!(head_commit(&fixture), before);
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("alpha"),
+        "third\n"
+    );
+    let state = operation_state(&fixture);
+    assert!(state.contains("\"revertInProgress\":false"), "{state}");
+}
+
+#[test]
+fn an_added_and_added_conflict_has_no_recorded_base_stage() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record synthetic base");
+    create_branch(&fixture, "topic", true);
+    fs::write(fixture.vault_root.join("beta.md"), "topic version\n").expect("beta");
+    commit_paths(&fixture, &["beta.md"], "Add the note on the topic side");
+    checkout(&fixture, "main");
+    fs::write(fixture.vault_root.join("beta.md"), "main version\n").expect("beta");
+    commit_paths(&fixture, &["beta.md"], "Add the note on the main side");
+
+    let merge = run(
+        &fixture,
+        PluginGitRequest::Merge {
+            scope: PluginGitScope::Vault,
+            r#ref: "topic".to_string(),
+            fast_forward_only: false,
+            no_commit: false,
+        },
+        None,
+    )
+    .expect("merge");
+    assert_ne!(merge.exit_code, 0, "the merge must conflict");
+
+    let listing = run(
+        &fixture,
+        PluginGitRequest::ListConflicts {
+            scope: PluginGitScope::Vault,
+        },
+        None,
+    )
+    .expect("list conflicts")
+    .stdout;
+    let stages: Vec<String> = listing
+        .split('\0')
+        .filter(|record| !record.is_empty())
+        .filter_map(|record| record.split_once('\t'))
+        .filter(|(_, path)| *path == "beta.md")
+        .filter_map(|(meta, _)| meta.split_whitespace().last().map(str::to_string))
+        .collect();
+    assert_eq!(stages, vec!["2".to_string(), "3".to_string()]);
+
+    // Reading a stage the index does not hold fails instead of returning
+    // content Git never recorded.
+    let base = run(
+        &fixture,
+        PluginGitRequest::ReadConflictStage {
+            scope: PluginGitScope::Vault,
+            path: "beta.md".to_string(),
+            stage: PluginGitConflictStage::Base,
+        },
+        None,
+    )
+    .expect("read base stage");
+    assert_ne!(base.exit_code, 0, "{}", base.stdout);
+    assert!(base.stdout.is_empty(), "{}", base.stdout);
+
+    let ours = run(
+        &fixture,
+        PluginGitRequest::ReadConflictStage {
+            scope: PluginGitScope::Vault,
+            path: "beta.md".to_string(),
+            stage: PluginGitConflictStage::Ours,
+        },
+        None,
+    )
+    .expect("read our stage");
+    assert_eq!(ours.exit_code, 0, "{}", ours.stderr);
+    // "main version\n"
+    assert_eq!(ours.stdout, "bWFpbiB2ZXJzaW9uCg==");
+}
+
+#[test]
+fn a_binary_conflict_is_readable_as_bytes_and_resolvable_by_side() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    let base_bytes = [0u8, 1, 2, 3];
+    let ours_bytes = [0u8, 1, 2, 9];
+    let theirs_bytes = [0u8, 1, 2, 7];
+    fs::write(fixture.vault_root.join("sealed.bin"), base_bytes).expect("sealed");
+    commit_paths(&fixture, &["sealed.bin"], "Record a synthetic binary note");
+    create_branch(&fixture, "topic", true);
+    fs::write(fixture.vault_root.join("sealed.bin"), theirs_bytes).expect("sealed");
+    commit_paths(&fixture, &["sealed.bin"], "Change it on the topic side");
+    checkout(&fixture, "main");
+    fs::write(fixture.vault_root.join("sealed.bin"), ours_bytes).expect("sealed");
+    commit_paths(&fixture, &["sealed.bin"], "Change it on the main side");
+
+    let merge = run(
+        &fixture,
+        PluginGitRequest::Merge {
+            scope: PluginGitScope::Vault,
+            r#ref: "topic".to_string(),
+            fast_forward_only: false,
+            no_commit: false,
+        },
+        None,
+    )
+    .expect("merge");
+    assert_ne!(merge.exit_code, 0, "the merge must conflict");
+
+    let theirs = run(
+        &fixture,
+        PluginGitRequest::ReadConflictStage {
+            scope: PluginGitScope::Vault,
+            path: "sealed.bin".to_string(),
+            stage: PluginGitConflictStage::Theirs,
+        },
+        None,
+    )
+    .expect("read their stage");
+    assert_eq!(theirs.exit_code, 0, "{}", theirs.stderr);
+    assert_eq!(theirs.stdout, "AAECBw==");
+
+    let resolved = run(
+        &fixture,
+        PluginGitRequest::ResolveConflict {
+            scope: PluginGitScope::Vault,
+            path: "sealed.bin".to_string(),
+            resolution: PluginGitConflictResolution::Stage {
+                stage: PluginGitConflictStage::Theirs,
+            },
+        },
+        None,
+    )
+    .expect("resolve");
+    assert_eq!(resolved.exit_code, 0, "{}", resolved.stderr);
+    assert_eq!(
+        fs::read(fixture.vault_root.join("sealed.bin")).expect("sealed"),
+        theirs_bytes
+    );
+}
+
+/// An encrypted vault must never have conflict markers written into its
+/// ciphertext: the managed attributes make Git refuse to line-merge it, so a
+/// conflict is always a choice between whole recorded sides.
+#[test]
+fn encrypted_conflicts_are_whole_file_and_never_carry_markers() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    let vault_key = encrypt_fixture(&fixture);
+    fixture
+        .app_state
+        .set_vault_key(vault_key)
+        .expect("unlock vault");
+    // The first request writes the managed attributes for the sealed vault.
+    run(
+        &fixture,
+        PluginGitRequest::Status {
+            scope: PluginGitScope::Vault,
+        },
+        None,
+    )
+    .expect("status");
+    fs::write(fixture.vault_root.join("alpha.md"), "sealed base\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record a sealed base");
+    create_branch(&fixture, "topic", true);
+    fs::write(fixture.vault_root.join("alpha.md"), "sealed topic side\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the sealed topic side");
+    checkout(&fixture, "main");
+    fs::write(fixture.vault_root.join("alpha.md"), "sealed main side\n").expect("alpha");
+    commit_paths(&fixture, &["alpha.md"], "Record the sealed main side");
+
+    let merge = run(
+        &fixture,
+        PluginGitRequest::Merge {
+            scope: PluginGitScope::Vault,
+            r#ref: "topic".to_string(),
+            fast_forward_only: false,
+            no_commit: false,
+        },
+        None,
+    )
+    .expect("merge");
+    assert_ne!(merge.exit_code, 0, "the merge must conflict");
+
+    // The vault is sealed, so every side is ciphertext: the bytes are compared
+    // with the stages Git recorded rather than with any plaintext.
+    let worktree = fs::read(fixture.vault_root.join("alpha.md")).expect("alpha");
+    for marker in [
+        b"<<<<<<<".as_slice(),
+        b">>>>>>>".as_slice(),
+        b"=======".as_slice(),
+    ] {
+        assert!(
+            !worktree
+                .windows(marker.len())
+                .any(|window| window == marker),
+            "an encrypted conflict must never carry markers"
+        );
+    }
+    let ours = run(
+        &fixture,
+        PluginGitRequest::ReadConflictStage {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            stage: PluginGitConflictStage::Ours,
+        },
+        None,
+    )
+    .expect("read our stage");
+    assert_eq!(
+        ours.stdout,
+        STANDARD.encode(&worktree),
+        "the worktree must hold our recorded side untouched"
+    );
+    let theirs_stage = run(
+        &fixture,
+        PluginGitRequest::ReadConflictStage {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            stage: PluginGitConflictStage::Theirs,
+        },
+        None,
+    )
+    .expect("read their stage")
+    .stdout;
+
+    let plaintext = run(
+        &fixture,
+        PluginGitRequest::ResolveConflict {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            resolution: PluginGitConflictResolution::Content {
+                content_base64: "bWVyZ2VkCg==".to_string(),
+            },
+        },
+        None,
+    )
+    .expect_err("plaintext resolution");
+    assert!(plaintext.to_string().contains("whole side"), "{plaintext}");
+
+    let resolved = run(
+        &fixture,
+        PluginGitRequest::ResolveConflict {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            resolution: PluginGitConflictResolution::Stage {
+                stage: PluginGitConflictStage::Theirs,
+            },
+        },
+        None,
+    )
+    .expect("resolve");
+    assert_eq!(resolved.exit_code, 0, "{}", resolved.stderr);
+    assert_eq!(
+        STANDARD.encode(fs::read(fixture.vault_root.join("alpha.md")).expect("alpha")),
+        theirs_stage,
+        "choosing a whole side must write exactly that recorded blob"
+    );
+}
+
+/// Cancelling an abort must leave the repository in a state Denote can still
+/// finish: either the merge is still in progress, or it is fully aborted.
+/// Nothing may be left half applied, and nothing may run on its own afterwards.
+#[test]
+fn cancelling_an_abort_leaves_the_repository_recoverable() {
+    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+
+    let Some(fixture) = conflicted_fixture() else {
+        return;
+    };
+    let git = resolve_git_executable(None).expect("git");
+    let directory = TempDir::new().expect("temp");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir_all(&hooks).expect("hooks");
+    let global_config = empty_global_config(directory.path());
+    let steps = plan_git_request(&PluginGitRequest::Abort {
+        scope: PluginGitScope::Vault,
+        sequencer: PluginGitSequencer::Merge,
+    })
+    .expect("plan");
+
+    let registry = Arc::new(GitOperationRegistry::default());
+    let token = registry
+        .register(PLUGIN_ID, &new_operation_id())
+        .expect("token");
+    // The operation is cancelled before the plan starts, which is the only
+    // moment a mutating command can be stopped without reaching Git at all.
+    registry
+        .cancel(PLUGIN_ID, &token.operation_id)
+        .expect("cancel");
+    let execution = GitExecution {
+        executable: &git,
+        repository_root: &fixture.vault_root,
+        hooks_directory: &hooks,
+        global_config: &global_config,
+        redacted_roots: vec![],
+        askpass: None,
+        encrypted: false,
+        transport: GitTransportPolicy::RemoteOnly,
+    };
+    let result = run_git_plan(&steps, &execution, &token).expect("abort");
+    registry.finish(&token.operation_id);
+
+    assert!(result.cancelled);
+    assert!(
+        fixture.vault_root.join(".git").join("MERGE_HEAD").exists(),
+        "a cancelled abort must leave the merge exactly as it was"
+    );
+    assert!(
+        !git_output(&fixture.vault_root, &["ls-files", "--unmerged"]).is_empty(),
+        "the conflicted paths must still be unmerged"
+    );
+
+    // The same abort still works afterwards, so nothing is stuck.
+    let abort = run(
+        &fixture,
+        PluginGitRequest::Abort {
+            scope: PluginGitScope::Vault,
+            sequencer: PluginGitSequencer::Merge,
+        },
+        None,
+    )
+    .expect("abort");
+    assert_eq!(abort.exit_code, 0, "{}", abort.stderr);
+    assert!(!fixture.vault_root.join(".git").join("MERGE_HEAD").exists());
+    assert!(git_output(&fixture.vault_root, &["ls-files", "--unmerged"]).is_empty());
 }

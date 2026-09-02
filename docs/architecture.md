@@ -129,8 +129,15 @@ state/settings, optional secure storage, status items, literal source-editor
 decorations, typed source-control view models, typed automatic local commit
 schedules, and explicit user-action services.
 Source-control providers contribute host-rendered repository, resource, branch,
-remote, history, diff, conflict, and recovery data; they cannot render HTML or
-execute Git directly. Their history is a bounded page with its own index, size,
+remote, history, diff, conflict, operation, and recovery data; they cannot render
+HTML or execute Git directly. A provider describes an advanced operation as a
+typed plan — the operation, its source, the branch it changes, its risk, and the
+bounded paths it expects to touch — and an operation in progress as the typed
+operation plus which of continue, skip, and abort are valid for it, so the host
+renders controls and confirmations from typed values rather than from provider
+wording. A conflict is described as the three recorded sides, each with whether
+the index holds it and its exact UTF-8 text when the provider may show one, plus
+the chunk model, the editable result, and whether that result is unsaved. Their history is a bounded page with its own index, size,
 and whether an adjacent page exists, and their diff content names the comparison
 it came from, so the host offers a hunk action only for the working tree and the
 index and never for commit history. Opening a file is host-owned: a provider
@@ -254,7 +261,23 @@ Conflict resolution is gated on the index. Before either a stage or a content
 resolution touches the worktree, the transport requires that exact path to have
 unmerged index entries, so an ordinary tracked file, an untracked file, or a
 folder that merely contains a conflict can never be overwritten. A plan that writes a resolution and then stops before staging it
-puts the original file back.
+puts the original file back. `list-conflicts` reports those entries directly,
+running `ls-files --unmerged -z`, so a surface reads exact repository-relative
+paths and the stages the index actually holds rather than inferring either.
+
+The repository's own state also decides which advanced operations may run. Before
+planning, the transport reads the same filesystem markers `operation-state`
+reports and refuses a merge, rebase, cherry-pick, or revert while any of them is
+already in progress, and refuses a continue, skip, or abort that names an
+operation the repository is not running. A rebase is recognised ahead of the
+merge head it records for the commit it is replaying, and a cherry-pick or revert
+of several commits stays resumable between commits: the command it is replaying
+is read from the first instruction of the sequencer's own bounded to-do list, so
+a paused sequence is never resumed as the other command, and a list the host
+cannot read names nothing rather than a guess. Cancellation keeps the same guarantee as every other mutating
+command: a step that reached its process boundary reports its real result, so the
+index and the worktree are never left disagreeing, and nothing resumes on its
+own.
 
 Hunk staging is structural, not textual. `stage-hunk` and `unstage-hunk` carry
 one validated path and one hunk described as four line numbers and an ordered

@@ -19,7 +19,7 @@ describe("SourceControlPanel", () => {
     expect(screen.getByRole("heading", { name: "Synthetic repository" })).toBeInTheDocument();
     expect(screen.getByLabelText("Branch")).toHaveValue("main");
     expect(
-      screen.getByText(/This is a binary conflict/),
+      screen.getByText(/Git recorded this file as binary content/),
     ).toBeInTheDocument();
     // A conflict is selected, not a diff, so no diff content is shown.
     expect(screen.queryByText("@@ -1,1 +1,1 @@")).not.toBeInTheDocument();
@@ -89,12 +89,26 @@ describe("SourceControlPanel", () => {
       values: { message: "Synthetic update" },
     });
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
-    await user.click(screen.getByRole("button", { name: "Skip" }));
-    await user.click(screen.getByRole("button", { name: "Abort" }));
-    expect(onAction).toHaveBeenCalledWith({ id: "continue" });
-    expect(onAction).toHaveBeenCalledWith({ id: "skip" });
-    expect(onAction).toHaveBeenCalledWith({ id: "abort" });
+    // Continue, skip, and abort come from the typed operation the provider
+    // reported, so every one of them names the operation it resumes.
+    await user.click(
+      screen.getByRole("button", { name: "Continue the merge" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Abort the merge" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "continue",
+      values: { sequencer: "merge" },
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "abort",
+      values: { sequencer: "merge" },
+    });
+    // Git cannot skip a merge, so no control offers one.
+    expect(
+      screen.queryByRole("button", { name: /Skip this step/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("supports arrow-key tab selection and renders history and branch models", async () => {
@@ -593,6 +607,7 @@ describe("SourceControlPanel", () => {
     const onAction = vi.fn();
     const model = baseModel();
     model.pendingBranchSwitch = {
+      operation: "checkout",
       target: "origin/release",
       localBranch: "release",
       fromBranch: "main",
@@ -628,22 +643,61 @@ describe("SourceControlPanel", () => {
         message: "Record work before switching",
         branch: "release",
         from: "main",
+        operation: "checkout",
       },
     });
 
     await user.click(screen.getByRole("button", { name: "Stash and switch" }));
     expect(onAction).toHaveBeenCalledWith({
       id: "branch-switch-stash",
-      values: { branch: "release", from: "main" },
+      values: { branch: "release", from: "main", operation: "checkout" },
     });
 
     await user.click(screen.getByRole("button", { name: "Cancel switch" }));
     expect(onAction).toHaveBeenCalledWith({ id: "branch-switch-cancel" });
   });
 
+  it("names the operation a pending review will actually run", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.pendingBranchSwitch = {
+      operation: "rebase",
+      target: "topic",
+      localBranch: null,
+      fromBranch: "main",
+      stagedPaths: ["ready.md"],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      commitAvailable: true,
+      stashAvailable: true,
+      stashUnavailableReason: null,
+      commitActionId: "branch-switch-commit",
+      stashActionId: "branch-switch-stash",
+      cancelActionId: "branch-switch-cancel",
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Rebase topic" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/rewrites the commits on main/),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Stash and rebase" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "branch-switch-stash",
+      values: { branch: "topic", from: "main", operation: "rebase" },
+    });
+  });
+
   it("disables stashing and explains why when the vault is encrypted", () => {
     const model = baseModel();
     model.pendingBranchSwitch = {
+      operation: "checkout",
       target: "topic",
       localBranch: null,
       fromBranch: "main",
@@ -931,6 +985,279 @@ describe("SourceControlPanel", () => {
     ).not.toBeInTheDocument();
   });
 
+
+  it("reviews an advanced operation before offering to start it", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={{
+          ...branchesModel(),
+          operationPlan: {
+            operation: "rebase",
+            source: "topic",
+            sourceDetail: "Local branch.",
+            currentBranch: "main",
+            risk: "rewrites-history",
+            summary: "Replay the commits of main on top of topic.",
+            affectedPaths: ["notes/alpha.md"],
+            affectedPathsLimitation: "A rebase may not change all of them.",
+            startActionId: "rebase",
+            cancelActionId: "cancel-operation-plan",
+          },
+        }}
+        onAction={onAction}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Review this rebase" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Rewrites commits/)).toBeInTheDocument();
+    expect(screen.getByText("notes/alpha.md")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Start rebase" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "rebase",
+      // The reviewed branch travels with the action, so the host confirmation
+      // can name the branch that changes as well as the source.
+      values: { ref: "topic", operation: "rebase", from: "main" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onAction).toHaveBeenCalledWith({ id: "cancel-operation-plan" });
+  });
+
+  it("prepares merge and rebase from the branch that was chosen", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={branchesModel()}
+        onAction={onAction}
+      />,
+    );
+
+    await user.selectOptions(screen.getByLabelText("Branch to use"), "topic");
+    await user.click(
+      screen.getByRole("button", { name: "Review merging topic" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Review rebasing onto topic" }),
+    );
+
+    expect(onAction).toHaveBeenCalledWith({
+      id: "prepare-merge",
+      values: { ref: "topic" },
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "prepare-rebase",
+      values: { ref: "topic" },
+    });
+  });
+
+  it("offers cherry-pick and revert on the commit that is open", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={commitModel()}
+        onAction={onAction}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Review cherry-picking abc1234" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Review reverting abc1234" }),
+    );
+
+    expect(onAction).toHaveBeenCalledWith({
+      id: "prepare-cherry-pick",
+      values: { commitId: "commit-1" },
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "prepare-revert",
+      values: { commitId: "commit-1" },
+    });
+  });
+
+  it("disables continue until Git reports no unmerged paths", () => {
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={{
+          ...changesModel(),
+          operationProgress: {
+            operation: "rebase",
+            summary: "A rebase stopped on 1 conflicted file.",
+            conflictedPaths: ["notes/alpha.md"],
+            continueAvailable: false,
+            continueUnavailableReason: "Resolve the 1 conflicted file first.",
+            skipAvailable: true,
+            abortAvailable: true,
+          },
+        }}
+        onAction={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Continue the rebase" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Skip this step of the rebase" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByText("Resolve the 1 conflicted file first."),
+    ).toBeInTheDocument();
+  });
+
+  it("renders a three-way conflict with keyboard reachable per-change controls", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={conflictModel()}
+        onAction={onAction}
+      />,
+    );
+
+    // Each recorded side is its own labelled pane.
+    expect(
+      screen.getByRole("heading", { name: "Common ancestor" }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("main of notes/alpha.md")).toHaveTextContent(
+      "OURS",
+    );
+
+    const theirs = screen.getByRole("button", {
+      name: "Use Incoming change for change 1",
+    });
+    theirs.focus();
+    expect(theirs).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onAction).toHaveBeenCalledWith({
+      id: "choose-conflict-change",
+      values: { chunkId: "chunk-1", side: "theirs" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Use main for change 1" }),
+    ).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Use Common ancestor for the whole file",
+      }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "use-conflict-side",
+      values: { side: "base" },
+    });
+  });
+
+  it("sends an edited result and marks a conflict resolved", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = conflictModel();
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    const result = screen.getByLabelText("Merged result");
+    await user.clear(result);
+    await user.type(result, "x");
+    expect(onAction).toHaveBeenCalledWith({
+      id: "edit-conflict-result",
+      values: { result: "x" },
+    });
+
+    // An unanswered change keeps the file from being marked resolved.
+    expect(screen.getByRole("button", { name: "Mark resolved" })).toBeDisabled();
+
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={{
+          ...model,
+          conflictDetail: model.conflictDetail
+            ? {
+                ...model.conflictDetail,
+                unresolvedChunks: 0,
+                unsavedResult: true,
+              }
+            : null,
+        }}
+        onAction={onAction}
+      />,
+    );
+    const [, resolvable] = screen.getAllByRole("button", {
+      name: "Mark resolved",
+    });
+    await user.click(resolvable);
+    expect(onAction).toHaveBeenCalledWith({ id: "resolve-conflict" });
+
+    const [, discard] = screen.getAllByRole("button", {
+      name: "Discard result",
+    });
+    await user.click(discard);
+    expect(onAction).toHaveBeenCalledWith({ id: "discard-conflict-result" });
+  });
+
+  it("offers only whole recorded sides for a conflict it must not decode", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = conflictModel();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={{
+          ...model,
+          conflictDetail: model.conflictDetail
+            ? {
+                ...model.conflictDetail,
+                encrypted: true,
+                wholeSideOnly: true,
+                chunks: [],
+                result: null,
+                base: { ...model.conflictDetail.base, present: false, text: null },
+                ours: { ...model.conflictDetail.ours, text: null },
+                theirs: { ...model.conflictDetail.theirs, text: null },
+                limitation: "This vault is encrypted, so Git recorded ciphertext.",
+              }
+            : null,
+        }}
+        onAction={onAction}
+      />,
+    );
+
+    expect(screen.queryByLabelText("Merged result")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Mark resolved" }),
+    ).not.toBeInTheDocument();
+    // The stage Git does not hold is never offered.
+    expect(
+      screen.queryByRole("button", {
+        name: "Resolve notes/alpha.md with Common ancestor",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Resolve notes/alpha.md with Incoming change",
+      }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "resolve-conflict-stage",
+      values: { side: "theirs" },
+    });
+  });
+
 });
 
 function busyModel(): PluginSourceControlViewModel {
@@ -1001,6 +1328,9 @@ function baseModel(): PluginSourceControlViewModel {
     diffFiles: [],
     diffSource: null,
     conflicts: [],
+    conflictDetail: null,
+    operationProgress: null,
+    operationPlan: null,
     recovery: { state: "idle" },
     pendingBranchSwitch: null,
     remoteAccess: {
@@ -1106,6 +1436,15 @@ function changesModel(): PluginSourceControlViewModel {
       state: "running",
       operationId: "operation-1",
       message: "Resolve conflicts to continue",
+    },
+    operationProgress: {
+      operation: "merge",
+      summary: "This repository has a merge in progress.",
+      conflictedPaths: [],
+      continueAvailable: true,
+      continueUnavailableReason: null,
+      skipAvailable: false,
+      abortAvailable: true,
     },
   };
 }
@@ -1277,6 +1616,79 @@ function commitModel(): PluginSourceControlViewModel {
           ],
         },
       ],
+    },
+  };
+}
+
+/** One text conflict with a single unanswered change. */
+function conflictModel(): PluginSourceControlViewModel {
+  return {
+    ...baseModel(),
+    selectedTab: "changes",
+    selectedView: { kind: "conflict", path: "notes/alpha.md" },
+    conflicts: [
+      {
+        path: "notes/alpha.md",
+        status: "unmerged",
+        oursLabel: "main",
+        theirsLabel: "Incoming change",
+        baseLabel: "Common ancestor",
+      },
+    ],
+    conflictDetail: {
+      path: "notes/alpha.md",
+      operation: "merge",
+      binary: false,
+      encrypted: false,
+      base: {
+        side: "base",
+        label: "Common ancestor",
+        present: true,
+        text: "one\ntwo\n",
+        byteLength: 8,
+      },
+      ours: {
+        side: "ours",
+        label: "main",
+        present: true,
+        text: "one\nOURS\n",
+        byteLength: 9,
+      },
+      theirs: {
+        side: "theirs",
+        label: "Incoming change",
+        present: true,
+        text: "one\nTHEIRS\n",
+        byteLength: 11,
+      },
+      chunks: [
+        {
+          id: "chunk-0",
+          kind: "stable",
+          base: ["one"],
+          ours: ["one"],
+          theirs: ["one"],
+          choice: "ours",
+          automatic: true,
+        },
+        {
+          id: "chunk-1",
+          kind: "conflict",
+          base: ["two"],
+          ours: ["OURS"],
+          theirs: ["THEIRS"],
+          choice: null,
+          automatic: false,
+        },
+      ],
+      result: "one\n",
+      unsavedResult: false,
+      unresolvedChunks: 1,
+      wholeSideOnly: false,
+      limitation: null,
+      status: null,
+      error: null,
+      loading: false,
     },
   };
 }

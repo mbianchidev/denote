@@ -68,6 +68,9 @@ const sourceControlModel: PluginSourceControlViewModel = {
   diffFiles: [],
   diffSource: null,
   conflicts: [],
+  conflictDetail: null,
+  operationProgress: null,
+  operationPlan: null,
   recovery: { state: "idle" },
   pendingBranchSwitch: null,
   remoteAccess: {

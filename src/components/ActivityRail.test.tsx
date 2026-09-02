@@ -185,6 +185,9 @@ function sourceControlModel() {
     diffFiles: [],
     diffSource: null,
     conflicts: [],
+    conflictDetail: null,
+    operationProgress: null,
+    operationPlan: null,
     recovery: { state: "idle" as const },
     remoteAccess: {
       authMode: "public" as const,

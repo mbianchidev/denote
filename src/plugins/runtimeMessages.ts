@@ -310,6 +310,9 @@ export function isPluginSourceControlViewModel(
     !isArrayOf(value.diffFiles, isDiffFile) ||
     !isDiffSource(value.diffSource) ||
     !isArrayOf(value.conflicts, isConflict) ||
+    !isConflictDetail(value.conflictDetail) ||
+    !isOperationProgress(value.operationProgress) ||
+    !isOperationPlan(value.operationPlan) ||
     !isRecovery(value.recovery) ||
     !isRemoteAccess(value.remoteAccess) ||
     !isPendingBranchSwitch(value.pendingBranchSwitch) ||
@@ -562,6 +565,114 @@ function isConflict(value: unknown): boolean {
   );
 }
 
+const ADVANCED_OPERATIONS = ["merge", "rebase", "cherry-pick", "revert"];
+const CONFLICT_SIDES = ["base", "ours", "theirs"];
+
+/**
+ * The conflict a provider has open. Every side is described structurally, and
+ * every chunk carries the three recorded sides as line arrays, so a surface
+ * renders text a provider read out of the index and nothing else.
+ */
+function isConflictDetail(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    (value.operation === null ||
+      (typeof value.operation === "string" &&
+        ADVANCED_OPERATIONS.includes(value.operation))) &&
+    typeof value.binary === "boolean" &&
+    typeof value.encrypted === "boolean" &&
+    isConflictSide(value.base, "base") &&
+    isConflictSide(value.ours, "ours") &&
+    isConflictSide(value.theirs, "theirs") &&
+    isArrayOf(value.chunks, isConflictChunk) &&
+    isNullableString(value.result) &&
+    typeof value.unsavedResult === "boolean" &&
+    isNonNegativeInteger(value.unresolvedChunks) &&
+    typeof value.wholeSideOnly === "boolean" &&
+    isNullableString(value.limitation) &&
+    isNullableString(value.status) &&
+    isNullableString(value.error) &&
+    typeof value.loading === "boolean"
+  );
+}
+
+function isConflictSide(value: unknown, side: string): boolean {
+  return (
+    isRecord(value) &&
+    value.side === side &&
+    typeof value.label === "string" &&
+    typeof value.present === "boolean" &&
+    isNullableString(value.text) &&
+    isNonNegativeInteger(value.byteLength)
+  );
+}
+
+function isConflictChunk(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.kind === "string" &&
+    ["stable", "resolved", "conflict"].includes(value.kind) &&
+    isArrayOf(value.base, isText) &&
+    isArrayOf(value.ours, isText) &&
+    isArrayOf(value.theirs, isText) &&
+    (value.choice === null ||
+      (typeof value.choice === "string" &&
+        CONFLICT_SIDES.includes(value.choice))) &&
+    typeof value.automatic === "boolean"
+  );
+}
+
+/**
+ * The operation Git reports is in progress. Only the four operations Denote
+ * can resume are accepted, so a model can never ask the host to offer Continue
+ * for something Denote does not run.
+ */
+function isOperationProgress(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    ADVANCED_OPERATIONS.includes(value.operation) &&
+    typeof value.summary === "string" &&
+    isArrayOf(value.conflictedPaths, isText) &&
+    typeof value.continueAvailable === "boolean" &&
+    isNullableString(value.continueUnavailableReason) &&
+    typeof value.skipAvailable === "boolean" &&
+    typeof value.abortAvailable === "boolean"
+  );
+}
+
+/** One prepared operation that is waiting for an explicit answer. */
+function isOperationPlan(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    ADVANCED_OPERATIONS.includes(value.operation) &&
+    typeof value.source === "string" &&
+    isNullableString(value.sourceDetail) &&
+    isNullableString(value.currentBranch) &&
+    typeof value.risk === "string" &&
+    ["creates-commit", "may-conflict", "rewrites-history"].includes(
+      value.risk,
+    ) &&
+    typeof value.summary === "string" &&
+    isArrayOf(value.affectedPaths, isText) &&
+    isNullableString(value.affectedPathsLimitation) &&
+    typeof value.startActionId === "string" &&
+    typeof value.cancelActionId === "string"
+  );
+}
+
 /**
  * A pending branch switch names the exact ref, the exact paths it would
  * disturb, and the three action IDs a surface may return. Anything else is
@@ -574,6 +685,8 @@ function isPendingBranchSwitch(value: unknown): boolean {
   }
   return (
     isRecord(value) &&
+    typeof value.operation === "string" &&
+    ["checkout", ...ADVANCED_OPERATIONS].includes(value.operation) &&
     typeof value.target === "string" &&
     (value.localBranch === null || typeof value.localBranch === "string") &&
     (value.fromBranch === null || typeof value.fromBranch === "string") &&

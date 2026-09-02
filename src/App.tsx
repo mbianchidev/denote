@@ -377,6 +377,7 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "skip",
   "abort",
   "resolve-conflict",
+  "resolve-conflict-stage",
   "clone",
 ]);
 
@@ -403,7 +404,41 @@ const WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS = new Set([
   "continue",
   "skip",
   "abort",
+  // Resolving a conflict writes the chosen content into the vault, so the
+  // editor has to read that file again like any other checkout would.
+  "resolve-conflict",
+  "resolve-conflict-stage",
 ]);
+
+/**
+ * The four operations Denote runs, and the labels it uses for them.
+ *
+ * A confirmation is built from this map alone, so an action can only ever be
+ * confirmed as one of the operations the host itself knows: a provider cannot
+ * supply wording, and a value that is not one of these is confirmed in the
+ * neutral wording below instead.
+ */
+const ADVANCED_OPERATION_LABELS: Record<string, string> = {
+  merge: "merge",
+  rebase: "rebase",
+  "cherry-pick": "cherry-pick",
+  revert: "revert",
+};
+
+const CONFLICT_SIDE_LABELS: Record<string, string> = {
+  base: "the common ancestor",
+  ours: "this branch's side",
+  theirs: "the incoming side",
+};
+
+/** The typed operation an action names, or null when it names none. */
+function advancedOperation(values: Record<string, unknown>): string | null {
+  const operation = values.operation ?? values.sequencer;
+  return typeof operation === "string" &&
+    operation in ADVANCED_OPERATION_LABELS
+    ? operation
+    : null;
+}
 
 /**
  * Confirmations the host owns for source-control actions that reach a remote,
@@ -472,19 +507,44 @@ function sourceControlConfirmation(
         dangerous: true,
       };
     case "branch-switch-commit":
+    case "branch-switch-stash": {
+      // The review can be holding a checkout or one of the four operations, so
+      // the confirmation names whichever typed operation will actually run.
+      const operation = advancedOperation(values);
+      const preserving =
+        action.id === "branch-switch-commit"
+          ? {
+              title: "Commit everything, then ",
+              lead: `Commit every listed change on ${leaving}`,
+              tail: "Denote commits exactly the files it listed and discards nothing.",
+              label: "Commit and ",
+            }
+          : {
+              title: "Stash everything, then ",
+              lead: `Stash every listed change from ${leaving}`,
+              tail: "The work is kept in the repository's stash; Denote never drops a stash for you.",
+              label: "Stash and ",
+            };
+      if (!operation) {
+        return {
+          title: `${preserving.title}switch`,
+          message: `${preserving.lead} and then switch to "${branch}"? ${preserving.tail}`,
+          confirmLabel: `${preserving.label}switch`,
+          dangerous: false,
+        };
+      }
+      const named = ADVANCED_OPERATION_LABELS[operation];
       return {
-        title: "Commit everything, then switch",
-        message: `Commit every listed change on ${leaving} and then switch to "${branch}"? Denote commits exactly the files it listed and discards nothing.`,
-        confirmLabel: "Commit and switch",
-        dangerous: false,
+        title: `${preserving.title}${named}`,
+        message: `${preserving.lead} and then ${named} "${branch}"? ${preserving.tail}${
+          operation === "rebase"
+            ? ` The rebase then rewrites the commits on ${leaving}: they are recorded again with new identities.`
+            : ""
+        }`,
+        confirmLabel: `${preserving.label}${named}`,
+        dangerous: operation === "rebase",
       };
-    case "branch-switch-stash":
-      return {
-        title: "Stash everything, then switch",
-        message: `Stash every listed change from ${leaving} and then switch to "${branch}"? The work is kept in the repository's stash; Denote never drops a stash for you.`,
-        confirmLabel: "Stash and switch",
-        dangerous: false,
-      };
+    }
     case "pull":
       return {
         title: "Pull from a remote",
@@ -528,6 +588,81 @@ function sourceControlConfirmation(
         confirmLabel: "Delete the folder",
         dangerous: true,
       };
+    case "merge":
+    case "rebase":
+    case "cherry-pick":
+    case "revert": {
+      // The action ID is the operation, so the wording can never describe
+      // something other than what will run.
+      const operation = action.id;
+      const target = operation === "merge" || operation === "rebase"
+        ? `"${value("ref")}"`
+        : `commit ${value("commitId")}`;
+      // The review names the branch it was prepared on, so the confirmation
+      // says which branch changes rather than "the current branch". The only
+      // wording left for a missing name is the state that has no branch.
+      const changing = from ? `"${from}"` : "the detached HEAD you are on";
+      const rewrites = operation === "rebase";
+      return {
+        title: `Start a ${operation}`,
+        message: rewrites
+          ? `Rebase ${changing} onto ${target}? This rewrites the commits on ${changing}: they are recorded again with new identities, and anyone who already has them will see a different history. Denote saves open notes first, and the rebase can change, add, or remove files in this vault.`
+          : `${operation === "merge" ? "Merge" : operation === "cherry-pick" ? "Cherry-pick" : "Revert"} ${target} into ${changing}? Denote saves open notes first, and the operation can change, add, or remove files in this vault. It may stop with conflicts for you to resolve.`,
+        confirmLabel: `Start ${operation}`,
+        dangerous: rewrites,
+      };
+    }
+    case "continue":
+    case "skip":
+    case "abort": {
+      const operation = advancedOperation(values);
+      const named = operation
+        ? `the ${ADVANCED_OPERATION_LABELS[operation]}`
+        : "the operation in progress";
+      if (action.id === "continue") {
+        return {
+          title: "Continue the operation",
+          message: `Continue ${named}? Git records what you have staged and carries on. Denote saves open notes first, and the vault can change as it does.`,
+          confirmLabel: "Continue",
+          dangerous: false,
+        };
+      }
+      if (action.id === "skip") {
+        return {
+          title: "Skip this step",
+          message: `Skip this step of ${named}? The commit being replayed is dropped: its change is not recorded anywhere, and this cannot be undone from Denote.`,
+          confirmLabel: "Skip the step",
+          dangerous: true,
+        };
+      }
+      return {
+        title: "Abort the operation",
+        message: `Abort ${named}? The repository goes back to the state it was in before the operation started, and every conflict resolution you have made in it is discarded.`,
+        confirmLabel: "Abort",
+        dangerous: true,
+      };
+    }
+    case "resolve-conflict":
+      return {
+        title: "Mark the conflict resolved",
+        message:
+          "Write the merged result into the vault and stage it? The conflicted copy of that file is replaced by the result you reviewed. Every other conflicted file stays as it is.",
+        confirmLabel: "Mark resolved",
+        dangerous: false,
+      };
+    case "resolve-conflict-stage": {
+      const side = value("side");
+      const named =
+        side in CONFLICT_SIDE_LABELS
+          ? CONFLICT_SIDE_LABELS[side]
+          : "the chosen side";
+      return {
+        title: "Resolve with one whole side",
+        message: `Replace the conflicted file with ${named}, exactly as Git recorded it, and stage it? The other sides of that file are not kept in the vault.`,
+        confirmLabel: "Use that side",
+        dangerous: true,
+      };
+    }
     default:
       return null;
   }

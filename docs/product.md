@@ -360,8 +360,26 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   that is no longer there. A renamed file opens under the path it has now, a
   deleted file stays reviewable without being openable, and no absolute path is
   ever built or shown.
-- Conflict resolution is a later increment and is reported as unavailable
-  rather than implied.
+- Merge, rebase, cherry-pick, and revert are host-rendered and always reviewed
+  before they run: the review names the operation, its source, the branch it
+  changes, its risk, and the files it is expected to touch. Starting one is
+  confirmed, a rebase and every destructive step are confirmed as dangerous,
+  and no operation starts on refresh, activation, or restart. Reset and force
+  push are not offered at all.
+- An interrupted merge, rebase, cherry-pick, or revert is detected from the
+  repository itself on every refresh, so it survives a restart. Only the
+  controls Git allows are offered: continue stays unavailable while any path is
+  unmerged, skip is offered only where Git has one, and abort returns the
+  repository to its pre-operation state.
+- Conflict resolution reads the three sides Git recorded in the index, never the
+  working-tree copy, and merges unencrypted text with a deterministic bounded
+  three-way merge: non-overlapping changes combine automatically, and a change
+  both sides made differently is chosen between per change or by taking one
+  whole side. The merged result is editable, unresolved changes block marking a
+  file resolved, and an unsaved result is never discarded silently. Binary and
+  encrypted content never exposes line content or accepts plaintext: it offers
+  the recorded sides as whole-file choices, and only when the index holds that
+  side.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 

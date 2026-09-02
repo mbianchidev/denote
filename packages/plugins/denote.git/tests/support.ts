@@ -206,6 +206,7 @@ export const IDLE_OPERATION_STATE = JSON.stringify({
   rebaseInProgress: false,
   rebaseKind: null,
   sequencerInProgress: false,
+  sequencerKind: null,
   bisectInProgress: false,
 });
 
@@ -410,3 +411,55 @@ export const BINARY_COMMIT_DIFF = [
   "Binary files a/notes/sealed.md and b/notes/sealed.md differ",
   "",
 ].join("\n");
+
+/**
+ * A synthetic status report whose only entries are conflicted paths, so a test
+ * can name exactly which files Git still reports as unmerged.
+ */
+export function conflictedStatus(paths: string[], branch = "main"): string {
+  return [
+    "# branch.oid 1111111111111111111111111111111111111111",
+    `# branch.head ${branch}`,
+    ...paths.map(
+      (path) =>
+        `u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 ${path}`,
+    ),
+  ].join("\0");
+}
+
+/** The host's operation-state report with the named flags turned on. */
+export function operationState(
+  overrides: Partial<Record<string, boolean | string | null>> = {},
+): string {
+  return JSON.stringify({
+    ...(JSON.parse(IDLE_OPERATION_STATE) as Record<string, unknown>),
+    ...overrides,
+  });
+}
+
+/**
+ * A synthetic `ls-files --unmerged -z` report. Each entry names the stages the
+ * index holds, so a test can describe an added/added conflict, which has no
+ * common ancestor, exactly as Git would.
+ */
+export function unmergedListing(
+  entries: Array<{ path: string; stages: number[] }>,
+): string {
+  return entries
+    .flatMap((entry) =>
+      entry.stages.map(
+        (stage) => `100644 ${"1".repeat(40)} ${stage}\t${entry.path}\0`,
+      ),
+    )
+    .join("");
+}
+
+/** Base64 of UTF-8 text, as the host returns one conflict stage. */
+export function stageBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+}

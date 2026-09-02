@@ -1,12 +1,18 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type {
   PluginSourceControlAction,
+  PluginSourceControlAdvancedOperation,
   PluginSourceControlAuthMode,
   PluginSourceControlBranchChoice,
   PluginSourceControlCommitDetail,
+  PluginSourceControlConflictDetail,
+  PluginSourceControlConflictSide,
+  PluginSourceControlConflictSideKind,
   PluginSourceControlDiffFile,
   PluginSourceControlDiffSource,
   PluginSourceControlHistoryPage,
+  PluginSourceControlOperationPlan,
+  PluginSourceControlOperationProgress,
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRemote,
   PluginSourceControlRemoteAccess,
@@ -41,6 +47,63 @@ const authModeLabels: Record<PluginSourceControlAuthMode, string> = {
   "ssh-agent": "SSH agent",
   "github-https": "GitHub sign-in",
 };
+
+const operationLabels: Record<PluginSourceControlAdvancedOperation, string> = {
+  merge: "Merge",
+  rebase: "Rebase",
+  "cherry-pick": "Cherry-pick",
+  revert: "Revert",
+};
+
+const riskLabels: Record<
+  PluginSourceControlOperationPlan["risk"],
+  string
+> = {
+  "creates-commit": "Records a new commit; nothing already recorded changes",
+  "may-conflict": "May stop with conflicts for you to resolve",
+  "rewrites-history": "Rewrites commits: they are recorded again with new identities",
+};
+
+/** The verb each prepared operation is described with in its review. */
+const pendingOperationVerbs: Record<string, string> = {
+  checkout: "switch",
+  merge: "merge",
+  rebase: "rebase",
+  "cherry-pick": "cherry-pick",
+  revert: "revert",
+};
+
+const conflictSideOrder: PluginSourceControlConflictSideKind[] = [
+  "base",
+  "ours",
+  "theirs",
+];
+
+/**
+ * The value one advanced operation carries.
+ *
+ * A merge and a rebase name a branch, and a cherry-pick and a revert name the
+ * commit that was selected, so the action a surface returns always matches the
+ * operation the provider prepared.
+ */
+/**
+ * The typed values one advanced operation is started with.
+ *
+ * The branch the review was prepared on travels with it, so the host
+ * confirmation names both the branch that changes and the source it acts on
+ * rather than falling back to "the current branch".
+ */
+function operationValues(
+  operation: PluginSourceControlAdvancedOperation,
+  source: string,
+  currentBranch: string | null,
+): PluginSourceControlAction["values"] {
+  const values: Record<string, string> =
+    operation === "merge" || operation === "rebase"
+      ? { ref: source, operation }
+      : { commitId: source, operation };
+  return currentBranch ? { ...values, from: currentBranch } : values;
+}
 
 function action(
   id: string,
@@ -444,6 +507,28 @@ function CommitDetail({
         <button
           type="button"
           className="secondary-button"
+          aria-label={`Review cherry-picking ${commit.shortId}`}
+          disabled={busy}
+          onClick={() =>
+            onAction(action("prepare-cherry-pick", { commitId: commit.id }))
+          }
+        >
+          Review cherry-pick
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          aria-label={`Review reverting ${commit.shortId}`}
+          disabled={busy}
+          onClick={() =>
+            onAction(action("prepare-revert", { commitId: commit.id }))
+          }
+        >
+          Review revert
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
           disabled={busy}
           onClick={() => onAction(action("close-commit"))}
         >
@@ -470,6 +555,11 @@ function PendingBranchSwitch({
 }) {
   const [message, setMessage] = useState("");
   const destination = pending.localBranch ?? pending.target;
+  const checkout = pending.operation === "checkout";
+  // Every label comes from the typed operation the provider named, so the
+  // review describes what will actually run rather than assuming a checkout.
+  const verb = pendingOperationVerbs[pending.operation];
+  const leaving = pending.fromBranch ?? "the current branch";
   const groups: Array<{ label: string; paths: string[] }> = [
     { label: "Staged", paths: pending.stagedPaths },
     { label: "Changed", paths: pending.unstagedPaths },
@@ -481,16 +571,32 @@ function PendingBranchSwitch({
       className="source-control__pending-switch"
       aria-labelledby="source-control-pending-switch"
     >
-      <h3 id="source-control-pending-switch">Switch to {destination}</h3>
+      <h3 id="source-control-pending-switch">
+        {pending.operation === "checkout"
+          ? `Switch to ${destination}`
+          : `${operationLabels[pending.operation]} ${pending.target}`}
+      </h3>
       <p role="status">
-        Denote has not switched yet.{" "}
-        {pending.fromBranch
-          ? `Switching from ${pending.fromBranch} to ${destination}`
-          : `Switching to ${destination}`}{" "}
-        would disturb work in this vault, so choose what happens to it first.
-        {pending.localBranch && pending.localBranch !== pending.target
-          ? ` ${pending.localBranch} will be created from ${pending.target}.`
-          : ""}
+        {checkout ? (
+          <>
+            Denote has not switched yet.{" "}
+            {pending.fromBranch
+              ? `Switching from ${pending.fromBranch} to ${destination}`
+              : `Switching to ${destination}`}{" "}
+            would disturb work in this vault, so choose what happens to it
+            first.
+            {pending.localBranch && pending.localBranch !== pending.target
+              ? ` ${pending.localBranch} will be created from ${pending.target}.`
+              : ""}
+          </>
+        ) : (
+          <>
+            {`Denote has not started the ${pending.operation} yet. Running it on ${leaving} would disturb work in this vault, so choose what happens to that work first.`}
+            {pending.operation === "rebase"
+              ? ` The rebase then rewrites the commits on ${leaving}.`
+              : ""}
+          </>
+        )}
       </p>
       {groups.map((group) =>
         group.paths.length > 0 ? (
@@ -518,12 +624,13 @@ function PendingBranchSwitch({
               message: trimmed,
               branch: destination,
               from: pending.fromBranch ?? "",
+              operation: pending.operation,
             }),
           );
         }}
       >
         <label className="source-control__field">
-          <span>Commit message for the switch</span>
+          <span>{`Commit message for the ${verb}`}</span>
           <input
             value={message}
             disabled={busy || !pending.commitAvailable}
@@ -538,7 +645,7 @@ function PendingBranchSwitch({
               busy || !pending.commitAvailable || message.trim().length === 0
             }
           >
-            Commit all and switch
+            {`Commit all and ${verb}`}
           </button>
           <button
             type="button"
@@ -549,11 +656,12 @@ function PendingBranchSwitch({
                 action(pending.stashActionId, {
                   branch: destination,
                   from: pending.fromBranch ?? "",
+                  operation: pending.operation,
                 }),
               )
             }
           >
-            Stash and switch
+            {`Stash and ${verb}`}
           </button>
           <button
             type="button"
@@ -561,7 +669,7 @@ function PendingBranchSwitch({
             disabled={busy}
             onClick={() => onAction(action(pending.cancelActionId))}
           >
-            Cancel switch
+            {`Cancel ${verb}`}
           </button>
         </div>
       </form>
@@ -1081,6 +1189,531 @@ function RemoteManagement({
   );
 }
 
+/**
+ * One advanced operation that has been prepared and not run.
+ *
+ * Everything the provider read is named: the source, the branch it would
+ * change, what it risks, and the files it is expected to touch. Starting it is
+ * a separate, explicit action the host confirms.
+ */
+/**
+ * Merge and rebase, which both act on a branch this repository already has.
+ *
+ * Nothing starts here: the button prepares a review, and the review is what
+ * offers to run the operation. A repository that is already part way through
+ * an operation offers neither, because finishing that one comes first.
+ */
+function AdvancedOperations({
+  branches,
+  busy,
+  blocked,
+  onAction,
+}: {
+  branches: PluginSourceControlBranchChoice[];
+  busy: boolean;
+  blocked: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const [chosen, setChosen] = useState("");
+  const options = branches.filter((branch) => !branch.current);
+  const source = chosen || (options[0]?.name ?? "");
+
+  return (
+    <section aria-labelledby="source-control-advanced">
+      <h3 id="source-control-advanced">Merge and rebase</h3>
+      {options.length > 0 ? (
+        <>
+          <label className="source-control__field">
+            <span>Branch to use</span>
+            <select
+              value={source}
+              disabled={busy || blocked}
+              onChange={(event) => setChosen(event.currentTarget.value)}
+            >
+              {options.map((branch) => (
+                <option
+                  value={branch.name}
+                  key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
+                >
+                  {branch.name}
+                  {branch.remote ? " (remote)" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="source-control__actions">
+            <button
+              type="button"
+              className="secondary-button"
+              aria-label={`Review merging ${source}`}
+              disabled={busy || blocked || source.length === 0}
+              onClick={() =>
+                onAction(action("prepare-merge", { ref: source }))
+              }
+            >
+              Review merge
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              aria-label={`Review rebasing onto ${source}`}
+              disabled={busy || blocked || source.length === 0}
+              onClick={() =>
+                onAction(action("prepare-rebase", { ref: source }))
+              }
+            >
+              Review rebase
+            </button>
+          </div>
+          <p className="source-control__hint">
+            Denote reviews a merge or a rebase before it runs, and never
+            force-pushes or resets anything.
+          </p>
+        </>
+      ) : (
+        <p className="sidebar-empty">
+          This repository has no other branch to merge or rebase onto.
+        </p>
+      )}
+      {blocked ? (
+        <p className="source-control__limitation" role="status">
+          Finish the operation that is already in progress before starting
+          another one.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function OperationPlan({
+  plan,
+  busy,
+  onAction,
+}: {
+  plan: PluginSourceControlOperationPlan;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const label = operationLabels[plan.operation];
+  return (
+    <section
+      className="source-control__operation-plan"
+      aria-labelledby="source-control-operation-plan"
+    >
+      <h3 id="source-control-operation-plan">Review this {plan.operation}</h3>
+      <dl>
+        <div>
+          <dt>Operation</dt>
+          <dd>{label}</dd>
+        </div>
+        <div>
+          <dt>Source</dt>
+          <dd>
+            {plan.source}
+            {plan.sourceDetail ? ` · ${plan.sourceDetail}` : ""}
+          </dd>
+        </div>
+        <div>
+          <dt>Current branch</dt>
+          <dd>{plan.currentBranch ?? "None"}</dd>
+        </div>
+        <div>
+          <dt>Risk</dt>
+          <dd>{riskLabels[plan.risk]}</dd>
+        </div>
+      </dl>
+      <p role="status">{plan.summary}</p>
+      <h4>Files this may change</h4>
+      {plan.affectedPaths.length > 0 ? (
+        <ul className="source-control__pending-paths">
+          {plan.affectedPaths.map((path) => (
+            <li key={path}>{path}</li>
+          ))}
+        </ul>
+      ) : (
+        <p className="sidebar-empty">Denote listed no files for this one.</p>
+      )}
+      {plan.affectedPathsLimitation ? (
+        <p className="source-control__limitation" role="status">
+          {plan.affectedPathsLimitation}
+        </p>
+      ) : null}
+      <div className="source-control__actions">
+        <button
+          type="button"
+          className="primary-button"
+          disabled={busy}
+          onClick={() =>
+            onAction(
+              action(
+                plan.startActionId,
+                operationValues(plan.operation, plan.source, plan.currentBranch),
+              ),
+            )
+          }
+        >
+          Start {plan.operation}
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => onAction(action(plan.cancelActionId))}
+        >
+          Cancel
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * The operation Git is part way through, and only the controls that are valid
+ * for it.
+ *
+ * Continue stays disabled, with the reason on screen, until Git reports no
+ * unmerged paths. A merge offers no skip, because Git has none. Every control
+ * names the operation it acts on, so nothing here can resume something else.
+ */
+function OperationProgress({
+  progress,
+  busy,
+  onAction,
+}: {
+  progress: PluginSourceControlOperationProgress;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const values = { sequencer: progress.operation };
+  return (
+    <section
+      className="source-control__operation"
+      aria-labelledby="source-control-operation"
+    >
+      <h3 id="source-control-operation">
+        {operationLabels[progress.operation]} in progress
+      </h3>
+      <p role="status">{progress.summary}</p>
+      {progress.conflictedPaths.length > 0 ? (
+        <ul className="source-control__pending-paths">
+          {progress.conflictedPaths.map((path) => (
+            <li key={path}>{path}</li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="source-control__actions">
+        <button
+          type="button"
+          className="primary-button"
+          aria-label={`Continue the ${progress.operation}`}
+          disabled={busy || !progress.continueAvailable}
+          onClick={() => onAction(action("continue", values))}
+        >
+          Continue
+        </button>
+        {progress.skipAvailable ? (
+          <button
+            type="button"
+            className="secondary-button"
+            aria-label={`Skip this step of the ${progress.operation}`}
+            disabled={busy}
+            onClick={() => onAction(action("skip", values))}
+          >
+            Skip
+          </button>
+        ) : null}
+        {progress.abortAvailable ? (
+          <button
+            type="button"
+            className="secondary-button"
+            aria-label={`Abort the ${progress.operation}`}
+            disabled={busy}
+            onClick={() => onAction(action("abort", values))}
+          >
+            Abort
+          </button>
+        ) : null}
+      </div>
+      {progress.continueUnavailableReason ? (
+        <p className="source-control__limitation" role="status">
+          {progress.continueUnavailableReason}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** One recorded side of a conflict, rendered as its own labelled pane. */
+function ConflictPane({
+  side,
+  path,
+}: {
+  side: PluginSourceControlConflictSide;
+  path: string;
+}) {
+  const id = `source-control-conflict-${side.side}`;
+  return (
+    <section className="source-control__conflict-pane" aria-labelledby={id}>
+      <h5 id={id}>{side.label}</h5>
+      {side.present ? (
+        side.text === null ? (
+          <p className="source-control__limitation" role="status">
+            Denote does not display this side&apos;s content.
+          </p>
+        ) : (
+          <pre aria-label={`${side.label} of ${path}`}>{side.text}</pre>
+        )
+      ) : (
+        <p className="source-control__limitation" role="status">
+          Git does not hold this side of {path}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The three-way conflict editor.
+ *
+ * Every side comes from the index, so what is on screen is what Git recorded
+ * rather than anything read back out of the working tree. A change both sides
+ * made differently is offered as a choice between the three recorded sides; a
+ * change only one side made is already in the result and is shown as such.
+ * Binary and encrypted conflicts never reach the line-level controls at all.
+ */
+function ConflictEditor({
+  detail,
+  busy,
+  onAction,
+}: {
+  detail: PluginSourceControlConflictDetail;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const [draft, setDraft] = useState(detail.result ?? "");
+  const sent = useRef<string | null>(detail.result);
+  const path = detail.path;
+  const sides: Record<
+    PluginSourceControlConflictSideKind,
+    PluginSourceControlConflictSide
+  > = { base: detail.base, ours: detail.ours, theirs: detail.theirs };
+
+  useEffect(() => {
+    // A result the provider changed — a chosen change, a whole side, or a
+    // discarded edit — replaces the draft. The user's own typing does not,
+    // because it is what produced the value coming back.
+    if (detail.result !== null && detail.result !== sent.current) {
+      setDraft(detail.result);
+      sent.current = detail.result;
+    }
+  }, [detail.path, detail.result]);
+
+  const available = conflictSideOrder.filter((side) => sides[side].present);
+  const resolvable = detail.unresolvedChunks === 0;
+
+  return (
+    <section
+      className="source-control__conflict"
+      aria-labelledby="source-control-conflict"
+    >
+      <h3 id="source-control-conflict">Conflict: {path}</h3>
+      {detail.operation ? (
+        <p>
+          Recorded by the {detail.operation} this repository is part way
+          through.
+        </p>
+      ) : null}
+      <dl>
+        {conflictSideOrder.map((side) => (
+          <div key={side}>
+            <dt>{sideHeading(side)}</dt>
+            <dd>
+              {sides[side].label}
+              {sides[side].present ? "" : " · not recorded"}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      {detail.loading ? (
+        <p className="source-control__status" role="status">
+          Reading the recorded sides of {path}…
+        </p>
+      ) : null}
+      {detail.limitation ? (
+        <p className="source-control__limitation" role="status">
+          {detail.limitation}
+        </p>
+      ) : null}
+      {detail.status ? (
+        <p className="source-control__status" role="status">
+          {detail.status}
+        </p>
+      ) : null}
+      {detail.error ? (
+        <p className="source-control__limitation" role="status">
+          {detail.error}
+        </p>
+      ) : null}
+      {detail.wholeSideOnly ? (
+        <div
+          className="source-control__actions"
+          role="group"
+          aria-label={`Resolve ${path} with one whole side`}
+        >
+          {available.map((side) => (
+            <button
+              type="button"
+              key={side}
+              className="secondary-button"
+              aria-label={`Resolve ${path} with ${sides[side].label}`}
+              disabled={busy}
+              onClick={() =>
+                onAction(action("resolve-conflict-stage", { side }))
+              }
+            >
+              Use {sideHeading(side).toLowerCase()}
+            </button>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div className="source-control__conflict-panes">
+            {conflictSideOrder.map((side) => (
+              <ConflictPane key={side} side={sides[side]} path={path} />
+            ))}
+          </div>
+          <div
+            className="source-control__row-actions"
+            role="group"
+            aria-label={`Use one whole side of ${path}`}
+          >
+            {available.map((side) => (
+              <button
+                type="button"
+                key={side}
+                aria-label={`Use ${sides[side].label} for the whole file`}
+                disabled={busy}
+                onClick={() => onAction(action("use-conflict-side", { side }))}
+              >
+                Use {sideHeading(side).toLowerCase()}
+              </button>
+            ))}
+          </div>
+          <h4>Changes</h4>
+          {detail.chunks.some((chunk) => chunk.kind === "conflict") ? (
+            <ol className="source-control__conflict-chunks">
+              {detail.chunks
+                .filter((chunk) => chunk.kind === "conflict")
+                .map((chunk, index) => (
+                  <li key={chunk.id}>
+                    <div
+                      className="source-control__row-actions"
+                      role="group"
+                      aria-label={`Change ${index + 1} of ${path}`}
+                    >
+                      {conflictSideOrder.map((side) => (
+                        <button
+                          type="button"
+                          key={side}
+                          aria-pressed={chunk.choice === side}
+                          aria-label={`Use ${sides[side].label} for change ${index + 1}`}
+                          disabled={busy || !sides[side].present}
+                          onClick={() =>
+                            onAction(
+                              action("choose-conflict-change", {
+                                chunkId: chunk.id,
+                                side,
+                              }),
+                            )
+                          }
+                        >
+                          {sideHeading(side)}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="source-control__conflict-lines">
+                      {conflictSideOrder.map((side) => (
+                        <div key={side}>
+                          <span className="sr-only">
+                            {sides[side].label}, change {index + 1}:
+                          </span>
+                          <pre>{chunk[side].join("\n")}</pre>
+                        </div>
+                      ))}
+                    </div>
+                  </li>
+                ))}
+            </ol>
+          ) : (
+            <p className="sidebar-empty">
+              Denote combined every change automatically. Review the result
+              below before marking it resolved.
+            </p>
+          )}
+          <label className="source-control__field">
+            <span>Merged result</span>
+            <textarea
+              value={draft}
+              rows={10}
+              spellCheck={false}
+              disabled={busy}
+              onChange={(event) => {
+                const next = event.currentTarget.value;
+                setDraft(next);
+                sent.current = next;
+                onAction(action("edit-conflict-result", { result: next }));
+              }}
+            />
+          </label>
+          <p className="source-control__status" role="status">
+            {detail.unsavedResult
+              ? "This result has not been written to the vault yet."
+              : "This is the result Denote merged from the three recorded sides."}
+          </p>
+          <div className="source-control__actions">
+            <button
+              type="button"
+              className="primary-button"
+              disabled={busy || !resolvable}
+              onClick={() => onAction(action("resolve-conflict"))}
+            >
+              Mark resolved
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy || !detail.unsavedResult}
+              onClick={() => onAction(action("discard-conflict-result"))}
+            >
+              Discard result
+            </button>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => onAction(action("close-conflict"))}
+            >
+              Close conflict
+            </button>
+          </div>
+          {resolvable ? null : (
+            <p className="source-control__limitation" role="status">
+              {detail.unresolvedChunks} change
+              {detail.unresolvedChunks === 1 ? "" : "s"} still need
+              {detail.unresolvedChunks === 1 ? "s" : ""} a side. Choose one for
+              each, or edit the result yourself.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function sideHeading(side: PluginSourceControlConflictSideKind): string {
+  return side === "base" ? "Base" : side === "ours" ? "Ours" : "Theirs";
+}
+
 function OperationReview({
   remoteAccess,
   busy,
@@ -1432,6 +2065,22 @@ export function SourceControlPanel({
           ) : null}
         </section>
 
+        {model.operationProgress ? (
+          <OperationProgress
+            progress={model.operationProgress}
+            busy={repository.busy}
+            onAction={onAction}
+          />
+        ) : null}
+
+        {model.operationPlan ? (
+          <OperationPlan
+            plan={model.operationPlan}
+            busy={repository.busy}
+            onAction={onAction}
+          />
+        ) : null}
+
         {repository.initialized ? (
           <>
             <div
@@ -1520,7 +2169,13 @@ export function SourceControlPanel({
                   ) : (
                     <p className="sidebar-empty">No working tree changes.</p>
                   )}
-                  {selectedConflict ? (
+                  {model.conflictDetail ? (
+                    <ConflictEditor
+                      detail={model.conflictDetail}
+                      busy={repository.busy}
+                      onAction={onAction}
+                    />
+                  ) : selectedConflict ? (
                     <section
                       className="source-control__detail"
                       aria-labelledby="source-control-conflict"
@@ -1546,9 +2201,9 @@ export function SourceControlPanel({
                       </dl>
                       {selectedConflictIsBinary ? (
                         <p className="source-control__limitation" role="status">
-                          This is a binary conflict. Denote cannot display or
-                          merge its contents; use the provider&apos;s supported
-                          external conflict workflow.
+                          Git recorded this file as binary content, so it has no
+                          lines to merge. Open it to choose one whole recorded
+                          side.
                         </p>
                       ) : null}
                     </section>
@@ -1649,6 +2304,12 @@ export function SourceControlPanel({
                 </>
               ) : (
                 <div className="source-control__branch-lists">
+                  <AdvancedOperations
+                    branches={model.branches}
+                    busy={repository.busy}
+                    blocked={model.operationProgress !== null}
+                    onAction={onAction}
+                  />
                   <BranchManagement
                     branches={model.branches}
                     busy={repository.busy}
@@ -1693,31 +2354,7 @@ export function SourceControlPanel({
             <h3 id="source-control-recovery">Recovery</h3>
             <p role="status">{model.recovery.message}</p>
             <div className="source-control__actions">
-              {model.recovery.state === "running" ? (
-                <>
-                  <button
-                    type="button"
-                    className="primary-button"
-                    onClick={() => onAction(action("continue"))}
-                  >
-                    Continue
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => onAction(action("skip"))}
-                  >
-                    Skip
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => onAction(action("abort"))}
-                  >
-                    Abort
-                  </button>
-                </>
-              ) : (
+              {model.recovery.state === "running" ? null : (
                 <>
                   {retryActionId ? (
                     <button

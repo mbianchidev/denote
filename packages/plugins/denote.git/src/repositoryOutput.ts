@@ -122,6 +122,12 @@ export interface GitOperationState {
   revertInProgress: boolean;
   rebaseInProgress: boolean;
   sequencerInProgress: boolean;
+  /**
+   * Which command a paused multi-commit sequence is replaying, when the host
+   * could read it. A sequence between two commits records no head file, so
+   * this is the only thing that names it; anything else is null.
+   */
+  sequencerKind: "cherry-pick" | "revert" | null;
   bisectInProgress: boolean;
 }
 
@@ -140,6 +146,10 @@ export function parseOperationState(stdout: string): GitOperationState | null {
     revertInProgress: flag(value.revertInProgress),
     rebaseInProgress: flag(value.rebaseInProgress),
     sequencerInProgress: flag(value.sequencerInProgress),
+    sequencerKind:
+      value.sequencerKind === "cherry-pick" || value.sequencerKind === "revert"
+        ? value.sequencerKind
+        : null,
     bisectInProgress: flag(value.bisectInProgress),
   };
 }

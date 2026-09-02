@@ -1023,6 +1023,336 @@ describe("App initial file-tree expansion", () => {
     });
   });
 
+  it("confirms a rebase as history rewriting before it starts", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.operationPlan = {
+      operation: "rebase",
+      source: "topic",
+      sourceDetail: "Local branch.",
+      currentBranch: "main",
+      risk: "rewrites-history",
+      summary: "Replay the commits of main on top of topic.",
+      affectedPaths: [],
+      affectedPathsLimitation: null,
+      startActionId: "rebase",
+      cancelActionId: "cancel-operation-plan",
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Start rebase" }));
+
+    // The confirmation names both the branch that is rewritten and the branch
+    // it is replayed onto, from the review the provider published.
+    expect(
+      await screen.findByText(/Rebase "main" onto "topic"\?/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/rewrites the commits on "main"/),
+    ).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Start rebase" }));
+
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        {
+          id: "rebase",
+          values: { ref: "topic", operation: "rebase", from: "main" },
+        },
+        "/synthetic-vault",
+      );
+      // A rebase replaces files on disk, so the vault is read again.
+      expect(mockApi.refreshVault).toHaveBeenCalled();
+    });
+  });
+
+  it("names the reviewed branch when confirming a cherry-pick", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.operationPlan = {
+      operation: "cherry-pick",
+      source: "0000000000000000000000000000000000000001",
+      sourceDetail: "0000001 · Record a synthetic note",
+      currentBranch: "release",
+      risk: "creates-commit",
+      summary: "Record that commit again on release.",
+      affectedPaths: [],
+      affectedPathsLimitation: null,
+      startActionId: "cherry-pick",
+      cancelActionId: "cancel-operation-plan",
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Start cherry-pick" }));
+
+    // The branch is named exactly, never as "the current branch".
+    expect(
+      await screen.findByText(/into "release"\?/),
+    ).toBeInTheDocument();
+    const dialog = await screen.findByRole("dialog");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Start cherry-pick" }),
+    );
+
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        {
+          id: "cherry-pick",
+          values: {
+            commitId: "0000000000000000000000000000000000000001",
+            operation: "cherry-pick",
+            from: "release",
+          },
+        },
+        "/synthetic-vault",
+      );
+    });
+  });
+
+  it("confirms committing before a rebase as the rebase it will run", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.pendingBranchSwitch = {
+      operation: "rebase",
+      target: "topic",
+      localBranch: null,
+      fromBranch: "main",
+      stagedPaths: ["ready.md"],
+      unstagedPaths: [],
+      untrackedPaths: [],
+      commitAvailable: true,
+      stashAvailable: true,
+      stashUnavailableReason: null,
+      commitActionId: "branch-switch-commit",
+      stashActionId: "branch-switch-stash",
+      cancelActionId: "branch-switch-cancel",
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.type(
+      screen.getByLabelText("Commit message for the rebase"),
+      "Save before rebasing",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Commit all and rebase" }),
+    );
+
+    // The confirmation names the rebase, not a branch switch, and is dangerous.
+    expect(
+      await screen.findByText(/then rebase "topic"\?/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/rewrites the commits on "main"/),
+    ).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Commit and rebase" }),
+    );
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        {
+          id: "branch-switch-commit",
+          values: {
+            message: "Save before rebasing",
+            branch: "topic",
+            from: "main",
+            operation: "rebase",
+          },
+        },
+        "/synthetic-vault",
+      );
+    });
+  });
+
+  it("confirms skipping and aborting by the operation Git reports", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.operationProgress = {
+      operation: "cherry-pick",
+      summary: "A cherry-pick is in progress.",
+      conflictedPaths: [],
+      continueAvailable: true,
+      continueUnavailableReason: null,
+      skipAvailable: true,
+      abortAvailable: true,
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Skip this step of the cherry-pick" }),
+    );
+    expect(
+      await screen.findByText(/Skip this step of the cherry-pick\?/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Skip the step" }));
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "skip", values: { sequencer: "cherry-pick" } },
+        "/synthetic-vault",
+      );
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Abort the cherry-pick" }),
+    );
+    expect(
+      await screen.findByText(/Abort the cherry-pick\?/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Abort" }));
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "abort", values: { sequencer: "cherry-pick" } },
+        "/synthetic-vault",
+      );
+    });
+  });
+
+  it("reloads open tabs and closes a file a conflict resolution removed", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedView = { kind: "conflict", path: "notes/alpha.txt" };
+    model.conflicts = [
+      {
+        path: "notes/alpha.txt",
+        status: "unmerged",
+        oursLabel: "main",
+        theirsLabel: "Incoming change",
+        baseLabel: "Common ancestor",
+      },
+    ];
+    model.conflictDetail = {
+      path: "notes/alpha.txt",
+      operation: "merge",
+      binary: true,
+      encrypted: false,
+      base: {
+        side: "base",
+        label: "Common ancestor",
+        present: false,
+        text: null,
+        byteLength: 0,
+      },
+      ours: {
+        side: "ours",
+        label: "main",
+        present: true,
+        text: null,
+        byteLength: 12,
+      },
+      theirs: {
+        side: "theirs",
+        label: "Incoming change",
+        present: true,
+        text: null,
+        byteLength: 14,
+      },
+      chunks: [],
+      result: null,
+      unsavedResult: false,
+      unresolvedChunks: 0,
+      wholeSideOnly: true,
+      limitation: "Git recorded this file as binary content.",
+      status: null,
+      error: null,
+      loading: false,
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    const before = workspaceSnapshot([
+      folderNode("notes", [fileNode("notes/alpha.txt", "text")]),
+    ]);
+    mockApi.getLastVault.mockResolvedValue({
+      ...before,
+      restoreTabs: true,
+      tabSession: {
+        tabs: [{ path: "notes/alpha.txt", groupId: null }],
+        groups: [],
+        activePath: "notes/alpha.txt",
+        panes: [
+          {
+            id: "pane-1",
+            tabs: [{ path: "notes/alpha.txt", groupId: null }],
+            groups: [],
+            activePath: "notes/alpha.txt",
+          },
+        ],
+        layout: { kind: "horizontal", sizes: [1] },
+        focusedPaneId: "pane-1",
+      },
+    });
+    // Resolving the conflict removed the file from the working tree.
+    mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await screen.findByLabelText("Content of Edit notes/alpha.txt");
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Resolve notes/alpha.txt with Incoming change",
+      }),
+    );
+    expect(
+      await screen.findByText(/exactly as Git recorded it/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Use that side" }));
+
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "resolve-conflict-stage", values: { side: "theirs" } },
+        "/synthetic-vault",
+      );
+    });
+    // The tab whose file disappeared is closed and reported, exactly as a
+    // checkout that removes a file does.
+    expect(
+      (await screen.findAllByText(/whose file is not on this branch/)).length,
+    ).toBeGreaterThan(0);
+  });
+
   it("confirms removing a remote and deleting an incomplete clone", async () => {
     const user = userEvent.setup();
     const model = appSourceControlModel("Synthetic repository");
@@ -1789,6 +2119,9 @@ function appSourceControlModel(
     diffFiles: [],
     diffSource: null,
     conflicts: [],
+    conflictDetail: null,
+    operationProgress: null,
+    operationPlan: null,
     recovery: { state: "idle" },
     pendingBranchSwitch: null,
     remoteAccess: {

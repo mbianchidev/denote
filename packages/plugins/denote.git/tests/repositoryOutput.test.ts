@@ -166,9 +166,32 @@ describe("parseOperationState and parseInitialized", () => {
       revertInProgress: false,
       rebaseInProgress: true,
       sequencerInProgress: false,
+      sequencerKind: null,
       bisectInProgress: false,
     });
     expect(state && describeOperationState(state)).toBe("rebase");
+  });
+
+  it("names a paused sequence only by a command the host recognised", () => {
+    const paused = (sequencerKind: unknown) =>
+      parseOperationState(
+        JSON.stringify({
+          mergeInProgress: false,
+          cherryPickInProgress: false,
+          revertInProgress: false,
+          rebaseInProgress: false,
+          rebaseKind: null,
+          sequencerInProgress: true,
+          sequencerKind,
+          bisectInProgress: false,
+        }),
+      );
+
+    expect(paused("revert")?.sequencerKind).toBe("revert");
+    expect(paused("cherry-pick")?.sequencerKind).toBe("cherry-pick");
+    // Anything the host could not read is reported as unknown, never guessed.
+    expect(paused("squash")?.sequencerKind).toBeNull();
+    expect(paused(null)?.sequencerKind).toBeNull();
   });
 
   it("treats unreadable reports as unknown rather than as quiet success", () => {
