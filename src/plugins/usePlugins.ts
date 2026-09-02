@@ -64,6 +64,12 @@ export interface PluginController {
 export function usePlugins(
   reportError: (error: unknown) => void,
   projectContext: PluginProjectContext | null = null,
+  /**
+   * Identifies the workspace the host is showing. It stays inside the host:
+   * the runtime only compares it, and a plugin is told that the workspace
+   * changed without ever being told which one it is.
+   */
+  workspaceIdentity: string | null = null,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
@@ -119,6 +125,7 @@ export function usePlugins(
       setDecorations,
       setSourceControlProviders,
     );
+    runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext);
     runtimeRef.current = runtime;
     void api
@@ -181,8 +188,11 @@ export function usePlugins(
   }, [refresh, reportError]);
 
   useEffect(() => {
+    // The workspace is applied first: a plugin has to learn that it changed
+    // before it is told which project inside it is now current.
+    runtimeRef.current?.setWorkspaceIdentity(workspaceIdentity);
     runtimeRef.current?.setProjectContext(projectContext);
-  }, [projectContext]);
+  }, [projectContext, workspaceIdentity]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -359,6 +369,7 @@ export function usePlugins(
       if (!runtime) {
         throw new Error("Plugin runtime is unavailable.");
       }
+      runtime.setWorkspaceIdentity(workspaceIdentity);
       runtime.setProjectContext(projectContext);
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
@@ -366,7 +377,7 @@ export function usePlugins(
       };
       await runtime.runCommand(pluginId, commandId, actionScope);
     },
-    [projectContext],
+    [projectContext, workspaceIdentity],
   );
 
   const runSourceControlAction = useCallback(
@@ -380,6 +391,7 @@ export function usePlugins(
       if (!runtime) {
         throw new Error("Plugin runtime is unavailable.");
       }
+      runtime.setWorkspaceIdentity(workspaceIdentity);
       runtime.setProjectContext(projectContext);
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
@@ -392,7 +404,7 @@ export function usePlugins(
         actionScope,
       );
     },
-    [projectContext],
+    [projectContext, workspaceIdentity],
   );
 
   const importSettings = useCallback(

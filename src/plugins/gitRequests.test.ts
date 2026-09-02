@@ -16,6 +16,13 @@ const accepted: PluginGitRequest[] = [
     amend: false,
     allowEmpty: false,
   },
+  {
+    operation: "commit",
+    scope: "vault",
+    message: "Record synthetic note",
+    authorName: "Synthetic Author",
+    authorEmail: "author@example.invalid",
+  },
   { operation: "list-branches", scope: "vault" },
   { operation: "list-remotes", scope: "vault" },
   {
@@ -142,6 +149,8 @@ describe("parsePluginGitRequest", () => {
       scope: "vault",
       message: "Record synthetic note",
       arguments: ["--exec=touch pwned"],
+      authorDate: "2026-01-01T00:00:00Z",
+      committerName: "Synthetic Committer",
       extra: true,
     });
 
@@ -178,6 +187,18 @@ describe("parsePluginGitRequest", () => {
       { operation: "stage", scope: "vault", paths: [1] },
       { operation: "commit", scope: "vault" },
       { operation: "commit", scope: "vault", message: 4 },
+      {
+        operation: "commit",
+        scope: "vault",
+        message: "Record synthetic note",
+        authorName: 7,
+      },
+      {
+        operation: "commit",
+        scope: "vault",
+        message: "Record synthetic note",
+        authorEmail: ["author@example.invalid"],
+      },
       { operation: "list-history", scope: "vault" },
       { operation: "list-history", scope: "vault", maxCount: 0 },
       { operation: "list-history", scope: "vault", maxCount: 1.5 },

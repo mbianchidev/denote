@@ -101,6 +101,18 @@ plugin-scoped state, keychain access, and registered contributions. Worker crash
 trigger termination and package removal. Enabled workers restart from verified
 installed packages when Denote starts.
 
+Host messages reach a plugin one at a time, so activation, commands, note
+events, and source-control actions never interleave. Two message kinds are
+exempt. A `cancel-operation` source-control action runs concurrently, because
+the operation it names is exactly what would otherwise be holding the queue; it
+still carries its own request ID and its own host-validated action lease, so
+correlation, lease checks, and failure reporting are those of any other action,
+and a provider must expect its `runAction` to be re-entered for that one action.
+A project-context change is delivered while an action is still in flight, so a
+provider can invalidate a model update belonging to the workspace the user just
+left; messages received after it still wait for it, so nothing else becomes
+concurrent.
+
 ## Security and data boundaries
 
 - Plugins receive no raw vault path or editor implementation object.
@@ -108,6 +120,12 @@ installed packages when Denote starts.
   the active explicit or implicit project's stable opaque ID and vault-relative
   root, with change events. It exposes no absolute filesystem path or project
   implementation object.
+- A change event also carries `workspaceChanged`, which reports that the host
+  switched to a different vault. It is reported even when the project context
+  is null before and after the switch, because two vaults reach the same
+  vault-scoped identity and a provider would otherwise keep showing a
+  repository the user has left. The vault itself is never identified: the host
+  compares the workspace internally and only the flag crosses the boundary.
 - Plugin API version 1 exposes command registration, static sidebar views,
   note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
   explicit-command-action capabilities for versioned workspace text,
@@ -203,7 +221,13 @@ create/checkout/rename/delete, stash, merge, rebase, cherry-pick, revert,
 continue/skip/abort, conflict-stage reads, conflict resolution, clone, and
 cancel. Every operation names exact structured fields; there is no argument
 array, option flag, or shell input, and the native host maps each operation to a
-fixed argument template. `PluginGitResult` returns the operation ID, exit code,
+fixed argument template. A commit may carry an optional `authorName` and
+`authorEmail`; the host validates each as a bounded, non-empty, control-free,
+bracket-free value and applies it as a highest-precedence command-line
+configuration override placed before the `commit` subcommand, so repository
+configuration cannot replace the identity a user configured. Omitting both keeps
+whatever safe repository-local identity the repository already has.
+`PluginGitResult` returns the operation ID, exit code,
 standard output, standard error, and whether the operation was cancelled.
 Conflict resolution requires the path to be genuinely unmerged in the index, so
 it can never overwrite an ordinary tracked or untracked file, and a resolution
@@ -248,6 +272,17 @@ clear limitation rather than being modified.
 The repository reference plugin is the end-to-end fixture. Its independently
 downloadable artifact is stored under `plugin-artifacts/`, while only catalog
 metadata enters the desktop bundle.
+
+`denote.git`, the Git vault versioning plugin, is the first production catalog
+entry and the `git` role candidate in the Code tooling bundle. It requests
+commands, status, source control, project context, Git, and the standing
+`automatic-local-commit` marker, and requests no network, process, or
+workspace-write permission. Its current increment registers one source-control
+provider, one status item, and refresh and initialize commands, and supports
+refresh, initialize, stage, unstage, commit of staged changes, and cancellation.
+Remote operations, branch switching, diffs, conflict resolution, and timed
+automatic commits are later increments; the plugin reports them as unavailable
+instead of implying support.
 
 ## Publication and governance
 

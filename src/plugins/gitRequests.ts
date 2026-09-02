@@ -77,6 +77,8 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
         {
           amend: optionalFlag(value, "amend"),
           allowEmpty: optionalFlag(value, "allowEmpty"),
+          authorName: optionalText(value, "authorName"),
+          authorEmail: optionalText(value, "authorEmail"),
         },
       );
     case "list-history":

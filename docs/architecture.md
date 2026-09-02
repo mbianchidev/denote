@@ -134,7 +134,15 @@ marker for future host operations and exposes no activation capability.
 Each provider is addressed by its `(pluginId, providerId)` pair. The activity
 rail and vault sidebar render only the typed model with native host controls;
 standardized user actions are returned to the owning provider through a
-workspace-scoped action lease. Provider updates replace the displayed model
+workspace-scoped action lease. A provider that reports an `activeOperationId`
+while it is busy also gets a host-rendered cancel control, which returns that
+exact ID to the provider as a `cancel-operation` action rather than cancelling
+anything itself. That one action bypasses the worker's serialized host-message
+queue, so it reaches the provider while the operation it names is still
+running; every other action stays serialized. A project-context change is
+likewise observed during an in-flight action, so a provider can discard a model
+update that belongs to the workspace the user just left. Provider updates
+replace the displayed model
 live, while unregistering or disabling the provider clears its selection and
 returns the sidebar to Files.
 Workspace text reads return
@@ -161,6 +169,14 @@ input, and option-like values, control characters, path traversal, absolute or
 schemes, and embedded passwords are all rejected before a process starts.
 `discover` and `operation-state` are answered from the filesystem without
 running Git at all.
+
+A commit request may carry an optional `authorName` and `authorEmail`. Each is
+validated as a bounded, non-empty, control-free value that carries no angle
+bracket, so it cannot split Git's `name <email>` identity, and is then applied
+as `-c user.name=` and `-c user.email=` immediately before the `commit`
+subcommand. Command-line configuration outranks every configuration file, so a
+repository cannot replace the identity a user configured, and a request that
+omits both leaves the repository-local identity untouched.
 
 Conflict resolution is gated on the index. Before either a stage or a content
 resolution touches the worktree, the transport requires that exact path to have
@@ -196,6 +212,24 @@ at a host-owned empty file kept beside the empty hooks directory, refused unless
 it is a regular file and truncated before use. Removing `GIT_CONFIG_GLOBAL`
 would only fall back to `$HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config`,
 either of which could reintroduce a filter or a command-bearing key.
+
+Every Git child, including the executable probe, also has its inherited
+environment stripped. `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
+`GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`, `GIT_AUTHOR_DATE`, and
+`GIT_COMMITTER_DATE` are removed with the rest, because Git reads them ahead of
+every `user.name` and `user.email` setting, including a command-line override.
+`EMAIL` is removed for the same reason: Git falls back to it whenever no
+`user.email` is configured, so it can supply an address the user never gave
+Denote. An ambient value inherited from whatever launched Denote would otherwise
+silently outrank the configured identity and stamp the wrong person, the wrong
+address, or the wrong time, onto a commit.
+
+Git output that a plugin has to parse is delimited so repository text cannot
+reshape it. History is read with `-z` under a NUL separated format, which makes
+the whole report one flat stream of fields, seven per commit. Git cannot place a
+NUL into an author name, a subject, a ref, or a path, so no text read out of a
+repository can shift a field or split a record the way a tab or a newline
+could.
 
 Repository-local configuration that defines filters, includes, credential
 helpers, URL rewrites, protocol overrides, command-bearing `remote` keys, or

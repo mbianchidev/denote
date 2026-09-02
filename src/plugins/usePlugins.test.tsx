@@ -20,6 +20,7 @@ interface MockRuntimeInstance {
   runSourceControlAction: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
+  setWorkspaceIdentity: ReturnType<typeof vi.fn>;
   invalidateActionLeases: ReturnType<typeof vi.fn>;
 }
 
@@ -62,6 +63,7 @@ vi.mock("./workerRuntime", () => {
     runSourceControlAction = vi.fn(async () => {});
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
+    setWorkspaceIdentity = vi.fn();
     invalidateActionLeases = vi.fn();
 
     constructor(
@@ -121,6 +123,7 @@ function queueRecoverTransactions() {
 async function mountReady(
   initialPlugins: PluginView[],
   projectContext: PluginProjectContext | null = null,
+  workspaceIdentity: string | null = "/synthetic/vault-alpha",
 ) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
@@ -128,10 +131,18 @@ async function mountReady(
   const rendered = renderHook(
     ({
       currentProjectContext,
+      currentWorkspaceIdentity,
     }: {
       currentProjectContext: PluginProjectContext | null;
-    }) => usePlugins(reportError, currentProjectContext),
-    { initialProps: { currentProjectContext: projectContext } },
+      currentWorkspaceIdentity: string | null;
+    }) =>
+      usePlugins(reportError, currentProjectContext, currentWorkspaceIdentity),
+    {
+      initialProps: {
+        currentProjectContext: projectContext,
+        currentWorkspaceIdentity: workspaceIdentity,
+      },
+    },
   );
   await waitFor(() => expect(rendered.result.current.loading).toBe(false));
   callOrder.length = 0;
@@ -358,20 +369,52 @@ describe("usePlugins", () => {
     const rendered = await mountReady([makePlugin({ enabled: true })], initial);
 
     expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(initial);
+    expect(runtimeInstances[0].setWorkspaceIdentity).toHaveBeenCalledWith(
+      "/synthetic/vault-alpha",
+    );
 
     const next = {
       projectId: "project-beta",
       rootPath: "code/beta",
     };
-    rendered.rerender({ currentProjectContext: next });
+    rendered.rerender({
+      currentProjectContext: next,
+      currentWorkspaceIdentity: "/synthetic/vault-alpha",
+    });
     await waitFor(() => {
       expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(next);
     });
 
-    rendered.rerender({ currentProjectContext: null });
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-alpha",
+    });
     await waitFor(() => {
       expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(null);
     });
+  });
+
+  it("reports a vault switch that leaves the project context null", async () => {
+    const rendered = await mountReady([makePlugin({ enabled: true })]);
+    const runtime = runtimeInstances[0];
+    runtime.setWorkspaceIdentity.mockClear();
+    runtime.setProjectContext.mockClear();
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+    });
+
+    await waitFor(() => {
+      expect(runtime.setWorkspaceIdentity).toHaveBeenLastCalledWith(
+        "/synthetic/vault-beta",
+      );
+    });
+    // The workspace is applied before the project, so a plugin cannot act on
+    // the new project while it still believes it is in the previous vault.
+    expect(
+      runtime.setWorkspaceIdentity.mock.invocationCallOrder[0],
+    ).toBeLessThan(runtime.setProjectContext.mock.invocationCallOrder[0]);
   });
 
   it("captures the current nullable project ID when a command starts", async () => {
@@ -394,7 +437,10 @@ describe("usePlugins", () => {
       { workspaceScope: "/vault", projectId: "project-alpha" },
     );
 
-    rendered.rerender({ currentProjectContext: null });
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-alpha",
+    });
     await act(async () => {
       await rendered.result.current.runCommand(
         pluginId,

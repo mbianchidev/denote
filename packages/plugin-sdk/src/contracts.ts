@@ -285,6 +285,14 @@ export interface PluginProjectContext {
 export interface PluginProjectContextChangeEvent {
   previous: PluginProjectContext | null;
   current: PluginProjectContext | null;
+  /**
+   * True when the host switched to a different workspace, which invalidates
+   * everything a plugin read from the previous one. It is reported even when
+   * `previous` and `current` are both null, because a workspace without a
+   * project still changes the repository behind every path a plugin can reach.
+   * The workspace itself is never identified: only the fact that it changed.
+   */
+  workspaceChanged: boolean;
 }
 
 export interface PluginProjectContextCapability {
@@ -315,6 +323,11 @@ export interface PluginSourceControlRepositorySummary {
   latestCommit: PluginSourceControlCommitSummary | null;
   busy: boolean;
   busyMessage?: string;
+  /**
+   * Identifies the operation a busy provider is running, so the host can offer
+   * a cancel control that returns the exact ID to the provider.
+   */
+  activeOperationId?: string;
 }
 
 export type PluginSourceControlResourceGroupKind =
@@ -529,6 +542,14 @@ export type PluginGitRunRequest =
       message: string;
       amend?: boolean;
       allowEmpty?: boolean;
+      /**
+       * Optional commit identity. The host applies a present value as a
+       * highest-precedence command-line configuration override, so repository
+       * configuration cannot replace it. Omitting both keeps whatever safe
+       * repository-local identity the repository already has.
+       */
+      authorName?: string;
+      authorEmail?: string;
     }
   | { operation: "list-branches"; scope: PluginGitScope }
   | { operation: "list-remotes"; scope: PluginGitScope }

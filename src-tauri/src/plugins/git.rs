@@ -33,6 +33,7 @@ use crate::error::{AppError, AppResult};
 pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(600);
 const OUTPUT_LIMIT: u64 = 8 * 1024 * 1024;
 const MAX_MESSAGE_BYTES: usize = 20 * 1024;
+const MAX_AUTHOR_BYTES: usize = 255;
 const MAX_PATHS: usize = 500;
 const MAX_PATH_BYTES: usize = 1024;
 const MAX_REF_BYTES: usize = 255;
@@ -187,6 +188,10 @@ pub enum PluginGitRequest {
         amend: bool,
         #[serde(default)]
         allow_empty: bool,
+        #[serde(default)]
+        author_name: Option<String>,
+        #[serde(default)]
+        author_email: Option<String>,
     },
     ListBranches {
         scope: PluginGitScope,
@@ -475,16 +480,32 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
             message,
             amend,
             allow_empty,
+            author_name,
+            author_email,
             ..
         } => {
             validate_commit_message(message)?;
-            let mut args = vec![
+            // Identity overrides are placed before the subcommand, so they are
+            // the last `-c` options on the command line and outrank every
+            // configuration file the repository could carry.
+            let mut args = Vec::new();
+            if let Some(name) = author_name {
+                validate_author_name(name)?;
+                args.push("-c".into());
+                args.push(format!("user.name={name}"));
+            }
+            if let Some(email) = author_email {
+                validate_author_email(email)?;
+                args.push("-c".into());
+                args.push(format!("user.email={email}"));
+            }
+            args.extend([
                 "commit".into(),
                 "--no-verify".into(),
                 "--no-gpg-sign".into(),
                 "--no-post-rewrite".into(),
                 "--cleanup=strip".into(),
-            ];
+            ]);
             if *amend {
                 args.push("--amend".into());
             }
@@ -524,7 +545,14 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                 "--no-textconv".into(),
                 "--no-show-signature".into(),
                 "--date=iso-strict".into(),
-                "--format=%H%x09%h%x09%an%x09%aI%x09%P%x09%D%x09%s".into(),
+                // Every field is NUL separated and `-z` terminates each record
+                // with a NUL as well, so the whole report is one flat stream of
+                // NUL separated fields, seven per commit. Git cannot put a NUL
+                // into an author name, a subject, a ref, or a path, so no text
+                // read out of the repository can shift a field or split a
+                // record the way a tab or a newline could.
+                "-z".into(),
+                "--format=%H%x00%h%x00%an%x00%aI%x00%P%x00%D%x00%s".into(),
                 format!("--max-count={max_count}"),
             ];
             if let Some(skip) = skip {
@@ -1120,6 +1148,45 @@ fn validate_commit_message(value: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Commit identity is optional. When a plugin supplies one, it must be a
+/// bounded, non-empty, control-free single-line value, because it is applied
+/// verbatim as a command-line configuration override.
+fn validate_author_identity(value: &str, label: &str) -> AppResult<()> {
+    if value.trim().is_empty() || value.len() > MAX_AUTHOR_BYTES {
+        return Err(AppError::Plugin(format!(
+            "Git {label} is empty or exceeds {MAX_AUTHOR_BYTES} bytes"
+        )));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(AppError::Plugin(format!(
+            "Git {label} cannot contain control characters"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_author_name(value: &str) -> AppResult<()> {
+    validate_author_identity(value, "author name")?;
+    // Git parses an identity as `name <email>`, so angle brackets in the name
+    // would move part of it into the address.
+    if value.contains('<') || value.contains('>') {
+        return Err(AppError::Plugin(
+            "Git author name cannot contain angle brackets".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_author_email(value: &str) -> AppResult<()> {
+    validate_author_identity(value, "author email")?;
+    if value.contains('<') || value.contains('>') {
+        return Err(AppError::Plugin(
+            "Git author email cannot contain angle brackets".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 fn validate_stash_message(value: &str) -> AppResult<()> {
     if value.trim().is_empty() || value.len() > 500 {
         return Err(AppError::Plugin(
@@ -1599,15 +1666,16 @@ fn verify_git_executable(canonical: &Path) -> AppResult<PathBuf> {
             "The Git executable must be a regular file".to_string(),
         ));
     }
-    let output = Command::new(canonical)
+    let mut probe = Command::new(canonical);
+    probe
         .arg("--version")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        .output()
-        .map_err(|error| {
-            AppError::Plugin(format!("Unable to start the Git executable: {error}"))
-        })?;
+        .stderr(Stdio::null());
+    remove_inherited_environment(&mut probe);
+    let output = probe.output().map_err(|error| {
+        AppError::Plugin(format!("Unable to start the Git executable: {error}"))
+    })?;
     let version = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || !version.trim_start().starts_with("git version") {
         return Err(AppError::Plugin(
@@ -2183,10 +2251,17 @@ pub(crate) fn hardening_arguments(execution: &GitExecution<'_>) -> Vec<String> {
 }
 
 const REMOVED_ENVIRONMENT: &[&str] = &[
+    "EMAIL",
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_ASKPASS",
     "GIT_ATTR_SOURCE",
+    "GIT_AUTHOR_DATE",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_AUTHOR_NAME",
     "GIT_CEILING_DIRECTORIES",
+    "GIT_COMMITTER_DATE",
+    "GIT_COMMITTER_EMAIL",
+    "GIT_COMMITTER_NAME",
     "GIT_COMMON_DIR",
     "GIT_CONFIG",
     "GIT_CONFIG_COUNT",
@@ -2206,15 +2281,22 @@ const REMOVED_ENVIRONMENT: &[&str] = &[
     "SSH_ASKPASS",
 ];
 
+/// The identity variables are removed rather than pinned. Git reads
+/// `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`,
+/// `GIT_COMMITTER_EMAIL`, `GIT_AUTHOR_DATE`, and `GIT_COMMITTER_DATE` ahead of
+/// every `user.name` and `user.email` setting, including a `-c` override, so an
+/// ambient value inherited from whatever launched Denote would silently outrank
+/// the identity a user configured and stamp the wrong person, or the wrong
+/// time, onto a commit. `EMAIL` is removed for the same reason: Git falls back
+/// to it whenever no `user.email` is configured, so an inherited value would
+/// silently supply an address the user never gave Denote.
 /// `GIT_CONFIG_GLOBAL` is deliberately absent from `REMOVED_ENVIRONMENT`.
 /// Removing it would only fall back to `$HOME/.gitconfig` and
 /// `$XDG_CONFIG_HOME/git/config`, so it is instead pinned to a host-owned
 /// empty file, which is the only way to guarantee that no global configuration
 /// reintroduces a filter or a command-bearing key.
 pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<'_>) {
-    for name in REMOVED_ENVIRONMENT {
-        command.env_remove(OsStr::new(name));
-    }
+    remove_inherited_environment(command);
     command
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_EDITOR", ":")
@@ -2228,6 +2310,15 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
         .env("GIT_PROTOCOL_FROM_USER", "0")
         .env("GIT_FLUSH", "1")
         .env("GIT_ADVICE", "0");
+}
+
+/// Strips every inherited variable Denote refuses to let a Git child see. It is
+/// applied to every Git child, including the executable probe, so no invocation
+/// is ever reached by an ambient value.
+fn remove_inherited_environment(command: &mut Command) {
+    for name in REMOVED_ENVIRONMENT {
+        command.env_remove(OsStr::new(name));
+    }
 }
 
 fn inspect_report(inspection: GitInspection, execution: &GitExecution<'_>) -> AppResult<String> {

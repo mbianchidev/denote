@@ -35,6 +35,11 @@ not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
 `packages/plugins/denote.reference/` as the contract example; it is not bundled into
 the Denote application.
 
+Plugin unit tests belong in `packages/plugins/<plugin-id>/tests/`, outside
+`src/`, so the packaged source keeps its strict import boundary while the tests
+still type check with `npm run check:plugins` and run with `npm test`. Use
+`packages/plugins/denote.git/tests/` as the example.
+
 Create a complete package skeleton and draft catalog entry with:
 
 ```bash

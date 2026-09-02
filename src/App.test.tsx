@@ -9,6 +9,7 @@ const mockApi = vi.hoisted(() => ({
   getLastVault: vi.fn(),
   listSearchDocuments: vi.fn(),
   markProjectRoot: vi.fn(),
+  refreshVault: vi.fn(),
   refreshGitignoreStatus: vi.fn(),
   readNote: vi.fn(),
   recordEdit: vi.fn(),
@@ -172,6 +173,7 @@ describe("App initial file-tree expansion", () => {
       projectWorkspaces: [],
       suggestGitProject: false,
     });
+    mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([]));
     mockApi.refreshGitignoreStatus.mockResolvedValue({
       scopePaths: [],
       ignoredPaths: [],
@@ -630,6 +632,88 @@ describe("App initial file-tree expansion", () => {
     expect(
       await screen.findByText("Synthetic source control failure"),
     ).toBeInTheDocument();
+  });
+
+  it("flushes pending edits before a source control mutation", async () => {
+    const user = userEvent.setup();
+    const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+    const model = appSourceControlModel("Synthetic repository");
+    model.resourceGroups = [
+      {
+        kind: "unstaged",
+        label: "Changes",
+        resources: [
+          {
+            path: "sample.py",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      {
+        pluginId: "denote.synthetic",
+        id: "git",
+        title: "Synthetic Git",
+        model,
+      },
+    ];
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.refreshVault.mockResolvedValue(snapshot);
+    mockApi.readNote.mockResolvedValue({
+      path: "sample.py",
+      content: "print('synthetic')",
+      contentHash: "sample-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockApi.saveNote.mockResolvedValue({
+      path: "sample.py",
+      changed: true,
+      savedAt: "2026-01-01T00:00:00Z",
+      contentHash: "saved-sample-hash",
+      historyCount: 1,
+      stats: noteStats(),
+    });
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Open sample.py" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Change Edit sample.py" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Stage sample.py" }));
+
+    await waitFor(() => {
+      expect(mockApi.saveNote).toHaveBeenCalledWith(
+        "sample.py",
+        "print('synthetic') changed",
+        "utf8",
+        "lf",
+        "flush",
+        "sample-hash",
+      );
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "stage", values: { path: "sample.py" } },
+        "/synthetic-vault",
+      );
+      expect(mockApi.refreshVault).toHaveBeenCalled();
+    });
+    expect(
+      mockApi.saveNote.mock.invocationCallOrder[0],
+    ).toBeLessThan(
+      mockPluginController.runSourceControlAction.mock.invocationCallOrder[0],
+    );
   });
 });
 

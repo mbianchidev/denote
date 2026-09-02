@@ -59,7 +59,6 @@ language entries; they belong to the future Git plugin.
 
 These capabilities are planned as separately enabled plugins:
 
-- Git vault versioning and optional timed commits;
 - graph view;
 - Kanban boards;
 - Mermaid diagrams;
@@ -69,14 +68,30 @@ These capabilities are planned as separately enabled plugins:
 - calendar and time tracking;
 - colorful text.
 
+**Git vault versioning** is now in the catalog. Enable it to get one Git view in
+the activity rail for the active project, or for the vault when no project is
+marked. It can refresh the repository, initialize one with your configured
+default branch, stage and unstage a file, commit staged changes with an optional
+configured author identity, and cancel a running operation. Enabling it does not
+run Git or change your vault, and it asks for no network, process, or
+note-writing permission. Switching projects, or switching vaults, resets the
+view and asks for a refresh, so it never shows one repository's state as if it
+belonged to another.
+
+Fetching, pulling, pushing, switching branches, file and commit diffs, conflict
+resolution, and timed automatic commits are not implemented in this version.
+Branches, remotes, and recent commits appear as read-only information, and an
+interrupted merge or rebase is reported so you can finish it with your own Git
+tooling.
+
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.
 
-The current catalog includes a development reference plugin that proves
+The current catalog also includes a development reference plugin that proves
 download, verification, isolated activation, command registration, disablement,
 sidebar and status contributions, note events, source-editor decorations,
-keychain isolation, restart restoration, and package removal. Production
-feature plugins remain tracked separately.
+keychain isolation, restart restoration, and package removal. Remaining
+production feature plugins are tracked separately.
 
 [Back to Welcome](<../Welcome.md>)
 

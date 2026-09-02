@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import catalogJson from "../../packages/plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
+  type PluginGitResult,
   type PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
@@ -31,6 +32,9 @@ assertValidPluginCatalogEntry(catalogValue);
 const catalog = catalogValue;
 const GIT_OPERATION_ID = "11111111-2222-4333-8444-555555555555";
 const GIT_CANCEL_ID = "99999999-8888-4777-8666-555555555555";
+/** Two synthetic vaults. Neither path may ever reach a plugin worker. */
+const VAULT_ALPHA = "/synthetic/vault-alpha";
+const VAULT_BETA = "/synthetic/vault-beta";
 const sourceControlModel: PluginSourceControlViewModel = {
   selectedTab: "changes",
   selectedView: { kind: "repository" },
@@ -59,6 +63,15 @@ class FakePort extends EventTarget {
   closed = false;
   messages: unknown[] = [];
   onmessage: ((event: MessageEvent<unknown>) => void) | null = null;
+
+  constructor() {
+    super();
+    // The real pluginWorker.ts installs an `onmessage` handler rather than a
+    // listener, so a delivered message has to reach both.
+    this.addEventListener("message", (event: Event) => {
+      this.onmessage?.(event as MessageEvent<unknown>);
+    });
+  }
 
   postMessage(message: unknown) {
     this.messages.push(message);
@@ -179,6 +192,73 @@ class FakeWorker extends EventTarget {
   }
 }
 
+interface PluginWorkerScope {
+  onmessage:
+    | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+    | null;
+}
+
+/**
+ * Runs the real `pluginWorker.ts` module behind the runtime's `Worker`
+ * interface, so an end-to-end test exercises the host runtime, the message
+ * port protocol, and the worker's own dispatch instead of a canned double.
+ */
+class BridgedWorker extends EventTarget {
+  static scope: PluginWorkerScope | null = null;
+  static instances: BridgedWorker[] = [];
+  terminated = false;
+  runtimePort: FakePort | null = null;
+  received: unknown[] = [];
+
+  constructor() {
+    super();
+    BridgedWorker.instances.push(this);
+  }
+
+  postMessage(message: unknown, transfer?: Transferable[]) {
+    const port = transfer?.[0];
+    if (!(port instanceof FakePort)) {
+      throw new Error("Missing runtime port.");
+    }
+    this.runtimePort = port;
+    port.addEventListener("message", (event: Event) => {
+      this.received.push((event as MessageEvent<unknown>).data);
+    });
+    void BridgedWorker.scope?.onmessage?.({ data: message, ports: [port] });
+  }
+
+  terminate() {
+    this.terminated = true;
+  }
+}
+
+async function bridgeRealPluginWorker(): Promise<void> {
+  // Vite rewrites the runtime's `new URL("./pluginWorker.ts", import.meta.url)`
+  // to resolve against `self.location`, so the stubbed worker scope has to
+  // carry one.
+  const scope: Record<string, unknown> & PluginWorkerScope = {
+    onmessage: null,
+    location: globalThis.location,
+  };
+  vi.stubGlobal("self", scope);
+  vi.resetModules();
+  await import("./pluginWorker");
+  BridgedWorker.scope = scope;
+  vi.stubGlobal("Worker", BridgedWorker);
+}
+
+/**
+ * Distinct canonical UUIDs. The host refuses a Git operation ID that is not
+ * one, and concurrent actions must not share a request ID.
+ */
+function sequentialUuids(): () => string {
+  let issued = 0;
+  return () => {
+    issued += 1;
+    return `00000000-0000-4000-8000-${String(issued).padStart(12, "0")}`;
+  };
+}
+
 function plugin(): PluginView {
   return {
     catalog,
@@ -234,10 +314,23 @@ function pluginWithGit(): PluginView {
   };
 }
 
+function pluginWithGitAndProjectContext(): PluginView {
+  const source = pluginWithGit();
+  return {
+    ...source,
+    approvedPermissions: [
+      ...source.approvedPermissions,
+      { capability: "project-context" },
+    ],
+  };
+}
+
 describe("PluginWorkerRuntime", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     FakeWorker.instances = [];
+    BridgedWorker.instances = [];
+    BridgedWorker.scope = null;
     FakeWorker.completeCommands = true;
     FakeWorker.commandIdOnActivate = "denote.reference.ping";
     FakeWorker.completeSourceControlActions = true;
@@ -326,6 +419,7 @@ describe("PluginWorkerRuntime", () => {
         ...sourceControlModel.repository,
         busy: true,
         busyMessage: "Refreshing",
+        activeOperationId: GIT_OPERATION_ID,
       },
     };
     worker.runtimePort?.postMessage({
@@ -349,6 +443,23 @@ describe("PluginWorkerRuntime", () => {
       type: "run-source-control-action",
       providerId: "denote.reference.git",
       action: { id: "refresh", values: { force: true } },
+      requestId: "request-id",
+    });
+
+    // The cancel control returns the provider's own operation ID to it.
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "cancel-operation", values: { operationId: GIT_OPERATION_ID } },
+      { workspaceScope: "/vault", projectId: null },
+    );
+    expect(worker.received).toContainEqual({
+      type: "run-source-control-action",
+      providerId: "denote.reference.git",
+      action: {
+        id: "cancel-operation",
+        values: { operationId: GIT_OPERATION_ID },
+      },
       requestId: "request-id",
     });
 
@@ -981,6 +1092,7 @@ describe("PluginWorkerRuntime", () => {
               projectId: "project-beta",
               rootPath: "code/beta",
             },
+            workspaceChanged: false,
           },
         },
       }),
@@ -1010,6 +1122,7 @@ describe("PluginWorkerRuntime", () => {
               rootPath: "code/beta",
             },
             current: null,
+            workspaceChanged: false,
           },
         },
       }),
@@ -1050,6 +1163,7 @@ describe("PluginWorkerRuntime", () => {
               projectId: "project-gamma",
               rootPath: "code/gamma",
             },
+            workspaceChanged: false,
           },
         },
       }),
@@ -1126,6 +1240,7 @@ describe("PluginWorkerRuntime", () => {
               projectId: "project-alpha",
               rootPath: "code/alpha",
             },
+            workspaceChanged: false,
           },
         },
       }),
@@ -1232,6 +1347,7 @@ describe("PluginWorkerRuntime", () => {
               projectId: "project-failure",
               rootPath: "synthetic",
             },
+            workspaceChanged: false,
           },
         },
       }),
@@ -1436,6 +1552,7 @@ describe("PluginWorkerRuntime", () => {
             projectId: "project-alpha",
             rootPath: "code/renamed-alpha",
           },
+          workspaceChanged: false,
         },
       },
       {
@@ -1446,6 +1563,7 @@ describe("PluginWorkerRuntime", () => {
             rootPath: "code/renamed-alpha",
           },
           current: null,
+          workspaceChanged: false,
         },
       },
       {
@@ -1456,9 +1574,187 @@ describe("PluginWorkerRuntime", () => {
             projectId: "project-beta",
             rootPath: "code/beta",
           },
+          workspaceChanged: false,
         },
       },
     ]);
+  });
+
+  it("replaces a refreshed vault model the moment the host switches vaults", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await bridgeRealPluginWorker();
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(vaultProviderModule());
+    vi.mocked(api.pluginGitRequest).mockImplementation((_pluginId, _request, _scope, _projectId, operationId) =>
+      Promise.resolve(gitResult(operationId, false)),
+    );
+    const onSourceControlChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      onSourceControlChanged,
+    );
+    // Two vaults, neither of which has a project open, so the project context
+    // is null on both sides of the switch.
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    runtime.setProjectContext(null);
+
+    await runtime.start(pluginWithGitAndProjectContext());
+    const worker = BridgedWorker.instances[0];
+    const scope = { workspaceScope: VAULT_ALPHA, projectId: null };
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh" },
+      scope,
+    );
+    expect(publishedModel(onSourceControlChanged).repository).toMatchObject({
+      label: "Vault",
+      branch: "main",
+      initialized: true,
+    });
+    expect(
+      publishedModel(onSourceControlChanged).resourceGroups,
+    ).toHaveLength(1);
+
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+
+    await vi.waitFor(() => {
+      expect(publishedModel(onSourceControlChanged).repository).toMatchObject({
+        label: "Vault · refresh required",
+        branch: null,
+        initialized: false,
+      });
+    });
+    // Nothing the previous vault produced is still on screen.
+    expect(publishedModel(onSourceControlChanged).resourceGroups).toEqual([]);
+    expect(workerLogs(worker, "workspace-changed")).toHaveLength(1);
+    expect(workerLogs(worker, "project-changed")).toHaveLength(0);
+
+    // Neither vault path ever crossed into the worker.
+    const delivered = JSON.stringify(worker.received);
+    expect(delivered).not.toContain(VAULT_ALPHA);
+    expect(delivered).not.toContain(VAULT_BETA);
+
+    // A lease bought against the previous vault buys nothing in the new one.
+    const staleActionIds = dispatchedActionIds(worker);
+    expect(staleActionIds).toHaveLength(1);
+    for (const actionId of staleActionIds) {
+      worker.runtimePort?.postMessage({
+        type: "host-request",
+        requestId: `stale-${actionId}`,
+        actionId,
+        operation: "git.run",
+        operationId: "00000000-0000-4000-8000-000000009999",
+        value: { operation: "status", scope: "vault" },
+      });
+    }
+    await vi.waitFor(() => {
+      for (const actionId of staleActionIds) {
+        expect(worker.received).toContainEqual({
+          type: "host-response",
+          requestId: `stale-${actionId}`,
+          error: "Plugin action capability lease is invalid or expired.",
+        });
+      }
+    });
+  });
+
+  it("reports a workspace change to a plugin whose project context never changed", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(pluginWithProjectContext());
+    const authorized = FakeWorker.instances[0];
+
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+
+    expect(
+      authorized.received.filter(
+        (message) =>
+          isRecord(message) && message.type === "project-context-change",
+      ),
+    ).toEqual([
+      {
+        type: "project-context-change",
+        event: { previous: null, current: null, workspaceChanged: true },
+      },
+    ]);
+    expect(JSON.stringify(authorized.received)).not.toContain(VAULT_BETA);
+  });
+
+  it("does not expose a workspace change to workers without approval", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(plugin());
+    const unauthorized = FakeWorker.instances[0];
+
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+    await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
+
+    expect(
+      unauthorized.received.some(
+        (message) =>
+          isRecord(message) && message.type === "project-context-change",
+      ),
+    ).toBe(false);
+  });
+
+  it("invalidates leases held by a plugin that never asked for project context", async () => {
+    await bridgeRealPluginWorker();
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(vaultProviderModule());
+    const status = deferred<PluginGitResult>();
+    vi.mocked(api.pluginGitRequest).mockImplementation(() => status.promise);
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    // No project-context permission, so the plugin is never told anything
+    // about the switch. Its lease still has to stop working.
+    await runtime.start(pluginWithGit());
+    const worker = BridgedWorker.instances[0];
+    const action = trackSettled(
+      runtime.runSourceControlAction(
+        "denote.reference",
+        "denote.reference.git",
+        { id: "refresh" },
+        { workspaceScope: VAULT_ALPHA, projectId: null },
+      ),
+    );
+    await vi.waitFor(() => {
+      expect(dispatchedActionIds(worker)).toHaveLength(1);
+    });
+
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+
+    const [actionId] = dispatchedActionIds(worker);
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: `stale-${actionId}`,
+      actionId,
+      operation: "git.run",
+      operationId: "00000000-0000-4000-8000-000000009999",
+      value: { operation: "status", scope: "vault" },
+    });
+    await vi.waitFor(() => {
+      expect(worker.received).toContainEqual({
+        type: "host-response",
+        requestId: `stale-${actionId}`,
+        error: "Plugin action capability lease is invalid or expired.",
+      });
+    });
+    expect(action.settled()).toBe(false);
+    status.resolve(gitResult("00000000-0000-4000-8000-000000009999", false));
   });
 
   it("does not expose project context to workers without approval", async () => {
@@ -1704,7 +2000,334 @@ describe("PluginWorkerRuntime", () => {
       vi.useRealTimers();
     }
   });
+
+  it("cancels a running provider operation while its Git request is still pending", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await bridgeRealPluginWorker();
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(gitProviderModule());
+    const gitRequests: { operation: string; operationId: string }[] = [];
+    const status = deferred<PluginGitResult>();
+    vi.mocked(api.pluginGitRequest).mockImplementation(
+      (_pluginId, request, _workspaceScope, _projectId, operationId) => {
+        gitRequests.push({ operation: request.operation, operationId });
+        return request.operation === "cancel"
+          ? Promise.resolve(gitResult(operationId, false))
+          : status.promise;
+      },
+    );
+    const onSourceControlChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      onSourceControlChanged,
+    );
+
+    await runtime.start(pluginWithGit());
+    const worker = BridgedWorker.instances[0];
+
+    const scope = { workspaceScope: "/vault", projectId: null };
+    const refresh = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh" },
+      scope,
+    );
+    const refreshState = trackSettled(refresh);
+    await vi.waitFor(() => {
+      expect(gitRequests).toHaveLength(1);
+      expect(publishedModel(onSourceControlChanged).repository.busy).toBe(true);
+    });
+    const operationId =
+      publishedModel(onSourceControlChanged).repository.activeOperationId;
+    expect(operationId).toBe(gitRequests[0].operationId);
+
+    // The cancel action is dispatched while the operation it names is still
+    // waiting on its own Git request.
+    const cancel = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "cancel-operation", values: { operationId: operationId ?? "" } },
+      scope,
+    );
+    await vi.waitFor(() => {
+      expect(gitRequests.map((request) => request.operation)).toEqual([
+        "status",
+        "cancel",
+      ]);
+    });
+    expect(refreshState.settled()).toBe(false);
+
+    await cancel;
+    expect(refreshState.settled()).toBe(false);
+    expect(workerLogs(worker, "cancel-completed")).toHaveLength(1);
+
+    status.resolve(gitResult(gitRequests[0].operationId, true));
+    await refresh;
+    expect(workerLogs(worker, "operation-settled")).toEqual([
+      expect.objectContaining({ details: { cancelled: true } }),
+    ]);
+
+    // Both actions released their leases, so neither request ID can still buy
+    // a privileged host operation.
+    for (const actionId of dispatchedActionIds(worker)) {
+      worker.runtimePort?.postMessage({
+        type: "host-request",
+        requestId: `stale-${actionId}`,
+        actionId,
+        operation: "git.run",
+        operationId: "00000000-0000-4000-8000-000000009999",
+        value: { operation: "status", scope: "vault" },
+      });
+    }
+    await vi.waitFor(() => {
+      for (const actionId of dispatchedActionIds(worker)) {
+        expect(worker.received).toContainEqual({
+          type: "host-response",
+          requestId: `stale-${actionId}`,
+          error: "Plugin action capability lease is invalid or expired.",
+        });
+      }
+    });
+    expect(gitRequests).toHaveLength(2);
+  });
+
+  it("delivers a project change to a provider whose operation is still running", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await bridgeRealPluginWorker();
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(gitProviderModule());
+    const status = deferred<PluginGitResult>();
+    vi.mocked(api.pluginGitRequest).mockImplementation(() => status.promise);
+    const onSourceControlChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      onSourceControlChanged,
+    );
+    runtime.setProjectContext({
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    });
+
+    await runtime.start(pluginWithGitAndProjectContext());
+    const worker = BridgedWorker.instances[0];
+
+    const refresh = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh" },
+      { workspaceScope: "/vault", projectId: "project-alpha" },
+    );
+    const refreshState = trackSettled(refresh);
+    await vi.waitFor(() => {
+      expect(publishedModel(onSourceControlChanged).repository.busy).toBe(true);
+    });
+    const busyModel = publishedModel(onSourceControlChanged);
+
+    runtime.setProjectContext({
+      projectId: "project-beta",
+      rootPath: "code/beta",
+    });
+    await vi.waitFor(() => {
+      expect(workerLogs(worker, "project-changed")).toHaveLength(1);
+    });
+    expect(refreshState.settled()).toBe(false);
+
+    status.resolve(gitResult("00000000-0000-4000-8000-000000009999", false));
+    await refresh;
+    expect(workerLogs(worker, "operation-discarded")).toHaveLength(1);
+    expect(workerLogs(worker, "operation-settled")).toHaveLength(0);
+    // The stale result never replaced the model the user is looking at.
+    expect(publishedModel(onSourceControlChanged)).toEqual(busyModel);
+  });
 });
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let settle: (value: T) => void = () => {};
+  const promise = new Promise<T>((resolve) => {
+    settle = resolve;
+  });
+  return { promise, resolve: (value: T) => settle(value) };
+}
+
+function gitResult(operationId: string, cancelled: boolean): PluginGitResult {
+  return { operationId, exitCode: 0, stdout: "", stderr: "", cancelled };
+}
+
+function publishedModel(
+  onSourceControlChanged: ReturnType<typeof vi.fn>,
+): PluginSourceControlViewModel {
+  const calls = onSourceControlChanged.mock.calls;
+  const providers = calls[calls.length - 1][0] as {
+    model: PluginSourceControlViewModel;
+  }[];
+  return providers[0].model;
+}
+
+function workerLogs(worker: BridgedWorker, message: string): unknown[] {
+  return (worker.runtimePort?.messages ?? []).filter(
+    (entry) =>
+      isRecord(entry) && entry.type === "log" && entry.message === message,
+  );
+}
+
+function dispatchedActionIds(worker: BridgedWorker): string[] {
+  return worker.received.flatMap((entry) =>
+    isRecord(entry) &&
+    entry.type === "run-source-control-action" &&
+    typeof entry.requestId === "string"
+      ? [entry.requestId]
+      : [],
+  );
+}
+
+/**
+ * A synthetic vault-scoped provider modelled on the Git plugin: it refreshes
+ * into a described repository, and resets to the unrefreshed model whenever the
+ * host reports a workspace change, even though the scope identity never moves.
+ */
+function vaultProviderModule(): string {
+  const unrefreshed = {
+    ...sourceControlModel,
+    repository: {
+      ...sourceControlModel.repository,
+      repositoryId: "vault",
+      label: "Vault · refresh required",
+      initialized: false,
+      branch: null,
+      upstream: null,
+    },
+    resourceGroups: [],
+  };
+  const refreshed = {
+    ...sourceControlModel,
+    repository: {
+      ...sourceControlModel.repository,
+      repositoryId: "vault",
+      label: "Vault",
+    },
+    resourceGroups: [
+      {
+        kind: "unstaged",
+        label: "Changes",
+        resources: [
+          {
+            path: "notes/synthetic.md",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      },
+    ],
+  };
+  return `
+    const unrefreshed = ${JSON.stringify(unrefreshed)};
+    const refreshed = ${JSON.stringify(refreshed)};
+    let registration;
+    export default {
+      manifest: {
+        id: ${JSON.stringify(catalog.manifest.id)},
+        version: ${JSON.stringify(catalog.manifest.version)},
+      },
+      async activate(context) {
+        if (context.capabilities.projectContext) {
+          context.capabilities.projectContext.subscribe((event) => {
+            if (event.workspaceChanged) {
+              context.logger.info("workspace-changed");
+              registration.update(unrefreshed);
+              return;
+            }
+            context.logger.info("project-changed");
+          });
+        }
+        registration = context.capabilities.sourceControl.register({
+          id: "denote.reference.git",
+          title: "Git",
+          initialModel: unrefreshed,
+          async runAction(action, userAction) {
+            await userAction.capabilities.git.run({
+              operation: "status",
+              scope: "vault",
+            }).result;
+            registration.update(refreshed);
+          },
+        });
+        context.subscriptions.add(registration);
+      },
+    };
+  `;
+}
+
+/**
+ * A synthetic provider that publishes the operation ID of a running Git
+ * request, cancels by ID, and discards a result that belongs to a project the
+ * user already left.
+ */
+function gitProviderModule(): string {  return `
+    const model = ${JSON.stringify(sourceControlModel)};
+    let registration;
+    let generation = 0;
+    export default {
+      manifest: {
+        id: ${JSON.stringify(catalog.manifest.id)},
+        version: ${JSON.stringify(catalog.manifest.version)},
+      },
+      async activate(context) {
+        if (context.capabilities.projectContext) {
+          context.capabilities.projectContext.subscribe((event) => {
+            generation += 1;
+            context.logger.info("project-changed", {
+              projectId: event.current ? event.current.projectId : null,
+            });
+          });
+        }
+        registration = context.capabilities.sourceControl.register({
+          id: "denote.reference.git",
+          title: "Git",
+          initialModel: model,
+          async runAction(action, userAction) {
+            const git = userAction.capabilities.git;
+            if (action.id === "cancel-operation") {
+              await git.cancel(String(action.values.operationId));
+              context.logger.info("cancel-completed");
+              return;
+            }
+            const started = generation;
+            const operation = git.run({ operation: "status", scope: "vault" });
+            registration.update({
+              ...model,
+              repository: {
+                ...model.repository,
+                busy: true,
+                busyMessage: "Reading the working tree",
+                activeOperationId: operation.operationId,
+              },
+            });
+            const result = await operation.result;
+            if (started !== generation) {
+              context.logger.info("operation-discarded");
+              return;
+            }
+            context.logger.info("operation-settled", {
+              cancelled: result.cancelled,
+            });
+            registration.update(model);
+          },
+        });
+        context.subscriptions.add(registration);
+      },
+    };
+  `;
+}
 
 function trackSettled(promise: Promise<void>): {
   settled: () => boolean;

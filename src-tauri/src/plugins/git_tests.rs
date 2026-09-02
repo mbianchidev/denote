@@ -83,6 +83,8 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             message: "Record synthetic note".to_string(),
             amend: true,
             allow_empty: true,
+            author_name: None,
+            author_email: None,
         }),
         vec![
             "commit",
@@ -117,7 +119,8 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             "--no-textconv",
             "--no-show-signature",
             "--date=iso-strict",
-            "--format=%H%x09%h%x09%an%x09%aI%x09%P%x09%D%x09%s",
+            "-z",
+            "--format=%H%x00%h%x00%an%x00%aI%x00%P%x00%D%x00%s",
             "--max-count=5",
             "--skip=2",
             "main",
@@ -287,6 +290,92 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             "synthetic"
         ]
     );
+}
+
+#[test]
+fn commit_identity_overrides_configuration_before_the_subcommand() {
+    let args = command_args(PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: Some("Synthetic Author".to_string()),
+        author_email: Some("author@example.invalid".to_string()),
+    });
+
+    assert_eq!(
+        args,
+        vec![
+            "-c",
+            "user.name=Synthetic Author",
+            "-c",
+            "user.email=author@example.invalid",
+            "commit",
+            "--no-verify",
+            "--no-gpg-sign",
+            "--no-post-rewrite",
+            "--cleanup=strip",
+            "--message",
+            "Record synthetic note"
+        ]
+    );
+    // Command-line configuration is the last word, so the identity outranks
+    // anything the repository configuration could set.
+    let identity = args
+        .iter()
+        .position(|argument| argument == "user.name=Synthetic Author")
+        .expect("identity");
+    let subcommand = args
+        .iter()
+        .position(|argument| argument == "commit")
+        .expect("subcommand");
+    assert!(identity < subcommand);
+}
+
+#[test]
+fn commit_without_identity_keeps_repository_local_configuration() {
+    assert_eq!(
+        command_args(PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        })
+        .first()
+        .map(String::as_str),
+        Some("commit")
+    );
+}
+
+#[test]
+fn rejects_empty_oversized_and_control_bearing_commit_identities() {
+    let rejected = [
+        (Some("   ".to_string()), None),
+        (None, Some(String::new())),
+        (Some("Synthetic\nAuthor".to_string()), None),
+        (None, Some("author\u{7f}@example.invalid".to_string())),
+        (Some("Synthetic <hidden>".to_string()), None),
+        (None, Some("<author@example.invalid>".to_string())),
+        (Some("N".repeat(256)), None),
+        (None, Some(format!("{}@example.invalid", "a".repeat(256)))),
+    ];
+
+    for (author_name, author_email) in rejected {
+        assert!(
+            plan_git_request(&PluginGitRequest::Commit {
+                scope: PluginGitScope::Vault,
+                message: "Record synthetic note".to_string(),
+                amend: false,
+                allow_empty: false,
+                author_name: author_name.clone(),
+                author_email: author_email.clone(),
+            })
+            .is_err(),
+            "expected rejection for {author_name:?} {author_email:?}"
+        );
+    }
 }
 
 #[test]
@@ -488,6 +577,8 @@ fn rejects_unbounded_counts_and_unsupported_sequencer_steps() {
             message: "   ".to_string(),
             amend: false,
             allow_empty: false,
+            author_name: None,
+            author_email: None,
         })
         .is_err()
     );
@@ -693,6 +784,183 @@ fn pins_the_global_configuration_at_a_host_owned_empty_file() {
     assert_eq!(
         environment.get("GIT_CONFIG_NOSYSTEM"),
         Some(&Some("1".to_string()))
+    );
+}
+
+/// The six identity variables are the only configuration Git reads ahead of a
+/// `-c` override, so a Git child must never see an inherited one.
+#[test]
+fn removes_every_ambient_identity_variable_from_a_git_child() {
+    let directory = TempDir::new().expect("temp");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir_all(&hooks).expect("hooks");
+    let global_config = empty_global_config(directory.path());
+    let execution = GitExecution {
+        executable: Path::new("/usr/bin/git"),
+        repository_root: directory.path(),
+        hooks_directory: &hooks,
+        global_config: &global_config,
+        redacted_roots: vec![],
+    };
+    let mut command = Command::new("/usr/bin/git");
+    for (name, value) in AMBIENT_IDENTITY {
+        command.env(name, value);
+    }
+
+    apply_environment(&mut command, &execution);
+
+    let environment: BTreeMap<String, Option<String>> = command
+        .get_envs()
+        .map(|(name, value)| {
+            (
+                name.to_string_lossy().into_owned(),
+                value.map(|value| value.to_string_lossy().into_owned()),
+            )
+        })
+        .collect();
+    for (name, _) in AMBIENT_IDENTITY {
+        assert_eq!(
+            environment.get(name),
+            Some(&None),
+            "{name} must be removed from every Git child"
+        );
+    }
+}
+
+/// The identity a Git child would inherit from whatever launched Denote.
+/// `EMAIL` belongs here because Git falls back to it whenever `user.email` is
+/// unset, so it can supply an address the user never gave Denote.
+const AMBIENT_IDENTITY: [(&str, &str); 7] = [
+    ("EMAIL", "ambient@example.invalid"),
+    ("GIT_AUTHOR_NAME", "Ambient Author"),
+    ("GIT_AUTHOR_EMAIL", "ambient-author@example.invalid"),
+    ("GIT_COMMITTER_NAME", "Ambient Committer"),
+    ("GIT_COMMITTER_EMAIL", "ambient-committer@example.invalid"),
+    ("GIT_AUTHOR_DATE", "2001-02-03T04:05:06+00:00"),
+    ("GIT_COMMITTER_DATE", "2001-02-03T04:05:06+00:00"),
+];
+
+/// Commits twice against the same fixed argument template, once with the
+/// hardened environment and once without it, while both children carry an
+/// ambient identity. The unhardened commit is the control: it proves the
+/// ambient identity really does win when nothing removes it, so the hardened
+/// commit is evidence of the removal rather than of an absent variable.
+#[test]
+fn configured_commit_identity_beats_an_ambient_identity() {
+    let Ok(git) = resolve_git_executable(None) else {
+        eprintln!("Skipping ambient identity fixture: no Git executable is available.");
+        return;
+    };
+    let directory = TempDir::new().expect("temp");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir_all(&hooks).expect("hooks");
+    let global_config = empty_global_config(directory.path());
+    let commit_args = command_args(PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: Some("Configured Author".to_string()),
+        author_email: Some("configured@example.invalid".to_string()),
+    });
+
+    let commit = |name: &str, hardened: bool| -> Vec<String> {
+        let repository = directory.path().join(name);
+        fs::create_dir_all(&repository).expect("repository");
+        assert!(
+            Command::new(&git)
+                .arg("-C")
+                .arg(&repository)
+                .args(["init", "--quiet", "--initial-branch", "main"])
+                .status()
+                .expect("git init")
+                .success()
+        );
+        fs::write(repository.join("alpha.md"), "synthetic note\n").expect("note");
+        assert!(
+            Command::new(&git)
+                .arg("-C")
+                .arg(&repository)
+                .args(["add", "--", "alpha.md"])
+                .status()
+                .expect("git add")
+                .success()
+        );
+        let execution = GitExecution {
+            executable: &git,
+            repository_root: &repository,
+            hooks_directory: &hooks,
+            global_config: &global_config,
+            redacted_roots: vec![],
+        };
+        let mut command = Command::new(&git);
+        command.args(hardening_arguments(&execution));
+        command.args(&commit_args);
+        command.current_dir(&repository);
+        // The identity a Git child would inherit from whatever launched Denote.
+        for (name, value) in AMBIENT_IDENTITY {
+            command.env(name, value);
+        }
+        if hardened {
+            apply_environment(&mut command, &execution);
+        }
+        let output = command.output().expect("git commit");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let log = Command::new(&git)
+            .arg("-C")
+            .arg(&repository)
+            .args([
+                "log",
+                "-1",
+                "--format=%an%n%ae%n%cn%n%ce%n%ad%n%cd",
+                "--date=iso-strict",
+            ])
+            .output()
+            .expect("git log");
+        String::from_utf8_lossy(&log.stdout)
+            .lines()
+            .map(str::to_string)
+            .collect()
+    };
+
+    let control = commit("control", false);
+    assert_eq!(
+        control[..4],
+        [
+            "Ambient Author",
+            "ambient-author@example.invalid",
+            "Ambient Committer",
+            "ambient-committer@example.invalid"
+        ],
+        "an ambient identity must win when nothing removes it"
+    );
+    assert!(control[4].starts_with("2001-02-03"), "{}", control[4]);
+    assert!(control[5].starts_with("2001-02-03"), "{}", control[5]);
+
+    let hardened = commit("hardened", true);
+    assert_eq!(
+        hardened[..4],
+        [
+            "Configured Author",
+            "configured@example.invalid",
+            "Configured Author",
+            "configured@example.invalid"
+        ],
+        "the configured identity must outrank an ambient one"
+    );
+    assert!(
+        !hardened[4].starts_with("2001-02-03"),
+        "an ambient author date must not be stamped onto a commit: {}",
+        hardened[4]
+    );
+    assert!(
+        !hardened[5].starts_with("2001-02-03"),
+        "an ambient committer date must not be stamped onto a commit: {}",
+        hardened[5]
     );
 }
 
@@ -1424,6 +1692,8 @@ fn initializes_stages_commits_and_reports_a_vault_repository() {
             message: "Record synthetic note".to_string(),
             amend: false,
             allow_empty: false,
+            author_name: None,
+            author_email: None,
         },
         None,
     )
@@ -1476,6 +1746,275 @@ fn initializes_stages_commits_and_reports_a_vault_repository() {
     )
     .expect("state");
     assert!(state.stdout.contains(r#""mergeInProgress":false"#));
+}
+
+#[test]
+fn commit_identity_wins_over_repository_configuration() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    fs::write(fixture.vault_root.join("alpha.md"), "synthetic note\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+
+    let commit = run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: Some("Configured Author".to_string()),
+            author_email: Some("configured@example.invalid".to_string()),
+        },
+        None,
+    )
+    .expect("commit");
+    assert_eq!(commit.exit_code, 0, "{}", commit.stderr);
+
+    let history = run(
+        &fixture,
+        PluginGitRequest::ListHistory {
+            scope: PluginGitScope::Vault,
+            max_count: 1,
+            skip: None,
+            r#ref: None,
+            path: None,
+        },
+        None,
+    )
+    .expect("history");
+    assert!(
+        history.stdout.contains("Configured Author"),
+        "{}",
+        history.stdout
+    );
+    assert!(
+        !history.stdout.contains("Synthetic Author"),
+        "{}",
+        history.stdout
+    );
+}
+
+/// Git reads `$EMAIL` whenever no `user.email` is configured, so an address
+/// inherited from whatever launched Denote would be stamped onto a commit the
+/// user never gave an identity for.
+#[test]
+fn ambient_email_cannot_supply_an_omitted_commit_identity() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    const AMBIENT_EMAIL: &str = "ambient@example.invalid";
+    let git = resolve_git_executable(None).expect("git");
+
+    // Every Git child in this process has `EMAIL` removed, which is the
+    // behaviour under test, so setting it here cannot change another test.
+    unsafe { std::env::set_var("EMAIL", AMBIENT_EMAIL) };
+    let control = commit_author_email_without_denote(&git, &fixture.data.path().join("control"));
+
+    fs::write(fixture.vault_root.join("alpha.md"), "synthetic note\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    // Only a name is configured. The email is the value Git has to invent, and
+    // `$EMAIL` is where it would look first.
+    git_config(&git, &fixture.vault_root, "user.name", "Synthetic Author");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    let commit = run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    let recorded = if commit.exit_code == 0 {
+        author_email(&git, &fixture.vault_root)
+    } else {
+        // Refusing the commit outright is also proof: Git had no address left.
+        String::new()
+    };
+    unsafe { std::env::remove_var("EMAIL") };
+
+    assert_eq!(
+        control, AMBIENT_EMAIL,
+        "the fixture must prove Git really does read $EMAIL, otherwise the regression is vacuous"
+    );
+    assert_ne!(recorded, AMBIENT_EMAIL, "{}", commit.stderr);
+}
+
+/// Runs one commit through plain Git, so the test knows the ambient value it is
+/// guarding against is one Git would otherwise have used.
+fn commit_author_email_without_denote(git: &Path, repository: &Path) -> String {
+    fs::create_dir_all(repository).expect("control repository");
+    let status = Command::new(git)
+        .arg("-C")
+        .arg(repository)
+        .args(["init", "--quiet", "--initial-branch=main"])
+        .env("GIT_CONFIG_GLOBAL", repository.join("absent-config"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .expect("git init");
+    assert!(status.success());
+    fs::write(repository.join("beta.md"), "control note\n").expect("note");
+    let status = Command::new(git)
+        .arg("-C")
+        .arg(repository)
+        .args(["add", "beta.md"])
+        .env("GIT_CONFIG_GLOBAL", repository.join("absent-config"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .expect("git add");
+    assert!(status.success());
+    let status = Command::new(git)
+        .arg("-C")
+        .arg(repository)
+        .args([
+            "-c",
+            "user.name=Control Author",
+            "commit",
+            "--quiet",
+            "--no-gpg-sign",
+            "--message",
+            "Record control note",
+        ])
+        .env("GIT_CONFIG_GLOBAL", repository.join("absent-config"))
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .status()
+        .expect("git commit");
+    assert!(status.success());
+    author_email(git, repository)
+}
+
+fn author_email(git: &Path, repository: &Path) -> String {
+    let output = Command::new(git)
+        .arg("-C")
+        .arg(repository)
+        .args(["log", "--max-count=1", "--format=%ae"])
+        .output()
+        .expect("git log");
+    String::from_utf8_lossy(&output.stdout).trim().to_string()
+}
+
+fn git_config(git: &Path, repository: &Path, key: &str, value: &str) {
+    let status = Command::new(git)
+        .arg("-C")
+        .arg(repository)
+        .args(["config", key, value])
+        .status()
+        .expect("git config");
+    assert!(status.success());
+}
+
+/// A tab in an author name or a subject used to shift every field after it out
+/// of place. The NUL delimited report keeps each record exactly seven fields
+/// wide no matter what text the repository holds.
+#[test]
+fn history_records_survive_tabs_in_an_author_name_and_a_subject() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    let git = resolve_git_executable(None).expect("git");
+    fs::write(fixture.vault_root.join("alpha.md"), "synthetic note\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    git_config(&git, &fixture.vault_root, "user.name", "Synthetic\tAuthor");
+    git_config(
+        &git,
+        &fixture.vault_root,
+        "user.email",
+        "synthetic@example.invalid",
+    );
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    let commit = run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record\ta synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    assert_eq!(commit.exit_code, 0, "{}", commit.stderr);
+
+    let history = run(
+        &fixture,
+        PluginGitRequest::ListHistory {
+            scope: PluginGitScope::Vault,
+            max_count: 10,
+            skip: None,
+            r#ref: None,
+            path: None,
+        },
+        None,
+    )
+    .expect("history");
+
+    let fields: Vec<&str> = history.stdout.split('\0').collect();
+    // One commit is seven fields plus the empty remainder after the record's
+    // own NUL terminator.
+    assert_eq!(fields.len(), 8, "{:?}", fields);
+    assert_eq!(fields[2], "Synthetic\tAuthor");
+    assert_eq!(fields[6], "Record\ta synthetic note");
+    assert_eq!(fields[7], "");
+    assert_eq!(fields[0].len(), 40, "{:?}", fields);
+    assert_eq!(fields[4], "");
+    assert!(fields[5].contains("main"), "{:?}", fields);
 }
 
 #[test]
@@ -1650,6 +2189,8 @@ fn never_runs_repository_hooks() {
             message: "Record synthetic note".to_string(),
             amend: false,
             allow_empty: false,
+            author_name: None,
+            author_email: None,
         },
         None,
     )
@@ -1719,6 +2260,8 @@ fn encrypted_vaults_stage_ciphertext_and_keep_git_metadata_intact() {
             message: "Record encrypted note".to_string(),
             amend: false,
             allow_empty: false,
+            author_name: None,
+            author_email: None,
         },
         None,
     )
@@ -1803,6 +2346,8 @@ fn encrypted_vaults_refuse_to_stash_untracked_files() {
             message: "Record encrypted note".to_string(),
             amend: false,
             allow_empty: false,
+            author_name: None,
+            author_email: None,
         },
     ] {
         let result = run(&fixture, request, None).expect("prepare");
@@ -2695,6 +3240,8 @@ fn commit_all(fixture: &GitFixture, message: &str) {
             message: message.to_string(),
             amend: false,
             allow_empty: false,
+            author_name: None,
+            author_email: None,
         },
         None,
     )
@@ -3243,6 +3790,8 @@ fn pinned_configuration_beats_repository_configuration_when_git_actually_runs() 
         message: "Record synthetic note".to_string(),
         amend: false,
         allow_empty: false,
+        author_name: None,
+        author_email: None,
     });
     assert_eq!(commit.exit_code, 0, "{}", commit.stderr);
 

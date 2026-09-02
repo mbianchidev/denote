@@ -282,6 +282,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Terminal, Language server, Linter, Compiler, and Code navigation roles show
   unavailable, disabled, or enabled status; Denote never downloads or enables
   them automatically, and core project behavior does not depend on plugins.
+- The optional **Git vault versioning** plugin is the first production catalog
+  entry. Its current version is local only: it shows one host-rendered
+  repository view for the active project, or the vault when no project is
+  marked, and supports refresh, initialize, stage, unstage, commit of staged
+  changes, and cancellation of a running operation. It requests no network,
+  process, or workspace-write permission. Fetch, pull, push, branch switching,
+  diffs, conflict resolution, and timed automatic commits are later increments
+  and are reported as unavailable rather than implied.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 

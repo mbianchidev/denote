@@ -232,6 +232,11 @@ export function SourceControlPanel({
     model.recovery.state === "failed"
       ? model.recovery.dismissActionId
       : undefined;
+  // A running operation is cancellable only while the provider reports the ID
+  // the cancel action has to return to it.
+  const cancellableOperationId = repository.busy
+    ? repository.activeOperationId
+    : undefined;
 
   useEffect(() => {
     setCommitMessage("");
@@ -384,6 +389,23 @@ export function SourceControlPanel({
             <p className="source-control__status" role="status">
               {repository.busyMessage ?? "Source control operation in progress"}
             </p>
+          ) : null}
+          {repository.busy && cancellableOperationId ? (
+            <div className="source-control__actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() =>
+                  onAction(
+                    action("cancel-operation", {
+                      operationId: cancellableOperationId,
+                    }),
+                  )
+                }
+              >
+                Cancel operation
+              </button>
+            </div>
           ) : null}
         </section>
 

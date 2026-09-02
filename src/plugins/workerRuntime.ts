@@ -86,6 +86,11 @@ export class PluginWorkerRuntime {
   private readonly stops = new Map<string, Promise<void>>();
   private readonly generations = new Map<string, number>();
   private projectContext: PluginProjectContext | null = null;
+  /**
+   * Identifies the workspace the host is showing. It never leaves the host: it
+   * is compared here and only the resulting change flag is broadcast.
+   */
+  private workspaceIdentity: string | null = null;
 
   constructor(
     private readonly onCommandsChanged: (
@@ -303,8 +308,40 @@ export class PluginWorkerRuntime {
     const event: PluginProjectContextChangeEvent = {
       previous: cloneProjectContext(this.projectContext),
       current: cloneProjectContext(context),
+      workspaceChanged: false,
     };
     this.projectContext = cloneProjectContext(context);
+    this.broadcastProjectContextChange(event);
+  }
+
+  /**
+   * Records which workspace the host is showing. The identity is host-only: it
+   * is never sent to a worker, so plugin code cannot read the vault path or
+   * correlate one workspace with another. Only the fact that the workspace
+   * changed crosses the boundary.
+   */
+  setWorkspaceIdentity(identity: string | null): void {
+    if (this.workspaceIdentity === identity) {
+      return;
+    }
+    this.workspaceIdentity = identity;
+    // Every lease was granted against the previous workspace, so an action
+    // still in flight must not be allowed to land on the new one. Unlike a
+    // project change, this reaches plugins that never asked for project
+    // context: their leases named the previous vault just the same.
+    for (const runtime of this.runtimes.values()) {
+      runtime.activeActions.clear();
+    }
+    this.broadcastProjectContextChange({
+      previous: cloneProjectContext(this.projectContext),
+      current: cloneProjectContext(this.projectContext),
+      workspaceChanged: true,
+    });
+  }
+
+  private broadcastProjectContextChange(
+    event: PluginProjectContextChangeEvent,
+  ): void {
     for (const runtime of this.runtimes.values()) {
       if (
         (runtime.phase === "activating" || runtime.phase === "active") &&

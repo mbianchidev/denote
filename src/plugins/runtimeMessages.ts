@@ -240,7 +240,8 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
       return (
         isRecord(value.event) &&
         isNullableProjectContext(value.event.previous) &&
-        isNullableProjectContext(value.event.current)
+        isNullableProjectContext(value.event.current) &&
+        typeof value.event.workspaceChanged === "boolean"
       );
     case "deactivate":
       return typeof value.requestId === "string";
@@ -325,7 +326,9 @@ function isRepository(value: unknown): boolean {
     isNonNegativeInteger(value.behind) &&
     (value.latestCommit === null || isCommitSummary(value.latestCommit)) &&
     typeof value.busy === "boolean" &&
-    (value.busyMessage === undefined || typeof value.busyMessage === "string")
+    (value.busyMessage === undefined || typeof value.busyMessage === "string") &&
+    (value.activeOperationId === undefined ||
+      typeof value.activeOperationId === "string")
   );
 }
 

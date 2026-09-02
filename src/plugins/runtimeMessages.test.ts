@@ -93,6 +93,34 @@ describe("plugin runtime source control messages", () => {
     ).toBe(false);
   });
 
+  it("accepts an optional active operation ID and rejects a malformed one", () => {
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: {
+          ...model,
+          repository: {
+            ...model.repository,
+            busy: true,
+            busyMessage: "Refreshing the repository",
+            activeOperationId: "11111111-2222-4333-8444-555555555555",
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: {
+          ...model,
+          repository: { ...model.repository, busy: true, activeOperationId: 7 },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it("validates typed source control action requests", () => {
     expect(
       isPluginHostMessage({
@@ -111,6 +139,39 @@ describe("plugin runtime source control messages", () => {
         providerId: "denote.synthetic.git",
         action: { id: "commit", values: { paths: ["note.md"] } },
         requestId: "request-1",
+      }),
+    ).toBe(false);
+  });
+
+  it("requires a workspace change flag on every project context change", () => {
+    expect(
+      isPluginHostMessage({
+        type: "project-context-change",
+        event: { previous: null, current: null, workspaceChanged: true },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginHostMessage({
+        type: "project-context-change",
+        event: {
+          previous: null,
+          current: { projectId: "project-1", rootPath: "code/alpha" },
+          workspaceChanged: false,
+        },
+      }),
+    ).toBe(true);
+    // Without the flag a plugin cannot tell a vault switch from no change at
+    // all, so the message is refused rather than assumed.
+    expect(
+      isPluginHostMessage({
+        type: "project-context-change",
+        event: { previous: null, current: null },
+      }),
+    ).toBe(false);
+    expect(
+      isPluginHostMessage({
+        type: "project-context-change",
+        event: { previous: null, current: null, workspaceChanged: "yes" },
       }),
     ).toBe(false);
   });

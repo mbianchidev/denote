@@ -53,5 +53,115 @@
       "trusted": true
     },
     "guide": "# Reference plugin\n\n## Purpose\n\nThis development-only plugin proves the Denote plugin contract and lifecycle. It\ndoes not provide a production user feature.\n\n## Enablement and permissions\n\nEnabling requests Commands, Sidebar, Status, Editor decoration, Note events,\nand Secure storage permissions. The package must be downloaded and verified\nbefore its code loads. Secure values use this plugin's isolated operating-system\nkeychain namespace.\n\n## Usage\n\nThe plugin registers one harmless reference command and one explicit keychain\nverification command. The verification command writes, reads, and deletes a\nsynthetic value without accessing any other plugin or Denote credential.\nIt also adds a small reference sidebar and status item, highlights the literal\nword `reference` in source/plain-text editors, and observes note lifecycle\nevents without reading or changing note content.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling unregisters the command, unloads the runtime, and deletes the\ndownloaded package. It does not edit or delete vault content.\n\n## Troubleshooting\n\nIf activation fails, Denote reports the error, rolls back registrations, unloads\nthe runtime, and removes the package.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.git",
+      "name": "Git vault versioning",
+      "version": "0.1.0",
+      "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "code",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.1.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "commands"
+        },
+        {
+          "capability": "status"
+        },
+        {
+          "capability": "source-control"
+        },
+        {
+          "capability": "project-context"
+        },
+        {
+          "capability": "git"
+        },
+        {
+          "capability": "automatic-local-commit"
+        }
+      ],
+      "settings": {
+        "version": 1,
+        "properties": {
+          "gitExecutablePath": {
+            "type": "string",
+            "title": "Git executable",
+            "description": "Absolute path to a Git executable. Leave empty to use the Git the host finds in its own fixed locations.",
+            "default": ""
+          },
+          "defaultBranch": {
+            "type": "string",
+            "title": "Default branch",
+            "description": "Branch name used when you initialize a repository from Denote.",
+            "default": "main"
+          },
+          "authorName": {
+            "type": "string",
+            "title": "Commit author name",
+            "description": "Optional name recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
+            "default": ""
+          },
+          "authorEmail": {
+            "type": "string",
+            "title": "Commit author email",
+            "description": "Optional email recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
+            "default": ""
+          },
+          "autoCommitIntervalMinutes": {
+            "type": "number",
+            "title": "Automatic commit interval",
+            "description": "Minutes between automatic local commits. Zero disables automatic commits. Automatic commits are not implemented yet.",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 1440
+          },
+          "autoCommitMessage": {
+            "type": "string",
+            "title": "Automatic commit message",
+            "description": "Message used for automatic local commits once they are implemented.",
+            "default": "Denote automatic commit"
+          },
+          "includePatterns": {
+            "type": "string",
+            "title": "Include patterns",
+            "description": "Comma-separated relative path prefixes to track. Empty means the whole repository.",
+            "default": ""
+          },
+          "excludePatterns": {
+            "type": "string",
+            "title": "Exclude patterns",
+            "description": "Comma-separated relative path prefixes to leave alone. Empty excludes nothing.",
+            "default": ""
+          }
+        }
+      },
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/0000000000000000000000000000000000000000/plugin-artifacts/denote.git-0.1.0.tgz",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "sizeBytes": 1
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "0000000000000000000000000000000000000000",
+      "trusted": true
+    },
+    "guide": "# Git vault versioning\n\n## Purpose\n\nThis plugin keeps a local Git history of your vault, or of the active project\ninside it, without leaving Denote. It adds one source control view that shows\nthe repository, its working tree changes, its branches, its remotes, and its\nlatest commits, and it lets you initialize a repository, stage and unstage a\nfile, and commit what you staged.\n\nEverything in this version is local. The plugin never contacts a network, never\nruns a process of its own, and never writes note content.\n\n## Enablement and permissions\n\nEnabling requests these permissions:\n\n- **Commands** registers `Git: Refresh repository` and\n  `Git: Initialize repository` in the command surface.\n- **Status** shows one short repository state item.\n- **Source control** contributes the typed repository view Denote renders\n  itself. The plugin supplies data only; it cannot render markup.\n- **Project context** scopes the view to the active project when one is marked,\n  and to the vault when none is.\n- **Git** runs the host's typed Git operations. Denote owns the Git executable,\n  the argument templates, and the repository scope; the plugin can only name an\n  operation and its structured fields.\n- **Automatic local commit** is reserved for scheduled local commits. It is not\n  used yet: this version never commits without an explicit action.\n\nThe plugin does not request network, process, or workspace-write permission, so\nit cannot reach a remote host, run its own executable, or edit your notes.\n\nEnabling alone does not run Git and does not change your vault. The first model\nreports that a refresh is required and makes no claim about the repository until\nyou refresh.\n\n## Usage\n\nOpen the Git view from the activity rail, or run `Git: Refresh repository`.\n\n- **Refresh** discovers whether the scope is a repository and, when it is, reads\n  status, branches, remotes, the recoverable operation state, and the latest\n  commits.\n- **Initialize repository** creates a repository in the current scope using the\n  configured default branch, then refreshes. Nothing is created until you use\n  this action.\n- **Stage** and **Unstage** act on the exact file path in the row.\n- **Commit staged changes** commits only what is staged, using the message you\n  typed and the configured author identity when one is set.\n- **Cancel operation** stops the Git operation that is running. It targets the\n  operation Denote is actually running, not the one the button was drawn for,\n  so a fast sequence cannot leave the button pointing at a step that already\n  finished. Cancelling leaves the last known repository state on screen and\n  stays retryable, and if nothing matched, the view says so rather than\n  appearing to do nothing.\n\nSwitching the active project resets the view to the new repository and asks for\na refresh, so results from the previous scope are never shown as if they\nbelonged to the new one. Switching vaults resets it the same way, even when\nneither vault has a project marked, because the two are different repositories\nthat would otherwise look alike.\n\nFetch, pull, push, branch switching, branch and remote editing, commit and file\ndiffs, and conflict resolution are **not implemented yet**. Branches, remotes,\nand recent commits are displayed as read-only summary data, and a repository\nwith a merge, rebase, cherry-pick, or revert in progress is reported so you can\nfinish it with your own Git tooling.\n\n## Settings\n\n- **Git executable** is an absolute path to Git. Leave it empty to use the Git\n  the host finds in its own fixed locations. Denote reads this key itself; the\n  plugin never sees or sends an executable path.\n- **Default branch** names the branch used by `Git: Initialize repository`. It\n  defaults to `main`.\n- **Commit author name** and **Commit author email** are optional. When both are\n  set, Denote records that identity on commits it creates, overriding repository\n  configuration. Leave them empty to use the repository's own Git identity.\n- **Automatic commit interval**, in minutes, and **Automatic commit message**\n  configure scheduled local commits. The interval defaults to `0`, which\n  disables them; scheduled commits are not implemented in this version.\n- **Include patterns** and **Exclude patterns** are comma-separated relative\n  path prefixes reserved for scheduled commits. Both default to empty.\n\n## Disable behavior\n\nDisabling unregisters the source control view, the status item, and both\ncommands, unloads the runtime, and deletes the downloaded package. Your\nrepository, its history, its configuration, and every note stay exactly as they\nare: the plugin never deletes a repository and never edits vault content.\nPlugin settings remain in Denote's plugin settings store, so re-enabling\nrestores them.\n\n## Troubleshooting\n\n- **\"refresh required\" beside the repository name** means no Git command has\n  run yet, so Denote is not claiming anything about the repository. Use Refresh.\n- **\"Not initialized\"** after a refresh means this vault or project has no\n  repository. Use `Git: Initialize repository`, or open one that already has a\n  repository.\n- **A Git failure** reports the exit code and Git's own error output, and keeps\n  the last stable view on screen. Fix the reported cause, then use Refresh.\n- **No Git executable** means Denote could not find Git in its fixed locations.\n  Install Git, or set the Git executable setting to an absolute path.\n- **Repositories that use a `.git` file**, such as linked worktrees and\n  submodules, are refused by the host rather than modified.\n- **Encrypted vaults** must be unlocked and pass the host's encryption check\n  before Git runs. Content stays encrypted in commits, so line-level diffs of\n  encrypted files are not meaningful.\n- **A commit that fails with an identity error** needs either the author\n  settings above or a Git identity configured in the repository."
   }
 ]

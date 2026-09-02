@@ -514,10 +514,18 @@ fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
         .find(|bundle| bundle.id == "code-tooling")
         .expect("code tooling bundle");
     assert_eq!(code_tooling.roles.len(), 6);
+    let git = code_tooling
+        .roles
+        .iter()
+        .find(|role| role.id == "git")
+        .expect("git role");
+    assert_eq!(git.candidate_plugin_ids, vec!["denote.git".to_string()]);
+    // Every other code role is still waiting for its first candidate.
     assert!(
         code_tooling
             .roles
             .iter()
+            .filter(|role| role.id != "git")
             .all(|role| role.candidate_plugin_ids.is_empty())
     );
 }

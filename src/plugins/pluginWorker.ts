@@ -35,6 +35,13 @@ interface PendingRequest {
   reject: (error: Error) => void;
 }
 
+/**
+ * The one standardized source-control action that must reach a provider while
+ * the operation it names is still running. Queueing it behind that operation
+ * would make it arrive only once there is nothing left to cancel.
+ */
+const CANCEL_SOURCE_CONTROL_ACTION = "cancel-operation";
+
 const commandHandlers = new Map<string, PluginCommand["run"]>();
 const sourceControlHandlers = new Map<
   string,
@@ -55,7 +62,9 @@ let plugin: DenotePlugin | null = null;
 let port: MessagePort | null = null;
 let cleaned = false;
 let projectContext: PluginProjectContext | null = null;
+let projectContextObserved = false;
 let hostMessageQueue = Promise.resolve();
+let projectContextQueue = Promise.resolve();
 
 function send(message: PluginRuntimeMessage): void {
   if (!port) {
@@ -429,6 +438,7 @@ function cloneProjectContextChangeEvent(
   return {
     previous: cloneProjectContext(event.previous),
     current: cloneProjectContext(event.current),
+    workspaceChanged: event.workspaceChanged === true,
   };
 }
 
@@ -482,8 +492,11 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
       }
       if (
         permissions.has("project-context") &&
+        !projectContextObserved &&
         Object.prototype.hasOwnProperty.call(message, "projectContext")
       ) {
+        // A change that arrived while activation was still running is newer
+        // than the snapshot the activation message carried.
         projectContext = cloneProjectContext(message.projectContext ?? null);
       }
       await plugin.activate(runtimeContext());
@@ -498,6 +511,7 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     if (!permissions.has("project-context")) {
       return;
     }
+    projectContextObserved = true;
     projectContext = cloneProjectContext(message.event.current);
     const event = cloneProjectContextChangeEvent(message.event);
     for (const listener of projectContextListeners) {
@@ -620,6 +634,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function reportRuntimeError(error: unknown): void {
+  send({ type: "runtime-error", error: errorMessage(error) });
+}
+
 self.onmessage = async (event: MessageEvent<unknown>) => {
   if (!isConnectMessage(event.data) || event.ports.length !== 1) {
     return;
@@ -640,11 +658,32 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
       void handleMessage(hostMessage);
       return;
     }
+    if (
+      hostMessage.type === "run-source-control-action" &&
+      hostMessage.action.id === CANCEL_SOURCE_CONTROL_ACTION
+    ) {
+      // Cancellation is the only action that runs concurrently, because the
+      // operation it names is what would otherwise be holding the queue. It
+      // still carries its own request ID and its own host-validated action
+      // lease, so correlation, lease checks, and the failure result it reports
+      // are exactly those of any other action.
+      void handleMessage(hostMessage).catch(reportRuntimeError);
+      return;
+    }
+    if (hostMessage.type === "project-context-change") {
+      // A project change is delivered while an action is still in flight, so a
+      // provider can invalidate a model update that belongs to the workspace
+      // the user just left. Ordinary messages received afterwards still wait
+      // for it, so nothing else becomes concurrent.
+      const change = (projectContextQueue = projectContextQueue
+        .then(() => handleMessage(hostMessage))
+        .catch(reportRuntimeError));
+      hostMessageQueue = hostMessageQueue.then(() => change);
+      return;
+    }
     hostMessageQueue = hostMessageQueue
       .then(() => handleMessage(hostMessage))
-      .catch((error) => {
-        send({ type: "runtime-error", error: errorMessage(error) });
-      });
+      .catch(reportRuntimeError);
   };
   port.start();
   try {

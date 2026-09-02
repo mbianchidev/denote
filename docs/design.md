@@ -284,7 +284,9 @@ Plugin source-control providers receive distinct, named rail buttons without
 becoming static sidebar views. Their host-rendered sidebar uses visible branch
 and commit fields, native controls, semantic lists and headings, keyboard
 operable tabs, structured diffs, and polite status regions for progress,
-recovery, and limitations. Plugin data never supplies arbitrary markup.
+recovery, and limitations. A busy provider that reports the operation it is
+running also shows a cancel control beside that status. Plugin data never
+supplies arbitrary markup.
 Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
 moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a

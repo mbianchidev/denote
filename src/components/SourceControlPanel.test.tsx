@@ -169,7 +169,58 @@ describe("SourceControlPanel", () => {
     expect(onAction).toHaveBeenCalledWith({ id: "provider-retry" });
     expect(onAction).toHaveBeenCalledWith({ id: "provider-dismiss" });
   });
+
+  it("offers cancellation only while a busy provider reports an operation ID", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const { rerender } = render(
+      <SourceControlPanel
+        title="Git"
+        model={busyModel()}
+        onAction={onAction}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent("Refreshing");
+    await user.click(
+      screen.getByRole("button", { name: "Cancel operation" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "cancel-operation",
+      values: { operationId: "11111111-2222-4333-8444-555555555555" },
+    });
+
+    const withoutId = busyModel();
+    withoutId.repository.activeOperationId = undefined;
+    rerender(
+      <SourceControlPanel
+        title="Git"
+        model={withoutId}
+        onAction={onAction}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Cancel operation" }),
+    ).not.toBeInTheDocument();
+
+    const settled = busyModel();
+    settled.repository.busy = false;
+    rerender(
+      <SourceControlPanel title="Git" model={settled} onAction={onAction} />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Cancel operation" }),
+    ).not.toBeInTheDocument();
+  });
 });
+
+function busyModel(): PluginSourceControlViewModel {
+  const model = baseModel();
+  model.repository.busy = true;
+  model.repository.busyMessage = "Refreshing the repository";
+  model.repository.activeOperationId = "11111111-2222-4333-8444-555555555555";
+  return model;
+}
 
 function baseModel(): PluginSourceControlViewModel {
   return {

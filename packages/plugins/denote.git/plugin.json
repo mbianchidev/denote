@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.git",
+  "name": "Git vault versioning",
+  "version": "0.1.0",
+  "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "code",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.1.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "commands"
+    },
+    {
+      "capability": "status"
+    },
+    {
+      "capability": "source-control"
+    },
+    {
+      "capability": "project-context"
+    },
+    {
+      "capability": "git"
+    },
+    {
+      "capability": "automatic-local-commit"
+    }
+  ],
+  "settings": {
+    "version": 1,
+    "properties": {
+      "gitExecutablePath": {
+        "type": "string",
+        "title": "Git executable",
+        "description": "Absolute path to a Git executable. Leave empty to use the Git the host finds in its own fixed locations.",
+        "default": ""
+      },
+      "defaultBranch": {
+        "type": "string",
+        "title": "Default branch",
+        "description": "Branch name used when you initialize a repository from Denote.",
+        "default": "main"
+      },
+      "authorName": {
+        "type": "string",
+        "title": "Commit author name",
+        "description": "Optional name recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
+        "default": ""
+      },
+      "authorEmail": {
+        "type": "string",
+        "title": "Commit author email",
+        "description": "Optional email recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
+        "default": ""
+      },
+      "autoCommitIntervalMinutes": {
+        "type": "number",
+        "title": "Automatic commit interval",
+        "description": "Minutes between automatic local commits. Zero disables automatic commits. Automatic commits are not implemented yet.",
+        "default": 0,
+        "minimum": 0,
+        "maximum": 1440
+      },
+      "autoCommitMessage": {
+        "type": "string",
+        "title": "Automatic commit message",
+        "description": "Message used for automatic local commits once they are implemented.",
+        "default": "Denote automatic commit"
+      },
+      "includePatterns": {
+        "type": "string",
+        "title": "Include patterns",
+        "description": "Comma-separated relative path prefixes to track. Empty means the whole repository.",
+        "default": ""
+      },
+      "excludePatterns": {
+        "type": "string",
+        "title": "Exclude patterns",
+        "description": "Comma-separated relative path prefixes to leave alone. Empty excludes nothing.",
+        "default": ""
+      }
+    }
+  },
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

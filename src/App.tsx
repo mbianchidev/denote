@@ -46,6 +46,7 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import type { PluginSourceControlAction } from "@denote/plugin-sdk";
 import { ActivityRail } from "./components/ActivityRail";
 import { AboutDialog } from "./components/AboutDialog";
 import { ActionDialog } from "./components/ActionDialog";
@@ -345,6 +346,31 @@ const DOCK_POSITION_LABELS: Record<PaneDockPosition, string> = {
   top: "above",
   bottom: "below",
 };
+
+const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
+  "initialize",
+  "stage",
+  "unstage",
+  "commit",
+  "pull",
+  "add-remote",
+  "set-remote-url",
+  "remove-remote",
+  "create-branch",
+  "switch-branch",
+  "rename-branch",
+  "delete-branch",
+  "stash",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "revert",
+  "continue",
+  "skip",
+  "abort",
+  "resolve-conflict",
+  "clone",
+]);
 
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
@@ -1003,7 +1029,11 @@ function App() {
         : null,
     [activeProject?.id, activeProject?.rootPath],
   );
-  const pluginController = usePlugins(showError, pluginProjectContext);
+  const pluginController = usePlugins(
+    showError,
+    pluginProjectContext,
+    workspace?.vaultPath ?? null,
+  );
   const pluginDecorationKey = pluginController.decorations
     .map(
       (decoration) =>
@@ -3947,6 +3977,53 @@ function App() {
     }
     await refreshWorkspace(true);
   }, [refreshWorkspace, workspace]);
+
+  const runSourceControlAction = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      action: PluginSourceControlAction,
+    ) => {
+      if (!workspace) {
+        return;
+      }
+      const mutatesWorkspace = WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS.has(
+        action.id,
+      );
+      let workspaceOperationStarted = false;
+      try {
+        if (mutatesWorkspace) {
+          if (!(await beginWorkspaceOperation())) {
+            return;
+          }
+          workspaceOperationStarted = true;
+        }
+        await pluginController.runSourceControlAction(
+          pluginId,
+          providerId,
+          action,
+          workspace.vaultPath,
+        );
+        if (mutatesWorkspace) {
+          await refreshAndReindex();
+        }
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        if (workspaceOperationStarted) {
+          setWorkspaceLock(false);
+        }
+      }
+    },
+    [
+      beginWorkspaceOperation,
+      pluginController,
+      refreshAndReindex,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
 
   const rewriteLinksForMove = useCallback(
     async (oldPath: string, newPath: string) => {
@@ -7042,14 +7119,11 @@ function App() {
             title={activeSourceControlContribution.title}
             model={activeSourceControlContribution.model}
             onAction={(action) => {
-              void pluginController
-                .runSourceControlAction(
-                  activeSourceControlContribution.pluginId,
-                  activeSourceControlContribution.id,
-                  action,
-                  workspace.vaultPath,
-                )
-                .catch(showError);
+              void runSourceControlAction(
+                activeSourceControlContribution.pluginId,
+                activeSourceControlContribution.id,
+                action,
+              );
             }}
           />
         ) : activePluginSidebarView ? (
