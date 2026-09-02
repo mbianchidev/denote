@@ -101,6 +101,10 @@ const plugin: DenotePlugin = {
     // the only thing this plugin contributes that acts on its own. Reading
     // them registers no Git work: the host owns the timer, the repository
     // scope, and the commit, and the first run is one interval away.
+    // Reading them also seeds the authentication mode the surface shows, so
+    // what is displayed is the host-persisted setting every remote operation
+    // will use rather than a value this plugin keeps of its own.
+    await controller.syncRemoteAccess();
     const schedule = await automaticCommitSchedule(
       context,
       automaticLocalCommit,

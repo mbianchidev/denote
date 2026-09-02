@@ -13,9 +13,10 @@ use tempfile::TempDir;
 use super::{
     PluginManager,
     git::{
-        GitDirectoryState, GitExecution, GitInspection, GitPlanStep, GitTransportPolicy,
-        GitWriteSource, PluginGitAuthMode, PluginGitConflictResolution, PluginGitConflictStage,
-        PluginGitDiffTarget, PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest,
+        GitDirectoryState, GitExecution, GitInspection, GitOutputMode, GitPlanStep,
+        GitTransportPolicy, GitWriteSource, PluginGitAuthMode, PluginGitConflictResolution,
+        PluginGitConflictStage, PluginGitDiffTarget, PluginGitHunk, PluginGitHunkLine,
+        PluginGitHunkLineKind, PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest,
         PluginGitScope, PluginGitSequencer, PluginGitStashAction, apply_environment,
         assert_repository_config_is_safe, detect_operation_state,
         ensure_encrypted_repository_metadata, hardening_arguments, plan_git_request, redact,
@@ -406,7 +407,7 @@ fn conflict_resolution_reads_a_stage_then_stages_the_written_file() {
                     ":2:notes/alpha.md".to_string()
                 ],
                 mutating: false,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
             GitPlanStep::WriteFile {
                 path: "notes/alpha.md".to_string(),
@@ -419,7 +420,7 @@ fn conflict_resolution_reads_a_stage_then_stages_the_written_file() {
                     "notes/alpha.md".to_string()
                 ],
                 mutating: true,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
         ]
     );
@@ -723,6 +724,7 @@ fn pins_every_command_bearing_configuration_key_on_the_command_line() {
         global_config: &directory.path().join("empty-global-config"),
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
 
@@ -768,6 +770,7 @@ fn pins_the_global_configuration_at_a_host_owned_empty_file() {
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
     let mut command = Command::new("/usr/bin/git");
@@ -810,6 +813,7 @@ fn removes_every_ambient_identity_variable_from_a_git_child() {
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
     let mut command = Command::new("/usr/bin/git");
@@ -903,6 +907,7 @@ fn configured_commit_identity_beats_an_ambient_identity() {
             global_config: &global_config,
             redacted_roots: vec![],
             askpass: None,
+            encrypted: false,
             transport: GitTransportPolicy::RemoteOnly,
         };
         let mut command = Command::new(&git);
@@ -1066,6 +1071,7 @@ fn ignores_a_global_configuration_that_defines_a_filter() {
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
     let mut command = Command::new(&git);
@@ -1648,7 +1654,10 @@ fn initializes_stages_commits_and_reports_a_vault_repository() {
         None,
     )
     .expect("discover");
-    assert_eq!(discover.stdout, r#"{"initialized":false}"#);
+    assert_eq!(
+        discover.stdout,
+        r#"{"encrypted":false,"initialized":false}"#
+    );
 
     let initialize = run(
         &fixture,
@@ -1670,7 +1679,7 @@ fn initializes_stages_commits_and_reports_a_vault_repository() {
         None,
     )
     .expect("discover");
-    assert_eq!(discover.stdout, r#"{"initialized":true}"#);
+    assert_eq!(discover.stdout, r#"{"encrypted":false,"initialized":true}"#);
 
     let status = run(
         &fixture,
@@ -2616,12 +2625,13 @@ fn cancels_a_running_read_only_operation_and_leaves_no_child() {
             global_config: &global_config,
             redacted_roots: vec![],
             askpass: None,
+            encrypted: false,
             transport: GitTransportPolicy::RemoteOnly,
         };
         let steps = vec![GitPlanStep::Command {
             args: vec!["status".to_string()],
             mutating: false,
-            base64_output: false,
+            output: GitOutputMode::Redacted,
         }];
         let result = run_git_plan(&steps, &execution, &token);
         worker_registry.finish(&token.operation_id);
@@ -2722,18 +2732,19 @@ fn a_mutating_command_reaches_its_boundary_before_cancellation_stops_the_plan() 
             global_config: &global_config,
             redacted_roots: vec![],
             askpass: None,
+            encrypted: false,
             transport: GitTransportPolicy::RemoteOnly,
         };
         let steps = vec![
             GitPlanStep::Command {
                 args: vec!["commit".to_string()],
                 mutating: true,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
             GitPlanStep::Command {
                 args: vec!["second".to_string()],
                 mutating: true,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
         ];
         let result = run_git_plan(&steps, &execution, &token);
@@ -2992,6 +3003,7 @@ fn oversized_output_plan(
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
     let result = run_git_plan(&steps, &execution, &token);
@@ -3009,7 +3021,7 @@ fn refuses_output_over_the_cap_even_when_the_command_finishes_immediately() {
         vec![GitPlanStep::Command {
             args: vec!["status".to_string()],
             mutating: false,
-            base64_output: false,
+            output: GitOutputMode::Redacted,
         }],
     )
     .expect_err("bounded output");
@@ -3034,7 +3046,7 @@ fn oversized_conflict_stage_output_is_never_written_to_the_worktree() {
             GitPlanStep::Command {
                 args: vec!["cat-file".to_string()],
                 mutating: false,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
             GitPlanStep::WriteFile {
                 path: "alpha.md".to_string(),
@@ -3460,6 +3472,7 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
             global_config: &worker_global_config,
             redacted_roots: vec![],
             askpass: None,
+            encrypted: false,
             transport: GitTransportPolicy::RemoteOnly,
         };
         let result = run_git_plan(&worker_steps, &execution, &token);
@@ -3513,6 +3526,7 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
             global_config: &global_config,
             redacted_roots: vec![],
             askpass: None,
+            encrypted: false,
             transport: GitTransportPolicy::RemoteOnly,
         };
         let error = run_git_plan(&steps, &execution, &token).expect_err("already resolved");
@@ -3536,6 +3550,7 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
             global_config: &global_config,
             redacted_roots: vec![],
             askpass: None,
+            encrypted: false,
             transport: GitTransportPolicy::RemoteOnly,
         };
         let retried = run_git_plan(&steps, &execution, &token).expect("retry");
@@ -3576,6 +3591,7 @@ fn restores_the_original_file_when_staging_a_resolution_fails() {
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
 
@@ -3588,7 +3604,7 @@ fn restores_the_original_file_when_staging_a_resolution_fails() {
             GitPlanStep::Command {
                 args: vec!["add".to_string()],
                 mutating: true,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
         ],
         &execution,
@@ -3616,7 +3632,7 @@ fn restores_the_original_file_when_staging_a_resolution_fails() {
             GitPlanStep::Command {
                 args: vec!["add".to_string()],
                 mutating: true,
-                base64_output: false,
+                output: GitOutputMode::Redacted,
             },
         ],
         &execution,
@@ -3807,6 +3823,7 @@ fn pinned_configuration_beats_repository_configuration_when_git_actually_runs() 
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
     let run_plan = |request: PluginGitRequest| {
@@ -3858,5 +3875,1427 @@ fn pinned_configuration_beats_repository_configuration_when_git_actually_runs() 
     assert!(
         !marker.exists(),
         "a repository-configured helper must never execute"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Hunk staging
+// ---------------------------------------------------------------------------
+
+fn hunk_line(kind: PluginGitHunkLineKind, content: &str) -> PluginGitHunkLine {
+    PluginGitHunkLine {
+        kind,
+        content: content.to_string(),
+        no_newline_at_end_of_file: false,
+    }
+}
+
+/// The one hunk that turns `beta` into `BETA` in a three-line file.
+fn synthetic_hunk() -> PluginGitHunk {
+    PluginGitHunk {
+        old_start: 1,
+        old_lines: 3,
+        new_start: 1,
+        new_lines: 3,
+        lines: vec![
+            hunk_line(PluginGitHunkLineKind::Context, "alpha"),
+            hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+            hunk_line(PluginGitHunkLineKind::Addition, "BETA"),
+            hunk_line(PluginGitHunkLineKind::Context, "gamma"),
+        ],
+    }
+}
+
+fn apply_step(request: PluginGitRequest) -> (Vec<String>, String) {
+    match plan_git_request(&request).expect("plan").remove(0) {
+        GitPlanStep::ApplyPatch { args, patch } => {
+            (args, String::from_utf8(patch).expect("utf-8 patch"))
+        }
+        other => panic!("expected an apply step, found {other:?}"),
+    }
+}
+
+#[test]
+fn builds_one_bounded_patch_for_one_path_from_a_structured_hunk() {
+    let (args, patch) = apply_step(PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "notes/my note.md".to_string(),
+        hunk: synthetic_hunk(),
+    });
+
+    assert_eq!(
+        args,
+        vec![
+            "apply",
+            "--cached",
+            "--no-unsafe-paths",
+            "--whitespace=nowarn",
+            "-p1",
+            "-"
+        ]
+    );
+    // Both names are tab terminated. Without the tab, `git apply` strips a
+    // trailing timestamp-shaped word from an unquoted name, so a path such as
+    // "Notes 2010-07-05" would silently be applied to "Notes" instead.
+    assert_eq!(
+        patch,
+        concat!(
+            "--- a/notes/my note.md\t\n",
+            "+++ b/notes/my note.md\t\n",
+            "@@ -1,3 +1,3 @@\n",
+            " alpha\n",
+            "-beta\n",
+            "+BETA\n",
+            " gamma\n",
+        )
+    );
+
+    let (reverse_args, reverse_patch) = apply_step(PluginGitRequest::UnstageHunk {
+        scope: PluginGitScope::Vault,
+        path: "notes/my note.md".to_string(),
+        hunk: synthetic_hunk(),
+    });
+    assert_eq!(
+        reverse_args,
+        vec![
+            "apply",
+            "--cached",
+            "--no-unsafe-paths",
+            "--whitespace=nowarn",
+            "-p1",
+            "--reverse",
+            "-"
+        ]
+    );
+    // Unstaging is the same patch read backwards, so both directions describe
+    // exactly the same change.
+    assert_eq!(reverse_patch, patch);
+}
+
+#[test]
+fn emits_the_missing_newline_marker_only_at_the_end_of_a_side() {
+    let mut hunk = PluginGitHunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 1,
+        lines: vec![
+            hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+            hunk_line(PluginGitHunkLineKind::Addition, "BETA"),
+        ],
+    };
+    hunk.lines[0].no_newline_at_end_of_file = true;
+    hunk.lines[1].no_newline_at_end_of_file = true;
+
+    let (_, patch) = apply_step(PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk,
+    });
+    assert_eq!(
+        patch,
+        concat!(
+            "--- a/alpha.md\t\n",
+            "+++ b/alpha.md\t\n",
+            "@@ -1,1 +1,1 @@\n",
+            "-beta\n",
+            "\\ No newline at end of file\n",
+            "+BETA\n",
+            "\\ No newline at end of file\n",
+        )
+    );
+
+    // A marker in the middle of a side would tell Git the file ends there.
+    let mut misplaced = synthetic_hunk();
+    misplaced.lines[0].no_newline_at_end_of_file = true;
+    let error = plan_git_request(&PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: misplaced,
+    })
+    .expect_err("misplaced marker");
+    assert!(error.to_string().contains("last line of a side"));
+}
+
+#[test]
+fn refuses_hunks_that_could_forge_patch_structure_or_reach_another_path() {
+    let forged = |content: &str| PluginGitHunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 1,
+        lines: vec![
+            hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+            hunk_line(PluginGitHunkLineKind::Addition, content),
+        ],
+    };
+    for content in [
+        // A newline would end the line and let the next bytes be read as a
+        // second hunk, or as a header for another file.
+        "BETA\n@@ -1,1 +1,1 @@",
+        "BETA\r\n--- a/../../etc/passwd",
+        // A NUL, or any other control character, is content Git never wrote.
+        "BETA\u{0}",
+    ] {
+        let error = plan_git_request(&PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: forged(content),
+        })
+        .expect_err("forged content");
+        assert!(
+            error.to_string().contains("control characters"),
+            "{content:?} must be refused: {error}"
+        );
+    }
+
+    for path in [
+        "../outside.md",
+        "/etc/passwd",
+        ".git/config",
+        "notes/../../escape.md",
+        "-not-a-path",
+    ] {
+        assert!(
+            plan_git_request(&PluginGitRequest::StageHunk {
+                scope: PluginGitScope::Vault,
+                path: path.to_string(),
+                hunk: synthetic_hunk(),
+            })
+            .is_err(),
+            "{path} must be refused"
+        );
+    }
+}
+
+#[test]
+fn refuses_hunks_that_are_incoherent_empty_or_oversized() {
+    let mut mismatched = synthetic_hunk();
+    mismatched.new_lines = 9;
+    let error = plan_git_request(&PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: mismatched,
+    })
+    .expect_err("mismatched counts");
+    assert!(error.to_string().contains("disagrees"));
+
+    let unchanged = PluginGitHunk {
+        old_start: 1,
+        old_lines: 1,
+        new_start: 1,
+        new_lines: 1,
+        lines: vec![hunk_line(PluginGitHunkLineKind::Context, "alpha")],
+    };
+    let error = plan_git_request(&PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: unchanged,
+    })
+    .expect_err("nothing to stage");
+    assert!(
+        error
+            .to_string()
+            .contains("add or remove at least one line")
+    );
+
+    let empty = PluginGitHunk {
+        old_start: 0,
+        old_lines: 0,
+        new_start: 0,
+        new_lines: 0,
+        lines: vec![],
+    };
+    assert!(
+        plan_git_request(&PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: empty,
+        })
+        .is_err()
+    );
+
+    let oversized = PluginGitHunk {
+        old_start: 1,
+        old_lines: 0,
+        new_start: 1,
+        new_lines: 1,
+        lines: vec![hunk_line(
+            PluginGitHunkLineKind::Addition,
+            &"a".repeat(9 * 1024),
+        )],
+    };
+    let error = plan_git_request(&PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: oversized,
+    })
+    .expect_err("oversized line");
+    assert!(error.to_string().contains("bytes"));
+
+    let too_many = PluginGitHunk {
+        old_start: 1,
+        old_lines: 0,
+        new_start: 1,
+        new_lines: 5001,
+        lines: (0..5001)
+            .map(|_| hunk_line(PluginGitHunkLineKind::Addition, "line"))
+            .collect(),
+    };
+    let error = plan_git_request(&PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: too_many,
+    })
+    .expect_err("too many lines");
+    assert!(error.to_string().contains("between 1 and"));
+
+    let zero_start = PluginGitHunk {
+        old_start: 0,
+        old_lines: 3,
+        new_start: 1,
+        new_lines: 3,
+        lines: synthetic_hunk().lines,
+    };
+    assert!(
+        plan_git_request(&PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: zero_start,
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn stages_and_unstages_exactly_one_hunk_in_a_real_repository() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    // A name with a space proves the reconstructed patch survives a path Git
+    // would otherwise have to disambiguate.
+    let note = fixture.vault_root.join("my note.md");
+    fs::write(&note, "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["my note.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record a synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    // Two separate edits, far enough apart to be two hunks.
+    fs::write(&note, "alpha\nBETA\ngamma\ndelta\nepsilon\nZETA\neta\n").expect("edit");
+
+    let staged = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "my note.md".to_string(),
+            hunk: PluginGitHunk {
+                old_start: 1,
+                old_lines: 4,
+                new_start: 1,
+                new_lines: 4,
+                lines: vec![
+                    hunk_line(PluginGitHunkLineKind::Context, "alpha"),
+                    hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+                    hunk_line(PluginGitHunkLineKind::Addition, "BETA"),
+                    hunk_line(PluginGitHunkLineKind::Context, "gamma"),
+                    hunk_line(PluginGitHunkLineKind::Context, "delta"),
+                ],
+            },
+        },
+        None,
+    )
+    .expect("stage hunk");
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+
+    // Exactly the first edit is in the index; the second is still only in the
+    // working tree, and the file on disk is untouched.
+    let index = git_output(&fixture.vault_root, &["cat-file", "blob", ":0:my note.md"]);
+    assert_eq!(index, "alpha\nBETA\ngamma\ndelta\nepsilon\nzeta\neta\n");
+    assert_eq!(
+        fs::read_to_string(&note).expect("note"),
+        "alpha\nBETA\ngamma\ndelta\nepsilon\nZETA\neta\n"
+    );
+
+    let unstaged = run(
+        &fixture,
+        PluginGitRequest::UnstageHunk {
+            scope: PluginGitScope::Vault,
+            path: "my note.md".to_string(),
+            hunk: PluginGitHunk {
+                old_start: 1,
+                old_lines: 4,
+                new_start: 1,
+                new_lines: 4,
+                lines: vec![
+                    hunk_line(PluginGitHunkLineKind::Context, "alpha"),
+                    hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+                    hunk_line(PluginGitHunkLineKind::Addition, "BETA"),
+                    hunk_line(PluginGitHunkLineKind::Context, "gamma"),
+                    hunk_line(PluginGitHunkLineKind::Context, "delta"),
+                ],
+            },
+        },
+        None,
+    )
+    .expect("unstage hunk");
+    assert_eq!(unstaged.exit_code, 0, "{}", unstaged.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:my note.md"]),
+        "alpha\nbeta\ngamma\ndelta\nepsilon\nzeta\neta\n"
+    );
+    assert_eq!(
+        fs::read_to_string(&note).expect("note"),
+        "alpha\nBETA\ngamma\ndelta\nepsilon\nZETA\neta\n",
+        "unstaging a hunk must never touch the working tree"
+    );
+}
+
+#[test]
+fn leaves_the_index_untouched_when_a_hunk_does_not_apply() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "alpha\nbeta\ngamma\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record a synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    let before = git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]);
+
+    let stale = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: PluginGitHunk {
+                old_start: 1,
+                old_lines: 3,
+                new_start: 1,
+                new_lines: 3,
+                lines: vec![
+                    hunk_line(PluginGitHunkLineKind::Context, "alpha"),
+                    // The index holds "beta", so this context can never match.
+                    hunk_line(PluginGitHunkLineKind::Deletion, "not-in-the-file"),
+                    hunk_line(PluginGitHunkLineKind::Addition, "BETA"),
+                    hunk_line(PluginGitHunkLineKind::Context, "gamma"),
+                ],
+            },
+        },
+        None,
+    )
+    .expect("stale hunk");
+
+    assert_ne!(stale.exit_code, 0, "a stale hunk must not be applied");
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]),
+        before,
+        "a rejected patch must leave the index exactly as it was"
+    );
+
+    let missing = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "absent.md".to_string(),
+            hunk: synthetic_hunk(),
+        },
+        None,
+    )
+    .expect("missing path");
+    assert_ne!(missing.exit_code, 0);
+    assert!(
+        missing.stderr.contains("does not exist in index"),
+        "{}",
+        missing.stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Branches
+// ---------------------------------------------------------------------------
+
+#[test]
+fn creates_switches_renames_and_deletes_branches_in_a_real_repository() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record the base".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+
+    // Creating without checking out leaves the current branch alone.
+    let created = run(
+        &fixture,
+        PluginGitRequest::CreateBranch {
+            scope: PluginGitScope::Vault,
+            name: "shelf".to_string(),
+            start_point: Some("main".to_string()),
+            checkout: false,
+        },
+        None,
+    )
+    .expect("create branch");
+    assert_eq!(created.exit_code, 0, "{}", created.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["symbolic-ref", "--short", "HEAD"]).trim(),
+        "main"
+    );
+
+    let checked_out = run(
+        &fixture,
+        PluginGitRequest::CreateBranch {
+            scope: PluginGitScope::Vault,
+            name: "topic".to_string(),
+            start_point: Some("main".to_string()),
+            checkout: true,
+        },
+        None,
+    )
+    .expect("create and check out");
+    assert_eq!(checked_out.exit_code, 0, "{}", checked_out.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["symbolic-ref", "--short", "HEAD"]).trim(),
+        "topic"
+    );
+
+    let renamed = run(
+        &fixture,
+        PluginGitRequest::RenameBranch {
+            scope: PluginGitScope::Vault,
+            name: "shelf".to_string(),
+            new_name: "archive".to_string(),
+        },
+        None,
+    )
+    .expect("rename branch");
+    assert_eq!(renamed.exit_code, 0, "{}", renamed.stderr);
+
+    let deleted = run(
+        &fixture,
+        PluginGitRequest::DeleteBranch {
+            scope: PluginGitScope::Vault,
+            name: "archive".to_string(),
+            force: false,
+        },
+        None,
+    )
+    .expect("delete branch");
+    assert_eq!(deleted.exit_code, 0, "{}", deleted.stderr);
+
+    // Git itself refuses to delete the branch that is checked out, so the
+    // refusal does not depend on the surface alone.
+    let current = run(
+        &fixture,
+        PluginGitRequest::DeleteBranch {
+            scope: PluginGitScope::Vault,
+            name: "topic".to_string(),
+            force: false,
+        },
+        None,
+    )
+    .expect("delete current branch");
+    assert_ne!(current.exit_code, 0);
+
+    let switched = run(
+        &fixture,
+        PluginGitRequest::CheckoutBranch {
+            scope: PluginGitScope::Vault,
+            name: "main".to_string(),
+        },
+        None,
+    )
+    .expect("checkout");
+    assert_eq!(switched.exit_code, 0, "{}", switched.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["symbolic-ref", "--short", "HEAD"]).trim(),
+        "main"
+    );
+}
+
+#[test]
+fn refuses_a_checkout_that_would_overwrite_uncommitted_work() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "base\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record the base".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    run(
+        &fixture,
+        PluginGitRequest::CreateBranch {
+            scope: PluginGitScope::Vault,
+            name: "topic".to_string(),
+            start_point: None,
+            checkout: true,
+        },
+        None,
+    )
+    .expect("create topic");
+    fs::write(fixture.vault_root.join("alpha.md"), "topic side\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record the topic side".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    run(
+        &fixture,
+        PluginGitRequest::CheckoutBranch {
+            scope: PluginGitScope::Vault,
+            name: "main".to_string(),
+        },
+        None,
+    )
+    .expect("back to main");
+    fs::write(fixture.vault_root.join("alpha.md"), "work in progress\n").expect("note");
+
+    let blocked = run(
+        &fixture,
+        PluginGitRequest::CheckoutBranch {
+            scope: PluginGitScope::Vault,
+            name: "topic".to_string(),
+        },
+        None,
+    )
+    .expect("blocked checkout");
+
+    assert_ne!(blocked.exit_code, 0, "{}", blocked.stdout);
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("note"),
+        "work in progress\n",
+        "a refused checkout must leave the working tree exactly as it was"
+    );
+    assert_eq!(
+        git_output(&fixture.vault_root, &["symbolic-ref", "--short", "HEAD"]).trim(),
+        "main"
+    );
+}
+
+#[test]
+fn a_cancelled_hunk_application_never_reaches_the_index() {
+    use super::git::{GitOperationRegistry, run_git_plan};
+
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("alpha.md"), "alpha\nbeta\ngamma\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record a synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    fs::write(fixture.vault_root.join("alpha.md"), "alpha\nBETA\ngamma\n").expect("edit");
+    let before = git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]);
+
+    let steps = plan_git_request(&PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: synthetic_hunk(),
+    })
+    .expect("plan");
+    let directory = TempDir::new().expect("temp");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir_all(&hooks).expect("hooks");
+    let global_config = empty_global_config(directory.path());
+    let git = resolve_git_executable(None).expect("git");
+    let registry = GitOperationRegistry::default();
+    let token = registry
+        .register(PLUGIN_ID, &new_operation_id())
+        .expect("token");
+    // Cancelling before the plan starts is the only deterministic moment: a
+    // patch that already reached Git is applied whole or not at all.
+    registry
+        .cancel(PLUGIN_ID, &token.operation_id)
+        .expect("cancel");
+    let execution = GitExecution {
+        executable: &git,
+        repository_root: &fixture.vault_root,
+        hooks_directory: &hooks,
+        global_config: &global_config,
+        redacted_roots: vec![],
+        askpass: None,
+        encrypted: false,
+        transport: GitTransportPolicy::RemoteOnly,
+    };
+
+    let result = run_git_plan(&steps, &execution, &token).expect("plan result");
+    registry.finish(&token.operation_id);
+
+    assert!(result.cancelled);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]),
+        before,
+        "a cancelled hunk must leave the index exactly as it was"
+    );
+}
+
+#[test]
+fn reports_vault_encryption_in_the_discover_report() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    fs::write(fixture.vault_root.join("alpha.md"), "synthetic note\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+
+    let vault_key = encrypt_fixture(&fixture);
+    fixture
+        .app_state
+        .set_vault_key(vault_key)
+        .expect("unlock vault");
+
+    let discover = run(
+        &fixture,
+        PluginGitRequest::Discover {
+            scope: PluginGitScope::Vault,
+        },
+        None,
+    )
+    .expect("discover");
+
+    // A surface reads this to rule out stashing untracked files, which would
+    // take the encryption manifest out of the vault.
+    assert_eq!(discover.stdout, r#"{"encrypted":true,"initialized":true}"#);
+}
+
+/// A path whose last word looks like a timestamp is the exact shape `git apply`
+/// would otherwise cut short, applying the patch to a shorter path that happens
+/// to exist. The patch must reach only the path the request named.
+#[test]
+fn a_hunk_never_reaches_a_shorter_path_that_shares_its_prefix() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    fs::write(fixture.vault_root.join("Notes"), "alpha\nbeta\ngamma\n").expect("short note");
+    fs::write(
+        fixture.vault_root.join("Notes 2010-07-05"),
+        "alpha\nbeta\ngamma\n",
+    )
+    .expect("long note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["Notes".to_string(), "Notes 2010-07-05".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record two synthetic notes".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    fs::write(
+        fixture.vault_root.join("Notes 2010-07-05"),
+        "alpha\nBETA\ngamma\n",
+    )
+    .expect("edit");
+
+    let staged = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "Notes 2010-07-05".to_string(),
+            hunk: synthetic_hunk(),
+        },
+        None,
+    )
+    .expect("stage hunk");
+
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+    assert_eq!(
+        git_output(
+            &fixture.vault_root,
+            &["cat-file", "blob", ":0:Notes 2010-07-05"]
+        ),
+        "alpha\nBETA\ngamma\n"
+    );
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:Notes"]),
+        "alpha\nbeta\ngamma\n",
+        "the shorter path must never be staged in place of the named one"
+    );
+}
+
+/// Commits `alpha.md` with the given content and returns the note's path.
+fn committed_note(fixture: &GitFixture, name: &str, content: &str) -> PathBuf {
+    run(
+        fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    let note = fixture.vault_root.join(name);
+    fs::write(&note, content).expect("note");
+    run(
+        fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec![name.to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    run(
+        fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record a synthetic note".to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    note
+}
+
+/// A note may legitimately hold this vault's own absolute path and a URL that
+/// looks like it carries a password. Redaction protects diagnostics, not
+/// content: were a diff redacted, the surface would quote `<repository>` back
+/// in the hunk and Git would write that placeholder into the index in place of
+/// the note's real bytes.
+#[test]
+fn a_staged_hunk_matches_the_bytes_on_disk_even_when_they_look_like_a_secret() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    let note = committed_note(&fixture, "alpha.md", "alpha\nbeta\ngamma\n");
+    let root = fixture.vault_root.to_string_lossy().into_owned();
+    let credential = "https://synthetic:s3cr3t@example.invalid/vault.git";
+    let sensitive = format!("Cloned {credential} into {root}");
+    let edited = format!("alpha\n{sensitive}\ngamma\n");
+    fs::write(&note, &edited).expect("edit");
+
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Worktree,
+            paths: Some(vec!["alpha.md".to_string()]),
+        },
+        None,
+    )
+    .expect("diff");
+
+    assert_eq!(diff.exit_code, 0, "{}", diff.stderr);
+    assert!(
+        diff.stdout.contains(&format!("+{sensitive}\n")),
+        "a diff must report the line exactly as the file holds it: {}",
+        diff.stdout
+    );
+    // Redaction would have rewritten both halves of that line, which is
+    // precisely what must never be fed back into the index.
+    let roots = vec![fixture.vault_root.clone()];
+    let redacted = redact(&diff.stdout, &roots);
+    assert!(redacted.contains("<repository>") && redacted.contains("<redacted>@"));
+    assert_ne!(redacted, diff.stdout);
+
+    let staged = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: PluginGitHunk {
+                old_start: 1,
+                old_lines: 3,
+                new_start: 1,
+                new_lines: 3,
+                lines: vec![
+                    hunk_line(PluginGitHunkLineKind::Context, "alpha"),
+                    hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+                    hunk_line(PluginGitHunkLineKind::Addition, &sensitive),
+                    hunk_line(PluginGitHunkLineKind::Context, "gamma"),
+                ],
+            },
+        },
+        None,
+    )
+    .expect("stage hunk");
+
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]),
+        edited,
+        "the index must hold the worktree's bytes, not a redacted stand-in"
+    );
+    assert_eq!(fs::read_to_string(&note).expect("note"), edited);
+
+    // Everything that is not the content surface still hides both. A commit
+    // message is ordinary output, so `list-history` redacts it.
+    run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: sensitive.clone(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    let history = run(
+        &fixture,
+        PluginGitRequest::ListHistory {
+            scope: PluginGitScope::Vault,
+            max_count: 5,
+            skip: None,
+            r#ref: None,
+            path: None,
+        },
+        None,
+    )
+    .expect("history");
+    assert!(
+        !history.stdout.contains(credential) && !history.stdout.contains(&root),
+        "ordinary output must stay redacted: {}",
+        history.stdout
+    );
+    assert!(history.stdout.contains("<redacted>@example.invalid"));
+    assert!(history.stdout.contains("<repository>"));
+}
+
+/// Only a typed `diff` or `show` returns exact standard output. Standard error
+/// is a diagnostic whichever command wrote it, so it is redacted even there.
+#[cfg(unix)]
+#[test]
+fn exact_output_is_limited_to_diff_stdout_and_never_reaches_stderr() {
+    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+
+    let directory = TempDir::new().expect("temp");
+    let repository = directory.path().join("repository");
+    fs::create_dir_all(repository.join(".git")).expect("repository");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir_all(&hooks).expect("hooks");
+    let global_config = empty_global_config(directory.path());
+    let secret = format!(
+        "https://synthetic:s3cr3t@example.invalid/vault.git under {}",
+        repository.display()
+    );
+    // One script stands in for Git and writes the same bytes to both streams,
+    // so the only difference the assertions can see is the output mode.
+    let script = write_script(
+        directory.path(),
+        "echoing-git",
+        &format!("#!/bin/sh\nprintf '%s\\n' \"{secret}\"\nprintf '%s\\n' \"{secret}\" >&2\n"),
+    );
+    let registry = GitOperationRegistry::default();
+    let execution = GitExecution {
+        executable: &script,
+        repository_root: &repository,
+        hooks_directory: &hooks,
+        global_config: &global_config,
+        redacted_roots: vec![repository.clone()],
+        askpass: None,
+        encrypted: false,
+        transport: GitTransportPolicy::RemoteOnly,
+    };
+    let outcome = |request: PluginGitRequest| {
+        let steps = plan_git_request(&request).expect("plan");
+        let token = registry
+            .register(PLUGIN_ID, &new_operation_id())
+            .expect("token");
+        let result = run_git_plan(&steps, &execution, &token).expect("run");
+        registry.finish(&token.operation_id);
+        result
+    };
+
+    let diff = outcome(PluginGitRequest::Diff {
+        scope: PluginGitScope::Vault,
+        target: PluginGitDiffTarget::Worktree,
+        paths: None,
+    });
+    assert_eq!(diff.stdout, format!("{secret}\n"));
+    assert!(
+        !diff.stderr.contains("s3cr3t") && !diff.stderr.contains(&repository.display().to_string()),
+        "a diff's standard error is still a diagnostic: {}",
+        diff.stderr
+    );
+
+    let show = outcome(PluginGitRequest::Diff {
+        scope: PluginGitScope::Vault,
+        target: PluginGitDiffTarget::Commit {
+            commit: "HEAD".to_string(),
+        },
+        paths: None,
+    });
+    assert_eq!(show.stdout, format!("{secret}\n"));
+
+    let status = outcome(PluginGitRequest::Status {
+        scope: PluginGitScope::Vault,
+    });
+    assert!(
+        !status.stdout.contains("s3cr3t"),
+        "every other command stays redacted: {}",
+        status.stdout
+    );
+    assert!(status.stdout.contains("<redacted>@example.invalid"));
+    assert!(status.stdout.contains("<repository>"));
+}
+
+/// Hunk staging rebuilds a plaintext patch. An encrypted vault tracks
+/// ciphertext, so the host refuses both directions before Git starts, whatever
+/// a plugin surface chose to offer.
+#[test]
+fn encrypted_vaults_refuse_hunk_staging_in_either_direction() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    let note = committed_note(&fixture, "alpha.md", "alpha\nbeta\ngamma\n");
+    let committed = git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]);
+    let vault_key = encrypt_fixture(&fixture);
+    fixture
+        .app_state
+        .set_vault_key(vault_key)
+        .expect("unlock vault");
+    let ciphertext = fs::read(&note).expect("ciphertext");
+
+    for request in [
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: synthetic_hunk(),
+        },
+        PluginGitRequest::UnstageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: synthetic_hunk(),
+        },
+    ] {
+        let error = run(&fixture, request, None).expect_err("encrypted hunk");
+        assert!(
+            error.to_string().contains("stage whole files"),
+            "an encrypted vault must refuse hunk staging: {error}"
+        );
+    }
+
+    // Neither the index nor the worktree may have moved, and no plaintext line
+    // from the refused hunk may have been written anywhere.
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]),
+        committed
+    );
+    assert_eq!(fs::read(&note).expect("note"), ciphertext);
+    assert!(
+        crypto::is_encrypted_file(&ciphertext),
+        "the worktree file must still be ciphertext"
+    );
+    assert!(
+        !String::from_utf8_lossy(&ciphertext).contains("BETA"),
+        "no plaintext hunk line may reach the vault"
+    );
+}
+
+/// A file with CRLF endings produces hunk lines that end with a carriage
+/// return. It has to survive the round trip, or the reconstructed patch would
+/// not match the file it came from.
+#[test]
+fn carries_one_trailing_carriage_return_through_a_reconstructed_patch() {
+    let (_, patch) = apply_step(PluginGitRequest::StageHunk {
+        scope: PluginGitScope::Vault,
+        path: "alpha.md".to_string(),
+        hunk: PluginGitHunk {
+            old_start: 1,
+            old_lines: 3,
+            new_start: 1,
+            new_lines: 3,
+            lines: vec![
+                hunk_line(PluginGitHunkLineKind::Context, "alpha\r"),
+                hunk_line(PluginGitHunkLineKind::Deletion, "beta\r"),
+                hunk_line(PluginGitHunkLineKind::Addition, "BETA\r"),
+                hunk_line(PluginGitHunkLineKind::Context, "gamma\r"),
+            ],
+        },
+    });
+
+    assert_eq!(
+        patch,
+        concat!(
+            "--- a/alpha.md\t\n",
+            "+++ b/alpha.md\t\n",
+            "@@ -1,3 +1,3 @@\n",
+            " alpha\r\n",
+            "-beta\r\n",
+            "+BETA\r\n",
+            " gamma\r\n",
+        )
+    );
+
+    // Only the final byte may be a carriage return. Anywhere else it is a
+    // control character a request could use to forge patch structure.
+    for content in ["BE\rTA", "BETA\r\r", "\rBETA", "BETA\r\n@@ -1,1 +1,1 @@"] {
+        let error = plan_git_request(&PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: PluginGitHunk {
+                old_start: 1,
+                old_lines: 1,
+                new_start: 1,
+                new_lines: 1,
+                lines: vec![
+                    hunk_line(PluginGitHunkLineKind::Deletion, "beta"),
+                    hunk_line(PluginGitHunkLineKind::Addition, content),
+                ],
+            },
+        })
+        .expect_err("embedded carriage return");
+        assert!(
+            error.to_string().contains("control characters"),
+            "{content:?} must be refused: {error}"
+        );
+    }
+}
+
+#[test]
+fn stages_and_unstages_a_hunk_of_a_real_file_with_crlf_endings() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    let committed = "alpha\r\nbeta\r\ngamma\r\n";
+    let note = committed_note(&fixture, "alpha.md", committed);
+    let edited = "alpha\r\nBETA\r\ngamma\r\n";
+    fs::write(&note, edited).expect("edit");
+    let crlf_hunk = || PluginGitHunk {
+        old_start: 1,
+        old_lines: 3,
+        new_start: 1,
+        new_lines: 3,
+        lines: vec![
+            hunk_line(PluginGitHunkLineKind::Context, "alpha\r"),
+            hunk_line(PluginGitHunkLineKind::Deletion, "beta\r"),
+            hunk_line(PluginGitHunkLineKind::Addition, "BETA\r"),
+            hunk_line(PluginGitHunkLineKind::Context, "gamma\r"),
+        ],
+    };
+
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Worktree,
+            paths: Some(vec!["alpha.md".to_string()]),
+        },
+        None,
+    )
+    .expect("diff");
+    assert!(
+        diff.stdout.contains("+BETA\r\n"),
+        "Git reports the carriage return as part of the line: {:?}",
+        diff.stdout
+    );
+
+    let staged = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: crlf_hunk(),
+        },
+        None,
+    )
+    .expect("stage hunk");
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]),
+        edited
+    );
+
+    let unstaged = run(
+        &fixture,
+        PluginGitRequest::UnstageHunk {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            hunk: crlf_hunk(),
+        },
+        None,
+    )
+    .expect("unstage hunk");
+    assert_eq!(unstaged.exit_code, 0, "{}", unstaged.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:alpha.md"]),
+        committed
+    );
+    assert_eq!(
+        fs::read_to_string(&note).expect("note"),
+        edited,
+        "unstaging a hunk must never touch the working tree"
+    );
+}
+
+#[test]
+fn stages_and_unstages_a_hunk_whose_lines_look_like_file_headers() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    // A `-- ` line is what a SQL comment and an email signature separator both
+    // start with, and a `++ ` line is ordinary prose. Git writes them after the
+    // line marker as `--- ` and `+++ `, which is exactly what a file header
+    // looks like, so both the reported diff and the rebuilt patch have to keep
+    // reading them as content.
+    let committed = "intro\n-- separator\nmiddle\nold tail\noutro\n";
+    let note = committed_note(&fixture, "log.md", committed);
+    let edited = "intro\nmiddle\n++ other.md\nnew tail\noutro\n";
+    fs::write(&note, edited).expect("edit");
+    let ambiguous_hunk = || PluginGitHunk {
+        old_start: 1,
+        old_lines: 5,
+        new_start: 1,
+        new_lines: 5,
+        lines: vec![
+            hunk_line(PluginGitHunkLineKind::Context, "intro"),
+            hunk_line(PluginGitHunkLineKind::Deletion, "-- separator"),
+            hunk_line(PluginGitHunkLineKind::Context, "middle"),
+            hunk_line(PluginGitHunkLineKind::Deletion, "old tail"),
+            hunk_line(PluginGitHunkLineKind::Addition, "++ other.md"),
+            hunk_line(PluginGitHunkLineKind::Addition, "new tail"),
+            hunk_line(PluginGitHunkLineKind::Context, "outro"),
+        ],
+    };
+
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Worktree,
+            paths: Some(vec!["log.md".to_string()]),
+        },
+        None,
+    )
+    .expect("diff");
+    assert!(
+        diff.stdout.contains("\n--- separator\n") && diff.stdout.contains("\n+++ other.md\n"),
+        "Git reports the content after the marker verbatim: {:?}",
+        diff.stdout
+    );
+
+    let staged = run(
+        &fixture,
+        PluginGitRequest::StageHunk {
+            scope: PluginGitScope::Vault,
+            path: "log.md".to_string(),
+            hunk: ambiguous_hunk(),
+        },
+        None,
+    )
+    .expect("stage hunk");
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:log.md"]),
+        edited
+    );
+
+    let unstaged = run(
+        &fixture,
+        PluginGitRequest::UnstageHunk {
+            scope: PluginGitScope::Vault,
+            path: "log.md".to_string(),
+            hunk: ambiguous_hunk(),
+        },
+        None,
+    )
+    .expect("unstage hunk");
+    assert_eq!(unstaged.exit_code, 0, "{}", unstaged.stderr);
+    assert_eq!(
+        git_output(&fixture.vault_root, &["cat-file", "blob", ":0:log.md"]),
+        committed
+    );
+    assert_eq!(
+        fs::read_to_string(&note).expect("note"),
+        edited,
+        "unstaging a hunk must never touch the working tree"
     );
 }

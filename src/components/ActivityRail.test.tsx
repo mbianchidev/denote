@@ -184,5 +184,6 @@ function sourceControlModel() {
       cleanup: null,
       review: null,
     },
+    pendingBranchSwitch: null,
   };
 }

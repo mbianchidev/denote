@@ -229,11 +229,11 @@ and any other action ID is refused before the folder chooser opens or any native
 command runs.
 
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
-operation-state detection, initialize, stage, unstage, commit, branch and remote
-listing, history, diff, fetch, pull, push, remote add/set/remove, branch
-create/checkout/rename/delete, stash, merge, rebase, cherry-pick, revert,
-continue/skip/abort, conflict-stage reads, conflict resolution, clone, and
-cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
+operation-state detection, initialize, stage, unstage, hunk stage and unstage,
+commit, branch and remote listing, history, diff, fetch, pull, push, remote
+add/set/remove, branch create/checkout/rename/delete, stash, merge, rebase,
+cherry-pick, revert, continue/skip/abort, conflict-stage reads, conflict
+resolution, clone, and cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
 `public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
 never a credential. Every operation names exact structured fields; there is no argument
 array, option flag, or shell input, and the native host maps each operation to a
@@ -249,6 +249,35 @@ Conflict resolution requires the path to be genuinely unmerged in the index, so
 it can never overwrite an ordinary tracked or untracked file, and a resolution
 that is written but not staged is rolled back.
 
+`stage-hunk` and `unstage-hunk` carry one validated repository-relative path and
+one structured hunk: the four line numbers and an ordered list of lines, each a
+kind of `context`, `addition`, or `deletion` plus its text and an optional
+missing-final-newline marker. No patch text ever crosses the boundary. The host
+reconstructs a bounded unified patch for that exact path, writing every
+structural byte itself — both file headers, the hunk header, each line prefix,
+and every newline — and runs the fixed template
+`apply --cached --no-unsafe-paths --whitespace=nowarn -p1 [--reverse] -` with
+the patch on standard input. It refuses a line that carries a line terminator or
+any other control character, a hunk whose header disagrees with its lines, a
+hunk that changes nothing, a missing-newline marker anywhere but at the end of
+its side, a line over 8 KiB, more than 5000 lines, a patch over 1 MiB, and any
+path the existing path validation rejects. A line may end with one carriage
+return, because that is how Git reports a CRLF file, and it is written back into
+the patch unchanged; a second one, or one anywhere else in the line, is refused
+as a control character. An encrypted vault refuses both directions natively,
+because Git tracks ciphertext there and a hunk of it is not a change Denote can
+apply. `--cached` means only the index can
+change, and Git applies a patch whole or not at all, so a rejected, failed, or
+cancelled hunk leaves the index exactly as it was and never touches the working
+tree.
+
+`discover` reports `initialized` and `encrypted`. The encryption flag is the
+host's own preflight result, so a surface can rule out an operation an encrypted
+vault cannot survive — stashing untracked files, which would remove the vault's
+encryption manifest, and staging by hunk, which has no plaintext lines to choose
+between — before it offers it, rather than failing after the user presses the
+control. The host refuses all three itself in any case.
+
 Requests are scoped to the active vault root or the captured active project, and
 vault scope works without a marked project. The host resolves and pins a
 canonical Git executable, refuses `PATH` lookup, disables hooks, filters,
@@ -261,7 +290,10 @@ configuration before running. Operations use process
 groups, output bounded at 8 MiB that fails rather than truncates, a ten minute
 hard timeout, and a native per-plugin cancellation registry that is also cleared
 on disable, failed enable rollback, disable-all, and shutdown. Errors redact
-absolute host paths and URL passwords.
+absolute host paths and URL passwords, as does the standard output of every
+operation except the typed `diff` and `show` reads: those return Git's bytes
+unchanged, because a surface renders them as content and quotes them back in a
+hunk request.
 
 ### Remote authentication
 

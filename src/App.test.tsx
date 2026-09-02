@@ -117,6 +117,7 @@ vi.mock("./components/PlainTextEditor", () => ({
         {projectMode ? "project" : "standard"}:
         {onViewportChange ? "tracked" : "untracked"}
       </output>
+      <output aria-label={`Content of ${ariaLabel}`}>{value}</output>
       <button
         type="button"
         aria-label={`Change ${ariaLabel}`}
@@ -1132,6 +1133,280 @@ describe("App initial file-tree expansion", () => {
       vi.useRealTimers();
     }
   });
+
+  it("reloads every open tab from disk after a checkout and closes only what disappeared", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedTab = "branches";
+    model.selectedView = { kind: "branches" };
+    model.branches = [
+      {
+        name: "main",
+        current: true,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+      {
+        name: "topic",
+        current: false,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+
+    // Two panes, so the reconciliation has to keep the layout as well as the
+    // content.
+    const opened = splitPaneSnapshot([
+      fileNode("kept.txt", "text"),
+      fileNode("changed.txt", "text"),
+      fileNode("branch-only.txt", "text"),
+    ]);
+    const afterCheckout = splitPaneSnapshot([
+      fileNode("kept.txt", "text"),
+      fileNode("changed.txt", "text"),
+    ]);
+    mockApi.getLastVault.mockResolvedValue(opened);
+    mockApi.refreshVault.mockResolvedValue(afterCheckout);
+    const contents = new Map([
+      ["kept.txt", "kept before"],
+      ["changed.txt", "changed before"],
+      ["branch-only.txt", "only on this branch"],
+    ]);
+    mockApi.readNote.mockImplementation(async (path: string) => {
+      const content = contents.get(path);
+      if (content === undefined) {
+        throw new Error(`Unable to find ${path}`);
+      }
+      return {
+        path,
+        content,
+        contentHash: `${path}-hash`,
+        encoding: "utf8",
+        lineEnding: "lf",
+        stats: noteStats(),
+      };
+    });
+    mockPluginController.runSourceControlAction.mockImplementation(async () => {
+      contents.set("changed.txt", "changed after the checkout");
+      contents.delete("branch-only.txt");
+    });
+
+    render(<App />);
+    expect(
+      await screen.findByLabelText("Content of Edit changed.txt"),
+    ).toHaveTextContent("changed before");
+    expect(
+      screen.getByLabelText("Content of Edit branch-only.txt"),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Switch to topic" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Switch branch",
+      }),
+    );
+
+    await waitFor(
+      () => {
+        expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+          "denote.synthetic",
+          "git",
+          { id: "switch-branch", values: { branch: "topic", from: "main" } },
+          "/synthetic-vault",
+        );
+      },
+      { timeout: 5000 },
+    );
+    // The tab that still exists is reloaded with the checked-out content.
+    await waitFor(
+      () => {
+        expect(
+          screen.getByLabelText("Content of Edit changed.txt"),
+        ).toHaveTextContent("changed after the checkout");
+      },
+      { timeout: 5000 },
+    );
+    // The one whose file the checkout removed is closed, and named.
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByLabelText("Content of Edit branch-only.txt"),
+        ).not.toBeInTheDocument();
+      },
+      { timeout: 5000 },
+    );
+    expect(
+      screen.getAllByText(/Closed 1 tab whose file is not on this branch/)[0],
+    ).toBeInTheDocument();
+    // Everything else survives: pane layout, tab order, and the tabs whose
+    // files the checkout left alone.
+    expect(
+      screen.getByRole("button", { name: "Close kept.txt" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Close changed.txt" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Close branch-only.txt" }),
+    ).not.toBeInTheDocument();
+    expect(document.querySelectorAll("[data-pane-id]")).toHaveLength(2);
+  });
+
+  it("keeps an unsaved placeholder tab through a worktree-changing action", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedTab = "branches";
+    model.selectedView = { kind: "branches" };
+    model.branches = [
+      {
+        name: "main",
+        current: true,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+      {
+        name: "topic",
+        current: false,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.refreshVault.mockResolvedValue(snapshot);
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "New tab" }));
+    expect(
+      await screen.findByRole("button", { name: "Close New tab" }),
+    ).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Switch to topic" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Switch branch",
+      }),
+    );
+
+    await waitFor(
+      () => {
+        expect(mockPluginController.runSourceControlAction).toHaveBeenCalled();
+      },
+      { timeout: 5000 },
+    );
+    // A placeholder has a synthetic path rather than a vault path, so it is
+    // neither reloaded nor reported as a file the branch does not have.
+    expect(
+      screen.getByRole("button", { name: "Close New tab" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/whose file is not on this branch/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("flushes unsaved editor content before a checkout replaces it", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedTab = "branches";
+    model.selectedView = { kind: "branches" };
+    model.branches = [
+      {
+        name: "main",
+        current: true,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+      {
+        name: "topic",
+        current: false,
+        remote: false,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.refreshVault.mockResolvedValue(snapshot);
+    mockApi.readNote.mockResolvedValue({
+      path: "sample.py",
+      content: "print('synthetic')",
+      contentHash: "sample-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockApi.saveNote.mockResolvedValue({
+      path: "sample.py",
+      changed: true,
+      savedAt: "2026-01-01T00:00:00Z",
+      contentHash: "saved-sample-hash",
+      historyCount: 1,
+      stats: noteStats(),
+    });
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Open sample.py" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Change Edit sample.py" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Switch to topic" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Switch branch",
+      }),
+    );
+
+    await waitFor(
+      () => {
+        expect(mockApi.saveNote).toHaveBeenCalledWith(
+          "sample.py",
+          "print('synthetic') changed",
+          "utf8",
+          "lf",
+          "flush",
+          "sample-hash",
+        );
+      },
+      { timeout: 5000 },
+    );
+    // The save happens before Git runs, so a checkout can never overwrite an
+    // edit that was still only in the editor.
+    expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(
+      mockPluginController.runSourceControlAction.mock.invocationCallOrder[0],
+    );
+  });
+
 });
 
 function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
@@ -1191,6 +1466,37 @@ function workspaceSnapshot(tree: FileNode[]): WorkspaceSnapshot {
   };
 }
 
+/** Two panes restored from a synthetic tab session, so a test can split. */
+function splitPaneSnapshot(tree: FileNode[]): WorkspaceSnapshot {
+  const snapshot = workspaceSnapshot(tree);
+  const paths = tree.map((node) => node.path);
+  return {
+    ...snapshot,
+    restoreTabs: true,
+    tabSession: {
+      tabs: paths.map((path) => ({ path, groupId: null })),
+      groups: [],
+      activePath: paths[1] ?? null,
+      panes: [
+        {
+          id: "pane-1",
+          tabs: paths.slice(0, 2).map((path) => ({ path, groupId: null })),
+          groups: [],
+          activePath: paths[1] ?? null,
+        },
+        {
+          id: "pane-2",
+          tabs: paths.slice(2).map((path) => ({ path, groupId: null })),
+          groups: [],
+          activePath: paths[2] ?? null,
+        },
+      ],
+      layout: { kind: "horizontal", sizes: [0.5, 0.5] },
+      focusedPaneId: "pane-1",
+    },
+  };
+}
+
 function noteStats() {
   return {
     openCount: 1,
@@ -1236,6 +1542,7 @@ function appSourceControlModel(
     diffFiles: [],
     conflicts: [],
     recovery: { state: "idle" },
+    pendingBranchSwitch: null,
     remoteAccess: {
       authMode: "public" as const,
       cloneAvailable: true,

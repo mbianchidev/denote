@@ -3,12 +3,15 @@ import type {
   PluginSourceControlAuthMode,
   PluginSourceControlBranchChoice,
   PluginSourceControlConflictEntry,
+  PluginSourceControlDiffFile,
   PluginSourceControlHistoryEntry,
   PluginSourceControlOperationReview,
+  PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRecoveryState,
   PluginSourceControlRemote,
   PluginSourceControlRemoteAccess,
   PluginSourceControlRepositorySummary,
+  PluginSourceControlResource,
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
@@ -46,9 +49,11 @@ export interface GitModelBase {
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
   history: PluginSourceControlHistoryEntry[];
+  diffFiles: PluginSourceControlDiffFile[];
   conflicts: PluginSourceControlConflictEntry[];
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
+  pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
 }
 
 /**
@@ -122,8 +127,10 @@ export function initialModel(
       branches: [],
       remotes: [],
       history: [],
+      diffFiles: [],
       conflicts: [],
       recovery: { state: "idle" },
+      pendingBranchSwitch: null,
       // Remote and clone state survives a scope change: it describes how the
       // user signs in and what a failed clone left behind, neither of which
       // belongs to the repository that was open.
@@ -137,9 +144,7 @@ export function compose(
   base: GitModelBase,
   selection: GitSelection,
 ): PluginSourceControlViewModel {
-  // Diffs are not part of this increment, so a model never claims to hold diff
-  // content.
-  const shared = { ...base, diffFiles: [] };
+  const shared = { ...base };
   if (selection.tab === "history") {
     return { ...shared, selectedTab: "history", selectedView: selection.view };
   }
@@ -166,10 +171,44 @@ export function baseOf(model: PluginSourceControlViewModel): GitModelBase {
     branches: model.branches,
     remotes: model.remotes,
     history: model.history,
+    diffFiles: model.diffFiles,
     conflicts: model.conflicts,
     recovery: model.recovery,
     remoteAccess: model.remoteAccess,
+    pendingBranchSwitch: model.pendingBranchSwitch,
   };
+}
+
+/**
+ * Publishes a checkout that is waiting for an explicit answer, or clears one.
+ * A pending review never carries progress state, so the surface it replaces is
+ * the last settled one.
+ */
+export function withPendingBranchSwitch(
+  model: PluginSourceControlViewModel,
+  pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null,
+): PluginSourceControlViewModel {
+  return compose(
+    {
+      ...baseOf(model),
+      repository: idle(model.repository),
+      pendingBranchSwitch,
+    },
+    selectionOf(model),
+  );
+}
+
+/** Replaces the diff content a model reports, keeping everything else. */
+export function withDiffFiles(
+  model: PluginSourceControlViewModel,
+  diffFiles: PluginSourceControlDiffFile[],
+  selection: GitSelection,
+): PluginSourceControlViewModel {
+  const base = { ...baseOf(model), diffFiles };
+  return compose(
+    { ...base, resourceGroups: countedGroups(base.resourceGroups, diffFiles) },
+    selection,
+  );
 }
 
 export function withBusy(
@@ -214,8 +253,11 @@ export interface GitRefreshData {
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
   history: PluginSourceControlHistoryEntry[];
+  /** Diff content read for the selected path, when one is open. */
+  diffFiles: PluginSourceControlDiffFile[];
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
+  pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
 }
 
 /** Builds one coherent model from a completed refresh. */
@@ -242,13 +284,15 @@ export function refreshedModel(
           }
         : null,
     },
-    resourceGroups: resourceGroups(data.status),
+    resourceGroups: countedGroups(resourceGroups(data.status), data.diffFiles),
     branches: data.branches,
     remotes: data.remotes,
     history: data.history,
+    diffFiles: data.diffFiles,
     conflicts: conflictEntries(data.status),
     recovery: data.recovery,
     remoteAccess: data.remoteAccess,
+    pendingBranchSwitch: data.pendingBranchSwitch,
   };
   return compose(base, resolveSelection(selection, base));
 }
@@ -265,9 +309,11 @@ export function uninitializedModel(
       branches: [],
       remotes: [],
       history: [],
+      diffFiles: [],
       conflicts: [],
       recovery: { state: "idle" },
       remoteAccess,
+      pendingBranchSwitch: null,
     },
     { tab: "changes", view: { kind: "repository" } },
   );
@@ -295,6 +341,14 @@ export function resolveSelection(
   if (
     view.kind === "conflict" &&
     base.conflicts.some((conflict) => conflict.path === view.path)
+  ) {
+    return { tab: "changes", view };
+  }
+  // A diff selection survives only while the model still holds that file's
+  // parsed content, so a surface never labels an empty panel with a path.
+  if (
+    view.kind === "diff" &&
+    base.diffFiles.some((file) => file.path === view.path)
   ) {
     return { tab: "changes", view };
   }
@@ -365,6 +419,47 @@ function resourceGroups(
     { kind: "conflicted", label: "Conflicts", resources: status.conflicted },
   ];
   return groups.filter((group) => group.resources.length > 0);
+}
+
+/**
+ * Fills in the line counts a status report cannot give.
+ *
+ * `git status` reports which files changed, never by how much, so a row shows
+ * zeros until a diff for that exact path has been read. Counts are applied
+ * only for paths the parsed diff actually covers; nothing is estimated.
+ */
+function countedGroups(
+  groups: PluginSourceControlResourceGroup[],
+  diffFiles: PluginSourceControlDiffFile[],
+): PluginSourceControlResourceGroup[] {
+  if (diffFiles.length === 0) {
+    return groups;
+  }
+  const counts = new Map<string, PluginSourceControlDiffFile>();
+  for (const file of diffFiles) {
+    counts.set(file.path, file);
+  }
+  return groups.map((group) => ({
+    ...group,
+    resources: group.resources.map((resource) =>
+      counted(resource, counts.get(resource.path)),
+    ),
+  }));
+}
+
+function counted(
+  resource: PluginSourceControlResource,
+  file: PluginSourceControlDiffFile | undefined,
+): PluginSourceControlResource {
+  if (!file) {
+    return resource;
+  }
+  return {
+    ...resource,
+    additions: file.additions,
+    deletions: file.deletions,
+    binary: file.binary,
+  };
 }
 
 function conflictEntries(

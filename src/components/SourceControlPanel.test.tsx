@@ -21,7 +21,8 @@ describe("SourceControlPanel", () => {
     expect(
       screen.getByText(/This is a binary conflict/),
     ).toBeInTheDocument();
-    expect(screen.getByText("@@ -1,1 +1,1 @@")).toBeInTheDocument();
+    // A conflict is selected, not a diff, so no diff content is shown.
+    expect(screen.queryByText("@@ -1,1 +1,1 @@")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Refresh" }));
     await user.click(screen.getByRole("button", { name: "Fetch" }));
@@ -44,7 +45,7 @@ describe("SourceControlPanel", () => {
     await user.selectOptions(screen.getByLabelText("Branch"), "topic");
     expect(onAction).toHaveBeenCalledWith({
       id: "switch-branch",
-      values: { branch: "topic" },
+      values: { branch: "topic", from: "main" },
     });
 
     await user.click(
@@ -68,7 +69,7 @@ describe("SourceControlPanel", () => {
     );
     expect(onAction).toHaveBeenCalledWith({
       id: "open-diff",
-      values: { path: "draft.md" },
+      values: { path: "draft.md", group: "unstaged" },
     });
 
     await user.click(
@@ -391,6 +392,280 @@ describe("SourceControlPanel", () => {
       screen.getByText(/This repository has no remote yet/),
     ).toBeInTheDocument();
   });
+
+  it("stages and unstages one hunk of the open diff", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const { rerender } = render(
+      <SourceControlPanel
+        title="Git"
+        model={diffModel()}
+        onAction={onAction}
+      />,
+    );
+
+    // The panel names the group the row came from, so the provider knows which
+    // side of the index to read.
+    await user.click(screen.getByRole("button", { name: "Open diff for draft.md" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "open-diff",
+      values: { path: "draft.md", group: "unstaged" },
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Stage hunk @@ -1,1 +1,1 @@ in draft.md",
+      }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "stage-hunk",
+      values: { path: "draft.md", hunk: 0 },
+    });
+
+    rerender(
+      <SourceControlPanel
+        title="Git"
+        model={diffModel()}
+        onAction={onAction}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: "Open diff for ready.md" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "open-diff",
+      values: { path: "ready.md", group: "staged" },
+    });
+  });
+
+  it("offers no hunk action for a change Denote stages as a whole file", () => {
+    const model = diffModel();
+    model.diffFiles = [
+      {
+        ...model.diffFiles[0],
+        status: "renamed",
+        previousPath: "older.md",
+      },
+    ];
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /Stage hunk/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/stages this change as a whole file/)).toBeInTheDocument();
+  });
+
+  it("shows no diff, and no hunk action, outside a diff selection", () => {
+    const model = diffModel();
+    // Selecting the History tab keeps the diff content in the model, but it
+    // belongs to the Changes tab; showing it here would offer the inverse hunk
+    // action for the same lines.
+    const history = {
+      ...model,
+      selectedTab: "history" as const,
+      selectedView: { kind: "history" as const },
+    };
+    render(
+      <SourceControlPanel title="Git" model={history} onAction={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("heading", { name: "Diff" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Stage hunk/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no diff for an untracked file that Git cannot compare", () => {
+    const model = diffModel();
+    model.resourceGroups = [
+      {
+        kind: "untracked",
+        label: "Untracked",
+        resources: [
+          {
+            path: "fresh.md",
+            status: "added",
+            additions: 0,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      },
+    ];
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Open diff for fresh.md" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Stage fresh.md" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the branch selector visible and offers every branch control", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={remoteBranchesModel()}
+        onAction={onAction}
+      />,
+    );
+
+    expect(screen.getByLabelText("Branch")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Switch to topic" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "switch-branch",
+      values: { branch: "topic", from: "main" },
+    });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Check out origin/release as a local branch",
+      }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "checkout-remote-branch",
+      values: {
+        remoteBranch: "origin/release",
+        localName: "release",
+        from: "main",
+      },
+    });
+
+    const rename = screen.getByLabelText("New name for topic");
+    await user.clear(rename);
+    await user.type(rename, "topic-two");
+    await user.click(screen.getByRole("button", { name: "Rename topic" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "rename-branch",
+      values: { name: "topic", newName: "topic-two" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Delete topic" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "delete-branch",
+      values: { name: "topic" },
+    });
+
+    // The branch that is checked out can never be switched to or deleted.
+    expect(screen.getByRole("button", { name: "Switch to main" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Delete main" })).toBeDisabled();
+  });
+
+  it("creates a branch from a chosen start point, with or without checking out", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={remoteBranchesModel()}
+        onAction={onAction}
+      />,
+    );
+
+    await user.type(screen.getByLabelText("New branch name"), "release-notes");
+    await user.selectOptions(screen.getByLabelText("Start point"), "origin/release");
+    await user.click(
+      screen.getByLabelText("Check out the new branch straight away"),
+    );
+    await user.click(screen.getByRole("button", { name: "Create branch" }));
+
+    expect(onAction).toHaveBeenCalledWith({
+      id: "create-branch",
+      values: {
+        name: "release-notes",
+        startPoint: "origin/release",
+        checkout: true,
+        from: "main",
+      },
+    });
+  });
+
+  it("shows a pending switch with the exact paths and the three answers", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.pendingBranchSwitch = {
+      target: "origin/release",
+      localBranch: "release",
+      fromBranch: "main",
+      stagedPaths: ["ready.md"],
+      unstagedPaths: ["draft.md"],
+      untrackedPaths: ["fresh.md"],
+      commitAvailable: true,
+      stashAvailable: true,
+      stashUnavailableReason: null,
+      commitActionId: "branch-switch-commit",
+      stashActionId: "branch-switch-stash",
+      cancelActionId: "branch-switch-cancel",
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+
+    expect(
+      screen.getByRole("heading", { name: "Switch to release" }),
+    ).toBeInTheDocument();
+    for (const path of ["ready.md", "draft.md", "fresh.md"]) {
+      expect(screen.getByText(path)).toBeInTheDocument();
+    }
+
+    await user.type(
+      screen.getByLabelText("Commit message for the switch"),
+      "Record work before switching",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Commit all and switch" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "branch-switch-commit",
+      values: {
+        message: "Record work before switching",
+        branch: "release",
+        from: "main",
+      },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Stash and switch" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "branch-switch-stash",
+      values: { branch: "release", from: "main" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Cancel switch" }));
+    expect(onAction).toHaveBeenCalledWith({ id: "branch-switch-cancel" });
+  });
+
+  it("disables stashing and explains why when the vault is encrypted", () => {
+    const model = baseModel();
+    model.pendingBranchSwitch = {
+      target: "topic",
+      localBranch: null,
+      fromBranch: "main",
+      stagedPaths: [],
+      unstagedPaths: [],
+      untrackedPaths: ["fresh.md"],
+      commitAvailable: true,
+      stashAvailable: false,
+      stashUnavailableReason:
+        "This vault is encrypted, so Denote cannot stash while untracked files are present.",
+      commitActionId: "branch-switch-commit",
+      stashActionId: "branch-switch-stash",
+      cancelActionId: "branch-switch-cancel",
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Stash and switch" }),
+    ).toBeDisabled();
+    expect(screen.getByText(/This vault is encrypted/)).toBeInTheDocument();
+  });
+
 });
 
 function busyModel(): PluginSourceControlViewModel {
@@ -452,6 +727,7 @@ function baseModel(): PluginSourceControlViewModel {
     diffFiles: [],
     conflicts: [],
     recovery: { state: "idle" },
+    pendingBranchSwitch: null,
     remoteAccess: {
       authMode: "public" as const,
       cloneAvailable: true,
@@ -556,6 +832,97 @@ function changesModel(): PluginSourceControlViewModel {
       operationId: "operation-1",
       message: "Resolve conflicts to continue",
     },
+  };
+}
+
+/** One open, ordinary text diff with a staged and an unstaged row. */
+function diffModel(): PluginSourceControlViewModel {
+  return {
+    ...baseModel(),
+    selectedTab: "changes",
+    selectedView: { kind: "diff", path: "draft.md" },
+    resourceGroups: [
+      {
+        kind: "staged",
+        label: "Staged",
+        resources: [
+          {
+            path: "ready.md",
+            status: "modified",
+            additions: 2,
+            deletions: 1,
+            binary: false,
+          },
+        ],
+      },
+      {
+        kind: "unstaged",
+        label: "Changes",
+        resources: [
+          {
+            path: "draft.md",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            binary: false,
+          },
+        ],
+      },
+    ],
+    diffFiles: [
+      {
+        path: "draft.md",
+        previousPath: null,
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+        binary: false,
+        hunks: [
+          {
+            header: "@@ -1,1 +1,1 @@",
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 1,
+            lines: [
+              {
+                kind: "deletion",
+                oldLineNumber: 1,
+                newLineNumber: null,
+                content: "old synthetic line",
+              },
+              {
+                kind: "addition",
+                oldLineNumber: null,
+                newLineNumber: 1,
+                content: "new synthetic line",
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** The Branches tab with one remote-tracking branch to check out. */
+function remoteBranchesModel(): PluginSourceControlViewModel {
+  const base = baseModel();
+  return {
+    ...base,
+    selectedTab: "branches",
+    selectedView: { kind: "branches" },
+    branches: [
+      ...base.branches,
+      {
+        name: "origin/release",
+        current: false,
+        remote: true,
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+      },
+    ],
   };
 }
 

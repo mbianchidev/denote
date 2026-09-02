@@ -49,6 +49,11 @@ const MAX_RESOLVED_CONTENT_BYTES: usize = 32 * 1024 * 1024;
 /// Ceiling for snapshotting a file before conflict resolution replaces it.
 const MAX_ROLLBACK_BYTES: u64 = 64 * 1024 * 1024;
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+/// Bounds for one reconstructed hunk patch.
+const MAX_HUNK_LINES: usize = 5_000;
+const MAX_HUNK_LINE_BYTES: usize = 8 * 1024;
+const MAX_PATCH_BYTES: usize = 1024 * 1024;
+const MAX_HUNK_LINE_NUMBER: u32 = 100_000_000;
 
 const ATTRIBUTES_BEGIN: &str = "# BEGIN Denote encrypted vault (managed)";
 const ATTRIBUTES_END: &str = "# END Denote encrypted vault (managed)";
@@ -172,6 +177,40 @@ pub enum PluginGitConflictResolution {
     Content { content_base64: String },
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginGitHunkLineKind {
+    Context,
+    Addition,
+    Deletion,
+}
+
+/// One line of one hunk.
+///
+/// The content is the line's text only: it never carries a unified-diff
+/// prefix, a line terminator, or any other control character. The host adds
+/// the prefix and the newline while it reconstructs the patch, so a plugin
+/// cannot write a diff header, a second hunk, or another path into one.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginGitHunkLine {
+    pub kind: PluginGitHunkLineKind,
+    pub content: String,
+    #[serde(default)]
+    pub no_newline_at_end_of_file: bool,
+}
+
+/// One hunk of one file, described structurally rather than as patch text.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginGitHunk {
+    pub old_start: u32,
+    pub old_lines: u32,
+    pub new_start: u32,
+    pub new_lines: u32,
+    pub lines: Vec<PluginGitHunkLine>,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(
     tag = "operation",
@@ -199,6 +238,16 @@ pub enum PluginGitRequest {
     Unstage {
         scope: PluginGitScope,
         paths: Vec<String>,
+    },
+    StageHunk {
+        scope: PluginGitScope,
+        path: String,
+        hunk: PluginGitHunk,
+    },
+    UnstageHunk {
+        scope: PluginGitScope,
+        path: String,
+        hunk: PluginGitHunk,
     },
     Commit {
         scope: PluginGitScope,
@@ -373,6 +422,8 @@ impl PluginGitRequest {
             | Self::Initialize { scope, .. }
             | Self::Stage { scope, .. }
             | Self::Unstage { scope, .. }
+            | Self::StageHunk { scope, .. }
+            | Self::UnstageHunk { scope, .. }
             | Self::Commit { scope, .. }
             | Self::ListBranches { scope }
             | Self::ListRemotes { scope }
@@ -496,6 +547,30 @@ pub(crate) enum GitWriteSource {
     Literal(Vec<u8>),
 }
 
+/// How one command's standard output is turned into the text a plugin reads.
+///
+/// Standard error, and every diagnostic Denote writes itself, is always
+/// redacted whatever this says: only the one output a surface renders as
+/// content can be exact.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum GitOutputMode {
+    /// Absolute host paths and URL credentials are replaced before the text
+    /// reaches a plugin. Every command uses this unless it is listed below.
+    Redacted,
+    /// The bytes Git wrote, unchanged.
+    ///
+    /// Only the typed `diff` and `show` reads use it. Their output is the
+    /// approved content surface — it is what the source-control view renders,
+    /// and what a `stage-hunk` or `unstage-hunk` request quotes straight back
+    /// as the lines to apply. Redacting it would make the two disagree and
+    /// write a placeholder such as `<repository>` into the index in place of a
+    /// note's real bytes.
+    Exact,
+    /// Base64 of the raw bytes, for output that is file content rather than
+    /// text.
+    Base64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum GitPlanStep {
     Command {
@@ -504,7 +579,13 @@ pub(crate) enum GitPlanStep {
         /// cancellation must wait for the command boundary instead of killing
         /// Git midway.
         mutating: bool,
-        base64_output: bool,
+        output: GitOutputMode,
+    },
+    /// Feeds a host-reconstructed patch to Git on standard input. Only index
+    /// application uses it, so it is always mutating.
+    ApplyPatch {
+        args: Vec<String>,
+        patch: Vec<u8>,
     },
     /// Fails the plan unless the path currently has unmerged index entries, so
     /// conflict resolution can never write over an ordinary file.
@@ -555,6 +636,27 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
             let mut args = vec!["reset".into(), "--quiet".into(), "--".into()];
             args.extend(validated_paths(paths)?);
             vec![mutating(args)]
+        }
+        PluginGitRequest::StageHunk { path, hunk, .. }
+        | PluginGitRequest::UnstageHunk { path, hunk, .. } => {
+            let reverse = matches!(request, PluginGitRequest::UnstageHunk { .. });
+            let path = validated_path(path)?;
+            let patch = build_hunk_patch(&path, hunk)?;
+            // `--cached` applies to the index only, so neither the worktree
+            // nor any other path can be touched, and Git refuses the whole
+            // patch when any part of it does not apply.
+            let mut args: Vec<String> = vec![
+                "apply".into(),
+                "--cached".into(),
+                "--no-unsafe-paths".into(),
+                "--whitespace=nowarn".into(),
+                "-p1".into(),
+            ];
+            if reverse {
+                args.push("--reverse".into());
+            }
+            args.push("-".into());
+            vec![GitPlanStep::ApplyPatch { args, patch }]
         }
         PluginGitRequest::Commit {
             message,
@@ -682,7 +784,11 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                 full.push("--".into());
                 full.extend(validated_paths(paths)?);
             }
-            vec![read_only(full)]
+            // A diff is the one output a surface renders as content and quotes
+            // straight back in a hunk request, so it is never redacted: a
+            // replaced path or credential would be staged into the index as if
+            // the file really held it.
+            vec![exact_read(full)]
         }
         PluginGitRequest::Fetch { remote, prune, .. } => {
             validate_remote_name(remote)?;
@@ -945,7 +1051,7 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                     format!(":{}:{path}", stage_number(*stage)),
                 ],
                 mutating: false,
-                base64_output: true,
+                output: GitOutputMode::Base64,
             }]
         }
         PluginGitRequest::ResolveConflict {
@@ -965,7 +1071,7 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                             format!(":{}:{path}", stage_number(*stage)),
                         ],
                         mutating: false,
-                        base64_output: false,
+                        output: GitOutputMode::Redacted,
                     });
                     steps.push(GitPlanStep::WriteFile {
                         path: path.clone(),
@@ -1023,7 +1129,17 @@ fn read_only(args: Vec<String>) -> GitPlanStep {
     GitPlanStep::Command {
         args,
         mutating: false,
-        base64_output: false,
+        output: GitOutputMode::Redacted,
+    }
+}
+
+/// A read whose standard output is the content surface itself, returned byte
+/// for byte. Only `diff` and `show` may use it.
+fn exact_read(args: Vec<String>) -> GitPlanStep {
+    GitPlanStep::Command {
+        args,
+        mutating: false,
+        output: GitOutputMode::Exact,
     }
 }
 
@@ -1031,7 +1147,7 @@ fn mutating(args: Vec<String>) -> GitPlanStep {
     GitPlanStep::Command {
         args,
         mutating: true,
-        base64_output: false,
+        output: GitOutputMode::Redacted,
     }
 }
 
@@ -1050,6 +1166,156 @@ fn stage_number(stage: PluginGitConflictStage) -> u8 {
         PluginGitConflictStage::Ours => 2,
         PluginGitConflictStage::Theirs => 3,
     }
+}
+
+/// Reconstructs one bounded unified patch for one already validated path.
+///
+/// Nothing a plugin sent is copied into the patch verbatim except the text of
+/// each line, which is checked to hold no line terminator — beyond the trailing
+/// carriage return of a CRLF ending — and no other control character. Every
+/// structural byte — the two file headers, the hunk header, the per-line
+/// prefix, and each newline — is written here, so a request can never introduce
+/// a second file, a second hunk, a rename, a mode change, or binary content.
+fn build_hunk_patch(path: &str, hunk: &PluginGitHunk) -> AppResult<Vec<u8>> {
+    if hunk.lines.is_empty() || hunk.lines.len() > MAX_HUNK_LINES {
+        return Err(AppError::Plugin(format!(
+            "A Git hunk must hold between 1 and {MAX_HUNK_LINES} lines"
+        )));
+    }
+    for start in [hunk.old_start, hunk.new_start] {
+        if start > MAX_HUNK_LINE_NUMBER {
+            return Err(AppError::Plugin(
+                "A Git hunk starts beyond the supported line range".to_string(),
+            ));
+        }
+    }
+    // Git writes a zero start only for an empty side at the very beginning of
+    // a file. A non-zero start with an empty side is ordinary: it is where an
+    // insertion goes.
+    if (hunk.old_start == 0 && hunk.old_lines != 0) || (hunk.new_start == 0 && hunk.new_lines != 0)
+    {
+        return Err(AppError::Plugin(
+            "A Git hunk may only start at line zero when that side is empty".to_string(),
+        ));
+    }
+    let mut body = String::new();
+    let mut old_lines = 0u32;
+    let mut new_lines = 0u32;
+    let mut changes = 0usize;
+    let mut markers = 0usize;
+    for (index, line) in hunk.lines.iter().enumerate() {
+        validate_hunk_line_content(&line.content)?;
+        let prefix = match line.kind {
+            PluginGitHunkLineKind::Context => {
+                old_lines += 1;
+                new_lines += 1;
+                ' '
+            }
+            PluginGitHunkLineKind::Addition => {
+                new_lines += 1;
+                changes += 1;
+                '+'
+            }
+            PluginGitHunkLineKind::Deletion => {
+                old_lines += 1;
+                changes += 1;
+                '-'
+            }
+        };
+        body.push(prefix);
+        body.push_str(&line.content);
+        body.push('\n');
+        if line.no_newline_at_end_of_file {
+            markers += 1;
+            if markers > 2 || !ends_its_own_side(&hunk.lines, index) {
+                return Err(AppError::Plugin(
+                    "A Git hunk can only report a missing final newline on the last line of a side"
+                        .to_string(),
+                ));
+            }
+            body.push_str("\\ No newline at end of file\n");
+        }
+    }
+    if changes == 0 {
+        return Err(AppError::Plugin(
+            "A Git hunk must add or remove at least one line".to_string(),
+        ));
+    }
+    if old_lines != hunk.old_lines || new_lines != hunk.new_lines {
+        return Err(AppError::Plugin(
+            "A Git hunk header disagrees with the lines it carries".to_string(),
+        ));
+    }
+    // Git terminates a traditional name with a tab whenever the name could
+    // otherwise be cut short, because `git apply` reads a tab as the end of the
+    // name and would otherwise strip a trailing timestamp-shaped word from it.
+    // A validated path can never contain a tab, so terminating both names is
+    // unambiguous and keeps the patch pointed at exactly this one path.
+    let patch = format!(
+        "--- a/{path}\t\n+++ b/{path}\t\n@@ -{},{} +{},{} @@\n{body}",
+        hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines
+    );
+    if patch.len() > MAX_PATCH_BYTES {
+        return Err(AppError::Plugin(format!(
+            "A Git hunk patch cannot exceed {} KiB",
+            MAX_PATCH_BYTES / 1024
+        )));
+    }
+    Ok(patch.into_bytes())
+}
+
+/// Reports whether a line is the last one on every side it belongs to, which
+/// is the only place Git's missing-newline marker can legally appear.
+fn ends_its_own_side(lines: &[PluginGitHunkLine], index: usize) -> bool {
+    let line = &lines[index];
+    let old_side = matches!(
+        line.kind,
+        PluginGitHunkLineKind::Context | PluginGitHunkLineKind::Deletion
+    );
+    let new_side = matches!(
+        line.kind,
+        PluginGitHunkLineKind::Context | PluginGitHunkLineKind::Addition
+    );
+    !lines[index + 1..].iter().any(|later| {
+        (old_side
+            && matches!(
+                later.kind,
+                PluginGitHunkLineKind::Context | PluginGitHunkLineKind::Deletion
+            ))
+            || (new_side
+                && matches!(
+                    later.kind,
+                    PluginGitHunkLineKind::Context | PluginGitHunkLineKind::Addition
+                ))
+    })
+}
+
+/// A hunk line carries text, and may end with the carriage return of a CRLF
+/// line ending.
+///
+/// A line terminator inside the text would let a request write its own patch
+/// structure, and any other control character would reach Git as content it
+/// never produced. Exactly one trailing `\r` is allowed, because that is what
+/// Git itself writes for a file with CRLF endings and it has to survive the
+/// round trip or the reconstructed patch would not match the file.
+fn validate_hunk_line_content(content: &str) -> AppResult<()> {
+    if content.len() > MAX_HUNK_LINE_BYTES {
+        return Err(AppError::Plugin(format!(
+            "A Git hunk line cannot exceed {MAX_HUNK_LINE_BYTES} bytes"
+        )));
+    }
+    // Only the very last byte may be a carriage return, so a second one, or one
+    // anywhere else, is still refused as an embedded control character.
+    let text = content.strip_suffix('\r').unwrap_or(content);
+    if text
+        .chars()
+        .any(|character| character.is_control() && character != '\t')
+    {
+        return Err(AppError::Plugin(
+            "A Git hunk line cannot contain control characters".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1979,6 +2245,11 @@ pub(crate) struct GitExecution<'a> {
     /// Git child at Denote's own askpass mode and is destroyed with the
     /// operation.
     pub(crate) askpass: Option<&'a AskpassMaterial>,
+    /// True when the host's encryption preflight found a sealed, unlocked
+    /// encrypted vault. It is reported to a plugin by `discover`, so a surface
+    /// can rule out the operations an encrypted vault cannot survive before it
+    /// offers them.
+    pub(crate) encrypted: bool,
     pub(crate) transport: GitTransportPolicy,
 }
 
@@ -2073,10 +2344,50 @@ fn run_git_steps(
                 stdout_text.clear();
                 stdout_bytes.clear();
             }
+            GitPlanStep::ApplyPatch { args, patch } => {
+                // The index is the only thing this can change, and Git applies
+                // a patch as a whole, so a failure or a cancellation leaves the
+                // index exactly as it was.
+                token.set_mutating(true);
+                let outcome = run_git_command_with_input(
+                    args,
+                    execution,
+                    token,
+                    deadline,
+                    true,
+                    Some(patch.as_slice()),
+                )?;
+                token.set_mutating(false);
+                if outcome.cancelled {
+                    return Ok((cancelled_result(execution, token), false));
+                }
+                stdout_bytes = outcome.stdout;
+                stdout_text = redact(
+                    &String::from_utf8_lossy(&stdout_bytes),
+                    &execution.redacted_roots,
+                );
+                stderr_text = redact(
+                    &String::from_utf8_lossy(&outcome.stderr),
+                    &execution.redacted_roots,
+                );
+                if outcome.exit_code != 0 {
+                    return Ok((
+                        PluginGitResult {
+                            operation_id: token.operation_id.clone(),
+                            exit_code: outcome.exit_code,
+                            stdout: stdout_text,
+                            stderr: stderr_text,
+                            cancelled: false,
+                        },
+                        false,
+                    ));
+                }
+                rollback.clear();
+            }
             GitPlanStep::Command {
                 args,
                 mutating,
-                base64_output,
+                output,
             } => {
                 token.set_mutating(*mutating);
                 let outcome = run_git_command(args, execution, token, deadline, *mutating)?;
@@ -2085,14 +2396,16 @@ fn run_git_steps(
                     return Ok((cancelled_result(execution, token), false));
                 }
                 stdout_bytes = outcome.stdout;
-                stdout_text = if *base64_output {
-                    STANDARD.encode(&stdout_bytes)
-                } else {
-                    redact(
+                stdout_text = match output {
+                    GitOutputMode::Base64 => STANDARD.encode(&stdout_bytes),
+                    GitOutputMode::Exact => String::from_utf8_lossy(&stdout_bytes).into_owned(),
+                    GitOutputMode::Redacted => redact(
                         &String::from_utf8_lossy(&stdout_bytes),
                         &execution.redacted_roots,
-                    )
+                    ),
                 };
+                // Standard error is a diagnostic whatever the output mode is,
+                // so it is redacted even for an exact read.
                 stderr_text = redact(
                     &String::from_utf8_lossy(&outcome.stderr),
                     &execution.redacted_roots,
@@ -2198,6 +2511,20 @@ pub(crate) fn run_git_command(
     deadline: Instant,
     mutating: bool,
 ) -> AppResult<CommandOutcome> {
+    run_git_command_with_input(args, execution, token, deadline, mutating, None)
+}
+
+/// Runs one Git command, optionally feeding it a bounded host-built payload on
+/// standard input. Every other invocation keeps a closed standard input, so no
+/// Git child can ever read from the terminal or from an inherited handle.
+pub(crate) fn run_git_command_with_input(
+    args: &[String],
+    execution: &GitExecution<'_>,
+    token: &GitOperationToken,
+    deadline: Instant,
+    mutating: bool,
+    input: Option<&[u8]>,
+) -> AppResult<CommandOutcome> {
     let mut stdout_file = tempfile::tempfile()?;
     let mut stderr_file = tempfile::tempfile()?;
     let mut command = Command::new(execution.executable);
@@ -2205,13 +2532,32 @@ pub(crate) fn run_git_command(
     command.args(args);
     command
         .current_dir(execution.repository_root)
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::from(stdout_file.try_clone()?))
         .stderr(Stdio::from(stderr_file.try_clone()?));
     apply_environment(&mut command, execution);
-    let child = command
+    let mut child = command
         .group_spawn()
         .map_err(|error| AppError::Plugin(format!("Unable to start Git: {error}")))?;
+    // The payload is written from its own thread and the pipe is closed when
+    // that thread ends, so a payload larger than the pipe buffer can never
+    // deadlock against a child this thread is still waiting for.
+    let writer = match input {
+        Some(payload) => {
+            let mut pipe = child.inner().stdin.take().ok_or_else(|| {
+                AppError::Plugin("Unable to write the Git patch to the process".to_string())
+            })?;
+            let payload = payload.to_vec();
+            Some(thread::spawn(move || {
+                let _ = pipe.write_all(&payload);
+            }))
+        }
+        None => None,
+    };
     {
         let mut guard = token
             .child
@@ -2273,6 +2619,11 @@ pub(crate) fn run_git_command(
     {
         let _ = child.kill();
         let _ = child.wait();
+    }
+    // The child and its pipe are gone, so a writer that was still blocked has
+    // already been released and can be joined without waiting on Git.
+    if let Some(writer) = writer {
+        let _ = writer.join();
     }
     // The polling loop can miss output that a fast command wrote entirely
     // between two polls, so the final sizes are always re-checked once the
@@ -2494,6 +2845,7 @@ fn inspect_report(inspection: GitInspection, execution: &GitExecution<'_>) -> Ap
         GitInspection::Discover => serde_json::json!({
             "initialized": resolve_git_directory(execution.repository_root)?
                 == GitDirectoryState::Directory,
+            "encrypted": execution.encrypted,
         }),
         GitInspection::OperationState => {
             serde_json::to_value(detect_operation_state(&git_directory)).map_err(|error| {
@@ -2809,6 +3161,22 @@ impl PluginManager {
                 "Encrypted vaults cannot stash untracked files, because that would remove an untracked .denote/encryption.json manifest from the vault. Stash tracked changes instead.".to_string(),
             ));
         }
+        // Hunk staging reconstructs a plaintext patch and applies it to the
+        // index. An encrypted vault holds ciphertext, so the lines a diff of it
+        // could ever show are not the bytes Git tracks, and applying such a
+        // patch would either fail or write a plaintext fragment into the index
+        // of an encrypted repository. It is refused here, in the host, so no
+        // plugin surface can reach it however it renders the file.
+        if encrypted
+            && matches!(
+                request,
+                PluginGitRequest::StageHunk { .. } | PluginGitRequest::UnstageHunk { .. }
+            )
+        {
+            return Err(AppError::Plugin(
+                "Encrypted vaults stage whole files, because a hunk of ciphertext is not a change Denote can apply. Use Stage or Unstage on the file instead.".to_string(),
+            ));
+        }
         let state = resolve_git_directory(repository_root)?;
         if state == GitDirectoryState::Missing && request.requires_existing_repository() {
             return Err(AppError::Plugin(
@@ -2853,6 +3221,7 @@ impl PluginManager {
             global_config: &global_config,
             redacted_roots,
             askpass: askpass.as_ref(),
+            encrypted,
             transport,
         };
         run_git_plan(&steps, &execution, operation.token())
@@ -2904,6 +3273,7 @@ impl PluginManager {
                     global_config: context.global_config,
                     redacted_roots: vec![context.repository_root.to_path_buf()],
                     askpass: None,
+                    encrypted: false,
                     transport: context.transport,
                 };
                 read_remote_urls(&execution, remote, direction, token)?

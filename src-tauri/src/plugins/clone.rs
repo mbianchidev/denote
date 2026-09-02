@@ -198,6 +198,7 @@ impl PluginManager {
             global_config: &global_config,
             redacted_roots: vec![destination.clone()],
             askpass: askpass.as_ref(),
+            encrypted: false,
             transport,
         };
         match self.run_clone(&execution, &destination, request, token) {

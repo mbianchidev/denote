@@ -27,6 +27,7 @@ const model: PluginSourceControlViewModel = {
   diffFiles: [],
   conflicts: [],
   recovery: { state: "idle" },
+  pendingBranchSwitch: null,
   remoteAccess: {
     authMode: "public" as const,
     cloneAvailable: true,

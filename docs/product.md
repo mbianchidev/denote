@@ -312,8 +312,41 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
   and offers Retry, or an explicitly confirmed clean-up that deletes only that
   exact folder. Nothing is ever deleted automatically.
-- Branch switching, diffs, and conflict resolution are later increments and are
-  reported as unavailable rather than implied.
+- Branch work is explicit, reviewed, and never destructive. The Branches tab
+  creates a branch from the current branch, a local branch, or a
+  remote-tracking branch, optionally checking it out; switches, renames, and
+  deletes local branches; and checks out a remote-tracking branch by creating a
+  local branch that follows it, proposing the name and reporting a collision
+  instead of reusing an existing branch. The branch selector stays visible at
+  all times. Renaming and deleting apply to local branches only, the branch you
+  are on is never deleted, and nothing switches on its own after a fetch, a
+  remote update, or startup. Each of these asks first and names the exact
+  source and target; deleting is a dangerous confirmation.
+- A switch that would disturb work never runs. Denote re-reads the working tree
+  first: unresolved conflicts refuse the checkout outright, and any staged,
+  changed, or untracked file produces a review that lists every affected path
+  and offers exactly three answers — commit all of them, stash them, or cancel.
+  Committing stages exactly the listed paths and commits them with the message
+  and identity given. Stashing includes untracked files only in an unencrypted
+  vault; while an encrypted vault has untracked files, stashing is unavailable
+  and says why. Nothing is ever discarded, and once the commit or the stash has
+  succeeded every later problem — a failed checkout, a failed refresh, a
+  cancellation, a host refusal, or opening another repository part way through —
+  is reported with the same sentence saying where the work was preserved.
+- After a successful checkout, merge, rebase, pull, or the actions that resume
+  one, Denote reads the vault again and reloads every open tab from disk. Open
+  notes were saved before the action started, so nothing typed is lost. Pane
+  layout, tab order, groups, and each tab's language and view choices are kept;
+  only tabs whose files are not on the new branch are closed, and those are
+  named.
+- Changes can be staged a hunk at a time. Opening the diff for a changed or
+  staged file shows its hunks, and Stage hunk and Unstage hunk apply exactly
+  that one hunk of that one file to the index, leaving the file on disk alone.
+  Whole-file staging is unchanged. A binary, added, deleted, renamed, or copied
+  change is staged as a whole file instead, and says so, as does an encrypted
+  vault, whose tracked content is ciphertext with no lines to choose between.
+- File and commit diffs from history, and conflict resolution, are later
+  increments and are reported as unavailable rather than implied.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 

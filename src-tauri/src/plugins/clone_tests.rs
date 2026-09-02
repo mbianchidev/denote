@@ -782,6 +782,7 @@ fn only_an_authenticated_invocation_sees_the_askpass_marker() {
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: Some(&material),
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
     let plain = GitExecution {
@@ -791,6 +792,7 @@ fn only_an_authenticated_invocation_sees_the_askpass_marker() {
         global_config: &global_config,
         redacted_roots: vec![],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
 
@@ -1341,6 +1343,7 @@ fn reads_the_push_url_for_a_push_and_the_fetch_url_for_a_fetch() {
         global_config: &global_config,
         redacted_roots: vec![fixture.vault_root.clone()],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::AllowLocal,
     };
     let token = GitOperationToken::detached();
@@ -1528,6 +1531,7 @@ fn a_remote_repointed_after_validation_never_receives_the_token() {
         global_config: &global_config,
         redacted_roots: vec![fixture.vault_root.clone()],
         askpass: None,
+        encrypted: false,
         transport: GitTransportPolicy::AllowLocal,
     };
     let cancellation = GitOperationToken::detached();

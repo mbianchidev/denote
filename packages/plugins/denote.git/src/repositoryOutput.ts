@@ -150,6 +150,25 @@ export function parseInitialized(stdout: string): boolean {
   return value ? value.initialized === true : false;
 }
 
+export interface GitDiscovery {
+  initialized: boolean;
+  /**
+   * True when the host reported that this scope is a sealed, unlocked
+   * encrypted vault. Unknown output is treated as unencrypted, which only ever
+   * makes Denote offer less: the host refuses the operations an encrypted
+   * vault cannot survive anyway.
+   */
+  encrypted: boolean;
+}
+
+export function parseDiscovery(stdout: string): GitDiscovery {
+  const value = parseJson(stdout);
+  return {
+    initialized: value ? value.initialized === true : false,
+    encrypted: value ? value.encrypted === true : false,
+  };
+}
+
 export function describeOperationState(state: GitOperationState): string | null {
   if (state.mergeInProgress) {
     return "merge";

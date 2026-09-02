@@ -120,10 +120,48 @@ separate confirmation and deletes only that one folder. Denote never cleans it
 up for you. A cloned vault that is encrypted opens on the usual unlock screen,
 so no note is shown before you unlock it.
 
-Switching branches, file and commit diffs, and conflict resolution are not
-implemented in this version. Branches and recent commits appear as read-only
-information, and an interrupted merge or rebase is reported so you can finish it
-with your own Git tooling.
+The Branches tab does branch work. You can create a branch from the branch you
+are on, from another local branch, or from a remote-tracking branch, and check
+it out straight away if you want to. You can switch to a local branch, rename
+one, and delete one. Checking out a remote branch creates a local branch that
+follows it: Denote proposes the name by dropping the remote, lets you change it,
+and tells you when that name is already taken rather than quietly reusing an
+existing branch. Renaming and deleting only ever touch local branches, Denote
+refuses to delete the branch you are on, and nothing ever switches on its own
+after a fetch, a remote update, or startup. Each of these asks first and names
+the exact branch you are leaving and the one you are going to; deleting asks a
+dangerous confirmation.
+
+If switching would disturb work, Denote does not switch. It reads the working
+tree again first. Unresolved conflicts stop a checkout outright: finish or abort
+that operation with your own Git tooling, then refresh. Otherwise Denote lists
+every staged, changed, and untracked file and offers you three answers.
+**Commit all and switch** stages exactly those files and commits them with the
+message you type. **Stash and switch** puts them in the repository's stash;
+untracked files are included only when the vault is not encrypted, and while an
+encrypted vault has untracked files stashing is unavailable and says why.
+**Cancel switch** does nothing at all. Denote never discards your work: once it
+has committed or stashed, anything that goes wrong afterwards — the switch
+failing, you cancelling it, or opening another vault while it runs — is reported
+with a message that says exactly where your work is.
+
+After a switch, Denote saves your open notes first, then reads the vault again
+and reloads every open tab from disk. Your panes, tab order, tab groups, and
+each tab's language and view choices stay as they were. Only tabs whose files do
+not exist on the new branch are closed, and Denote names them.
+
+You can also stage part of a file. **Open diff** on a changed or staged file
+shows its hunks, and **Stage hunk** and **Unstage hunk** apply exactly that one
+hunk to the staging area without touching the file on disk. A binary, added,
+deleted, renamed, or copied change has no pair of matching text sides to split,
+so Denote stages it as a whole file and says so. An encrypted vault stages whole
+files too: Git records the ciphertext, so there are no lines in it to choose
+between.
+
+File and commit diffs from history, and conflict resolution, are not implemented
+in this version. Recent commits appear as read-only information, and an
+interrupted merge or rebase is reported so you can finish it with your own Git
+tooling.
 
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.

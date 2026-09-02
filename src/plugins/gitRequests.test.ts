@@ -15,6 +15,36 @@ const accepted: PluginGitRequest[] = [
   { operation: "stage", scope: "vault", paths: ["notes/alpha.md"] },
   { operation: "unstage", scope: "vault", paths: ["notes/alpha.md"] },
   {
+    operation: "stage-hunk",
+    scope: "vault",
+    path: "notes/alpha.md",
+    hunk: {
+      oldStart: 1,
+      oldLines: 2,
+      newStart: 1,
+      newLines: 2,
+      lines: [
+        { kind: "context", content: "one" },
+        { kind: "deletion", content: "two" },
+        { kind: "addition", content: "TWO" },
+      ],
+    },
+  },
+  {
+    operation: "unstage-hunk",
+    scope: "project",
+    path: "notes/alpha.md",
+    hunk: {
+      oldStart: 0,
+      oldLines: 0,
+      newStart: 1,
+      newLines: 1,
+      lines: [
+        { kind: "addition", content: "one", noNewlineAtEndOfFile: true },
+      ],
+    },
+  },
+  {
     operation: "commit",
     scope: "vault",
     message: "Record synthetic note",
@@ -294,6 +324,79 @@ describe("remote authentication and clone parsing", () => {
         url: "https://example.invalid/repo.git",
       }),
     ).toThrow();
+  });
+
+  it("keeps only the declared fields of a hunk and refuses a malformed one", () => {
+    const rebuilt = parsePluginGitRequest({
+      operation: "stage-hunk",
+      scope: "vault",
+      path: "notes/alpha.md",
+      // A plugin cannot smuggle patch text or another path past the parser.
+      patch: "--- a/other.md",
+      hunk: {
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        header: "@@ forged @@",
+        lines: [
+          { kind: "deletion", content: "one", extra: "ignored" },
+          { kind: "addition", content: "ONE" },
+        ],
+      },
+    });
+
+    expect(rebuilt).toEqual({
+      operation: "stage-hunk",
+      scope: "vault",
+      path: "notes/alpha.md",
+      hunk: {
+        oldStart: 1,
+        oldLines: 1,
+        newStart: 1,
+        newLines: 1,
+        lines: [
+          { kind: "deletion", content: "one" },
+          { kind: "addition", content: "ONE" },
+        ],
+      },
+    });
+
+    for (const invalid of [
+      { operation: "stage-hunk", scope: "vault", path: "a.md" },
+      {
+        operation: "stage-hunk",
+        scope: "vault",
+        path: "a.md",
+        hunk: { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [] },
+      },
+      {
+        operation: "stage-hunk",
+        scope: "vault",
+        path: "a.md",
+        hunk: {
+          oldStart: -1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [{ kind: "addition", content: "one" }],
+        },
+      },
+      {
+        operation: "stage-hunk",
+        scope: "vault",
+        path: "a.md",
+        hunk: {
+          oldStart: 1,
+          oldLines: 1,
+          newStart: 1,
+          newLines: 1,
+          lines: [{ kind: "header", content: "one" }],
+        },
+      },
+    ]) {
+      expect(() => parsePluginGitRequest(invalid)).toThrow();
+    }
   });
 
   it("bounds a repository listing and requires an opaque clean-up token", () => {

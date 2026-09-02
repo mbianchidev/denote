@@ -2,7 +2,9 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type {
   PluginSourceControlAction,
   PluginSourceControlAuthMode,
+  PluginSourceControlBranchChoice,
   PluginSourceControlDiffFile,
+  PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRemote,
   PluginSourceControlRemoteAccess,
   PluginSourceControlResourceGroup,
@@ -40,10 +42,12 @@ function ResourceGroup({
   group,
   busy,
   onAction,
+  onOpenDiff,
 }: {
   group: PluginSourceControlResourceGroup;
   busy: boolean;
   onAction: SourceControlPanelProps["onAction"];
+  onOpenDiff: (path: string, group: string) => void;
 }) {
   if (group.resources.length === 0) {
     return null;
@@ -90,14 +94,12 @@ function ResourceGroup({
                   Stage
                 </button>
               ) : null}
-              {group.kind !== "ignored" ? (
+              {group.kind === "staged" || group.kind === "unstaged" ? (
                 <button
                   type="button"
                   aria-label={`Open diff for ${resource.path}`}
                   disabled={busy}
-                  onClick={() =>
-                    onAction(action("open-diff", { path: resource.path }))
-                  }
+                  onClick={() => onOpenDiff(resource.path, group.kind)}
                 >
                   Open diff
                 </button>
@@ -122,7 +124,31 @@ function ResourceGroup({
   );
 }
 
-function DiffView({ files }: { files: PluginSourceControlDiffFile[] }) {
+/**
+ * Whether one file may be staged a hunk at a time.
+ *
+ * Only an ordinary modification of a tracked text file qualifies: a rename, a
+ * copy, an addition, a deletion, and binary content have no pair of matching
+ * text sides for a single-path patch to describe.
+ */
+function supportsHunkActions(file: PluginSourceControlDiffFile): boolean {
+  return (
+    !file.binary && file.status === "modified" && file.previousPath === null
+  );
+}
+
+function DiffView({
+  files,
+  staged,
+  busy,
+  onAction,
+}: {
+  files: PluginSourceControlDiffFile[];
+  /** True while the open diff shows the index against the last commit. */
+  staged: boolean;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
   if (files.length === 0) {
     return null;
   }
@@ -142,46 +168,433 @@ function DiffView({ files }: { files: PluginSourceControlDiffFile[] }) {
               Binary diff content cannot be displayed in Denote.
             </p>
           ) : (
-            file.hunks.map((hunk, index) => (
-              <section
-                className="source-control__diff-hunk"
-                key={`${hunk.header}:${index}`}
-                aria-label={hunk.header}
-              >
-                <h5>{hunk.header}</h5>
-                <ol>
-                  {hunk.lines.map((line, lineIndex) => (
-                    <li
-                      key={`${line.oldLineNumber}:${line.newLineNumber}:${lineIndex}`}
-                      data-kind={line.kind}
-                    >
-                      <span className="sr-only">
-                        {line.kind}
-                        {line.oldLineNumber === null
-                          ? ""
-                          : `, old line ${line.oldLineNumber}`}
-                        {line.newLineNumber === null
-                          ? ""
-                          : `, new line ${line.newLineNumber}`}
-                        {": "}
-                      </span>
-                      <span aria-hidden="true">
-                        {line.oldLineNumber ?? " "}
-                      </span>
-                      <span aria-hidden="true">
-                        {line.newLineNumber ?? " "}
-                      </span>
-                      <code>{line.content}</code>
-                    </li>
-                  ))}
-                </ol>
-              </section>
-            ))
+            <>
+              {supportsHunkActions(file) ? null : (
+                <p className="source-control__limitation" role="status">
+                  Denote stages this change as a whole file, because a{" "}
+                  {file.status} change has no matching pair of text sides to
+                  split into hunks.
+                </p>
+              )}
+              {file.hunks.map((hunk, index) => (
+                <section
+                  className="source-control__diff-hunk"
+                  key={`${hunk.header}:${index}`}
+                  aria-label={hunk.header}
+                >
+                  <h5>{hunk.header}</h5>
+                  {supportsHunkActions(file) ? (
+                    <div className="source-control__row-actions">
+                      <button
+                        type="button"
+                        aria-label={`${staged ? "Unstage" : "Stage"} hunk ${hunk.header} in ${file.path}`}
+                        disabled={busy}
+                        onClick={() =>
+                          onAction(
+                            action(staged ? "unstage-hunk" : "stage-hunk", {
+                              path: file.path,
+                              hunk: index,
+                            }),
+                          )
+                        }
+                      >
+                        {staged ? "Unstage hunk" : "Stage hunk"}
+                      </button>
+                    </div>
+                  ) : null}
+                  <ol>
+                    {hunk.lines.map((line, lineIndex) => (
+                      <li
+                        key={`${line.oldLineNumber}:${line.newLineNumber}:${lineIndex}`}
+                        data-kind={line.kind}
+                      >
+                        <span className="sr-only">
+                          {line.kind}
+                          {line.oldLineNumber === null
+                            ? ""
+                            : `, old line ${line.oldLineNumber}`}
+                          {line.newLineNumber === null
+                            ? ""
+                            : `, new line ${line.newLineNumber}`}
+                          {": "}
+                        </span>
+                        <span aria-hidden="true">
+                          {line.oldLineNumber ?? " "}
+                        </span>
+                        <span aria-hidden="true">
+                          {line.newLineNumber ?? " "}
+                        </span>
+                        <code>{line.content}</code>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              ))}
+            </>
           )}
         </article>
       ))}
+      <div className="source-control__actions">
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => onAction(action("close-diff"))}
+        >
+          Close diff
+        </button>
+      </div>
     </section>
   );
+}
+
+/**
+ * The checkout Denote prepared and did not run. Every path it would disturb is
+ * named, and the only offers are to commit them, to stash them, or to cancel:
+ * nothing here discards work.
+ */
+function PendingBranchSwitch({
+  pending,
+  busy,
+  onAction,
+}: {
+  pending: PluginSourceControlPendingBranchSwitch;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const [message, setMessage] = useState("");
+  const destination = pending.localBranch ?? pending.target;
+  const groups: Array<{ label: string; paths: string[] }> = [
+    { label: "Staged", paths: pending.stagedPaths },
+    { label: "Changed", paths: pending.unstagedPaths },
+    { label: "Untracked", paths: pending.untrackedPaths },
+  ];
+
+  return (
+    <section
+      className="source-control__pending-switch"
+      aria-labelledby="source-control-pending-switch"
+    >
+      <h3 id="source-control-pending-switch">Switch to {destination}</h3>
+      <p role="status">
+        Denote has not switched yet.{" "}
+        {pending.fromBranch
+          ? `Switching from ${pending.fromBranch} to ${destination}`
+          : `Switching to ${destination}`}{" "}
+        would disturb work in this vault, so choose what happens to it first.
+        {pending.localBranch && pending.localBranch !== pending.target
+          ? ` ${pending.localBranch} will be created from ${pending.target}.`
+          : ""}
+      </p>
+      {groups.map((group) =>
+        group.paths.length > 0 ? (
+          <div key={group.label}>
+            <h4>
+              {group.label} <span>{group.paths.length}</span>
+            </h4>
+            <ul className="source-control__pending-paths">
+              {group.paths.map((path) => (
+                <li key={`${group.label}:${path}`}>{path}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null,
+      )}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmed = message.trim();
+          if (!trimmed) {
+            return;
+          }
+          onAction(
+            action(pending.commitActionId, {
+              message: trimmed,
+              branch: destination,
+              from: pending.fromBranch ?? "",
+            }),
+          );
+        }}
+      >
+        <label className="source-control__field">
+          <span>Commit message for the switch</span>
+          <input
+            value={message}
+            disabled={busy || !pending.commitAvailable}
+            onChange={(event) => setMessage(event.currentTarget.value)}
+          />
+        </label>
+        <div className="source-control__actions">
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={
+              busy || !pending.commitAvailable || message.trim().length === 0
+            }
+          >
+            Commit all and switch
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy || !pending.stashAvailable}
+            onClick={() =>
+              onAction(
+                action(pending.stashActionId, {
+                  branch: destination,
+                  from: pending.fromBranch ?? "",
+                }),
+              )
+            }
+          >
+            Stash and switch
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => onAction(action(pending.cancelActionId))}
+          >
+            Cancel switch
+          </button>
+        </div>
+      </form>
+      {pending.stashUnavailableReason ? (
+        <p className="source-control__limitation" role="status">
+          {pending.stashUnavailableReason}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * Branch creation, switching, renaming, deletion, and remote-tracking
+ * checkout. Every control names the exact branch it acts on, and the host
+ * confirms the ones that change or delete something.
+ */
+function BranchManagement({
+  branches,
+  busy,
+  onAction,
+}: {
+  branches: PluginSourceControlBranchChoice[];
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const [name, setName] = useState("");
+  const [startPoint, setStartPoint] = useState("");
+  const [checkout, setCheckout] = useState(false);
+  const [renames, setRenames] = useState<Record<string, string>>({});
+  const [locals, setLocals] = useState<Record<string, string>>({});
+  const current = branches.find((branch) => branch.current)?.name ?? "";
+
+  return (
+    <section aria-labelledby="source-control-branches">
+      <h3 id="source-control-branches">Branches</h3>
+      {branches.length > 0 ? (
+        <ul className="source-control__branches">
+          {branches.map((branch) => {
+            const key = `${branch.remote ? "remote" : "local"}:${branch.name}`;
+            const proposed =
+              locals[branch.name] ?? localBranchNameFor(branch.name);
+            const renamed = renames[branch.name] ?? branch.name;
+            return (
+              <li key={key}>
+                <div className="source-control__resource-summary">
+                  <strong>{branch.name}</strong>
+                  <span>
+                    {branch.remote ? "Remote" : "Local"}
+                    {branch.current ? " · current" : ""} · {branch.ahead} ahead,{" "}
+                    {branch.behind} behind
+                  </span>
+                </div>
+                {branch.remote ? (
+                  <>
+                    <label className="source-control__field">
+                      <span>Local branch name for {branch.name}</span>
+                      <input
+                        value={proposed}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const next = event.currentTarget.value;
+                          setLocals((previous) => ({
+                            ...previous,
+                            [branch.name]: next,
+                          }));
+                        }}
+                      />
+                    </label>
+                    <div className="source-control__row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Check out ${branch.name} as a local branch`}
+                        disabled={busy || proposed.trim().length === 0}
+                        onClick={() =>
+                          onAction(
+                            action("checkout-remote-branch", {
+                              remoteBranch: branch.name,
+                              localName: proposed.trim(),
+                              from: current,
+                            }),
+                          )
+                        }
+                      >
+                        Check out
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <label className="source-control__field">
+                      <span>New name for {branch.name}</span>
+                      <input
+                        value={renamed}
+                        disabled={busy}
+                        onChange={(event) => {
+                          const next = event.currentTarget.value;
+                          setRenames((previous) => ({
+                            ...previous,
+                            [branch.name]: next,
+                          }));
+                        }}
+                      />
+                    </label>
+                    <div className="source-control__row-actions">
+                      <button
+                        type="button"
+                        aria-label={`Switch to ${branch.name}`}
+                        disabled={busy || branch.current}
+                        onClick={() =>
+                          onAction(
+                            action("switch-branch", {
+                              branch: branch.name,
+                              from: current,
+                            }),
+                          )
+                        }
+                      >
+                        Switch
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Rename ${branch.name}`}
+                        disabled={
+                          busy ||
+                          renamed.trim().length === 0 ||
+                          renamed.trim() === branch.name
+                        }
+                        onClick={() =>
+                          onAction(
+                            action("rename-branch", {
+                              name: branch.name,
+                              newName: renamed.trim(),
+                            }),
+                          )
+                        }
+                      >
+                        Rename
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Delete ${branch.name}`}
+                        disabled={busy || branch.current}
+                        onClick={() =>
+                          onAction(
+                            action("delete-branch", { name: branch.name }),
+                          )
+                        }
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="sidebar-empty">No branches.</p>
+      )}
+      <form
+        className="source-control__branch-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmed = name.trim();
+          if (!trimmed) {
+            return;
+          }
+          onAction(
+            action("create-branch", {
+              name: trimmed,
+              startPoint: startPoint.trim(),
+              checkout,
+              from: current,
+            }),
+          );
+          setName("");
+        }}
+      >
+        <label className="source-control__field">
+          <span>New branch name</span>
+          <input
+            value={name}
+            disabled={busy}
+            onChange={(event) => setName(event.currentTarget.value)}
+          />
+        </label>
+        <label className="source-control__field">
+          <span>Start point</span>
+          <select
+            value={startPoint}
+            disabled={busy}
+            onChange={(event) => setStartPoint(event.currentTarget.value)}
+          >
+            <option value="">
+              {current ? `Current branch (${current})` : "Current branch"}
+            </option>
+            {branches.map((branch) => (
+              <option
+                value={branch.name}
+                key={`start:${branch.remote ? "remote" : "local"}:${branch.name}`}
+              >
+                {branch.name}
+                {branch.remote ? " (remote)" : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="source-control__checkbox">
+          <input
+            type="checkbox"
+            checked={checkout}
+            disabled={busy}
+            onChange={(event) => setCheckout(event.currentTarget.checked)}
+          />
+          <span>Check out the new branch straight away</span>
+        </label>
+        <div className="source-control__actions">
+          <button
+            type="submit"
+            className="secondary-button"
+            disabled={busy || name.trim().length === 0}
+          >
+            Create branch
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+/**
+ * Proposes the local name for a remote-tracking branch by dropping the remote
+ * it lives under.
+ */
+function localBranchNameFor(remoteBranch: string): string {
+  const separator = remoteBranch.indexOf("/");
+  return separator === -1 ? remoteBranch : remoteBranch.slice(separator + 1);
 }
 
 function CloneOnboarding({
@@ -518,6 +931,15 @@ export function SourceControlPanel({
   const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
   const [chosenRemote, setChosenRemote] = useState("");
+  /**
+   * Which side of the index the open diff came from. The panel issued the
+   * action, so it is the only place that knows whether the hunks on screen are
+   * staged content or working-tree content.
+   */
+  const [diffOrigin, setDiffOrigin] = useState<{
+    path: string;
+    staged: boolean;
+  } | null>(null);
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
   const selectedBranch =
     model.branches.find((branch) => branch.current)?.name ??
@@ -577,7 +999,19 @@ export function SourceControlPanel({
   useEffect(() => {
     setCommitMessage("");
     setChosenRemote("");
+    setDiffOrigin(null);
   }, [repository.repositoryId]);
+
+  const openedDiffPath =
+    model.selectedView.kind === "diff" ? model.selectedView.path : null;
+  const stagedDiff =
+    openedDiffPath !== null &&
+    diffOrigin?.path === openedDiffPath &&
+    diffOrigin.staged;
+  const openDiff = (path: string, group: string) => {
+    setDiffOrigin({ path, staged: group === "staged" });
+    onAction(action("open-diff", { path, group }));
+  };
 
   const remoteNames = model.remotes.map((remote) => remote.name);
   // A repository normally has exactly one remote, so the first one is the
@@ -664,7 +1098,10 @@ export function SourceControlPanel({
               disabled={repository.busy || branchOptions.length === 0}
               onChange={(event) =>
                 onAction(
-                  action("switch-branch", { branch: event.currentTarget.value }),
+                  action("switch-branch", {
+                    branch: event.currentTarget.value,
+                    from: selectedBranch,
+                  }),
                 )
               }
             >
@@ -870,6 +1307,7 @@ export function SourceControlPanel({
                         group={group}
                         busy={repository.busy}
                         onAction={onAction}
+                        onOpenDiff={openDiff}
                       />
                     ))
                   ) : (
@@ -908,7 +1346,14 @@ export function SourceControlPanel({
                       ) : null}
                     </section>
                   ) : null}
-                  <DiffView files={model.diffFiles} />
+                  {model.selectedView.kind === "diff" ? (
+                    <DiffView
+                      files={model.diffFiles}
+                      staged={stagedDiff}
+                      busy={repository.busy}
+                      onAction={onAction}
+                    />
+                  ) : null}
                 </>
               ) : model.selectedTab === "history" ? (
                 <>
@@ -946,43 +1391,25 @@ export function SourceControlPanel({
                   ) : (
                     <p className="sidebar-empty">No commit history.</p>
                   )}
-                  <DiffView files={model.diffFiles} />
+                  {/* History diffs are a later increment, so a diff read for
+                      the Changes tab is never shown here as if it belonged to
+                      a commit. */}
+                  {model.selectedView.kind === "diff" ? (
+                    <DiffView
+                      files={model.diffFiles}
+                      staged={stagedDiff}
+                      busy={repository.busy}
+                      onAction={onAction}
+                    />
+                  ) : null}
                 </>
               ) : (
                 <div className="source-control__branch-lists">
-                  <section>
-                    <h3>Branches</h3>
-                    {model.branches.length > 0 ? (
-                      <ul>
-                        {model.branches.map((branch) => (
-                          <li
-                            key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
-                          >
-                            <button
-                              type="button"
-                              aria-pressed={branch.current}
-                              disabled={repository.busy || branch.current}
-                              onClick={() =>
-                                onAction(
-                                  action("switch-branch", {
-                                    branch: branch.name,
-                                  }),
-                                )
-                              }
-                            >
-                              <strong>{branch.name}</strong>
-                              <span>
-                                {branch.remote ? "Remote" : "Local"} ·{" "}
-                                {branch.ahead} ahead, {branch.behind} behind
-                              </span>
-                            </button>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="sidebar-empty">No branches.</p>
-                    )}
-                  </section>
+                  <BranchManagement
+                    branches={model.branches}
+                    busy={repository.busy}
+                    onAction={onAction}
+                  />
                   <RemoteManagement
                     remotes={model.remotes}
                     busy={repository.busy}
@@ -992,6 +1419,14 @@ export function SourceControlPanel({
               )}
             </div>
           </>
+        ) : null}
+
+        {model.pendingBranchSwitch ? (
+          <PendingBranchSwitch
+            pending={model.pendingBranchSwitch}
+            busy={repository.busy}
+            onAction={onAction}
+          />
         ) : null}
 
         <CloneOnboarding

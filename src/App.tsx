@@ -276,6 +276,7 @@ import type {
   HeadingItem,
   HistoryRevision,
   KnownVaultFile,
+  NoteDocument,
   PaneLayoutKind,
   ProjectConfiguration,
   ProjectRoot,
@@ -353,6 +354,8 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "initialize",
   "stage",
   "unstage",
+  "stage-hunk",
+  "unstage-hunk",
   "commit",
   "pull",
   "add-remote",
@@ -360,8 +363,11 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "remove-remote",
   "create-branch",
   "switch-branch",
+  "checkout-remote-branch",
   "rename-branch",
   "delete-branch",
+  "branch-switch-commit",
+  "branch-switch-stash",
   "stash",
   "merge",
   "rebase",
@@ -372,6 +378,31 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "abort",
   "resolve-conflict",
   "clone",
+]);
+
+/**
+ * Source-control actions that can replace what is on disk.
+ *
+ * A checkout, a merge, and everything that resumes one rewrite tracked files
+ * underneath the editor. Every open note was already flushed before the action
+ * started, so after one of these the workspace is read again and every open tab
+ * is reloaded from disk: what the editor shows is then the branch the
+ * repository is actually on, never a mixture of two.
+ */
+const WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS = new Set([
+  "switch-branch",
+  "checkout-remote-branch",
+  "create-branch",
+  "branch-switch-commit",
+  "branch-switch-stash",
+  "pull",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "revert",
+  "continue",
+  "skip",
+  "abort",
 ]);
 
 /**
@@ -389,11 +420,71 @@ function sourceControlConfirmation(
   const values = action.values ?? {};
   const value = (key: string) =>
     typeof values[key] === "string" ? (values[key] as string) : "";
+  const flag = (key: string) => values[key] === true;
   const remote = value("remote");
   const branch = value("branch");
   const name = value("name");
   const url = value("url");
+  const from = value("from");
+  const newName = value("newName");
+  const startPoint = value("startPoint");
+  const remoteBranch = value("remoteBranch");
+  const localName = value("localName");
+  const leaving = from ? `"${from}"` : "the current branch";
   switch (action.id) {
+    case "switch-branch":
+      return {
+        title: "Switch branches",
+        message: `Switch from ${leaving} to "${branch}"? Denote saves open notes first, and the checkout can change, add, or remove files in this vault.`,
+        confirmLabel: "Switch branch",
+        dangerous: false,
+      };
+    case "create-branch":
+      return {
+        title: flag("checkout") ? "Create and switch" : "Create a branch",
+        message: `Create "${name}" from ${startPoint ? `"${startPoint}"` : leaving}${
+          flag("checkout")
+            ? ", then switch to it? Denote saves open notes first, and the checkout can change, add, or remove files in this vault."
+            : "? You stay on the branch you are on and nothing in this vault changes."
+        }`,
+        confirmLabel: flag("checkout") ? "Create and switch" : "Create branch",
+        dangerous: false,
+      };
+    case "checkout-remote-branch":
+      return {
+        title: "Check out a remote branch",
+        message: `Create the local branch "${localName}" from "${remoteBranch}" and switch to it from ${leaving}? Denote saves open notes first, and the checkout can change, add, or remove files in this vault.`,
+        confirmLabel: "Check out",
+        dangerous: false,
+      };
+    case "rename-branch":
+      return {
+        title: "Rename a branch",
+        message: `Rename the local branch "${name}" to "${newName}"? Its commits stay exactly as they are, and any remote branch keeps its own name.`,
+        confirmLabel: "Rename branch",
+        dangerous: false,
+      };
+    case "delete-branch":
+      return {
+        title: "Delete a branch",
+        message: `Delete the local branch "${name}"? Commits that exist only on it can become unreachable. Denote never deletes the branch you are on, and never deletes a remote branch.`,
+        confirmLabel: "Delete branch",
+        dangerous: true,
+      };
+    case "branch-switch-commit":
+      return {
+        title: "Commit everything, then switch",
+        message: `Commit every listed change on ${leaving} and then switch to "${branch}"? Denote commits exactly the files it listed and discards nothing.`,
+        confirmLabel: "Commit and switch",
+        dangerous: false,
+      };
+    case "branch-switch-stash":
+      return {
+        title: "Stash everything, then switch",
+        message: `Stash every listed change from ${leaving} and then switch to "${branch}"? The work is kept in the repository's stash; Denote never drops a stash for you.`,
+        confirmLabel: "Stash and switch",
+        dangerous: false,
+      };
     case "pull":
       return {
         title: "Pull from a remote",
@@ -1623,50 +1714,59 @@ function App() {
     ],
   );
 
-  const refreshWorkspace = useCallback(async (reindex = false) => {
-    if (!workspace) {
-      return;
-    }
-    const generation = vaultGeneration.current;
-    const request = ++workspaceRefreshRequest.current;
-    const ignoredUpdates: GitignoreStatusUpdate[] = [];
-    gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
-    const configurationRevision = projectConfigurationRevision.current;
-    try {
-      const snapshot = await api.refreshVault();
-      if (
-        generation === vaultGeneration.current &&
-        request === workspaceRefreshRequest.current
-      ) {
-        setWorkspace((current) => {
-          const next =
-            configurationRevision === projectConfigurationRevision.current
-              ? snapshot
-              : withProjectConfiguration(snapshot, current ?? snapshot);
-          return {
-            ...next,
-            ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
-              next.ignoredPaths,
-              ignoredUpdates,
-            ),
-          };
-        });
-        if (reindex || !searchIndexReady.current) {
-          await rebuildSearchIndex(generation);
+  const refreshWorkspace = useCallback(
+    async (reindex = false): Promise<WorkspaceSnapshot | null> => {
+      if (!workspace) {
+        return null;
+      }
+      const generation = vaultGeneration.current;
+      const request = ++workspaceRefreshRequest.current;
+      const ignoredUpdates: GitignoreStatusUpdate[] = [];
+      gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
+      const configurationRevision = projectConfigurationRevision.current;
+      let applied: WorkspaceSnapshot | null = null;
+      try {
+        const snapshot = await api.refreshVault();
+        if (
+          generation === vaultGeneration.current &&
+          request === workspaceRefreshRequest.current
+        ) {
+          setWorkspace((current) => {
+            const next =
+              configurationRevision === projectConfigurationRevision.current
+                ? snapshot
+                : withProjectConfiguration(snapshot, current ?? snapshot);
+            return {
+              ...next,
+              ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
+                next.ignoredPaths,
+                ignoredUpdates,
+              ),
+            };
+          });
+          // Only the file tree is reported back, and it is the same in either
+          // branch of the updater above, so it is read from the snapshot
+          // rather than from a state updater React may run later.
+          applied = snapshot;
+          if (reindex || !searchIndexReady.current) {
+            await rebuildSearchIndex(generation);
+          }
         }
+      } catch (caught) {
+        if (
+          generation === vaultGeneration.current &&
+          request === workspaceRefreshRequest.current
+        ) {
+          setIndexing(false);
+          showError(caught);
+        }
+      } finally {
+        gitignoreSnapshotUpdates.current.delete(request);
       }
-    } catch (caught) {
-      if (
-        generation === vaultGeneration.current &&
-        request === workspaceRefreshRequest.current
-      ) {
-        setIndexing(false);
-        showError(caught);
-      }
-    } finally {
-      gitignoreSnapshotUpdates.current.delete(request);
-    }
-  }, [rebuildSearchIndex, showError, workspace]);
+      return applied;
+    },
+    [rebuildSearchIndex, showError, workspace],
+  );
 
   const applyProjectConfiguration = useCallback(
     (
@@ -4054,10 +4154,119 @@ function App() {
 
   const refreshAndReindex = useCallback(async () => {
     if (!workspace) {
-      return;
+      return null;
     }
-    await refreshWorkspace(true);
+    return refreshWorkspace(true);
   }, [refreshWorkspace, workspace]);
+
+  /**
+   * Puts every open tab back in step with the working tree after Git replaced
+   * what is on disk.
+   *
+   * Open notes were flushed before the action started, so nothing here can
+   * lose an edit: every tab is read again from disk. Pane layout, tab order,
+   * groups, and each tab's language and view choices are untouched, so only
+   * the bytes change. A tab whose file the checkout removed is closed and
+   * named, and a tab whose content really changed is given a new editor
+   * revision, because an editor history built on the previous branch could
+   * otherwise write those bytes back.
+   */
+  const reloadOpenTabsFromDisk = useCallback(
+    async (snapshot: WorkspaceSnapshot | null): Promise<void> => {
+      const open = [...tabsRef.current];
+      if (open.length === 0) {
+        return;
+      }
+      const reloaded = new Map<
+        string,
+        { document: NoteDocument; imageDataUrl?: string }
+      >();
+      const disappeared = new Set<string>();
+      for (const tab of open) {
+        // A placeholder tab has a synthetic path rather than a vault path, so
+        // there is nothing on disk to reload and nothing that can disappear.
+        if (
+          tab.placeholder ||
+          reloaded.has(tab.path) ||
+          disappeared.has(tab.path)
+        ) {
+          continue;
+        }
+        if (snapshot && !findNode(snapshot.tree, tab.path)) {
+          disappeared.add(tab.path);
+          continue;
+        }
+        cancelPendingPath(tab.path);
+        try {
+          const document = await api.readNote(tab.path);
+          const imageDataUrl =
+            tab.kind === "image"
+              ? await api.readImageDataUrl(tab.path)
+              : undefined;
+          reloaded.set(
+            tab.path,
+            imageDataUrl === undefined
+              ? { document }
+              : { document, imageDataUrl },
+          );
+        } catch {
+          disappeared.add(tab.path);
+        }
+      }
+      let removedPaths: string[] = [];
+      commitPaneState((current) => {
+        const removal = removePaneTabs(current.panes, (path) =>
+          disappeared.has(path),
+        );
+        removedPaths = removal.removedPaths;
+        return {
+          ...current,
+          panes: removal.panes.map((pane) => ({
+            ...pane,
+            tabs: pane.tabs.map((tab) => {
+              const update = reloaded.get(tab.path);
+              if (!update) {
+                return tab;
+              }
+              const changed = update.document.content !== tab.savedContent;
+              return {
+                ...tab,
+                content: update.document.content,
+                savedContent: update.document.content,
+                savedHash: update.document.contentHash,
+                encoding: update.document.encoding,
+                lineEnding: update.document.lineEnding,
+                stats: update.document.stats,
+                ...(update.imageDataUrl === undefined
+                  ? {}
+                  : { imageDataUrl: update.imageDataUrl }),
+                editorRevision: changed
+                  ? tab.editorRevision + 1
+                  : tab.editorRevision,
+                editRecorded: false,
+                saveState: "saved" as const,
+              };
+            }),
+          })),
+        };
+      });
+      for (const path of removedPaths) {
+        cancelPendingPath(path);
+        dispatchErrors({ type: "remove-markdown-prefix", path });
+      }
+      if (removedPaths.length > 0) {
+        setSelectedPath((current) =>
+          current !== null && disappeared.has(current) ? null : current,
+        );
+        setStatus(
+          `Closed ${removedPaths.length} tab${
+            removedPaths.length === 1 ? "" : "s"
+          } whose file is not on this branch: ${removedPaths.join(", ")}`,
+        );
+      }
+    },
+    [cancelPendingPath, commitPaneState],
+  );
 
   const runSourceControlAction = useCallback(
     async (
@@ -4093,7 +4302,15 @@ function App() {
         // A clone already replaced the workspace, so refreshing the vault the
         // action started in would read a vault that is no longer open.
         if (mutatesWorkspace && !clonedDuringAction.current) {
-          await refreshAndReindex();
+          const snapshot = await refreshAndReindex();
+          if (WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS.has(action.id)) {
+            await reloadOpenTabsFromDisk(snapshot);
+            await refreshIgnoredStatus(
+              vaultGeneration.current,
+              workspace.vaultPath,
+              [],
+            );
+          }
         }
       } catch (caught) {
         showError(caught);
@@ -4108,6 +4325,8 @@ function App() {
       beginWorkspaceOperation,
       pluginController,
       refreshAndReindex,
+      refreshIgnoredStatus,
+      reloadOpenTabsFromDisk,
       requestConfirmation,
       setWorkspaceLock,
       showError,
@@ -6315,7 +6534,9 @@ function App() {
       description: "Rescan files and rebuild search.",
       category: "Vault",
       disabled: !workspaceReady,
-      run: refreshAndReindex,
+      run: () => {
+        void refreshAndReindex();
+      },
     },
     ...projectCommands,
     {

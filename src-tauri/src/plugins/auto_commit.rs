@@ -945,6 +945,7 @@ impl PluginManager {
             // An automatic commit is local by construction: it never contacts
             // a remote, so it never needs credentials.
             askpass: None,
+            encrypted,
             transport: GitTransportPolicy::RemoteOnly,
         };
         // Registering with the shared operation registry is what makes a

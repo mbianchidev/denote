@@ -198,6 +198,19 @@ update that belongs to the workspace the user just left. Provider updates
 replace the displayed model
 live, while unregistering or disabling the provider clears its selection and
 returns the sidebar to Files.
+
+Source-control actions that can mutate the vault take the workspace lock, which
+flushes every open note and the tab session before the provider runs, and
+refresh the workspace snapshot and search index afterwards. A smaller set —
+checkout, create-and-checkout, the two answers that resolve a pending branch
+switch, pull, merge, rebase, cherry-pick, revert, and continue, skip, or abort —
+can also replace what is on disk, so those additionally reload every open tab
+from the refreshed vault. The reconciliation keeps pane layout, tab order,
+groups, and each tab's language and view choices, replaces only the bytes,
+closes and names the tabs whose paths the refreshed tree no longer has, and
+gives a tab whose content really changed a new editor revision so an editor
+history built on the previous branch cannot write those bytes back. Ignored
+status is re-read in the same pass.
 Workspace text reads return
 a content version that writes must present unchanged, reusing the canonical
 vault boundary and conflict hashes;
@@ -236,6 +249,32 @@ resolution touches the worktree, the transport requires that exact path to have
 unmerged index entries, so an ordinary tracked file, an untracked file, or a
 folder that merely contains a conflict can never be overwritten. A plan that writes a resolution and then stops before staging it
 puts the original file back.
+
+Hunk staging is structural, not textual. `stage-hunk` and `unstage-hunk` carry
+one validated path and one hunk described as four line numbers and an ordered
+list of typed lines. The host writes every structural byte of the patch itself —
+both file headers, the hunk header, each line prefix, and every newline — so a
+request cannot introduce a second file, a second hunk, a rename, a mode change,
+or binary content. Line text may end with the single carriage return of a CRLF
+ending, which is preserved so a real CRLF diff still applies. Line text that
+carries a line terminator, a second or misplaced carriage return, or any other
+control character, a header that disagrees with its lines, a hunk that changes nothing,
+a missing-newline marker away from the end of its side, and anything beyond the
+line, count, and patch-size bounds are all refused before a process starts. The
+patch is fed to `apply --cached --no-unsafe-paths --whitespace=nowarn -p1
+[--reverse] -` on standard input, from a dedicated writer thread so a payload
+larger than the pipe buffer cannot deadlock the child. `--cached` restricts the
+change to the index, and Git applies a patch whole or not at all, so a refused,
+failed, or cancelled hunk leaves the index and the worktree exactly as they
+were. Standard input is a closed handle for every other Git invocation.
+
+`GitExecution` carries the host's encryption preflight result, and the
+`discover` inspection reports it alongside `initialized`. That is the only way
+encryption state reaches a plugin, and it exists so a surface can withhold an
+operation an encrypted vault cannot survive instead of failing after the user
+presses the control. The host does not rely on it: an encrypted vault refuses a
+content conflict resolution, an untracked stash, and both hunk directions
+natively, before any Git command starts, whatever a surface offered.
 
 Every request is scoped to either the active vault root or the captured active
 project, and vault scope works with no project marked. The command layer
@@ -347,7 +386,12 @@ back, so a cancelled conflict resolution is either fully unresolved or fully
 resolved with the index and the worktree agreeing, and it stays retryable either
 way. Plugin disable, failed enable rollback, disable-all, and application
 exit cancel with force, so no live child is ever left behind. Errors carry
-command output with absolute host paths and URL passwords redacted.
+command output with absolute host paths and URL passwords redacted. Standard
+error is redacted for every operation without exception; standard output is too,
+except for the typed `diff` and `show` reads, whose output is returned byte for
+byte because it is the content a surface renders and quotes back verbatim in a
+hunk request — a redacted diff would stage `<repository>` into the index in
+place of a note's real bytes.
 
 Encryption is handled entirely by the host. Vault encryption, sealing, and
 sweeping skip every `.git` file and directory subtree without deleting it, so

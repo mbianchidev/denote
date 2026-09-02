@@ -309,6 +309,7 @@ export function isPluginSourceControlViewModel(
     !isArrayOf(value.conflicts, isConflict) ||
     !isRecovery(value.recovery) ||
     !isRemoteAccess(value.remoteAccess) ||
+    !isPendingBranchSwitch(value.pendingBranchSwitch) ||
     !isRecord(value.selectedView)
   ) {
     return false;
@@ -510,8 +511,39 @@ function isConflict(value: unknown): boolean {
   );
 }
 
-function isRecovery(value: unknown): boolean {
-  if (!isRecord(value)) {
+/**
+ * A pending branch switch names the exact ref, the exact paths it would
+ * disturb, and the three action IDs a surface may return. Anything else is
+ * rejected, so a model can never ask the host to render an unstructured
+ * prompt.
+ */
+function isPendingBranchSwitch(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.target === "string" &&
+    (value.localBranch === null || typeof value.localBranch === "string") &&
+    (value.fromBranch === null || typeof value.fromBranch === "string") &&
+    isArrayOf(value.stagedPaths, isText) &&
+    isArrayOf(value.unstagedPaths, isText) &&
+    isArrayOf(value.untrackedPaths, isText) &&
+    typeof value.commitAvailable === "boolean" &&
+    typeof value.stashAvailable === "boolean" &&
+    (value.stashUnavailableReason === null ||
+      typeof value.stashUnavailableReason === "string") &&
+    typeof value.commitActionId === "string" &&
+    typeof value.stashActionId === "string" &&
+    typeof value.cancelActionId === "string"
+  );
+}
+
+function isText(value: unknown): boolean {
+  return typeof value === "string";
+}
+
+function isRecovery(value: unknown): boolean {  if (!isRecord(value)) {
     return false;
   }
   if (value.state === "idle") {

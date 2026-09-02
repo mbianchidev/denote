@@ -392,6 +392,11 @@ export interface PluginSourceControlDiffLine {
   oldLineNumber: number | null;
   newLineNumber: number | null;
   content: string;
+  /**
+   * True when Git reported "\ No newline at end of file" straight after this
+   * line. It is carried so a hunk can be restaged exactly as it was read.
+   */
+  noNewlineAtEndOfFile?: boolean;
 }
 
 export interface PluginSourceControlDiffHunk {
@@ -488,6 +493,43 @@ export interface PluginSourceControlRemoteAccess {
   review: PluginSourceControlOperationReview | null;
 }
 
+/**
+ * One checkout that has been prepared but not run, because the working tree
+ * holds changes a checkout could block or alter.
+ *
+ * The provider publishes it instead of running the checkout, so the user
+ * chooses explicitly what happens to that work. Nothing here discards
+ * anything: the only offers are to commit the listed paths, to stash them, or
+ * to cancel.
+ */
+export interface PluginSourceControlPendingBranchSwitch {
+  /** The exact ref the user asked to check out. */
+  target: string;
+  /**
+   * The local branch a remote-tracking checkout will create, or null when the
+   * target is already a local branch.
+   */
+  localBranch: string | null;
+  /** The branch the checkout would leave, when there is one. */
+  fromBranch: string | null;
+  /** Repository-relative paths, exactly as the last refresh reported them. */
+  stagedPaths: string[];
+  unstagedPaths: string[];
+  untrackedPaths: string[];
+  /** True while committing every listed path is offered. */
+  commitAvailable: boolean;
+  /** True while stashing every listed path is offered. */
+  stashAvailable: boolean;
+  /**
+   * Why stashing is not offered. It is set only when `stashAvailable` is
+   * false, so a surface can explain the limitation rather than hide it.
+   */
+  stashUnavailableReason: string | null;
+  commitActionId: string;
+  stashActionId: string;
+  cancelActionId: string;
+}
+
 export type PluginSourceControlRecoveryState =
   | { state: "idle" }
   | {
@@ -513,6 +555,11 @@ interface PluginSourceControlViewModelBase {
   conflicts: PluginSourceControlConflictEntry[];
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
+  /**
+   * A checkout that is waiting for an explicit answer about the working tree
+   * changes it would disturb. Null whenever no checkout is pending.
+   */
+  pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
 }
 
 export type PluginSourceControlViewModel =
@@ -643,6 +690,39 @@ export type PluginGitConflictResolution =
   | { kind: "stage"; stage: PluginGitConflictStage }
   | { kind: "content"; contentBase64: string };
 
+export type PluginGitHunkLineKind = "context" | "addition" | "deletion";
+
+/**
+ * One line of one hunk. The content never carries its unified-diff prefix, a
+ * line terminator, or any other control character: the host adds the prefix
+ * and the newline when it reconstructs the patch, so a plugin cannot write a
+ * diff header, a second hunk, or another path into a patch.
+ */
+export interface PluginGitHunkLine {
+  kind: PluginGitHunkLineKind;
+  content: string;
+  /**
+   * True when Git reported "\ No newline at end of file" straight after this
+   * line. It is the only diff annotation a plugin can ask the host to emit.
+   */
+  noNewlineAtEndOfFile?: boolean;
+}
+
+/**
+ * One hunk of one file, described structurally.
+ *
+ * A plugin never supplies patch text. It names the exact line range and the
+ * exact lines, and the host reconstructs a bounded unified patch for one
+ * validated path from them.
+ */
+export interface PluginGitHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: PluginGitHunkLine[];
+}
+
 export type PluginGitRunRequest =
   | { operation: "discover"; scope: PluginGitScope }
   | { operation: "status"; scope: PluginGitScope }
@@ -650,6 +730,23 @@ export type PluginGitRunRequest =
   | { operation: "initialize"; scope: PluginGitScope; defaultBranch: string }
   | { operation: "stage"; scope: PluginGitScope; paths: string[] }
   | { operation: "unstage"; scope: PluginGitScope; paths: string[] }
+  /**
+   * Stages, or unstages, exactly one hunk of exactly one path. The host
+   * reconstructs the patch and applies it to the index only, so neither the
+   * worktree nor any other path is touched.
+   */
+  | {
+      operation: "stage-hunk";
+      scope: PluginGitScope;
+      path: string;
+      hunk: PluginGitHunk;
+    }
+  | {
+      operation: "unstage-hunk";
+      scope: PluginGitScope;
+      path: string;
+      hunk: PluginGitHunk;
+    }
   | {
       operation: "commit";
       scope: PluginGitScope;

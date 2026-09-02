@@ -224,7 +224,9 @@ export function repositoryResponder(
     }
     switch (request.operation) {
       case "discover":
-        return { stdout: JSON.stringify({ initialized: true }) };
+        return {
+          stdout: JSON.stringify({ initialized: true, encrypted: false }),
+        };
       case "status":
         return { stdout: SYNTHETIC_STATUS };
       case "list-branches":
@@ -240,6 +242,66 @@ export function repositoryResponder(
     }
   };
 }
+
+/** The same branches plus one remote-tracking branch to check out. */
+export const SYNTHETIC_BRANCHES_WITH_REMOTE = [
+  "refs/heads/main\t1111111111111111111111111111111111111111\t*\trefs/remotes/origin/main\t[ahead 1]",
+  "refs/heads/topic\t2222222222222222222222222222222222222222\t \t\t",
+  "refs/remotes/origin/main\t1111111111111111111111111111111111111111\t \t\t",
+  "refs/remotes/origin/release\t3333333333333333333333333333333333333333\t \t\t",
+].join("\n");
+
+/** A clean working tree: nothing staged, changed, untracked, or conflicted. */
+export const CLEAN_STATUS = [
+  "# branch.oid 1111111111111111111111111111111111111111",
+  "# branch.head main",
+  "# branch.upstream origin/main",
+  "# branch.ab +0 -0",
+].join("\0");
+
+/** One conflicted path, so a checkout has to be refused outright. */
+export const CONFLICTED_STATUS = [
+  "# branch.oid 1111111111111111111111111111111111111111",
+  "# branch.head main",
+  "u UU N... 100644 100644 100644 100644 1111111 2222222 3333333 notes/conflict.md",
+].join("\0");
+
+/** Two hunks in one synthetic note, as Git reports an unstaged change. */
+export const SYNTHETIC_DIFF = [
+  "diff --git a/notes/changed.md b/notes/changed.md",
+  "index 1111111..2222222 100644",
+  "--- a/notes/changed.md",
+  "+++ b/notes/changed.md",
+  "@@ -1,3 +1,3 @@",
+  " one",
+  "-two",
+  "+TWO",
+  " three",
+  "@@ -7,3 +7,3 @@",
+  " seven",
+  "-eight",
+  "+EIGHT",
+  " nine",
+  "",
+].join("\n");
+
+/**
+ * The same shape of change in a file with CRLF endings. Git reports the
+ * carriage return as part of each line, so it has to survive parsing and be
+ * sent back unchanged or the reconstructed patch would not match the file.
+ */
+export const CRLF_DIFF = [
+  "diff --git a/notes/changed.md b/notes/changed.md",
+  "index 1111111..2222222 100644",
+  "--- a/notes/changed.md",
+  "+++ b/notes/changed.md",
+  "@@ -1,3 +1,3 @@",
+  " one\r",
+  "-two\r",
+  "+TWO\r",
+  " three\r",
+  "",
+].join("\n");
 
 /** `Array.prototype.at` is newer than the plugin language target. */
 export function last<T>(values: T[]): T | undefined {

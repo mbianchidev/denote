@@ -3,7 +3,10 @@ import type {
   PluginGitResult,
   PluginGitRunRequest,
   PluginSourceControlAction,
+  PluginSourceControlBranchChoice,
+  PluginSourceControlDiffFile,
   PluginSourceControlOperationReview,
+  PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRemoteAccess,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
@@ -13,6 +16,8 @@ import {
   selectionOf,
   uninitializedModel,
   withBusy,
+  withDiffFiles,
+  withPendingBranchSwitch,
   withRecovery,
   withRemoteAccess,
   withReview,
@@ -23,17 +28,38 @@ import {
 import {
   describeOperationState,
   parseBranches,
+  parseDiscovery,
   parseHistory,
-  parseInitialized,
   parseOperationState,
   parseRemotes,
 } from "./repositoryOutput";
+import { DiffTooLarge, hunkRequest, parseUnifiedDiff, supportsHunkStaging } from "./diffOutput";
 import { parseStatus } from "./statusOutput";
 import { readGitSettings } from "./settings";
 
 const HISTORY_COUNT = 20;
 const MAX_REPORTED_ERROR_LENGTH = 200;
 const REPOSITORY_LIST_LIMIT = 50;
+
+/**
+ * Why an encrypted vault cannot stash. `git stash push --include-untracked`
+ * removes every untracked file from the worktree, which in an encrypted vault
+ * can take an untracked encryption manifest with it and leave the ciphertext
+ * unreadable. The host refuses it too; saying so here is what keeps the
+ * control off the surface instead of failing after the user presses it.
+ */
+const ENCRYPTED_STASH_LIMITATION =
+  "This vault is encrypted, so Denote cannot stash while untracked files are present: stashing them would remove the vault's encryption manifest from disk. Commit them instead, or move them out of the vault.";
+
+/**
+ * Why an encrypted vault cannot stage by hunk. Git tracks ciphertext, so there
+ * are no plaintext lines to choose between and a reconstructed patch describes
+ * a change the repository does not hold. The host refuses both directions
+ * natively; saying so here is what keeps the control off the surface instead of
+ * failing after the user presses it.
+ */
+const ENCRYPTED_HUNK_LIMITATION =
+  "This vault is encrypted, so Denote stages whole files: Git tracks the ciphertext, and a hunk of it is not a change Denote can apply. Use Stage or Unstage on the file instead.";
 
 export interface GitControllerOptions {
   /** Publishes a model to the host. Called for every state change. */
@@ -67,6 +93,38 @@ class GitCancelled extends Error {
 class StaleScope extends Error {}
 
 /**
+ * A Git command failed after Denote had already moved the user's work
+ * somewhere safe. The message says where the work is, so a failed step never
+ * looks like lost work.
+ */
+class GitPreservedWork extends Error {
+  constructor(
+    readonly operation: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** Which diff Denote is showing for the open path. */
+type GitDiffTargetKind = "worktree" | "index";
+
+/**
+ * A checkout Denote prepared but did not run, and everything needed to run it
+ * once the user says what should happen to the working tree.
+ */
+interface PendingBranchSwitch {
+  request: PluginGitRunRequest;
+  busyMessage: string;
+  target: string;
+  localBranch: string | null;
+  fromBranch: string | null;
+  stagedPaths: string[];
+  unstagedPaths: string[];
+  untrackedPaths: string[];
+}
+
+/**
  * Owns one repository's view model.
  *
  * Every Git operation runs through {@link perform}, which publishes busy state
@@ -86,6 +144,15 @@ export class GitRepositoryController {
    * replaced, so cancellation targets this value instead of the payload.
    */
   private currentOperationId: string | null = null;
+  /**
+   * True while the host reports this scope is a sealed, unlocked encrypted
+   * vault. It is read from `discover`, so it always describes the repository
+   * that was last refreshed.
+   */
+  private encrypted = false;
+  /** Which diff is on screen, and which side of the index it came from. */
+  private openDiff: { path: string; target: GitDiffTargetKind } | null = null;
+  private pendingSwitch: PendingBranchSwitch | null = null;
 
   constructor(
     scope: GitRepositoryScope,
@@ -121,6 +188,9 @@ export class GitRepositoryController {
     this.generation += 1;
     this.busy = false;
     this.currentOperationId = null;
+    this.encrypted = false;
+    this.openDiff = null;
+    this.pendingSwitch = null;
     // Remote and clone state describes how the user signs in and what a failed
     // clone left behind. Neither belongs to the repository that was open, so
     // both survive a scope change while everything read from Git is discarded.
@@ -228,6 +298,98 @@ export class GitRepositoryController {
         await this.withOperation(git, (capability, generation) =>
           this.commit(capability, generation, text(action, "message")),
         );
+        return;
+      case "open-diff":
+        await this.withOperation(git, (capability, generation) =>
+          this.openDiffFor(
+            capability,
+            generation,
+            text(action, "path"),
+            text(action, "group"),
+          ),
+        );
+        return;
+      case "close-diff":
+        if (!this.busy) {
+          this.openDiff = null;
+          this.publish(
+            withDiffFiles(this.current, [], {
+              tab: "changes",
+              view: { kind: "repository" },
+            }),
+          );
+        }
+        return;
+      case "stage-hunk":
+      case "unstage-hunk": {
+        const operation = action.id === "stage-hunk" ? "stage-hunk" : "unstage-hunk";
+        const path = text(action, "path");
+        const index = integer(action, "hunk");
+        await this.withOperation(git, (capability, generation) =>
+          this.applyHunk(capability, generation, operation, path, index),
+        );
+        return;
+      }
+      case "create-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.createBranch(
+            capability,
+            generation,
+            text(action, "name"),
+            text(action, "startPoint"),
+            flag(action, "checkout"),
+          ),
+        );
+        return;
+      case "switch-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.switchBranch(capability, generation, text(action, "branch")),
+        );
+        return;
+      case "checkout-remote-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.checkoutRemoteBranch(
+            capability,
+            generation,
+            text(action, "remoteBranch"),
+            text(action, "localName"),
+          ),
+        );
+        return;
+      case "rename-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.renameBranch(
+            capability,
+            generation,
+            text(action, "name"),
+            text(action, "newName"),
+          ),
+        );
+        return;
+      case "delete-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.deleteBranch(capability, generation, text(action, "name")),
+        );
+        return;
+      case "branch-switch-commit":
+        await this.withOperation(git, (capability, generation) =>
+          this.resolvePendingByCommitting(
+            capability,
+            generation,
+            text(action, "message"),
+          ),
+        );
+        return;
+      case "branch-switch-stash":
+        await this.withOperation(git, (capability, generation) =>
+          this.resolvePendingByStashing(capability, generation),
+        );
+        return;
+      case "branch-switch-cancel":
+        if (!this.busy) {
+          this.pendingSwitch = null;
+          this.publish(withPendingBranchSwitch(this.stable, null));
+        }
         return;
       case "fetch":
         await this.withOperation(git, (capability, generation) =>
@@ -405,7 +567,11 @@ export class GitRepositoryController {
     try {
       await run(git, generation);
     } catch (error) {
-      if (generation === this.generation) {
+      // A message that says where the user's work was preserved is published
+      // whatever happened to the scope in the meantime. Dropping it because
+      // the repository changed would leave a commit or a stash entry nobody
+      // was ever told about.
+      if (generation === this.generation || error instanceof GitPreservedWork) {
         this.publishFailure(error);
       }
     } finally {
@@ -426,7 +592,11 @@ export class GitRepositoryController {
       "Looking for a repository",
       { operation: "discover", scope: this.scope.kind },
     );
-    if (!parseInitialized(discover.stdout)) {
+    const discovery = parseDiscovery(discover.stdout);
+    this.encrypted = discovery.encrypted;
+    if (!discovery.initialized) {
+      this.openDiff = null;
+      this.pendingSwitch = null;
       this.publish(uninitializedModel(this.scope, this.remoteAccess));
       return;
     }
@@ -455,15 +625,177 @@ export class GitRepositoryController {
       scope: this.scope.kind,
       maxCount: HISTORY_COUNT,
     });
+    // An open diff is re-read in the same pass, so what is on screen after an
+    // action always describes the repository this refresh just read.
+    const diffFiles = await this.readOpenDiff(git, generation);
     this.publish(
       refreshedModel(this.scope, selectionOf(this.current), {
         status: parseStatus(status.stdout),
         branches: parseBranches(branches.stdout),
         remotes: parseRemotes(remotes.stdout),
         history: parseHistory(history.stdout),
+        diffFiles,
         recovery: interruptedOperation(state.stdout),
         remoteAccess: this.remoteAccess,
+        pendingBranchSwitch: this.current.pendingBranchSwitch,
       }),
+    );
+  }
+
+  /**
+   * Re-reads the diff that is on screen, if any. A path that no longer has any
+   * difference to show closes the diff rather than leaving stale content
+   * behind.
+   */
+  private async readOpenDiff(
+    git: PluginGitCapability,
+    generation: number,
+  ): Promise<PluginSourceControlDiffFile[]> {
+    const open = this.openDiff;
+    if (!open) {
+      return [];
+    }
+    const files = await this.readDiff(git, generation, open.path, open.target);
+    if (files.length === 0) {
+      this.openDiff = null;
+    }
+    return files;
+  }
+
+  private async readDiff(
+    git: PluginGitCapability,
+    generation: number,
+    path: string,
+    target: GitDiffTargetKind,
+  ): Promise<PluginSourceControlDiffFile[]> {
+    const result = await this.perform(
+      git,
+      generation,
+      `Reading the diff for ${path}`,
+      {
+        operation: "diff",
+        scope: this.scope.kind,
+        target: target === "index" ? { kind: "index" } : { kind: "worktree" },
+        paths: [path],
+      },
+    );
+    try {
+      // Git was asked for one path, so anything else in the report would be a
+      // file this action never named.
+      return parseUnifiedDiff(result.stdout).filter(
+        (file) => file.path === path,
+      );
+    } catch (error) {
+      if (error instanceof DiffTooLarge) {
+        throw new GitRefused(error.message);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Opens the diff for one changed path.
+   *
+   * The group the row came from decides which diff is read: a staged row is
+   * the index against the last commit, and any other row is the working tree
+   * against the index. An untracked file has no tracked side to compare, so it
+   * is refused instead of shown as an empty diff.
+   */
+  private async openDiffFor(
+    git: PluginGitCapability,
+    generation: number,
+    path: string,
+    group: string,
+  ): Promise<void> {
+    if (!path) {
+      throw new GitRefused("No file path was supplied for this action.");
+    }
+    if (group === "untracked") {
+      throw new GitRefused(
+        "This file is not tracked yet, so Git has nothing to compare it with. Stage it first to see it as a diff.",
+      );
+    }
+    const target: GitDiffTargetKind = group === "staged" ? "index" : "worktree";
+    const files = await this.readDiff(git, generation, path, target);
+    if (files.length === 0) {
+      throw new GitRefused(
+        `Git reports no ${target === "index" ? "staged" : "unstaged"} changes for ${path}.`,
+      );
+    }
+    this.openDiff = { path, target };
+    this.publish(
+      withDiffFiles(this.stable, files, {
+        tab: "changes",
+        view: { kind: "diff", path },
+      }),
+    );
+  }
+
+  /**
+   * Stages, or unstages, one hunk of the open diff.
+   *
+   * The hunk is taken from the model that is on screen, so the exact lines the
+   * user is looking at are the ones sent. Only the structured hunk crosses the
+   * boundary: the host rebuilds the patch for that one path itself.
+   */
+  private async applyHunk(
+    git: PluginGitCapability,
+    generation: number,
+    operation: "stage-hunk" | "unstage-hunk",
+    path: string,
+    index: number,
+  ): Promise<void> {
+    const file = this.current.diffFiles.find((entry) => entry.path === path);
+    if (!file) {
+      throw new GitRefused(
+        "That diff is no longer open. Open it again and retry.",
+      );
+    }
+    // The host refuses this outright for an encrypted vault, because a hunk of
+    // ciphertext is not a change it can apply. Saying so here means the user
+    // reads why rather than a Git exit code.
+    if (this.encrypted) {
+      throw new GitRefused(ENCRYPTED_HUNK_LIMITATION);
+    }
+    // Staging works forwards from the working tree into the index, and
+    // unstaging works backwards from the index to the last commit. Applying
+    // one direction to the other side's diff would search the index for a
+    // block it was never meant to change.
+    const expected = operation === "stage-hunk" ? "worktree" : "index";
+    if (this.openDiff?.path !== path || this.openDiff.target !== expected) {
+      throw new GitRefused(
+        operation === "stage-hunk"
+          ? `Open the unstaged diff for ${path} before staging one of its hunks.`
+          : `Open the staged diff for ${path} before unstaging one of its hunks.`,
+      );
+    }
+    if (!supportsHunkStaging(file)) {
+      throw new GitRefused(
+        "Denote stages whole files for binary, added, deleted, renamed, and copied changes. Use Stage or Unstage on the file instead.",
+      );
+    }
+    const hunk = file.hunks[index];
+    if (!hunk) {
+      throw new GitRefused(
+        "That hunk is no longer part of this diff. Refresh and retry.",
+      );
+    }
+    await this.perform(
+      git,
+      generation,
+      operation === "stage-hunk" ? "Staging a hunk" : "Unstaging a hunk",
+      {
+        operation,
+        scope: this.scope.kind,
+        path,
+        hunk: hunkRequest(hunk),
+      },
+    );
+    await this.refresh(git, generation);
+    this.reviewed(
+      operation === "stage-hunk" ? "Stage hunk" : "Unstage hunk",
+      "succeeded",
+      `${hunk.header} in ${path}`,
     );
   }
 
@@ -478,7 +810,7 @@ export class GitRepositoryController {
       { operation: "discover", scope: this.scope.kind },
     );
     // A repository that already exists is refreshed instead of re-initialized.
-    if (!parseInitialized(discover.stdout)) {
+    if (!parseDiscovery(discover.stdout).initialized) {
       const settings = readGitSettings(await this.options.readSettings());
       await this.perform(git, generation, "Creating a repository", {
         operation: "initialize",
@@ -522,6 +854,447 @@ export class GitRepositoryController {
       identity: settings.identity ? "configured" : "repository",
     });
     await this.refresh(git, generation);
+  }
+
+  /**
+   * Creates a branch from the current branch, a local branch, or a
+   * remote-tracking branch, and optionally checks it out straight away.
+   *
+   * Creating a branch never touches the working tree, so it runs immediately.
+   * Checking one out does, so it goes through the same review every other
+   * checkout does.
+   */
+  private async createBranch(
+    git: PluginGitCapability,
+    generation: number,
+    name: string,
+    startPoint: string,
+    checkout: boolean,
+  ): Promise<void> {
+    const branch = requireBranchName(name, "A new branch needs a name.");
+    this.refuseExistingLocalBranch(branch);
+    const start = startPoint.trim();
+    if (start) {
+      this.requireKnownBranch(start);
+    }
+    const request: PluginGitRunRequest = {
+      operation: "create-branch",
+      scope: this.scope.kind,
+      name: branch,
+      ...(start ? { startPoint: start } : {}),
+      ...(checkout ? { checkout: true } : {}),
+    };
+    if (!checkout) {
+      await this.perform(git, generation, `Creating ${branch}`, request);
+      await this.refresh(git, generation);
+      this.reviewed(
+        "Create branch",
+        "succeeded",
+        `Created ${branch}${start ? ` from ${start}` : ""}. You are still on ${
+          this.current.repository.branch ?? "the current branch"
+        }.`,
+      );
+      return;
+    }
+    await this.beginCheckout(git, generation, {
+      request,
+      busyMessage: `Creating and checking out ${branch}`,
+      target: start || currentBranchName(this.current),
+      localBranch: branch,
+    });
+  }
+
+  /** Checks out a branch that already exists locally. */
+  private async switchBranch(
+    git: PluginGitCapability,
+    generation: number,
+    name: string,
+  ): Promise<void> {
+    const branch = requireBranchName(
+      name,
+      "Choose the branch to switch to first.",
+    );
+    const known = this.current.branches.find(
+      (entry) => entry.name === branch && !entry.remote,
+    );
+    if (known?.current) {
+      throw new GitRefused(`You are already on ${branch}.`);
+    }
+    if (!known && this.current.branches.some((entry) => entry.name === branch)) {
+      throw new GitRefused(
+        `${branch} is a remote-tracking branch. Use "Check out" on the Branches tab to create a local branch that follows it.`,
+      );
+    }
+    await this.beginCheckout(git, generation, {
+      request: {
+        operation: "checkout-branch",
+        scope: this.scope.kind,
+        name: branch,
+      },
+      busyMessage: `Switching to ${branch}`,
+      target: branch,
+      localBranch: null,
+    });
+  }
+
+  /**
+   * Creates a local branch that follows a remote-tracking branch and checks it
+   * out.
+   *
+   * The local name is proposed by stripping the remote from the tracking
+   * branch, and a name that is already taken is reported rather than reused,
+   * because reusing it would silently check out a different branch than the
+   * one that was asked for.
+   */
+  private async checkoutRemoteBranch(
+    git: PluginGitCapability,
+    generation: number,
+    remoteBranch: string,
+    localName: string,
+  ): Promise<void> {
+    const tracking = requireBranchName(
+      remoteBranch,
+      "Choose the remote branch to check out first.",
+    );
+    const known = this.current.branches.find(
+      (entry) => entry.name === tracking && entry.remote,
+    );
+    if (!known) {
+      throw new GitRefused(
+        `${tracking} is not a remote-tracking branch in this repository. Fetch first, then try again.`,
+      );
+    }
+    const local = (localName.trim() || localBranchNameFor(tracking)).trim();
+    if (!local) {
+      throw new GitRefused(
+        `Denote could not work out a local branch name for ${tracking}. Type one instead.`,
+      );
+    }
+    this.refuseExistingLocalBranch(local, tracking);
+    await this.beginCheckout(git, generation, {
+      request: {
+        operation: "create-branch",
+        scope: this.scope.kind,
+        name: local,
+        startPoint: tracking,
+        checkout: true,
+      },
+      busyMessage: `Checking out ${local} from ${tracking}`,
+      target: tracking,
+      localBranch: local,
+    });
+  }
+
+  /** Renames a local branch. Remote-tracking branches are never touched. */
+  private async renameBranch(
+    git: PluginGitCapability,
+    generation: number,
+    name: string,
+    newName: string,
+  ): Promise<void> {
+    const branch = requireBranchName(name, "Choose the branch to rename.");
+    const renamed = requireBranchName(newName, "A rename needs a new name.");
+    this.requireLocalBranch(branch, "rename");
+    if (branch === renamed) {
+      throw new GitRefused(`${branch} already has that name.`);
+    }
+    this.refuseExistingLocalBranch(renamed);
+    await this.perform(
+      git,
+      generation,
+      `Renaming ${branch} to ${renamed}`,
+      {
+        operation: "rename-branch",
+        scope: this.scope.kind,
+        name: branch,
+        newName: renamed,
+      },
+    );
+    await this.refresh(git, generation);
+    this.reviewed(
+      "Rename branch",
+      "succeeded",
+      `${branch} is now ${renamed}. Its commits are unchanged.`,
+    );
+  }
+
+  /**
+   * Deletes a local branch. The branch that is checked out is refused, because
+   * deleting it would leave the repository with no current branch, and Denote
+   * never forces a deletion that would discard unmerged commits.
+   */
+  private async deleteBranch(
+    git: PluginGitCapability,
+    generation: number,
+    name: string,
+  ): Promise<void> {
+    const branch = requireBranchName(name, "Choose the branch to delete.");
+    const known = this.requireLocalBranch(branch, "delete");
+    if (known.current) {
+      throw new GitRefused(
+        `${branch} is the branch you are on, so Denote will not delete it. Switch to another branch first.`,
+      );
+    }
+    await this.perform(git, generation, `Deleting ${branch}`, {
+      operation: "delete-branch",
+      scope: this.scope.kind,
+      name: branch,
+    });
+    await this.refresh(git, generation);
+    this.reviewed(
+      "Delete branch",
+      "succeeded",
+      `${branch} was deleted. Its remote-tracking branch, if it has one, is unchanged.`,
+    );
+  }
+
+  /**
+   * Reads the working tree before a checkout and decides whether the checkout
+   * may run at all.
+   *
+   * The repository is refreshed first, so the decision is made from what Git
+   * reports now rather than from whatever the surface last displayed. A
+   * conflict is refused outright; any other change publishes a review that
+   * offers to commit the listed paths, to stash them, or to cancel. Nothing is
+   * ever discarded, and no checkout runs until the user answers.
+   */
+  private async beginCheckout(
+    git: PluginGitCapability,
+    generation: number,
+    plan: {
+      request: PluginGitRunRequest;
+      busyMessage: string;
+      target: string;
+      localBranch: string | null;
+    },
+  ): Promise<void> {
+    await this.refresh(git, generation);
+    if (this.current.conflicts.length > 0) {
+      throw new GitRefused(
+        "This repository has unresolved conflicts, so Denote will not check anything out. Resolve or abort the conflicted operation with your own Git tooling, then refresh.",
+      );
+    }
+    const staged = pathsIn(this.current, "staged");
+    const unstaged = pathsIn(this.current, "unstaged");
+    const untracked = pathsIn(this.current, "untracked");
+    const pending: PendingBranchSwitch = {
+      ...plan,
+      fromBranch: this.current.repository.branch,
+      stagedPaths: staged,
+      unstagedPaths: unstaged,
+      untrackedPaths: untracked,
+    };
+    if (staged.length + unstaged.length + untracked.length === 0) {
+      this.pendingSwitch = null;
+      await this.runCheckout(git, generation, pending);
+      return;
+    }
+    this.pendingSwitch = pending;
+    this.publish(
+      withPendingBranchSwitch(this.current, this.describePending(pending)),
+    );
+  }
+
+  private async runCheckout(
+    git: PluginGitCapability,
+    generation: number,
+    plan: PendingBranchSwitch,
+  ): Promise<void> {
+    await this.perform(git, generation, plan.busyMessage, plan.request);
+    this.pendingSwitch = null;
+    // A checkout replaces files on disk, so the diff that was open described a
+    // branch the user has left.
+    this.openDiff = null;
+    await this.refresh(git, generation);
+    this.publish(withPendingBranchSwitch(this.current, null));
+    const now = plan.localBranch ?? plan.target;
+    this.reviewed("Switch branch", "succeeded", `You are now on ${now}.`);
+  }
+
+  /**
+   * Commits every listed path and then checks out.
+   *
+   * Exactly the paths the review listed are staged, so nothing that appeared
+   * afterwards is swept into the commit by accident.
+   */
+  private async resolvePendingByCommitting(
+    git: PluginGitCapability,
+    generation: number,
+    message: string,
+  ): Promise<void> {
+    const plan = this.requirePendingSwitch();
+    const trimmed = message.trim();
+    if (!trimmed) {
+      throw new GitRefused("Committing before a switch needs a message.");
+    }
+    const paths = [
+      ...new Set([
+        ...plan.stagedPaths,
+        ...plan.unstagedPaths,
+        ...plan.untrackedPaths,
+      ]),
+    ];
+    if (paths.length === 0) {
+      throw new GitRefused("There is nothing to commit before switching.");
+    }
+    await this.perform(git, generation, "Staging the listed changes", {
+      operation: "stage",
+      scope: this.scope.kind,
+      paths,
+    });
+    const settings = readGitSettings(await this.options.readSettings());
+    await this.perform(git, generation, "Committing before switching", {
+      operation: "commit",
+      scope: this.scope.kind,
+      message: trimmed,
+      ...(settings.identity
+        ? {
+            authorName: settings.identity.authorName,
+            authorEmail: settings.identity.authorEmail,
+          }
+        : {}),
+    });
+    this.options.report("Committed before switching branches.", {
+      paths: paths.length,
+    });
+    await this.preserveThroughCheckout(
+      git,
+      generation,
+      plan,
+      `Your work is committed on ${plan.fromBranch ?? "the branch you were on"}, so nothing is lost.`,
+    );
+  }
+
+  /**
+   * Stashes every listed path and then checks out.
+   *
+   * Untracked files are included only when the vault is not encrypted: in an
+   * encrypted vault that would remove the encryption manifest from the
+   * worktree, so stashing is not offered at all while untracked files exist.
+   */
+  private async resolvePendingByStashing(
+    git: PluginGitCapability,
+    generation: number,
+  ): Promise<void> {
+    const plan = this.requirePendingSwitch();
+    const untracked = plan.untrackedPaths.length > 0;
+    if (untracked && this.encrypted) {
+      throw new GitRefused(ENCRYPTED_STASH_LIMITATION);
+    }
+    await this.perform(git, generation, "Stashing the listed changes", {
+      operation: "stash",
+      scope: this.scope.kind,
+      action: "push",
+      message: `Denote: before switching to ${plan.localBranch ?? plan.target}`,
+      ...(untracked ? { includeUntracked: true } : {}),
+    });
+    this.options.report("Stashed changes before switching branches.");
+    await this.preserveThroughCheckout(
+      git,
+      generation,
+      plan,
+      "Your work is in the most recent stash entry; restore it with your own Git tooling.",
+    );
+  }
+
+  /**
+   * Runs a checkout whose work has already been moved somewhere safe.
+   *
+   * Every failure from here on says where that work is, whatever stopped the
+   * checkout: a failed Git command, a failed refresh, a cancellation, a
+   * refusal, a host error, or a scope change part way through. A failed step
+   * must never look like lost work, which is why the wrapper is not limited to
+   * the failures Git itself reports.
+   */
+  private async preserveThroughCheckout(
+    git: PluginGitCapability,
+    generation: number,
+    plan: PendingBranchSwitch,
+    preserved: string,
+  ): Promise<void> {
+    try {
+      await this.runCheckout(git, generation, plan);
+    } catch (error) {
+      if (error instanceof GitPreservedWork) {
+        throw error;
+      }
+      throw new GitPreservedWork(
+        operationOf(error) ?? plan.request.operation,
+        `${describePreserved(error)} ${preserved}`.trim(),
+      );
+    }
+  }
+
+  private requirePendingSwitch(): PendingBranchSwitch {
+    if (!this.pendingSwitch) {
+      throw new GitRefused(
+        "There is no branch switch waiting for an answer. Start the switch again.",
+      );
+    }
+    return this.pendingSwitch;
+  }
+
+  private describePending(
+    plan: PendingBranchSwitch,
+  ): PluginSourceControlPendingBranchSwitch {
+    const blockedByEncryption =
+      this.encrypted && plan.untrackedPaths.length > 0;
+    return {
+      target: plan.target,
+      localBranch: plan.localBranch,
+      fromBranch: plan.fromBranch,
+      stagedPaths: plan.stagedPaths,
+      unstagedPaths: plan.unstagedPaths,
+      untrackedPaths: plan.untrackedPaths,
+      commitAvailable: true,
+      stashAvailable: !blockedByEncryption,
+      stashUnavailableReason: blockedByEncryption
+        ? ENCRYPTED_STASH_LIMITATION
+        : null,
+      commitActionId: "branch-switch-commit",
+      stashActionId: "branch-switch-stash",
+      cancelActionId: "branch-switch-cancel",
+    };
+  }
+
+  private requireLocalBranch(
+    name: string,
+    verb: string,
+  ): PluginSourceControlBranchChoice {
+    const known = this.current.branches.find(
+      (entry) => entry.name === name && !entry.remote,
+    );
+    if (!known) {
+      throw new GitRefused(
+        `Denote can only ${verb} local branches, and ${name} is not one of this repository's local branches.`,
+      );
+    }
+    return known;
+  }
+
+  private requireKnownBranch(name: string): PluginSourceControlBranchChoice {
+    const known = this.current.branches.find((entry) => entry.name === name);
+    if (!known) {
+      throw new GitRefused(
+        `${name} is not a branch in this repository. Refresh, then choose a start point from the list.`,
+      );
+    }
+    return known;
+  }
+
+  private refuseExistingLocalBranch(name: string, from?: string): void {
+    if (
+      !this.current.branches.some(
+        (entry) => entry.name === name && !entry.remote,
+      )
+    ) {
+      return;
+    }
+    throw new GitRefused(
+      from
+        ? `This repository already has a local branch called ${name}, so Denote will not point it at ${from}. Switch to ${name}, or type another name.`
+        : `This repository already has a local branch called ${name}. Choose another name.`,
+    );
   }
 
   /**
@@ -895,6 +1668,21 @@ export class GitRepositoryController {
       );
       return;
     }
+    if (error instanceof GitPreservedWork) {
+      this.options.report("A Git operation failed after work was preserved.", {
+        operation: error.operation,
+      });
+      this.publish(
+        withRecovery(this.stable, {
+          state: "failed",
+          operationId: `${error.operation}-preserved`,
+          message: error.message,
+          retryActionId: "refresh",
+          dismissActionId: "dismiss",
+        }),
+      );
+      return;
+    }
     if (error instanceof GitFailure) {
       this.options.report("A Git operation failed.", {
         operation: error.operation,
@@ -984,10 +1772,6 @@ function interruptedOperation(
 
 function describeAction(actionId: string): string {
   switch (actionId) {
-    case "switch-branch":
-      return "switch branches";
-    case "open-diff":
-      return "show file diffs";
     case "open-conflict":
       return "resolve conflicts";
     case "continue":
@@ -1002,6 +1786,51 @@ function describeAction(actionId: string): string {
 function text(action: PluginSourceControlAction, key: string): string {
   const value = action.values?.[key];
   return typeof value === "string" ? value : "";
+}
+
+function flag(action: PluginSourceControlAction, key: string): boolean {
+  return action.values?.[key] === true;
+}
+
+function integer(action: PluginSourceControlAction, key: string): number {
+  const value = action.values?.[key];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : -1;
+}
+
+function pathsIn(
+  model: PluginSourceControlViewModel,
+  kind: "staged" | "unstaged" | "untracked",
+): string[] {
+  const group = model.resourceGroups.find((entry) => entry.kind === kind);
+  return group ? group.resources.map((resource) => resource.path) : [];
+}
+
+function currentBranchName(model: PluginSourceControlViewModel): string {
+  return (
+    model.branches.find((branch) => branch.current)?.name ??
+    model.repository.branch ??
+    "HEAD"
+  );
+}
+
+/**
+ * Proposes the local name for a remote-tracking branch by dropping the remote
+ * it lives under: `origin/topic` becomes `topic`, and `origin/team/topic`
+ * becomes `team/topic`.
+ */
+function localBranchNameFor(remoteBranch: string): string {
+  const separator = remoteBranch.indexOf("/");
+  return separator === -1 ? remoteBranch : remoteBranch.slice(separator + 1);
+}
+
+function requireBranchName(name: string, refusal: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    throw new GitRefused(refusal);
+  }
+  return trimmed;
 }
 
 /** Refuses a remote operation that names no remote, before Git is reached. */
@@ -1060,4 +1889,36 @@ function describe(error: unknown): string {
   return error instanceof Error && error.message
     ? error.message
     : "The operation could not be completed.";
+}
+
+/**
+ * Names the Git operation a failure came from, when the failure knows one.
+ * Anything else is attributed to the step the caller was running.
+ */
+function operationOf(error: unknown): string | null {
+  return error instanceof GitFailure || error instanceof GitPreservedWork
+    ? error.operation
+    : null;
+}
+
+/**
+ * Describes what stopped a step that ran after work had already been moved
+ * somewhere safe.
+ *
+ * Every kind of failure gets a sentence of its own, because each one leaves the
+ * repository in a different place: a cancelled checkout may not have started, a
+ * scope change means Denote stopped looking at that repository, and a refusal
+ * never reached Git at all.
+ */
+function describePreserved(error: unknown): string {
+  if (error instanceof GitCancelled) {
+    return "The branch switch was cancelled before it finished.";
+  }
+  if (error instanceof StaleScope) {
+    return "Denote stopped the branch switch because the open repository changed.";
+  }
+  if (error instanceof GitFailure) {
+    return `${error.message} ${error.detail}`.trim();
+  }
+  return describe(error);
 }

@@ -4,6 +4,9 @@ import type {
   PluginGitConflictResolution,
   PluginGitConflictStage,
   PluginGitDiffTarget,
+  PluginGitHunk,
+  PluginGitHunkLine,
+  PluginGitHunkLineKind,
   PluginGitPullStrategy,
   PluginGitPushMode,
   PluginGitRequest,
@@ -34,6 +37,11 @@ const PULL_STRATEGIES: PluginGitPullStrategy[] = [
 ];
 const PUSH_MODES: PluginGitPushMode[] = ["normal", "force-with-lease"];
 const AUTH_MODES: PluginGitAuthMode[] = ["public", "ssh-agent", "github-https"];
+const HUNK_LINE_KINDS: PluginGitHunkLineKind[] = [
+  "context",
+  "addition",
+  "deletion",
+];
 const MAX_GITHUB_REPOSITORY_LIMIT = 200;
 
 const OPERATION_ID_PATTERN =
@@ -74,6 +82,14 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
         operation: value.operation,
         scope,
         paths: textArray(value, "paths"),
+      };
+    case "stage-hunk":
+    case "unstage-hunk":
+      return {
+        operation: value.operation,
+        scope,
+        path: text(value, "path"),
+        hunk: hunk(value.hunk),
       };
     case "commit":
       return withOptional(
@@ -260,8 +276,43 @@ function diffTarget(value: unknown): PluginGitDiffTarget {
   }
 }
 
-function conflictResolution(value: unknown): PluginGitConflictResolution {
+/**
+ * Rebuilds one hunk from only its declared fields, so nothing a plugin adds to
+ * the payload can reach the native patch builder. Line content stays exactly as
+ * given: the native transport is what decides whether it is safe to write.
+ */
+function hunk(value: unknown): PluginGitHunk {
   if (!isRecord(value)) {
+    throw new Error("Plugin Git hunk is invalid.");
+  }
+  const lines = value.lines;
+  if (!Array.isArray(lines) || lines.length === 0) {
+    throw new Error("Plugin Git hunk requires at least one line.");
+  }
+  return {
+    oldStart: count(value, "oldStart", 0),
+    oldLines: count(value, "oldLines", 0),
+    newStart: count(value, "newStart", 0),
+    newLines: count(value, "newLines", 0),
+    lines: lines.map((line) => hunkLine(line)),
+  };
+}
+
+function hunkLine(value: unknown): PluginGitHunkLine {
+  if (!isRecord(value)) {
+    throw new Error("Plugin Git hunk line is invalid.");
+  }
+  const noNewline = optionalFlag(value, "noNewlineAtEndOfFile");
+  const line: PluginGitHunkLine = {
+    kind: literal(value, "kind", HUNK_LINE_KINDS),
+    content: text(value, "content"),
+  };
+  return noNewline === undefined
+    ? line
+    : { ...line, noNewlineAtEndOfFile: noNewline };
+}
+
+function conflictResolution(value: unknown): PluginGitConflictResolution {  if (!isRecord(value)) {
     throw new Error("Plugin Git conflict resolution is invalid.");
   }
   if (value.kind === "stage") {

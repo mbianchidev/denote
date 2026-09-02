@@ -637,18 +637,18 @@ describe("GitRepositoryController", () => {
     await controller.runAction({ id: "refresh" }, git);
     const operations = git.calls.length;
 
-    await controller.runAction({ id: "switch-branch" }, git);
+    await controller.runAction({ id: "open-conflict" }, git);
     expect(git.calls).toHaveLength(operations);
     expect(controller.model.recovery).toMatchObject({
       state: "failed",
-      operationId: "unsupported-switch-branch",
+      operationId: "unsupported-open-conflict",
       dismissActionId: "dismiss",
     });
     expect(
       controller.model.recovery.state === "failed"
         ? controller.model.recovery.message
         : "",
-    ).toContain("switch branches");
+    ).toContain("resolve conflicts");
     expect(controller.model.repository.branch).toBe("main");
 
     await controller.runAction({ id: "dismiss" }, git);
