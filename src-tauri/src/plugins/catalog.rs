@@ -91,6 +91,7 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
                 | "project-context"
                 | "source-control"
                 | "automatic-local-commit"
+                | "git"
                 | "workspace-read"
                 | "workspace-write"
                 | "clipboard-read"

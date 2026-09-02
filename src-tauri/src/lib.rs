@@ -347,10 +347,15 @@ pub fn run() {
             plugins::plugin_clipboard_write,
             plugins::plugin_show_notification,
             plugins::plugin_process_request,
+            plugins::plugin_git_request,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")
         .run(|app, event| match event {
+            RunEvent::Exit => {
+                app.state::<plugins::PluginManager>()
+                    .cancel_all_git_operations();
+            }
             RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<AppState>();
                 if !state.exit_is_allowed() {

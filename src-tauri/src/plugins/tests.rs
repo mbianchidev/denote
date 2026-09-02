@@ -16,7 +16,7 @@ use tempfile::TempDir;
 
 use crate::{db, vault};
 
-fn catalog() -> PluginCatalogEntry {
+pub(super) fn catalog() -> PluginCatalogEntry {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON)
         .expect("catalog")
         .remove(0)
@@ -49,7 +49,11 @@ fn append(builder: &mut Builder<GzEncoder<Vec<u8>>>, path: &str, content: &[u8])
         .expect("append");
 }
 
-fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> PluginManager {
+pub(super) fn manager(
+    catalog: PluginCatalogEntry,
+    data: &TempDir,
+    cache: &TempDir,
+) -> PluginManager {
     fs::create_dir_all(data.path().join("plugins").join("packages")).expect("plugin packages");
     fs::create_dir_all(cache.path().join("plugin-downloads")).expect("plugin cache");
     PluginManager {
@@ -64,6 +68,7 @@ fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> Plug
             preparation_lock: Mutex::new(()),
             operations: Mutex::new(HashSet::new()),
             initialization_error: Mutex::new(None),
+            git_operations: Default::default(),
             _process_lock: None,
         }),
     }
@@ -545,7 +550,7 @@ fn catalog_accepts_unconstrained_project_context_capability() {
 #[test]
 fn catalog_accepts_unconstrained_source_control_capabilities() {
     let mut catalog = catalog();
-    for capability in ["source-control", "automatic-local-commit"] {
+    for capability in ["source-control", "automatic-local-commit", "git"] {
         catalog.manifest.permissions.push(PluginPermission {
             capability: capability.to_string(),
             hosts: vec![],

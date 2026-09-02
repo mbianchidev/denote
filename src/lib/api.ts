@@ -27,6 +27,8 @@ import type {
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
 import type {
+  PluginGitRequest,
+  PluginGitResult,
   PluginNetworkRequest,
   PluginNetworkResponse,
   PluginPermissionRequest,
@@ -337,6 +339,20 @@ export const api = {
       pluginId,
       request,
       projectId,
+    }),
+  pluginGitRequest: (
+    pluginId: string,
+    request: PluginGitRequest,
+    workspaceScope: string,
+    projectId: string | null,
+    operationId: string,
+  ) =>
+    invoke<PluginGitResult>("plugin_git_request", {
+      pluginId,
+      request,
+      workspaceScope,
+      projectId,
+      operationId,
     }),
 };
 

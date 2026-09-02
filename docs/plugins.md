@@ -111,8 +111,9 @@ installed packages when Denote starts.
 - Plugin API version 1 exposes command registration, static sidebar views,
   note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
   explicit-command-action capabilities for versioned workspace text,
-  allowlisted HTTPS, clipboard access, notifications, and platform-qualified
-  allowlisted process groups. Static status items and literal source-editor
+  allowlisted HTTPS, clipboard access, notifications, platform-qualified
+  allowlisted process groups, and the typed hardened Git transport. Static
+  status items and literal source-editor
   decorations use disposable contribution handles like commands and sidebars.
   Privileged action leases expire when the command settles, the worker starts
   deactivating, or the active vault changes.
@@ -171,9 +172,78 @@ APIs remain separate future plugin work rather than extensions of bounded
 
 Content-oriented capabilities remain unavailable while an encrypted vault is
 locked. Plugins must use host APIs rather than reading decrypted temporary
-files. A future Git plugin may stage ciphertext only, include
-`.denote/encryption.json`, and run the host encryption preflight before
-committing.
+files. A Git plugin therefore stages ciphertext only, tracks
+`.denote/encryption.json` as binary, and passes the host encryption preflight
+before committing.
+
+### Git transport
+
+The approved `git` permission adds a `git` capability to the user-action
+context. It is privileged, so it exists only inside an explicit command or
+source-control action lease. Only the source-control lease is extended to a
+bounded ten minutes; ordinary commands keep the 30 second lease.
+
+`git.run(request)` returns a `PluginGitOperation` handle,
+`{ operationId, result }`, rather than a bare promise. The host generates the
+operation ID and hands it back before the operation completes, so a plugin can
+store it and call `git.cancel(operationId)` from a concurrent source-control
+action while the first operation is still running. The host validates every
+operation ID and refuses one that is already live. An invocation carries the
+request and nothing else: there is no options argument, so no raw argument,
+flag, environment value, or executable path can travel with a request. A user
+who needs a Git that is not in a standard location fills in the plugin's
+`gitExecutablePath` setting, a host-rendered string whose default is empty; the
+host reads that setting itself for the requesting plugin and still requires the
+path to be absolute, canonical, and a real Git executable.
+
+`PluginGitRequest` is a typed discriminated union covering discovery, status,
+operation-state detection, initialize, stage, unstage, commit, branch and remote
+listing, history, diff, fetch, pull, push, remote add/set/remove, branch
+create/checkout/rename/delete, stash, merge, rebase, cherry-pick, revert,
+continue/skip/abort, conflict-stage reads, conflict resolution, clone, and
+cancel. Every operation names exact structured fields; there is no argument
+array, option flag, or shell input, and the native host maps each operation to a
+fixed argument template. `PluginGitResult` returns the operation ID, exit code,
+standard output, standard error, and whether the operation was cancelled.
+Conflict resolution requires the path to be genuinely unmerged in the index, so
+it can never overwrite an ordinary tracked or untracked file, and a resolution
+that is written but not staged is rolled back.
+
+Requests are scoped to the active vault root or the captured active project, and
+vault scope works without a marked project. The host resolves and pins a
+canonical Git executable, refuses `PATH` lookup, disables hooks, filters,
+pagers, editors, prompts, signing, submodule recursion, credential helpers, and
+every protocol except HTTPS and SSH, pins every command-bearing configuration
+key on the command line so repository configuration cannot win, replaces the
+user's global configuration with a host-owned empty file so nothing in `$HOME`
+can reintroduce a filter or a command, and rejects dangerous repository-local
+configuration before running. Operations use process
+groups, output bounded at 8 MiB that fails rather than truncates, a ten minute
+hard timeout, and a native per-plugin cancellation registry that is also cleared
+on disable, failed enable rollback, disable-all, and shutdown. Errors redact
+absolute host paths and URL passwords. Remote authentication is deliberately not
+part of this transport yet.
+
+Vault encryption, sealing, and sweeping skip `.git` entirely, so repository
+metadata is never encrypted or deleted. Disabling encryption is the one pass
+that descends into `.git`, and an encrypting pass first recovers any repository
+an older build encrypted: a `.git` directory whose `HEAD`, or a `.git` pointer
+file that itself, carries Denote ciphertext is decrypted in place with the
+active key, nested project repositories included, and is then left out of
+encryption for good. A recovery that cannot be completed fails the operation
+instead of leaving half-readable metadata behind. Encrypted vaults must be
+unlocked, in the `encrypted` phase, and pass a full sweep before Git runs; the
+vault key is never exposed to a plugin. Encrypted repositories get host-owned
+managed blocks in `.git/info/attributes` and `.git/info/exclude`, so Git treats
+content as binary and never writes conflict markers into ciphertext. The
+`.denote/encryption.json` manifest is tracked like any other file and is covered
+by the same rules, so Git can never line-merge wrapped-key metadata. Conflicts
+in an encrypted vault are resolved by choosing a whole side. A `stash` `push`
+with `includeUntracked` is refused on an encrypted vault before any Git command
+runs, because it would remove an untracked `.denote/encryption.json` from the
+worktree; stashing tracked changes still works. Repositories that
+use `.git` file indirection, such as linked worktrees and submodules, report a
+clear limitation rather than being modified.
 
 The repository reference plugin is the end-to-end fixture. Its independently
 downloadable artifact is stored under `plugin-artifacts/`, while only catalog

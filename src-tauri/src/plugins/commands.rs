@@ -1,4 +1,7 @@
-use std::fs;
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
@@ -7,6 +10,7 @@ use tauri_plugin_notification::NotificationExt;
 
 use crate::{
     commands,
+    crypto::{self, EncryptionPhase},
     db::AppState,
     error::{AppError, AppResult},
     vault,
@@ -14,6 +18,7 @@ use crate::{
 
 use super::{
     PluginManager,
+    git::{PluginGitRequest, PluginGitResult, PluginGitScope},
     types::{
         InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
         PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,
@@ -393,4 +398,131 @@ pub(super) fn process_request_with_app_state(
         None
     };
     manager.process_request(plugin_id, request, current_dir.as_deref())
+}
+
+#[tauri::command]
+pub async fn plugin_git_request(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    request: PluginGitRequest,
+    workspace_scope: String,
+    project_id: Option<String>,
+    operation_id: String,
+) -> AppResult<PluginGitResult> {
+    let manager = state.inner().clone();
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        git_request_with_app_state(
+            &manager,
+            &app_state,
+            &plugin_id,
+            request,
+            &workspace_scope,
+            project_id.as_deref(),
+            &operation_id,
+        )
+    })
+    .await
+}
+
+// Every parameter is a distinct authorisation input: plugin identity, request,
+// captured scope, project identity, and operation ID. The Git executable is
+// deliberately not among them; it is read from host-owned plugin settings.
+pub(super) fn git_request_with_app_state(
+    manager: &PluginManager,
+    app_state: &AppState,
+    plugin_id: &str,
+    request: PluginGitRequest,
+    workspace_scope: &str,
+    project_id: Option<&str>,
+    operation_id: &str,
+) -> AppResult<PluginGitResult> {
+    manager.enabled_permission(plugin_id, "git")?;
+    let Some(scope) = request.scope() else {
+        // Cancellation carries no scope so it stays callable from a concurrent
+        // source-control action while an operation is still running.
+        return manager.git_request(
+            plugin_id,
+            request,
+            Path::new(""),
+            Vec::new(),
+            false,
+            operation_id,
+        );
+    };
+    let _vault_access = app_state.read_vault_access()?;
+    let root = active_vault_for_scope(app_state, workspace_scope)?;
+    let encrypted = git_encryption_preflight(app_state, &root)?;
+    let repository_root = match scope {
+        PluginGitScope::Vault => root.clone(),
+        PluginGitScope::Project => {
+            let project_id = project_id.ok_or_else(|| {
+                AppError::Plugin(
+                    "The Git request asked for project scope without an active project".to_string(),
+                )
+            })?;
+            vault::resolve_project_root(&app_state.db_path, &root.to_string_lossy(), project_id)?
+        }
+    };
+    // Revalidate the captured vault scope and project identity immediately
+    // before execution so a switch during the preflight cannot be used.
+    let revalidated_root = active_vault_for_scope(app_state, workspace_scope)?;
+    if revalidated_root != root {
+        return Err(AppError::Plugin(
+            "Git capability lease expired after a vault switch".to_string(),
+        ));
+    }
+    if let PluginGitScope::Project = scope {
+        let project_id = project_id.unwrap_or_default();
+        let current =
+            vault::resolve_project_root(&app_state.db_path, &root.to_string_lossy(), project_id)?;
+        if current != repository_root {
+            return Err(AppError::Plugin(
+                "Git capability lease expired after the project moved".to_string(),
+            ));
+        }
+    }
+    let redacted_roots = vec![repository_root.clone(), root];
+    manager.git_request(
+        plugin_id,
+        request,
+        &repository_root,
+        redacted_roots,
+        encrypted,
+        operation_id,
+    )
+}
+
+fn active_vault_for_scope(app_state: &AppState, workspace_scope: &str) -> AppResult<PathBuf> {
+    let root = app_state.active_vault()?;
+    if fs::canonicalize(workspace_scope)? != root {
+        return Err(AppError::Plugin(
+            "Git capability lease expired after a vault switch".to_string(),
+        ));
+    }
+    Ok(root)
+}
+
+/// Encrypted vaults must be fully sealed and unlocked before Git inspects or
+/// mutates the worktree, so plaintext is never staged. The key is used only for
+/// the sweep and never reaches the plugin or the Git transport.
+fn git_encryption_preflight(app_state: &AppState, root: &Path) -> AppResult<bool> {
+    let Some(manifest) = crypto::load_manifest(root)? else {
+        return Ok(false);
+    };
+    if manifest.phase != EncryptionPhase::Encrypted {
+        return Err(AppError::Crypto(
+            "Vault encryption maintenance is incomplete. Lock and unlock the vault to resume."
+                .to_string(),
+        ));
+    }
+    let key = app_state.vault_key()?;
+    let skipped = vault::sweep_vault_encryption(&app_state.db_path, &root.to_string_lossy(), &key)?;
+    if skipped > 0 {
+        return Err(AppError::Crypto(format!(
+            "{skipped} vault file(s) could not be verified as encrypted. Resolve them before running Git."
+        )));
+    }
+    Ok(true)
 }

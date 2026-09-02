@@ -20,6 +20,7 @@ vi.mock("../lib/api", () => ({
     pluginSecretSet: vi.fn(),
     pluginSecretDelete: vi.fn(),
     pluginProcessRequest: vi.fn(),
+    pluginGitRequest: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -28,6 +29,8 @@ vi.mock("../lib/api", () => ({
 const catalogValue: unknown = catalogJson[0];
 assertValidPluginCatalogEntry(catalogValue);
 const catalog = catalogValue;
+const GIT_OPERATION_ID = "11111111-2222-4333-8444-555555555555";
+const GIT_CANCEL_ID = "99999999-8888-4777-8666-555555555555";
 const sourceControlModel: PluginSourceControlViewModel = {
   selectedTab: "changes",
   selectedView: { kind: "repository" },
@@ -217,6 +220,17 @@ function pluginWithSourceControlId(pluginId: string): PluginView {
       ...source.catalog,
       manifest: { ...source.catalog.manifest, id: pluginId },
     },
+  };
+}
+
+function pluginWithGit(): PluginView {
+  return {
+    ...plugin(),
+    approvedPermissions: [
+      ...catalog.manifest.permissions,
+      { capability: "source-control" },
+      { capability: "git" },
+    ],
   };
 }
 
@@ -1527,7 +1541,188 @@ describe("PluginWorkerRuntime", () => {
       );
     });
   });
+
+  it("runs Git requests only inside a live source control action lease", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.completeSourceControlActions = false;
+    vi.mocked(api.pluginGitRequest).mockResolvedValue({
+      operationId: GIT_OPERATION_ID,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      cancelled: false,
+    });
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    await runtime.start(pluginWithGit());
+    const worker = FakeWorker.instances[0];
+
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "unleased-git-request",
+      operation: "git.run",
+      operationId: GIT_OPERATION_ID,
+      value: { operation: "status", scope: "vault" },
+    });
+    await vi.waitFor(() => {
+      expect(worker.received).toContainEqual({
+        type: "host-response",
+        requestId: "unleased-git-request",
+        error: "Plugin action capability lease is invalid or expired.",
+      });
+    });
+    expect(api.pluginGitRequest).not.toHaveBeenCalled();
+
+    const action = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh" },
+      { workspaceScope: "/vault", projectId: null },
+    );
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "leased-git-request",
+      actionId: "request-id",
+      operation: "git.run",
+      operationId: GIT_OPERATION_ID,
+      value: { operation: "status", scope: "vault" },
+    });
+
+    await vi.waitFor(() => {
+      // The executable is host-owned, read from persisted plugin settings, so
+      // the invocation carries the request, scope, and operation ID only.
+      expect(api.pluginGitRequest).toHaveBeenCalledWith(
+        "denote.reference",
+        { operation: "status", scope: "vault" },
+        "/vault",
+        null,
+        GIT_OPERATION_ID,
+      );
+    });
+    worker.runtimePort?.postMessage({
+      type: "source-control-action-result",
+      requestId: "request-id",
+    });
+    await action;
+  });
+
+  it("cancels a running Git operation from a concurrent source control action", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.completeSourceControlActions = false;
+    let nextRequestId = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => `request-${++nextRequestId}`),
+    });
+    vi.mocked(api.pluginGitRequest).mockResolvedValue({
+      operationId: GIT_OPERATION_ID,
+      exitCode: 0,
+      stdout: "",
+      stderr: "",
+      cancelled: true,
+    });
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    await runtime.start(pluginWithGit());
+    const worker = FakeWorker.instances[0];
+
+    const running = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "push" },
+      { workspaceScope: "/vault", projectId: null },
+    );
+    const cancelling = runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "cancel" },
+      { workspaceScope: "/vault", projectId: null },
+    );
+    worker.runtimePort?.postMessage({
+      type: "host-request",
+      requestId: "cancel-git-request",
+      actionId: "request-2",
+      operation: "git.run",
+      operationId: GIT_CANCEL_ID,
+      value: { operation: "cancel", operationId: GIT_OPERATION_ID },
+    });
+
+    await vi.waitFor(() => {
+      expect(api.pluginGitRequest).toHaveBeenCalledWith(
+        "denote.reference",
+        { operation: "cancel", operationId: GIT_OPERATION_ID },
+        "/vault",
+        null,
+        GIT_CANCEL_ID,
+      );
+    });
+
+    worker.runtimePort?.postMessage({
+      type: "source-control-action-result",
+      requestId: "request-2",
+    });
+    await cancelling;
+    worker.runtimePort?.postMessage({
+      type: "source-control-action-result",
+      requestId: "request-1",
+    });
+    await running;
+  });
+
+  it("gives source control actions a bounded long lease while commands stay at 30 seconds", async () => {
+    FakeWorker.sourceControlModelOnActivate = sourceControlModel;
+    FakeWorker.completeSourceControlActions = false;
+    FakeWorker.completeCommands = false;
+    let nextRequestId = 0;
+    vi.stubGlobal("crypto", {
+      randomUUID: vi.fn(() => `request-${++nextRequestId}`),
+    });
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    await runtime.start(pluginWithGit());
+
+    vi.useFakeTimers();
+    try {
+      const command = trackSettled(
+        runtime.runCommand("denote.reference", "denote.reference.ping", {
+          workspaceScope: "/vault",
+          projectId: null,
+        }),
+      );
+      const action = trackSettled(
+        runtime.runSourceControlAction(
+          "denote.reference",
+          "denote.reference.git",
+          { id: "push" },
+          { workspaceScope: "/vault", projectId: null },
+        ),
+      );
+
+      await vi.advanceTimersByTimeAsync(30_001);
+      expect(command.rejection()).toMatch(/timed out/i);
+      expect(action.settled()).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(600_000);
+      expect(action.rejection()).toMatch(/timed out/i);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+function trackSettled(promise: Promise<void>): {
+  settled: () => boolean;
+  rejection: () => string | null;
+} {
+  let error: string | null = null;
+  let done = false;
+  void promise.then(
+    () => {
+      done = true;
+    },
+    (reason: unknown) => {
+      done = true;
+      error = reason instanceof Error ? reason.message : String(reason);
+    },
+  );
+  return { settled: () => done, rejection: () => error };
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

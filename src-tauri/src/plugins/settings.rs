@@ -8,6 +8,12 @@ use super::{
     types::{MAX_PLUGIN_SETTINGS_BYTES, PluginManifest},
 };
 
+/// Reserved settings key that names the Git executable a user selected. It is
+/// host-owned: a plugin declares it as a string setting with an empty default,
+/// the user fills it in through Denote's own settings surface, and a Git
+/// request can never name an executable itself.
+pub(crate) const GIT_EXECUTABLE_SETTING: &str = "gitExecutablePath";
+
 impl PluginManager {
     pub(crate) fn settings(&self, plugin_id: &str) -> AppResult<Value> {
         let catalog = self.catalog_entry(plugin_id)?;
@@ -85,6 +91,20 @@ impl PluginManager {
             Ok(())
         })?;
         Ok(settings)
+    }
+
+    /// Reads the reserved Git executable path from this plugin's validated
+    /// persisted settings. Absent, non-string, and empty values all mean the
+    /// host resolves Git from its own fixed locations, so the default of an
+    /// empty string keeps ordinary installs on the pinned executable.
+    pub(crate) fn git_executable_setting(&self, plugin_id: &str) -> AppResult<Option<String>> {
+        let settings = self.settings(plugin_id)?;
+        Ok(settings
+            .get(GIT_EXECUTABLE_SETTING)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string))
     }
 
     pub(crate) fn storage_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<Value>> {

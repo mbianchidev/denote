@@ -3,6 +3,7 @@ import type {
   PluginProcessRequest,
 } from "@denote/plugin-sdk";
 import { api } from "../lib/api";
+import { parsePluginGitRequest } from "./gitRequests";
 
 export interface PluginActionLeaseScope {
   workspaceScope: string;
@@ -15,7 +16,8 @@ export function privilegedHostOperation(operation: string): boolean {
     operation.startsWith("network.") ||
     operation.startsWith("clipboard.") ||
     operation.startsWith("notifications.") ||
-    operation.startsWith("process.")
+    operation.startsWith("process.") ||
+    operation.startsWith("git.")
   );
 }
 
@@ -25,6 +27,7 @@ export async function runHostOperation(
   key?: string,
   value?: unknown,
   actionScope?: PluginActionLeaseScope,
+  operationId?: string,
 ): Promise<unknown> {
   switch (operation) {
     case "storage.get":
@@ -91,6 +94,19 @@ export async function runHostOperation(
         parseProcessRequest(value),
         requireActionScope(actionScope).projectId,
       );
+    case "git.run": {
+      const scope = requireActionScope(actionScope);
+      // The request is the only thing a plugin contributes. A custom Git
+      // executable lives in host-owned plugin settings, so nothing here can
+      // name one.
+      return api.pluginGitRequest(
+        pluginId,
+        parsePluginGitRequest(value),
+        scope.workspaceScope,
+        scope.projectId,
+        requireOperationId(operationId),
+      );
+    }
     default:
       throw new Error(`Unsupported plugin host operation: ${operation}`);
   }
@@ -117,6 +133,21 @@ function requireActionScope(
     throw new Error("Workspace action lease has no vault scope.");
   }
   return scope;
+}
+
+const OPERATION_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The runtime generates one operation ID per Git invocation so the plugin can
+ * cancel it. A plugin never chooses it, and the native transport refuses
+ * anything that is not a canonical UUID.
+ */
+function requireOperationId(operationId?: string): string {
+  if (!operationId || !OPERATION_ID_PATTERN.test(operationId)) {
+    throw new Error("Plugin Git request is missing a valid operation ID.");
+  }
+  return operationId;
 }
 
 function parseNetworkRequest(value: unknown): PluginNetworkRequest {

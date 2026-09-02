@@ -1,5 +1,6 @@
 mod catalog;
 mod commands;
+mod git;
 mod lifecycle;
 mod package;
 mod sandbox;
@@ -7,12 +8,15 @@ mod settings;
 mod types;
 
 #[cfg(test)]
+mod git_tests;
+#[cfg(test)]
 mod tests;
 
 pub use commands::*;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};
+use git::GitOperationRegistry;
 use package::ensure_managed_directory;
 use sandbox::load_credential_ledger;
 
@@ -41,6 +45,7 @@ struct PluginManagerInner {
     preparation_lock: Mutex<()>,
     operations: Mutex<HashSet<String>>,
     initialization_error: Mutex<Option<String>>,
+    git_operations: GitOperationRegistry,
     _process_lock: Option<fs::File>,
 }
 
@@ -91,6 +96,7 @@ impl PluginManager {
                                 preparation_lock: Mutex::new(()),
                                 operations: Mutex::new(HashSet::new()),
                                 initialization_error: Mutex::new(Some(error.to_string())),
+                                git_operations: GitOperationRegistry::default(),
                                 _process_lock: None,
                             }),
                         },
@@ -196,6 +202,7 @@ impl PluginManager {
                 preparation_lock: Mutex::new(()),
                 operations: Mutex::new(HashSet::new()),
                 initialization_error: Mutex::new(None),
+                git_operations: GitOperationRegistry::default(),
                 _process_lock: Some(process_lock),
             }),
         };

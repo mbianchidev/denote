@@ -212,6 +212,7 @@ impl PluginManager {
         })?;
         let plugin_id = transaction.plugin_id;
         self.catalog_entry(&plugin_id)?;
+        self.cancel_git_operations(&plugin_id);
         self.remove_package(&plugin_id)?;
         self.update_state(|state| {
             state.enabled.remove(&plugin_id);
@@ -245,6 +246,7 @@ impl PluginManager {
     ) -> AppResult<()> {
         let _operation = self.begin_operation(plugin_id)?;
         self.catalog_entry(plugin_id)?;
+        self.cancel_git_operations(plugin_id);
         self.remove_package(plugin_id)?;
         if clear_credentials {
             self.clear_credentials(plugin_id)?;

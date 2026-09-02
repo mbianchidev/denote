@@ -7,6 +7,7 @@ import type {
   PluginCapability,
   PluginCommand,
   PluginDisposable,
+  PluginGitResult,
   PluginLogger,
   PluginNetworkResponse,
   PluginNoteEvent,
@@ -27,6 +28,7 @@ import {
   isPluginHostMessage,
   isPluginSourceControlViewModel,
 } from "./runtimeMessages";
+import { createGitCapability } from "./gitCapability";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -67,6 +69,7 @@ function hostRequest<T>(
   key?: string,
   value?: unknown,
   actionId?: string,
+  operationId?: string,
 ): Promise<T> {
   const requestId = crypto.randomUUID();
   send({
@@ -76,6 +79,7 @@ function hostRequest<T>(
     key,
     value,
     actionId,
+    operationId,
   });
   return new Promise<T>((resolve, reject) => {
     pending.set(requestId, {
@@ -165,6 +169,17 @@ function userActionContext(actionId: string): PluginUserActionContext {
           actionId,
         ),
     };
+  }
+  if (permissions.has("git")) {
+    capabilities.git = createGitCapability((request, operationId) =>
+      hostRequest<PluginGitResult>(
+        "git.run",
+        undefined,
+        request,
+        actionId,
+        operationId,
+      ),
+    );
   }
   return { capabilities };
 }

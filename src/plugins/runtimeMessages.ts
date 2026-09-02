@@ -113,6 +113,8 @@ export type PluginRuntimeMessage =
       actionId?: string;
       key?: string;
       value?: unknown;
+      /** Caller-generated ID for a cancellable native operation. */
+      operationId?: string;
     }
   | { type: "command-result"; requestId: string; error?: string }
   | {
@@ -190,7 +192,9 @@ export function isPluginRuntimeMessage(
         typeof value.requestId === "string" &&
         typeof value.operation === "string" &&
         (value.key === undefined || typeof value.key === "string") &&
-        (value.actionId === undefined || typeof value.actionId === "string")
+        (value.actionId === undefined || typeof value.actionId === "string") &&
+        (value.operationId === undefined ||
+          typeof value.operationId === "string")
       );
     case "log":
       return (

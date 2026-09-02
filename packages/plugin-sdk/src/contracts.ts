@@ -24,6 +24,7 @@ export const PLUGIN_CAPABILITIES = [
   "project-context",
   "source-control",
   "automatic-local-commit",
+  "git",
   "workspace-read",
   "workspace-write",
   "network",
@@ -483,6 +484,204 @@ export interface PluginTextDocument {
   version: string;
 }
 
+/**
+ * Git transport contract.
+ *
+ * Every request names one fixed operation with exact structured fields. The
+ * host maps each operation to a fixed Git argument template, so plugins never
+ * supply raw argument arrays, option flags, or shell input.
+ */
+export type PluginGitScope = "vault" | "project";
+
+export type PluginGitSequencer = "merge" | "rebase" | "cherry-pick" | "revert";
+
+export type PluginGitConflictStage = "base" | "ours" | "theirs";
+
+export type PluginGitStashAction = "push" | "pop" | "apply" | "drop" | "list";
+
+export type PluginGitPullStrategy =
+  | "merge"
+  | "rebase"
+  | "fast-forward-only";
+
+export type PluginGitPushMode = "normal" | "force-with-lease";
+
+export type PluginGitDiffTarget =
+  | { kind: "worktree" }
+  | { kind: "index" }
+  | { kind: "commit"; commit: string }
+  | { kind: "range"; fromCommit: string; toCommit: string };
+
+export type PluginGitConflictResolution =
+  | { kind: "stage"; stage: PluginGitConflictStage }
+  | { kind: "content"; contentBase64: string };
+
+export type PluginGitRunRequest =
+  | { operation: "discover"; scope: PluginGitScope }
+  | { operation: "status"; scope: PluginGitScope }
+  | { operation: "operation-state"; scope: PluginGitScope }
+  | { operation: "initialize"; scope: PluginGitScope; defaultBranch: string }
+  | { operation: "stage"; scope: PluginGitScope; paths: string[] }
+  | { operation: "unstage"; scope: PluginGitScope; paths: string[] }
+  | {
+      operation: "commit";
+      scope: PluginGitScope;
+      message: string;
+      amend?: boolean;
+      allowEmpty?: boolean;
+    }
+  | { operation: "list-branches"; scope: PluginGitScope }
+  | { operation: "list-remotes"; scope: PluginGitScope }
+  | {
+      operation: "list-history";
+      scope: PluginGitScope;
+      maxCount: number;
+      skip?: number;
+      ref?: string;
+      path?: string;
+    }
+  | {
+      operation: "diff";
+      scope: PluginGitScope;
+      target: PluginGitDiffTarget;
+      paths?: string[];
+    }
+  | { operation: "fetch"; scope: PluginGitScope; remote: string; prune?: boolean }
+  | {
+      operation: "pull";
+      scope: PluginGitScope;
+      remote: string;
+      branch: string;
+      strategy: PluginGitPullStrategy;
+    }
+  | {
+      operation: "push";
+      scope: PluginGitScope;
+      remote: string;
+      branch: string;
+      setUpstream?: boolean;
+      mode?: PluginGitPushMode;
+    }
+  | { operation: "add-remote"; scope: PluginGitScope; name: string; url: string }
+  | {
+      operation: "set-remote-url";
+      scope: PluginGitScope;
+      name: string;
+      url: string;
+    }
+  | { operation: "remove-remote"; scope: PluginGitScope; name: string }
+  | {
+      operation: "create-branch";
+      scope: PluginGitScope;
+      name: string;
+      startPoint?: string;
+      checkout?: boolean;
+    }
+  | { operation: "checkout-branch"; scope: PluginGitScope; name: string }
+  | {
+      operation: "rename-branch";
+      scope: PluginGitScope;
+      name: string;
+      newName: string;
+    }
+  | {
+      operation: "delete-branch";
+      scope: PluginGitScope;
+      name: string;
+      force?: boolean;
+    }
+  | {
+      operation: "stash";
+      scope: PluginGitScope;
+      action: PluginGitStashAction;
+      message?: string;
+      includeUntracked?: boolean;
+      entry?: number;
+    }
+  | {
+      operation: "merge";
+      scope: PluginGitScope;
+      ref: string;
+      fastForwardOnly?: boolean;
+      noCommit?: boolean;
+    }
+  | { operation: "rebase"; scope: PluginGitScope; upstream: string }
+  | { operation: "cherry-pick"; scope: PluginGitScope; commit: string }
+  | { operation: "revert"; scope: PluginGitScope; commit: string }
+  | {
+      operation: "continue";
+      scope: PluginGitScope;
+      sequencer: PluginGitSequencer;
+    }
+  | { operation: "skip"; scope: PluginGitScope; sequencer: PluginGitSequencer }
+  | { operation: "abort"; scope: PluginGitScope; sequencer: PluginGitSequencer }
+  | {
+      operation: "read-conflict-stage";
+      scope: PluginGitScope;
+      path: string;
+      stage: PluginGitConflictStage;
+    }
+  | {
+      operation: "resolve-conflict";
+      scope: PluginGitScope;
+      path: string;
+      resolution: PluginGitConflictResolution;
+    }
+  | {
+      operation: "clone";
+      scope: PluginGitScope;
+      url: string;
+      directory: string;
+      branch?: string;
+    };
+
+export type PluginGitCancelRequest = {
+  operation: "cancel";
+  operationId: string;
+};
+
+export type PluginGitRequest = PluginGitRunRequest | PluginGitCancelRequest;
+
+export interface PluginGitResult {
+  operationId: string;
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  /**
+   * True when the operation stopped because it was cancelled. A mutating
+   * command that already reached its own Git command boundary reports its real
+   * exit code and output instead, because its work is done: cancellation then
+   * stops the next step of the operation, if there is one.
+   */
+  cancelled: boolean;
+}
+
+/**
+ * A started Git operation. The host generates `operationId` and returns it
+ * before the operation completes, so a concurrent source-control action can
+ * cancel the operation while it is still running.
+ */
+export interface PluginGitOperation {
+  operationId: string;
+  result: Promise<PluginGitResult>;
+}
+
+export interface PluginGitCapability {
+  /**
+   * Runs one typed Git operation. The request is the only input: the Git
+   * executable is host-owned, read by the host from this plugin's persisted
+   * `gitExecutablePath` setting, so an invocation can never name a binary,
+   * raw argument, flag, or environment value.
+   */
+  run: (request: PluginGitRunRequest) => PluginGitOperation;
+  /**
+   * Cancels one of this plugin's operations by ID. The resolved result
+   * describes the cancelled operation, and `cancelled` is false when no
+   * matching operation is running.
+   */
+  cancel: (operationId: string) => Promise<PluginGitResult>;
+}
+
 export interface PluginWorkspaceReadCapability {
   readText: (path: string) => Promise<PluginTextDocument>;
 }
@@ -556,6 +755,7 @@ export interface PluginUserActionContext {
     clipboardWrite?: PluginClipboardWriteCapability;
     notifications?: PluginNotificationCapability;
     process?: PluginProcessCapability;
+    git?: PluginGitCapability;
   };
 }
 

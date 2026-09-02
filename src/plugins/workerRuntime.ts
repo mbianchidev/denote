@@ -34,6 +34,9 @@ export type { PluginActionLeaseScope } from "./hostOperations";
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 30_000;
+// Source-control actions drive the bounded native Git transport, whose own hard
+// timeout is ten minutes. Only this lease is extended to match it.
+const SOURCE_CONTROL_ACTION_TIMEOUT_MS = 600_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -252,7 +255,7 @@ export class PluginWorkerRuntime {
     const result = this.waitForRequest(
       runtime,
       requestId,
-      COMMAND_TIMEOUT_MS,
+      SOURCE_CONTROL_ACTION_TIMEOUT_MS,
       "source-control-action-result",
     );
     runtime.activeActions.set(requestId, {
@@ -745,6 +748,7 @@ export class PluginWorkerRuntime {
         message.key,
         message.value,
         actionScope,
+        message.operationId,
       );
       runtime.port.postMessage({
         type: "host-response",
