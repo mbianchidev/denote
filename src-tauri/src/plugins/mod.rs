@@ -60,6 +60,14 @@ struct PluginManagerInner {
     _process_lock: Option<fs::File>,
 }
 
+impl Drop for PluginManagerInner {
+    fn drop(&mut self) {
+        if let Some(lock) = &self._process_lock {
+            let _ = lock.unlock();
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PluginManager {
     inner: Arc<PluginManagerInner>,
