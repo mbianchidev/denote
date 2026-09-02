@@ -15,9 +15,9 @@ push, and clone a repository into a new vault. Every one of those is something
 you ask for. Nothing here fetches, pulls, or pushes on its own, and an automatic
 commit never touches a remote at all.
 
-The plugin never runs a process of its own and never writes note content.
-Denote owns the Git executable, the GitHub CLI, the folder chooser, and every
-credential; the plugin only names an operation and its fields.
+The plugin never runs a process of its own. Denote owns the Git executable, the
+GitHub CLI, the folder chooser, every credential, and every repository write;
+the plugin only names an operation and its typed fields.
 
 ## Enablement and permissions
 
@@ -39,9 +39,9 @@ Enabling requests these permissions:
   where your vault is.
 
 The plugin does not request network, process, or workspace-write permission, so
-it cannot open a connection of its own, run its own executable, or edit your
-notes. Remote work goes through the same Git permission: Denote runs Git and the
-GitHub CLI itself.
+it cannot open a connection of its own, run its own executable, or arbitrarily
+edit your notes. Remote work and an explicitly submitted conflict resolution go
+through the Git permission: Denote validates and performs the exact operation.
 
 Enabling alone does not run Git and does not change your vault. The first model
 reports that a refresh is required and makes no claim about the repository until
@@ -443,6 +443,10 @@ restores them.
 - **Encrypted vaults** must be unlocked and pass the host's encryption check
   before Git runs. Content stays encrypted in commits, so line-level diffs of
   encrypted files are not meaningful.
+- **Commits created before vault encryption** can still contain plaintext. Git
+  cannot encrypt old objects in place, and Denote never rewrites that history
+  automatically. Review or explicitly replace it before publishing the
+  repository when it may contain sensitive content.
 - **A commit that fails with an identity error** needs either the author
   settings above or a Git identity configured in the repository.
 - **"Choose a remote first"** means the repository has no remote yet. Add one on

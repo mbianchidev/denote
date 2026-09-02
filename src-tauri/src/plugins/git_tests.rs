@@ -5108,6 +5108,34 @@ fn a_staged_hunk_matches_the_bytes_on_disk_even_when_they_look_like_a_secret() {
     assert!(history.stdout.contains("<repository>"));
 }
 
+#[test]
+fn a_non_utf8_text_diff_is_refused_before_hunk_staging_can_change_bytes() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    let note = committed_note(&fixture, "legacy.txt", "alpha\nbeta\n");
+    fs::write(&note, b"alpha\ncaf\xe9\n").expect("write non-UTF-8 text");
+    let index_before = fs::read(fixture.vault_root.join(".git/index")).expect("index");
+
+    let error = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Worktree,
+            paths: Some(vec!["legacy.txt".to_string()]),
+        },
+        None,
+    )
+    .expect_err("non-UTF-8 diff must be refused");
+
+    assert!(error.to_string().contains("non-UTF-8"));
+    assert_eq!(
+        fs::read(fixture.vault_root.join(".git/index")).expect("index"),
+        index_before
+    );
+    assert_eq!(fs::read(&note).expect("worktree"), b"alpha\ncaf\xe9\n");
+}
+
 /// Only a typed `diff` or `show` returns exact standard output. Standard error
 /// is a diagnostic whichever command wrote it, so it is redacted even there.
 #[cfg(unix)]

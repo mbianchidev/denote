@@ -2541,7 +2541,14 @@ fn run_git_steps(
                 stdout_bytes = outcome.stdout;
                 stdout_text = match output {
                     GitOutputMode::Base64 => STANDARD.encode(&stdout_bytes),
-                    GitOutputMode::Exact => String::from_utf8_lossy(&stdout_bytes).into_owned(),
+                    GitOutputMode::Exact => String::from_utf8(stdout_bytes.clone()).map_err(
+                        |_| {
+                            AppError::Plugin(
+                                "This diff contains non-UTF-8 text. Denote will not display or stage its hunks; stage the whole file instead."
+                                    .to_string(),
+                            )
+                        },
+                    )?,
                     GitOutputMode::Redacted => redact(
                         &String::from_utf8_lossy(&stdout_bytes),
                         &execution.redacted_roots,

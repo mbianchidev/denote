@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { HeadingItem } from "../types";
 import type { SourceSymbol } from "./sourceOutline";
 import {
+  analysisHasIncompleteHeading,
   hasIncompleteMarkdownHeading,
   shouldPublishOutline,
   type StableOutlineSnapshot,
@@ -55,6 +56,30 @@ describe("outline stability", () => {
     expect(
       hasIncompleteMarkdownHeading("# Introduction\n\n```md\n## \n```"),
     ).toBe(false);
+  });
+
+  it("never treats source comments as incomplete Markdown headings", () => {
+    const source = "# module comment\n#\ndef load():\n    pass";
+
+    expect(analysisHasIncompleteHeading(source, true)).toBe(false);
+    expect(analysisHasIncompleteHeading("# Heading\n\n## ", false)).toBe(true);
+  });
+
+  it("lets an initially empty marker-only document settle to a true empty state", () => {
+    const empty = snapshot();
+
+    expect(
+      shouldPublishOutline(null, empty, {
+        incomplete: true,
+        settled: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPublishOutline(null, empty, {
+        incomplete: true,
+        settled: true,
+      }),
+    ).toBe(true);
   });
 
   it("holds structural removals until editing settles", () => {

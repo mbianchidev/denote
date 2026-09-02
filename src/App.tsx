@@ -1230,7 +1230,7 @@ function App() {
             })
           ) {
             publish();
-          } else if (!incomplete) {
+          } else if (!incomplete || previous === null) {
             settleTimer = window.setTimeout(publish, 400);
           } else {
             const pendingEntry = outlineCache.current.get(activeOutlineKey);

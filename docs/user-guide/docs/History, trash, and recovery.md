@@ -20,6 +20,19 @@ name if necessary. **Empty Trash** permanently removes its contents.
 Saves use same-directory atomic replacement. If another application changes an
 open file, Denote reports a conflict instead of overwriting that edit.
 
+## Git history and interrupted operations
+
+The optional Git plugin keeps repository history separate from Denote's ten
+saved revisions. Its History tab pages through commits and shows bounded,
+read-only commit diffs. Denote revisions remain available even when a file has
+not been committed.
+
+An interrupted merge, rebase, cherry-pick, or revert stays in Git's repository
+state across refresh, restart, cancellation, or crash. The plugin detects it and
+offers only the valid Continue, Skip, or Abort controls. Unresolved text files
+open in a three-way Base/Ours/Theirs editor; binary and encrypted files use
+whole-file choices. Resolving one file never marks another resolved.
+
 [Next: Vault encryption](<Vault encryption.md>)
 
 #guide #recovery

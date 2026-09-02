@@ -55,7 +55,8 @@ disabled. Plugin API version 1 cannot inject or download grammars. A future
 specialized grammar extension would require a separately approved typed,
 bundled host contract.
 Diff highlighting and interactive diff presentation are intentionally not core
-language entries; they belong to the future Git plugin.
+language entries; the optional Git plugin provides them through its
+host-rendered source-control view.
 
 These capabilities are planned as separately enabled plugins:
 

@@ -33,24 +33,30 @@ export function hasIncompleteMarkdownHeading(markdown: string): boolean {
   return false;
 }
 
+export function analysisHasIncompleteHeading(
+  content: string,
+  includeSourceOutline: boolean,
+): boolean {
+  return !includeSourceOutline && hasIncompleteMarkdownHeading(content);
+}
+
 export function shouldPublishOutline(
   previous: StableOutlineSnapshot | null,
   candidate: StableOutlineSnapshot,
   { incomplete, settled }: OutlinePublishOptions,
 ): boolean {
-  if (incomplete) {
-    return false;
+  if (!previous) {
+    return (
+      settled || candidate.headings.length > 0 || candidate.symbols.length > 0
+    );
   }
-  if (settled) {
+  const additive =
+    sequenceHasAdditions(previous.headings, candidate.headings, sameHeading) ||
+    sequenceHasAdditions(previous.symbols, candidate.symbols, sameSymbol);
+  if (additive) {
     return true;
   }
-  if (!previous) {
-    return candidate.headings.length > 0 || candidate.symbols.length > 0;
-  }
-  return (
-    sequenceHasAdditions(previous.headings, candidate.headings, sameHeading) ||
-    sequenceHasAdditions(previous.symbols, candidate.symbols, sameSymbol)
-  );
+  return !incomplete && settled;
 }
 
 function sequenceHasAdditions<T>(

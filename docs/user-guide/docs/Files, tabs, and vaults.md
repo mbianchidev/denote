@@ -133,6 +133,11 @@ project** accepts it. **No thanks** permanently dismisses it for that vault.
 Manually marking the root as a project or workspace also dismisses it. Denote
 never marks a Git repository automatically.
 
+When the optional Git plugin is enabled, its source-control view follows the
+same active-project rule. With no active project it operates on the vault root.
+Switching projects or vaults clears the previous repository state and requires a
+fresh status read.
+
 ## Switch vaults
 
 Use the sidebar vault switcher or `Shift-Command-O` / `Ctrl-Shift-O`. Denote
@@ -144,6 +149,19 @@ to the operating system Trash.
 Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
+
+The Git plugin can also clone into an empty folder chosen through the native
+folder picker. Denote registers and opens that folder only after Git finishes
+and the checkout passes repository, path, link, branch, upstream, and Denote
+control-file validation. A failed or cancelled clone remains visible for retry
+or separately confirmed cleanup; it is never deleted automatically. An
+encrypted clone opens at the normal unlock screen.
+
+Before a branch checkout or another Git action that changes the worktree, Denote
+saves every open tab and pauses editing. Afterward it refreshes the vault and
+reloads surviving tabs from disk while preserving pane layout, tab order,
+groups, and per-tab display choices. Files absent on the new branch are closed
+and reported.
 
 ## Choose a welcome page
 
