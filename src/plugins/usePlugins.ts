@@ -420,13 +420,14 @@ export function usePlugins(
         throw new Error("Plugin runtime is unavailable.");
       }
       runtime.setWorkspaceIdentity(workspaceIdentity);
-      runtime.setProjectContext(projectContext);
+      runtime.setProjectContext(projectContext, projectRepositories);
+      const projectIds = projectRepositories.flatMap((repository) =>
+        repository.projectId ? [repository.projectId] : [],
+      );
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
-        projectIds: projectRepositories.flatMap((repository) =>
-          repository.projectId ? [repository.projectId] : [],
-        ),
+        ...(projectIds.length > 0 ? { projectIds } : {}),
         sourceControlActionId: null,
       };
       await runtime.runCommand(pluginId, commandId, actionScope);
@@ -447,12 +448,13 @@ export function usePlugins(
       }
       runtime.setWorkspaceIdentity(workspaceIdentity);
       runtime.setProjectContext(projectContext, projectRepositories);
+      const projectIds = projectRepositories.flatMap((repository) =>
+        repository.projectId ? [repository.projectId] : [],
+      );
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
-        projectIds: projectRepositories.flatMap((repository) =>
-          repository.projectId ? [repository.projectId] : [],
-        ),
+        ...(projectIds.length > 0 ? { projectIds } : {}),
         sourceControlActionId: action.id,
       };
       await runtime.runSourceControlAction(
