@@ -28,9 +28,18 @@ describe("SourceControlPanel", () => {
     await user.click(screen.getByRole("button", { name: "Pull" }));
     await user.click(screen.getByRole("button", { name: "Push" }));
     expect(onAction).toHaveBeenCalledWith({ id: "refresh" });
-    expect(onAction).toHaveBeenCalledWith({ id: "fetch" });
-    expect(onAction).toHaveBeenCalledWith({ id: "pull" });
-    expect(onAction).toHaveBeenCalledWith({ id: "push" });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "fetch",
+      values: { remote: "origin" },
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "pull",
+      values: { remote: "origin", branch: "main" },
+    });
+    expect(onAction).toHaveBeenCalledWith({
+      id: "push",
+      values: { remote: "origin", branch: "main" },
+    });
 
     await user.selectOptions(screen.getByLabelText("Branch"), "topic");
     expect(onAction).toHaveBeenCalledWith({
@@ -212,6 +221,176 @@ describe("SourceControlPanel", () => {
       screen.queryByRole("button", { name: "Cancel operation" }),
     ).not.toBeInTheDocument();
   });
+  it("manages remotes with labelled controls and exact action payloads", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.selectedTab = "branches";
+    model.selectedView = { kind: "remotes" };
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    const url = screen.getByLabelText("URL for origin");
+    await user.clear(url);
+    await user.type(url, "https://example.invalid/moved.git");
+    await user.click(
+      screen.getByRole("button", { name: "Save the URL for origin" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "set-remote-url",
+      values: { name: "origin", url: "https://example.invalid/moved.git" },
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove the origin remote" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "remove-remote",
+      values: { name: "origin" },
+    });
+
+    await user.type(screen.getByLabelText("New remote name"), "backup");
+    await user.type(
+      screen.getByLabelText("New remote URL"),
+      "https://example.invalid/backup.git",
+    );
+    await user.click(screen.getByRole("button", { name: "Add remote" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "add-remote",
+      values: { name: "backup", url: "https://example.invalid/backup.git" },
+    });
+  });
+
+  it("offers clone onboarding, GitHub selection, and explicit clean-up", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.remoteAccess = {
+      authMode: "github-https",
+      cloneAvailable: true,
+      githubAvailable: true,
+      repositories: [
+        {
+          nameWithOwner: "synthetic-owner/synthetic-notes",
+          httpsUrl: "https://github.com/synthetic-owner/synthetic-notes.git",
+          sshUrl: "ssh://git@github.com/synthetic-owner/synthetic-notes.git",
+          defaultBranch: "main",
+          private: true,
+        },
+      ],
+      cleanup: { token: "synthetic-token", label: "the folder you chose" },
+      review: null,
+    };
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Browse GitHub repositories" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({ id: "browse-github" });
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Use synthetic-owner/synthetic-notes",
+      }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "select-repository",
+      values: {
+        nameWithOwner: "synthetic-owner/synthetic-notes",
+        url: "https://github.com/synthetic-owner/synthetic-notes.git",
+      },
+    });
+    // Selecting a repository fills the form the user is about to submit.
+    expect(screen.getByLabelText("Repository URL")).toHaveValue(
+      "https://github.com/synthetic-owner/synthetic-notes.git",
+    );
+    expect(screen.getByLabelText("Branch (optional)")).toHaveValue("main");
+
+    await user.click(
+      screen.getByRole("button", { name: "Choose folder and clone" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "clone",
+      values: {
+        url: "https://github.com/synthetic-owner/synthetic-notes.git",
+        branch: "main",
+      },
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Clean incomplete clone" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "clean-failed-clone",
+      values: { token: "synthetic-token" },
+    });
+  });
+
+  it("reviews the last remote operation and offers retry", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.remoteAccess = {
+      ...model.remoteAccess,
+      review: {
+        operation: "Fetch",
+        outcome: "failed",
+        summary: "Git fetch failed with exit code 128.",
+        detail: "The remote refused the connection.",
+        retryActionId: "refresh",
+      },
+    };
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    expect(
+      screen.getByText("Fetch: Git fetch failed with exit code 128."),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onAction).toHaveBeenCalledWith({ id: "refresh" });
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onAction).toHaveBeenCalledWith({ id: "dismiss-review" });
+  });
+
+  it("shows the configured authentication mode without offering to change it", () => {
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.remoteAccess = { ...model.remoteAccess, authMode: "ssh-agent" };
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    // The mode is a host-persisted setting, so the panel reports it and sends
+    // the user to Settings instead of offering a control that would only ever
+    // disagree with what a remote operation actually uses.
+    expect(screen.getByText("SSH agent")).toBeInTheDocument();
+    expect(screen.getByText(/Change it in Settings/)).toBeInTheDocument();
+    expect(screen.queryByLabelText("Authentication")).toBeNull();
+    expect(
+      screen.queryByRole("combobox", { name: /authentication/i }),
+    ).toBeNull();
+    expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it("refuses remote actions until a remote exists", () => {
+    const onAction = vi.fn();
+    const model = baseModel();
+    model.remotes = [];
+    render(
+      <SourceControlPanel title="Git" model={model} onAction={onAction} />,
+    );
+
+    expect(screen.getByRole("button", { name: "Fetch" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pull" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Push" })).toBeDisabled();
+    expect(
+      screen.getByText(/This repository has no remote yet/),
+    ).toBeInTheDocument();
+  });
 });
 
 function busyModel(): PluginSourceControlViewModel {
@@ -273,6 +452,14 @@ function baseModel(): PluginSourceControlViewModel {
     diffFiles: [],
     conflicts: [],
     recovery: { state: "idle" },
+    remoteAccess: {
+      authMode: "public" as const,
+      cloneAvailable: true,
+      githubAvailable: false,
+      repositories: [],
+      cleanup: null,
+      review: null,
+    },
   };
 }
 

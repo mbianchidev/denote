@@ -30,7 +30,7 @@ use super::{
     PluginManager,
     git::{
         CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken,
-        assert_repository_config_is_safe, detect_operation_state,
+        GitTransportPolicy, assert_repository_config_is_safe, detect_operation_state,
         ensure_encrypted_repository_metadata, redact, resolve_git_directory,
         resolve_git_executable, run_git_command, validate_author_email, validate_author_name,
         validate_commit_message, validate_operation_id, validated_path,
@@ -942,6 +942,10 @@ impl PluginManager {
             hooks_directory: &hooks_directory,
             global_config: &global_config,
             redacted_roots,
+            // An automatic commit is local by construction: it never contacts
+            // a remote, so it never needs credentials.
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         // Registering with the shared operation registry is what makes a
         // standing run cancellable by plugin disable and by shutdown.

@@ -3,9 +3,11 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
 
 use crate::{
@@ -13,19 +15,39 @@ use crate::{
     crypto::{self, EncryptionPhase},
     db::AppState,
     error::{AppError, AppResult},
+    models::WorkspaceSnapshot,
     vault,
 };
 
 use super::{
     PluginManager,
     auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
-    git::{PluginGitRequest, PluginGitResult, PluginGitScope},
+    clone::{
+        CloneAttempt, PluginGitCloneCleanupOutcome, PluginGitCloneVaultOutcome,
+        PluginGitCloneVaultRequest,
+    },
+    git::{
+        GitRequestTarget, GitTransportPolicy, PluginGitRequest, PluginGitResult, PluginGitScope,
+    },
+    github::GitHubRepository,
     types::{
         InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
         PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,
         PluginView,
     },
 };
+
+/// What a clone returns to the renderer.
+///
+/// `outcome` is the only half a plugin ever sees. `snapshot` is present just
+/// long enough for the host renderer to open the new vault, and the plugin
+/// runtime removes it before answering the plugin.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCloneVaultResponse {
+    pub outcome: PluginGitCloneVaultOutcome,
+    pub snapshot: Option<WorkspaceSnapshot>,
+}
 
 async fn run_blocking<T, F>(operation: F) -> AppResult<T>
 where
@@ -446,9 +468,11 @@ pub(super) fn git_request_with_app_state(
         return manager.git_request(
             plugin_id,
             request,
-            Path::new(""),
-            Vec::new(),
-            false,
+            GitRequestTarget {
+                repository_root: Path::new(""),
+                redacted_roots: Vec::new(),
+                encrypted: false,
+            },
             operation_id,
         );
     };
@@ -488,9 +512,11 @@ pub(super) fn git_request_with_app_state(
     manager.git_request(
         plugin_id,
         request,
-        &repository_root,
-        redacted_roots,
-        encrypted,
+        GitRequestTarget {
+            repository_root: &repository_root,
+            redacted_roots,
+            encrypted,
+        },
         operation_id,
     )
 }
@@ -610,4 +636,144 @@ fn git_encryption_preflight(app_state: &AppState, root: &Path) -> AppResult<bool
         )));
     }
     Ok(true)
+}
+
+// ---------------------------------------------------------------------------
+// GitHub adapter and cloning
+// ---------------------------------------------------------------------------
+
+/// Lists repositories through the host's own GitHub CLI adapter.
+///
+/// The Git permission is required because this is the same authority that runs
+/// remote operations. The vault scope is revalidated so a listing cannot be
+/// started under a lease that a vault switch has already invalidated, and only
+/// bounded metadata is returned. The caller's operation ID makes the listing
+/// cancellable while it runs, exactly like a Git command.
+#[tauri::command]
+pub async fn plugin_github_list_repositories(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    limit: u32,
+    workspace_scope: String,
+    operation_id: String,
+) -> AppResult<Vec<GitHubRepository>> {
+    let manager = state.inner().clone();
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        manager.enabled_permission(&plugin_id, "git")?;
+        let _vault_access = app_state.read_vault_access()?;
+        active_vault_for_scope(&app_state, &workspace_scope)?;
+        manager.list_github_repositories(&plugin_id, limit, &operation_id)
+    })
+    .await
+}
+
+/// Clones a repository into a folder the user picks, then opens it as a vault.
+///
+/// The chooser, the destination, the credentials, and the vault registration
+/// are all host-owned. A plugin supplies a URL, an authentication mode, and an
+/// optional branch, and never learns where the vault is.
+#[tauri::command]
+pub async fn plugin_git_clone_vault(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    request: PluginGitCloneVaultRequest,
+    workspace_scope: String,
+    operation_id: String,
+) -> AppResult<PluginCloneVaultResponse> {
+    let manager = state.inner().clone();
+    manager.enabled_permission(&plugin_id, "git")?;
+    {
+        let app_state = app.state::<AppState>();
+        let _vault_access = app_state.read_vault_access()?;
+        active_vault_for_scope(&app_state, &workspace_scope)?;
+    }
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Choose an empty folder for the cloned vault")
+        .blocking_pick_folder();
+    // Cancelling the chooser is an ordinary outcome, not a failure.
+    let Some(selected) = selected else {
+        return Ok(PluginCloneVaultResponse {
+            outcome: PluginGitCloneVaultOutcome::Cancelled,
+            snapshot: None,
+        });
+    };
+    let destination = selected
+        .into_path()
+        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
+    let cloning = {
+        let manager = manager.clone();
+        let plugin_id = plugin_id.clone();
+        let destination = destination.clone();
+        run_blocking(move || {
+            manager.clone_into_destination(
+                &plugin_id,
+                &request,
+                &destination,
+                &operation_id,
+                GitTransportPolicy::RemoteOnly,
+            )
+        })
+        .await?
+    };
+    let clone = match cloning {
+        CloneAttempt::Failed {
+            message,
+            cleanup_token,
+        } => {
+            return Ok(PluginCloneVaultResponse {
+                outcome: PluginGitCloneVaultOutcome::Failed {
+                    message,
+                    cleanup_token,
+                },
+                snapshot: None,
+            });
+        }
+        CloneAttempt::Cloned(clone) => clone,
+    };
+    // Registration happens only now, after the checkout passed every
+    // validation, so a half-finished clone never becomes a known vault.
+    let app_state = app.state::<AppState>();
+    let _vault_access = app_state.write_vault_access()?;
+    commands::seal_active_vault_before_switch(&app_state)?;
+    let mut snapshot = vault::open_vault(&app_state.db_path, &clone.path.to_string_lossy())?;
+    app_state.set_active_vault(snapshot.vault_path.clone().into())?;
+    commands::populate_encryption_status(&app_state, &mut snapshot)?;
+    Ok(PluginCloneVaultResponse {
+        outcome: PluginGitCloneVaultOutcome::Cloned {
+            label: clone.label,
+            remote_url: clone.remote_url,
+            branch: clone.branch,
+            default_branch: clone.default_branch,
+            upstream: clone.upstream,
+        },
+        // The snapshot is for the host renderer only. The runtime strips it
+        // before anything is returned to the plugin.
+        snapshot: Some(snapshot),
+    })
+}
+
+/// Deletes the destination of a clone that failed, named only by its opaque
+/// token. The active vault, and anything containing it, is protected here as
+/// well as in the registry, so a token can never reach a live vault.
+#[tauri::command]
+pub async fn plugin_git_clean_failed_clone(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    cleanup_token: String,
+    workspace_scope: String,
+) -> AppResult<PluginGitCloneCleanupOutcome> {
+    let manager = state.inner().clone();
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        let _vault_access = app_state.read_vault_access()?;
+        let root = active_vault_for_scope(&app_state, &workspace_scope)?;
+        manager.clean_failed_clone(&plugin_id, &cleanup_token, &[root])
+    })
+    .await
 }

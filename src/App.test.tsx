@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
@@ -48,6 +55,9 @@ const mockPluginController = vi.hoisted(() => ({
   emitNoteEvent: vi.fn(),
   invalidateActionLeases: vi.fn(),
   shutdown: vi.fn(),
+  openClonedVault: (async () => {}) as (
+    snapshot: unknown,
+  ) => void | Promise<void>,
 }));
 
 vi.mock("./lib/api", () => ({
@@ -69,7 +79,17 @@ vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: vi.fn(),
 }));
 vi.mock("./plugins/usePlugins", () => ({
-  usePlugins: () => mockPluginController,
+  usePlugins: (
+    _reportError: unknown,
+    _projectContext: unknown,
+    _workspaceIdentity: unknown,
+    onVaultCloned: (snapshot: unknown) => void | Promise<void>,
+  ) => {
+    // The host's clone callback is captured so a test can drive the exact
+    // renderer signal a cloned vault produces.
+    mockPluginController.openClonedVault = onVaultCloned;
+    return mockPluginController;
+  },
 }));
 vi.mock("./components/PlainTextEditor", () => ({
   PlainTextEditor: ({
@@ -727,6 +747,263 @@ describe("App initial file-tree expansion", () => {
     );
   });
 
+  it("confirms a push before it runs and names the exact remote and branch", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.remotes = [
+      {
+        name: "origin",
+        fetchUrl: "https://example.invalid/repo.git",
+        pushUrl: "https://example.invalid/repo.git",
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Push" }));
+
+    expect(
+      await screen.findByText(/Push "main" to "origin"\?/),
+    ).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog");
+    // The dialog has a close icon labelled "Cancel" as well, so the footer
+    // button is matched by its visible text.
+    await user.click(within(dialog).getByText("Cancel"));
+    expect(mockPluginController.runSourceControlAction).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Push" }));
+    await user.click(
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Push",
+      }),
+    );
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "push", values: { remote: "origin", branch: "main" } },
+        "/synthetic-vault",
+      );
+    });
+  });
+
+  it("confirms removing a remote and deleting an incomplete clone", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedTab = "branches";
+    model.selectedView = { kind: "remotes" };
+    model.remotes = [
+      {
+        name: "origin",
+        fetchUrl: "https://example.invalid/repo.git",
+        pushUrl: "https://example.invalid/repo.git",
+      },
+    ];
+    model.remoteAccess = {
+      ...model.remoteAccess,
+      cleanup: { token: "synthetic-token", label: "the folder you chose" },
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Remove the origin remote" }),
+    );
+    expect(
+      await screen.findByText(/Remove the "origin" remote\?/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove remote" }));
+
+    await user.click(
+      screen.getByRole("button", { name: "Clean incomplete clone" }),
+    );
+    expect(
+      await screen.findByText(/Permanently delete the folder/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete the folder" }));
+
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "clean-failed-clone", values: { token: "synthetic-token" } },
+        "/synthetic-vault",
+      );
+    });
+  });
+
+  it("opens a cloned vault from the host signal and never shows the old one", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("old-note.md", "markdown")]),
+    );
+    mockPluginController.sourceControlProviders = [
+      {
+        pluginId: "denote.synthetic",
+        id: "git",
+        title: "Synthetic Git",
+        model: appSourceControlModel("Synthetic repository"),
+      },
+    ];
+
+    render(<App />);
+    expect(
+      await screen.findByRole("button", { name: "Open old-note.md" }),
+    ).toBeInTheDocument();
+
+    const cloned: WorkspaceSnapshot = {
+      ...workspaceSnapshot([fileNode("cloned-note.md", "markdown")]),
+      vaultPath: "/synthetic-clone",
+      vaultName: "Cloned vault",
+    };
+    await act(async () => {
+      await mockPluginController.openClonedVault(cloned);
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Open cloned-note.md" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open old-note.md" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("saves open notes before a clone runs and before the clone opens", async () => {
+    const user = userEvent.setup();
+    const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+    const model = appSourceControlModel("Synthetic repository");
+    model.remoteAccess = { ...model.remoteAccess, cloneAvailable: true };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.refreshVault.mockResolvedValue(snapshot);
+    mockApi.readNote.mockResolvedValue({
+      path: "sample.py",
+      content: "print('synthetic')",
+      contentHash: "sample-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockApi.saveNote.mockResolvedValue({
+      path: "sample.py",
+      changed: true,
+      savedAt: "2026-01-01T00:00:00Z",
+      contentHash: "saved-sample-hash",
+      historyCount: 1,
+      stats: noteStats(),
+    });
+    // A clone hands the renderer the new workspace from inside the action, the
+    // same way the plugin runtime does.
+    mockPluginController.runSourceControlAction.mockImplementation(async () => {
+      await mockPluginController.openClonedVault({
+        ...workspaceSnapshot([fileNode("cloned-note.md", "markdown")]),
+        vaultPath: "/synthetic-clone",
+        vaultName: "Cloned vault",
+      });
+    });
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Open sample.py" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Change Edit sample.py" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    await user.type(
+      screen.getByLabelText("Repository URL"),
+      "https://example.invalid/repo.git",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Choose folder and clone" }),
+    );
+    // The host owns the confirmation, and it names the repository.
+    expect(
+      await screen.findByText(/Clone https:\/\/example.invalid\/repo.git/),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        {
+          id: "clone",
+          values: { url: "https://example.invalid/repo.git" },
+        },
+        "/synthetic-vault",
+      );
+    });
+    // The edit was flushed by the workspace transaction the clone action
+    // opened, before the clone ran and therefore before the vault was
+    // replaced. Nothing typed into the previous vault is lost.
+    expect(mockApi.saveNote).toHaveBeenCalledWith(
+      "sample.py",
+      "print('synthetic') changed",
+      "utf8",
+      "lf",
+      expect.any(String),
+      "sample-hash",
+    );
+    expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(
+      mockPluginController.runSourceControlAction.mock.invocationCallOrder[0],
+    );
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    expect(
+      await screen.findByRole("button", { name: "Open cloned-note.md" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open sample.py" }),
+    ).not.toBeInTheDocument();
+    // The vault the clone replaced is not refreshed afterwards, because it is
+    // no longer the vault that is open.
+    expect(mockApi.refreshVault).not.toHaveBeenCalled();
+  });
+
+  it("shows the unlock screen when a cloned vault is encrypted", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Files" });
+
+    const locked: WorkspaceSnapshot = {
+      ...workspaceSnapshot([fileNode("cloned-note.md", "markdown")]),
+      vaultPath: "/synthetic-encrypted-clone",
+      vaultName: "Encrypted clone",
+      encryption: {
+        enabled: true,
+        unlocked: false,
+        phase: "encrypted",
+        remainingRecoveryCodes: 5,
+      },
+    };
+    await act(async () => {
+      await mockPluginController.openClonedVault(locked);
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: /locked/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open cloned-note.md" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("saves open notes before an automatic commit and refreshes after it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
@@ -959,5 +1236,13 @@ function appSourceControlModel(
     diffFiles: [],
     conflicts: [],
     recovery: { state: "idle" },
+    remoteAccess: {
+      authMode: "public" as const,
+      cloneAvailable: true,
+      githubAvailable: false,
+      repositories: [],
+      cleanup: null,
+      review: null,
+    },
   };
 }

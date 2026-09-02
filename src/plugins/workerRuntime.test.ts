@@ -22,6 +22,9 @@ vi.mock("../lib/api", () => ({
     pluginSecretDelete: vi.fn(),
     pluginProcessRequest: vi.fn(),
     pluginGitRequest: vi.fn(),
+    pluginGithubListRepositories: vi.fn(),
+    pluginGitCloneVault: vi.fn(),
+    pluginGitCleanFailedClone: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -56,6 +59,14 @@ const sourceControlModel: PluginSourceControlViewModel = {
   diffFiles: [],
   conflicts: [],
   recovery: { state: "idle" },
+  remoteAccess: {
+    authMode: "public" as const,
+    cloneAvailable: true,
+    githubAvailable: false,
+    repositories: [],
+    cleanup: null,
+    review: null,
+  },
 };
 
 class FakePort extends EventTarget {
@@ -397,7 +408,7 @@ describe("PluginWorkerRuntime", () => {
     await runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
     expect(worker.runtimePort?.messages).toEqual(
       expect.arrayContaining([
@@ -456,7 +467,7 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "refresh", values: { force: true } },
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
     expect(worker.received).toContainEqual({
       type: "run-source-control-action",
@@ -470,7 +481,7 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "cancel-operation", values: { operationId: GIT_OPERATION_ID } },
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
     expect(worker.received).toContainEqual({
       type: "run-source-control-action",
@@ -933,7 +944,7 @@ describe("PluginWorkerRuntime", () => {
         "denote.reference",
         "denote.reference.git",
         { id: "refresh" },
-        { workspaceScope: "/vault", projectId: null },
+        { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
       ),
     ).rejects.toThrow();
 
@@ -961,7 +972,7 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "refresh" },
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      { workspaceScope: "/vault", projectId: "project-alpha", sourceControlActionId: null },
     );
     runtime.setProjectContext({
       projectId: "project-beta",
@@ -1003,7 +1014,7 @@ describe("PluginWorkerRuntime", () => {
     const command = runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      { workspaceScope: "/vault", projectId: "project-alpha", sourceControlActionId: null },
     );
     runtime.setProjectContext({
       projectId: "project-alpha",
@@ -1044,7 +1055,7 @@ describe("PluginWorkerRuntime", () => {
     const command = runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      { workspaceScope: "/vault", projectId: "project-alpha", sourceControlActionId: null },
     );
     runtime.setProjectContext({
       projectId: "project-beta",
@@ -1085,7 +1096,7 @@ describe("PluginWorkerRuntime", () => {
     const command = runtime.runCommand(
       "denote.reference",
       "denote.reference.ping",
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      { workspaceScope: "/vault", projectId: "project-alpha", sourceControlActionId: null },
     );
     runtime.setProjectContext({
       projectId: "project-beta",
@@ -1963,7 +1974,7 @@ describe("PluginWorkerRuntime", () => {
 
     await runtime.start(pluginWithGitAndProjectContext());
     const worker = BridgedWorker.instances[0];
-    const scope = { workspaceScope: VAULT_ALPHA, projectId: null };
+    const scope = { workspaceScope: VAULT_ALPHA, projectId: null, sourceControlActionId: null };
     await runtime.runSourceControlAction(
       "denote.reference",
       "denote.reference.git",
@@ -2087,7 +2098,7 @@ describe("PluginWorkerRuntime", () => {
         "denote.reference",
         "denote.reference.git",
         { id: "refresh" },
-        { workspaceScope: VAULT_ALPHA, projectId: null },
+        { workspaceScope: VAULT_ALPHA, projectId: null, sourceControlActionId: null },
       ),
     );
     await vi.waitFor(() => {
@@ -2231,7 +2242,7 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "refresh" },
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
     worker.runtimePort?.postMessage({
       type: "host-request",
@@ -2282,13 +2293,13 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "push" },
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
     const cancelling = runtime.runSourceControlAction(
       "denote.reference",
       "denote.reference.git",
       { id: "cancel" },
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
     worker.runtimePort?.postMessage({
       type: "host-request",
@@ -2338,6 +2349,7 @@ describe("PluginWorkerRuntime", () => {
         runtime.runCommand("denote.reference", "denote.reference.ping", {
           workspaceScope: "/vault",
           projectId: null,
+          sourceControlActionId: null,
         }),
       );
       const action = trackSettled(
@@ -2345,7 +2357,7 @@ describe("PluginWorkerRuntime", () => {
           "denote.reference",
           "denote.reference.git",
           { id: "push" },
-          { workspaceScope: "/vault", projectId: null },
+          { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
         ),
       );
 
@@ -2388,7 +2400,7 @@ describe("PluginWorkerRuntime", () => {
     await runtime.start(pluginWithGit());
     const worker = BridgedWorker.instances[0];
 
-    const scope = { workspaceScope: "/vault", projectId: null };
+    const scope = { workspaceScope: "/vault", projectId: null, sourceControlActionId: null };
     const refresh = runtime.runSourceControlAction(
       "denote.reference",
       "denote.reference.git",
@@ -2482,7 +2494,7 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "refresh" },
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      { workspaceScope: "/vault", projectId: "project-alpha", sourceControlActionId: null },
     );
     const refreshState = trackSettled(refresh);
     await vi.waitFor(() => {
@@ -2505,6 +2517,101 @@ describe("PluginWorkerRuntime", () => {
     expect(workerLogs(worker, "operation-settled")).toHaveLength(0);
     // The stale result never replaced the model the user is looking at.
     expect(publishedModel(onSourceControlChanged)).toEqual(busyModel);
+  });
+
+  it("only lets the clone and clean-up actions reach the host operations they name", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {});
+    await bridgeRealPluginWorker();
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(
+      cloneCapabilityModule(),
+    );
+    vi.mocked(api.pluginGitCloneVault).mockResolvedValue({
+      outcome: { status: "cancelled" },
+      snapshot: null,
+    });
+    vi.mocked(api.pluginGitCleanFailedClone).mockResolvedValue({
+      cleaned: true,
+      message: "Denote deleted the incomplete clone folder.",
+    });
+    const opened: unknown[] = [];
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      (snapshot) => {
+        opened.push(snapshot);
+      },
+    );
+    await runtime.start(pluginWithGit());
+    const worker = BridgedWorker.instances[0];
+    const lease = {
+      workspaceScope: VAULT_ALPHA,
+      projectId: null,
+      sourceControlActionId: null,
+    };
+
+    // The standardised clone action is the only lease a clone runs under.
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "clone" },
+      lease,
+    );
+    expect(api.pluginGitCloneVault).toHaveBeenCalledTimes(1);
+    expect(api.pluginGitCloneVault).toHaveBeenCalledWith(
+      "denote.reference",
+      { url: "https://example.invalid/repo.git", authMode: "public" },
+      VAULT_ALPHA,
+      expect.any(String),
+    );
+    expect(workerLogs(worker, "clone-outcome")).toHaveLength(1);
+
+    // A differently named action carries a different confirmation, so it
+    // reaches neither the folder chooser nor the native command.
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "refresh" },
+      lease,
+    );
+    // A command has no source-control action at all.
+    await runtime.runCommand(
+      "denote.reference",
+      "denote.reference.ping",
+      lease,
+    );
+    expect(api.pluginGitCloneVault).toHaveBeenCalledTimes(1);
+    const refusals = workerLogs(worker, "clone-refused");
+    expect(refusals).toHaveLength(2);
+    for (const refusal of refusals) {
+      expect(JSON.stringify(refusal)).toContain(
+        'requires the \\"clone\\" source-control action',
+      );
+    }
+
+    // The same binding protects the deletion.
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "clean-failed-clone" },
+      lease,
+    );
+    expect(api.pluginGitCleanFailedClone).toHaveBeenCalledTimes(1);
+    await runtime.runSourceControlAction(
+      "denote.reference",
+      "denote.reference.git",
+      { id: "sneaky-cleanup" },
+      lease,
+    );
+    expect(api.pluginGitCleanFailedClone).toHaveBeenCalledTimes(1);
+    expect(workerLogs(worker, "cleanup-refused")).toHaveLength(1);
+    // Nothing that was refused ever handed the renderer a workspace.
+    expect(opened).toEqual([]);
   });
 });
 
@@ -2621,6 +2728,76 @@ function vaultProviderModule(): string {
           },
         });
         context.subscriptions.add(registration);
+      },
+    };
+  `;
+}
+
+/**
+ * A synthetic provider and command that both reach for the two host-owned
+ * operations a source-control action has to authorise: cloning into a folder
+ * the user picks, and deleting what a failed clone left behind.
+ */
+function cloneCapabilityModule(): string {
+  return `
+    const model = ${JSON.stringify(sourceControlModel)};
+    export default {
+      manifest: {
+        id: ${JSON.stringify(catalog.manifest.id)},
+        version: ${JSON.stringify(catalog.manifest.version)},
+      },
+      async activate(context) {
+        const clone = async (git, label) => {
+          try {
+            const operation = git.cloneVault({
+              url: "https://example.invalid/repo.git",
+              authMode: "public",
+            });
+            const outcome = await operation.result;
+            context.logger.info("clone-outcome", {
+              label,
+              status: outcome.status,
+              operationId: operation.operationId,
+            });
+          } catch (error) {
+            context.logger.info("clone-refused", {
+              label,
+              message: String(error && error.message ? error.message : error),
+            });
+          }
+        };
+        const cleanup = async (git, label) => {
+          try {
+            await git.cleanFailedClone("11111111-2222-4333-8444-555555555555");
+            context.logger.info("cleanup-outcome", { label });
+          } catch (error) {
+            context.logger.info("cleanup-refused", {
+              label,
+              message: String(error && error.message ? error.message : error),
+            });
+          }
+        };
+        const registration = context.capabilities.sourceControl.register({
+          id: "denote.reference.git",
+          title: "Git",
+          initialModel: model,
+          async runAction(action, userAction) {
+            const git = userAction.capabilities.git;
+            if (action.id === "clean-failed-clone" || action.id === "sneaky-cleanup") {
+              await cleanup(git, action.id);
+              return;
+            }
+            await clone(git, action.id);
+          },
+        });
+        context.subscriptions.add(registration);
+        context.subscriptions.add(
+          context.capabilities.commands.register({
+            id: "denote.reference.ping",
+            title: "Ping",
+            run: (userAction) => clone(userAction.capabilities.git, "command"),
+          }),
+        );
       },
     };
   `;

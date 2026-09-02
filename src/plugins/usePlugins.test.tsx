@@ -437,7 +437,11 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
       pluginId,
       "denote.reference.synthetic",
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      {
+        workspaceScope: "/vault",
+        projectId: "project-alpha",
+        sourceControlActionId: null,
+      },
     );
 
     rendered.rerender({
@@ -454,7 +458,7 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
       pluginId,
       "denote.reference.synthetic",
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
   });
 
@@ -488,6 +492,14 @@ describe("usePlugins", () => {
       diffFiles: [],
       conflicts: [],
       recovery: { state: "idle" },
+      remoteAccess: {
+        authMode: "public" as const,
+        cloneAvailable: true,
+        githubAvailable: false,
+        repositories: [],
+        cleanup: null,
+        review: null,
+      },
     } as const;
     const publishProviders = runtimeInstances[0]
       .onSourceControlProvidersChanged as (
@@ -532,7 +544,13 @@ describe("usePlugins", () => {
       pluginId,
       "denote.reference.git",
       { id: "refresh", values: { force: true } },
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      {
+        workspaceScope: "/vault",
+        projectId: "project-alpha",
+        // The lease names the action the host is running, so a host operation
+        // reserved for one action cannot be reached from another.
+        sourceControlActionId: "refresh",
+      },
     );
   });
 

@@ -1,14 +1,41 @@
 import type {
+  PluginGitCloneVaultResult,
   PluginNetworkRequest,
   PluginProcessRequest,
 } from "@denote/plugin-sdk";
 import { api } from "../lib/api";
-import { parsePluginGitRequest } from "./gitRequests";
+import type { WorkspaceSnapshot } from "../types";
+import {
+  parsePluginGitCleanupToken,
+  parsePluginGitCloneVaultRequest,
+  parsePluginGitHubListLimit,
+  parsePluginGitRequest,
+} from "./gitRequests";
 
 export interface PluginActionLeaseScope {
   workspaceScope: string;
   projectId: string | null;
+  /**
+   * The source-control action this lease was opened for, or `null` for a
+   * command.
+   *
+   * Cloning and deleting a failed clone replace or destroy a folder, so the
+   * host only performs them under the standardised action the user confirmed.
+   * A command carries no action, and a differently named action is a different
+   * confirmation, so neither can reach them.
+   */
+  sourceControlActionId: string | null;
 }
+
+/**
+ * Signals the host renderer that a clone produced a new vault.
+ *
+ * The snapshot identifies a folder on disk, so it stops here: the renderer
+ * opens the vault with it and the plugin only ever receives the outcome.
+ */
+export type PluginVaultClonedHandler = (
+  snapshot: WorkspaceSnapshot,
+) => void | Promise<void>;
 
 export function privilegedHostOperation(operation: string): boolean {
   return (
@@ -28,6 +55,7 @@ export async function runHostOperation(
   value?: unknown,
   actionScope?: PluginActionLeaseScope,
   operationId?: string,
+  onVaultCloned?: PluginVaultClonedHandler,
 ): Promise<unknown> {
   switch (operation) {
     case "storage.get":
@@ -107,6 +135,49 @@ export async function runHostOperation(
         requireOperationId(operationId),
       );
     }
+    case "git.list-github-repositories": {
+      const scope = requireActionScope(actionScope);
+      return api.pluginGithubListRepositories(
+        pluginId,
+        parsePluginGitHubListLimit(value),
+        scope.workspaceScope,
+        requireOperationId(operationId),
+      );
+    }
+    case "git.clone-vault": {
+      // A clone opens a native folder chooser and replaces the workspace, so
+      // it is refused unless the host itself is running the standardised
+      // clone action the user confirmed. Refusing here means no chooser is
+      // ever opened and no native command is ever reached.
+      const scope = requireSourceControlAction(actionScope, "clone");
+      const response = await api.pluginGitCloneVault(
+        pluginId,
+        parsePluginGitCloneVaultRequest(value),
+        scope.workspaceScope,
+        requireOperationId(operationId),
+      );
+      if (response.snapshot) {
+        // The host renderer owns the new vault. Awaiting it here means the
+        // plugin is only told the clone succeeded once the workspace has
+        // actually been handed over, so no action runs against a vault that
+        // is not on screen yet.
+        await onVaultCloned?.(response.snapshot);
+      }
+      // Only the outcome crosses back into the plugin: it carries a label, the
+      // branch metadata, and an opaque clean-up token, never a path.
+      return response.outcome satisfies PluginGitCloneVaultResult;
+    }
+    case "git.clean-failed-clone": {
+      const scope = requireSourceControlAction(
+        actionScope,
+        "clean-failed-clone",
+      );
+      return api.pluginGitCleanFailedClone(
+        pluginId,
+        parsePluginGitCleanupToken(value),
+        scope.workspaceScope,
+      );
+    }
     default:
       throw new Error(`Unsupported plugin host operation: ${operation}`);
   }
@@ -133,6 +204,27 @@ function requireActionScope(
     throw new Error("Workspace action lease has no vault scope.");
   }
   return scope;
+}
+
+/**
+ * Requires the lease to belong to one exact source-control action.
+ *
+ * The host names the action, decides its confirmation, and prepares the
+ * workspace for it, so binding the operation to that name is what stops a
+ * plugin command, or an action the plugin invented, from reaching a folder
+ * chooser or a deletion the user never approved.
+ */
+function requireSourceControlAction(
+  scope: PluginActionLeaseScope | undefined,
+  actionId: string,
+): PluginActionLeaseScope {
+  const resolved = requireActionScope(scope);
+  if (resolved.sourceControlActionId !== actionId) {
+    throw new Error(
+      `Plugin host operation requires the "${actionId}" source-control action.`,
+    );
+  }
+  return resolved;
 }
 
 const OPERATION_ID_PATTERN =

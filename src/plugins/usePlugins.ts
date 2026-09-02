@@ -10,6 +10,7 @@ import type {
 import {
   PluginWorkerRuntime,
   type PluginActionLeaseScope,
+  type PluginVaultClonedHandler,
   type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginSidebarContribution,
@@ -72,6 +73,12 @@ export function usePlugins(
    * changed without ever being told which one it is.
    */
   workspaceIdentity: string | null = null,
+  /**
+   * Opens the workspace a host clone produced. It is a host-only callback: the
+   * snapshot never crosses the plugin boundary, so a plugin cannot learn where
+   * the new vault is.
+   */
+  onVaultCloned: PluginVaultClonedHandler = () => {},
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
@@ -92,6 +99,9 @@ export function usePlugins(
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
   const runtimeRef = useRef<PluginWorkerRuntime | null>(null);
+  // Held in a ref so a changing handler never restarts every plugin runtime.
+  const vaultClonedRef = useRef(onVaultCloned);
+  vaultClonedRef.current = onVaultCloned;
   const pendingTransactionsRef = useRef(new Map<string, string>());
   const startsAllowedRef = useRef(true);
 
@@ -130,6 +140,7 @@ export function usePlugins(
       setDecorations,
       setSourceControlProviders,
       setAutomaticLocalCommits,
+      (snapshot) => vaultClonedRef.current(snapshot),
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext);
@@ -409,6 +420,7 @@ export function usePlugins(
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
+        sourceControlActionId: null,
       };
       await runtime.runCommand(pluginId, commandId, actionScope);
     },
@@ -431,6 +443,7 @@ export function usePlugins(
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
+        sourceControlActionId: action.id,
       };
       await runtime.runSourceControlAction(
         pluginId,

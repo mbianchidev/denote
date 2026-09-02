@@ -28,6 +28,10 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 
+use super::askpass::{
+    ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial, apply_askpass_environment,
+};
+
 /// Hard ceiling for one Git operation, matching the extended source-control
 /// action lease in the renderer.
 pub(crate) const GIT_TIMEOUT: Duration = Duration::from_secs(600);
@@ -122,6 +126,21 @@ pub enum PluginGitPullStrategy {
 pub enum PluginGitPushMode {
     Normal,
     ForceWithLease,
+}
+
+/// How one remote operation authenticates.
+///
+/// `Public` and `SshAgent` need nothing from the host beyond the hardened Git
+/// invocation itself. `GithubHttps` asks the host's GitHub adapter for a
+/// token, which is used through a private askpass file and destroyed when the
+/// operation ends.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginGitAuthMode {
+    #[default]
+    Public,
+    SshAgent,
+    GithubHttps,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -220,12 +239,16 @@ pub enum PluginGitRequest {
         remote: String,
         #[serde(default)]
         prune: bool,
+        #[serde(default)]
+        auth_mode: PluginGitAuthMode,
     },
     Pull {
         scope: PluginGitScope,
         remote: String,
         branch: String,
         strategy: PluginGitPullStrategy,
+        #[serde(default)]
+        auth_mode: PluginGitAuthMode,
     },
     Push {
         scope: PluginGitScope,
@@ -235,6 +258,8 @@ pub enum PluginGitRequest {
         set_upstream: bool,
         #[serde(default)]
         mode: Option<PluginGitPushMode>,
+        #[serde(default)]
+        auth_mode: PluginGitAuthMode,
     },
     AddRemote {
         scope: PluginGitScope,
@@ -331,6 +356,8 @@ pub enum PluginGitRequest {
         directory: String,
         #[serde(default)]
         branch: Option<String>,
+        #[serde(default)]
+        auth_mode: PluginGitAuthMode,
     },
     Cancel {
         operation_id: String,
@@ -388,6 +415,59 @@ impl PluginGitRequest {
                 | Self::Clone { .. }
         )
     }
+
+    /// The authentication mode a remote operation asked for. Every local
+    /// operation reports `None`, so credential material is only ever prepared
+    /// for the four operations that actually reach a remote.
+    pub(crate) fn auth_mode(&self) -> Option<PluginGitAuthMode> {
+        match self {
+            Self::Fetch { auth_mode, .. }
+            | Self::Pull { auth_mode, .. }
+            | Self::Push { auth_mode, .. }
+            | Self::Clone { auth_mode, .. } => Some(*auth_mode),
+            _ => None,
+        }
+    }
+
+    /// The remote URL a remote operation will contact, when the request names
+    /// one directly. `fetch`, `pull`, and `push` name a configured remote
+    /// instead, so the URL comes from repository configuration.
+    pub(crate) fn remote_url(&self) -> Option<&str> {
+        match self {
+            Self::Clone { url, .. } => Some(url.as_str()),
+            _ => None,
+        }
+    }
+
+    /// The configured remote a remote operation names.
+    pub(crate) fn remote_name(&self) -> Option<&str> {
+        match self {
+            Self::Fetch { remote, .. } | Self::Pull { remote, .. } | Self::Push { remote, .. } => {
+                Some(remote.as_str())
+            }
+            _ => None,
+        }
+    }
+
+    /// Which of a remote's two URLs the operation actually contacts.
+    ///
+    /// A remote may carry a separate `pushurl`, so a push and a fetch on the
+    /// same remote can reach different hosts. Credentials are decided from the
+    /// direction the operation will really use, never from the fetch URL alone.
+    pub(crate) fn remote_direction(&self) -> Option<RemoteDirection> {
+        match self {
+            Self::Push { .. } => Some(RemoteDirection::Push),
+            Self::Fetch { .. } | Self::Pull { .. } => Some(RemoteDirection::Fetch),
+            _ => None,
+        }
+    }
+}
+
+/// Which side of a configured remote one operation contacts.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RemoteDirection {
+    Fetch,
+    Push,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -1131,6 +1211,24 @@ pub(crate) fn validate_remote_url(value: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Validates a remote URL for one transport policy.
+///
+/// Only HTTPS and SSH are supported, so this is the same check everywhere in
+/// shipped code. Tests additionally serve a synthetic bare repository from a
+/// temporary directory, which is the only case a filesystem path is accepted
+/// in, and the permissive policy does not exist outside tests.
+pub(crate) fn validate_remote_url_for(value: &str, transport: GitTransportPolicy) -> AppResult<()> {
+    let _ = transport;
+    #[cfg(test)]
+    if matches!(transport, GitTransportPolicy::AllowLocal)
+        && Path::new(value).is_absolute()
+        && Path::new(value).is_dir()
+    {
+        return Ok(());
+    }
+    validate_remote_url(value)
+}
+
 pub(crate) fn validate_commit_message(value: &str) -> AppResult<()> {
     if value.trim().is_empty() || value.len() > MAX_MESSAGE_BYTES {
         return Err(AppError::Plugin(
@@ -1703,6 +1801,9 @@ pub(crate) struct GitOperationRegistry {
 
 pub(crate) struct GitOperationToken {
     pub(crate) operation_id: String,
+    /// The plugin the operation belongs to. It is carried on the token so an
+    /// operation always knows whose authority it is running under.
+    pub(crate) plugin_id: String,
     cancelled: Arc<AtomicBool>,
     mutating: Arc<AtomicBool>,
     child: Arc<Mutex<Option<GroupChild>>>,
@@ -1711,6 +1812,20 @@ pub(crate) struct GitOperationToken {
 impl GitOperationToken {
     pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// A token for one short host-owned inspection that is not itself a
+    /// plugin operation. It is never registered, so nothing can cancel it by
+    /// ID; the operation it belongs to is cancelled instead.
+    #[cfg(test)]
+    pub(crate) fn detached() -> Self {
+        Self {
+            operation_id: Uuid::new_v4().to_string(),
+            plugin_id: String::new(),
+            cancelled: Arc::new(AtomicBool::new(false)),
+            mutating: Arc::new(AtomicBool::new(false)),
+            child: Arc::new(Mutex::new(None)),
+        }
     }
 
     fn set_mutating(&self, mutating: bool) {
@@ -1730,6 +1845,7 @@ impl GitOperationRegistry {
         validate_operation_id(operation_id)?;
         let token = GitOperationToken {
             operation_id: operation_id.to_string(),
+            plugin_id: plugin_id.to_string(),
             cancelled: Arc::new(AtomicBool::new(false)),
             mutating: Arc::new(AtomicBool::new(false)),
             child: Arc::new(Mutex::new(None)),
@@ -1818,6 +1934,38 @@ fn kill_child(child: &Arc<Mutex<Option<GroupChild>>>) {
 // Execution
 // ---------------------------------------------------------------------------
 
+/// Which transports a Git invocation may use.
+///
+/// Denote supports remote repositories over HTTPS and SSH only. The
+/// permissive variant exists solely for tests, which serve synthetic bare
+/// repositories from a temporary directory, and is compiled out of release
+/// builds entirely, so no production path can construct it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum GitTransportPolicy {
+    #[default]
+    RemoteOnly,
+    #[cfg(test)]
+    AllowLocal,
+}
+
+impl GitTransportPolicy {
+    fn file_allow(self) -> &'static str {
+        #[cfg(test)]
+        if matches!(self, Self::AllowLocal) {
+            return "always";
+        }
+        "never"
+    }
+
+    fn allowed_protocols(self) -> &'static str {
+        #[cfg(test)]
+        if matches!(self, Self::AllowLocal) {
+            return "https:ssh:file";
+        }
+        "https:ssh"
+    }
+}
+
 pub(crate) struct GitExecution<'a> {
     pub(crate) executable: &'a Path,
     pub(crate) repository_root: &'a Path,
@@ -1827,6 +1975,11 @@ pub(crate) struct GitExecution<'a> {
     /// command-bearing key.
     pub(crate) global_config: &'a Path,
     pub(crate) redacted_roots: Vec<PathBuf>,
+    /// Present only for an authenticated remote operation. It points this one
+    /// Git child at Denote's own askpass mode and is destroyed with the
+    /// operation.
+    pub(crate) askpass: Option<&'a AskpassMaterial>,
+    pub(crate) transport: GitTransportPolicy,
 }
 
 pub(crate) fn run_git_plan(
@@ -2230,7 +2383,7 @@ pub(crate) fn hardening_arguments(execution: &GitExecution<'_>) -> Vec<String> {
         "-c".to_string(),
         "protocol.allow=never".to_string(),
         "-c".to_string(),
-        "protocol.file.allow=never".to_string(),
+        format!("protocol.file.allow={}", execution.transport.file_allow()),
         "-c".to_string(),
         "protocol.ext.allow=never".to_string(),
         "-c".to_string(),
@@ -2279,6 +2432,11 @@ const REMOVED_ENVIRONMENT: &[&str] = &[
     "GIT_TEMPLATE_DIR",
     "GIT_WORK_TREE",
     "SSH_ASKPASS",
+    // Denote's own askpass markers. An ambient value could otherwise make an
+    // ordinary local command answer prompts from a file this operation never
+    // created.
+    ASKPASS_MODE_ENV,
+    ASKPASS_FILE_ENV,
 ];
 
 /// The identity variables are removed rather than pinned. Git reads
@@ -2306,10 +2464,19 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_ATTR_NOSYSTEM", "1")
         .env("GIT_LITERAL_PATHSPECS", "1")
-        .env("GIT_ALLOW_PROTOCOL", "https:ssh")
+        .env(
+            "GIT_ALLOW_PROTOCOL",
+            execution.transport.allowed_protocols(),
+        )
         .env("GIT_PROTOCOL_FROM_USER", "0")
         .env("GIT_FLUSH", "1")
         .env("GIT_ADVICE", "0");
+    // Applied last, and only for an authenticated remote operation, so exactly
+    // one child can answer a credential prompt and every other child keeps the
+    // stripped environment.
+    if let Some(material) = execution.askpass {
+        apply_askpass_environment(command, material);
+    }
 }
 
 /// Strips every inherited variable Denote refuses to let a Git child see. It is
@@ -2421,14 +2588,91 @@ fn redact_token(token: &str) -> String {
     token.to_string()
 }
 
+/// Longest diagnostic Denote repeats back from a tool's output.
+pub(crate) const MAX_DIAGNOSTIC_BYTES: usize = 200;
+
+/// Reduces a tool's output to one short line for a message a person reads.
+///
+/// Git and the GitHub CLI both write UTF-8, and a translated diagnostic is
+/// routinely multi-byte, so the cut is made at a character boundary. Cutting
+/// at a byte offset would panic mid-character and take the whole operation
+/// with it, losing the clean-up that has to run when an operation ends.
+pub(crate) fn first_line(value: &str) -> String {
+    value
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(truncate_diagnostic)
+        .unwrap_or_default()
+}
+
+fn truncate_diagnostic(line: &str) -> String {
+    if line.len() <= MAX_DIAGNOSTIC_BYTES {
+        return line.to_string();
+    }
+    // The limit rarely lands on a character boundary, so the cut walks back to
+    // the last one at or below it.
+    let mut end = MAX_DIAGNOSTIC_BYTES;
+    while end > 0 && !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", &line[..end])
+}
+
 // ---------------------------------------------------------------------------
 // Manager integration
 // ---------------------------------------------------------------------------
 
 use super::PluginManager;
 
+/// One already resolved and revalidated repository a typed request runs
+/// against. The caller owns vault scope, project identity, and the encryption
+/// preflight that produced it.
+pub(crate) struct GitRequestTarget<'a> {
+    pub(crate) repository_root: &'a Path,
+    pub(crate) redacted_roots: Vec<PathBuf>,
+    pub(crate) encrypted: bool,
+}
+
+/// Everything one authentication decision needs about the invocation it is
+/// preparing credentials for.
+struct RemoteAuthContext<'a> {
+    executable: &'a Path,
+    repository_root: &'a Path,
+    hooks_directory: &'a Path,
+    global_config: &'a Path,
+    transport: GitTransportPolicy,
+}
+
+/// One registered Git operation that is always unregistered.
+///
+/// Registration is what makes an operation cancellable, so it happens before
+/// any credential is read rather than just before Git starts. Unregistration
+/// then has to happen however the operation ends — normally, on a failure, on
+/// a timeout, on cancellation, or on an early return while credentials were
+/// still being prepared — so it is done on drop instead of at each exit.
+pub(crate) struct RegisteredGitOperation {
+    manager: PluginManager,
+    token: GitOperationToken,
+}
+
+impl RegisteredGitOperation {
+    pub(crate) fn token(&self) -> &GitOperationToken {
+        &self.token
+    }
+}
+
+impl Drop for RegisteredGitOperation {
+    fn drop(&mut self) {
+        self.manager
+            .inner
+            .git_operations
+            .finish(&self.token.operation_id);
+    }
+}
+
 impl PluginManager {
-    fn git_support_directory(&self) -> AppResult<PathBuf> {
+    pub(crate) fn git_support_directory(&self) -> AppResult<PathBuf> {
         let directory = self.inner.app_data_dir.join("plugins").join("git");
         if !directory.is_dir() {
             fs::create_dir_all(&directory)?;
@@ -2483,11 +2727,34 @@ impl PluginManager {
         &self,
         plugin_id: &str,
         request: PluginGitRequest,
-        repository_root: &Path,
-        redacted_roots: Vec<PathBuf>,
-        encrypted: bool,
+        target: GitRequestTarget<'_>,
         operation_id: &str,
     ) -> AppResult<PluginGitResult> {
+        self.git_request_with_transport(
+            plugin_id,
+            request,
+            target,
+            operation_id,
+            GitTransportPolicy::RemoteOnly,
+        )
+    }
+
+    /// The transport policy is a parameter so tests can serve a synthetic bare
+    /// repository from a temporary directory. Only `RemoteOnly` exists outside
+    /// tests, so no shipped path can reach a local transport.
+    pub(crate) fn git_request_with_transport(
+        &self,
+        plugin_id: &str,
+        request: PluginGitRequest,
+        target: GitRequestTarget<'_>,
+        operation_id: &str,
+        transport: GitTransportPolicy,
+    ) -> AppResult<PluginGitResult> {
+        let GitRequestTarget {
+            repository_root,
+            redacted_roots,
+            encrypted,
+        } = target;
         self.enabled_permission(plugin_id, "git")?;
         validate_operation_id(operation_id)?;
         if let PluginGitRequest::Cancel {
@@ -2560,27 +2827,173 @@ impl PluginManager {
         let executable = resolve_git_executable(configured.as_deref())?;
         let hooks_directory = self.git_hooks_directory()?;
         let global_config = self.git_global_config()?;
+        // The operation is registered before any credential is read, so
+        // cancelling it already reaches the GitHub CLI, and the guard
+        // unregisters it however this function returns.
+        let operation = self.register_git_operation(plugin_id, operation_id)?;
+        // Credential material exists only for the four operations that reach a
+        // remote, is created before Git starts, and is destroyed when it goes
+        // out of scope, whatever the outcome is.
+        let askpass = self.remote_authentication(
+            plugin_id,
+            &request,
+            RemoteAuthContext {
+                executable: &executable,
+                repository_root,
+                hooks_directory: &hooks_directory,
+                global_config: &global_config,
+                transport,
+            },
+            operation.token(),
+        )?;
         let execution = GitExecution {
             executable: &executable,
             repository_root,
             hooks_directory: &hooks_directory,
             global_config: &global_config,
             redacted_roots,
+            askpass: askpass.as_ref(),
+            transport,
         };
+        run_git_plan(&steps, &execution, operation.token())
+    }
+
+    /// Prepares credentials for a remote operation.
+    ///
+    /// A `fetch`, `pull`, or `push` names a configured remote rather than a
+    /// URL, so the URLs are read out of the repository first, for the exact
+    /// direction the operation will use: GitHub sign-in has to be proved to
+    /// apply to every URL that will actually be contacted before a token is
+    /// fetched, or the token would be offered to whatever host that remote
+    /// points at.
+    fn remote_authentication(
+        &self,
+        plugin_id: &str,
+        request: &PluginGitRequest,
+        context: RemoteAuthContext<'_>,
+        token: &GitOperationToken,
+    ) -> AppResult<Option<AskpassMaterial>> {
+        let Some(mode) = request.auth_mode() else {
+            return Ok(None);
+        };
+        if matches!(
+            mode,
+            PluginGitAuthMode::Public | PluginGitAuthMode::SshAgent
+        ) {
+            return Ok(None);
+        }
+        let urls = match request.remote_url() {
+            Some(url) => vec![url.to_string()],
+            None => {
+                let remote = request.remote_name().ok_or_else(|| {
+                    AppError::Plugin(
+                        "This operation does not name a remote, so Denote cannot sign in to it"
+                            .to_string(),
+                    )
+                })?;
+                let direction = request.remote_direction().ok_or_else(|| {
+                    AppError::Plugin(
+                        "This operation does not contact a remote, so Denote cannot sign in to it"
+                            .to_string(),
+                    )
+                })?;
+                let execution = GitExecution {
+                    executable: context.executable,
+                    repository_root: context.repository_root,
+                    hooks_directory: context.hooks_directory,
+                    global_config: context.global_config,
+                    redacted_roots: vec![context.repository_root.to_path_buf()],
+                    askpass: None,
+                    transport: context.transport,
+                };
+                read_remote_urls(&execution, remote, direction, token)?
+            }
+        };
+        self.authentication_material(plugin_id, mode, &urls, Some(token))
+    }
+
+    /// Registers one host-owned operation with the shared cancellation
+    /// registry, so lifecycle cancellation reaches it like any Git command.
+    /// The returned guard unregisters it when it is dropped.
+    pub(crate) fn register_git_operation(
+        &self,
+        plugin_id: &str,
+        operation_id: &str,
+    ) -> AppResult<RegisteredGitOperation> {
         let token = self
             .inner
             .git_operations
             .register(plugin_id, operation_id)?;
-        let result = run_git_plan(&steps, &execution, &token);
-        self.inner.git_operations.finish(&token.operation_id);
-        result
+        Ok(RegisteredGitOperation {
+            manager: self.clone(),
+            token,
+        })
     }
 
+    /// Stops every Git and clone process this plugin started and drops the
+    /// clean-up tokens it was holding, so a disabled plugin leaves nothing
+    /// running and no handle to a folder behind.
     pub(crate) fn cancel_git_operations(&self, plugin_id: &str) {
         self.inner.git_operations.cancel_plugin(plugin_id);
+        self.inner.clone_cleanups.forget_plugin(plugin_id);
     }
 
     pub(crate) fn cancel_all_git_operations(&self) {
         self.inner.git_operations.cancel_all();
     }
+}
+
+/// Reads every URL one configured remote will be contacted on, for one
+/// direction. Nothing is contacted: the values come from repository
+/// configuration.
+///
+/// `--all` is used because a remote may carry several push URLs, and `--push`
+/// is used for a push because `remote.<name>.pushurl` overrides the fetch URL
+/// there. Reading only the fetch URL would let a repository send a credential
+/// chosen for one host to a different one.
+pub(crate) fn read_remote_urls(
+    execution: &GitExecution<'_>,
+    remote: &str,
+    direction: RemoteDirection,
+    token: &GitOperationToken,
+) -> AppResult<Vec<String>> {
+    validate_remote_name(remote)?;
+    let mut arguments = vec!["remote".to_string(), "get-url".to_string()];
+    if direction == RemoteDirection::Push {
+        arguments.push("--push".to_string());
+    }
+    arguments.push("--all".to_string());
+    arguments.push(remote.to_string());
+    let outcome = run_git_command(
+        &arguments,
+        execution,
+        token,
+        Instant::now() + GIT_TIMEOUT,
+        false,
+    )?;
+    if outcome.cancelled || token.is_cancelled() {
+        return Err(AppError::Plugin(
+            "The Git operation was cancelled before it contacted the remote".to_string(),
+        ));
+    }
+    if outcome.exit_code != 0 {
+        return Err(AppError::Plugin(format!(
+            "Denote could not read the URL of the \"{remote}\" remote"
+        )));
+    }
+    let urls: Vec<String> = String::from_utf8_lossy(&outcome.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect();
+    if urls.is_empty() {
+        return Err(AppError::Plugin(format!(
+            "The \"{remote}\" remote has no URL, so Denote cannot contact it"
+        )));
+    }
+    for url in &urls {
+        validate_remote_url(url)?;
+    }
+    Ok(urls)
 }

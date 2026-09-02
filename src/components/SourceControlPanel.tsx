@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type {
   PluginSourceControlAction,
+  PluginSourceControlAuthMode,
   PluginSourceControlDiffFile,
+  PluginSourceControlRemote,
+  PluginSourceControlRemoteAccess,
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
@@ -19,6 +22,12 @@ const tabs = [
 ] as const;
 
 type SourceControlTab = (typeof tabs)[number]["id"];
+
+const authModeLabels: Record<PluginSourceControlAuthMode, string> = {
+  public: "Public repository",
+  "ssh-agent": "SSH agent",
+  "github-https": "GitHub sign-in",
+};
 
 function action(
   id: string,
@@ -175,13 +184,340 @@ function DiffView({ files }: { files: PluginSourceControlDiffFile[] }) {
   );
 }
 
+function CloneOnboarding({
+  remoteAccess,
+  busy,
+  onAction,
+}: {
+  remoteAccess: PluginSourceControlRemoteAccess;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const [url, setUrl] = useState("");
+  const [branch, setBranch] = useState("");
+
+  if (!remoteAccess.cloneAvailable) {
+    return null;
+  }
+
+  return (
+    <section
+      className="source-control__clone"
+      aria-labelledby="source-control-clone"
+    >
+      <h3 id="source-control-clone">Clone a repository</h3>
+      <p className="source-control__hint">
+        Denote asks you to choose an empty folder, clones into it, and opens it
+        as a vault.
+      </p>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          const trimmed = url.trim();
+          if (!trimmed) {
+            return;
+          }
+          const values: Record<string, string> = { url: trimmed };
+          if (branch.trim()) {
+            values.branch = branch.trim();
+          }
+          onAction(action("clone", values));
+        }}
+      >
+        <label className="source-control__field">
+          <span>Repository URL</span>
+          <input
+            type="url"
+            inputMode="url"
+            placeholder="https://host.example/owner/repository.git"
+            value={url}
+            disabled={busy}
+            onChange={(event) => setUrl(event.currentTarget.value)}
+          />
+        </label>
+        <label className="source-control__field">
+          <span>Branch (optional)</span>
+          <input
+            value={branch}
+            disabled={busy}
+            onChange={(event) => setBranch(event.currentTarget.value)}
+          />
+        </label>
+        <dl className="source-control__configured">
+          <div>
+            <dt>Authentication</dt>
+            <dd>{authModeLabels[remoteAccess.authMode]}</dd>
+          </div>
+        </dl>
+        <p className="source-control__hint">
+          Every fetch, pull, push, and clone uses this mode. Change it in
+          Settings, under this plugin's settings.
+        </p>
+        <div className="source-control__actions">
+          <button
+            type="submit"
+            className="primary-button"
+            disabled={busy || url.trim().length === 0}
+          >
+            Choose folder and clone
+          </button>
+          {remoteAccess.githubAvailable ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() => onAction(action("browse-github"))}
+            >
+              Browse GitHub repositories
+            </button>
+          ) : null}
+        </div>
+      </form>
+      {remoteAccess.repositories.length > 0 ? (
+        <ul className="source-control__repositories">
+          {remoteAccess.repositories.map((repository) => (
+            <li key={repository.nameWithOwner}>
+              <button
+                type="button"
+                aria-label={`Use ${repository.nameWithOwner}`}
+                disabled={busy}
+                onClick={() => {
+                  setUrl(repository.httpsUrl);
+                  setBranch(repository.defaultBranch ?? "");
+                  onAction(
+                    action("select-repository", {
+                      nameWithOwner: repository.nameWithOwner,
+                      url: repository.httpsUrl,
+                    }),
+                  );
+                }}
+              >
+                <strong>{repository.nameWithOwner}</strong>
+                <span>
+                  {repository.private ? "Private" : "Public"}
+                  {repository.defaultBranch
+                    ? ` · ${repository.defaultBranch}`
+                    : ""}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {remoteAccess.cleanup ? (
+        <div className="source-control__cleanup">
+          <p role="status">
+            A clone did not finish and left {remoteAccess.cleanup.label} behind.
+            Denote never deletes it for you.
+          </p>
+          <div className="source-control__actions">
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() =>
+                onAction(
+                  action("clean-failed-clone", {
+                    token: remoteAccess.cleanup?.token ?? "",
+                  }),
+                )
+              }
+            >
+              Clean incomplete clone
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+function RemoteManagement({
+  remotes,
+  busy,
+  onAction,
+}: {
+  remotes: PluginSourceControlRemote[];
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [edits, setEdits] = useState<Record<string, string>>({});
+
+  return (
+    <section aria-labelledby="source-control-remotes">
+      <h3 id="source-control-remotes">Remotes</h3>
+      {remotes.length > 0 ? (
+        <ul className="source-control__remotes">
+          {remotes.map((remote) => {
+            const current = remote.fetchUrl ?? "";
+            const edited = edits[remote.name] ?? current;
+            return (
+              <li key={remote.name}>
+                <strong>{remote.name}</strong>
+                <span>Fetch: {remote.fetchUrl ?? "Unavailable"}</span>
+                <span>Push: {remote.pushUrl ?? "Unavailable"}</span>
+                <label className="source-control__field">
+                  <span>URL for {remote.name}</span>
+                  <input
+                    type="url"
+                    inputMode="url"
+                    value={edited}
+                    disabled={busy}
+                    onChange={(event) => {
+                      // The value is read before the updater runs: React
+                      // clears the event by the time a functional update is
+                      // applied.
+                      const next = event.currentTarget.value;
+                      setEdits((previous) => ({
+                        ...previous,
+                        [remote.name]: next,
+                      }));
+                    }}
+                  />
+                </label>
+                <div className="source-control__row-actions">
+                  <button
+                    type="button"
+                    aria-label={`Save the URL for ${remote.name}`}
+                    disabled={
+                      busy ||
+                      edited.trim().length === 0 ||
+                      edited.trim() === current
+                    }
+                    onClick={() =>
+                      onAction(
+                        action("set-remote-url", {
+                          name: remote.name,
+                          url: edited.trim(),
+                        }),
+                      )
+                    }
+                  >
+                    Save URL
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove the ${remote.name} remote`}
+                    disabled={busy}
+                    onClick={() =>
+                      onAction(action("remove-remote", { name: remote.name }))
+                    }
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <p className="sidebar-empty">No remotes.</p>
+      )}
+      <form
+        className="source-control__remote-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!name.trim() || !url.trim()) {
+            return;
+          }
+          onAction(
+            action("add-remote", { name: name.trim(), url: url.trim() }),
+          );
+          setName("");
+          setUrl("");
+        }}
+      >
+        <label className="source-control__field">
+          <span>New remote name</span>
+          <input
+            value={name}
+            disabled={busy}
+            onChange={(event) => setName(event.currentTarget.value)}
+          />
+        </label>
+        <label className="source-control__field">
+          <span>New remote URL</span>
+          <input
+            type="url"
+            inputMode="url"
+            placeholder="https://host.example/owner/repository.git"
+            value={url}
+            disabled={busy}
+            onChange={(event) => setUrl(event.currentTarget.value)}
+          />
+        </label>
+        <div className="source-control__actions">
+          <button
+            type="submit"
+            className="secondary-button"
+            disabled={busy || !name.trim() || !url.trim()}
+          >
+            Add remote
+          </button>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function OperationReview({
+  remoteAccess,
+  busy,
+  onAction,
+}: {
+  remoteAccess: PluginSourceControlRemoteAccess;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const review = remoteAccess.review;
+  if (!review) {
+    return null;
+  }
+
+  return (
+    <section
+      className="source-control__review"
+      aria-labelledby="source-control-review"
+    >
+      <h3 id="source-control-review">Last remote operation</h3>
+      <p role="status">
+        {review.operation}: {review.summary}
+      </p>
+      {review.detail ? <p>{review.detail}</p> : null}
+      <div className="source-control__actions">
+        {review.retryActionId ? (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => onAction(action(review.retryActionId as string))}
+          >
+            Retry
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => onAction(action("dismiss-review"))}
+        >
+          Dismiss
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function SourceControlPanel({
   title,
   model,
   onAction,
 }: SourceControlPanelProps) {
-  const { repository } = model;
+  const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
+  const [chosenRemote, setChosenRemote] = useState("");
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
   const selectedBranch =
     model.branches.find((branch) => branch.current)?.name ??
@@ -240,7 +576,19 @@ export function SourceControlPanel({
 
   useEffect(() => {
     setCommitMessage("");
+    setChosenRemote("");
   }, [repository.repositoryId]);
+
+  const remoteNames = model.remotes.map((remote) => remote.name);
+  // A repository normally has exactly one remote, so the first one is the
+  // obvious default and the control only has to be touched when there is a
+  // real choice to make.
+  const activeRemote =
+    chosenRemote && remoteNames.includes(chosenRemote)
+      ? chosenRemote
+      : (remoteNames[0] ?? "");
+  const remoteBranch = selectedBranch || repository.branch || "";
+  const canReachRemote = activeRemote.length > 0 && !repository.busy;
 
   const selectTab = (tab: SourceControlTab) => {
     onAction(action("select-tab", { tab }));
@@ -352,39 +700,71 @@ export function SourceControlPanel({
               </button>
             ) : (
               <>
-                {model.remotes.length > 0 ? (
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={repository.busy}
-                    onClick={() => onAction(action("fetch"))}
-                  >
-                    Fetch
-                  </button>
-                ) : null}
-                {repository.upstream || model.remotes.length > 0 ? (
-                  <>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={repository.busy}
-                      onClick={() => onAction(action("pull"))}
-                    >
-                      Pull
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      disabled={repository.busy}
-                      onClick={() => onAction(action("push"))}
-                    >
-                      Push
-                    </button>
-                  </>
-                ) : null}
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!canReachRemote}
+                  onClick={() =>
+                    onAction(action("fetch", { remote: activeRemote }))
+                  }
+                >
+                  Fetch
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!canReachRemote || remoteBranch.length === 0}
+                  onClick={() =>
+                    onAction(
+                      action("pull", {
+                        remote: activeRemote,
+                        branch: remoteBranch,
+                      }),
+                    )
+                  }
+                >
+                  Pull
+                </button>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!canReachRemote || remoteBranch.length === 0}
+                  onClick={() =>
+                    onAction(
+                      action("push", {
+                        remote: activeRemote,
+                        branch: remoteBranch,
+                      }),
+                    )
+                  }
+                >
+                  Push
+                </button>
               </>
             )}
           </div>
+          {repository.initialized && model.remotes.length > 1 ? (
+            <label className="source-control__field">
+              <span>Remote</span>
+              <select
+                value={activeRemote}
+                disabled={repository.busy}
+                onChange={(event) => setChosenRemote(event.currentTarget.value)}
+              >
+                {remoteNames.map((name) => (
+                  <option value={name} key={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {repository.initialized && model.remotes.length === 0 ? (
+            <p className="source-control__hint">
+              This repository has no remote yet. Add one on the Branches tab to
+              fetch, pull, or push.
+            </p>
+          ) : null}
           {repository.busy ? (
             <p className="source-control__status" role="status">
               {repository.busyMessage ?? "Source control operation in progress"}
@@ -603,27 +983,28 @@ export function SourceControlPanel({
                       <p className="sidebar-empty">No branches.</p>
                     )}
                   </section>
-                  <section>
-                    <h3>Remotes</h3>
-                    {model.remotes.length > 0 ? (
-                      <ul className="source-control__remotes">
-                        {model.remotes.map((remote) => (
-                          <li key={remote.name}>
-                            <strong>{remote.name}</strong>
-                            <span>Fetch: {remote.fetchUrl ?? "Unavailable"}</span>
-                            <span>Push: {remote.pushUrl ?? "Unavailable"}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="sidebar-empty">No remotes.</p>
-                    )}
-                  </section>
+                  <RemoteManagement
+                    remotes={model.remotes}
+                    busy={repository.busy}
+                    onAction={onAction}
+                  />
                 </div>
               )}
             </div>
           </>
         ) : null}
+
+        <CloneOnboarding
+          remoteAccess={remoteAccess}
+          busy={repository.busy}
+          onAction={onAction}
+        />
+
+        <OperationReview
+          remoteAccess={remoteAccess}
+          busy={repository.busy}
+          onAction={onAction}
+        />
 
         {model.recovery.state !== "idle" ? (
           <section

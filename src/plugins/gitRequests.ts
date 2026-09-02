@@ -1,4 +1,6 @@
 import type {
+  PluginGitAuthMode,
+  PluginGitCloneVaultRequest,
   PluginGitConflictResolution,
   PluginGitConflictStage,
   PluginGitDiffTarget,
@@ -31,6 +33,8 @@ const PULL_STRATEGIES: PluginGitPullStrategy[] = [
   "fast-forward-only",
 ];
 const PUSH_MODES: PluginGitPushMode[] = ["normal", "force-with-lease"];
+const AUTH_MODES: PluginGitAuthMode[] = ["public", "ssh-agent", "github-https"];
+const MAX_GITHUB_REPOSITORY_LIMIT = 200;
 
 const OPERATION_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,16 +106,22 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
     case "fetch":
       return withOptional(
         { operation: "fetch", scope, remote: text(value, "remote") },
-        { prune: optionalFlag(value, "prune") },
+        {
+          prune: optionalFlag(value, "prune"),
+          authMode: optionalLiteral(value, "authMode", AUTH_MODES),
+        },
       );
     case "pull":
-      return {
-        operation: "pull",
-        scope,
-        remote: text(value, "remote"),
-        branch: text(value, "branch"),
-        strategy: literal(value, "strategy", PULL_STRATEGIES),
-      };
+      return withOptional(
+        {
+          operation: "pull",
+          scope,
+          remote: text(value, "remote"),
+          branch: text(value, "branch"),
+          strategy: literal(value, "strategy", PULL_STRATEGIES),
+        },
+        { authMode: optionalLiteral(value, "authMode", AUTH_MODES) },
+      );
     case "push":
       return withOptional(
         {
@@ -123,6 +133,7 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
         {
           setUpstream: optionalFlag(value, "setUpstream"),
           mode: optionalLiteral(value, "mode", PUSH_MODES),
+          authMode: optionalLiteral(value, "authMode", AUTH_MODES),
         },
       );
     case "add-remote":
@@ -216,7 +227,10 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
           url: text(value, "url"),
           directory: text(value, "directory"),
         },
-        { branch: optionalText(value, "branch") },
+        {
+          branch: optionalText(value, "branch"),
+          authMode: optionalLiteral(value, "authMode", AUTH_MODES),
+        },
       );
     default:
       throw new Error(
@@ -377,4 +391,48 @@ function optionalLiteral<T extends string>(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Rebuilds a clone request from only its declared fields. The destination is
+ * never part of it: the host opens its own folder chooser, so a plugin cannot
+ * name, guess, or influence where a clone lands.
+ */
+export function parsePluginGitCloneVaultRequest(
+  value: unknown,
+): PluginGitCloneVaultRequest {
+  if (!isRecord(value)) {
+    throw new Error("Plugin clone request is invalid.");
+  }
+  const branch = optionalText(value, "branch");
+  const request: PluginGitCloneVaultRequest = {
+    url: text(value, "url"),
+    authMode: literal(value, "authMode", AUTH_MODES),
+  };
+  return branch === undefined ? request : { ...request, branch };
+}
+
+/** Bounded repository-listing request. */
+export function parsePluginGitHubListLimit(value: unknown): number {
+  if (!isRecord(value)) {
+    throw new Error("Plugin repository listing is invalid.");
+  }
+  const limit = count(value, "limit", 1);
+  if (limit > MAX_GITHUB_REPOSITORY_LIMIT) {
+    throw new Error(
+      `Plugin repository listing cannot exceed ${MAX_GITHUB_REPOSITORY_LIMIT} entries.`,
+    );
+  }
+  return limit;
+}
+
+/**
+ * A clean-up token is opaque and host-generated, so only a canonical UUID is
+ * ever accepted back from a plugin.
+ */
+export function parsePluginGitCleanupToken(value: unknown): string {
+  if (!isRecord(value)) {
+    throw new Error("Plugin clean-up request is invalid.");
+  }
+  return operationId(value, "cleanupToken");
 }

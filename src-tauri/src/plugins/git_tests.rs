@@ -13,10 +13,10 @@ use tempfile::TempDir;
 use super::{
     PluginManager,
     git::{
-        GitDirectoryState, GitExecution, GitInspection, GitPlanStep, GitWriteSource,
-        PluginGitConflictResolution, PluginGitConflictStage, PluginGitDiffTarget,
-        PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest, PluginGitScope,
-        PluginGitSequencer, PluginGitStashAction, apply_environment,
+        GitDirectoryState, GitExecution, GitInspection, GitPlanStep, GitTransportPolicy,
+        GitWriteSource, PluginGitAuthMode, PluginGitConflictResolution, PluginGitConflictStage,
+        PluginGitDiffTarget, PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest,
+        PluginGitScope, PluginGitSequencer, PluginGitStashAction, apply_environment,
         assert_repository_config_is_safe, detect_operation_state,
         ensure_encrypted_repository_metadata, hardening_arguments, plan_git_request, redact,
         resolve_git_directory, resolve_git_executable, validate_branch_name, validate_operation_id,
@@ -148,6 +148,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Fetch {
+            auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
             remote: "origin".to_string(),
             prune: true,
@@ -162,6 +163,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Pull {
+            auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
             remote: "origin".to_string(),
             branch: "main".to_string(),
@@ -178,6 +180,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Push {
+            auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
             remote: "origin".to_string(),
             branch: "main".to_string(),
@@ -274,6 +277,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Clone {
+            auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
             url: "https://example.invalid/synthetic.git".to_string(),
             directory: "synthetic".to_string(),
@@ -718,6 +722,8 @@ fn pins_every_command_bearing_configuration_key_on_the_command_line() {
         hooks_directory: &directory.path().join("hooks"),
         global_config: &directory.path().join("empty-global-config"),
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
 
     let arguments = hardening_arguments(&execution);
@@ -761,6 +767,8 @@ fn pins_the_global_configuration_at_a_host_owned_empty_file() {
         hooks_directory: &hooks,
         global_config: &global_config,
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
     let mut command = Command::new("/usr/bin/git");
 
@@ -801,6 +809,8 @@ fn removes_every_ambient_identity_variable_from_a_git_child() {
         hooks_directory: &hooks,
         global_config: &global_config,
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
     let mut command = Command::new("/usr/bin/git");
     for (name, value) in AMBIENT_IDENTITY {
@@ -892,6 +902,8 @@ fn configured_commit_identity_beats_an_ambient_identity() {
             hooks_directory: &hooks,
             global_config: &global_config,
             redacted_roots: vec![],
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         let mut command = Command::new(&git);
         command.args(hardening_arguments(&execution));
@@ -1053,6 +1065,8 @@ fn ignores_a_global_configuration_that_defines_a_filter() {
         hooks_directory: &hooks,
         global_config: &global_config,
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
     let mut command = Command::new(&git);
     command.args(hardening_arguments(&execution));
@@ -1529,6 +1543,11 @@ pub(super) fn git_manager(data: &TempDir, cache: &TempDir) -> PluginManager {
             (super::settings::GIT_EXECUTABLE_SETTING): {
                 "type": "string",
                 "title": "Git executable",
+                "default": "",
+            },
+            (super::settings::GITHUB_EXECUTABLE_SETTING): {
+                "type": "string",
+                "title": "GitHub CLI executable",
                 "default": "",
             },
         },
@@ -2596,6 +2615,8 @@ fn cancels_a_running_read_only_operation_and_leaves_no_child() {
             hooks_directory: &hooks,
             global_config: &global_config,
             redacted_roots: vec![],
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         let steps = vec![GitPlanStep::Command {
             args: vec!["status".to_string()],
@@ -2700,6 +2721,8 @@ fn a_mutating_command_reaches_its_boundary_before_cancellation_stops_the_plan() 
             hooks_directory: &hooks,
             global_config: &global_config,
             redacted_roots: vec![],
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         let steps = vec![
             GitPlanStep::Command {
@@ -2764,6 +2787,7 @@ fn refuses_ext_and_file_command_transports_configured_inside_a_repository() {
     let fetch = run(
         &fixture,
         PluginGitRequest::Fetch {
+            auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
             remote: "origin".to_string(),
             prune: false,
@@ -2790,6 +2814,7 @@ fn refuses_ext_and_file_command_transports_configured_inside_a_repository() {
     let fetch = run(
         &fixture,
         PluginGitRequest::Fetch {
+            auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
             remote: "origin".to_string(),
             prune: false,
@@ -2966,6 +2991,8 @@ fn oversized_output_plan(
         hooks_directory: &hooks,
         global_config: &global_config,
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
     let result = run_git_plan(&steps, &execution, &token);
     registry.finish(&token.operation_id);
@@ -3432,6 +3459,8 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
             hooks_directory: &worker_hooks,
             global_config: &worker_global_config,
             redacted_roots: vec![],
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         let result = run_git_plan(&worker_steps, &execution, &token);
         worker_registry.finish(&token.operation_id);
@@ -3483,6 +3512,8 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
             hooks_directory: &hooks,
             global_config: &global_config,
             redacted_roots: vec![],
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         let error = run_git_plan(&steps, &execution, &token).expect_err("already resolved");
         registry.finish(&token.operation_id);
@@ -3504,6 +3535,8 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
             hooks_directory: &hooks,
             global_config: &global_config,
             redacted_roots: vec![],
+            askpass: None,
+            transport: GitTransportPolicy::RemoteOnly,
         };
         let retried = run_git_plan(&steps, &execution, &token).expect("retry");
         registry.finish(&token.operation_id);
@@ -3542,6 +3575,8 @@ fn restores_the_original_file_when_staging_a_resolution_fails() {
         hooks_directory: &hooks,
         global_config: &global_config,
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
 
     let result = run_git_plan(
@@ -3771,6 +3806,8 @@ fn pinned_configuration_beats_repository_configuration_when_git_actually_runs() 
         hooks_directory: &hooks,
         global_config: &global_config,
         redacted_roots: vec![],
+        askpass: None,
+        transport: GitTransportPolicy::RemoteOnly,
     };
     let run_plan = |request: PluginGitRequest| {
         let token = registry

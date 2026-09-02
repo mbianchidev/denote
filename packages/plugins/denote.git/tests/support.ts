@@ -1,5 +1,12 @@
 import type {
   PluginGitCapability,
+  PluginGitCloneCleanupResult,
+  PluginGitCloneVaultOperation,
+  PluginGitCloneVaultRequest,
+  PluginGitCloneVaultResult,
+  PluginGitHubListOperation,
+  PluginGitHubListRequest,
+  PluginGitHubRepository,
   PluginGitResult,
   PluginGitRunRequest,
 } from "@denote/plugin-sdk";
@@ -13,10 +20,38 @@ export type GitResponder = (
   request: PluginGitRunRequest,
 ) => Partial<PluginGitResult> | Promise<Partial<PluginGitResult>>;
 
+/**
+ * Host-owned operations that are not Git commands. Each one is answered with a
+ * fixed synthetic value, because the real ones resolve executables, read
+ * credentials, and open a folder chooser.
+ */
+export interface FakeGitHostResponses {
+  repositories?: PluginGitHubRepository[];
+  clone?: PluginGitCloneVaultResult;
+  cleanup?: PluginGitCloneCleanupResult;
+  /** Delays the clone so a test can observe the published operation ID. */
+  clonePending?: Promise<PluginGitCloneVaultResult>;
+  /** Delays the listing so a test can observe the published operation ID. */
+  listPending?: Promise<PluginGitHubRepository[]>;
+}
+
+export const SYNTHETIC_REPOSITORY: PluginGitHubRepository = {
+  nameWithOwner: "synthetic-owner/synthetic-notes",
+  httpsUrl: "https://github.com/synthetic-owner/synthetic-notes.git",
+  sshUrl: "ssh://git@github.com/synthetic-owner/synthetic-notes.git",
+  defaultBranch: "main",
+  private: false,
+};
+
 /** Synthetic stand-in for the host Git capability. It never runs a process. */
 export class FakeGit implements PluginGitCapability {
   readonly calls: RecordedGitCall[] = [];
   readonly cancelled: string[] = [];
+  readonly listed: PluginGitHubListRequest[] = [];
+  readonly clones: PluginGitCloneVaultRequest[] = [];
+  readonly cloneOperationIds: string[] = [];
+  readonly listOperationIds: string[] = [];
+  readonly cleanups: string[] = [];
   private counter = 0;
 
   constructor(
@@ -28,7 +63,48 @@ export class FakeGit implements PluginGitCapability {
     private readonly cancelResponder: (
       operationId: string,
     ) => Partial<PluginGitResult> = () => ({ cancelled: true }),
+    private readonly host: FakeGitHostResponses = {},
   ) {}
+
+  listGitHubRepositories(
+    request: PluginGitHubListRequest,
+  ): PluginGitHubListOperation {
+    this.listed.push(request);
+    this.counter += 1;
+    const operationId = `list-${this.counter}`;
+    this.listOperationIds.push(operationId);
+    return {
+      operationId,
+      result:
+        this.host.listPending ??
+        Promise.resolve(this.host.repositories ?? []),
+    };
+  }
+
+  cloneVault(
+    request: PluginGitCloneVaultRequest,
+  ): PluginGitCloneVaultOperation {
+    this.clones.push(request);
+    this.counter += 1;
+    const operationId = `clone-${this.counter}`;
+    this.cloneOperationIds.push(operationId);
+    return {
+      operationId,
+      result:
+        this.host.clonePending ??
+        Promise.resolve(this.host.clone ?? { status: "cancelled" }),
+    };
+  }
+
+  cleanFailedClone(cleanupToken: string): Promise<PluginGitCloneCleanupResult> {
+    this.cleanups.push(cleanupToken);
+    return Promise.resolve(
+      this.host.cleanup ?? {
+        cleaned: true,
+        message: "Denote deleted the incomplete clone folder.",
+      },
+    );
+  }
 
   run(request: PluginGitRunRequest) {
     this.counter += 1;

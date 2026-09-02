@@ -176,5 +176,13 @@ function sourceControlModel() {
     diffFiles: [],
     conflicts: [],
     recovery: { state: "idle" as const },
+    remoteAccess: {
+      authMode: "public" as const,
+      cloneAvailable: true,
+      githubAvailable: false,
+      repositories: [],
+      cleanup: null,
+      review: null,
+    },
   };
 }

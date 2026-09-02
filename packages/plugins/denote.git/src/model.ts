@@ -1,10 +1,13 @@
 import type {
   PluginProjectContext,
+  PluginSourceControlAuthMode,
   PluginSourceControlBranchChoice,
   PluginSourceControlConflictEntry,
   PluginSourceControlHistoryEntry,
+  PluginSourceControlOperationReview,
   PluginSourceControlRecoveryState,
   PluginSourceControlRemote,
+  PluginSourceControlRemoteAccess,
   PluginSourceControlRepositorySummary,
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
@@ -45,6 +48,42 @@ export interface GitModelBase {
   history: PluginSourceControlHistoryEntry[];
   conflicts: PluginSourceControlConflictEntry[];
   recovery: PluginSourceControlRecoveryState;
+  remoteAccess: PluginSourceControlRemoteAccess;
+}
+
+/**
+ * Remote and clone state before anything has been read or attempted.
+ *
+ * Cloning is always offered, because it does not depend on the current scope
+ * having a repository. GitHub browsing is offered only when the user selected
+ * GitHub sign-in, so no adapter is consulted unless it was asked for.
+ */
+export function initialRemoteAccess(
+  authMode: PluginSourceControlAuthMode = "public",
+): PluginSourceControlRemoteAccess {
+  return {
+    authMode,
+    cloneAvailable: true,
+    githubAvailable: authMode === "github-https",
+    repositories: [],
+    cleanup: null,
+    review: null,
+  };
+}
+
+export function withRemoteAccess(
+  model: PluginSourceControlViewModel,
+  remoteAccess: PluginSourceControlRemoteAccess,
+): PluginSourceControlViewModel {
+  return compose({ ...baseOf(model), remoteAccess }, selectionOf(model));
+}
+
+/** Records the outcome of the last remote operation for review. */
+export function withReview(
+  model: PluginSourceControlViewModel,
+  review: PluginSourceControlOperationReview | null,
+): PluginSourceControlViewModel {
+  return withRemoteAccess(model, { ...model.remoteAccess, review });
 }
 
 export const UNREFRESHED_LABEL = "refresh required";
@@ -74,6 +113,7 @@ export function scopeFor(
  */
 export function initialModel(
   scope: GitRepositoryScope,
+  remoteAccess: PluginSourceControlRemoteAccess = initialRemoteAccess(),
 ): PluginSourceControlViewModel {
   return compose(
     {
@@ -84,6 +124,10 @@ export function initialModel(
       history: [],
       conflicts: [],
       recovery: { state: "idle" },
+      // Remote and clone state survives a scope change: it describes how the
+      // user signs in and what a failed clone left behind, neither of which
+      // belongs to the repository that was open.
+      remoteAccess,
     },
     { tab: "changes", view: { kind: "repository" } },
   );
@@ -124,6 +168,7 @@ export function baseOf(model: PluginSourceControlViewModel): GitModelBase {
     history: model.history,
     conflicts: model.conflicts,
     recovery: model.recovery,
+    remoteAccess: model.remoteAccess,
   };
 }
 
@@ -170,6 +215,7 @@ export interface GitRefreshData {
   remotes: PluginSourceControlRemote[];
   history: PluginSourceControlHistoryEntry[];
   recovery: PluginSourceControlRecoveryState;
+  remoteAccess: PluginSourceControlRemoteAccess;
 }
 
 /** Builds one coherent model from a completed refresh. */
@@ -202,6 +248,7 @@ export function refreshedModel(
     history: data.history,
     conflicts: conflictEntries(data.status),
     recovery: data.recovery,
+    remoteAccess: data.remoteAccess,
   };
   return compose(base, resolveSelection(selection, base));
 }
@@ -209,6 +256,7 @@ export function refreshedModel(
 /** Builds the model for a scope Git reports is not a repository yet. */
 export function uninitializedModel(
   scope: GitRepositoryScope,
+  remoteAccess: PluginSourceControlRemoteAccess = initialRemoteAccess(),
 ): PluginSourceControlViewModel {
   return compose(
     {
@@ -219,6 +267,7 @@ export function uninitializedModel(
       history: [],
       conflicts: [],
       recovery: { state: "idle" },
+      remoteAccess,
     },
     { tab: "changes", view: { kind: "repository" } },
   );

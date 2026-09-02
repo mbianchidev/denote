@@ -46,6 +46,52 @@
         "description": "Absolute path to a Git executable. Leave empty to use the Git the host finds in its own fixed locations.",
         "default": ""
       },
+      "githubExecutablePath": {
+        "type": "string",
+        "title": "GitHub CLI executable",
+        "description": "Absolute path to the GitHub CLI (gh). Leave empty to use the one the host finds in its own fixed locations. Only used when authentication is set to GitHub sign-in.",
+        "default": ""
+      },
+      "authenticationMode": {
+        "type": "select",
+        "title": "Remote authentication",
+        "description": "How Denote authenticates fetch, pull, push, and clone. Public needs no credentials, SSH agent uses your running agent, and GitHub sign-in asks the host's GitHub CLI for a token that never reaches this plugin.",
+        "default": "public",
+        "options": [
+          {
+            "value": "public",
+            "label": "Public repository"
+          },
+          {
+            "value": "ssh-agent",
+            "label": "SSH agent"
+          },
+          {
+            "value": "github-https",
+            "label": "GitHub sign-in"
+          }
+        ]
+      },
+      "pullStrategy": {
+        "type": "select",
+        "title": "Pull strategy",
+        "description": "How a pull combines remote work with yours. Fast-forward only never creates a merge and never rewrites history.",
+        "default": "fast-forward-only",
+        "options": [
+          {
+            "value": "fast-forward-only",
+            "label": "Fast-forward only"
+          },
+          {
+            "value": "merge",
+            "label": "Merge"
+          },
+          {
+            "value": "rebase",
+            "label": "Rebase"
+          }
+        ]
+      },
       "defaultBranch": {
         "type": "string",
         "title": "Default branch",

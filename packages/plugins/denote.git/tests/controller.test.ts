@@ -5,6 +5,7 @@ import { scopeFor, statusText, vaultScope } from "../src/model";
 import {
   FakeGit,
   IDLE_OPERATION_STATE,
+  SYNTHETIC_REPOSITORY,
   SYNTHETIC_STATUS,
   deferred,
   last,
@@ -440,6 +441,26 @@ describe("GitRepositoryController", () => {
     });
   });
 
+  it("cuts a long multi-byte diagnostic on a whole character", async () => {
+    const { controller } = harness();
+    // Every character is a surrogate pair, so a UTF-16 cut at 200 units would
+    // land inside one and leave a lone surrogate in the message.
+    const detail = "\u{1f5c2}".repeat(300);
+    const failing = new FakeGit(
+      repositoryResponder({ discover: { exitCode: 128, stderr: detail } }),
+    );
+
+    await controller.runAction({ id: "refresh" }, failing);
+
+    const message = (
+      controller.model.recovery as { message: string }
+    ).message;
+    expect(message).toContain("…");
+    const reported = message.slice(message.indexOf("\u{1f5c2}"), -1);
+    expect(Array.from(reported)).toHaveLength(200);
+    expect(reported.split("\u{1f5c2}").join("")).toBe("");
+  });
+
   it("keeps the last stable model when a Git command fails", async () => {
     const { controller } = harness();
     await controller.runAction({ id: "refresh" }, new FakeGit(repositoryResponder()));
@@ -616,18 +637,18 @@ describe("GitRepositoryController", () => {
     await controller.runAction({ id: "refresh" }, git);
     const operations = git.calls.length;
 
-    await controller.runAction({ id: "push" }, git);
+    await controller.runAction({ id: "switch-branch" }, git);
     expect(git.calls).toHaveLength(operations);
     expect(controller.model.recovery).toMatchObject({
       state: "failed",
-      operationId: "unsupported-push",
+      operationId: "unsupported-switch-branch",
       dismissActionId: "dismiss",
     });
     expect(
       controller.model.recovery.state === "failed"
         ? controller.model.recovery.message
         : "",
-    ).toContain("push to a remote");
+    ).toContain("switch branches");
     expect(controller.model.repository.branch).toBe("main");
 
     await controller.runAction({ id: "dismiss" }, git);
@@ -668,3 +689,480 @@ describe("GitRepositoryController", () => {
     });
   });
 });
+
+describe("GitRepositoryController remotes and cloning", () => {
+  it("fetches explicitly with the configured authentication mode", async () => {
+    const { controller } = harness({ authenticationMode: "ssh-agent" });
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      { id: "fetch", values: { remote: "origin" } },
+      git,
+    );
+
+    expect(git.request("fetch")).toEqual({
+      operation: "fetch",
+      scope: "vault",
+      remote: "origin",
+      prune: true,
+      authMode: "ssh-agent",
+    });
+    // The model is re-read after the operation, so nothing on screen predates
+    // the fetch.
+    expect(git.operations.slice(-6)).toEqual(REFRESH_SEQUENCE);
+    expect(controller.model.remoteAccess.review).toMatchObject({
+      operation: "Fetch",
+      outcome: "succeeded",
+    });
+  });
+
+  it("pulls and pushes exactly the remote and branch it was given", async () => {
+    const { controller } = harness({ pullStrategy: "merge" });
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      { id: "pull", values: { remote: "origin", branch: "main" } },
+      git,
+    );
+    await controller.runAction(
+      { id: "push", values: { remote: "origin", branch: "main" } },
+      git,
+    );
+
+    expect(git.request("pull")).toEqual({
+      operation: "pull",
+      scope: "vault",
+      remote: "origin",
+      branch: "main",
+      strategy: "merge",
+      authMode: "public",
+    });
+    expect(git.request("push")).toEqual({
+      operation: "push",
+      scope: "vault",
+      remote: "origin",
+      branch: "main",
+      // The synthetic repository already tracks origin/main, so nothing new is
+      // recorded.
+      setUpstream: false,
+      mode: "normal",
+      authMode: "public",
+    });
+  });
+
+  it("records an upstream on the first push of an untracked branch", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(
+      repositoryResponder({
+        status: {
+          stdout: [
+            "# branch.oid 1111111111111111111111111111111111111111",
+            "# branch.head topic",
+          ].join("\0"),
+        },
+      }),
+    );
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      { id: "push", values: { remote: "origin", branch: "topic" } },
+      git,
+    );
+
+    expect(git.request("push")).toMatchObject({ setUpstream: true });
+  });
+
+  it("never asks for a force push", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      { id: "push", values: { remote: "origin", branch: "main" } },
+      git,
+    );
+
+    expect(git.request("push")).toMatchObject({ mode: "normal" });
+  });
+
+  it("refuses a remote operation that names no remote", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+    const operations = git.calls.length;
+
+    await controller.runAction({ id: "fetch" }, git);
+
+    expect(git.calls).toHaveLength(operations);
+    expect(controller.model.recovery).toMatchObject({
+      state: "failed",
+      operationId: "action-refused",
+    });
+    // The last stable repository state is still on screen.
+    expect(controller.model.repository.branch).toBe("main");
+  });
+
+  it("adds, changes, and removes a remote and re-reads the repository", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder());
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      {
+        id: "add-remote",
+        values: { name: "backup", url: "https://example.invalid/backup.git" },
+      },
+      git,
+    );
+    await controller.runAction(
+      {
+        id: "set-remote-url",
+        values: { name: "backup", url: "https://example.invalid/moved.git" },
+      },
+      git,
+    );
+    await controller.runAction(
+      { id: "remove-remote", values: { name: "backup" } },
+      git,
+    );
+
+    expect(git.request("add-remote")).toEqual({
+      operation: "add-remote",
+      scope: "vault",
+      name: "backup",
+      url: "https://example.invalid/backup.git",
+    });
+    expect(git.request("set-remote-url")).toEqual({
+      operation: "set-remote-url",
+      scope: "vault",
+      name: "backup",
+      url: "https://example.invalid/moved.git",
+    });
+    expect(git.request("remove-remote")).toEqual({
+      operation: "remove-remote",
+      scope: "vault",
+      name: "backup",
+    });
+    expect(controller.model.remoteAccess.review).toMatchObject({
+      operation: "Remove remote",
+      outcome: "succeeded",
+    });
+  });
+
+  it("keeps the last stable model when a remote operation fails", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(
+      repositoryResponder({
+        fetch: { exitCode: 128, stderr: "fatal: could not read from remote" },
+      }),
+    );
+    await controller.runAction({ id: "refresh" }, git);
+    const stable = controller.model;
+
+    await controller.runAction(
+      { id: "fetch", values: { remote: "origin" } },
+      git,
+    );
+
+    expect(controller.model.repository.branch).toBe(stable.repository.branch);
+    expect(controller.model.repository.busy).toBe(false);
+    expect(controller.model.recovery).toMatchObject({
+      state: "failed",
+      operationId: "fetch-failure",
+      retryActionId: "refresh",
+    });
+  });
+
+  it("browses GitHub only after GitHub sign-in is selected", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      repositories: [SYNTHETIC_REPOSITORY],
+    });
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction({ id: "browse-github" }, git);
+    expect(git.listed).toHaveLength(0);
+    expect(controller.model.recovery).toMatchObject({
+      state: "failed",
+      operationId: "action-refused",
+    });
+
+    const authenticated = harness({ authenticationMode: "github-https" });
+    const authenticatedGit = new FakeGit(repositoryResponder(), undefined, {
+      repositories: [SYNTHETIC_REPOSITORY],
+    });
+    await authenticated.controller.runAction({ id: "refresh" }, authenticatedGit);
+
+    await authenticated.controller.runAction(
+      { id: "browse-github" },
+      authenticatedGit,
+    );
+
+    expect(authenticatedGit.listed).toEqual([{ limit: 50 }]);
+    expect(authenticated.controller.model.remoteAccess.repositories).toEqual([
+      SYNTHETIC_REPOSITORY,
+    ]);
+    expect(authenticated.controller.model.repository.busy).toBe(false);
+  });
+
+  it("clones with the configured authentication and reports the opened vault", async () => {
+    const { controller, reports } = harness({
+      authenticationMode: "github-https",
+    });
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      clone: {
+        status: "cloned",
+        label: "synthetic-notes",
+        remoteUrl: "https://github.com/synthetic-owner/synthetic-notes.git",
+        branch: "main",
+        defaultBranch: "main",
+        upstream: "origin/main",
+      },
+    });
+
+    await controller.runAction(
+      {
+        id: "clone",
+        values: {
+          url: "https://github.com/synthetic-owner/synthetic-notes.git",
+          branch: "main",
+        },
+      },
+      git,
+    );
+
+    expect(git.clones).toEqual([
+      {
+        url: "https://github.com/synthetic-owner/synthetic-notes.git",
+        authMode: "github-https",
+        branch: "main",
+      },
+    ]);
+    expect(controller.model.remoteAccess.review).toMatchObject({
+      operation: "Clone",
+      outcome: "succeeded",
+    });
+    expect(controller.model.remoteAccess.cleanup).toBeNull();
+    expect(reports).toContain("Cloned a repository.");
+  });
+
+  it("treats a cancelled folder chooser as an ordinary answer", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      clone: { status: "cancelled" },
+    });
+
+    await controller.runAction(
+      { id: "clone", values: { url: "https://example.invalid/repo.git" } },
+      git,
+    );
+
+    expect(controller.model.remoteAccess.review).toMatchObject({
+      outcome: "cancelled",
+    });
+    expect(controller.model.recovery).toEqual({ state: "idle" });
+    expect(controller.model.remoteAccess.cleanup).toBeNull();
+  });
+
+  it("keeps a failed clone recoverable behind an explicit clean-up", async () => {
+    const { controller } = harness();
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      clone: {
+        status: "failed",
+        message: "Git could not clone this repository.",
+        cleanupToken: "synthetic-cleanup-token",
+      },
+    });
+
+    await controller.runAction(
+      { id: "clone", values: { url: "https://example.invalid/repo.git" } },
+      git,
+    );
+
+    expect(controller.model.remoteAccess.cleanup).toEqual({
+      token: "synthetic-cleanup-token",
+      label: "the folder you chose",
+    });
+    // Nothing is deleted on its own.
+    expect(git.cleanups).toHaveLength(0);
+
+    await controller.runAction(
+      {
+        id: "clean-failed-clone",
+        values: { token: "synthetic-cleanup-token" },
+      },
+      git,
+    );
+
+    expect(git.cleanups).toEqual(["synthetic-cleanup-token"]);
+    // A spent token is never offered again.
+    expect(controller.model.remoteAccess.cleanup).toBeNull();
+    expect(controller.model.remoteAccess.review).toMatchObject({
+      operation: "Clean incomplete clone",
+      outcome: "succeeded",
+    });
+  });
+
+  it("carries the configured authentication mode and clean-up token across a scope change", async () => {
+    const { controller } = harness({ authenticationMode: "ssh-agent" });
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      clone: {
+        status: "failed",
+        message: "Git could not clone this repository.",
+        cleanupToken: "synthetic-cleanup-token",
+      },
+    });
+    await controller.syncRemoteAccess();
+    await controller.runAction(
+      { id: "clone", values: { url: "https://example.invalid/repo.git" } },
+      git,
+    );
+
+    controller.setScope(
+      scopeFor({ projectId: "synthetic-project", rootPath: "/synthetic/project" }),
+    );
+    await settle();
+
+    expect(controller.model.remoteAccess.authMode).toBe("ssh-agent");
+    expect(controller.model.remoteAccess.cleanup?.token).toBe(
+      "synthetic-cleanup-token",
+    );
+    // Everything read from the previous repository is gone.
+    expect(controller.model.repository.branch).toBeNull();
+    expect(controller.model.remotes).toEqual([]);
+  });
+
+  it("shows the configured authentication mode and offers no action that changes it", async () => {
+    const settings: Record<string, unknown> = {
+      authenticationMode: "github-https",
+    };
+    const { controller, published } = harness(settings);
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      repositories: [SYNTHETIC_REPOSITORY],
+    });
+    await controller.syncRemoteAccess();
+
+    expect(controller.model.remoteAccess.authMode).toBe("github-https");
+    expect(controller.model.remoteAccess.githubAvailable).toBe(true);
+
+    // The mode is host-persisted, so there is no action that can change it and
+    // an attempt to reach the deleted one is refused like any other unknown
+    // action instead of quietly rewriting the mode.
+    const before = published.length;
+    await controller.runAction(
+      { id: "set-auth-mode", values: { authMode: "public" } },
+      git,
+    );
+
+    expect(controller.model.remoteAccess.authMode).toBe("github-https");
+    expect(published.length).toBe(before + 1);
+    expect(controller.model.recovery).toMatchObject({
+      state: "failed",
+      operationId: "unsupported-set-auth-mode",
+    });
+  });
+
+  it("re-reads the configured mode and drops a stale listing when settings change", async () => {
+    const settings: Record<string, unknown> = {
+      authenticationMode: "github-https",
+    };
+    const { controller } = harness(settings);
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      repositories: [SYNTHETIC_REPOSITORY],
+    });
+    await controller.syncRemoteAccess();
+    await controller.runAction({ id: "refresh" }, git);
+    await controller.runAction({ id: "browse-github" }, git);
+    expect(controller.model.remoteAccess.repositories).toHaveLength(1);
+
+    // Settings are changed outside the plugin, exactly as the host does it.
+    settings.authenticationMode = "public";
+    controller.setScope(
+      scopeFor({ projectId: "synthetic-project", rootPath: "/synthetic/project" }),
+    );
+    await settle();
+
+    expect(controller.model.remoteAccess.authMode).toBe("public");
+    expect(controller.model.remoteAccess.repositories).toEqual([]);
+    expect(controller.model.remoteAccess.githubAvailable).toBe(false);
+  });
+
+  it("refuses a GitHub browse when the configured mode is not GitHub sign-in", async () => {
+    const { controller } = harness({ authenticationMode: "ssh-agent" });
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      repositories: [SYNTHETIC_REPOSITORY],
+    });
+    await controller.syncRemoteAccess();
+
+    await controller.runAction({ id: "browse-github" }, git);
+
+    expect(git.listed).toHaveLength(0);
+    expect(controller.model.recovery).toMatchObject({ state: "failed" });
+  });
+
+  it("publishes the host operation ID for a clone and a browse so Cancel reaches them", async () => {
+    const settings = { authenticationMode: "github-https" };
+    const { controller, published } = harness(settings);
+    const pendingClone = deferred<{ status: "cancelled" }>();
+    const pendingList = deferred<typeof SYNTHETIC_REPOSITORY[]>();
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      clonePending: pendingClone.promise,
+      listPending: pendingList.promise,
+    });
+    await controller.syncRemoteAccess();
+
+    const cloning = controller.runAction(
+      { id: "clone", values: { url: "https://example.invalid/repo.git" } },
+      git,
+    );
+    await settle();
+    const cloneBusy = last(published);
+    expect(cloneBusy?.repository.busy).toBe(true);
+    expect(cloneBusy?.repository.activeOperationId).toBe(
+      git.cloneOperationIds[0],
+    );
+    pendingClone.resolve({ status: "cancelled" });
+    await cloning;
+
+    const browsing = controller.runAction({ id: "browse-github" }, git);
+    await settle();
+    const browseBusy = last(published);
+    expect(browseBusy?.repository.busy).toBe(true);
+    expect(browseBusy?.repository.activeOperationId).toBe(
+      git.listOperationIds[0],
+    );
+    pendingList.resolve([]);
+    await browsing;
+  });
+
+  it("cancels the clone that is running rather than a stale identifier", async () => {
+    const { controller } = harness();
+    const pendingClone = deferred<{ status: "cancelled" }>();
+    const git = new FakeGit(repositoryResponder(), undefined, {
+      clonePending: pendingClone.promise,
+    });
+
+    const cloning = controller.runAction(
+      { id: "clone", values: { url: "https://example.invalid/repo.git" } },
+      git,
+    );
+    await settle();
+    await controller.runAction(
+      { id: "cancel-operation", values: { operationId: "" } },
+      git,
+    );
+
+    expect(git.cancelled).toEqual([git.cloneOperationIds[0]]);
+    pendingClone.resolve({ status: "cancelled" });
+    await cloning;
+  });
+});
+
+/** Lets already-resolved host promises settle before the model is read. */
+async function settle(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}

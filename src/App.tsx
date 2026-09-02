@@ -374,6 +374,74 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "clone",
 ]);
 
+/**
+ * Confirmations the host owns for source-control actions that reach a remote,
+ * change where a remote points, or delete something.
+ *
+ * The exact remote, URL, and branch are always named, so a confirmation can
+ * never be about a different repository than the one the user is looking at. A
+ * plugin cannot suppress, reword, or pre-answer one: the host reads the action
+ * it was given and decides.
+ */
+function sourceControlConfirmation(
+  action: PluginSourceControlAction,
+): Omit<ActionDialogState, "mode" | "initialValue"> | null {
+  const values = action.values ?? {};
+  const value = (key: string) =>
+    typeof values[key] === "string" ? (values[key] as string) : "";
+  const remote = value("remote");
+  const branch = value("branch");
+  const name = value("name");
+  const url = value("url");
+  switch (action.id) {
+    case "pull":
+      return {
+        title: "Pull from a remote",
+        message: `Pull "${branch}" from "${remote}" into this vault? Denote saves open notes first, and the pull can change, add, or remove files in the vault.`,
+        confirmLabel: "Pull",
+        dangerous: false,
+      };
+    case "push":
+      return {
+        title: "Push to a remote",
+        message: `Push "${branch}" to "${remote}"? This publishes the commits on that branch to the remote.`,
+        confirmLabel: "Push",
+        dangerous: false,
+      };
+    case "set-remote-url":
+      return {
+        title: "Change a remote URL",
+        message: `Point the "${name}" remote at ${url}? Every later fetch, pull, and push for "${name}" will use that address instead.`,
+        confirmLabel: "Change URL",
+        dangerous: true,
+      };
+    case "remove-remote":
+      return {
+        title: "Remove a remote",
+        message: `Remove the "${name}" remote? Its remote-tracking branches are removed with it. Your commits and files stay exactly as they are.`,
+        confirmLabel: "Remove remote",
+        dangerous: true,
+      };
+    case "clone":
+      return {
+        title: "Clone a repository",
+        message: `Clone ${url}${branch ? ` on branch "${branch}"` : ""} into an empty folder you choose? Denote saves and closes the current vault, then opens the clone as a vault.`,
+        confirmLabel: "Choose a folder",
+        dangerous: false,
+      };
+    case "clean-failed-clone":
+      return {
+        title: "Delete the incomplete clone",
+        message:
+          "Permanently delete the folder that the failed clone left behind? Everything inside it is removed. Denote checks first that the folder is still that failed clone and nothing else.",
+        confirmLabel: "Delete the folder",
+        dangerous: true,
+      };
+    default:
+      return null;
+  }
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -505,6 +573,16 @@ function App() {
   const beginWorkspaceOperationRef = useRef<() => Promise<boolean>>(
     async () => true,
   );
+  /**
+   * Opens the vault a host clone produced. It is held in a ref because the
+   * plugin runtime is created before the workspace loader exists, and because
+   * the snapshot must never travel any further than the host renderer.
+   */
+  const clonedVaultHandler = useRef<
+    (snapshot: WorkspaceSnapshot) => Promise<void>
+  >(async () => {});
+  /** True once a source-control action has already swapped the workspace. */
+  const clonedDuringAction = useRef(false);
   const indexTimer = useRef<number | null>(null);
   const pendingWelcomePage = useRef<string | null>(null);
   const pendingWorkspaceFile = useRef<{
@@ -1035,6 +1113,7 @@ function App() {
     showError,
     pluginProjectContext,
     workspace?.vaultPath ?? null,
+    (snapshot) => clonedVaultHandler.current(snapshot),
   );
   const pluginDecorationKey = pluginController.decorations
     .map(
@@ -3989,10 +4068,15 @@ function App() {
       if (!workspace) {
         return;
       }
+      const confirmation = sourceControlConfirmation(action);
+      if (confirmation && !(await requestConfirmation(confirmation))) {
+        return;
+      }
       const mutatesWorkspace = WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS.has(
         action.id,
       );
       let workspaceOperationStarted = false;
+      clonedDuringAction.current = false;
       try {
         if (mutatesWorkspace) {
           if (!(await beginWorkspaceOperation())) {
@@ -4006,12 +4090,15 @@ function App() {
           action,
           workspace.vaultPath,
         );
-        if (mutatesWorkspace) {
+        // A clone already replaced the workspace, so refreshing the vault the
+        // action started in would read a vault that is no longer open.
+        if (mutatesWorkspace && !clonedDuringAction.current) {
           await refreshAndReindex();
         }
       } catch (caught) {
         showError(caught);
       } finally {
+        clonedDuringAction.current = false;
         if (workspaceOperationStarted) {
           setWorkspaceLock(false);
         }
@@ -4021,11 +4108,35 @@ function App() {
       beginWorkspaceOperation,
       pluginController,
       refreshAndReindex,
+      requestConfirmation,
       setWorkspaceLock,
       showError,
       workspace,
     ],
   );
+
+  /**
+   * Opens a cloned repository as the active vault.
+   *
+   * The clone action already holds the workspace lock, so nothing is flushed
+   * again here. An encrypted clone arrives locked, and `loadWorkspace` shows
+   * the password and recovery screen before any content, so no note from
+   * either vault is ever displayed for a vault that is not unlocked.
+   */
+  const openClonedVault = useCallback(
+    async (snapshot: WorkspaceSnapshot) => {
+      clonedDuringAction.current = true;
+      vaultGeneration.current += 1;
+      await loadWorkspace(snapshot, true);
+      setStatus(
+        snapshot.encryption.enabled && !snapshot.encryption.unlocked
+          ? "Cloned repository opened; unlock the vault to see its notes"
+          : "Cloned repository opened as the active vault",
+      );
+    },
+    [loadWorkspace],
+  );
+  clonedVaultHandler.current = openClonedVault;
 
   const runAutomaticLocalCommit = useCallback(
     async (schedule: PluginAutomaticLocalCommitContribution) => {

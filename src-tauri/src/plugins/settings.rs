@@ -14,6 +14,11 @@ use super::{
 /// request can never name an executable itself.
 pub(crate) const GIT_EXECUTABLE_SETTING: &str = "gitExecutablePath";
 
+/// Reserved settings key that names the GitHub CLI executable a user selected.
+/// It is host-owned in exactly the same way as the Git executable: a plugin
+/// declares the key, the user fills it in, and no request can name a binary.
+pub(crate) const GITHUB_EXECUTABLE_SETTING: &str = "githubExecutablePath";
+
 impl PluginManager {
     pub(crate) fn settings(&self, plugin_id: &str) -> AppResult<Value> {
         let catalog = self.catalog_entry(plugin_id)?;
@@ -101,6 +106,18 @@ impl PluginManager {
         let settings = self.settings(plugin_id)?;
         Ok(settings
             .get(GIT_EXECUTABLE_SETTING)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+            .map(str::to_string))
+    }
+
+    /// Reads the reserved GitHub CLI path the same way, so an unset value keeps
+    /// the host resolving `gh` from its own fixed locations.
+    pub(crate) fn github_executable_setting(&self, plugin_id: &str) -> AppResult<Option<String>> {
+        let settings = self.settings(plugin_id)?;
+        Ok(settings
+            .get(GITHUB_EXECUTABLE_SETTING)
             .and_then(Value::as_str)
             .map(str::trim)
             .filter(|path| !path.is_empty())

@@ -178,7 +178,8 @@ skipped or failed outcome saying the concurrent Git activity was preserved.
 Ownership moving with each staging batch is what keeps a failed or cancelled run
 from leaving its own partial staging behind. Fetch, pull, push, checkout, merge,
 rebase, revert, and every
-other remote or history-rewriting command are unreachable from it. It returns a
+other remote or history-rewriting command are unreachable from it: a standing
+run is local by construction, whatever remotes the repository has. It returns a
 typed `committed`, `unchanged`, or `skipped` status with a message and, where
 available, a commit ID, and its generated messages never contain note content or
 paths. Standing runs register in the same Git operation registry as typed
@@ -293,8 +294,38 @@ continued across lines are all understood, and anything it cannot parse is
 treated as unsafe. Comments are resolved before continuations, because Git
 discards a comment or a blank line before it ever looks for a trailing
 backslash, so neither `; \` nor `# \` can hide the dangerous line that follows
-it. Remote authentication remains explicitly out of scope rather than silently
-trusting repository configuration.
+it.
+
+Remote authentication is host-owned and is bound to the address the operation
+will really contact. A `github-https` fetch or pull reads the remote's fetch
+URLs, and a push reads its push URLs, with `git remote get-url [--push] --all`,
+so a separate `pushurl` or a mirror list cannot route a GitHub token to another
+host. No credential material is created unless every one of those URLs is an
+`https://github.com` URL. That preflight cannot see a remote that is repointed
+after it runs, so the askpass answer is bound to Git's own prompt as well: it
+parses the target Git quotes there and answers only for an HTTPS URL whose host
+is exactly `github.com` or `www.github.com`, and answers an absent, malformed,
+non-HTTPS, userinfo-confused, port-bearing, lookalike, or non-GitHub target with
+nothing. The cancellable operation is registered before the GitHub CLI is
+reached, so cancelling during credential acquisition stops the
+adapter and the Git command never starts, and both the registration and the
+secret are released by scope guards on every error, timeout, and cancellation
+path. The GitHub adapter captures its output into bounded private temporary
+files and polls their size the same way the Git transport does, so it cannot
+deadlock on an undrained pipe. Askpass directories a killed process left behind
+are removed once, while the plugin manager is constructed, only after the
+exclusive manager lock is acquired, and only after symbolic-link and path
+validation, so a second Denote that loses the lock cannot delete a live
+instance's secret; nothing is swept during ordinary operation.
+Diagnostics repeated back from Git or the GitHub CLI are truncated on a
+character boundary, so multi-byte output cannot panic an operation out of its
+own clean-up.
+
+Cloning and deleting a failed clone are bound to the standardised source-control
+action the host confirmed. The renderer's action lease carries the action ID it
+was opened for, `null` for a plugin command, and the host operation refuses
+anything but `clone` and `clean-failed-clone` respectively, before the native
+folder chooser opens or any native command runs.
 
 Operations run in a command process group with a ten minute hard timeout and
 output bounded at 8 MiB. The bound is enforced while the command runs and again

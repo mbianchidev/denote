@@ -16,6 +16,7 @@ import type {
   InstalledPlugin,
   PluginAutomaticCommitOutcome,
   PluginAutomaticCommitRequest,
+  PluginCloneVaultResponse,
   PluginView,
   PluginBundleMetadata,
   ProjectConfiguration,
@@ -29,6 +30,9 @@ import type {
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
 import type {
+  PluginGitCloneCleanupResult,
+  PluginGitCloneVaultRequest,
+  PluginGitHubRepository,
   PluginGitRequest,
   PluginGitResult,
   PluginNetworkRequest,
@@ -355,6 +359,45 @@ export const api = {
       workspaceScope,
       projectId,
       operationId,
+    }),
+  pluginGithubListRepositories: (
+    pluginId: string,
+    limit: number,
+    workspaceScope: string,
+    operationId: string,
+  ) =>
+    invoke<PluginGitHubRepository[]>("plugin_github_list_repositories", {
+      pluginId,
+      limit,
+      workspaceScope,
+      operationId,
+    }),
+  /**
+   * Clones into a folder the user picks in a native chooser. The workspace
+   * snapshot in the response is for the host renderer only; the plugin runtime
+   * strips it before answering the plugin.
+   */
+  pluginGitCloneVault: (
+    pluginId: string,
+    request: PluginGitCloneVaultRequest,
+    workspaceScope: string,
+    operationId: string,
+  ) =>
+    invoke<PluginCloneVaultResponse>("plugin_git_clone_vault", {
+      pluginId,
+      request,
+      workspaceScope,
+      operationId,
+    }),
+  pluginGitCleanFailedClone: (
+    pluginId: string,
+    cleanupToken: string,
+    workspaceScope: string,
+  ) =>
+    invoke<PluginGitCloneCleanupResult>("plugin_git_clean_failed_clone", {
+      pluginId,
+      cleanupToken,
+      workspaceScope,
     }),
   pluginAutomaticCommit: (
     pluginId: string,

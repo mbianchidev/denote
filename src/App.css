@@ -2077,6 +2077,8 @@ button.tag-chip:active,
 .source-control__repository,
 .source-control__recovery,
 .source-control__detail,
+.source-control__clone,
+.source-control__review,
 .source-control__branch-lists > section {
   padding: 12px 14px;
   border-bottom: 1px solid var(--border);
@@ -2172,6 +2174,24 @@ button.tag-chip:active,
   outline-offset: 1px;
 }
 
+/* The authentication mode is a Settings value, so it is reported in the same
+   read-only pairing the repository summary uses rather than as a control. */
+.source-control__configured {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 0;
+}
+
+.source-control__configured > div {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.42fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.source-control__configured dd {
+  color: var(--text-primary);
+}
+
 .source-control__actions {
   display: flex;
   flex-wrap: wrap;
@@ -2189,6 +2209,9 @@ button.tag-chip:active,
 
 .source-control__status,
 .source-control__limitation,
+.source-control__hint,
+.source-control__cleanup > p,
+.source-control__review > p,
 .source-control__recovery > p {
   margin: 9px 0 0;
   padding: 7px 8px;
@@ -2284,6 +2307,63 @@ button.tag-chip:active,
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.source-control__clone form,
+.source-control__remote-form {
+  display: grid;
+  gap: 8px;
+}
+
+/* A remote row styles its metadata as quiet text, so its field label is
+   restated at field weight rather than inheriting that. */
+.source-control__remotes .source-control__field > span {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-control__remote-form {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.source-control__repositories {
+  padding: 0;
+  margin: 10px 0 0;
+  list-style: none;
+}
+
+.source-control__repositories li + li {
+  border-top: 1px solid var(--border);
+}
+
+.source-control__repositories button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 6px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control__repositories button:hover:not(:disabled) {
+  background: var(--panel-bg);
+}
+
+.source-control__repositories strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 580;
+}
+
+.source-control__repositories span {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
 }
 
 .source-control__detail {

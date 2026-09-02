@@ -1,7 +1,10 @@
+pub(crate) mod askpass;
 mod auto_commit;
 mod catalog;
+mod clone;
 mod commands;
 mod git;
+mod github;
 mod lifecycle;
 mod package;
 mod sandbox;
@@ -11,6 +14,8 @@ mod types;
 #[cfg(test)]
 mod auto_commit_tests;
 #[cfg(test)]
+mod clone_tests;
+#[cfg(test)]
 mod git_tests;
 #[cfg(test)]
 mod tests;
@@ -19,6 +24,7 @@ pub use commands::*;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};
+use clone::CloneCleanupRegistry;
 use git::GitOperationRegistry;
 use package::ensure_managed_directory;
 use sandbox::load_credential_ledger;
@@ -49,6 +55,8 @@ struct PluginManagerInner {
     operations: Mutex<HashSet<String>>,
     initialization_error: Mutex<Option<String>>,
     git_operations: GitOperationRegistry,
+    /// Destinations of clones that failed, addressable only by opaque token.
+    clone_cleanups: CloneCleanupRegistry,
     _process_lock: Option<fs::File>,
 }
 
@@ -100,6 +108,7 @@ impl PluginManager {
                                 operations: Mutex::new(HashSet::new()),
                                 initialization_error: Mutex::new(Some(error.to_string())),
                                 git_operations: GitOperationRegistry::default(),
+                                clone_cleanups: CloneCleanupRegistry::default(),
                                 _process_lock: None,
                             }),
                         },
@@ -153,6 +162,13 @@ impl PluginManager {
                 "Another Denote process is managing plugins: {error}"
             ))
         })?;
+        // Askpass material is deleted when its operation ends, so anything
+        // still on disk is residue from a process that was killed. It is
+        // removed here, once, only after this process holds the exclusive
+        // manager lock, and never while Denote is running: a second manager
+        // that loses the lock must not delete the secret a live instance is
+        // currently authenticating with.
+        askpass::remove_stale_material(&plugins_dir.join("git"));
         let state_path = plugins_dir.join("state.json");
         let mut state = if state_path.exists() {
             match serde_json::from_slice(&fs::read(&state_path)?) {
@@ -206,6 +222,7 @@ impl PluginManager {
                 operations: Mutex::new(HashSet::new()),
                 initialization_error: Mutex::new(None),
                 git_operations: GitOperationRegistry::default(),
+                clone_cleanups: CloneCleanupRegistry::default(),
                 _process_lock: Some(process_lock),
             }),
         };

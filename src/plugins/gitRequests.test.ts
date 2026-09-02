@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { PluginGitRequest } from "@denote/plugin-sdk";
-import { parsePluginGitRequest } from "./gitRequests";
+import {
+  parsePluginGitCleanupToken,
+  parsePluginGitCloneVaultRequest,
+  parsePluginGitHubListLimit,
+  parsePluginGitRequest,
+} from "./gitRequests";
 
 const accepted: PluginGitRequest[] = [
   { operation: "discover", scope: "vault" },
@@ -241,5 +246,67 @@ describe("parsePluginGitRequest", () => {
     for (const request of rejected) {
       expect(() => parsePluginGitRequest(request)).toThrow();
     }
+  });
+});
+
+describe("remote authentication and clone parsing", () => {
+  it("keeps a declared authentication mode and drops an unknown one", () => {
+    expect(
+      parsePluginGitRequest({
+        operation: "fetch",
+        scope: "vault",
+        remote: "origin",
+        authMode: "github-https",
+      }),
+    ).toEqual({
+      operation: "fetch",
+      scope: "vault",
+      authMode: "github-https",
+      remote: "origin",
+    });
+    expect(() =>
+      parsePluginGitRequest({
+        operation: "push",
+        scope: "vault",
+        remote: "origin",
+        branch: "main",
+        authMode: "basic-password",
+      }),
+    ).toThrow();
+  });
+
+  it("rebuilds a clone request without a destination", () => {
+    expect(
+      parsePluginGitCloneVaultRequest({
+        url: "https://github.com/synthetic-owner/synthetic-notes.git",
+        authMode: "github-https",
+        branch: "main",
+        // The host owns the destination, so a supplied one is dropped.
+        directory: "/synthetic/elsewhere",
+      }),
+    ).toEqual({
+      url: "https://github.com/synthetic-owner/synthetic-notes.git",
+      authMode: "github-https",
+      branch: "main",
+    });
+    expect(() =>
+      parsePluginGitCloneVaultRequest({
+        url: "https://example.invalid/repo.git",
+      }),
+    ).toThrow();
+  });
+
+  it("bounds a repository listing and requires an opaque clean-up token", () => {
+    expect(parsePluginGitHubListLimit({ limit: 50 })).toBe(50);
+    expect(() => parsePluginGitHubListLimit({ limit: 0 })).toThrow();
+    expect(() => parsePluginGitHubListLimit({ limit: 201 })).toThrow();
+    expect(
+      parsePluginGitCleanupToken({
+        cleanupToken: "11111111-2222-4333-8444-555555555555",
+      }),
+    ).toBe("11111111-2222-4333-8444-555555555555");
+    expect(() =>
+      parsePluginGitCleanupToken({ cleanupToken: "/synthetic/destination" }),
+    ).toThrow();
   });
 });

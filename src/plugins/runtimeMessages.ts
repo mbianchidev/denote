@@ -308,6 +308,7 @@ export function isPluginSourceControlViewModel(
     !isArrayOf(value.diffFiles, isDiffFile) ||
     !isArrayOf(value.conflicts, isConflict) ||
     !isRecovery(value.recovery) ||
+    !isRemoteAccess(value.remoteAccess) ||
     !isRecord(value.selectedView)
   ) {
     return false;
@@ -396,6 +397,51 @@ function isBranch(value: unknown): boolean {
     isNullableString(value.upstream) &&
     isNonNegativeInteger(value.ahead) &&
     isNonNegativeInteger(value.behind)
+  );
+}
+
+function isRemoteAccess(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.authMode === "string" &&
+    ["public", "ssh-agent", "github-https"].includes(value.authMode) &&
+    typeof value.cloneAvailable === "boolean" &&
+    typeof value.githubAvailable === "boolean" &&
+    isArrayOf(value.repositories, isRepositoryChoice) &&
+    (value.cleanup === null || isCloneCleanup(value.cleanup)) &&
+    (value.review === null || isOperationReview(value.review))
+  );
+}
+
+function isRepositoryChoice(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.nameWithOwner === "string" &&
+    typeof value.httpsUrl === "string" &&
+    typeof value.sshUrl === "string" &&
+    isNullableString(value.defaultBranch) &&
+    typeof value.private === "boolean"
+  );
+}
+
+function isCloneCleanup(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.token === "string" &&
+    typeof value.label === "string"
+  );
+}
+
+function isOperationReview(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    typeof value.outcome === "string" &&
+    ["succeeded", "failed", "cancelled"].includes(value.outcome) &&
+    typeof value.summary === "string" &&
+    isNullableString(value.detail) &&
+    (value.retryActionId === undefined ||
+      typeof value.retryActionId === "string")
   );
 }
 

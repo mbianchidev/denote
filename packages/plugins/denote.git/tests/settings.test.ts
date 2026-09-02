@@ -31,6 +31,8 @@ describe("readGitSettings", () => {
         excludePatterns: "scratch",
       }),
     ).toEqual({
+      authMode: "public",
+      pullStrategy: "fast-forward-only",
       defaultBranch: "trunk",
       identity: {
         authorName: "Synthetic Author",

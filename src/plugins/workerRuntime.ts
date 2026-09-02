@@ -9,6 +9,7 @@ import type {
 import {
   privilegedHostOperation,
   runHostOperation,
+  type PluginVaultClonedHandler,
   type PluginActionLeaseScope,
 } from "./hostOperations";
 import {
@@ -31,7 +32,10 @@ export type {
   PluginSourceControlContribution,
   PluginStatusContribution,
 } from "./runtimeMessages";
-export type { PluginActionLeaseScope } from "./hostOperations";
+export type {
+  PluginActionLeaseScope,
+  PluginVaultClonedHandler,
+} from "./hostOperations";
 
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
@@ -116,6 +120,12 @@ export class PluginWorkerRuntime {
     private readonly onAutomaticLocalCommitsChanged: (
       schedules: PluginAutomaticLocalCommitContribution[],
     ) => void = () => {},
+    /**
+     * Receives the workspace a host clone produced. It stays in the host: the
+     * runtime hands the snapshot to the renderer and returns only the clone
+     * outcome to the plugin.
+     */
+    private readonly onVaultCloned: PluginVaultClonedHandler = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -235,6 +245,9 @@ export class PluginWorkerRuntime {
       projectId: runtime.permissions.has("project-context")
         ? actionScope.projectId
         : null,
+      // A command is not a source-control action, so its lease authorises none
+      // of the host operations that are bound to one.
+      sourceControlActionId: null,
     });
     runtime.port.postMessage({
       type: "run-command",
@@ -275,6 +288,9 @@ export class PluginWorkerRuntime {
       projectId: runtime.permissions.has("project-context")
         ? actionScope.projectId
         : null,
+      // The lease carries the action the host is running, so a host operation
+      // reserved for one action cannot be reached from another.
+      sourceControlActionId: action.id,
     });
     runtime.port.postMessage({
       type: "run-source-control-action",
@@ -840,6 +856,7 @@ export class PluginWorkerRuntime {
         message.value,
         actionScope,
         message.operationId,
+        this.onVaultCloned,
       );
       runtime.port.postMessage({
         type: "host-response",

@@ -148,6 +148,9 @@ describe("Git plugin activation", () => {
       ),
     ).toEqual({
       gitExecutablePath: "",
+      githubExecutablePath: "",
+      authenticationMode: "public",
+      pullStrategy: "fast-forward-only",
       defaultBranch: "main",
       authorName: "",
       authorEmail: "",
@@ -339,6 +342,30 @@ describe("Git plugin activation", () => {
     expect(last(harness.models)?.resourceGroups).toEqual([]);
     expect(last(harness.models)?.history).toEqual([]);
     expect(last(harness.statusItems)?.text).toBe("Git: refresh required");
+  });
+
+  it("seeds the configured authentication mode during activation", async () => {
+    const harness = activationHarness({ authenticationMode: "github-https" });
+
+    await plugin.activate(harness.context);
+
+    // Activation is where the host-persisted setting reaches the surface, so
+    // the mode on screen is the one every remote operation will use.
+    expect(last(harness.models)?.remoteAccess).toMatchObject({
+      authMode: "github-https",
+      githubAvailable: true,
+    });
+  });
+
+  it("starts on the safest mode when no authentication setting is stored", async () => {
+    const harness = activationHarness();
+
+    await plugin.activate(harness.context);
+
+    expect(harness.providers[0].initialModel.remoteAccess).toMatchObject({
+      authMode: "public",
+      githubAvailable: false,
+    });
   });
 
   it("keeps the model when an unchanged project context is repeated", async () => {

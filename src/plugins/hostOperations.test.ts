@@ -5,6 +5,9 @@ import { privilegedHostOperation, runHostOperation } from "./hostOperations";
 vi.mock("../lib/api", () => ({
   api: {
     pluginGitRequest: vi.fn(),
+    pluginGithubListRepositories: vi.fn(),
+    pluginGitCloneVault: vi.fn(),
+    pluginGitCleanFailedClone: vi.fn(),
   },
 }));
 
@@ -32,7 +35,7 @@ describe("plugin Git host operation", () => {
       "git.run",
       undefined,
       { operation: "status", scope: "project" },
-      { workspaceScope: "/vaults/synthetic", projectId: "project-1" },
+      { workspaceScope: "/vaults/synthetic", projectId: "project-1", sourceControlActionId: null },
       OPERATION_ID,
     );
 
@@ -51,7 +54,7 @@ describe("plugin Git host operation", () => {
       "git.run",
       undefined,
       { operation: "status", scope: "vault" },
-      { workspaceScope: "/vaults/synthetic", projectId: null },
+      { workspaceScope: "/vaults/synthetic", projectId: null, sourceControlActionId: null },
       OPERATION_ID,
     );
 
@@ -89,7 +92,7 @@ describe("plugin Git host operation", () => {
         message: "Record synthetic note",
         arguments: ["--upload-pack=touch pwned"],
       },
-      { workspaceScope: "/vaults/synthetic", projectId: null },
+      { workspaceScope: "/vaults/synthetic", projectId: null, sourceControlActionId: null },
       OPERATION_ID,
     );
 
@@ -113,7 +116,7 @@ describe("plugin Git host operation", () => {
         "git.run",
         undefined,
         { operation: "gc", scope: "vault" },
-        { workspaceScope: "/vaults/synthetic", projectId: null },
+        { workspaceScope: "/vaults/synthetic", projectId: null, sourceControlActionId: null },
         OPERATION_ID,
       ),
     ).rejects.toThrow("Unsupported plugin Git operation: gc");
@@ -132,7 +135,7 @@ describe("plugin Git host operation", () => {
         options: { executablePath: "/opt/synthetic/bin/git" },
         gitExecutablePath: "/opt/synthetic/bin/git",
       },
-      { workspaceScope: "/vaults/synthetic", projectId: null },
+      { workspaceScope: "/vaults/synthetic", projectId: null, sourceControlActionId: null },
       OPERATION_ID,
     );
 
@@ -154,7 +157,7 @@ describe("plugin Git host operation", () => {
       "git.run",
       undefined,
       { operation: "cancel", operationId: "99999999-8888-4777-8666-555555555555" },
-      { workspaceScope: "/vaults/synthetic", projectId: null },
+      { workspaceScope: "/vaults/synthetic", projectId: null, sourceControlActionId: null },
       OPERATION_ID,
     );
 
@@ -181,11 +184,233 @@ describe("plugin Git host operation", () => {
           "git.run",
           undefined,
           { operation: "status", scope: "vault" },
-          { workspaceScope: "/vaults/synthetic", projectId: null },
+          { workspaceScope: "/vaults/synthetic", projectId: null, sourceControlActionId: null },
           operationId,
         ),
       ).rejects.toThrow("Plugin Git request is missing a valid operation ID.");
     }
     expect(api.pluginGitRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("plugin clone and GitHub host operations", () => {
+  const leaseFor = (sourceControlActionId: string | null) => ({
+    workspaceScope: "/vaults/synthetic",
+    projectId: null,
+    sourceControlActionId,
+  });
+  /** A command lease: it names no source-control action at all. */
+  const scope = leaseFor(null);
+  const cloneScope = leaseFor("clone");
+  const cleanupScope = leaseFor("clean-failed-clone");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("requires a user action lease for every one of them", () => {
+    for (const operation of [
+      "git.list-github-repositories",
+      "git.clone-vault",
+      "git.clean-failed-clone",
+    ]) {
+      expect(privilegedHostOperation(operation)).toBe(true);
+    }
+  });
+
+  it("bounds a repository listing and forwards the captured vault scope", async () => {
+    vi.mocked(api.pluginGithubListRepositories).mockResolvedValue([]);
+
+    await runHostOperation(
+      "denote.git",
+      "git.list-github-repositories",
+      undefined,
+      { limit: 25 },
+      scope,
+      OPERATION_ID,
+    );
+
+    expect(api.pluginGithubListRepositories).toHaveBeenCalledWith(
+      "denote.git",
+      25,
+      "/vaults/synthetic",
+      OPERATION_ID,
+    );
+    await expect(
+      runHostOperation(
+        "denote.git",
+        "git.list-github-repositories",
+        undefined,
+        { limit: 5000 },
+        scope,
+        OPERATION_ID,
+      ),
+    ).rejects.toThrow(/cannot exceed/);
+  });
+
+  it("keeps the workspace snapshot in the host and returns only the outcome", async () => {
+    const snapshot = { vaultPath: "/vaults/cloned" } as never;
+    vi.mocked(api.pluginGitCloneVault).mockResolvedValue({
+      outcome: {
+        status: "cloned",
+        label: "cloned",
+        remoteUrl: "https://example.invalid/repo.git",
+        branch: "main",
+        defaultBranch: "main",
+        upstream: "origin/main",
+      },
+      snapshot,
+    });
+    const opened: unknown[] = [];
+
+    const result = await runHostOperation(
+      "denote.git",
+      "git.clone-vault",
+      undefined,
+      {
+        url: "https://example.invalid/repo.git",
+        authMode: "public",
+      },
+      cloneScope,
+      OPERATION_ID,
+      (value) => {
+        opened.push(value);
+      },
+    );
+
+    expect(api.pluginGitCloneVault).toHaveBeenCalledWith(
+      "denote.git",
+      { url: "https://example.invalid/repo.git", authMode: "public" },
+      "/vaults/synthetic",
+      OPERATION_ID,
+    );
+    // The renderer opens the vault; the plugin is told only that it worked.
+    expect(opened).toEqual([snapshot]);
+    expect(result).toEqual({
+      status: "cloned",
+      label: "cloned",
+      remoteUrl: "https://example.invalid/repo.git",
+      branch: "main",
+      defaultBranch: "main",
+      upstream: "origin/main",
+    });
+    expect(JSON.stringify(result)).not.toContain("/vaults/cloned");
+  });
+
+  it("never signals the renderer when a clone did not open a vault", async () => {
+    vi.mocked(api.pluginGitCloneVault).mockResolvedValue({
+      outcome: { status: "cancelled" },
+      snapshot: null,
+    });
+    const opened: unknown[] = [];
+
+    const result = await runHostOperation(
+      "denote.git",
+      "git.clone-vault",
+      undefined,
+      { url: "https://example.invalid/repo.git", authMode: "public" },
+      cloneScope,
+      OPERATION_ID,
+      (value) => {
+        opened.push(value);
+      },
+    );
+
+    expect(opened).toEqual([]);
+    expect(result).toEqual({ status: "cancelled" });
+  });
+
+  it("refuses a clean-up token that is not a host-generated identifier", async () => {
+    vi.mocked(api.pluginGitCleanFailedClone).mockResolvedValue({
+      cleaned: true,
+      message: "Denote deleted the incomplete clone folder.",
+    });
+
+    await runHostOperation(
+      "denote.git",
+      "git.clean-failed-clone",
+      undefined,
+      { cleanupToken: OPERATION_ID },
+      cleanupScope,
+    );
+    expect(api.pluginGitCleanFailedClone).toHaveBeenCalledWith(
+      "denote.git",
+      OPERATION_ID,
+      "/vaults/synthetic",
+    );
+
+    await expect(
+      runHostOperation(
+        "denote.git",
+        "git.clean-failed-clone",
+        undefined,
+        { cleanupToken: "../../vaults/other" },
+        cleanupScope,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("refuses a clone without a workspace lease", async () => {
+    await expect(
+      runHostOperation("denote.git", "git.clone-vault", undefined, {
+        url: "https://example.invalid/repo.git",
+        authMode: "public",
+      }),
+    ).rejects.toThrow(/vault scope/);
+  });
+
+  it("binds a clone to the standardised clone action and nothing else", async () => {
+    const opened: unknown[] = [];
+    for (const lease of [scope, leaseFor("refresh"), leaseFor("pull")]) {
+      await expect(
+        runHostOperation(
+          "denote.git",
+          "git.clone-vault",
+          undefined,
+          { url: "https://example.invalid/repo.git", authMode: "public" },
+          lease,
+          OPERATION_ID,
+          (value) => {
+            opened.push(value);
+          },
+        ),
+      ).rejects.toThrow('requires the "clone" source-control action');
+    }
+
+    // Nothing reached the native command, so no folder chooser was opened and
+    // no workspace was handed to the renderer.
+    expect(api.pluginGitCloneVault).not.toHaveBeenCalled();
+    expect(opened).toEqual([]);
+  });
+
+  it("binds deleting a failed clone to its own action and nothing else", async () => {
+    for (const lease of [scope, cloneScope, leaseFor("remove-remote")]) {
+      await expect(
+        runHostOperation(
+          "denote.git",
+          "git.clean-failed-clone",
+          undefined,
+          { cleanupToken: OPERATION_ID },
+          lease,
+        ),
+      ).rejects.toThrow(
+        'requires the "clean-failed-clone" source-control action',
+      );
+    }
+
+    expect(api.pluginGitCleanFailedClone).not.toHaveBeenCalled();
+  });
+
+  it("refuses a repository listing that carries no cancellable operation ID", async () => {
+    await expect(
+      runHostOperation(
+        "denote.git",
+        "git.list-github-repositories",
+        undefined,
+        { limit: 25 },
+        scope,
+      ),
+    ).rejects.toThrow(/operation ID/);
+    expect(api.pluginGithubListRepositories).not.toHaveBeenCalled();
   });
 });

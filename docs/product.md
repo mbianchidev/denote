@@ -283,17 +283,36 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   unavailable, disabled, or enabled status; Denote never downloads or enables
   them automatically, and core project behavior does not depend on plugins.
 - The optional **Git vault versioning** plugin is the first production catalog
-  entry. Its current version is local only: it shows one host-rendered
-  repository view for the active project, or the vault when no project is
-  marked, and supports refresh, initialize, stage, unstage, commit of staged
-  changes, and cancellation of a running operation. It requests no network,
-  process, or workspace-write permission. Setting an automatic commit interval
-  above zero also enables timed local commits: Denote saves open notes first,
-  then commits only tracked changes that match the configured include and
-  exclude prefixes, never adds untracked files, never contacts a remote, skips
-  the run when work is already staged or a merge is unfinished, and leaves the
-  index exactly as it was whenever a run does not finish. Fetch, pull, push,
-  branch switching, diffs, and conflict resolution are later increments and are
+  entry. It shows one host-rendered repository view for the active project, or
+  the vault when no project is marked, and supports refresh, initialize, stage,
+  unstage, commit of staged changes, and cancellation of a running operation. It
+  requests no network, process, or workspace-write permission. Setting an
+  automatic commit interval above zero also enables timed local commits: Denote
+  saves open notes first, then commits only tracked changes that match the
+  configured include and exclude prefixes, never adds untracked files, never
+  contacts a remote, skips the run when work is already staged or a merge is
+  unfinished, and leaves the index exactly as it was whenever a run does not
+  finish.
+- Remote work is explicit and confirmed. The same view adds remotes, changes a
+  remote URL, removes a remote, fetches, pulls, and pushes, and clones a
+  repository into a new vault. Denote never fetches, pulls, or pushes on its own
+  or from an automatic commit; a pull, a push, a URL change, a remote removal,
+  and a clone each ask first, naming the exact remote, URL, and branch, and only
+  an ordinary push is offered. Remotes may be public HTTPS, an SSH remote served
+  by a running agent, or GitHub over HTTPS, where Denote's own GitHub CLI
+  adapter can list your repositories to pick from and supplies the credential
+  itself; no token is ever stored in plugin settings, written into repository
+  configuration, or shown in a message or log, and a credential is only ever
+  offered to the address the operation will really contact. The mode is a
+  setting, so the view reports the configured one and sends you to Settings to
+  change it.
+- Cloning asks you to choose an empty folder, clones into it, checks the result,
+  and only then opens it as a vault, so an encrypted clone shows the usual
+  unlock screen before any note. Open notes are saved before the clone starts,
+  and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
+  and offers Retry, or an explicitly confirmed clean-up that deletes only that
+  exact folder. Nothing is ever deleted automatically.
+- Branch switching, diffs, and conflict resolution are later increments and are
   reported as unavailable rather than implied.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.

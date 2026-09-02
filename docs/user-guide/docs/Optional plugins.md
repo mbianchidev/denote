@@ -90,10 +90,40 @@ index in the meantime Denote leaves that index untouched and tells you so.
 Changing any plugin setting reloads the plugin so the new interval, message, or
 prefixes apply straight away.
 
-Fetching, pulling, pushing, switching branches, file and commit diffs, and
-conflict resolution are not implemented in this version. Branches, remotes, and
-recent commits appear as read-only information, and an interrupted merge or
-rebase is reported so you can finish it with your own Git tooling.
+You can also work with remotes. The Branches tab adds a remote, changes a
+remote's URL, and removes one, and the repository section fetches, pulls, and
+pushes. Denote never does any of that on its own. A pull, a push, a URL change,
+and a remote removal each ask you first and name the exact remote, URL, and
+branch involved, and only an ordinary push is offered: there is no force push.
+
+Choose how Denote signs in under **Remote authentication**, in the plugin's
+settings. *Public repository* needs no credentials, *SSH agent* uses the agent
+you already have running, and *GitHub sign-in* uses the GitHub CLI on your
+machine. The Git view shows the mode you configured and sends you to Settings to
+change it, so it always matches what the next fetch, pull, push, or clone will
+use. With GitHub sign-in you can browse your repositories and pick one to clone.
+Denote reads the token itself, uses it only for that one Git command, and
+deletes it straight afterwards; it is never stored in plugin settings, written
+into your repository's configuration, or shown in a message or log. Denote also
+checks the address it is really about to contact, so a remote that fetches from
+GitHub but pushes somewhere else is refused rather than sent your token. If a
+mode is not set up, Denote says so instead of leaving Git waiting for a
+password.
+
+**Clone a repository** asks you to choose an empty folder, clones into it,
+checks the result, and only then opens it as a vault. Your open notes are saved
+before the clone starts, so nothing you typed in the current vault is lost when
+the clone replaces it. Cancelling the folder chooser does nothing at all, and
+Cancel stops a clone or a repository browse while it is still running. If the clone fails, the folder is left exactly as
+it is: you can retry, or use **Clean incomplete clone**, which asks for a
+separate confirmation and deletes only that one folder. Denote never cleans it
+up for you. A cloned vault that is encrypted opens on the usual unlock screen,
+so no note is shown before you unlock it.
+
+Switching branches, file and commit diffs, and conflict resolution are not
+implemented in this version. Branches and recent commits appear as read-only
+information, and an interrupted merge or rebase is reported so you can finish it
+with your own Git tooling.
 
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.

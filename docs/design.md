@@ -285,8 +285,16 @@ becoming static sidebar views. Their host-rendered sidebar uses visible branch
 and commit fields, native controls, semantic lists and headings, keyboard
 operable tabs, structured diffs, and polite status regions for progress,
 recovery, and limitations. A busy provider that reports the operation it is
-running also shows a cancel control beside that status. Plugin data never
-supplies arbitrary markup.
+running also shows a cancel control beside that status. Remote work uses the
+same vocabulary: labelled URL and name fields for adding, editing, and removing
+a remote, the configured authentication mode shown read-only beside a line
+directing the user to Settings, a clone form whose
+submit opens the host's own folder chooser, a list of offered repositories as
+ordinary buttons, and a review region for the last remote operation with Retry
+and Dismiss. Anything that reaches a remote, changes where one points, removes
+one, or deletes a folder is confirmed in the standard action dialog, which
+names the exact remote, URL, and branch, and a deletion uses the dangerous
+variant. Plugin data never supplies arbitrary markup.
 Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
 moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a

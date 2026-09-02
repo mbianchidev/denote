@@ -212,14 +212,30 @@ flag, environment value, or executable path can travel with a request. A user
 who needs a Git that is not in a standard location fills in the plugin's
 `gitExecutablePath` setting, a host-rendered string whose default is empty; the
 host reads that setting itself for the requesting plugin and still requires the
-path to be absolute, canonical, and a real Git executable.
+path to be absolute, canonical, and a real Git executable. The reserved
+`githubExecutablePath` setting works the same way for the GitHub CLI.
+
+Beyond `run` and `cancel`, the Git capability exposes three host-owned
+operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,
+and `cleanFailedClone`. Each one requires the same approved `git` permission and
+the same user-action lease as a Git command. `listGitHubRepositories` and
+`cloneVault` both reach the network, so both return `{ operationId, result }`
+exactly as `git.run` does: the ID is published before the work is awaited, and
+`git.cancel(operationId)` stops a browse or a clone while it is still running.
+Cloning and deleting a failed clone additionally require the lease to belong to
+the standardised source-control action the host confirmed, `clone` and
+`clean-failed-clone`; a plugin command carries no source-control action at all,
+and any other action ID is refused before the folder chooser opens or any native
+command runs.
 
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
 operation-state detection, initialize, stage, unstage, commit, branch and remote
 listing, history, diff, fetch, pull, push, remote add/set/remove, branch
 create/checkout/rename/delete, stash, merge, rebase, cherry-pick, revert,
 continue/skip/abort, conflict-stage reads, conflict resolution, clone, and
-cancel. Every operation names exact structured fields; there is no argument
+cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
+`public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
+never a credential. Every operation names exact structured fields; there is no argument
 array, option flag, or shell input, and the native host maps each operation to a
 fixed argument template. A commit may carry an optional `authorName` and
 `authorEmail`; the host validates each as a bounded, non-empty, control-free,
@@ -245,8 +261,92 @@ configuration before running. Operations use process
 groups, output bounded at 8 MiB that fails rather than truncates, a ten minute
 hard timeout, and a native per-plugin cancellation registry that is also cleared
 on disable, failed enable rollback, disable-all, and shutdown. Errors redact
-absolute host paths and URL passwords. Remote authentication is deliberately not
-part of this transport yet.
+absolute host paths and URL passwords.
+
+### Remote authentication
+
+`public` and `ssh-agent` need nothing beyond the hardened invocation: prompts
+are already disabled, so an unconfigured agent fails with Git's own error rather
+than waiting for input. `github-https` is served by a host-owned GitHub adapter.
+The host resolves the GitHub CLI from fixed platform locations or the reserved
+`githubExecutablePath` setting, requires an absolute, canonical, regular file
+that answers `gh version`, and runs it with a stripped environment that removes
+every ambient GitHub and Git token variable. `gh repo list` is asked for exactly
+five fields, and each entry is dropped unless its name, HTTPS URL, SSH URL, and
+default branch pass the same bounds the Git transport already enforces, so a
+plugin receives only `nameWithOwner`, an HTTPS URL, an SSH URL, a default
+branch, and a private flag.
+
+The host registers the cancellable operation before it reads anything, so
+cancelling during credential acquisition stops the GitHub CLI and the Git
+command never starts. Registration and credential material are both released by
+scope guards, so every error, timeout, and cancellation path unregisters the
+operation and deletes the secret. The adapter captures `gh` output into bounded
+private temporary files and polls their size, exactly as the Git transport does,
+so a flood of output is refused at 1 MiB instead of deadlocking on an undrained
+pipe. Askpass directories a killed process left behind are removed once, while
+the plugin manager is being constructed, after the exclusive manager lock has
+been acquired and after symbolic-link and path validation; a second Denote that
+loses that lock never touches the material the live instance is authenticating
+with, and nothing is swept during ordinary operation.
+
+A token is read with `gh auth token` inside the native host, held in a zeroizing
+buffer, and written to a private owner-only file in a fresh directory beside the
+other host-owned Git support files. Git reaches it through `GIT_ASKPASS`
+pointing at Denote's own executable in an early-exit askpass mode, selected by a
+private environment marker that is stripped from every other child. The token
+therefore never appears in an argument vector, a URL, `.git/config`, Git output,
+a log line, or any plugin message, and the file is overwritten and removed when
+the operation succeeds, fails, times out, or is cancelled. A `github-https`
+operation is refused unless every URL it will actually contact really is an
+`https://github.com` URL. For `fetch`, `pull`, and `push` those URLs are read
+from repository configuration first, for the direction the operation uses: a
+push reads `git remote get-url --push --all`, so a remote carrying a separate
+`pushurl`, or several mirror URLs, cannot route a GitHub token to another host.
+No credential material is created at all unless that check passes. The prompt
+itself is the final authority: the askpass answer parses the target Git quoted
+in its own prompt and answers only when that target is an HTTPS URL whose host
+is exactly `github.com` or `www.github.com`. An absent, malformed, non-HTTPS,
+userinfo-confused, port-bearing, lookalike, or non-GitHub target is answered
+with nothing, so a remote repointed after the preflight and before the prompt
+gets Git's own authentication error rather than the token. An
+unsupported or unconfigured mode produces an actionable error and never falls
+back to an interactive prompt.
+
+The mode itself is a host-persisted plugin setting rather than plugin state. The
+source-control panel reports the configured mode read-only and points at
+Settings, so what is on screen is always the mode the next remote operation will
+use.
+
+### Cloning a vault
+
+`cloneVault` is the one operation that creates a whole vault, so the host owns
+every part of it. A plugin supplies a URL, an authentication mode, and an
+optional branch; it never supplies, learns, or influences a destination. The
+host opens a native folder chooser, and closing it is an ordinary `cancelled`
+outcome rather than an error. The chosen folder must be a real, empty directory
+that is not a symbolic link. The clone runs through the same hardened Git with a
+fixed template that disables submodules, local object sharing, and hard links,
+and the standard protocol pins still allow only HTTPS and SSH.
+
+Before anything is registered, the checkout is validated: `.git` must be an
+ordinary directory, repository-local configuration must pass the same dangerous
+key inspection, no symbolic link may resolve outside the folder, Denote's
+`.denote/locks` and `.denote/trash` control paths must not arrive as tracked
+content, and `HEAD`, the origin URL, the current branch, the remote default
+branch, and the upstream are read back. Only then does the host seal the
+previous vault, register the clone, and hand a workspace snapshot to its own
+renderer. The snapshot never crosses the plugin boundary, and an encrypted clone
+opens locked, so the normal password and recovery screen appears before any
+content.
+
+A clone that fails leaves the destination exactly as it is and returns an opaque
+host-owned clean-up token instead of a path. The panel offers Retry and
+"Clean incomplete clone"; the clean-up needs its own dangerous confirmation, is
+bound to that one canonical destination, revalidates that the folder is still
+the failed clone and is not a live vault, deletes nothing else, and cannot be
+spent twice. Nothing is ever cleaned automatically, and disabling the plugin
+drops its tokens along with its running processes.
 
 Vault encryption, sealing, and sweeping skip `.git` entirely, so repository
 metadata is never encrypted or deleted. Disabling encryption is the one pass
@@ -320,7 +420,7 @@ wrote it, and the run reports that the concurrent Git activity was preserved.
 `HEAD` is confirmed again immediately before committing so external Git activity
 cannot be raced. No fetch, pull,
 push, checkout, merge, rebase, revert, or other remote or history-rewriting
-command is reachable. The result is a typed `committed`, `unchanged`, or
+command is reachable from an automatic run, which stays local by construction. The result is a typed `committed`, `unchanged`, or
 `skipped` status with a message and, where available, a commit ID, and no
 generated message contains note content or paths. Standing runs join the same
 cancellation registry as typed requests, so disabling the plugin or closing

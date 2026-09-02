@@ -3,6 +3,7 @@ import type { SourceLanguageOverride } from "./lib/syntaxLanguages";
 import type {
   PluginBundle,
   PluginCatalogEntry,
+  PluginGitCloneVaultResult,
   PluginLifecycleState,
   PluginPermissionRequest,
 } from "@denote/plugin-sdk";
@@ -283,6 +284,18 @@ export interface PluginAutomaticCommitOutcome {
   status: PluginAutomaticCommitStatus;
   message: string;
   commitId: string | null;
+}
+
+/**
+ * What a host clone returns to the renderer.
+ *
+ * `outcome` is the only half the plugin runtime forwards to a plugin. The
+ * snapshot is a renderer-only value: it identifies the new vault, so it is
+ * consumed by the host and never crosses the plugin boundary.
+ */
+export interface PluginCloneVaultResponse {
+  outcome: PluginGitCloneVaultResult;
+  snapshot: WorkspaceSnapshot | null;
 }
 
 export interface MoveEntryResult {

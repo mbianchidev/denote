@@ -421,6 +421,73 @@ export interface PluginSourceControlConflictEntry {
   baseLabel: string | null;
 }
 
+/**
+ * How a remote operation authenticates.
+ *
+ * `public` is an unauthenticated HTTPS remote, `ssh-agent` is an SSH remote
+ * served by an already-running agent, and `github-https` asks the host's own
+ * GitHub adapter for credentials. A plugin only ever names the mode: no token,
+ * key, or credential of any kind passes through it.
+ */
+export type PluginSourceControlAuthMode = "public" | "ssh-agent" | "github-https";
+
+/**
+ * One repository the host's GitHub adapter offered for selection. Only this
+ * bounded metadata crosses into a plugin; the token that produced it never
+ * leaves the native host.
+ */
+export interface PluginSourceControlRepositoryChoice {
+  nameWithOwner: string;
+  httpsUrl: string;
+  sshUrl: string;
+  defaultBranch: string | null;
+  private: boolean;
+}
+
+/**
+ * A clone that failed and left a destination behind. The token is opaque and
+ * host-owned: it names nothing on disk, is bound to the exact failed
+ * destination, and can only be spent once, on an explicit dangerous
+ * confirmation.
+ */
+export interface PluginSourceControlCloneCleanup {
+  token: string;
+  /** Host-redacted description of the destination, safe to display. */
+  label: string;
+}
+
+/** The last remote operation, kept on screen so the user can review it. */
+export interface PluginSourceControlOperationReview {
+  operation: string;
+  outcome: "succeeded" | "failed" | "cancelled";
+  summary: string;
+  detail: string | null;
+  retryActionId?: string;
+}
+
+/**
+ * Everything the host needs to render remote and clone controls. The provider
+ * describes state only; the host owns every confirmation, the folder chooser,
+ * and the credentials.
+ */
+export interface PluginSourceControlRemoteAccess {
+  /**
+   * The authentication mode that is configured for this plugin in Settings.
+   *
+   * It is reported so a surface can show what every remote operation will
+   * use. It is not a control: the value is host-persisted, so it is changed in
+   * Settings and never by an action.
+   */
+  authMode: PluginSourceControlAuthMode;
+  /** True while the provider can start clone onboarding. */
+  cloneAvailable: boolean;
+  /** True when the host's GitHub adapter is configured for browsing. */
+  githubAvailable: boolean;
+  repositories: PluginSourceControlRepositoryChoice[];
+  cleanup: PluginSourceControlCloneCleanup | null;
+  review: PluginSourceControlOperationReview | null;
+}
+
 export type PluginSourceControlRecoveryState =
   | { state: "idle" }
   | {
@@ -445,6 +512,7 @@ interface PluginSourceControlViewModelBase {
   diffFiles: PluginSourceControlDiffFile[];
   conflicts: PluginSourceControlConflictEntry[];
   recovery: PluginSourceControlRecoveryState;
+  remoteAccess: PluginSourceControlRemoteAccess;
 }
 
 export type PluginSourceControlViewModel =
@@ -558,6 +626,13 @@ export type PluginGitPullStrategy =
 
 export type PluginGitPushMode = "normal" | "force-with-lease";
 
+/**
+ * How the host authenticates a remote operation. Only the mode crosses the
+ * plugin boundary: the host resolves every credential itself and never returns
+ * one.
+ */
+export type PluginGitAuthMode = "public" | "ssh-agent" | "github-https";
+
 export type PluginGitDiffTarget =
   | { kind: "worktree" }
   | { kind: "index" }
@@ -606,13 +681,20 @@ export type PluginGitRunRequest =
       target: PluginGitDiffTarget;
       paths?: string[];
     }
-  | { operation: "fetch"; scope: PluginGitScope; remote: string; prune?: boolean }
+  | {
+      operation: "fetch";
+      scope: PluginGitScope;
+      remote: string;
+      prune?: boolean;
+      authMode?: PluginGitAuthMode;
+    }
   | {
       operation: "pull";
       scope: PluginGitScope;
       remote: string;
       branch: string;
       strategy: PluginGitPullStrategy;
+      authMode?: PluginGitAuthMode;
     }
   | {
       operation: "push";
@@ -621,6 +703,7 @@ export type PluginGitRunRequest =
       branch: string;
       setUpstream?: boolean;
       mode?: PluginGitPushMode;
+      authMode?: PluginGitAuthMode;
     }
   | { operation: "add-remote"; scope: PluginGitScope; name: string; url: string }
   | {
@@ -693,6 +776,7 @@ export type PluginGitRunRequest =
       url: string;
       directory: string;
       branch?: string;
+      authMode?: PluginGitAuthMode;
     };
 
 export type PluginGitCancelRequest = {
@@ -726,6 +810,79 @@ export interface PluginGitOperation {
   result: Promise<PluginGitResult>;
 }
 
+/**
+ * One GitHub repository the host's `gh` adapter reported. This bounded
+ * metadata is the only thing the adapter returns to a plugin: the GitHub token
+ * that authorised the listing is obtained, used, and destroyed inside the
+ * native host.
+ */
+export interface PluginGitHubRepository {
+  nameWithOwner: string;
+  httpsUrl: string;
+  sshUrl: string;
+  defaultBranch: string | null;
+  private: boolean;
+}
+
+export interface PluginGitHubListRequest {
+  /** Bounded number of repositories to report. */
+  limit: number;
+}
+
+export interface PluginGitCloneVaultRequest {
+  url: string;
+  authMode: PluginGitAuthMode;
+  branch?: string;
+}
+
+/**
+ * The outcome of a clone the host performed into a folder the user chose.
+ *
+ * A successful clone never returns a path, a workspace snapshot, or anything
+ * else that identifies the destination: the host renderer opens the vault
+ * itself. A failure returns an opaque cleanup token instead of a path, so the
+ * only thing a plugin can ask for is deletion of that exact destination, and
+ * only behind an explicit dangerous confirmation the host owns.
+ */
+export type PluginGitCloneVaultResult =
+  | { status: "cancelled" }
+  | {
+      status: "cloned";
+      label: string;
+      remoteUrl: string;
+      branch: string | null;
+      defaultBranch: string | null;
+      upstream: string | null;
+    }
+  | {
+      status: "failed";
+      message: string;
+      cleanupToken: string | null;
+    };
+
+export interface PluginGitCloneCleanupResult {
+  cleaned: boolean;
+  message: string;
+}
+
+/**
+ * A clone in progress.
+ *
+ * The ID is published before the clone is awaited, exactly like
+ * {@link PluginGitOperation}, so a surface can offer Cancel while the folder
+ * chooser, the credentials, and Git are still working.
+ */
+export interface PluginGitCloneVaultOperation {
+  operationId: string;
+  result: Promise<PluginGitCloneVaultResult>;
+}
+
+/** A repository listing in progress, cancellable by the same operation ID. */
+export interface PluginGitHubListOperation {
+  operationId: string;
+  result: Promise<PluginGitHubRepository[]>;
+}
+
 export interface PluginGitCapability {
   /**
    * Runs one typed Git operation. The request is the only input: the Git
@@ -740,6 +897,32 @@ export interface PluginGitCapability {
    * matching operation is running.
    */
   cancel: (operationId: string) => Promise<PluginGitResult>;
+  /**
+   * Lists GitHub repositories through the host's own `gh` adapter. The host
+   * resolves `gh`, obtains and destroys the token, and returns only bounded
+   * structured metadata. The returned operation ID cancels the listing while
+   * it is still running.
+   */
+  listGitHubRepositories: (
+    request: PluginGitHubListRequest,
+  ) => PluginGitHubListOperation;
+  /**
+   * Clones a repository into an empty folder the user picks in a native host
+   * chooser, then opens it as a vault. Cancelling the chooser is not an error.
+   * The returned operation ID cancels the clone while it is still running.
+   */
+  cloneVault: (
+    request: PluginGitCloneVaultRequest,
+  ) => PluginGitCloneVaultOperation;
+  /**
+   * Deletes the destination of a clone that failed, named only by the opaque
+   * token that clone returned. The host revalidates that the destination is
+   * still that failed clone before deleting anything, and the token cannot be
+   * spent twice.
+   */
+  cleanFailedClone: (
+    cleanupToken: string,
+  ) => Promise<PluginGitCloneCleanupResult>;
 }
 
 export interface PluginWorkspaceReadCapability {

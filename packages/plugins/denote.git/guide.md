@@ -2,15 +2,20 @@
 
 ## Purpose
 
-This plugin keeps a local Git history of your vault, or of the active project
-inside it, without leaving Denote. It adds one source control view that shows
-the repository, its working tree changes, its branches, its remotes, and its
-latest commits, and it lets you initialize a repository, stage and unstage a
-file, and commit what you staged. It can also commit tracked changes for you on
-a timer.
+This plugin keeps a Git history of your vault, or of the active project inside
+it, without leaving Denote. It adds one source control view that shows the
+repository, its working tree changes, its branches, its remotes, and its latest
+commits, and it lets you initialize a repository, stage and unstage a file, and
+commit what you staged. It can also commit tracked changes for you on a timer.
 
-Everything in this version is local. The plugin never contacts a network, never
-runs a process of its own, and never writes note content.
+It now works with remotes too: add, change, and remove a remote, fetch, pull,
+push, and clone a repository into a new vault. Every one of those is something
+you ask for. Nothing here fetches, pulls, or pushes on its own, and an automatic
+commit never touches a remote at all.
+
+The plugin never runs a process of its own and never writes note content.
+Denote owns the Git executable, the GitHub CLI, the folder chooser, and every
+credential; the plugin only names an operation and its fields.
 
 ## Enablement and permissions
 
@@ -32,7 +37,9 @@ Enabling requests these permissions:
   where your vault is.
 
 The plugin does not request network, process, or workspace-write permission, so
-it cannot reach a remote host, run its own executable, or edit your notes.
+it cannot open a connection of its own, run its own executable, or edit your
+notes. Remote work goes through the same Git permission: Denote runs Git and the
+GitHub CLI itself.
 
 Enabling alone does not run Git and does not change your vault. The first model
 reports that a refresh is required and makes no claim about the repository until
@@ -52,12 +59,89 @@ Open the Git view from the activity rail, or run `Git: Refresh repository`.
 - **Stage** and **Unstage** act on the exact file path in the row.
 - **Commit staged changes** commits only what is staged, using the message you
   typed and the configured author identity when one is set.
-- **Cancel operation** stops the Git operation that is running. It targets the
+- **Cancel operation** stops the Git operation that is running, including a
+  clone and a GitHub browse. It targets the
   operation Denote is actually running, not the one the button was drawn for,
   so a fast sequence cannot leave the button pointing at a step that already
   finished. Cancelling leaves the last known repository state on screen and
   stays retryable, and if nothing matched, the view says so rather than
   appearing to do nothing.
+- **Last remote operation** reviews what the previous fetch, pull, push, remote
+  change, or clone did, and offers Retry where retrying makes sense.
+
+### Remotes
+
+The Branches tab lists every remote with its fetch and push URL, an editable URL
+field, and a Remove button, plus a form to add a new remote. The repository
+section has Fetch, Pull, and Push, and a remote picker when there is more than
+one remote to choose from.
+
+- **Fetch** is explicit. Nothing in this plugin fetches on a timer, on
+  activation, or before another action.
+- **Pull** and **Push** ask for confirmation first, naming the exact remote and
+  branch. A pull can change files in your vault, so Denote saves your open notes
+  and holds the workspace while it runs. Push publishes only the branch named in
+  the confirmation, and records an upstream the first time a branch is pushed.
+- **Only ordinary pushes** are offered. There is no force push, with or without
+  a lease.
+- **Changing a remote's URL** and **removing a remote** each ask for their own
+  confirmation, showing the exact remote name and URL. Removing a remote leaves
+  your commits and files untouched.
+
+After every operation the repository is read again, so what is on screen is
+never older than the action you just took. When an operation fails, the last
+known good state stays on screen and the failure is reported with Git's own
+message.
+
+### Signing in to a remote
+
+**Remote authentication** decides how a fetch, pull, push, or clone
+authenticates. It is a plugin setting, so you change it in Denote's settings for
+this plugin. The Git view shows the configured mode beside the clone form and
+never offers to change it there, so what you see is always what the next remote
+operation will use.
+
+- **Public repository** uses no credentials at all.
+- **SSH agent** uses the agent already running on your machine. Denote never
+  prompts, so an agent that is not set up fails with Git's own error instead of
+  hanging.
+- **GitHub sign-in** uses the GitHub CLI (`gh`) on your machine. Denote resolves
+  `gh` itself, asks it for a token, hands that token to Git through a private
+  file that only Denote can read, and deletes it as soon as the operation ends,
+  whether it succeeded, failed, or was cancelled. The token is never stored in
+  plugin settings, never written into your repository's configuration, never put
+  into a URL or a command line, and never appears in output, a log, or anything
+  this plugin can read. GitHub sign-in only applies to `https://github.com`
+  remotes; anything else is refused rather than sent a token. Denote checks the
+  URL it will really contact, so a remote that fetches from GitHub but pushes
+  somewhere else is refused on push rather than sent your token.
+
+With GitHub sign-in selected, **Browse GitHub repositories** lists the
+repositories your `gh` account can reach. Only the name, the HTTPS and SSH URLs,
+the default branch, and whether it is private are shown. Selecting one fills in
+the clone form.
+
+### Cloning a repository into a vault
+
+**Clone a repository** takes a URL and an optional branch, then asks you to
+choose a folder.
+
+- The folder must be **empty**, and must be a real folder rather than a link.
+- Closing the chooser cancels the clone and changes nothing.
+- Denote clones with hooks, filters, submodules, and unsafe protocols disabled,
+  then checks the result before doing anything with it: an ordinary `.git`
+  directory, safe repository configuration, no link pointing outside the folder,
+  and none of Denote's own control folders arriving as tracked content.
+- Only after those checks does Denote close the current vault and open the clone
+  as your vault, keeping the origin URL, the branch, and the upstream the clone
+  set up. An encrypted clone opens on the usual password and recovery screen, so
+  no note is shown before you unlock it.
+
+If a clone does not finish, **the folder is left exactly as it is**. The view
+offers Retry and **Clean incomplete clone**. The clean-up asks for its own
+confirmation, deletes only that one folder, refuses if the folder is now a live
+vault or holds files that did not come from the failed clone, and cannot be used
+twice. Nothing is ever cleaned up automatically.
 
 Switching the active project resets the view to the new repository and asks for
 a refresh, so results from the previous scope are never shown as if they
@@ -92,17 +176,25 @@ Automatic runs stop when you disable the plugin and when Denote closes. Each
 outcome is reported in the status area, and a failure is reported like any other
 Denote error.
 
-Fetch, pull, push, branch switching, branch and remote editing, commit and file
-diffs, and conflict resolution are **not implemented yet**. Branches, remotes,
-and recent commits are displayed as read-only summary data, and a repository
-with a merge, rebase, cherry-pick, or revert in progress is reported so you can
-finish it with your own Git tooling.
+Branch switching, commit and file diffs, and conflict resolution are **not
+implemented yet**. Branches and recent commits are displayed as read-only
+summary data, and a repository with a merge, rebase, cherry-pick, or revert in
+progress is reported so you can finish it with your own Git tooling.
 
 ## Settings
 
 - **Git executable** is an absolute path to Git. Leave it empty to use the Git
   the host finds in its own fixed locations. Denote reads this key itself; the
   plugin never sees or sends an executable path.
+- **GitHub CLI executable** is the same kind of setting for `gh`, and is used
+  only when authentication is set to GitHub sign-in.
+- **Remote authentication** is `Public repository`, `SSH agent`, or
+  `GitHub sign-in`, and it is set here rather than in the Git view. Only the
+  choice is stored. No token, password, or key is ever kept in plugin settings
+  or plugin storage.
+- **Pull strategy** is `Fast-forward only`, `Merge`, or `Rebase`. Fast-forward
+  only never creates a merge commit and never rewrites history, so it is the
+  default.
 - **Default branch** names the branch used by `Git: Initialize repository`. It
   defaults to `main`.
 - **Commit author name** and **Commit author email** are optional. When both are
@@ -126,7 +218,9 @@ immediately. Nothing is reinstalled and no permission is asked for again.
 
 Disabling unregisters the source control view, the status item, both commands,
 and any automatic commit schedule, cancels a standing run that is in flight,
-unloads the runtime, and deletes the downloaded package. Your
+stops any Git or GitHub CLI process it started, removes any credential file
+those processes were using, drops any clean-up token it was holding, unloads the
+runtime, and deletes the downloaded package. Your
 repository, its history, its configuration, and every note stay exactly as they
 are: the plugin never deletes a repository and never edits vault content.
 Plugin settings remain in Denote's plugin settings store, so re-enabling
@@ -150,6 +244,19 @@ restores them.
   encrypted files are not meaningful.
 - **A commit that fails with an identity error** needs either the author
   settings above or a Git identity configured in the repository.
+- **"Choose a remote first"** means the repository has no remote yet. Add one on
+  the Branches tab.
+- **A fetch, pull, or push that fails to authenticate** usually means the mode
+  does not match the remote: a private HTTPS remote needs GitHub sign-in, and an
+  SSH remote needs a running agent. Denote never falls back to a prompt.
+- **"The GitHub CLI is not authenticated"** means `gh auth login` has not been
+  run for this machine, or `gh` is not where Denote looks. Set the GitHub CLI
+  executable setting to its absolute path.
+- **"GitHub sign-in only applies to https://github.com remotes"** protects the
+  token: choose public or SSH agent authentication for that remote instead.
+- **A clone that fails** leaves the folder untouched. Retry it, or use Clean
+  incomplete clone, which asks for its own confirmation. If the clean-up refuses,
+  the folder is no longer the failed clone and Denote will not delete it.
 - **"Automatic commit skipped"** names the reason: no repository, no first
   commit yet, an unfinished merge or rebase, an unresolved conflict, changes you
   already staged, or a locked vault. Resolve the reason, and the next interval

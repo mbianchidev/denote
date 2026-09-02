@@ -182,14 +182,17 @@ function userActionContext(actionId: string): PluginUserActionContext {
     };
   }
   if (permissions.has("git")) {
-    capabilities.git = createGitCapability((request, operationId) =>
-      hostRequest<PluginGitResult>(
-        "git.run",
-        undefined,
-        request,
-        actionId,
-        operationId,
-      ),
+    capabilities.git = createGitCapability(
+      (request, operationId) =>
+        hostRequest<PluginGitResult>(
+          "git.run",
+          undefined,
+          request,
+          actionId,
+          operationId,
+        ),
+      (operation, value, operationId) =>
+        hostRequest(operation, undefined, value, actionId, operationId),
     );
   }
   return { capabilities };

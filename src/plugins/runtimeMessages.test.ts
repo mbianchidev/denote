@@ -27,6 +27,14 @@ const model: PluginSourceControlViewModel = {
   diffFiles: [],
   conflicts: [],
   recovery: { state: "idle" },
+  remoteAccess: {
+    authMode: "public" as const,
+    cloneAvailable: true,
+    githubAvailable: false,
+    repositories: [],
+    cleanup: null,
+    review: null,
+  },
 };
 
 describe("plugin runtime source control messages", () => {

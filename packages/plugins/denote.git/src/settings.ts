@@ -3,6 +3,9 @@ export interface GitCommitIdentity {
   authorEmail: string;
 }
 
+export type GitAuthMode = "public" | "ssh-agent" | "github-https";
+export type GitPullStrategy = "merge" | "rebase" | "fast-forward-only";
+
 export interface GitPluginSettings {
   defaultBranch: string;
   identity: GitCommitIdentity | null;
@@ -10,7 +13,20 @@ export interface GitPluginSettings {
   autoCommitMessage: string;
   includePatterns: string[];
   excludePatterns: string[];
+  /**
+   * How remote operations authenticate. Only the mode is read here: the token
+   * or key behind it is host-owned and never reaches this plugin.
+   */
+  authMode: GitAuthMode;
+  pullStrategy: GitPullStrategy;
 }
+
+const AUTH_MODES: GitAuthMode[] = ["public", "ssh-agent", "github-https"];
+const PULL_STRATEGIES: GitPullStrategy[] = [
+  "merge",
+  "rebase",
+  "fast-forward-only",
+];
 
 const DEFAULT_BRANCH = "main";
 const DEFAULT_AUTO_COMMIT_MESSAGE = "Denote automatic commit";
@@ -24,6 +40,8 @@ export const DEFAULT_SETTINGS: GitPluginSettings = {
   autoCommitMessage: DEFAULT_AUTO_COMMIT_MESSAGE,
   includePatterns: [],
   excludePatterns: [],
+  authMode: "public",
+  pullStrategy: "fast-forward-only",
 };
 
 /**
@@ -44,7 +62,24 @@ export function readGitSettings(value: unknown): GitPluginSettings {
       DEFAULT_AUTO_COMMIT_MESSAGE,
     includePatterns: patterns(settings.includePatterns),
     excludePatterns: patterns(settings.excludePatterns),
+    authMode: choice(settings.authenticationMode, AUTH_MODES, "public"),
+    pullStrategy: choice(
+      settings.pullStrategy,
+      PULL_STRATEGIES,
+      "fast-forward-only",
+    ),
   };
+}
+
+/**
+ * Reads one closed set of values. Anything outside the set is a stale or
+ * hand-edited value, so it falls back to the safest documented default rather
+ * than travelling into a Git request.
+ */
+function choice<T extends string>(value: unknown, allowed: T[], fallback: T): T {
+  return typeof value === "string" && (allowed as string[]).includes(value)
+    ? (value as T)
+    : fallback;
 }
 
 /**
