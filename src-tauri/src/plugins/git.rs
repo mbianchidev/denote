@@ -2828,17 +2828,14 @@ pub(crate) fn run_git_command_with_input(
 pub(crate) fn hardening_arguments(execution: &GitExecution<'_>) -> Vec<String> {
     vec![
         "-C".to_string(),
-        execution.repository_root.to_string_lossy().into_owned(),
+        git_cli_path_string(execution.repository_root),
         "--no-pager".to_string(),
         "-c".to_string(),
         format!(
             "core.hooksPath={}",
             // Git configuration values are read with backslash escapes, so the
             // hooks path always uses forward slashes.
-            execution
-                .hooks_directory
-                .to_string_lossy()
-                .replace('\\', "/")
+            git_cli_path_string(execution.hooks_directory).replace('\\', "/")
         ),
         "-c".to_string(),
         "core.fsmonitor=false".to_string(),
@@ -2961,7 +2958,7 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
         .env("GIT_EDITOR", ":")
         .env("GIT_SEQUENCE_EDITOR", ":")
         .env("GIT_PAGER", "cat")
-        .env("GIT_CONFIG_GLOBAL", execution.global_config)
+        .env("GIT_CONFIG_GLOBAL", git_cli_path(execution.global_config))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_ATTR_NOSYSTEM", "1")
         .env("GIT_LITERAL_PATHSPECS", "1")
@@ -2978,6 +2975,28 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
     if let Some(material) = execution.askpass {
         apply_askpass_environment(command, material);
     }
+}
+
+/// Git for Windows does not consistently accept the verbatim `\\?\` paths
+/// returned by `std::fs::canonicalize`. Denote keeps those canonical paths for
+/// containment checks, but removes only that transport prefix when passing a
+/// host-owned path to Git.
+pub(crate) fn git_cli_path(path: &Path) -> PathBuf {
+    #[cfg(windows)]
+    {
+        let value = path.to_string_lossy();
+        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
+            return PathBuf::from(format!(r"\\{rest}"));
+        }
+        if let Some(rest) = value.strip_prefix(r"\\?\") {
+            return PathBuf::from(rest);
+        }
+    }
+    path.to_path_buf()
+}
+
+pub(crate) fn git_cli_path_string(path: &Path) -> String {
+    git_cli_path(path).to_string_lossy().into_owned()
 }
 
 /// Strips every inherited variable Denote refuses to let a Git child see. It is

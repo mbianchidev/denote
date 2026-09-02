@@ -12,7 +12,7 @@ use super::{
         AutomaticCommitStatus, AutomaticCommitTarget, ValidatedAutomaticCommit,
         automatic_commit_argument_templates, is_eligible, validate_automatic_commit,
     },
-    git::resolve_git_executable,
+    git::{git_cli_path, resolve_git_executable},
     git_tests::{GitFixture, encrypt_fixture, fixture, identify, new_operation_id},
 };
 
@@ -112,7 +112,7 @@ fn git_command(repository: &Path) -> Command {
     let mut command = Command::new(resolve_git_executable(None).expect("git"));
     command
         .arg("-C")
-        .arg(repository)
+        .arg(git_cli_path(repository))
         .args([
             "-c",
             "commit.gpgSign=false",
@@ -121,7 +121,7 @@ fn git_command(repository: &Path) -> Command {
             "-c",
             "gpg.program=",
         ])
-        .env("GIT_CONFIG_GLOBAL", empty_config)
+        .env("GIT_CONFIG_GLOBAL", git_cli_path(&empty_config))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0");
     command

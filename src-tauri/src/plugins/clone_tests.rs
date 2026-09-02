@@ -23,8 +23,8 @@ use super::{
     git::{
         GitExecution, GitOperationToken, GitPlanStep, GitRequestTarget, GitTransportPolicy,
         PluginGitAuthMode, PluginGitPullStrategy, PluginGitRequest, PluginGitScope,
-        RemoteDirection, apply_environment, plan_git_request, read_remote_urls,
-        resolve_git_executable,
+        RemoteDirection, apply_environment, git_cli_path, git_cli_path_string, plan_git_request,
+        read_remote_urls, resolve_git_executable,
     },
     git_tests::{GitFixture, fixture, identify, new_operation_id},
     github::{
@@ -44,11 +44,12 @@ fn git() -> PathBuf {
 }
 
 fn git_in(directory: &Path, args: &[&str]) -> std::process::Output {
+    let config = empty_global_config(directory);
     let output = Command::new(git())
         .arg("-C")
-        .arg(directory)
+        .arg(git_cli_path(directory))
         .args(args)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", git_cli_path(&config))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .env("GIT_TERMINAL_PROMPT", "0")
         .output()
@@ -66,11 +67,12 @@ fn stdout_of(output: std::process::Output) -> String {
 }
 
 fn bare_copy(source: &Path, bare: &Path) {
+    let config = empty_global_config(source);
     let output = Command::new(git())
         .args(["clone", "--bare"])
-        .arg(source)
-        .arg(bare)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .arg(git_cli_path(source))
+        .arg(git_cli_path(bare))
+        .env("GIT_CONFIG_GLOBAL", git_cli_path(&config))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("git clone --bare");
@@ -99,10 +101,11 @@ fn synthetic_bare_remote(root: &Path) -> PathBuf {
 /// A bare repository has no worktree, so it is always addressed explicitly
 /// rather than discovered from a directory.
 fn git_bare(bare: &Path, args: &[&str]) -> std::process::Output {
+    let config = empty_global_config(bare);
     let output = Command::new(git())
-        .arg(format!("--git-dir={}", bare.display()))
+        .arg(format!("--git-dir={}", git_cli_path_string(bare)))
         .args(args)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_GLOBAL", git_cli_path(&config))
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("git");
@@ -112,6 +115,15 @@ fn git_bare(bare: &Path, args: &[&str]) -> std::process::Output {
         String::from_utf8_lossy(&output.stderr)
     );
     output
+}
+
+fn empty_global_config(path: &Path) -> PathBuf {
+    let root = path.parent().unwrap_or(path);
+    let config = root.join("synthetic-global-config");
+    if !config.exists() {
+        fs::write(&config, b"").expect("global config");
+    }
+    config
 }
 
 /// Runs one typed request against the fixture vault with the local transport
@@ -401,9 +413,12 @@ fn pulls_and_pushes_a_shared_history_and_records_the_upstream() {
     let bare = synthetic_bare_remote(remotes.path());
     let output = Command::new(git())
         .arg("clone")
-        .arg(&bare)
-        .arg(&fixture.vault_root)
-        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .arg(git_cli_path(&bare))
+        .arg(git_cli_path(&fixture.vault_root))
+        .env(
+            "GIT_CONFIG_GLOBAL",
+            git_cli_path(&empty_global_config(&bare)),
+        )
         .env("GIT_CONFIG_NOSYSTEM", "1")
         .output()
         .expect("git clone");

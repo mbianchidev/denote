@@ -24,9 +24,9 @@ use super::{
     askpass::AskpassMaterial,
     git::{
         GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken, GitTransportPolicy,
-        PluginGitAuthMode, assert_repository_config_is_safe, first_line, redact,
-        resolve_git_directory, resolve_git_executable, run_git_command, validate_branch_name,
-        validate_remote_url_for,
+        PluginGitAuthMode, assert_repository_config_is_safe, first_line, git_cli_path_string,
+        redact, resolve_git_directory, resolve_git_executable, run_git_command,
+        validate_branch_name, validate_remote_url_for,
     },
 };
 
@@ -375,8 +375,12 @@ pub(crate) fn clone_arguments(
         args.push(branch.clone());
     }
     args.push("--".to_string());
-    args.push(request.url.clone());
-    args.push(destination.to_string_lossy().into_owned());
+    args.push(if Path::new(&request.url).is_absolute() {
+        git_cli_path_string(Path::new(&request.url))
+    } else {
+        request.url.clone()
+    });
+    args.push(git_cli_path_string(destination));
     args
 }
 

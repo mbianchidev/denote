@@ -32,6 +32,23 @@ use crate::{crypto, db, vault};
 
 const PLUGIN_ID: &str = "denote.reference";
 
+#[cfg(windows)]
+#[test]
+fn git_cli_paths_remove_only_windows_verbatim_prefixes() {
+    assert_eq!(
+        super::git::git_cli_path(Path::new(r"\\?\C:\Temp\vault")),
+        PathBuf::from(r"C:\Temp\vault")
+    );
+    assert_eq!(
+        super::git::git_cli_path(Path::new(r"\\?\UNC\server\share\vault")),
+        PathBuf::from(r"\\server\share\vault")
+    );
+    assert_eq!(
+        super::git::git_cli_path_string(Path::new(r"C:\Temp\vault")),
+        r"C:\Temp\vault"
+    );
+}
+
 fn command_args(request: PluginGitRequest) -> Vec<String> {
     match plan_git_request(&request).expect("plan").remove(0) {
         GitPlanStep::Command { args, .. } => args,
