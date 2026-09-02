@@ -32,7 +32,19 @@ jobs:
         run: node scripts/preinstall-validate-plugins.mjs
 
       - name: Install dependencies without lifecycle scripts
+        id: npm-ci
+        env:
+          npm_config_logs_dir: ${{ runner.temp }}/npm-logs
         run: npm ci --ignore-scripts
+
+      - name: Upload npm debug logs
+        if: failure() && steps.npm-ci.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-debug-security-audit-${{ runner.os }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/npm-logs
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Audit JavaScript dependencies
         run: npm audit --audit-level=high --workspaces
@@ -86,7 +98,19 @@ jobs:
         run: node scripts/preinstall-validate-plugins.mjs
 
       - name: Install dependencies without lifecycle scripts
+        id: npm-ci
+        env:
+          npm_config_logs_dir: ${{ runner.temp }}/npm-logs
         run: npm ci --ignore-scripts
+
+      - name: Upload npm debug logs
+        if: failure() && steps.npm-ci.outcome == 'failure'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: npm-debug-${{ matrix.os }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/npm-logs
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Frontend tests
         run: npm test
