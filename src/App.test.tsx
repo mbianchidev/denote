@@ -1884,7 +1884,6 @@ describe("App initial file-tree expansion", () => {
   });
 
   it("flushes unsaved editor content before a checkout replaces it", async () => {
-    const user = userEvent.setup();
     const model = appSourceControlModel("Synthetic repository");
     model.selectedTab = "branches";
     model.selectedView = { kind: "branches" };
@@ -1930,17 +1929,17 @@ describe("App initial file-tree expansion", () => {
     });
 
     render(<App />);
-    await user.click(
+    fireEvent.click(
       await screen.findByRole("button", { name: "Open sample.py" }),
     );
-    await user.click(
-      screen.getByRole("button", { name: "Change Edit sample.py" }),
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Change Edit sample.py" }),
     );
-    await user.click(
+    fireEvent.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
-    await user.click(screen.getByRole("button", { name: "Switch to topic" }));
-    await user.click(
+    fireEvent.click(screen.getByRole("button", { name: "Switch to topic" }));
+    fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "Switch branch",
       }),
