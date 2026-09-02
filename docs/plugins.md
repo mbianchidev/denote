@@ -292,6 +292,12 @@ message suppressed, so the report is the patch alone: a repository that sets
 one-parent patch, so a surface reads it as the range against its first parent
 rather than parsing Git's combined diff.
 
+The host presents a loaded diff as a transient read-only `.diff` editor tab.
+`@pierre/diffs/react` renders the host-serialized patch, while file and hunk
+buttons continue to send the original typed action IDs and indexes. The
+temporary tab is host state, never plugin markup or a vault file, and is omitted
+from autosave, indexing, recent files, and tab-session persistence.
+
 `discover` reports `initialized` and `encrypted`. The encryption flag is thehost's own preflight result, so a surface can rule out an operation an encrypted
 vault cannot survive — stashing untracked files, which would remove the vault's
 encryption manifest, and staging by hunk, which has no plaintext lines to choose

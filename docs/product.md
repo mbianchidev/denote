@@ -341,6 +341,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   history or branch management. A tracked file, or all tracked changes, can be
   restored from the current upstream only after a dangerous confirmation.
   Untracked files are never removed.
+- Compact source-control actions use icons with accessible names and native
+  tooltips. Opening a working-tree, staged, or commit diff creates a read-only
+  temporary `.diff` tab in the editor, rendered with `@pierre/diffs`. The tab
+  keeps file and hunk stage/unstage controls, is never autosaved or indexed, and
+  is omitted from restored tab sessions.
 - A switch that would disturb work never runs. Denote re-reads the working tree
   first: unresolved conflicts refuse the checkout outright, and any staged,
   changed, or untracked file produces a review that lists every affected path

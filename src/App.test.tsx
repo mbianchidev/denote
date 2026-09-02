@@ -728,6 +728,69 @@ describe("App initial file-tree expansion", () => {
     ).toBeInTheDocument();
   });
 
+  it("opens a loaded source-control patch as a temporary .diff editor tab", async () => {
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedView = { kind: "diff", path: "notes/draft.md" };
+    model.diffSource = { kind: "index" };
+    model.diffFiles = [
+      {
+        path: "notes/draft.md",
+        previousPath: null,
+        status: "modified",
+        additions: 1,
+        deletions: 1,
+        binary: false,
+        hunks: [
+          {
+            header: "@@ -1,1 +1,1 @@",
+            oldStart: 1,
+            oldLines: 1,
+            newStart: 1,
+            newLines: 1,
+            lines: [
+              {
+                kind: "deletion",
+                oldLineNumber: 1,
+                newLineNumber: null,
+                content: "old",
+              },
+              {
+                kind: "addition",
+                oldLineNumber: null,
+                newLineNumber: 1,
+                content: "new",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        folderNode("notes", [fileNode("notes/draft.md", "markdown")]),
+      ]),
+    );
+
+    render(<App />);
+
+    const close = await screen.findByRole("button", {
+      name: "Close draft.staged.diff",
+    });
+    expect(
+      screen.getByRole("region", { name: "Diff draft.staged.diff" }),
+    ).toBeInTheDocument();
+    await userEvent.setup().click(close);
+    expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+      "denote.synthetic",
+      "git",
+      { id: "close-diff" },
+      "/synthetic-vault",
+    );
+  });
+
   it("says so when a file a commit names is no longer in the vault", async () => {
     const user = userEvent.setup();
     const model = appSourceControlModel("Synthetic repository");
@@ -790,7 +853,9 @@ describe("App initial file-tree expansion", () => {
       screen.queryByRole("button", { name: "Open file notes/old name.md" }),
     ).not.toBeInTheDocument();
     await user.click(
-      screen.getByRole("button", { name: "Open file notes/new name.md" }),
+      screen.getAllByRole("button", {
+        name: "Open file notes/new name.md",
+      })[0],
     );
     await waitFor(() => {
       expect(mockApi.readNote).toHaveBeenCalledWith("notes/new name.md");

@@ -49,6 +49,8 @@ import {
 import type {
   PluginProjectRepositoryContext,
   PluginSourceControlAction,
+  PluginSourceControlDiffFile,
+  PluginSourceControlDiffSource,
 } from "@denote/plugin-sdk";
 import { ActivityRail } from "./components/ActivityRail";
 import { AboutDialog } from "./components/AboutDialog";
@@ -80,6 +82,7 @@ import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
+import { SourceControlDiffEditor } from "./components/SourceControlDiffEditor";
 import { SourceOutline } from "./components/SourceOutline";
 import { SourceLanguageStatus } from "./components/SourceLanguageStatus";
 import { TableOfContents } from "./components/TableOfContents";
@@ -265,6 +268,11 @@ import {
   isWebLink,
 } from "./lib/links";
 import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
+import {
+  sourceControlDiffPath,
+  sourceControlDiffTitle,
+  sourceControlPatch,
+} from "./lib/sourceControlDiff";
 import type {
   SourceEditorNavigation,
   SourceMinimapLine,
@@ -1034,7 +1042,8 @@ function App() {
     () => tabs.find((tab) => tab.path === activePath) ?? null,
     [activePath, tabs],
   );
-  const activeFileTab = activeTab?.placeholder ? null : activeTab;
+  const activeFileTab =
+    activeTab?.placeholder || activeTab?.transient ? null : activeTab;
   const activeProject = useMemo(
     () =>
       closestAvailableProjectRoot(
@@ -2565,7 +2574,7 @@ function App() {
         panes: setPaneActivePath(current.panes, pane.id, path),
       }));
       const tab = pane.tabs.find((candidate) => candidate.path === path);
-      setSelectedPath(tab?.placeholder ? null : path);
+      setSelectedPath(tab?.placeholder || tab?.transient ? null : path);
     },
     [commitPaneState, nextOpenRequest],
   );
@@ -2582,7 +2591,9 @@ function App() {
       }
       commitPaneState((state) => ({ ...state, focusedPaneId: paneId }));
       const active = pane.tabs.find((tab) => tab.path === pane.activePath);
-      setSelectedPath(active && !active.placeholder ? active.path : null);
+      setSelectedPath(
+        active && !active.placeholder && !active.transient ? active.path : null,
+      );
     },
     [commitPaneState],
   );
@@ -4035,8 +4046,42 @@ function App() {
   );
 
   const closeTab = useCallback(
-    async (path: string) => closeTabs([path]),
-    [closeTabs],
+    async (path: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.path === path);
+      const detail = tab?.sourceControlDiff;
+      if (!detail) {
+        await closeTabs([path]);
+        return;
+      }
+      commitPaneState((current) => ({
+        ...current,
+        panes: removePaneTabs(
+          current.panes,
+          (candidate) => candidate === path,
+          false,
+        ).panes,
+      }));
+      setSelectedPath(null);
+      try {
+        await pluginController.runSourceControlAction(
+          detail.pluginId,
+          detail.providerId,
+          {
+            id: detail.source.kind === "commit" ? "close-commit" : "close-diff",
+          },
+          workspace?.vaultPath ?? "",
+        );
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [
+      closeTabs,
+      commitPaneState,
+      pluginController,
+      showError,
+      workspace?.vaultPath,
+    ],
   );
 
   const moveTabToPane = useCallback(
@@ -4393,6 +4438,7 @@ function App() {
         // there is nothing on disk to reload and nothing that can disappear.
         if (
           tab.placeholder ||
+          tab.transient ||
           reloaded.has(tab.path) ||
           disappeared.has(tab.path)
         ) {
@@ -4585,6 +4631,130 @@ function App() {
     },
     [activeProject?.rootPath, openFile, showError, workspace],
   );
+
+  const openSourceControlDiff = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      repositoryId: string,
+      repositoryLabel: string,
+      repositoryPath: string,
+      files: PluginSourceControlDiffFile[],
+      source: PluginSourceControlDiffSource,
+    ) => {
+      if (files.length === 0) {
+        return;
+      }
+      const title = sourceControlDiffTitle(repositoryPath, source.kind);
+      const path = sourceControlDiffPath(repositoryId, title, source);
+      const content = sourceControlPatch(files);
+      const tab: EditorTab = {
+        path,
+        title,
+        kind: "text",
+        content,
+        savedContent: content,
+        encoding: "utf8",
+        lineEnding: "lf",
+        placeholder: false,
+        groupId: null,
+        navigationHistory: [path],
+        navigationIndex: 0,
+        rawEditing: false,
+        readOnly: true,
+        editorRevision: 0,
+        editRecorded: false,
+        saveState: "saved",
+        transient: "diff",
+        sourceControlDiff: {
+          pluginId,
+          providerId,
+          repositoryId,
+          repositoryLabel,
+          repositoryPath,
+          files,
+          source,
+        },
+      };
+      commitPaneState((current) => {
+        const existingPane = findPaneByPath(current.panes, path);
+        const targetPane = existingPane ?? focusedPaneOf(current);
+        return {
+          ...current,
+          focusedPaneId: targetPane.id,
+          panes: updatePane(current.panes, targetPane.id, (pane) => {
+            const existing = pane.tabs.find(
+              (candidate) => candidate.path === path,
+            );
+            return {
+              ...pane,
+              tabs: existing
+                ? pane.tabs.map((candidate) =>
+                    candidate.path === path
+                      ? {
+                          ...candidate,
+                          ...tab,
+                          groupId: candidate.groupId,
+                          navigationHistory: candidate.navigationHistory,
+                          navigationIndex: candidate.navigationIndex,
+                          editorRevision: candidate.editorRevision + 1,
+                        }
+                      : candidate,
+                  )
+                : placeOpenedTab(pane.tabs, pane.activePath, tab),
+              activePath: path,
+            };
+          }),
+        };
+      });
+      setSelectedPath(null);
+      setStatus(`Opened ${title}`);
+    },
+    [commitPaneState],
+  );
+
+  useEffect(() => {
+    if (!workspace) {
+      return;
+    }
+    for (const provider of pluginController.sourceControlProviders) {
+      const model = provider.model;
+      if (
+        model.selectedView.kind === "diff" &&
+        model.diffSource &&
+        model.diffFiles.length > 0
+      ) {
+        openSourceControlDiff(
+          provider.pluginId,
+          provider.id,
+          model.repository.repositoryId,
+          model.repository.label,
+          model.selectedView.path,
+          model.diffFiles,
+          model.diffSource,
+        );
+        continue;
+      }
+      if (model.commitDetail && model.commitDetail.files.length > 0) {
+        openSourceControlDiff(
+          provider.pluginId,
+          provider.id,
+          model.repository.repositoryId,
+          model.repository.label,
+          model.commitDetail.commit.shortId,
+          model.commitDetail.files,
+          {
+            kind: "commit",
+            commitId: model.commitDetail.commit.id,
+          },
+        );
+      }
+    }
+  }, [
+    openSourceControlDiff,
+    pluginController.sourceControlProviders,
+    workspace?.vaultPath,
+  ]);
 
   /**
    * Opens a cloned repository as the active vault.
@@ -7525,6 +7695,41 @@ function App() {
           <h2>New tab</h2>
           <p>Choose a file from the sidebar to open it in this tab.</p>
         </div>
+      );
+    }
+    if (paneTab?.transient === "diff" && paneTab.sourceControlDiff) {
+      const detail = paneTab.sourceControlDiff;
+      const provider =
+        pluginController.sourceControlProviders.find(
+          (candidate) =>
+            candidate.pluginId === detail.pluginId &&
+            candidate.id === detail.providerId,
+        ) ?? null;
+      const providerSource = provider?.model.diffSource ?? null;
+      const actionsAvailable =
+        provider?.model.repository.repositoryId === detail.repositoryId &&
+        detail.source.kind !== "commit" &&
+        providerSource?.kind === detail.source.kind;
+      return (
+        <SourceControlDiffEditor
+          tab={paneTab}
+          theme={theme}
+          actionsAvailable={actionsAvailable}
+          onAction={(action) => {
+            if (!provider) {
+              return;
+            }
+            void runSourceControlAction(
+              provider.pluginId,
+              provider.id,
+              action,
+              detail.repositoryLabel,
+            );
+          }}
+          onOpenFile={(path) =>
+            openSourceControlFile(path, detail.repositoryId)
+          }
+        />
       );
     }
     if (!paneTab) {

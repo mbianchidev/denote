@@ -492,7 +492,7 @@ describe("SourceControlPanel", () => {
     ).toBeInTheDocument();
   });
 
-  it("stages and unstages one hunk of the open diff", async () => {
+  it("opens working-tree and staged patches in the editor", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
     const { rerender } = render(
@@ -511,15 +511,12 @@ describe("SourceControlPanel", () => {
       values: { path: "draft.md", group: "unstaged" },
     });
 
-    await user.click(
-      screen.getByRole("button", {
-        name: "Stage hunk @@ -1,1 +1,1 @@ in draft.md",
-      }),
-    );
-    expect(onAction).toHaveBeenCalledWith({
-      id: "stage-hunk",
-      values: { path: "draft.md", hunk: 0 },
-    });
+    expect(
+      screen.getByText(/temporary .diff tab in the editor/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /Stage hunk/ }),
+    ).not.toBeInTheDocument();
 
     rerender(
       <SourceControlPanel
@@ -905,11 +902,10 @@ describe("SourceControlPanel", () => {
     ).toBeInTheDocument();
     expect(within(detail).getByText("commit-0")).toBeInTheDocument();
     expect(within(detail).getByText("main")).toBeInTheDocument();
-    expect(within(detail).getByLabelText("@@ -1,1 +1,1 @@")).toBeInTheDocument();
-    expect(within(detail).getByText("old synthetic line")).toBeInTheDocument();
-    expect(within(detail).getByText(/deletion, old line 1/)).toBeInTheDocument();
-    expect(within(detail).getByText(/addition, new line 1/)).toBeInTheDocument();
     expect(within(detail).getByText("Previously older.md")).toBeInTheDocument();
+    expect(
+      within(detail).getByText(/commit patch is open as a temporary .diff/i),
+    ).toBeInTheDocument();
     // A commit is history, so nothing in it can be staged by hunk.
     expect(
       screen.queryByRole("button", { name: /Stage hunk/ }),

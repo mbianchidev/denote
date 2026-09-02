@@ -142,6 +142,12 @@ current upstream version; **Restore from remote** does the same for all tracked
 staged and unstaged changes. Both require a dangerous confirmation and never
 delete untracked files.
 
+Compact actions use icons; hover them for the full label, and screen readers
+receive the same name. **Open diff** opens a read-only temporary `.diff` tab in
+the main editor using Pierre Diffs. File and hunk stage/unstage actions stay
+above the patch. Closing the tab closes the provider's diff selection, and the
+tab is not saved into the vault or restored next session.
+
 Under plugin settings, **Use system Git settings** is on by default. Denote
 imports only bounded allowlisted identity, credential-helper, line-ending, and
 GPG values into its hardened Git process. Manual commits can follow the system

@@ -3,6 +3,8 @@ import type { SourceLanguageOverride } from "./lib/syntaxLanguages";
 import type {
   PluginBundle,
   PluginCatalogEntry,
+  PluginSourceControlDiffFile,
+  PluginSourceControlDiffSource,
   PluginGitCloneVaultResult,
   PluginLifecycleState,
   PluginPermissionRequest,
@@ -345,6 +347,16 @@ export interface EditorTab {
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
+  transient?: "diff";
+  sourceControlDiff?: {
+    pluginId: string;
+    providerId: string;
+    repositoryId: string;
+    repositoryLabel: string;
+    repositoryPath: string;
+    files: PluginSourceControlDiffFile[];
+    source: PluginSourceControlDiffSource;
+  };
 }
 
 export type SidebarView = "files" | "search" | "bookmarks" | "recent" | "trash";

@@ -68,7 +68,9 @@ Open the Git view from the activity rail, select a repository under
   Both ask for dangerous confirmation and never delete untracked files.
 - **Open diff** on a changed or staged row shows that file's hunks, with
   **Stage hunk** and **Unstage hunk** where a hunk can safely be applied on its
-  own, and a **Working tree** / **Staged** switch when the file has both.
+  own. The patch opens as a read-only temporary `.diff` tab in the main editor,
+  rendered with Pierre Diffs; it is never written into the vault or restored
+  next session.
 - **Open file** on a changed row, or on a file inside a commit, opens that note
   in the editor.
 - **Refresh history**, **Previous**, and **Next** read one bounded page of
@@ -77,6 +79,8 @@ Open the Git view from the activity rail, select a repository under
   typed and the configured author identity when one is set.
 - **New branch** creates and switches to a branch from the current branch without
   opening advanced branch management.
+- Compact refresh, sync, stage, restore, diff, and file actions are icons. Their
+  full names remain available to screen readers and as hover tooltips.
 - **Cancel operation** stops the Git operation that is running, including a
   clone and a GitHub browse. It targets the
   operation Denote is actually running, not the one the button was drawn for,

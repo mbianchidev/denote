@@ -304,6 +304,12 @@ read in progress. A selected commit is a definition list of its own metadata
 followed by its changed files, and its diff carries no hunk action. Opening a
 file is a named button on the row or the changed file it belongs to, absent
 where the file was deleted. Plugin data never supplies arbitrary markup.
+Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions
+use the shared Lucide icon-button vocabulary, while `aria-label` and `title`
+retain the full action and target. Loaded patches leave the narrow sidebar and
+open as read-only temporary `.diff` tabs in the editor. The editor uses
+`@pierre/diffs` for virtualized highlighted patch rendering and keeps compact
+file/hunk actions above the patch.
 Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
 moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a

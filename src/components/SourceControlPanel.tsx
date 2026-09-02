@@ -1,4 +1,20 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  ArrowDownToLine,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUpFromLine,
+  FileDiff,
+  FileText,
+  GitBranchPlus,
+  ListMinus,
+  ListPlus,
+  Minus,
+  Plus,
+  RefreshCw,
+  Undo2,
+  X,
+} from "lucide-react";
 import type {
   PluginSourceControlAction,
   PluginSourceControlAdvancedOperation,
@@ -204,23 +220,25 @@ function ResourceGroup({
                 <button
                   type="button"
                   aria-label={`Unstage ${resource.path}`}
+                  title={`Unstage ${resource.path}`}
                   disabled={busy}
                   onClick={() =>
                     onAction(action("unstage", { path: resource.path }))
                   }
                 >
-                  Unstage
+                  <Minus aria-hidden="true" size={14} />
                 </button>
               ) : group.kind === "unstaged" || group.kind === "untracked" ? (
                 <button
                   type="button"
                   aria-label={`Stage ${resource.path}`}
+                  title={`Stage ${resource.path}`}
                   disabled={busy}
                   onClick={() =>
                     onAction(action("stage", { path: resource.path }))
                   }
                 >
-                  Stage
+                  <Plus aria-hidden="true" size={14} />
                 </button>
               ) : null}
               {(group.kind === "staged" || group.kind === "unstaged") &&
@@ -228,6 +246,7 @@ function ResourceGroup({
                 <button
                   type="button"
                   aria-label={`Restore ${resource.path} from ${upstream}`}
+                  title={`Restore ${resource.path} from ${upstream}`}
                   disabled={busy}
                   onClick={() =>
                     onAction(
@@ -237,17 +256,18 @@ function ResourceGroup({
                     )
                   }
                 >
-                  Restore
+                  <Undo2 aria-hidden="true" size={14} />
                 </button>
               ) : null}
               {group.kind === "staged" || group.kind === "unstaged" ? (
                 <button
                   type="button"
                   aria-label={`Open diff for ${resource.path}`}
+                  title={`Open diff for ${resource.path}`}
                   disabled={busy}
                   onClick={() => onOpenDiff(resource.path, group.kind)}
                 >
-                  Open diff
+                  <FileDiff aria-hidden="true" size={14} />
                 </button>
               ) : null}
               {group.kind === "conflicted" ? (
@@ -268,9 +288,10 @@ function ResourceGroup({
                 <button
                   type="button"
                   aria-label={`Open file ${resource.path}`}
+                  title={`Open file ${resource.path}`}
                   onClick={() => onOpenFile(resource.path)}
                 >
-                  Open file
+                  <FileText aria-hidden="true" size={14} />
                 </button>
               ) : null}
             </div>
@@ -304,6 +325,7 @@ function DiffView({
   onAction,
   onOpenFile,
   onClose,
+  summaryOnly = false,
 }: {
   files: PluginSourceControlDiffFile[];
   /**
@@ -319,6 +341,7 @@ function DiffView({
   onAction: SourceControlPanelProps["onAction"];
   onOpenFile?: (path: string) => void;
   onClose?: () => void;
+  summaryOnly?: boolean;
 }) {
   const staged = source?.kind === "index";
   const stageable = source?.kind === "worktree" || source?.kind === "index";
@@ -374,7 +397,9 @@ function DiffView({
                   split into hunks.
                 </p>
               ) : null}
-              {file.hunks.map((hunk, index) => (
+              {summaryOnly
+                ? null
+                : file.hunks.map((hunk, index) => (
                 <section
                   className="source-control__diff-hunk"
                   key={`${hunk.header}:${index}`}
@@ -386,6 +411,7 @@ function DiffView({
                       <button
                         type="button"
                         aria-label={`${staged ? "Unstage" : "Stage"} hunk ${hunk.header} in ${file.path}`}
+                        title={`${staged ? "Unstage" : "Stage"} hunk ${hunk.header} in ${file.path}`}
                         disabled={busy}
                         onClick={() =>
                           onAction(
@@ -396,7 +422,11 @@ function DiffView({
                           )
                         }
                       >
-                        {staged ? "Unstage hunk" : "Stage hunk"}
+                        {staged ? (
+                          <Minus aria-hidden="true" size={14} />
+                        ) : (
+                          <Plus aria-hidden="true" size={14} />
+                        )}
                       </button>
                     </div>
                   ) : null}
@@ -429,7 +459,7 @@ function DiffView({
                           </span>
                         ) : null}
                       </li>
-                    ))}
+                        ))}
                   </ol>
                 </section>
               ))}
@@ -441,11 +471,13 @@ function DiffView({
         <div className="source-control__actions">
           <button
             type="button"
-            className="secondary-button"
+            className="secondary-button source-control__compact-action"
+            aria-label="Close diff"
+            title="Close diff"
             disabled={busy}
             onClick={onClose}
           >
-            Close diff
+            <X aria-hidden="true" size={14} />
           </button>
         </div>
       ) : null}
@@ -477,26 +509,29 @@ function HistoryPager({
         <button
           type="button"
           aria-label="Refresh history"
+          title="Refresh history"
           disabled={busy || page.loading}
           onClick={() => onAction(action("refresh-history"))}
         >
-          Refresh history
+          <RefreshCw aria-hidden="true" size={14} />
         </button>
         <button
           type="button"
           aria-label="Previous page of history"
+          title="Previous page of history"
           disabled={busy || page.loading || !page.hasPrevious}
           onClick={() => onAction(action("history-previous"))}
         >
-          Previous
+          <ArrowLeft aria-hidden="true" size={14} />
         </button>
         <button
           type="button"
           aria-label="Next page of history"
+          title="Next page of history"
           disabled={busy || page.loading || !page.hasNext}
           onClick={() => onAction(action("history-next"))}
         >
-          Next
+          <ArrowRight aria-hidden="true" size={14} />
         </button>
       </div>
       <p role="status" className="source-control__history-status">
@@ -570,9 +605,13 @@ function CommitDetail({
         headingId="source-control-commit-diff"
         label="Changed files"
         emptyMessage="This commit changed no files."
+        summaryOnly
         onAction={onAction}
         onOpenFile={onOpenFile}
       />
+      <p className="source-control__status" role="status">
+        The commit patch is open as a temporary .diff tab in the editor.
+      </p>
       <div className="source-control__actions">
         <button
           type="button"
@@ -1971,10 +2010,12 @@ export function SourceControlPanel({
         <button
           type="button"
           className="source-control__compact-action"
+          aria-label="Refresh"
+          title="Refresh"
           disabled={repository.busy}
           onClick={() => onAction(action("refresh"))}
         >
-          Refresh
+          <RefreshCw aria-hidden="true" size={15} />
         </button>
       </div>
       <div className="source-control__content">
@@ -2078,9 +2119,11 @@ export function SourceControlPanel({
               <button
                 type="submit"
                 className="secondary-button"
+                aria-label="Create and switch branch"
+                title="Create and switch branch"
                 disabled={repository.busy || newBranchName.trim().length === 0}
               >
-                Create and switch branch
+                <GitBranchPlus aria-hidden="true" size={15} />
               </button>
             </form>
           ) : null}
@@ -2099,16 +2142,20 @@ export function SourceControlPanel({
                 <button
                   type="button"
                   className="secondary-button"
+                  aria-label="Fetch"
+                  title="Fetch"
                   disabled={!canReachRemote}
                   onClick={() =>
                     onAction(action("fetch", { remote: activeRemote }))
                   }
                 >
-                  Fetch
+                  <RefreshCw aria-hidden="true" size={15} />
                 </button>
                 <button
                   type="button"
                   className="secondary-button"
+                  aria-label="Pull"
+                  title="Pull"
                   disabled={!canReachRemote || remoteBranch.length === 0}
                   onClick={() =>
                     onAction(
@@ -2119,11 +2166,13 @@ export function SourceControlPanel({
                     )
                   }
                 >
-                  Pull
+                  <ArrowDownToLine aria-hidden="true" size={15} />
                 </button>
                 <button
                   type="button"
                   className="secondary-button"
+                  aria-label="Push"
+                  title="Push"
                   disabled={!canReachRemote || remoteBranch.length === 0}
                   onClick={() =>
                     onAction(
@@ -2134,7 +2183,7 @@ export function SourceControlPanel({
                     )
                   }
                 >
-                  Push
+                  <ArrowUpFromLine aria-hidden="true" size={15} />
                 </button>
               </>
             )}
@@ -2171,6 +2220,8 @@ export function SourceControlPanel({
               <button
                 type="button"
                 className="secondary-button"
+                aria-label="Cancel operation"
+                title="Cancel operation"
                 onClick={() =>
                   onAction(
                     action("cancel-operation", {
@@ -2280,6 +2331,8 @@ export function SourceControlPanel({
                   >
                     <button
                       type="button"
+                      aria-label="Stage all changes"
+                      title="Stage all changes"
                       disabled={
                         repository.busy ||
                         !model.resourceGroups.some(
@@ -2291,25 +2344,28 @@ export function SourceControlPanel({
                       }
                       onClick={() => onAction(action("stage-all"))}
                     >
-                      Stage all changes
+                      <ListPlus aria-hidden="true" size={14} />
                     </button>
                     <button
                       type="button"
+                      aria-label="Unstage all changes"
+                      title="Unstage all changes"
                       disabled={repository.busy || stagedChanges === 0}
                       onClick={() => onAction(action("unstage-all"))}
                     >
-                      Unstage all changes
+                      <ListMinus aria-hidden="true" size={14} />
                     </button>
                     {repository.upstream ? (
                       <button
                         type="button"
                         aria-label={`Restore all tracked changes from ${repository.upstream}`}
+                        title={`Restore all tracked changes from ${repository.upstream}`}
                         disabled={repository.busy || trackedChanges === 0}
                         onClick={() =>
                           onAction(action("restore-all-from-upstream"))
                         }
                       >
-                        Restore from remote
+                        <Undo2 aria-hidden="true" size={14} />
                       </button>
                     ) : null}
                   </div>
@@ -2407,7 +2463,11 @@ export function SourceControlPanel({
                         onAction={onAction}
                         onOpenFile={onOpenFile}
                         onClose={() => onAction(action("close-diff"))}
+                        summaryOnly
                       />
+                      <p className="source-control__status" role="status">
+                        The patch is open as a temporary .diff tab in the editor.
+                      </p>
                     </>
                   ) : null}
                 </>

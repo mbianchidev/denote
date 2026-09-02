@@ -356,6 +356,22 @@ key setting can override `user.signingKey`; the passphrase remains entirely in
 the system GPG agent or pinentry. Automatic commits keep the isolated unsigned
 path.
 
+Hardening pins every GPG program to an empty value before operation-specific
+settings are applied. A signed manual commit therefore always restores one
+explicit program after that pin: the configured program when present, otherwise
+Git's format default (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures, or
+`gpgsm` for X.509). This prevents an empty `gpg.program` from being executed
+without weakening unsigned operations.
+
+Structured diff models remain the plugin boundary. The host serializes them into
+a bounded unified patch only for presentation, creates an in-memory read-only
+`EditorTab` whose name ends in `.diff`, and renders each file with
+`@pierre/diffs/react`. The tab retains the structured model for typed file and
+hunk actions; raw patch text is never accepted back as an operation. Transient
+diff tabs are excluded from file references, autosave, search/recent tracking,
+and persisted pane sessions, and closing one sends the provider's typed
+`close-diff` or `close-commit` action.
+
 Every Git child, including the executable probe, also has its inherited
 environment stripped. `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
 `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`, `GIT_AUTHOR_DATE`, and

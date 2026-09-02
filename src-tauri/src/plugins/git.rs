@@ -1291,16 +1291,25 @@ pub(crate) fn apply_system_git_settings(
                 GitCommitSigningMode::System => system_signing,
             };
             if signing {
-                for key in [
-                    "gpg.format",
-                    "gpg.program",
-                    "gpg.ssh.program",
-                    "gpg.x509.program",
-                    "user.signingkey",
-                ] {
-                    if let Some(value) = settings.last(key) {
-                        push_system_config(&mut prefix, key, value)?;
-                    }
+                let format = settings
+                    .last("gpg.format")
+                    .unwrap_or("openpgp")
+                    .to_ascii_lowercase();
+                if format != "openpgp" {
+                    push_system_config(&mut prefix, "gpg.format", &format)?;
+                }
+                let (program_key, default_program) = match format.as_str() {
+                    "ssh" => ("gpg.ssh.program", "ssh-keygen"),
+                    "x509" => ("gpg.x509.program", "gpgsm"),
+                    _ => ("gpg.program", "gpg"),
+                };
+                push_system_config(
+                    &mut prefix,
+                    program_key,
+                    settings.last(program_key).unwrap_or(default_program),
+                )?;
+                if let Some(value) = settings.last("user.signingkey") {
+                    push_system_config(&mut prefix, "user.signingkey", value)?;
                 }
                 if let Some(key) = policy.signing_key.as_deref() {
                     push_system_config(&mut prefix, "user.signingkey", key)?;

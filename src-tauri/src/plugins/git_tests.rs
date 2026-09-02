@@ -403,7 +403,6 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
             ("user.name", "Synthetic Author"),
             ("user.email", "author@example.invalid"),
             ("credential.helper", "osxkeychain"),
-            ("gpg.program", "/usr/local/bin/gpg"),
         ]),
     )
     .expect("apply settings");
@@ -416,7 +415,7 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
         &[
             "user.name=Synthetic Author",
             "user.email=author@example.invalid",
-            "gpg.program=/usr/local/bin/gpg",
+            "gpg.program=gpg",
             "commit.gpgSign=true",
             "--gpg-sign=ABCDEF1234567890",
         ],

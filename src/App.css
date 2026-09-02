@@ -2074,6 +2074,19 @@ button.tag-chip:active,
   background: var(--panel-bg);
 }
 
+.source-control__compact-action,
+.source-control__row-actions button,
+.source-control__change-actions button,
+.source-control__quick-branch .secondary-button,
+.source-control__repository > .source-control__actions .secondary-button {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  place-items: center;
+}
+
 .source-control__repository,
 .source-control__workspace-repositories,
 .source-control__recovery,
@@ -2265,9 +2278,7 @@ button.tag-chip:active,
 }
 
 .source-control__quick-branch .secondary-button {
-  min-height: 32px;
-  padding: 5px 8px;
-  font-size: 10px;
+  align-self: end;
 }
 
 .source-control__actions .primary-button,
@@ -2684,6 +2695,112 @@ button.tag-chip:active,
   border-color: var(--accent);
   outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
   outline-offset: 1px;
+}
+
+.source-control-diff-editor {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: var(--editor-bg);
+}
+
+.source-control-diff-editor__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control-diff-editor__header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.source-control-diff-editor__header strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-diff-editor__header span {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.source-control-diff-editor__actions {
+  display: flex;
+  gap: 6px;
+  padding: 7px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control-diff-editor__actions section,
+.source-control-diff-editor__actions section > div {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.source-control-diff-editor__actions section {
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+
+.source-control-diff-editor__actions strong {
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-diff-editor__actions button {
+  display: inline-grid;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  place-items: center;
+  color: var(--text-secondary);
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.source-control-diff-editor__actions button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.source-control-diff-editor__actions button > span {
+  margin-left: 4px;
+}
+
+.source-control-diff-editor__patch {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  contain: layout paint;
+}
+
+.source-control-diff-editor__fallback {
+  min-width: max-content;
+  padding: 12px;
+  margin: 0;
+  color: var(--text-primary);
+  font: 12px/1.55 var(--font-mono);
+  white-space: pre;
 }
 
 .status-bar {
