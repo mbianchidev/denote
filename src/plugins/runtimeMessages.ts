@@ -305,7 +305,10 @@ export function isPluginSourceControlViewModel(
     !isArrayOf(value.branches, isBranch) ||
     !isArrayOf(value.remotes, isRemote) ||
     !isArrayOf(value.history, isHistoryEntry) ||
+    !isHistoryPage(value.historyPage) ||
+    !isCommitDetail(value.commitDetail) ||
     !isArrayOf(value.diffFiles, isDiffFile) ||
+    !isDiffSource(value.diffSource) ||
     !isArrayOf(value.conflicts, isConflict) ||
     !isRecovery(value.recovery) ||
     !isRemoteAccess(value.remoteAccess) ||
@@ -461,6 +464,54 @@ function isHistoryEntry(value: unknown): boolean {
     isRecord(value) &&
     isArrayOf(value.parentIds, isString) &&
     isArrayOf(value.refs, isString)
+  );
+}
+
+/**
+ * A history page describes the bounded window a provider read. Both counts are
+ * whole numbers, so a surface cannot be asked to render a page of unknown or
+ * negative size.
+ */
+function isHistoryPage(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isNonNegativeInteger(value.pageIndex) &&
+    isNonNegativeInteger(value.pageSize) &&
+    typeof value.hasPrevious === "boolean" &&
+    typeof value.hasNext === "boolean" &&
+    typeof value.loading === "boolean" &&
+    isNullableString(value.error)
+  );
+}
+
+function isCommitDetail(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    isHistoryEntry(value.commit) &&
+    isArrayOf(value.files, isDiffFile) &&
+    isNullableString(value.limitation)
+  );
+}
+
+/**
+ * Which comparison produced the diff a model carries. Only the two directions
+ * the host can apply a hunk in, and a commit that names the exact revision it
+ * came from, are accepted.
+ */
+function isDiffSource(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    value.kind === "worktree" ||
+    value.kind === "index" ||
+    (value.kind === "commit" && typeof value.commitId === "string")
   );
 }
 

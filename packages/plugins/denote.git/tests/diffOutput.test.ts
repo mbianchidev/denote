@@ -179,6 +179,122 @@ describe("parseUnifiedDiff", () => {
     ).toThrow(DiffTooLarge);
   });
 
+  it("refuses more files, and more hunks, than it will parse", () => {
+    const files = Array.from({ length: 21 }, (_, index) =>
+      [
+        `diff --git a/notes/file-${index}.md b/notes/file-${index}.md`,
+        `--- a/notes/file-${index}.md`,
+        `+++ b/notes/file-${index}.md`,
+        "@@ -1 +1 @@",
+        "-before",
+        "+after",
+      ].join("\n"),
+    ).join("\n");
+    const hunks = [
+      "diff --git a/notes/alpha.md b/notes/alpha.md",
+      "--- a/notes/alpha.md",
+      "+++ b/notes/alpha.md",
+      ...Array.from({ length: 201 }, (_, index) =>
+        [`@@ -${index + 1} +${index + 1} @@`, "-before", "+after"].join("\n"),
+      ),
+    ].join("\n");
+
+    expect(() => parseUnifiedDiff(files)).toThrow(DiffTooLarge);
+    expect(() => parseUnifiedDiff(hunks)).toThrow(DiffTooLarge);
+  });
+
+  it("reads a mode change that carries no content at all", () => {
+    const [file] = parseUnifiedDiff(
+      [
+        "diff --git a/scripts/run.sh b/scripts/run.sh",
+        "old mode 100644",
+        "new mode 100755",
+        "",
+      ].join("\n"),
+    );
+
+    expect(file).toMatchObject({
+      path: "scripts/run.sh",
+      status: "modified",
+      additions: 0,
+      deletions: 0,
+      hunks: [],
+    });
+    // There are no lines to choose between, so no hunk action is offered.
+    expect(file.hunks).toHaveLength(0);
+  });
+
+  it("reads the diff a show writes after a commit header and message", () => {
+    const files = parseUnifiedDiff(
+      [
+        "commit 1111111111111111111111111111111111111111",
+        "Author: Synthetic Author <author@example.invalid>",
+        "Date:   Thu Jan 1 00:00:00 2026 +0000",
+        "",
+        "    Record a synthetic note",
+        "",
+        // Git indents every line of a message, so a message that quotes a diff
+        // header cannot be read as the start of another file.
+        "    diff --git a/notes/injected.md b/notes/injected.md",
+        "",
+        "diff --git a/notes/alpha.md b/notes/alpha.md",
+        "--- a/notes/alpha.md",
+        "+++ b/notes/alpha.md",
+        "@@ -1 +1 @@",
+        "-before",
+        "+after",
+        "",
+      ].join("\n"),
+    );
+
+    expect(files.map((file) => file.path)).toEqual(["notes/alpha.md"]);
+  });
+
+  it("reports nothing for a commit that changed no files", () => {
+    expect(
+      parseUnifiedDiff(
+        [
+          "commit 1111111111111111111111111111111111111111",
+          "Author: Synthetic Author <author@example.invalid>",
+          "Date:   Thu Jan 1 00:00:00 2026 +0000",
+          "",
+          "    Record an empty commit",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+    expect(parseUnifiedDiff("")).toEqual([]);
+  });
+
+  it("invents nothing from the combined diff Git writes for a merge", () => {
+    // A combined diff describes two comparisons at once, and its `@@@` header
+    // carries no single pair of line numbers. Denote reads merges as the
+    // comparison with the first parent instead, so this output is ignored
+    // rather than guessed at.
+    expect(
+      parseUnifiedDiff(
+        [
+          "commit 1111111111111111111111111111111111111111",
+          "Merge: 2222222 3333333",
+          "",
+          "    Merge topic",
+          "",
+          "diff --cc notes/alpha.md",
+          "index 2222222,3333333..4444444",
+          "--- a/notes/alpha.md",
+          "+++ b/notes/alpha.md",
+          "@@@ -1,3 -1,3 +1,3 @@@",
+          " -one",
+          " +ONE",
+          "- two",
+          "+ TWO",
+          "  three",
+          "",
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+  });
+
   it("reads the tab-terminated and C-quoted names Git actually writes", () => {
     const files = parseUnifiedDiff(
       [

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
@@ -470,7 +470,7 @@ describe("SourceControlPanel", () => {
     );
 
     expect(
-      screen.queryByRole("heading", { name: "Diff" }),
+      screen.queryByRole("heading", { name: /diff/i }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /Stage hunk/ }),
@@ -666,6 +666,271 @@ describe("SourceControlPanel", () => {
     expect(screen.getByText(/This vault is encrypted/)).toBeInTheDocument();
   });
 
+  it("pages history with labelled controls and an announced page status", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = historyModel();
+    model.historyPage = {
+      pageIndex: 1,
+      pageSize: 20,
+      hasPrevious: true,
+      hasNext: true,
+      loading: false,
+      error: null,
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Page 2, 1 commit, more available");
+
+    await user.click(screen.getByRole("button", { name: "Refresh history" }));
+    await user.click(
+      screen.getByRole("button", { name: "Previous page of history" }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Next page of history" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({ id: "refresh-history" });
+    expect(onAction).toHaveBeenCalledWith({ id: "history-previous" });
+    expect(onAction).toHaveBeenCalledWith({ id: "history-next" });
+  });
+
+  it("offers no page control for a page that does not exist, and says a read failed", () => {
+    const model = historyModel();
+    model.historyPage = {
+      pageIndex: 0,
+      pageSize: 20,
+      hasPrevious: false,
+      hasNext: false,
+      loading: false,
+      error: "There are no more commits to show.",
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={vi.fn()} />);
+
+    expect(
+      screen.getByRole("button", { name: "Previous page of history" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Next page of history" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText("There are no more commits to show."),
+    ).toBeInTheDocument();
+  });
+
+  it("announces a history read that is still running", () => {
+    const model = historyModel();
+    model.historyPage = { ...model.historyPage, loading: true };
+    render(<SourceControlPanel title="Git" model={model} onAction={vi.fn()} />);
+
+    expect(screen.getByRole("status")).toHaveTextContent("Reading history…");
+    expect(
+      screen.getByRole("button", { name: "Refresh history" }),
+    ).toBeDisabled();
+  });
+
+  it("selects a commit with the keyboard and shows its details and diff", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const onOpenFile = vi.fn();
+    const { rerender } = render(
+      <SourceControlPanel
+        title="Git"
+        model={historyModel()}
+        onAction={onAction}
+        onOpenFile={onOpenFile}
+      />,
+    );
+
+    screen.getByRole("button", { name: /Synthetic commit/ }).focus();
+    await user.keyboard("{Enter}");
+    expect(onAction).toHaveBeenCalledWith({
+      id: "open-commit",
+      values: { commitId: "commit-1" },
+    });
+
+    rerender(
+      <SourceControlPanel
+        title="Git"
+        model={commitModel()}
+        onAction={onAction}
+        onOpenFile={onOpenFile}
+      />,
+    );
+
+    const detail = screen.getByRole("region", { name: "Synthetic commit" });
+    expect(within(detail).getByText("abc1234")).toBeInTheDocument();
+    expect(within(detail).getByText("Example Author")).toBeInTheDocument();
+    expect(
+      within(detail).getByText("2026-01-01T00:00:00Z"),
+    ).toBeInTheDocument();
+    expect(within(detail).getByText("commit-0")).toBeInTheDocument();
+    expect(within(detail).getByText("main")).toBeInTheDocument();
+    expect(within(detail).getByLabelText("@@ -1,1 +1,1 @@")).toBeInTheDocument();
+    expect(within(detail).getByText("old synthetic line")).toBeInTheDocument();
+    expect(within(detail).getByText(/deletion, old line 1/)).toBeInTheDocument();
+    expect(within(detail).getByText(/addition, new line 1/)).toBeInTheDocument();
+    expect(within(detail).getByText("Previously older.md")).toBeInTheDocument();
+    // A commit is history, so nothing in it can be staged by hunk.
+    expect(
+      screen.queryByRole("button", { name: /Stage hunk/ }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      within(detail).getByRole("button", { name: "Open file draft.md" }),
+    );
+    expect(onOpenFile).toHaveBeenCalledWith("draft.md");
+
+    await user.click(
+      within(detail).getByRole("button", { name: "Back to history" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({ id: "close-commit" });
+  });
+
+  it("keeps a deleted or binary commit entry reviewable without offering to open it", () => {
+    const model = commitModel();
+    model.commitDetail = {
+      commit: model.commitDetail!.commit,
+      limitation:
+        "This is a merge commit. Denote shows how the merge result differs from its first parent.",
+      files: [
+        {
+          path: "gone.md",
+          previousPath: null,
+          status: "deleted",
+          additions: 0,
+          deletions: 3,
+          binary: false,
+          hunks: [],
+        },
+        {
+          path: "sealed.md",
+          previousPath: null,
+          status: "modified",
+          additions: 0,
+          deletions: 0,
+          binary: true,
+          hunks: [],
+        },
+      ],
+    };
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={model}
+        onAction={vi.fn()}
+        onOpenFile={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("gone.md")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open file gone.md" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open file sealed.md" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/nothing left in the vault to open/)).toBeInTheDocument();
+    expect(screen.getByText(/Binary content cannot be displayed/)).toBeInTheDocument();
+    expect(screen.getByText(/merge commit/)).toBeInTheDocument();
+  });
+
+  it("says so when the selected commit changed no files", () => {
+    const model = commitModel();
+    model.commitDetail = { ...model.commitDetail!, files: [] };
+    render(<SourceControlPanel title="Git" model={model} onAction={vi.fn()} />);
+
+    expect(screen.getByText("This commit changed no files.")).toBeInTheDocument();
+  });
+
+  it("offers the other side of the index only when both diffs exist", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = diffModel();
+    // The same path is both staged and changed, so there are two diffs.
+    model.resourceGroups = model.resourceGroups.map((group) => ({
+      ...group,
+      resources: group.resources.map((resource) => ({
+        ...resource,
+        path: "draft.md",
+      })),
+    }));
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+
+    const toggle = screen.getByRole("group", { name: "Diff side for draft.md" });
+    expect(
+      within(toggle).getByRole("button", { name: "Working tree" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    await user.click(
+      within(toggle).getByRole("button", { name: "Staged" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "open-diff",
+      values: { path: "draft.md", group: "staged" },
+    });
+    expect(
+      screen.getByRole("heading", { name: "Working tree diff: draft.md" }),
+    ).toBeInTheDocument();
+  });
+
+  it("offers no diff side toggle when only one side has changes", () => {
+    render(
+      <SourceControlPanel title="Git" model={diffModel()} onAction={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("group", { name: "Diff side for draft.md" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens a changed file from its row, and never a deleted one", async () => {
+    const user = userEvent.setup();
+    const onOpenFile = vi.fn();
+    const model = diffModel();
+    model.resourceGroups = [
+      ...model.resourceGroups,
+      {
+        kind: "unstaged",
+        label: "Changes",
+        resources: [
+          {
+            path: "removed.md",
+            status: "deleted",
+            additions: 0,
+            deletions: 4,
+            binary: false,
+          },
+        ],
+      },
+    ];
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={model}
+        onAction={vi.fn()}
+        onOpenFile={onOpenFile}
+      />,
+    );
+
+    await user.click(
+      screen.getAllByRole("button", { name: "Open file draft.md" })[0],
+    );
+    expect(onOpenFile).toHaveBeenCalledWith("draft.md");
+    expect(
+      screen.queryByRole("button", { name: "Open file removed.md" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers no file opening at all when the host supplies no handler", () => {
+    render(
+      <SourceControlPanel title="Git" model={diffModel()} onAction={vi.fn()} />,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: /^Open file/ }),
+    ).not.toBeInTheDocument();
+  });
+
 });
 
 function busyModel(): PluginSourceControlViewModel {
@@ -724,7 +989,17 @@ function baseModel(): PluginSourceControlViewModel {
       },
     ],
     history: [],
+    historyPage: {
+      pageIndex: 0,
+      pageSize: 20,
+      hasPrevious: false,
+      hasNext: false,
+      loading: false,
+      error: null,
+    },
+    commitDetail: null,
     diffFiles: [],
+    diffSource: null,
     conflicts: [],
     recovery: { state: "idle" },
     pendingBranchSwitch: null,
@@ -841,6 +1116,9 @@ function diffModel(): PluginSourceControlViewModel {
     ...baseModel(),
     selectedTab: "changes",
     selectedView: { kind: "diff", path: "draft.md" },
+    // The provider says which comparison the content came from, so the panel
+    // never guesses which direction a hunk action would apply in.
+    diffSource: { kind: "worktree" },
     resourceGroups: [
       {
         kind: "staged",
@@ -951,5 +1229,54 @@ function branchesModel(): PluginSourceControlViewModel {
     ...baseModel(),
     selectedTab: "branches",
     selectedView: { kind: "branches" },
+  };
+}
+
+/** One selected commit, with the exact diff Git reported for it. */
+function commitModel(): PluginSourceControlViewModel {
+  const history = historyModel();
+  const commit = history.history[0];
+  return {
+    ...history,
+    selectedTab: "history",
+    selectedView: { kind: "commit", commitId: commit.id },
+    diffSource: { kind: "commit", commitId: commit.id },
+    commitDetail: {
+      commit: { ...commit, parentIds: ["commit-0"] },
+      limitation: null,
+      files: [
+        {
+          path: "draft.md",
+          previousPath: "older.md",
+          status: "renamed",
+          additions: 1,
+          deletions: 1,
+          binary: false,
+          hunks: [
+            {
+              header: "@@ -1,1 +1,1 @@",
+              oldStart: 1,
+              oldLines: 1,
+              newStart: 1,
+              newLines: 1,
+              lines: [
+                {
+                  kind: "deletion",
+                  oldLineNumber: 1,
+                  newLineNumber: null,
+                  content: "old synthetic line",
+                },
+                {
+                  kind: "addition",
+                  oldLineNumber: null,
+                  newLineNumber: 1,
+                  content: "new synthetic line",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
   };
 }

@@ -345,8 +345,23 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Whole-file staging is unchanged. A binary, added, deleted, renamed, or copied
   change is staged as a whole file instead, and says so, as does an encrypted
   vault, whose tracked content is ciphertext with no lines to choose between.
-- File and commit diffs from history, and conflict resolution, are later
-  increments and are reported as unavailable rather than implied.
+- Commit history is read one bounded page at a time, newest first, with explicit
+  refresh and page controls that are offered only when that page exists. A
+  surface describes the page it holds rather than the size of the log, because
+  nothing counts it. Selecting a commit shows its summary, author, date,
+  parents, refs, and the exact diff Git reports for it, including renames,
+  previous paths, and binary or encrypted content with no line-level text. A
+  merge is shown compared with its first parent and says so. Commit history is
+  read-only: no hunk action is offered on it. A diff larger than Denote parses
+  is refused with a message rather than shown cut short.
+- Opening a file from a source control row or a commit is the host's own
+  file-open flow. A provider names a repository-relative path only; the host
+  resolves it inside the open vault, opens or focuses it, and reports a file
+  that is no longer there. A renamed file opens under the path it has now, a
+  deleted file stays reviewable without being openable, and no absolute path is
+  ever built or shown.
+- Conflict resolution is a later increment and is reported as unavailable
+  rather than implied.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 

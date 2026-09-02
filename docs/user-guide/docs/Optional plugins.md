@@ -156,12 +156,29 @@ hunk to the staging area without touching the file on disk. A binary, added,
 deleted, renamed, or copied change has no pair of matching text sides to split,
 so Denote stages it as a whole file and says so. An encrypted vault stages whole
 files too: Git records the ciphertext, so there are no lines in it to choose
-between.
+between. When the same file is both staged and changed, **Working tree** and
+**Staged** switch between its two diffs, and the heading always names the side
+you are looking at.
 
-File and commit diffs from history, and conflict resolution, are not implemented
-in this version. Recent commits appear as read-only information, and an
-interrupted merge or rebase is reported so you can finish it with your own Git
-tooling.
+The History tab reads one page of commits at a time. **Refresh history** reads
+the page again, and **Previous** and **Next** move a page at a time; each button
+is offered only when that page exists, and the status line says which page is on
+screen. Selecting a commit shows its author, date, parents, refs, and the exact
+diff Git reports for it, file by file. A merge commit is shown compared with its
+first parent, which includes what the merge brought into that branch but does
+not distinguish cleanly merged changes from merge-resolution edits. A commit
+that changed no files says exactly that. History is
+read-only: there is no hunk action on a commit's diff, because a commit records
+what already happened.
+
+**Open file** on a changed row, or on a file in a commit, opens that note in the
+editor. Denote opens the file at the path it has now, so a file that a commit
+renamed opens under its current name, and a file that has been deleted since is
+still shown in the commit but cannot be opened. If the file is no longer in the
+vault, Denote says so instead of opening nothing.
+
+Conflict resolution is not implemented in this version. An interrupted merge or
+rebase is reported so you can finish it with your own Git tooling.
 
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.

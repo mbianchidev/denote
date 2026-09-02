@@ -24,7 +24,17 @@ const model: PluginSourceControlViewModel = {
   branches: [],
   remotes: [],
   history: [],
+  historyPage: {
+    pageIndex: 0,
+    pageSize: 20,
+    hasPrevious: false,
+    hasNext: false,
+    loading: false,
+    error: null,
+  },
+  commitDetail: null,
   diffFiles: [],
+  diffSource: null,
   conflicts: [],
   recovery: { state: "idle" },
   pendingBranchSwitch: null,
@@ -102,8 +112,7 @@ describe("plugin runtime source control messages", () => {
     ).toBe(false);
   });
 
-  it("accepts an optional active operation ID and rejects a malformed one", () => {
-    expect(
+  it("accepts an optional active operation ID and rejects a malformed one", () => {    expect(
       isPluginRuntimeMessage({
         type: "update-source-control",
         id: "denote.synthetic.git",
@@ -126,6 +135,83 @@ describe("plugin runtime source control messages", () => {
           ...model,
           repository: { ...model.repository, busy: true, activeOperationId: 7 },
         },
+      }),
+    ).toBe(false);
+  });
+
+  it("validates the history page, the selected commit, and the diff source", () => {
+    const commit = {
+      id: "1111111111111111111111111111111111111111",
+      shortId: "1111111",
+      summary: "Record a synthetic note",
+      authorName: "Synthetic Author",
+      authoredAt: "2026-01-01T00:00:00+00:00",
+      parentIds: [],
+      refs: ["main"],
+    };
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: {
+          ...model,
+          history: [commit],
+          historyPage: {
+            pageIndex: 1,
+            pageSize: 20,
+            hasPrevious: true,
+            hasNext: false,
+            loading: false,
+            error: null,
+          },
+          commitDetail: { commit, files: [], limitation: null },
+          diffSource: { kind: "commit", commitId: commit.id },
+        },
+      }),
+    ).toBe(true);
+    // A page a provider cannot describe as whole commits is refused rather
+    // than rendered as an unbounded window.
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: {
+          ...model,
+          historyPage: { ...model.historyPage, pageSize: -1 },
+        },
+      }),
+    ).toBe(false);
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: { ...model, historyPage: undefined },
+      }),
+    ).toBe(false);
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: {
+          ...model,
+          commitDetail: { commit: { id: commit.id }, files: [], limitation: null },
+        },
+      }),
+    ).toBe(false);
+    // A commit diff has to name the revision it came from, so a surface can
+    // never treat history content as a stageable working-tree change.
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: { ...model, diffSource: { kind: "commit" } },
+      }),
+    ).toBe(false);
+    expect(
+      isPluginRuntimeMessage({
+        type: "update-source-control",
+        id: "denote.synthetic.git",
+        model: { ...model, diffSource: { kind: "stash" } },
       }),
     ).toBe(false);
   });

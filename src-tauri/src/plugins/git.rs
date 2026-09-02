@@ -759,7 +759,17 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                 PluginGitDiffTarget::Index => vec!["diff".into(), "--cached".into()],
                 PluginGitDiffTarget::Commit { commit } => {
                     validate_revision(commit)?;
-                    vec!["show".into(), commit.clone()]
+                    // The commit header and message are suppressed, so the
+                    // output is the patch and nothing else. Git indents a
+                    // message by default, but `format.pretty` can be set in a
+                    // repository to print it flush left, where a message that
+                    // quotes `diff --git` would read as another changed file.
+                    vec![
+                        "show".into(),
+                        "--no-show-signature".into(),
+                        "--format=".into(),
+                        commit.clone(),
+                    ]
                 }
                 PluginGitDiffTarget::Range {
                     from_commit,

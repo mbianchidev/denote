@@ -271,8 +271,20 @@ change, and Git applies a patch whole or not at all, so a rejected, failed, or
 cancelled hunk leaves the index exactly as it was and never touches the working
 tree.
 
-`discover` reports `initialized` and `encrypted`. The encryption flag is the
-host's own preflight result, so a surface can rule out an operation an encrypted
+`list-history` reads one bounded page: `maxCount` between 1 and 1000, an
+optional `skip` up to 100000, an optional validated revision, and an optional
+validated repository-relative path. Its report is one flat NUL separated stream
+of seven fields per commit, so no author name, subject, ref, or path can shift a
+field or split a record. `diff` names one of four comparisons — the working
+tree, the index, one commit, or a range — and every revision is validated before
+it reaches Git. The commit comparison runs `show` with the commit header and
+message suppressed, so the report is the patch alone: a repository that sets
+`format.pretty` cannot print a message flush left where a line quoting
+`diff --git` would read as another changed file. A merge has no ordinary
+one-parent patch, so a surface reads it as the range against its first parent
+rather than parsing Git's combined diff.
+
+`discover` reports `initialized` and `encrypted`. The encryption flag is thehost's own preflight result, so a surface can rule out an operation an encrypted
 vault cannot survive — stashing untracked files, which would remove the vault's
 encryption manifest, and staging by hunk, which has no plaintext lines to choose
 between — before it offers it, rather than failing after the user presses the
@@ -469,10 +481,22 @@ commands, status, source control, project context, Git, and
 permission. Its current increment registers one source-control provider, one
 status item, refresh and initialize commands, and, when its interval setting is
 above zero, one automatic local commit schedule. It supports refresh,
-initialize, stage, unstage, commit of staged changes, cancellation, and
-scheduled local commits of tracked changes. Remote operations, branch
-switching, diffs, and conflict resolution are later increments; the plugin
-reports them as unavailable instead of implying support.
+initialize, stage, unstage, commit of staged changes, remote operations,
+cloning, branch work, staging by hunk, paged commit history with its commit
+diffs, working-tree and index diffs, and scheduled local commits of tracked
+changes. Conflict resolution is a later increment; the plugin reports it as
+unavailable instead of implying support.
+
+The provider's view model carries the page it read rather than the size of the
+log: a page index, a page size, and whether an earlier or later page exists,
+which it learns by reading one commit beyond the page and never showing it. It
+also carries the comparison its diff content came from, so a surface offers a
+hunk action only for the working tree and the index, never for a commit. A
+selected commit survives a refresh only while the page still lists it, and a
+commit is named by the hash of its own content, so its diff is never read twice.
+Opening a file is host-owned: the provider reports repository-relative paths,
+and the host resolves one inside the open vault and uses its ordinary file-open
+flow, so no absolute path is ever built, shown, or returned to a plugin.
 
 Changing a plugin's settings reloads its runtime, because settings are read
 during activation. The package, the approved permissions, and the enablement

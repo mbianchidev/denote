@@ -4335,6 +4335,43 @@ function App() {
   );
 
   /**
+   * Opens one file a source control surface named, in the editor.
+   *
+   * This never goes through the provider: the path is repository-relative, so
+   * the host resolves it inside the repository the provider is scoped to, and
+   * then opens it with the ordinary file-open flow. Nothing absolute is built
+   * or shown, a path that tries to leave the vault is refused, and a file that
+   * is not in the vault any more is reported instead of silently doing
+   * nothing.
+   */
+  const openSourceControlFile = useCallback(
+    (repositoryPath: string) => {
+      if (!workspace) {
+        return;
+      }
+      const vaultPath = vaultRelativePath(
+        activeProject?.rootPath ?? "",
+        repositoryPath,
+      );
+      if (!vaultPath) {
+        showError(
+          `Denote cannot open ${repositoryPath} because it is not inside this vault.`,
+        );
+        return;
+      }
+      const node = findNode(workspace.tree, vaultPath);
+      if (!node || node.kind === "folder") {
+        showError(
+          `Denote could not open ${vaultPath} because it is no longer in this vault. Refresh the repository to read it again.`,
+        );
+        return;
+      }
+      void openFile(vaultPath);
+    },
+    [activeProject?.rootPath, openFile, showError, workspace],
+  );
+
+  /**
    * Opens a cloned repository as the active vault.
    *
    * The clone action already holds the workspace lock, so nothing is flushed
@@ -7532,6 +7569,7 @@ function App() {
                 action,
               );
             }}
+            onOpenFile={openSourceControlFile}
           />
         ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">
@@ -8403,8 +8441,41 @@ function flattenNodes(nodes: FileNode[]): FileNode[] {
   return flattened;
 }
 
-function findNode(nodes: FileNode[], path: string | null): FileNode | null {
+/**
+ * Resolves one repository-relative path to a vault-relative one.
+ *
+ * A vault-scoped repository is the vault itself, and a project-scoped one is a
+ * folder inside it, so the project's own root is the only prefix that is ever
+ * added. Anything absolute, anything with a drive letter, and any `..` segment
+ * is refused rather than normalized, so a path a provider supplies can only
+ * ever name something inside the open vault.
+ */
+function vaultRelativePath(
+  projectRoot: string,
+  repositoryPath: string,
+): string | null {
+  const trimmed = repositoryPath.trim();
+  if (
+    !trimmed ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("\\") ||
+    /^[A-Za-z]:/.test(trimmed)
+  ) {
+    return null;
+  }
+  const segments = trimmed.split(/[\\/]/);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return null;
+  }
+  const path = segments.filter(Boolean).join("/");
   if (!path) {
+    return null;
+  }
+  const root = projectRoot.split(/[\\/]/).filter(Boolean).join("/");
+  return root ? `${root}/${path}` : path;
+}
+
+function findNode(nodes: FileNode[], path: string | null): FileNode | null {  if (!path) {
     return null;
   }
   const stack = [...nodes].reverse();

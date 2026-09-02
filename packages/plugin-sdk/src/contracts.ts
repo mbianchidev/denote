@@ -382,6 +382,55 @@ export interface PluginSourceControlHistoryEntry
   refs: string[];
 }
 
+/**
+ * Where the commits a model carries sit in the repository's log.
+ *
+ * History is always read one bounded page at a time, so a surface describes
+ * the page it holds rather than the size of the log: `hasNext` is what the
+ * provider learned by asking for one commit beyond the page, and nothing here
+ * implies a total count that was never counted.
+ */
+export interface PluginSourceControlHistoryPage {
+  /** Zero-based index of the page the model carries. */
+  pageIndex: number;
+  /** How many commits one page holds. */
+  pageSize: number;
+  /** True while an earlier, newer page exists. */
+  hasPrevious: boolean;
+  /** True while a later, older page exists. */
+  hasNext: boolean;
+  /** True while a history page or a commit is being read. */
+  loading: boolean;
+  /** Why the last history read stopped, or null when it succeeded. */
+  error: string | null;
+}
+
+/**
+ * One commit the user selected, with the exact diff Git reported for it.
+ *
+ * The commit fields are the ones the history page already carried, so nothing
+ * about a commit is re-derived; `files` is the structured diff, and
+ * `limitation` says why a diff is not the plain one-parent comparison, such as
+ * a merge commit compared with its first parent.
+ */
+export interface PluginSourceControlCommitDetail {
+  commit: PluginSourceControlHistoryEntry;
+  files: PluginSourceControlDiffFile[];
+  limitation: string | null;
+}
+
+/**
+ * Which comparison produced the diff a model carries.
+ *
+ * A surface may only offer a hunk action for `worktree` and `index`, because
+ * those are the two directions the host can apply one hunk in. A commit diff
+ * is history: it is read-only, and no hunk action applies to it.
+ */
+export type PluginSourceControlDiffSource =
+  | { kind: "worktree" }
+  | { kind: "index" }
+  | { kind: "commit"; commitId: string };
+
 export type PluginSourceControlDiffLineKind =
   | "context"
   | "addition"
@@ -551,7 +600,16 @@ interface PluginSourceControlViewModelBase {
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
   history: PluginSourceControlHistoryEntry[];
+  /** Where the commits in `history` sit in the log. */
+  historyPage: PluginSourceControlHistoryPage;
+  /** The selected commit and its exact diff, or null when none is selected. */
+  commitDetail: PluginSourceControlCommitDetail | null;
   diffFiles: PluginSourceControlDiffFile[];
+  /**
+   * Which comparison produced `diffFiles`. Null whenever no diff is loaded, so
+   * a surface never has to guess which side of the index it is looking at.
+   */
+  diffSource: PluginSourceControlDiffSource | null;
   conflicts: PluginSourceControlConflictEntry[];
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;

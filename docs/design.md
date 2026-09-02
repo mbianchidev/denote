@@ -294,7 +294,13 @@ ordinary buttons, and a review region for the last remote operation with Retry
 and Dismiss. Anything that reaches a remote, changes where one points, removes
 one, or deletes a folder is confirmed in the standard action dialog, which
 names the exact remote, URL, and branch, and a deletion uses the dangerous
-variant. Plugin data never supplies arbitrary markup.
+variant. History is paged rather than scrolled without end: named refresh,
+previous, and next controls sit above the commit list, each disabled when that
+page does not exist, and a polite status region names the page on screen or the
+read in progress. A selected commit is a definition list of its own metadata
+followed by its changed files, and its diff carries no hunk action. Opening a
+file is a named button on the row or the changed file it belongs to, absent
+where the file was deleted. Plugin data never supplies arbitrary markup.
 Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
 moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a

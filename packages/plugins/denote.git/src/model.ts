@@ -2,9 +2,12 @@ import type {
   PluginProjectContext,
   PluginSourceControlAuthMode,
   PluginSourceControlBranchChoice,
+  PluginSourceControlCommitDetail,
   PluginSourceControlConflictEntry,
   PluginSourceControlDiffFile,
+  PluginSourceControlDiffSource,
   PluginSourceControlHistoryEntry,
+  PluginSourceControlHistoryPage,
   PluginSourceControlOperationReview,
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRecoveryState,
@@ -18,6 +21,9 @@ import type {
 import type { GitStatusReport } from "./statusOutput";
 
 export type GitScopeKind = "vault" | "project";
+
+/** How many commits one history page holds. */
+export const HISTORY_PAGE_SIZE = 20;
 
 export interface GitRepositoryScope {
   kind: GitScopeKind;
@@ -49,11 +55,26 @@ export interface GitModelBase {
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
   history: PluginSourceControlHistoryEntry[];
+  historyPage: PluginSourceControlHistoryPage;
+  commitDetail: PluginSourceControlCommitDetail | null;
   diffFiles: PluginSourceControlDiffFile[];
+  diffSource: PluginSourceControlDiffSource | null;
   conflicts: PluginSourceControlConflictEntry[];
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
   pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
+}
+
+/** The page state of a provider that has not read any history yet. */
+export function emptyHistoryPage(): PluginSourceControlHistoryPage {
+  return {
+    pageIndex: 0,
+    pageSize: HISTORY_PAGE_SIZE,
+    hasPrevious: false,
+    hasNext: false,
+    loading: false,
+    error: null,
+  };
 }
 
 /**
@@ -127,7 +148,10 @@ export function initialModel(
       branches: [],
       remotes: [],
       history: [],
+      historyPage: emptyHistoryPage(),
+      commitDetail: null,
       diffFiles: [],
+      diffSource: null,
       conflicts: [],
       recovery: { state: "idle" },
       pendingBranchSwitch: null,
@@ -171,7 +195,10 @@ export function baseOf(model: PluginSourceControlViewModel): GitModelBase {
     branches: model.branches,
     remotes: model.remotes,
     history: model.history,
+    historyPage: model.historyPage,
+    commitDetail: model.commitDetail,
     diffFiles: model.diffFiles,
+    diffSource: model.diffSource,
     conflicts: model.conflicts,
     recovery: model.recovery,
     remoteAccess: model.remoteAccess,
@@ -203,11 +230,96 @@ export function withDiffFiles(
   model: PluginSourceControlViewModel,
   diffFiles: PluginSourceControlDiffFile[],
   selection: GitSelection,
+  diffSource: PluginSourceControlDiffSource | null = null,
 ): PluginSourceControlViewModel {
-  const base = { ...baseOf(model), diffFiles };
+  const base = { ...baseOf(model), diffFiles, diffSource };
   return compose(
     { ...base, resourceGroups: countedGroups(base.resourceGroups, diffFiles) },
     selection,
+  );
+}
+
+/**
+ * Publishes one page of history, and the selection it leaves behind.
+ *
+ * A page replaces the commits on screen wholesale, so a commit that is no
+ * longer in it stops being the selection: nothing is ever labelled with a
+ * commit whose content the model does not hold.
+ */
+export function withHistoryPage(
+  model: PluginSourceControlViewModel,
+  history: PluginSourceControlHistoryEntry[],
+  historyPage: PluginSourceControlHistoryPage,
+): PluginSourceControlViewModel {
+  const base: GitModelBase = {
+    ...baseOf(model),
+    repository: idle(model.repository),
+    history,
+    historyPage,
+  };
+  const selection = resolveSelection(
+    {
+      tab: "history",
+      view:
+        model.selectedTab === "history"
+          ? model.selectedView
+          : { kind: "history" },
+    },
+    base,
+  );
+  return compose(pruned(base, selection), selection);
+}
+
+/** Reports that a history read is running, or why the last one stopped. */
+export function withHistoryStatus(
+  model: PluginSourceControlViewModel,
+  status: { loading: boolean; error?: string | null },
+): PluginSourceControlViewModel {
+  return compose(
+    {
+      ...baseOf(model),
+      historyPage: {
+        ...model.historyPage,
+        loading: status.loading,
+        error: status.error === undefined ? model.historyPage.error : status.error,
+      },
+    },
+    selectionOf(model),
+  );
+}
+
+/** Publishes one selected commit, its exact diff, and the selection for it. */
+export function withCommitDetail(
+  model: PluginSourceControlViewModel,
+  detail: PluginSourceControlCommitDetail,
+): PluginSourceControlViewModel {
+  return compose(
+    {
+      ...baseOf(model),
+      repository: idle(model.repository),
+      commitDetail: detail,
+      // History content is never the working tree's, so the diff a Changes
+      // selection was showing is dropped rather than left under a commit.
+      diffFiles: [],
+      diffSource: { kind: "commit", commitId: detail.commit.id },
+      historyPage: { ...model.historyPage, loading: false, error: null },
+    },
+    { tab: "history", view: { kind: "commit", commitId: detail.commit.id } },
+  );
+}
+
+/** Returns to the history list, dropping whatever commit was open. */
+export function withoutCommitDetail(
+  model: PluginSourceControlViewModel,
+): PluginSourceControlViewModel {
+  return compose(
+    {
+      ...baseOf(model),
+      commitDetail: null,
+      diffFiles: [],
+      diffSource: null,
+    },
+    { tab: "history", view: { kind: "history" } },
   );
 }
 
@@ -241,11 +353,18 @@ export function withRecovery(
   );
 }
 
+/**
+ * Moves to another view, dropping content the new one cannot describe.
+ *
+ * Diff and commit content belongs to exactly one selection, so leaving that
+ * selection clears it rather than leaving a stale diff behind for the next
+ * view to show.
+ */
 export function withSelection(
   model: PluginSourceControlViewModel,
   selection: GitSelection,
 ): PluginSourceControlViewModel {
-  return compose(baseOf(model), selection);
+  return compose(pruned(baseOf(model), selection), selection);
 }
 
 export interface GitRefreshData {
@@ -253,8 +372,12 @@ export interface GitRefreshData {
   branches: PluginSourceControlBranchChoice[];
   remotes: PluginSourceControlRemote[];
   history: PluginSourceControlHistoryEntry[];
+  historyPage: PluginSourceControlHistoryPage;
+  /** The selected commit and its diff, when one is open. */
+  commitDetail: PluginSourceControlCommitDetail | null;
   /** Diff content read for the selected path, when one is open. */
   diffFiles: PluginSourceControlDiffFile[];
+  diffSource: PluginSourceControlDiffSource | null;
   recovery: PluginSourceControlRecoveryState;
   remoteAccess: PluginSourceControlRemoteAccess;
   pendingBranchSwitch: PluginSourceControlPendingBranchSwitch | null;
@@ -274,27 +397,34 @@ export function refreshedModel(
       upstream: data.status.upstream,
       ahead: data.status.ahead,
       behind: data.status.behind,
-      latestCommit: latest
-        ? {
-            id: latest.id,
-            shortId: latest.shortId,
-            summary: latest.summary,
-            authorName: latest.authorName,
-            authoredAt: latest.authoredAt,
-          }
-        : null,
+      // The newest commit of the first page is the repository's newest commit,
+      // so a later page never renames what the summary calls the latest one.
+      latestCommit:
+        latest && data.historyPage.pageIndex === 0
+          ? {
+              id: latest.id,
+              shortId: latest.shortId,
+              summary: latest.summary,
+              authorName: latest.authorName,
+              authoredAt: latest.authoredAt,
+            }
+          : null,
     },
     resourceGroups: countedGroups(resourceGroups(data.status), data.diffFiles),
     branches: data.branches,
     remotes: data.remotes,
     history: data.history,
+    historyPage: data.historyPage,
+    commitDetail: data.commitDetail,
     diffFiles: data.diffFiles,
+    diffSource: data.diffSource,
     conflicts: conflictEntries(data.status),
     recovery: data.recovery,
     remoteAccess: data.remoteAccess,
     pendingBranchSwitch: data.pendingBranchSwitch,
   };
-  return compose(base, resolveSelection(selection, base));
+  const resolved = resolveSelection(selection, base);
+  return compose(pruned(base, resolved), resolved);
 }
 
 /** Builds the model for a scope Git reports is not a repository yet. */
@@ -309,7 +439,10 @@ export function uninitializedModel(
       branches: [],
       remotes: [],
       history: [],
+      historyPage: emptyHistoryPage(),
+      commitDetail: null,
       diffFiles: [],
+      diffSource: null,
       conflicts: [],
       recovery: { state: "idle" },
       remoteAccess,
@@ -317,6 +450,27 @@ export function uninitializedModel(
     },
     { tab: "changes", view: { kind: "repository" } },
   );
+}
+
+/**
+ * Drops diff and commit content the selection cannot display.
+ *
+ * Only two views hold content of their own: an open file diff, and an open
+ * commit. Everything else clears both, so a diff read for the working tree is
+ * never left behind under a commit, and a commit's files never survive a
+ * return to the Changes tab.
+ */
+function pruned(base: GitModelBase, selection: GitSelection): GitModelBase {
+  const showsFileDiff =
+    selection.tab === "changes" && selection.view.kind === "diff";
+  const showsCommit =
+    selection.tab === "history" && selection.view.kind === "commit";
+  return {
+    ...base,
+    commitDetail: showsCommit ? base.commitDetail : null,
+    diffFiles: showsFileDiff ? base.diffFiles : [],
+    diffSource: showsFileDiff || showsCommit ? base.diffSource : null,
+  };
 }
 
 /** Keeps the selected tab and view only while the data behind it still exists. */

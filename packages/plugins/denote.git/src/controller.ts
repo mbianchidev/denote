@@ -4,7 +4,10 @@ import type {
   PluginGitRunRequest,
   PluginSourceControlAction,
   PluginSourceControlBranchChoice,
+  PluginSourceControlCommitDetail,
   PluginSourceControlDiffFile,
+  PluginSourceControlHistoryEntry,
+  PluginSourceControlHistoryPage,
   PluginSourceControlOperationReview,
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRemoteAccess,
@@ -16,12 +19,17 @@ import {
   selectionOf,
   uninitializedModel,
   withBusy,
+  withCommitDetail,
   withDiffFiles,
+  withHistoryPage,
+  withHistoryStatus,
   withPendingBranchSwitch,
   withRecovery,
   withRemoteAccess,
   withReview,
   withSelection,
+  withoutCommitDetail,
+  HISTORY_PAGE_SIZE,
   type GitRepositoryScope,
   type GitSelection,
 } from "./model";
@@ -37,9 +45,27 @@ import { DiffTooLarge, hunkRequest, parseUnifiedDiff, supportsHunkStaging } from
 import { parseStatus } from "./statusOutput";
 import { readGitSettings } from "./settings";
 
-const HISTORY_COUNT = 20;
 const MAX_REPORTED_ERROR_LENGTH = 200;
 const REPOSITORY_LIST_LIMIT = 50;
+
+/**
+ * Why a merge commit is compared with its first parent.
+ *
+ * Git's own report for a merge is a combined diff, which describes two
+ * comparisons at once and has no single pair of line numbers Denote could
+ * render honestly. The first-parent comparison is one ordinary diff, so it is
+ * read instead and labelled as exactly that.
+ */
+const MERGE_COMMIT_LIMITATION =
+  "This is a merge commit. Denote shows how the merge result differs from its first parent, including what the merge brought into that branch. This view does not distinguish cleanly merged changes from merge-resolution edits.";
+
+/**
+ * Why an encrypted vault's history has no readable lines. Git records the
+ * ciphertext, so every note reads as binary content and there is nothing
+ * line-level to show for it.
+ */
+const ENCRYPTED_HISTORY_LIMITATION =
+  "This vault is encrypted, so Git recorded ciphertext for these files. Denote reports them as binary changes and shows no line-level content.";
 
 /**
  * Why an encrypted vault cannot stash. `git stash push --include-untracked`
@@ -152,6 +178,17 @@ export class GitRepositoryController {
   private encrypted = false;
   /** Which diff is on screen, and which side of the index it came from. */
   private openDiff: { path: string; target: GitDiffTargetKind } | null = null;
+  /** Which page of history the model holds. Every refresh returns to page 0. */
+  private historyPageIndex = 0;
+  /**
+   * Identifies the history read the model is allowed to accept.
+   *
+   * Paging and refreshing both replace the whole page, so a read that was
+   * started before the latest one is stale by the time it lands: the token it
+   * captured no longer matches, and its result is dropped instead of
+   * overwriting newer commits with older ones.
+   */
+  private historyToken = 0;
   private pendingSwitch: PendingBranchSwitch | null = null;
 
   constructor(
@@ -190,6 +227,8 @@ export class GitRepositoryController {
     this.currentOperationId = null;
     this.encrypted = false;
     this.openDiff = null;
+    this.historyPageIndex = 0;
+    this.historyToken += 1;
     this.pendingSwitch = null;
     // Remote and clone state describes how the user signs in and what a failed
     // clone left behind. Neither belongs to the repository that was open, so
@@ -245,7 +284,37 @@ export class GitRepositoryController {
         this.selectTab(text(action, "tab"));
         return;
       case "open-commit":
-        this.selectCommit(text(action, "commitId"));
+        await this.withOperation(git, (capability, generation) =>
+          this.openCommit(capability, generation, text(action, "commitId")),
+        );
+        return;
+      case "close-commit":
+        if (!this.busy) {
+          this.publish(withoutCommitDetail(this.current));
+        }
+        return;
+      case "refresh-history":
+        await this.withOperation(git, (capability, generation) =>
+          this.loadHistoryPage(capability, generation, this.historyPageIndex),
+        );
+        return;
+      case "history-previous":
+        await this.withOperation(git, (capability, generation) =>
+          this.loadHistoryPage(
+            capability,
+            generation,
+            this.historyPageIndex - 1,
+          ),
+        );
+        return;
+      case "history-next":
+        await this.withOperation(git, (capability, generation) =>
+          this.loadHistoryPage(
+            capability,
+            generation,
+            this.historyPageIndex + 1,
+          ),
+        );
         return;
       case "dismiss":
         if (!this.busy) {
@@ -489,14 +558,149 @@ export class GitRepositoryController {
     this.publish(withSelection(this.current, selection));
   }
 
-  private selectCommit(commitId: string): void {
-    if (!commitId || this.current.selectedTab !== "history") {
+  /**
+   * Reads one bounded page of commits and publishes it.
+   *
+   * One commit beyond the page is asked for, and never shown, so the surface
+   * learns whether an older page exists without any unbounded count. A result
+   * that lands after another history read started, or after the scope changed,
+   * is dropped rather than published over newer commits.
+   */
+  private async loadHistoryPage(
+    git: PluginGitCapability,
+    generation: number,
+    pageIndex: number,
+  ): Promise<void> {
+    if (pageIndex < 0) {
       return;
     }
+    const token = ++this.historyToken;
+    this.publish(withHistoryStatus(this.current, { loading: true, error: null }));
+    let page: {
+      entries: PluginSourceControlHistoryEntry[];
+      page: PluginSourceControlHistoryPage;
+    };
+    try {
+      page = await this.readHistoryPage(git, generation, pageIndex);
+    } catch (error) {
+      if (error instanceof StaleScope) {
+        this.options.report("Discarded a stale history page.");
+        throw error;
+      }
+      // A failure is reported from the last settled model, so that model must
+      // not still say a read is running: every pager control is disabled while
+      // it does, which would leave the history with no way to read itself
+      // again once the failure is dismissed.
+      if (generation === this.generation) {
+        this.publish(withHistoryStatus(this.stable, { loading: false }));
+      }
+      throw error;
+    }
+    if (token !== this.historyToken || generation !== this.generation) {
+      this.options.report("Discarded a stale history page.");
+      return;
+    }
+    if (page.entries.length === 0 && pageIndex > 0) {
+      // The log ended between reading the previous page and this one, so the
+      // commits on screen stay and the page that does not exist is refused.
+      this.publish(
+        withHistoryStatus(this.stable, {
+          loading: false,
+          error:
+            "There are no more commits to show. Refresh history to read this repository again.",
+        }),
+      );
+      return;
+    }
+    this.historyPageIndex = pageIndex;
+    this.publish(withHistoryPage(this.stable, page.entries, page.page));
+  }
+
+  private async readHistoryPage(
+    git: PluginGitCapability,
+    generation: number,
+    pageIndex: number,
+  ): Promise<{
+    entries: PluginSourceControlHistoryEntry[];
+    page: PluginSourceControlHistoryPage;
+  }> {
+    const skip = pageIndex * HISTORY_PAGE_SIZE;
+    const result = await this.perform(git, generation, "Reading history", {
+      operation: "list-history",
+      scope: this.scope.kind,
+      // One commit more than the page is read purely to answer "is there an
+      // older page?". It is never published.
+      maxCount: HISTORY_PAGE_SIZE + 1,
+      ...(skip > 0 ? { skip } : {}),
+    });
+    const parsed = parseHistory(result.stdout);
+    return {
+      entries: parsed.slice(0, HISTORY_PAGE_SIZE),
+      page: {
+        pageIndex,
+        pageSize: HISTORY_PAGE_SIZE,
+        hasPrevious: pageIndex > 0,
+        hasNext: parsed.length > HISTORY_PAGE_SIZE,
+        loading: false,
+        error: null,
+      },
+    };
+  }
+
+  /**
+   * Reads the exact diff for one commit of the loaded page.
+   *
+   * A commit is identified by the hash of its own content, so its diff cannot
+   * change: only a commit the model already read is opened, and Git is asked
+   * for that one revision. A merge has no single ordinary diff, so it is read
+   * as the comparison with its first parent and labelled as that.
+   */
+  private async openCommit(
+    git: PluginGitCapability,
+    generation: number,
+    commitId: string,
+  ): Promise<void> {
+    if (!commitId) {
+      throw new GitRefused("No commit was supplied for this action.");
+    }
+    const entry = this.current.history.find((item) => item.id === commitId);
+    if (!entry) {
+      throw new GitRefused(
+        "That commit is not in the history page Denote has read. Refresh history and retry.",
+      );
+    }
+    const firstParent = entry.parentIds[0];
+    const merge = entry.parentIds.length > 1 && firstParent !== undefined;
+    const result = await this.perform(
+      git,
+      generation,
+      `Reading commit ${entry.shortId}`,
+      {
+        operation: "diff",
+        scope: this.scope.kind,
+        target: merge
+          ? { kind: "range", fromCommit: firstParent, toCommit: entry.id }
+          : { kind: "commit", commit: entry.id },
+      },
+    );
+    let files: PluginSourceControlDiffFile[];
+    try {
+      files = parseUnifiedDiff(result.stdout);
+    } catch (error) {
+      if (error instanceof DiffTooLarge) {
+        throw new GitRefused(error.message);
+      }
+      throw error;
+    }
     this.publish(
-      withSelection(this.current, {
-        tab: "history",
-        view: { kind: "commit", commitId },
+      withCommitDetail(this.stable, {
+        commit: entry,
+        files,
+        limitation: merge
+          ? MERGE_COMMIT_LIMITATION
+          : this.encrypted && files.some((file) => file.binary)
+            ? ENCRYPTED_HISTORY_LIMITATION
+            : null,
       }),
     );
   }
@@ -597,6 +801,8 @@ export class GitRepositoryController {
     if (!discovery.initialized) {
       this.openDiff = null;
       this.pendingSwitch = null;
+      this.historyPageIndex = 0;
+      this.historyToken += 1;
       this.publish(uninitializedModel(this.scope, this.remoteAccess));
       return;
     }
@@ -623,8 +829,15 @@ export class GitRepositoryController {
     const history = await this.perform(git, generation, "Reading history", {
       operation: "list-history",
       scope: this.scope.kind,
-      maxCount: HISTORY_COUNT,
+      maxCount: HISTORY_PAGE_SIZE + 1,
     });
+    // A refresh describes the repository as it is now, so it always returns to
+    // the newest page instead of leaving the user on a page of a log that may
+    // have moved underneath it.
+    const parsed = parseHistory(history.stdout);
+    const entries = parsed.slice(0, HISTORY_PAGE_SIZE);
+    this.historyPageIndex = 0;
+    this.historyToken += 1;
     // An open diff is re-read in the same pass, so what is on screen after an
     // action always describes the repository this refresh just read.
     const diffFiles = await this.readOpenDiff(git, generation);
@@ -633,8 +846,18 @@ export class GitRepositoryController {
         status: parseStatus(status.stdout),
         branches: parseBranches(branches.stdout),
         remotes: parseRemotes(remotes.stdout),
-        history: parseHistory(history.stdout),
+        history: entries,
+        historyPage: {
+          pageIndex: 0,
+          pageSize: HISTORY_PAGE_SIZE,
+          hasPrevious: false,
+          hasNext: parsed.length > HISTORY_PAGE_SIZE,
+          loading: false,
+          error: null,
+        },
+        commitDetail: preservedCommitDetail(this.current, entries),
         diffFiles,
+        diffSource: this.openDiff ? { kind: this.openDiff.target } : null,
         recovery: interruptedOperation(state.stdout),
         remoteAccess: this.remoteAccess,
         pendingBranchSwitch: this.current.pendingBranchSwitch,
@@ -724,10 +947,12 @@ export class GitRepositoryController {
     }
     this.openDiff = { path, target };
     this.publish(
-      withDiffFiles(this.stable, files, {
-        tab: "changes",
-        view: { kind: "diff", path },
-      }),
+      withDiffFiles(
+        this.stable,
+        files,
+        { tab: "changes", view: { kind: "diff", path } },
+        { kind: target },
+      ),
     );
   }
 
@@ -745,6 +970,14 @@ export class GitRepositoryController {
     path: string,
     index: number,
   ): Promise<void> {
+    // A commit's diff is a record of what already happened, so no hunk of it
+    // can be staged. Saying so is what keeps a history selection from reaching
+    // the working-tree path below at all.
+    if (this.current.diffSource?.kind === "commit") {
+      throw new GitRefused(
+        "A commit's diff is history, not a change Denote can stage. Open the file on the Changes tab to stage part of it.",
+      );
+    }
     const file = this.current.diffFiles.find((entry) => entry.path === path);
     if (!file) {
       throw new GitRefused(
@@ -1770,8 +2003,26 @@ function interruptedOperation(
   };
 }
 
-function describeAction(actionId: string): string {
-  switch (actionId) {
+/**
+ * Keeps the open commit only while the page Denote just read still holds it.
+ *
+ * A commit is named by the hash of its own content, so a commit that is still
+ * listed has exactly the diff that was already read and nothing has to be read
+ * again. A commit that has left the page is dropped, because the model would
+ * otherwise describe a commit its history no longer contains.
+ */
+function preservedCommitDetail(
+  model: PluginSourceControlViewModel,
+  history: PluginSourceControlHistoryEntry[],
+): PluginSourceControlCommitDetail | null {
+  const detail = model.commitDetail;
+  if (!detail) {
+    return null;
+  }
+  return history.some((entry) => entry.id === detail.commit.id) ? detail : null;
+}
+
+function describeAction(actionId: string): string {  switch (actionId) {
     case "open-conflict":
       return "resolve conflicts";
     case "continue":

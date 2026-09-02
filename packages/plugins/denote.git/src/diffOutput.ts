@@ -38,6 +38,14 @@ const COPY_TARGET = "copy to";
  * file headers, similarity and mode metadata, hunk headers, and the three line
  * prefixes. Anything else is ignored rather than guessed at, and a file whose
  * content Git refused to show is reported as binary with no hunks.
+ *
+ * Two kinds of surrounding text are ignored by the same rule. `show` writes a
+ * commit header and an indented message before the diff, so a message that
+ * quotes a diff header cannot start a file. A merge's combined diff is written
+ * as `diff --cc` with `@@@` headers, which describe two comparisons at once
+ * and have no single pair of line numbers; it is skipped rather than
+ * approximated, and Denote reads a merge as the comparison with its first
+ * parent instead.
  */
 export function parseUnifiedDiff(stdout: string): PluginSourceControlDiffFile[] {
   const files: PluginSourceControlDiffFile[] = [];

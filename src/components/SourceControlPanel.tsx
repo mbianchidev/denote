@@ -3,7 +3,10 @@ import type {
   PluginSourceControlAction,
   PluginSourceControlAuthMode,
   PluginSourceControlBranchChoice,
+  PluginSourceControlCommitDetail,
   PluginSourceControlDiffFile,
+  PluginSourceControlDiffSource,
+  PluginSourceControlHistoryPage,
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRemote,
   PluginSourceControlRemoteAccess,
@@ -15,6 +18,14 @@ interface SourceControlPanelProps {
   title: string;
   model: PluginSourceControlViewModel;
   onAction: (action: PluginSourceControlAction) => void;
+  /**
+   * Opens one repository-relative path in the editor.
+   *
+   * The host owns this entirely: it resolves the path inside the open vault
+   * and uses the ordinary file-open flow, so no provider ever names a place on
+   * disk and no Git command is involved in opening a note.
+   */
+  onOpenFile?: (path: string) => void;
 }
 
 const tabs = [
@@ -43,11 +54,13 @@ function ResourceGroup({
   busy,
   onAction,
   onOpenDiff,
+  onOpenFile,
 }: {
   group: PluginSourceControlResourceGroup;
   busy: boolean;
   onAction: SourceControlPanelProps["onAction"];
   onOpenDiff: (path: string, group: string) => void;
+  onOpenFile?: (path: string) => void;
 }) {
   if (group.resources.length === 0) {
     return null;
@@ -116,6 +129,17 @@ function ResourceGroup({
                   Open conflict
                 </button>
               ) : null}
+              {/* A deleted file is still worth reviewing, but there is nothing
+                  left on disk to open. */}
+              {onOpenFile && resource.status !== "deleted" ? (
+                <button
+                  type="button"
+                  aria-label={`Open file ${resource.path}`}
+                  onClick={() => onOpenFile(resource.path)}
+                >
+                  Open file
+                </button>
+              ) : null}
             </div>
           </li>
         ))}
@@ -139,23 +163,45 @@ function supportsHunkActions(file: PluginSourceControlDiffFile): boolean {
 
 function DiffView({
   files,
-  staged,
+  source,
   busy,
+  headingId,
+  label,
+  emptyMessage,
   onAction,
+  onOpenFile,
+  onClose,
 }: {
   files: PluginSourceControlDiffFile[];
-  /** True while the open diff shows the index against the last commit. */
-  staged: boolean;
+  /**
+   * Which comparison produced these files. Hunk actions are offered only for
+   * the two working-tree directions the host can apply a patch in; a commit's
+   * diff is history and is read-only.
+   */
+  source: PluginSourceControlDiffSource | null;
   busy: boolean;
+  headingId: string;
+  label: string;
+  emptyMessage?: string;
   onAction: SourceControlPanelProps["onAction"];
+  onOpenFile?: (path: string) => void;
+  onClose?: () => void;
 }) {
+  const staged = source?.kind === "index";
+  const stageable = source?.kind === "worktree" || source?.kind === "index";
+
   if (files.length === 0) {
-    return null;
+    return emptyMessage ? (
+      <section className="source-control__detail" aria-labelledby={headingId}>
+        <h3 id={headingId}>{label}</h3>
+        <p className="sidebar-empty">{emptyMessage}</p>
+      </section>
+    ) : null;
   }
 
   return (
-    <section className="source-control__detail" aria-labelledby="source-control-diff">
-      <h3 id="source-control-diff">Diff</h3>
+    <section className="source-control__detail" aria-labelledby={headingId}>
+      <h3 id={headingId}>{label}</h3>
       {files.map((file) => (
         <article className="source-control__diff-file" key={file.path}>
           <h4>{file.path}</h4>
@@ -163,19 +209,38 @@ function DiffView({
           <p>
             {file.status} · +{file.additions} −{file.deletions}
           </p>
+          {onOpenFile && file.status !== "deleted" ? (
+            <div className="source-control__row-actions">
+              <button
+                type="button"
+                aria-label={`Open file ${file.path}`}
+                onClick={() => onOpenFile(file.path)}
+              >
+                Open file
+              </button>
+            </div>
+          ) : null}
+          {file.status === "deleted" ? (
+            <p className="source-control__limitation" role="status">
+              This file was deleted, so there is nothing left in the vault to
+              open. Its change is still shown here.
+            </p>
+          ) : null}
           {file.binary ? (
             <p className="source-control__limitation" role="status">
-              Binary diff content cannot be displayed in Denote.
+              Binary content cannot be displayed in Denote, so this change has
+              no line-level content. An encrypted vault records ciphertext,
+              which Git also reports as binary.
             </p>
           ) : (
             <>
-              {supportsHunkActions(file) ? null : (
+              {stageable && !supportsHunkActions(file) ? (
                 <p className="source-control__limitation" role="status">
                   Denote stages this change as a whole file, because a{" "}
                   {file.status} change has no matching pair of text sides to
                   split into hunks.
                 </p>
-              )}
+              ) : null}
               {file.hunks.map((hunk, index) => (
                 <section
                   className="source-control__diff-hunk"
@@ -183,7 +248,7 @@ function DiffView({
                   aria-label={hunk.header}
                 >
                   <h5>{hunk.header}</h5>
-                  {supportsHunkActions(file) ? (
+                  {stageable && supportsHunkActions(file) ? (
                     <div className="source-control__row-actions">
                       <button
                         type="button"
@@ -225,6 +290,11 @@ function DiffView({
                           {line.newLineNumber ?? " "}
                         </span>
                         <code>{line.content}</code>
+                        {line.noNewlineAtEndOfFile ? (
+                          <span className="sr-only">
+                            , no newline at end of file
+                          </span>
+                        ) : null}
                       </li>
                     ))}
                   </ol>
@@ -234,14 +304,150 @@ function DiffView({
           )}
         </article>
       ))}
+      {onClose ? (
+        <div className="source-control__actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Close diff
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * The commits Denote has read, one bounded page at a time.
+ *
+ * The page is described rather than the log: there is no total, because
+ * nothing counted one. Paging asks the provider for the next or previous
+ * window, and the status line says which page is on screen.
+ */
+function HistoryPager({
+  page,
+  count,
+  busy,
+  onAction,
+}: {
+  page: PluginSourceControlHistoryPage;
+  count: number;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  return (
+    <div className="source-control__history-controls">
+      <div className="source-control__row-actions">
+        <button
+          type="button"
+          aria-label="Refresh history"
+          disabled={busy || page.loading}
+          onClick={() => onAction(action("refresh-history"))}
+        >
+          Refresh history
+        </button>
+        <button
+          type="button"
+          aria-label="Previous page of history"
+          disabled={busy || page.loading || !page.hasPrevious}
+          onClick={() => onAction(action("history-previous"))}
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          aria-label="Next page of history"
+          disabled={busy || page.loading || !page.hasNext}
+          onClick={() => onAction(action("history-next"))}
+        >
+          Next
+        </button>
+      </div>
+      <p role="status" className="source-control__history-status">
+        {page.loading
+          ? "Reading history…"
+          : `Page ${page.pageIndex + 1}, ${count} commit${count === 1 ? "" : "s"}${
+              page.hasNext ? ", more available" : ""
+            }`}
+      </p>
+      {page.error ? (
+        <p className="source-control__limitation" role="status">
+          {page.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** One commit, with the author, date, parents, refs, and its exact diff. */
+function CommitDetail({
+  detail,
+  busy,
+  onAction,
+  onOpenFile,
+}: {
+  detail: PluginSourceControlCommitDetail;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+  onOpenFile?: (path: string) => void;
+}) {
+  const { commit } = detail;
+  return (
+    <section
+      className="source-control__detail"
+      aria-labelledby="source-control-commit"
+    >
+      <h3 id="source-control-commit">{commit.summary}</h3>
+      <dl>
+        <div>
+          <dt>Commit</dt>
+          <dd>{commit.shortId}</dd>
+        </div>
+        <div>
+          <dt>Author</dt>
+          <dd>{commit.authorName}</dd>
+        </div>
+        <div>
+          <dt>Authored</dt>
+          <dd>
+            <time dateTime={commit.authoredAt}>{commit.authoredAt}</time>
+          </dd>
+        </div>
+        <div>
+          <dt>Parents</dt>
+          <dd>{commit.parentIds.length > 0 ? commit.parentIds.join(", ") : "None"}</dd>
+        </div>
+        <div>
+          <dt>Refs</dt>
+          <dd>{commit.refs.length > 0 ? commit.refs.join(", ") : "None"}</dd>
+        </div>
+      </dl>
+      {detail.limitation ? (
+        <p className="source-control__limitation" role="status">
+          {detail.limitation}
+        </p>
+      ) : null}
+      <DiffView
+        files={detail.files}
+        source={{ kind: "commit", commitId: commit.id }}
+        busy={busy}
+        headingId="source-control-commit-diff"
+        label="Changed files"
+        emptyMessage="This commit changed no files."
+        onAction={onAction}
+        onOpenFile={onOpenFile}
+      />
       <div className="source-control__actions">
         <button
           type="button"
           className="secondary-button"
           disabled={busy}
-          onClick={() => onAction(action("close-diff"))}
+          onClick={() => onAction(action("close-commit"))}
         >
-          Close diff
+          Back to history
         </button>
       </div>
     </section>
@@ -927,19 +1133,11 @@ export function SourceControlPanel({
   title,
   model,
   onAction,
+  onOpenFile,
 }: SourceControlPanelProps) {
   const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
   const [chosenRemote, setChosenRemote] = useState("");
-  /**
-   * Which side of the index the open diff came from. The panel issued the
-   * action, so it is the only place that knows whether the hunks on screen are
-   * staged content or working-tree content.
-   */
-  const [diffOrigin, setDiffOrigin] = useState<{
-    path: string;
-    staged: boolean;
-  } | null>(null);
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
   const selectedBranch =
     model.branches.find((branch) => branch.current)?.name ??
@@ -999,17 +1197,25 @@ export function SourceControlPanel({
   useEffect(() => {
     setCommitMessage("");
     setChosenRemote("");
-    setDiffOrigin(null);
   }, [repository.repositoryId]);
 
   const openedDiffPath =
     model.selectedView.kind === "diff" ? model.selectedView.path : null;
-  const stagedDiff =
-    openedDiffPath !== null &&
-    diffOrigin?.path === openedDiffPath &&
-    diffOrigin.staged;
+  // A path that is both staged and changed has two diffs to look at, so the
+  // side on screen is named and the other one is offered.
+  const diffSides =
+    openedDiffPath === null
+      ? []
+      : (["unstaged", "staged"] as const).filter((kind) =>
+          model.resourceGroups.some(
+            (group) =>
+              group.kind === kind &&
+              group.resources.some(
+                (resource) => resource.path === openedDiffPath,
+              ),
+          ),
+        );
   const openDiff = (path: string, group: string) => {
-    setDiffOrigin({ path, staged: group === "staged" });
     onAction(action("open-diff", { path, group }));
   };
 
@@ -1308,6 +1514,7 @@ export function SourceControlPanel({
                         busy={repository.busy}
                         onAction={onAction}
                         onOpenDiff={openDiff}
+                        onOpenFile={onOpenFile}
                       />
                     ))
                   ) : (
@@ -1346,17 +1553,56 @@ export function SourceControlPanel({
                       ) : null}
                     </section>
                   ) : null}
-                  {model.selectedView.kind === "diff" ? (
-                    <DiffView
-                      files={model.diffFiles}
-                      staged={stagedDiff}
-                      busy={repository.busy}
-                      onAction={onAction}
-                    />
+                  {model.selectedView.kind === "diff" && openedDiffPath ? (
+                    <>
+                      {diffSides.length > 1 ? (
+                        <div
+                          className="source-control__row-actions"
+                          role="group"
+                          aria-label={`Diff side for ${openedDiffPath}`}
+                        >
+                          {diffSides.map((side) => (
+                            <button
+                              type="button"
+                              key={side}
+                              aria-pressed={
+                                side === "staged"
+                                  ? model.diffSource?.kind === "index"
+                                  : model.diffSource?.kind === "worktree"
+                              }
+                              disabled={repository.busy}
+                              onClick={() => openDiff(openedDiffPath, side)}
+                            >
+                              {side === "staged" ? "Staged" : "Working tree"}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
+                      <DiffView
+                        files={model.diffFiles}
+                        source={model.diffSource}
+                        busy={repository.busy}
+                        headingId="source-control-diff"
+                        label={
+                          model.diffSource?.kind === "index"
+                            ? `Staged diff: ${openedDiffPath}`
+                            : `Working tree diff: ${openedDiffPath}`
+                        }
+                        onAction={onAction}
+                        onOpenFile={onOpenFile}
+                        onClose={() => onAction(action("close-diff"))}
+                      />
+                    </>
                   ) : null}
                 </>
               ) : model.selectedTab === "history" ? (
                 <>
+                  <HistoryPager
+                    page={model.historyPage}
+                    count={model.history.length}
+                    busy={repository.busy}
+                    onAction={onAction}
+                  />
                   {model.history.length > 0 ? (
                     <ul className="source-control__history">
                       {model.history.map((entry) => {
@@ -1368,6 +1614,7 @@ export function SourceControlPanel({
                             <button
                               type="button"
                               aria-pressed={selected}
+                              disabled={repository.busy}
                               onClick={() =>
                                 onAction(
                                   action("open-commit", {
@@ -1391,15 +1638,12 @@ export function SourceControlPanel({
                   ) : (
                     <p className="sidebar-empty">No commit history.</p>
                   )}
-                  {/* History diffs are a later increment, so a diff read for
-                      the Changes tab is never shown here as if it belonged to
-                      a commit. */}
-                  {model.selectedView.kind === "diff" ? (
-                    <DiffView
-                      files={model.diffFiles}
-                      staged={stagedDiff}
+                  {model.commitDetail ? (
+                    <CommitDetail
+                      detail={model.commitDetail}
                       busy={repository.busy}
                       onAction={onAction}
+                      onOpenFile={onOpenFile}
                     />
                   ) : null}
                 </>

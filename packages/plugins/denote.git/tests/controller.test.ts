@@ -60,7 +60,9 @@ describe("GitRepositoryController", () => {
     expect(git.request("list-history")).toEqual({
       operation: "list-history",
       scope: "vault",
-      maxCount: 20,
+      // One commit beyond the page is read, and never shown, so the surface
+      // can say whether an older page exists without counting the whole log.
+      maxCount: 21,
     });
     const model = controller.model;
     expect(model.repository).toMatchObject({
@@ -562,7 +564,7 @@ describe("GitRepositoryController", () => {
     await running;
   });
 
-  it("changes only the view for tab and commit selection", async () => {
+  it("changes only the view for tab selection, and reads Git for a commit", async () => {
     const { controller } = harness();
     const git = new FakeGit(repositoryResponder());
     await controller.runAction({ id: "refresh" }, git);
@@ -573,6 +575,9 @@ describe("GitRepositoryController", () => {
       git,
     );
     expect(controller.model.selectedTab).toBe("history");
+    // Selecting a tab is a view change only: it never runs Git.
+    expect(git.calls).toHaveLength(before);
+
     await controller.runAction(
       {
         id: "open-commit",
@@ -584,7 +589,9 @@ describe("GitRepositoryController", () => {
       kind: "commit",
       commitId: "1111111111111111111111111111111111111111",
     });
-    expect(git.calls).toHaveLength(before);
+    // A commit's own diff is read for it, because a commit that shows nothing
+    // would be a heading with no content.
+    expect(git.calls).toHaveLength(before + 1);
 
     // A refresh keeps a selection whose data still exists.
     await controller.runAction({ id: "refresh" }, new FakeGit(repositoryResponder()));
@@ -599,6 +606,7 @@ describe("GitRepositoryController", () => {
     );
     expect(controller.model.selectedTab).toBe("history");
     expect(controller.model.selectedView).toEqual({ kind: "history" });
+    expect(controller.model.commitDetail).toBeNull();
   });
 
   it("keeps progress visible when the tab changes mid-operation", async () => {

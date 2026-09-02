@@ -74,10 +74,12 @@ vi.mock("@tauri-apps/api/window", () => ({
     onCloseRequested: vi.fn().mockResolvedValue(() => {}),
   }),
 }));
-vi.mock("@tauri-apps/plugin-opener", () => ({
+const mockOpener = vi.hoisted(() => ({
   openPath: vi.fn(),
   revealItemInDir: vi.fn(),
 }));
+
+vi.mock("@tauri-apps/plugin-opener", () => mockOpener);
 vi.mock("./plugins/usePlugins", () => ({
   usePlugins: (
     _reportError: unknown,
@@ -664,6 +666,233 @@ describe("App initial file-tree expansion", () => {
     expect(
       await screen.findByText("Synthetic source control failure"),
     ).toBeInTheDocument();
+  });
+
+  it("opens a file a source control row names, in the focused pane", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.resourceGroups = [
+      {
+        kind: "unstaged",
+        label: "Changes",
+        resources: [
+          {
+            path: "notes/changed.md",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    // Two panes, so opening has to reach the focused one rather than either.
+    mockApi.getLastVault.mockResolvedValue(
+      splitPaneSnapshot([
+        fileNode("first.txt", "text"),
+        fileNode("second.txt", "text"),
+        fileNode("third.txt", "text"),
+        folderNode("notes", [fileNode("notes/changed.md")]),
+      ]),
+    );
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source control: Synthetic Git",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Open file notes/changed.md" }),
+    );
+
+    await waitFor(() => {
+      expect(mockApi.readNote).toHaveBeenCalledWith("notes/changed.md");
+    });
+    // The provider named a repository-relative path, and that is the only
+    // thing the host ever used: no absolute path was built or opened.
+    expect(mockOpener.openPath).not.toHaveBeenCalled();
+    expect(mockOpener.revealItemInDir).not.toHaveBeenCalled();
+    for (const [path] of mockApi.readNote.mock.calls) {
+      expect(path).not.toContain("/synthetic-vault");
+    }
+    const focusedPane = document.querySelector("[data-pane-id='pane-1']");
+    expect(focusedPane).not.toBeNull();
+    expect(
+      within(focusedPane as HTMLElement).getByRole("button", {
+        name: "Close notes/changed.md",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("says so when a file a commit names is no longer in the vault", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.selectedTab = "history";
+    model.selectedView = { kind: "commit", commitId: "commit-1" };
+    const commit = {
+      id: "commit-1",
+      shortId: "abc1234",
+      summary: "Rename and delete synthetic notes",
+      authorName: "Example Author",
+      authoredAt: "2026-01-01T00:00:00Z",
+      parentIds: [],
+      refs: [],
+    };
+    model.history = [commit];
+    model.commitDetail = {
+      commit,
+      limitation: null,
+      files: [
+        {
+          path: "notes/new name.md",
+          previousPath: "notes/old name.md",
+          status: "renamed",
+          additions: 0,
+          deletions: 0,
+          binary: false,
+          hunks: [],
+        },
+        {
+          path: "notes/vanished.md",
+          previousPath: null,
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+          binary: false,
+          hunks: [],
+        },
+      ],
+    };
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    // Only the renamed file's current path still exists on disk.
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        folderNode("notes", [fileNode("notes/new name.md")]),
+      ]),
+    );
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source control: Synthetic Git",
+      }),
+    );
+
+    // A rename is navigated by the name the file has now, never the one it
+    // had before the commit.
+    expect(
+      screen.queryByRole("button", { name: "Open file notes/old name.md" }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Open file notes/new name.md" }),
+    );
+    await waitFor(() => {
+      expect(mockApi.readNote).toHaveBeenCalledWith("notes/new name.md");
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Open file notes/vanished.md" }),
+    );
+    expect(
+      await screen.findByText(
+        /Denote could not open notes\/vanished.md because it is no longer in this vault/,
+      ),
+    ).toBeInTheDocument();
+    expect(mockApi.readNote).not.toHaveBeenCalledWith("notes/vanished.md");
+  });
+
+  it("resolves a project-scoped path inside the project, and refuses one that leaves the vault", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.resourceGroups = [
+      {
+        kind: "unstaged",
+        label: "Changes",
+        resources: [
+          {
+            path: "alpha.txt",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+          },
+          {
+            path: "../outside.md",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    const snapshot = workspaceSnapshot([
+      folderNode("code", [fileNode("code/alpha.txt", "text")]),
+    ]);
+    mockApi.getLastVault.mockResolvedValue({
+      ...snapshot,
+      restoreTabs: true,
+      tabSession: {
+        tabs: [{ path: "code/alpha.txt", groupId: null }],
+        groups: [],
+        activePath: "code/alpha.txt",
+        panes: [
+          {
+            id: "pane-1",
+            tabs: [{ path: "code/alpha.txt", groupId: null }],
+            groups: [],
+            activePath: "code/alpha.txt",
+          },
+        ],
+        layout: { kind: "horizontal", sizes: [1] },
+        focusedPaneId: "pane-1",
+      },
+      projectRoots: [
+        {
+          id: "project-1",
+          rootPath: "code",
+          available: true,
+          explicit: true,
+          workspaceId: null,
+        },
+      ],
+    });
+
+    render(<App />);
+    await screen.findByLabelText("Content of Edit code/alpha.txt");
+    await user.click(
+      screen.getByRole("button", { name: "Source control: Synthetic Git" }),
+    );
+    mockApi.readNote.mockClear();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open file alpha.txt" }),
+    );
+    // The repository is the project, so its paths are resolved inside it.
+    expect(
+      screen.queryByText(/is not inside this vault/),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Open file ../outside.md" }),
+    );
+    expect(
+      await screen.findByText(
+        /Denote cannot open ..\/outside.md because it is not inside this vault/,
+      ),
+    ).toBeInTheDocument();
+    for (const [path] of mockApi.readNote.mock.calls) {
+      expect(path).not.toContain("..");
+    }
   });
 
   it("flushes pending edits before a source control mutation", async () => {
@@ -1438,6 +1667,15 @@ function fileNode(
   };
 }
 
+/** One folder with its children, so a test can name a nested path. */
+function folderNode(path: string, children: FileNode[]): FileNode {
+  return {
+    ...fileNode(path, "folder"),
+    name: path.split("/").slice(-1)[0] ?? path,
+    children,
+  };
+}
+
 function workspaceSnapshot(tree: FileNode[]): WorkspaceSnapshot {
   return {
     vaultPath: "/synthetic-vault",
@@ -1539,7 +1777,17 @@ function appSourceControlModel(
     ],
     remotes: [],
     history: [],
+    historyPage: {
+      pageIndex: 0,
+      pageSize: 20,
+      hasPrevious: false,
+      hasNext: false,
+      loading: false,
+      error: null,
+    },
+    commitDetail: null,
     diffFiles: [],
+    diffSource: null,
     conflicts: [],
     recovery: { state: "idle" },
     pendingBranchSwitch: null,

@@ -307,3 +307,106 @@ export const CRLF_DIFF = [
 export function last<T>(values: T[]): T | undefined {
   return values.length > 0 ? values[values.length - 1] : undefined;
 }
+
+/**
+ * Builds a synthetic NUL delimited history report.
+ *
+ * Commit IDs are the record's own index written out, so a test can name the
+ * exact commit it expects on a page without depending on a real repository.
+ */
+export function syntheticHistory(
+  count: number,
+  offset = 0,
+  overrides: Record<number, { parentIds?: string[]; refs?: string }> = {},
+): string {
+  const fields: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const number = offset + index;
+    const override = overrides[number] ?? {};
+    fields.push(
+      commitId(number),
+      commitId(number).slice(0, 7),
+      "Synthetic Author",
+      "2026-01-01T00:00:00+00:00",
+      (override.parentIds ?? [commitId(number + 1)]).join(" "),
+      override.refs ?? "",
+      `Record synthetic note ${number}`,
+    );
+  }
+  return `${fields.join("\0")}\0`;
+}
+
+/** The 40-character commit ID a synthetic history record number maps to. */
+export function commitId(number: number): string {
+  return String(number).padStart(40, "0");
+}
+
+/**
+ * One commit's diff, with the commit header and message the host suppresses
+ * still present. The host asks Git not to print them, so this is the belt to
+ * that braces: a message that quotes a diff header is indented by Git and can
+ * never start a file, whichever way the report was produced.
+ */
+export const SYNTHETIC_COMMIT_DIFF = [
+  `commit ${commitId(0)}`,
+  "Author: Synthetic Author <author@example.invalid>",
+  "Date:   Thu Jan 1 00:00:00 2026 +0000",
+  "",
+  "    Record synthetic note 0",
+  "",
+  "    diff --git a/notes/injected.md b/notes/injected.md",
+  "",
+  "diff --git a/notes/changed.md b/notes/changed.md",
+  "index 1111111..2222222 100644",
+  "--- a/notes/changed.md",
+  "+++ b/notes/changed.md",
+  "@@ -1,3 +1,3 @@",
+  " one",
+  "-two",
+  "+TWO",
+  " three",
+  "diff --git a/notes/added.md b/notes/added.md",
+  "new file mode 100644",
+  "index 0000000..3333333",
+  "--- /dev/null",
+  "+++ b/notes/added.md",
+  "@@ -0,0 +1,1 @@",
+  "+added synthetic line",
+  "",
+].join("\n");
+
+/** One commit that renamed a note and deleted another. */
+export const RENAME_COMMIT_DIFF = [
+  `commit ${commitId(0)}`,
+  "Author: Synthetic Author <author@example.invalid>",
+  "Date:   Thu Jan 1 00:00:00 2026 +0000",
+  "",
+  "    Rename and delete synthetic notes",
+  "",
+  "diff --git a/notes/old name.md b/notes/new name.md",
+  "similarity index 100%",
+  "rename from notes/old name.md",
+  "rename to notes/new name.md",
+  "diff --git a/notes/removed.md b/notes/removed.md",
+  "deleted file mode 100644",
+  "index 4444444..0000000",
+  "--- a/notes/removed.md",
+  "+++ /dev/null",
+  "@@ -1,1 +0,0 @@",
+  "-gone",
+  "",
+].join("\n");
+
+/** One commit whose only change is a file Git refuses to show as text. */
+export const BINARY_COMMIT_DIFF = [
+  `commit ${commitId(0)}`,
+  "Author: Synthetic Author <author@example.invalid>",
+  "Date:   Thu Jan 1 00:00:00 2026 +0000",
+  "",
+  "    Record a sealed note",
+  "",
+  "diff --git a/notes/sealed.md b/notes/sealed.md",
+  "index 5555555..6666666 100644",
+  "Binary files a/notes/sealed.md and b/notes/sealed.md differ",
+  "",
+].join("\n");

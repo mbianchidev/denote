@@ -148,6 +148,48 @@ fn maps_every_operation_to_a_fixed_argument_template() {
         ]
     );
     assert_eq!(
+        command_args(PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Commit {
+                commit: "1111111111111111111111111111111111111111".to_string(),
+            },
+            paths: None,
+        }),
+        vec![
+            "show",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--find-renames",
+            "--patch",
+            "--no-show-signature",
+            // The commit header and message are suppressed, so the report is
+            // the patch and nothing a message could disguise as one.
+            "--format=",
+            "1111111111111111111111111111111111111111"
+        ]
+    );
+    assert_eq!(
+        command_args(PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Range {
+                from_commit: "1111111111111111111111111111111111111111".to_string(),
+                to_commit: "2222222222222222222222222222222222222222".to_string(),
+            },
+            paths: None,
+        }),
+        vec![
+            "diff",
+            "--no-color",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--find-renames",
+            "--patch",
+            "1111111111111111111111111111111111111111",
+            "2222222222222222222222222222222222222222"
+        ]
+    );
+    assert_eq!(
         command_args(PluginGitRequest::Fetch {
             auth_mode: PluginGitAuthMode::Public,
             scope: PluginGitScope::Vault,
@@ -5298,4 +5340,567 @@ fn stages_and_unstages_a_hunk_whose_lines_look_like_file_headers() {
         edited,
         "unstaging a hunk must never touch the working tree"
     );
+}
+
+// ---------------------------------------------------------------------------
+// History pages and commit diffs
+// ---------------------------------------------------------------------------
+
+/// A repository with one commit already in it, and an identity to make more.
+fn history_fixture() -> Option<GitFixture> {
+    let fixture = fixture()?;
+    run(
+        &fixture,
+        PluginGitRequest::Initialize {
+            scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
+        },
+        None,
+    )
+    .expect("initialize");
+    identify(&fixture.vault_root);
+    Some(fixture)
+}
+
+/// Stages everything in the worktree and commits it through the transport.
+fn commit_worktree(fixture: &GitFixture, paths: &[&str], message: &str) {
+    let staged = run(
+        fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: paths.iter().map(|path| (*path).to_string()).collect(),
+        },
+        None,
+    )
+    .expect("stage");
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+    let commit = run(
+        fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: message.to_string(),
+            amend: false,
+            allow_empty: false,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    assert_eq!(commit.exit_code, 0, "{}", commit.stderr);
+}
+
+/// The commit IDs one history page reports, newest first.
+fn history_ids(fixture: &GitFixture, max_count: u32, skip: Option<u32>) -> Vec<String> {
+    let history = run(
+        fixture,
+        PluginGitRequest::ListHistory {
+            scope: PluginGitScope::Vault,
+            max_count,
+            skip,
+            r#ref: None,
+            path: None,
+        },
+        None,
+    )
+    .expect("history");
+    history
+        .stdout
+        .split('\0')
+        .collect::<Vec<_>>()
+        .chunks(7)
+        .filter(|record| record.len() == 7 && record[0].len() == 40)
+        .map(|record| record[0].to_string())
+        .collect()
+}
+
+/// Paging must walk the log exactly once: no commit repeated, none skipped.
+#[test]
+fn history_pages_walk_the_whole_log_without_repeating_a_commit() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    for index in 0..5 {
+        fs::write(
+            fixture.vault_root.join("alpha.md"),
+            format!("synthetic note {index}\n"),
+        )
+        .expect("note");
+        commit_worktree(&fixture, &["alpha.md"], &format!("Record note {index}"));
+    }
+
+    let all = history_ids(&fixture, 10, None);
+    assert_eq!(all.len(), 5, "{all:?}");
+    let first = history_ids(&fixture, 2, None);
+    let second = history_ids(&fixture, 2, Some(2));
+    let third = history_ids(&fixture, 2, Some(4));
+    assert_eq!(first, all[0..2].to_vec());
+    assert_eq!(second, all[2..4].to_vec());
+    assert_eq!(third, all[4..5].to_vec());
+    // A page past the end of the log is empty rather than an error.
+    assert!(history_ids(&fixture, 2, Some(10)).is_empty());
+    // One commit beyond the page is what tells a surface another page exists.
+    assert_eq!(history_ids(&fixture, 3, None).len(), 3);
+}
+
+#[test]
+fn history_bounds_refuse_a_page_size_or_skip_outside_the_allowed_range() {
+    let request = |max_count: u32, skip: Option<u32>| PluginGitRequest::ListHistory {
+        scope: PluginGitScope::Vault,
+        max_count,
+        skip,
+        r#ref: None,
+        path: None,
+    };
+
+    assert!(plan_git_request(&request(0, None)).is_err());
+    assert!(plan_git_request(&request(1001, None)).is_err());
+    assert!(plan_git_request(&request(20, Some(100_001))).is_err());
+    assert!(plan_git_request(&request(1000, Some(100_000))).is_ok());
+}
+
+#[test]
+fn history_and_diff_refuse_a_revision_or_path_that_is_not_one() {
+    for revision in [
+        "--upload-pack=synthetic",
+        "-HEAD",
+        "HEAD; rm -rf .",
+        "main branch",
+        "",
+    ] {
+        assert!(
+            plan_git_request(&PluginGitRequest::ListHistory {
+                scope: PluginGitScope::Vault,
+                max_count: 20,
+                skip: None,
+                r#ref: Some(revision.to_string()),
+                path: None,
+            })
+            .is_err(),
+            "revision {revision:?} must be refused"
+        );
+        assert!(
+            plan_git_request(&PluginGitRequest::Diff {
+                scope: PluginGitScope::Vault,
+                target: PluginGitDiffTarget::Commit {
+                    commit: revision.to_string()
+                },
+                paths: None,
+            })
+            .is_err(),
+            "commit {revision:?} must be refused"
+        );
+        assert!(
+            plan_git_request(&PluginGitRequest::Diff {
+                scope: PluginGitScope::Vault,
+                target: PluginGitDiffTarget::Range {
+                    from_commit: revision.to_string(),
+                    to_commit: "HEAD".to_string(),
+                },
+                paths: None,
+            })
+            .is_err(),
+            "range start {revision:?} must be refused"
+        );
+    }
+    for path in ["../outside.md", "/etc/passwd", ".git/config"] {
+        assert!(
+            plan_git_request(&PluginGitRequest::Diff {
+                scope: PluginGitScope::Vault,
+                target: PluginGitDiffTarget::Worktree,
+                paths: Some(vec![path.to_string()]),
+            })
+            .is_err(),
+            "path {path:?} must be refused"
+        );
+        assert!(
+            plan_git_request(&PluginGitRequest::ListHistory {
+                scope: PluginGitScope::Vault,
+                max_count: 20,
+                skip: None,
+                r#ref: None,
+                path: Some(path.to_string()),
+            })
+            .is_err(),
+            "history path {path:?} must be refused"
+        );
+    }
+}
+
+/// The three comparisons a surface can ask for describe three different
+/// things, and each one is read from the repository rather than inferred.
+#[test]
+fn worktree_index_and_commit_diffs_describe_their_own_side() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    let note = fixture.vault_root.join("alpha.md");
+    fs::write(&note, "one\ntwo\nthree\n").expect("note");
+    commit_worktree(&fixture, &["alpha.md"], "Record a synthetic note");
+    fs::write(&note, "one\nSTAGED\nthree\n").expect("note");
+    run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    fs::write(&note, "one\nWORKTREE\nthree\n").expect("note");
+
+    let diff = |target: PluginGitDiffTarget| {
+        run(
+            &fixture,
+            PluginGitRequest::Diff {
+                scope: PluginGitScope::Vault,
+                target,
+                paths: Some(vec!["alpha.md".to_string()]),
+            },
+            None,
+        )
+        .expect("diff")
+        .stdout
+    };
+
+    let worktree = diff(PluginGitDiffTarget::Worktree);
+    assert!(worktree.contains("-STAGED"), "{worktree}");
+    assert!(worktree.contains("+WORKTREE"), "{worktree}");
+    let index = diff(PluginGitDiffTarget::Index);
+    assert!(index.contains("-two"), "{index}");
+    assert!(index.contains("+STAGED"), "{index}");
+    assert!(!index.contains("WORKTREE"), "{index}");
+
+    let head = git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let commit = diff(PluginGitDiffTarget::Commit {
+        commit: head.clone(),
+    });
+    assert!(commit.contains("new file mode"), "{commit}");
+    assert!(commit.contains("+one"), "{commit}");
+
+    // A range against the commit's own parent is empty, because the two sides
+    // are the same tree.
+    let range = diff(PluginGitDiffTarget::Range {
+        from_commit: head.clone(),
+        to_commit: head,
+    });
+    assert_eq!(range.trim(), "", "{range}");
+}
+
+/// One commit that adds, renames, copies, deletes, and stores binary content,
+/// so the report a surface parses carries every shape at once.
+#[test]
+fn commit_diffs_report_additions_renames_deletions_and_binary_content() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    let root = &fixture.vault_root;
+    fs::write(root.join("old name.md"), "one\ntwo\nthree\n").expect("note");
+    fs::write(root.join("removed.md"), "gone\n").expect("note");
+    commit_worktree(&fixture, &["old name.md", "removed.md"], "Record notes");
+
+    fs::rename(root.join("old name.md"), root.join("new name.md")).expect("rename");
+    fs::remove_file(root.join("removed.md")).expect("remove");
+    fs::write(root.join("added.md"), "fresh\n").expect("note");
+    // A NUL byte is what makes Git call a file binary, which is also what an
+    // encrypted vault's ciphertext looks like.
+    fs::write(root.join("sealed.bin"), [0u8, 159, 146, 150]).expect("binary");
+    commit_worktree(
+        &fixture,
+        &[
+            "old name.md",
+            "new name.md",
+            "removed.md",
+            "added.md",
+            "sealed.bin",
+        ],
+        "Rename, delete, add, and seal",
+    );
+
+    let head = git_output(root, &["rev-parse", "HEAD"]).trim().to_string();
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Commit { commit: head },
+            paths: None,
+        },
+        None,
+    )
+    .expect("diff")
+    .stdout;
+
+    assert!(diff.contains("rename from old name.md"), "{diff}");
+    assert!(diff.contains("rename to new name.md"), "{diff}");
+    assert!(diff.contains("deleted file mode"), "{diff}");
+    assert!(diff.contains("new file mode"), "{diff}");
+    assert!(diff.contains("Binary files"), "{diff}");
+    // The commit's own header and message are not in the report at all, so a
+    // surface parses the patch and nothing else.
+    assert!(!diff.contains("Rename, delete, add, and seal"), "{diff}");
+}
+
+/// `format.pretty` can be set in a repository to print a commit message flush
+/// left, where a message that quotes a diff header would read as another
+/// changed file. The header and the message are suppressed, so it cannot.
+#[test]
+fn a_commit_message_cannot_be_read_as_a_changed_file() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    let git = resolve_git_executable(None).expect("git");
+    git_config(&git, &fixture.vault_root, "format.pretty", "%s%n%n%b");
+    fs::write(fixture.vault_root.join("alpha.md"), "one\n").expect("note");
+    commit_worktree(
+        &fixture,
+        &["alpha.md"],
+        "Record a synthetic note\n\ndiff --git a/notes/injected.md b/notes/injected.md",
+    );
+
+    let head = git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Commit { commit: head },
+            paths: None,
+        },
+        None,
+    )
+    .expect("diff")
+    .stdout;
+
+    assert!(!diff.contains("notes/injected.md"), "{diff}");
+    assert!(!diff.contains("Record a synthetic note"), "{diff}");
+    assert!(diff.contains("diff --git a/alpha.md b/alpha.md"), "{diff}");
+}
+
+/// A merge has no ordinary one-parent diff: `show` writes a combined diff, and
+/// the comparison Denote renders is the range against the first parent.
+#[test]
+fn merge_commits_are_readable_as_the_range_against_the_first_parent() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    let root = &fixture.vault_root;
+    let note = root.join("alpha.md");
+    fs::write(&note, "one\ntwo\nthree\n").expect("note");
+    commit_worktree(&fixture, &["alpha.md"], "Record a synthetic note");
+    run(
+        &fixture,
+        PluginGitRequest::CreateBranch {
+            scope: PluginGitScope::Vault,
+            name: "topic".to_string(),
+            start_point: None,
+            checkout: true,
+        },
+        None,
+    )
+    .expect("branch");
+    fs::write(&note, "one\nTWO\nthree\n").expect("note");
+    commit_worktree(&fixture, &["alpha.md"], "Change the middle line");
+    run(
+        &fixture,
+        PluginGitRequest::CheckoutBranch {
+            scope: PluginGitScope::Vault,
+            name: "main".to_string(),
+        },
+        None,
+    )
+    .expect("checkout");
+    fs::write(root.join("beta.md"), "beta\n").expect("note");
+    commit_worktree(&fixture, &["beta.md"], "Add another note");
+    let merge = run(
+        &fixture,
+        PluginGitRequest::Merge {
+            scope: PluginGitScope::Vault,
+            r#ref: "topic".to_string(),
+            fast_forward_only: false,
+            no_commit: false,
+        },
+        None,
+    )
+    .expect("merge");
+    assert_eq!(merge.exit_code, 0, "{}", merge.stderr);
+
+    let head = git_output(root, &["rev-parse", "HEAD"]).trim().to_string();
+    let first_parent = git_output(root, &["rev-parse", "HEAD^1"])
+        .trim()
+        .to_string();
+    assert_eq!(
+        git_output(root, &["rev-list", "--parents", "-n", "1", "HEAD"])
+            .split_whitespace()
+            .count(),
+        3,
+        "the fixture must produce a real merge commit"
+    );
+
+    let shown = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Commit {
+                commit: head.clone(),
+            },
+            paths: None,
+        },
+        None,
+    )
+    .expect("show")
+    .stdout;
+    // Git's own report for a merge is the combined diff, which carries no
+    // single pair of line numbers.
+    assert!(
+        !shown.contains("diff --git"),
+        "a merge's show output is combined, not ordinary: {shown}"
+    );
+
+    let range = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Range {
+                from_commit: first_parent,
+                to_commit: head,
+            },
+            paths: None,
+        },
+        None,
+    )
+    .expect("range")
+    .stdout;
+    assert!(
+        range.contains("diff --git a/alpha.md b/alpha.md"),
+        "{range}"
+    );
+    assert!(range.contains("+TWO"), "{range}");
+}
+
+#[test]
+fn empty_commits_report_no_files_at_all() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    fs::write(fixture.vault_root.join("alpha.md"), "one\n").expect("note");
+    commit_worktree(&fixture, &["alpha.md"], "Record a synthetic note");
+    let empty = run(
+        &fixture,
+        PluginGitRequest::Commit {
+            scope: PluginGitScope::Vault,
+            message: "Record nothing at all".to_string(),
+            amend: false,
+            allow_empty: true,
+            author_name: None,
+            author_email: None,
+        },
+        None,
+    )
+    .expect("commit");
+    assert_eq!(empty.exit_code, 0, "{}", empty.stderr);
+
+    let head = git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Commit { commit: head },
+            paths: None,
+        },
+        None,
+    )
+    .expect("diff")
+    .stdout;
+
+    // An empty commit has no patch, and the header is not reported, so the
+    // report is empty rather than a heading with nothing under it.
+    assert_eq!(diff.trim(), "", "{diff}");
+}
+
+/// Everything a surface has to render exactly: a quoted non-ASCII name with a
+/// space in it, carriage returns, and a file with no final newline.
+#[test]
+fn diffs_carry_quoted_names_carriage_returns_and_missing_final_newlines() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    let directory = fixture.vault_root.join("sub dir");
+    fs::create_dir_all(&directory).expect("directory");
+    let note = directory.join("café.md");
+    fs::write(&note, "one\r\ntwo\r\nthree").expect("note");
+    commit_worktree(&fixture, &["sub dir/café.md"], "Record a synthetic note");
+    fs::write(&note, "one\r\nTWO\r\nthree without a newline").expect("note");
+
+    let diff = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Worktree,
+            paths: Some(vec!["sub dir/café.md".to_string()]),
+        },
+        None,
+    )
+    .expect("diff")
+    .stdout;
+
+    // Git C-quotes a non-ASCII name as octal bytes, and quotes the whole name
+    // because it also contains a space.
+    assert!(diff.contains("\"a/sub dir/caf\\303\\251.md\""), "{diff}");
+    assert!(diff.contains("-two\r\n"), "{diff}");
+    assert!(diff.contains("+TWO\r\n"), "{diff}");
+    assert!(diff.contains("\\ No newline at end of file"), "{diff}");
+}
+
+/// An encrypted vault records ciphertext, so its history has no readable
+/// lines: every note reads as binary content in every comparison.
+#[test]
+fn encrypted_history_reports_binary_content_and_never_plaintext() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    fs::write(fixture.vault_root.join("alpha.md"), "synthetic note\n").expect("note");
+    let vault_key = encrypt_fixture(&fixture);
+    fixture
+        .app_state
+        .set_vault_key(vault_key)
+        .expect("unlock vault");
+    commit_worktree(&fixture, &["alpha.md"], "Record an encrypted note");
+
+    let head = git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
+        .trim()
+        .to_string();
+    let commit = run(
+        &fixture,
+        PluginGitRequest::Diff {
+            scope: PluginGitScope::Vault,
+            target: PluginGitDiffTarget::Commit { commit: head },
+            paths: None,
+        },
+        None,
+    )
+    .expect("diff")
+    .stdout;
+
+    assert!(commit.contains("Binary files"), "{commit}");
+    assert!(!commit.contains("synthetic note"), "{commit}");
+    let history = run(
+        &fixture,
+        PluginGitRequest::ListHistory {
+            scope: PluginGitScope::Vault,
+            max_count: 5,
+            skip: None,
+            r#ref: None,
+            path: None,
+        },
+        None,
+    )
+    .expect("history")
+    .stdout;
+    assert!(history.contains("Record an encrypted note"), "{history}");
+    assert!(!history.contains("synthetic note"), "{history}");
 }

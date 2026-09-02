@@ -173,7 +173,17 @@ function sourceControlModel() {
     branches: [],
     remotes: [],
     history: [],
+    historyPage: {
+      pageIndex: 0,
+      pageSize: 20,
+      hasPrevious: false,
+      hasNext: false,
+      loading: false,
+      error: null,
+    },
+    commitDetail: null,
     diffFiles: [],
+    diffSource: null,
     conflicts: [],
     recovery: { state: "idle" as const },
     remoteAccess: {

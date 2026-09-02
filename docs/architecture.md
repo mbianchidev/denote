@@ -130,7 +130,13 @@ decorations, typed source-control view models, typed automatic local commit
 schedules, and explicit user-action services.
 Source-control providers contribute host-rendered repository, resource, branch,
 remote, history, diff, conflict, and recovery data; they cannot render HTML or
-execute Git directly.
+execute Git directly. Their history is a bounded page with its own index, size,
+and whether an adjacent page exists, and their diff content names the comparison
+it came from, so the host offers a hunk action only for the working tree and the
+index and never for commit history. Opening a file is host-owned: a provider
+names a repository-relative path, and the host resolves it inside the open vault
+and uses its ordinary file-open flow, so no absolute path is built, shown, or
+returned to a plugin.
 
 The separate `automatic-local-commit` permission exposes exactly one activation
 capability: registering a typed schedule with an ID, a bounded interval in whole
@@ -391,7 +397,12 @@ error is redacted for every operation without exception; standard output is too,
 except for the typed `diff` and `show` reads, whose output is returned byte for
 byte because it is the content a surface renders and quotes back verbatim in a
 hunk request — a redacted diff would stage `<repository>` into the index in
-place of a note's real bytes.
+place of a note's real bytes. The `show` template additionally suppresses the
+commit header and message with `--format=` and `--no-show-signature`, so that
+exact output is the patch alone: a repository that sets `format.pretty` cannot
+print a message flush left where a line quoting `diff --git` would parse as
+another changed file. `list-history` is bounded by `maxCount` and an optional
+`skip`, so paging a log never produces unbounded output.
 
 Encryption is handled entirely by the host. Vault encryption, sealing, and
 sweeping skip every `.git` file and directory subtree without deleting it, so

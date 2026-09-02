@@ -4,10 +4,11 @@
 
 This plugin keeps a Git history of your vault, or of the active project inside
 it, without leaving Denote. It adds one source control view that shows the
-repository, its working tree changes, its branches, its remotes, and its latest
-commits, and it lets you initialize a repository, stage and unstage a file or a
-single hunk, commit what you staged, and create, switch, rename, and delete
-branches. It can also commit tracked changes for you on a timer.
+repository, its working tree changes, its branches, its remotes, and its commit
+history, and it lets you initialize a repository, stage and unstage a file or a
+single hunk, commit what you staged, create, switch, rename, and delete
+branches, and review a commit's own diff. It can also commit tracked changes for
+you on a timer.
 
 It now works with remotes too: add, change, and remove a remote, fetch, pull,
 push, and clone a repository into a new vault. Every one of those is something
@@ -60,7 +61,11 @@ Open the Git view from the activity rail, or run `Git: Refresh repository`.
 - **Stage** and **Unstage** act on the exact file path in the row.
 - **Open diff** on a changed or staged row shows that file's hunks, with
   **Stage hunk** and **Unstage hunk** where a hunk can safely be applied on its
-  own.
+  own, and a **Working tree** / **Staged** switch when the file has both.
+- **Open file** on a changed row, or on a file inside a commit, opens that note
+  in the editor.
+- **Refresh history**, **Previous**, and **Next** read one bounded page of
+  commits at a time; selecting a commit shows its details and its exact diff.
 - **Commit staged changes** commits only what is staged, using the message you
   typed and the configured author identity when one is set.
 - **Cancel operation** stops the Git operation that is running, including a
@@ -243,11 +248,57 @@ whole file and says so. An untracked file has nothing to compare with yet; stage
 it first. An encrypted vault stages whole files as well, because Git records the
 ciphertext and a hunk of it is not a change Denote can apply.
 
-Commit and file diffs from history, and conflict resolution, are **not
-implemented yet**. Recent commits are displayed as read-only summary data, and a
-repository with a merge, rebase, cherry-pick, or revert in progress is reported
-so you can finish it with your own Git tooling.
+When the same file is both staged and changed, **Working tree** and **Staged**
+switch between its two diffs, and the heading always names the side on screen.
+Changing tab, opening a commit, or switching repository clears the diff rather
+than leaving it for the next view to show.
 
+### History and commit diffs
+
+The History tab reads one page of commits at a time, newest first.
+
+- **Refresh history** reads the page that is open again.
+- **Previous** and **Next** move one page. Each is offered only when that page
+  exists: Denote reads one commit beyond the page to know, and never shows it.
+  The status line says which page is on screen and how many commits it holds.
+- A full **Refresh** returns to the newest page, because it describes the
+  repository as it is now.
+
+Selecting a commit reads that commit's own diff and shows its summary, short ID,
+author, date, parents, refs, and every file it changed, with the hunk headers,
+the change kind, the old and new line numbers, and the exact content of each
+line. A renamed or copied file names the path it came from. A binary file — and
+every file in an encrypted vault, because Git records ciphertext — is reported
+as binary with no line-level content.
+
+- A **merge commit** is compared with its first parent. This shows what the
+  merge brought into that branch, but it does not distinguish cleanly merged
+  changes from edits made while resolving the merge.
+- A commit that **changed no files** says exactly that.
+- A commit's diff is **read-only**. There is no hunk action on it, because a
+  commit records what already happened.
+- A diff larger than Denote will parse is **refused with a message** rather than
+  shown cut short, so a hunk you cannot see is never offered for staging.
+- A commit stays selected across a refresh while the page still lists it, and
+  its diff is not read twice: a commit is named by the hash of its own content,
+  so that content cannot change.
+
+### Opening a file
+
+**Open file** appears on a changed row and on a file inside a commit. Denote
+opens the note in the editor itself: the plugin only names a repository-relative
+path, and no Git command is involved in opening anything.
+
+- The path opened is the one the file has **now**, so a file a commit renamed
+  opens under its current name.
+- A file that was **deleted** is still shown in the commit, and offers no way to
+  open it.
+- A file that is **no longer in the vault** is reported instead of opening
+  nothing.
+
+Conflict resolution is **not implemented yet**. A repository with a merge,
+rebase, cherry-pick, or revert in progress is reported so you can finish it with
+your own Git tooling.
 ## Settings
 
 - **Git executable** is an absolute path to Git. Leave it empty to use the Git
