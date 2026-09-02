@@ -1625,7 +1625,7 @@ fn a_clone_that_fails_with_multibyte_output_reports_it_and_releases_the_operatio
     // A long multi-byte directory name that is not a repository. Git repeats
     // the whole path back in its diagnostic, so the failure message is well
     // past the 200 byte limit and every boundary in it is mid-character.
-    let name = "\u{3053}".repeat(120);
+    let name = "\u{3053}".repeat(70);
     let source = remotes.path().join(&name);
     fs::create_dir_all(&source).expect("source");
     let source = fs::canonicalize(&source).expect("canonical source");

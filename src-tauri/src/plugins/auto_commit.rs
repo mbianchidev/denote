@@ -321,10 +321,11 @@ struct FileIdentity {
     file: u64,
 }
 
-fn file_identity(metadata: &fs::Metadata) -> Option<FileIdentity> {
+fn file_identity(file: &fs::File, metadata: &fs::Metadata) -> Option<FileIdentity> {
     #[cfg(unix)]
     let identity = {
         use std::os::unix::fs::MetadataExt;
+        let _ = file;
         Some(FileIdentity {
             volume: metadata.dev(),
             file: metadata.ino(),
@@ -332,19 +333,28 @@ fn file_identity(metadata: &fs::Metadata) -> Option<FileIdentity> {
     };
     #[cfg(windows)]
     let identity = {
-        use std::os::windows::fs::MetadataExt;
-        match (metadata.volume_serial_number(), metadata.file_index()) {
-            (Some(volume), Some(file)) => Some(FileIdentity {
-                volume: u64::from(volume),
-                file,
-            }),
-            // Windows reports these only for a handle that can supply them, and
-            // an identity Denote cannot read is one it must not assume.
-            _ => None,
+        use std::os::windows::io::AsRawHandle;
+        use windows_sys::Win32::{
+            Foundation::HANDLE,
+            Storage::FileSystem::{BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle},
+        };
+
+        let mut information = BY_HANDLE_FILE_INFORMATION::default();
+        let succeeded =
+            unsafe { GetFileInformationByHandle(file.as_raw_handle() as HANDLE, &mut information) };
+        if succeeded == 0 {
+            None
+        } else {
+            Some(FileIdentity {
+                volume: u64::from(information.dwVolumeSerialNumber),
+                file: (u64::from(information.nFileIndexHigh) << 32)
+                    | u64::from(information.nFileIndexLow),
+            })
         }
     };
     #[cfg(not(any(unix, windows)))]
     let identity = {
+        let _ = file;
         let _ = metadata;
         None
     };
@@ -430,7 +440,7 @@ fn read_index(path: &Path, retain: IndexBytes) -> AppResult<IndexReading> {
         state: IndexState::Present {
             digest,
             length: contents.len() as u64,
-            identity: file_identity(&metadata),
+            identity: file_identity(&file, &metadata),
             modified: metadata.modified().ok(),
         },
         contents: matches!(retain, IndexBytes::Keep).then_some(contents),
