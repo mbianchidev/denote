@@ -43,13 +43,13 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://raw.githubusercontent.com/mbianchidev/denote/a18d9c5a9e1538e32bf41cb73708d5609147d2b7/plugin-artifacts/denote.reference-0.1.0.tgz",
-      "sha256": "eb8b9eaacfba3dcc9bb83691122e2a1ad673692d2d80e635b42756e2560dd965",
-      "sizeBytes": 15665
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/dd7368b2e9dff71893d0e447fec09a097f9d8d6f/plugin-artifacts/denote.reference-0.1.0.tgz",
+      "sha256": "868e6c883084034338796c4cfc318b4cf7c85e82258c028acfee8545cfb4cc2a",
+      "sizeBytes": 15670
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "a18d9c5a9e1538e32bf41cb73708d5609147d2b7",
+      "sourceCommit": "dd7368b2e9dff71893d0e447fec09a097f9d8d6f",
       "trusted": true
     },
     "guide": "# Reference plugin\n\n## Purpose\n\nThis development-only plugin proves the Denote plugin contract and lifecycle. It\ndoes not provide a production user feature.\n\n## Enablement and permissions\n\nEnabling requests Commands, Sidebar, Status, Editor decoration, Note events,\nand Secure storage permissions. The package must be downloaded and verified\nbefore its code loads. Secure values use this plugin's isolated operating-system\nkeychain namespace.\n\n## Usage\n\nThe plugin registers one harmless reference command and one explicit keychain\nverification command. The verification command writes, reads, and deletes a\nsynthetic value without accessing any other plugin or Denote credential.\nIt also adds a small reference sidebar and status item, highlights the literal\nword `reference` in source/plain-text editors, and observes note lifecycle\nevents without reading or changing note content.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling unregisters the command, unloads the runtime, and deletes the\ndownloaded package. It does not edit or delete vault content.\n\n## Troubleshooting\n\nIf activation fails, Denote reports the error, rolls back registrations, unloads\nthe runtime, and removes the package.\n"
