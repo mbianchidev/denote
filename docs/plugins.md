@@ -269,20 +269,83 @@ worktree; stashing tracked changes still works. Repositories that
 use `.git` file indirection, such as linked worktrees and submodules, report a
 clear limitation rather than being modified.
 
+### Automatic local commits
+
+The approved `automatic-local-commit` permission adds one activation capability,
+`automaticLocalCommit`. It is not a Git capability: a plugin registers a typed
+schedule with an ID, a whole-minute interval above zero and bounded at a day, a
+commit message, validated repository-relative include and exclude path prefixes,
+and an optional commit identity, and receives a handle that replaces or removes
+it. The worker validates every field before the registration leaves it, and the
+host validates the message again and refuses anything a plugin sent without
+going through the capability. Registering, replacing, and removing a schedule
+are applied transactionally, staged schedules are discarded when activation
+fails, and every schedule disappears the moment the plugin stops, crashes, or is
+disabled. Plugin code receives no vault path, no project ID, and no Git handle
+through it, and registering runs no Git command.
+
+The host owns the timers and the commit. One timer exists per plugin, schedule,
+and current vault and project, and only while a workspace is open and an
+encrypted vault is unlocked and stable. Nothing runs when a timer is created:
+the first run is one whole interval later, so enabling, unlocking, or switching
+vault or project starts a fresh interval. A tick is skipped when the workspace
+lock is held, when the window is closing, or when another automatic run is still
+in flight, and a skipped tick is dropped rather than queued. Timers are cleared
+and recreated on a schedule update, a vault or project switch, a lock or
+maintenance phase, plugin removal, disablement, shutdown, and unmount.
+
+A run drains uploads and preference writes and flushes every tab through the
+same workspace operation explicit mutations use, so a commit matches what the
+user sees, then calls one dedicated native command and always releases the lock.
+It creates no plugin action lease and dispatches no provider action, so plugin
+code never runs on a timer.
+
+The native command requires both the `git` and `automatic-local-commit`
+approved permissions, revalidates vault scope and project identity, and reuses
+the host-owned executable, the hardening, and the encryption preflight of the
+typed transport. It refuses to act without a repository or a commit on `HEAD`,
+during a merge, rebase, cherry-pick, revert, or sequencer, with an unresolved
+conflict, with anything already staged, and when the vault is locked or its
+sweep cannot verify a file. Eligible paths come from NUL-safe tracked-change
+output, are filtered by normalized prefixes where an empty include list means
+everything and excludes always win, and are staged with `git add -u --` alone,
+so an untracked file is never added. The index is snapshotted, bytes and
+metadata or its safe absence, before staging and restored exactly when staging,
+the commit, or cancellation stops the run, but only while the index on disk is
+still the one Denote's own staging produced. Each index state Denote writes is
+fingerprinted by digest, size, filesystem identity, and timestamp through a
+single bounded, link-refusing read, and rollback rechecks that fingerprint
+first: an index another Git process took over is left exactly as that process
+wrote it, and the run reports that the concurrent Git activity was preserved.
+`HEAD` is confirmed again immediately before committing so external Git activity
+cannot be raced. No fetch, pull,
+push, checkout, merge, rebase, revert, or other remote or history-rewriting
+command is reachable. The result is a typed `committed`, `unchanged`, or
+`skipped` status with a message and, where available, a commit ID, and no
+generated message contains note content or paths. Standing runs join the same
+cancellation registry as typed requests, so disabling the plugin or closing
+Denote stops them.
+
 The repository reference plugin is the end-to-end fixture. Its independently
 downloadable artifact is stored under `plugin-artifacts/`, while only catalog
 metadata enters the desktop bundle.
 
 `denote.git`, the Git vault versioning plugin, is the first production catalog
 entry and the `git` role candidate in the Code tooling bundle. It requests
-commands, status, source control, project context, Git, and the standing
-`automatic-local-commit` marker, and requests no network, process, or
-workspace-write permission. Its current increment registers one source-control
-provider, one status item, and refresh and initialize commands, and supports
-refresh, initialize, stage, unstage, commit of staged changes, and cancellation.
-Remote operations, branch switching, diffs, conflict resolution, and timed
-automatic commits are later increments; the plugin reports them as unavailable
-instead of implying support.
+commands, status, source control, project context, Git, and
+`automatic-local-commit`, and requests no network, process, or workspace-write
+permission. Its current increment registers one source-control provider, one
+status item, refresh and initialize commands, and, when its interval setting is
+above zero, one automatic local commit schedule. It supports refresh,
+initialize, stage, unstage, commit of staged changes, cancellation, and
+scheduled local commits of tracked changes. Remote operations, branch
+switching, diffs, and conflict resolution are later increments; the plugin
+reports them as unavailable instead of implying support.
+
+Changing a plugin's settings reloads its runtime, because settings are read
+during activation. The package, the approved permissions, and the enablement
+record are untouched, so a schedule or a setting takes effect without
+reinstalling the plugin.
 
 ## Publication and governance
 

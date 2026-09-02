@@ -18,6 +18,7 @@ use crate::{
 
 use super::{
     PluginManager,
+    auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
     git::{PluginGitRequest, PluginGitResult, PluginGitScope},
     types::{
         InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
@@ -490,6 +491,90 @@ pub(super) fn git_request_with_app_state(
         &repository_root,
         redacted_roots,
         encrypted,
+        operation_id,
+    )
+}
+
+#[tauri::command]
+pub async fn plugin_automatic_commit(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    request: AutomaticCommitRequest,
+    workspace_scope: String,
+    project_id: Option<String>,
+    operation_id: String,
+) -> AppResult<AutomaticCommitOutcome> {
+    let manager = state.inner().clone();
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        automatic_commit_with_app_state(
+            &manager,
+            &app_state,
+            &plugin_id,
+            request,
+            &workspace_scope,
+            project_id.as_deref(),
+            &operation_id,
+        )
+    })
+    .await
+}
+
+/// Runs one standing automatic commit. The host, not a plugin, decides which
+/// repository it applies to: the scope is the active project when one is
+/// marked and the vault otherwise, and both are revalidated immediately before
+/// execution.
+pub(super) fn automatic_commit_with_app_state(
+    manager: &PluginManager,
+    app_state: &AppState,
+    plugin_id: &str,
+    request: AutomaticCommitRequest,
+    workspace_scope: &str,
+    project_id: Option<&str>,
+    operation_id: &str,
+) -> AppResult<AutomaticCommitOutcome> {
+    manager.enabled_permission(plugin_id, "git")?;
+    manager.enabled_permission(plugin_id, "automatic-local-commit")?;
+    let _vault_access = app_state.read_vault_access()?;
+    let root = active_vault_for_scope(app_state, workspace_scope)?;
+    // A locked vault, unfinished encryption maintenance, or a sweep that could
+    // not verify every file is a reason to wait for the next interval rather
+    // than to force a commit through.
+    let encrypted = match git_encryption_preflight(app_state, &root) {
+        Ok(encrypted) => encrypted,
+        Err(error) => return Ok(AutomaticCommitOutcome::skipped(error.to_string())),
+    };
+    let repository_root = match project_id {
+        Some(project_id) => {
+            vault::resolve_project_root(&app_state.db_path, &root.to_string_lossy(), project_id)?
+        }
+        None => root.clone(),
+    };
+    let revalidated_root = active_vault_for_scope(app_state, workspace_scope)?;
+    if revalidated_root != root {
+        return Err(AppError::Plugin(
+            "Automatic commit scope expired after a vault switch".to_string(),
+        ));
+    }
+    if let Some(project_id) = project_id {
+        let current =
+            vault::resolve_project_root(&app_state.db_path, &root.to_string_lossy(), project_id)?;
+        if current != repository_root {
+            return Err(AppError::Plugin(
+                "Automatic commit scope expired after the project moved".to_string(),
+            ));
+        }
+    }
+    let redacted_roots = vec![repository_root.clone(), root];
+    manager.automatic_commit(
+        plugin_id,
+        request,
+        AutomaticCommitTarget {
+            repository_root: &repository_root,
+            redacted_roots,
+            encrypted,
+        },
         operation_id,
     )
 }

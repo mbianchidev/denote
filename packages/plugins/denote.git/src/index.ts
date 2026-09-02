@@ -1,6 +1,7 @@
 import {
   parsePluginManifest,
   type DenotePlugin,
+  type PluginAutomaticLocalCommitCapability,
   type PluginDisposable,
   type PluginSourceControlRegistration,
   type PluginStatusCapability,
@@ -8,19 +9,26 @@ import {
 import manifestJson from "../plugin.json";
 import { GitRepositoryController } from "./controller";
 import { scopeFor, statusText } from "./model";
+import { readGitSettings } from "./settings";
 
 const manifest = parsePluginManifest(manifestJson);
 
 const PROVIDER_ID = "denote.git.repository";
 const STATUS_ID = "denote.git.status";
+const SCHEDULE_ID = "denote.git.automatic-commit";
 const REFRESH_COMMAND_ID = "denote.git.refresh";
 const INITIALIZE_COMMAND_ID = "denote.git.initialize";
 
 const plugin: DenotePlugin = {
   manifest,
-  activate(context) {
-    const { commands, status, sourceControl, projectContext } =
-      context.capabilities;
+  async activate(context) {
+    const {
+      commands,
+      status,
+      sourceControl,
+      projectContext,
+      automaticLocalCommit,
+    } = context.capabilities;
     if (!commands || !status || !sourceControl) {
       throw new Error(
         "Git vault versioning requires the Commands, Status, and Source control permissions.",
@@ -88,8 +96,52 @@ const plugin: DenotePlugin = {
           ),
       }),
     );
+
+    // Settings are read here, at the end of activation, because a schedule is
+    // the only thing this plugin contributes that acts on its own. Reading
+    // them registers no Git work: the host owns the timer, the repository
+    // scope, and the commit, and the first run is one interval away.
+    const schedule = await automaticCommitSchedule(
+      context,
+      automaticLocalCommit,
+    );
+    if (schedule) {
+      context.subscriptions.add(schedule);
+    }
   },
 };
+
+/**
+ * Registers the standing automatic commit when the configured interval enables
+ * it. A zero interval is the documented off switch, so nothing is registered
+ * and the host holds no timer for this plugin at all.
+ */
+async function automaticCommitSchedule(
+  context: Parameters<DenotePlugin["activate"]>[0],
+  automaticLocalCommit: PluginAutomaticLocalCommitCapability | undefined,
+): Promise<PluginDisposable | null> {
+  if (!automaticLocalCommit) {
+    return null;
+  }
+  const settings = readGitSettings(await context.settings.getAll());
+  if (settings.autoCommitIntervalMinutes <= 0) {
+    context.logger.info("Automatic local commits are disabled.");
+    return null;
+  }
+  return automaticLocalCommit.register({
+    id: SCHEDULE_ID,
+    intervalMinutes: settings.autoCommitIntervalMinutes,
+    message: settings.autoCommitMessage,
+    includePatterns: settings.includePatterns,
+    excludePatterns: settings.excludePatterns,
+    ...(settings.identity
+      ? {
+          authorName: settings.identity.authorName,
+          authorEmail: settings.identity.authorEmail,
+        }
+      : {}),
+  });
+}
 
 interface StatusItemHandle extends PluginDisposable {
   set: (text: string) => void;

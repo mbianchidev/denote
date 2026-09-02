@@ -10,6 +10,7 @@ import type {
 import {
   PluginWorkerRuntime,
   type PluginActionLeaseScope,
+  type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginSidebarContribution,
   type PluginStatusContribution,
@@ -25,6 +26,7 @@ export interface PluginController {
   statusItems: PluginStatusContribution[];
   decorations: PluginDecorationContribution[];
   sourceControlProviders: PluginSourceControlContribution[];
+  automaticLocalCommits: PluginAutomaticLocalCommitContribution[];
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
@@ -84,6 +86,9 @@ export function usePlugins(
   const [sourceControlProviders, setSourceControlProviders] = useState<
     PluginSourceControlContribution[]
   >([]);
+  const [automaticLocalCommits, setAutomaticLocalCommits] = useState<
+    PluginAutomaticLocalCommitContribution[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
   const runtimeRef = useRef<PluginWorkerRuntime | null>(null);
@@ -124,6 +129,7 @@ export function usePlugins(
       setStatusItems,
       setDecorations,
       setSourceControlProviders,
+      setAutomaticLocalCommits,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext);
@@ -353,10 +359,39 @@ export function usePlugins(
     async (pluginId: string, settings: Record<string, unknown>) => {
       await withBusy(pluginId, async () => {
         await api.setPluginSettings(pluginId, settings);
+        const available = await api.listPlugins();
+        setPlugins(available);
+        const plugin = available.find(
+          (entry) => entry.catalog.manifest.id === pluginId,
+        );
+        const runtime = runtimeRef.current;
+        // Settings are read during activation, so a running plugin only sees a
+        // change after its runtime is reloaded. Nothing is reinstalled: the
+        // package, the approved permissions, and the enablement record all
+        // stay exactly as they are.
+        if (
+          !plugin?.enabled ||
+          !runtime ||
+          !runtime.isRunning(pluginId) ||
+          !startsAllowedRef.current
+        ) {
+          return;
+        }
+        await runtime.stop(pluginId);
+        if (!startsAllowedRef.current) {
+          return;
+        }
+        try {
+          await runtime.start(plugin);
+        } catch (error) {
+          await api.disablePlugin(pluginId);
+          await refresh().catch(reportError);
+          throw error;
+        }
         await refresh();
       });
     },
-    [refresh, withBusy],
+    [refresh, reportError, withBusy],
   );
 
   const runCommand = useCallback(
@@ -444,6 +479,7 @@ export function usePlugins(
     statusItems,
     decorations,
     sourceControlProviders,
+    automaticLocalCommits,
     loading,
     busyPluginIds,
     refresh,

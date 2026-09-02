@@ -1502,23 +1502,25 @@ fn cancellation_resolves_no_executable() {
 // End-to-end synthetic repositories
 // ---------------------------------------------------------------------------
 
-struct GitFixture {
-    data: TempDir,
+pub(super) struct GitFixture {
+    pub(super) data: TempDir,
     /// Retained so the plugin download cache outlives the fixture.
     _cache: TempDir,
-    db_path: PathBuf,
-    vault_root: PathBuf,
-    manager: PluginManager,
-    app_state: Arc<db::AppState>,
+    pub(super) db_path: PathBuf,
+    pub(super) vault_root: PathBuf,
+    pub(super) manager: PluginManager,
+    pub(super) app_state: Arc<db::AppState>,
 }
 
-fn git_manager(data: &TempDir, cache: &TempDir) -> PluginManager {
+pub(super) fn git_manager(data: &TempDir, cache: &TempDir) -> PluginManager {
     let mut catalog = catalog();
-    catalog.manifest.permissions.push(PluginPermission {
-        capability: "git".to_string(),
-        hosts: vec![],
-        executables: BTreeMap::new(),
-    });
+    for capability in ["git", "automatic-local-commit"] {
+        catalog.manifest.permissions.push(PluginPermission {
+            capability: capability.to_string(),
+            hosts: vec![],
+            executables: BTreeMap::new(),
+        });
+    }
     // A Git plugin manifest declares the reserved executable setting as an
     // ordinary host-rendered string whose default is empty, exactly as the
     // Denote Git plugin will.
@@ -1543,7 +1545,7 @@ fn git_manager(data: &TempDir, cache: &TempDir) -> PluginManager {
     manager
 }
 
-fn fixture() -> Option<GitFixture> {
+pub(super) fn fixture() -> Option<GitFixture> {
     if resolve_git_executable(None).is_err() {
         eprintln!("Skipping Git transport fixture: no Git executable is available.");
         return None;
@@ -1593,11 +1595,11 @@ fn run_as(
 }
 
 /// The host runtime generates one canonical UUID per Git invocation.
-fn new_operation_id() -> String {
+pub(super) fn new_operation_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn identify(repository: &Path) {
+pub(super) fn identify(repository: &Path) {
     for arguments in [
         ["config", "user.name", "Synthetic Author"],
         ["config", "user.email", "synthetic@example.invalid"],
@@ -2204,7 +2206,7 @@ fn never_runs_repository_hooks() {
 // Encryption
 // ---------------------------------------------------------------------------
 
-fn encrypt_fixture(fixture: &GitFixture) -> crypto::VaultKey {
+pub(super) fn encrypt_fixture(fixture: &GitFixture) -> crypto::VaultKey {
     let (mut manifest, vault_key, _) =
         crypto::create_manifest("correct horse battery staple").expect("manifest");
     crypto::save_manifest(&fixture.vault_root, &manifest).expect("save manifest");

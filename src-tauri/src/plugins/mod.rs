@@ -1,3 +1,4 @@
+mod auto_commit;
 mod catalog;
 mod commands;
 mod git;
@@ -7,6 +8,8 @@ mod sandbox;
 mod settings;
 mod types;
 
+#[cfg(test)]
+mod auto_commit_tests;
 #[cfg(test)]
 mod git_tests;
 #[cfg(test)]

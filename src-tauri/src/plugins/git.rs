@@ -1131,7 +1131,7 @@ pub(crate) fn validate_remote_url(value: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_commit_message(value: &str) -> AppResult<()> {
+pub(crate) fn validate_commit_message(value: &str) -> AppResult<()> {
     if value.trim().is_empty() || value.len() > MAX_MESSAGE_BYTES {
         return Err(AppError::Plugin(
             "Git commit message is empty or exceeds 20 KiB".to_string(),
@@ -1165,7 +1165,7 @@ fn validate_author_identity(value: &str, label: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_author_name(value: &str) -> AppResult<()> {
+pub(crate) fn validate_author_name(value: &str) -> AppResult<()> {
     validate_author_identity(value, "author name")?;
     // Git parses an identity as `name <email>`, so angle brackets in the name
     // would move part of it into the address.
@@ -1177,7 +1177,7 @@ fn validate_author_name(value: &str) -> AppResult<()> {
     Ok(())
 }
 
-fn validate_author_email(value: &str) -> AppResult<()> {
+pub(crate) fn validate_author_email(value: &str) -> AppResult<()> {
     validate_author_identity(value, "author email")?;
     if value.contains('<') || value.contains('>') {
         return Err(AppError::Plugin(
@@ -1709,7 +1709,7 @@ pub(crate) struct GitOperationToken {
 }
 
 impl GitOperationToken {
-    fn is_cancelled(&self) -> bool {
+    pub(crate) fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::SeqCst)
     }
 
@@ -2031,14 +2031,14 @@ impl WorktreeRollback {
     }
 }
 
-struct CommandOutcome {
-    exit_code: i32,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-    cancelled: bool,
+pub(crate) struct CommandOutcome {
+    pub(crate) exit_code: i32,
+    pub(crate) stdout: Vec<u8>,
+    pub(crate) stderr: Vec<u8>,
+    pub(crate) cancelled: bool,
 }
 
-fn run_git_command(
+pub(crate) fn run_git_command(
     args: &[String],
     execution: &GitExecution<'_>,
     token: &GitOperationToken,

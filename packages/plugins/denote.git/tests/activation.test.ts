@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type {
   PluginActivationContext,
+  PluginAutomaticLocalCommitSchedule,
+  PluginAutomaticLocalCommitUpdate,
   PluginCommand,
   PluginDisposable,
   PluginProjectContextChangeEvent,
@@ -21,6 +23,9 @@ interface ActivationHarness {
   projectListeners: Array<
     (event: PluginProjectContextChangeEvent) => void | Promise<void>
   >;
+  schedules: PluginAutomaticLocalCommitSchedule[];
+  scheduleUpdates: PluginAutomaticLocalCommitUpdate[];
+  disposedSchedules: string[];
   logs: string[];
 }
 
@@ -33,6 +38,9 @@ function activationHarness(
   const models: PluginSourceControlViewModel[] = [];
   const subscriptions: PluginDisposable[] = [];
   const projectListeners: ActivationHarness["projectListeners"] = [];
+  const schedules: PluginAutomaticLocalCommitSchedule[] = [];
+  const scheduleUpdates: PluginAutomaticLocalCommitUpdate[] = [];
+  const disposedSchedules: string[] = [];
   const logs: string[] = [];
   const noop: PluginDisposable = { dispose: () => {} };
   const context: PluginActivationContext = {
@@ -79,6 +87,19 @@ function activationHarness(
           return noop;
         },
       },
+      automaticLocalCommit: {
+        register: (schedule) => {
+          schedules.push(schedule);
+          return {
+            update: (next) => {
+              scheduleUpdates.push(next);
+            },
+            dispose: () => {
+              disposedSchedules.push(schedule.id);
+            },
+          };
+        },
+      },
     },
     subscriptions: {
       add: (disposable) => subscriptions.push(disposable),
@@ -92,6 +113,9 @@ function activationHarness(
     models,
     subscriptions,
     projectListeners,
+    schedules,
+    scheduleUpdates,
+    disposedSchedules,
     logs,
   };
 }
@@ -161,6 +185,80 @@ describe("Git plugin activation", () => {
     // request exists to run yet.
     expect(harness.models).toEqual([]);
     expect(harness.subscriptions).toHaveLength(5);
+    // Automatic commits are off by default, so nothing standing is registered
+    // and the host holds no timer for this plugin.
+    expect(harness.schedules).toEqual([]);
+  });
+
+  it("registers one automatic commit schedule from its settings", async () => {
+    const harness = activationHarness({
+      autoCommitIntervalMinutes: 15,
+      autoCommitMessage: "Synthetic automatic commit",
+      includePatterns: "notes/, projects/alpha",
+      excludePatterns: "notes/drafts",
+      authorName: "Synthetic Author",
+      authorEmail: "synthetic@example.invalid",
+    });
+
+    await plugin.activate(harness.context);
+
+    expect(harness.schedules).toEqual([
+      {
+        id: "denote.git.automatic-commit",
+        intervalMinutes: 15,
+        message: "Synthetic automatic commit",
+        includePatterns: ["notes", "projects/alpha"],
+        excludePatterns: ["notes/drafts"],
+        authorName: "Synthetic Author",
+        authorEmail: "synthetic@example.invalid",
+      },
+    ]);
+    // The schedule is disposable with the rest of the plugin's surfaces.
+    expect(harness.subscriptions).toHaveLength(6);
+  });
+
+  it("omits the identity and unusable patterns from the schedule", async () => {
+    const harness = activationHarness({
+      autoCommitIntervalMinutes: 60,
+      authorName: "Synthetic Author",
+      includePatterns: "notes, ../escape, /absolute, .git",
+    });
+
+    await plugin.activate(harness.context);
+
+    expect(harness.schedules).toEqual([
+      {
+        id: "denote.git.automatic-commit",
+        intervalMinutes: 60,
+        message: "Denote automatic commit",
+        includePatterns: ["notes"],
+        excludePatterns: [],
+      },
+    ]);
+  });
+
+  it("registers no schedule when the interval disables automatic commits", async () => {
+    for (const autoCommitIntervalMinutes of [0, -5, 1441, "15"]) {
+      const harness = activationHarness({ autoCommitIntervalMinutes });
+
+      await plugin.activate(harness.context);
+
+      expect(harness.schedules).toEqual([]);
+      expect(harness.logs).toContain("Automatic local commits are disabled.");
+    }
+  });
+
+  it("registers surfaces but runs no Git command while scheduling", async () => {
+    const harness = activationHarness({ autoCommitIntervalMinutes: 30 });
+    const git = new FakeGit(repositoryResponder());
+
+    await plugin.activate(harness.context);
+
+    expect(harness.schedules).toHaveLength(1);
+    // A schedule is data the host acts on later. Activation itself reaches no
+    // repository at all.
+    expect(git.calls).toEqual([]);
+    expect(harness.models).toEqual([]);
   });
 
   it("routes provider and command actions to the repository controller", async () => {

@@ -348,6 +348,7 @@ pub fn run() {
             plugins::plugin_show_notification,
             plugins::plugin_process_request,
             plugins::plugin_git_request,
+            plugins::plugin_automatic_commit,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")

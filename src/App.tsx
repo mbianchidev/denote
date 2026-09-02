@@ -240,6 +240,8 @@ import {
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
+import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
+import type { PluginAutomaticLocalCommitContribution } from "./plugins/workerRuntime";
 import { getOutlineWidth, saveOutlineWidth } from "./lib/outlineWidth";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
@@ -4024,6 +4026,79 @@ function App() {
       workspace,
     ],
   );
+
+  const runAutomaticLocalCommit = useCallback(
+    async (schedule: PluginAutomaticLocalCommitContribution) => {
+      if (!workspace) {
+        return;
+      }
+      const vaultPath = workspace.vaultPath;
+      const projectId = activeProject?.id ?? null;
+      // Saves, uploads, and preference writes are drained first, so the commit
+      // sees the same tree the user is looking at rather than a half-written
+      // one. The lock is always released, whatever the outcome is.
+      if (!(await beginWorkspaceOperation())) {
+        setStatus("Automatic commit skipped because a note could not be saved");
+        return;
+      }
+      try {
+        const outcome = await api.pluginAutomaticCommit(
+          schedule.pluginId,
+          {
+            scheduleId: schedule.id,
+            message: schedule.message,
+            includePatterns: schedule.includePatterns,
+            excludePatterns: schedule.excludePatterns,
+            authorName: schedule.authorName,
+            authorEmail: schedule.authorEmail,
+          },
+          vaultPath,
+          projectId,
+          crypto.randomUUID(),
+        );
+        if (outcome.status === "committed") {
+          await refreshAndReindex();
+          setStatus(
+            outcome.commitId
+              ? `Automatic commit ${outcome.commitId.slice(0, 7)}`
+              : "Automatic commit created",
+          );
+        } else if (outcome.status === "unchanged") {
+          setStatus("Automatic commit: no changes");
+        } else {
+          setStatus(`Automatic commit skipped: ${outcome.message}`);
+        }
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        setWorkspaceLock(false);
+      }
+    },
+    [
+      activeProject?.id,
+      beginWorkspaceOperation,
+      refreshAndReindex,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
+
+  useAutomaticLocalCommits({
+    schedules: pluginController.automaticLocalCommits,
+    // A locked or maintaining vault holds no timer at all, so unlocking starts
+    // a fresh interval instead of firing a backlog.
+    enabled:
+      workspace !== null &&
+      (!workspace.encryption.enabled || workspace.encryption.unlocked) &&
+      (workspace.encryption.phase === null ||
+        workspace.encryption.phase === "encrypted"),
+    workspaceIdentity: workspace?.vaultPath ?? null,
+    projectId: activeProject?.id ?? null,
+    canRun: () => !workspaceLockedRef.current && !closingWindow.current,
+    run: runAutomaticLocalCommit,
+    onError: showError,
+  });
 
   const rewriteLinksForMove = useCallback(
     async (oldPath: string, newPath: string) => {

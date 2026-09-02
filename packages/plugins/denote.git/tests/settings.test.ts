@@ -103,4 +103,17 @@ describe("readGitSettings", () => {
       ).toBe(0);
     }
   });
+
+  it("keeps only usable relative path prefixes", () => {
+    expect(
+      readGitSettings({
+        includePatterns:
+          "notes/, /absolute, ../escape, notes/../secrets, ~/home, C:/drive, back\\slash, :(glob)magic, --option, .git, notes/.git, ",
+        excludePatterns: "scratch/drafts/",
+      }),
+    ).toMatchObject({
+      includePatterns: ["notes"],
+      excludePatterns: ["scratch/drafts"],
+    });
+  });
 });

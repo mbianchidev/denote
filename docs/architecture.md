@@ -126,11 +126,63 @@ cannot receive a capability absent from its signed manifest. Enabling alone must
 not invoke any workspace mutation. Plugin API version 1 intentionally exposes
 command registration, static sidebar views, note events, plugin-scoped
 state/settings, optional secure storage, status items, literal source-editor
-decorations, typed source-control view models, and explicit user-action services.
+decorations, typed source-control view models, typed automatic local commit
+schedules, and explicit user-action services.
 Source-control providers contribute host-rendered repository, resource, branch,
 remote, history, diff, conflict, and recovery data; they cannot render HTML or
-execute Git directly. The separate `automatic-local-commit` permission is only a
-marker for future host operations and exposes no activation capability.
+execute Git directly.
+
+The separate `automatic-local-commit` permission exposes exactly one activation
+capability: registering a typed schedule with an ID, a bounded interval in whole
+minutes above zero, a commit message, validated repository-relative include and
+exclude path prefixes, and an optional commit identity. Registration returns a
+handle that replaces or removes the schedule, and the runtime applies every
+register, update, and unregister transactionally, discarding staged schedules
+when activation fails and clearing them when the plugin stops, crashes, or is
+disabled. No vault path, project ID, or Git capability is exposed to plugin code
+through it, and the schedule itself runs no Git command.
+
+The host owns the timers. One timer exists per plugin, schedule, and current
+vault and project; none exists while no workspace is open or while an encrypted
+vault is locked or mid-maintenance. Nothing runs when a timer is created: the
+first run is one whole interval later. A tick is skipped when the workspace lock
+is held, when the app is closing, or when another automatic run is still active,
+and timers are cleared and recreated on a schedule update, a vault or project
+switch, an unlock, a plugin removal or disablement, shutdown, and unmount. A
+run drains uploads and preference writes and flushes every tab through the same
+workspace operation used by explicit mutations, then calls one dedicated native
+command, refreshes and reindexes after a commit, and always releases the lock.
+It never creates a plugin user-action lease and never dispatches a provider
+action.
+
+That native command requires both the `git` and `automatic-local-commit`
+approved permissions, revalidates workspace and project identity, and reuses the
+host-owned Git executable with the same hardening and encryption preflight as
+the typed transport. It refuses to act when there is no repository or HEAD, when
+a merge, rebase, cherry-pick, revert, sequencer, or conflict is in progress, when
+anything is already staged, when the vault is locked or its encryption sweep
+fails, and when no tracked worktree change matches the configured prefixes. It
+never adds an untracked file: eligible paths come from NUL-safe tracked-change
+output, are filtered by normalized prefixes where excludes win, and are staged
+with `git add -u --` alone. Before staging it snapshots the index bytes and
+metadata, or its safe absence, revalidates HEAD immediately before committing,
+and restores that snapshot exactly whenever staging, the commit, or cancellation
+stops the run. Restoring is conditional on ownership: every index state the run
+produces, the snapshot itself and then each staging batch that lands, is
+fingerprinted by SHA-256 digest, size, filesystem identity, and timestamp, read
+through one handle that refuses to follow a link and is bounded by the snapshot
+ceiling. Rollback rereads the index and writes only while it still matches that
+fingerprint, so an index another Git process committed, staged, or replaced in
+the meantime is left exactly as that process wrote it and the run reports a
+skipped or failed outcome saying the concurrent Git activity was preserved.
+Ownership moving with each staging batch is what keeps a failed or cancelled run
+from leaving its own partial staging behind. Fetch, pull, push, checkout, merge,
+rebase, revert, and every
+other remote or history-rewriting command are unreachable from it. It returns a
+typed `committed`, `unchanged`, or `skipped` status with a message and, where
+available, a commit ID, and its generated messages never contain note content or
+paths. Standing runs register in the same Git operation registry as typed
+requests, so plugin disablement and application shutdown cancel them.
 Each provider is addressed by its `(pluginId, providerId)` pair. The activity
 rail and vault sidebar render only the typed model with native host controls;
 standardized user actions are returned to the owning provider through a

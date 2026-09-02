@@ -287,9 +287,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   repository view for the active project, or the vault when no project is
   marked, and supports refresh, initialize, stage, unstage, commit of staged
   changes, and cancellation of a running operation. It requests no network,
-  process, or workspace-write permission. Fetch, pull, push, branch switching,
-  diffs, conflict resolution, and timed automatic commits are later increments
-  and are reported as unavailable rather than implied.
+  process, or workspace-write permission. Setting an automatic commit interval
+  above zero also enables timed local commits: Denote saves open notes first,
+  then commits only tracked changes that match the configured include and
+  exclude prefixes, never adds untracked files, never contacts a remote, skips
+  the run when work is already staged or a merge is unfinished, and leaves the
+  index exactly as it was whenever a run does not finish. Fetch, pull, push,
+  branch switching, diffs, and conflict resolution are later increments and are
+  reported as unavailable rather than implied.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 

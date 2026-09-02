@@ -28,6 +28,7 @@ import {
   isPluginHostMessage,
   isPluginSourceControlViewModel,
 } from "./runtimeMessages";
+import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
 
 interface PendingRequest {
@@ -50,6 +51,7 @@ const sourceControlHandlers = new Map<
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
+const automaticCommitSchedules = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
 >();
@@ -357,6 +359,57 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("automatic-local-commit")) {
+    capabilities.automaticLocalCommit = {
+      register(schedule) {
+        // A standing schedule is validated before it leaves the worker, so a
+        // plugin learns immediately that a value was refused instead of
+        // silently running on host-repaired terms.
+        const normalized = normalizeAutomaticLocalCommitSchedule(
+          pluginId,
+          schedule,
+        );
+        if (automaticCommitSchedules.has(normalized.id)) {
+          throw new Error(
+            `Automatic local commit ${normalized.id} is already registered.`,
+          );
+        }
+        automaticCommitSchedules.add(normalized.id);
+        let disposed = false;
+        send({
+          type: "register-automatic-local-commit",
+          schedule: normalized,
+        });
+        return {
+          update(next) {
+            if (disposed || !automaticCommitSchedules.has(normalized.id)) {
+              throw new Error(
+                `Automatic local commit ${normalized.id} is no longer registered.`,
+              );
+            }
+            send({
+              type: "update-automatic-local-commit",
+              schedule: normalizeAutomaticLocalCommitSchedule(pluginId, {
+                ...next,
+                id: normalized.id,
+              }),
+            });
+          },
+          dispose() {
+            if (disposed) {
+              return;
+            }
+            disposed = true;
+            automaticCommitSchedules.delete(normalized.id);
+            send({
+              type: "unregister-automatic-local-commit",
+              id: normalized.id,
+            });
+          },
+        };
+      },
+    };
+  }
   if (permissions.has("secure-storage")) {
     capabilities.secureStorage = {
       get: (key) => hostRequest<string | null>("secret.get", key),
@@ -464,6 +517,7 @@ async function cleanup(): Promise<unknown[]> {
   projectContextListeners.clear();
   commandHandlers.clear();
   sourceControlHandlers.clear();
+  automaticCommitSchedules.clear();
   return failures;
 }
 

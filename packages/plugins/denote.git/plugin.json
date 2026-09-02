@@ -67,7 +67,7 @@
       "autoCommitIntervalMinutes": {
         "type": "number",
         "title": "Automatic commit interval",
-        "description": "Minutes between automatic local commits. Zero disables automatic commits. Automatic commits are not implemented yet.",
+        "description": "Whole minutes between automatic local commits of tracked changes. Zero disables automatic commits.",
         "default": 0,
         "minimum": 0,
         "maximum": 1440
@@ -75,19 +75,19 @@
       "autoCommitMessage": {
         "type": "string",
         "title": "Automatic commit message",
-        "description": "Message used for automatic local commits once they are implemented.",
+        "description": "Message recorded on each automatic local commit.",
         "default": "Denote automatic commit"
       },
       "includePatterns": {
         "type": "string",
         "title": "Include patterns",
-        "description": "Comma-separated relative path prefixes to track. Empty means the whole repository.",
+        "description": "Comma-separated relative path prefixes included in automatic commits. Empty means the whole scope.",
         "default": ""
       },
       "excludePatterns": {
         "type": "string",
         "title": "Exclude patterns",
-        "description": "Comma-separated relative path prefixes to leave alone. Empty excludes nothing.",
+        "description": "Comma-separated relative path prefixes excluded from automatic commits. Excludes win over includes.",
         "default": ""
       }
     }

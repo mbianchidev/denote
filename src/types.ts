@@ -261,6 +261,30 @@ export interface InstalledPlugin {
   transactionId: string;
 }
 
+/**
+ * One host-scheduled automatic local commit. The renderer supplies the vault
+ * scope and the project separately, so nothing here identifies a repository.
+ */
+export interface PluginAutomaticCommitRequest {
+  scheduleId: string;
+  message: string;
+  includePatterns: string[];
+  excludePatterns: string[];
+  authorName: string | null;
+  authorEmail: string | null;
+}
+
+export type PluginAutomaticCommitStatus =
+  | "committed"
+  | "unchanged"
+  | "skipped";
+
+export interface PluginAutomaticCommitOutcome {
+  status: PluginAutomaticCommitStatus;
+  message: string;
+  commitId: string | null;
+}
+
 export interface MoveEntryResult {
   path: string;
   rewriteToken: string;

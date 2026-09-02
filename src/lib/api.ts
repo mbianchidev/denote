@@ -14,6 +14,8 @@ import type {
   NoteDocument,
   NoteStats,
   InstalledPlugin,
+  PluginAutomaticCommitOutcome,
+  PluginAutomaticCommitRequest,
   PluginView,
   PluginBundleMetadata,
   ProjectConfiguration,
@@ -348,6 +350,20 @@ export const api = {
     operationId: string,
   ) =>
     invoke<PluginGitResult>("plugin_git_request", {
+      pluginId,
+      request,
+      workspaceScope,
+      projectId,
+      operationId,
+    }),
+  pluginAutomaticCommit: (
+    pluginId: string,
+    request: PluginAutomaticCommitRequest,
+    workspaceScope: string,
+    projectId: string | null,
+    operationId: string,
+  ) =>
+    invoke<PluginAutomaticCommitOutcome>("plugin_automatic_commit", {
       pluginId,
       request,
       workspaceScope,

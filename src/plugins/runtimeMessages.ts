@@ -6,6 +6,15 @@ import type {
   PluginSourceControlAction,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
+import {
+  isPluginAutomaticLocalCommitPayload,
+  type PluginAutomaticLocalCommitPayload,
+} from "./automaticCommits";
+
+export type {
+  PluginAutomaticLocalCommitContribution,
+  PluginAutomaticLocalCommitPayload,
+} from "./automaticCommits";
 
 export interface PluginCommandContribution {
   pluginId: string;
@@ -107,6 +116,15 @@ export type PluginRuntimeMessage =
     }
   | { type: "unregister-source-control"; id: string }
   | {
+      type: "register-automatic-local-commit";
+      schedule: PluginAutomaticLocalCommitPayload;
+    }
+  | {
+      type: "update-automatic-local-commit";
+      schedule: PluginAutomaticLocalCommitPayload;
+    }
+  | { type: "unregister-automatic-local-commit"; id: string }
+  | {
       type: "host-request";
       requestId: string;
       operation: string;
@@ -186,6 +204,11 @@ export function isPluginRuntimeMessage(
         isPluginSourceControlViewModel(value.model)
       );
     case "unregister-source-control":
+      return typeof value.id === "string";
+    case "register-automatic-local-commit":
+    case "update-automatic-local-commit":
+      return isPluginAutomaticLocalCommitPayload(value.schedule);
+    case "unregister-automatic-local-commit":
       return typeof value.id === "string";
     case "host-request":
       return (

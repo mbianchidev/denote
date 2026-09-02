@@ -78,11 +78,22 @@ note-writing permission. Switching projects, or switching vaults, resets the
 view and asks for a refresh, so it never shows one repository's state as if it
 belonged to another.
 
-Fetching, pulling, pushing, switching branches, file and commit diffs, conflict
-resolution, and timed automatic commits are not implemented in this version.
-Branches, remotes, and recent commits appear as read-only information, and an
-interrupted merge or rebase is reported so you can finish it with your own Git
-tooling.
+Set **Automatic commit interval** above zero to let Denote commit for you on a
+timer. Denote saves your open notes first, then commits only tracked files that
+changed and match your include and exclude prefixes. It never adds a new file
+you have not tracked yourself, never contacts a remote, and waits for the next
+interval when work is already staged, a merge is unfinished, the vault is
+locked, or Denote is busy. Nothing happens the moment you enable it: the first
+automatic commit is one full interval later. If a run cannot finish, whatever
+you had staged is left exactly as it was, and if another Git tool changed your
+index in the meantime Denote leaves that index untouched and tells you so.
+Changing any plugin setting reloads the plugin so the new interval, message, or
+prefixes apply straight away.
+
+Fetching, pulling, pushing, switching branches, file and commit diffs, and
+conflict resolution are not implemented in this version. Branches, remotes, and
+recent commits appear as read-only information, and an interrupted merge or
+rebase is reported so you can finish it with your own Git tooling.
 
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.

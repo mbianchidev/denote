@@ -13,6 +13,7 @@ import {
 } from "./hostOperations";
 import {
   isPluginRuntimeMessage,
+  type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginDecorationContribution,
   type PluginRuntimeMessage,
@@ -23,6 +24,7 @@ import {
 } from "./runtimeMessages";
 
 export type {
+  PluginAutomaticLocalCommitContribution,
   PluginCommandContribution,
   PluginDecorationContribution,
   PluginSidebarContribution,
@@ -66,6 +68,8 @@ interface Runtime {
   stagedDecorations: Map<string, PluginDecorationContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
   stagedSourceControlProviders: Map<string, PluginSourceControlContribution>;
+  automaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
+  stagedAutomaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
   permissions: Set<string>;
   pending: Map<string, PendingRequest>;
   activeActions: Map<string, PluginActionLeaseScope>;
@@ -108,6 +112,9 @@ export class PluginWorkerRuntime {
     ) => void = () => {},
     private readonly onSourceControlProvidersChanged: (
       providers: PluginSourceControlContribution[],
+    ) => void = () => {},
+    private readonly onAutomaticLocalCommitsChanged: (
+      schedules: PluginAutomaticLocalCommitContribution[],
     ) => void = () => {},
   ) {}
 
@@ -387,6 +394,8 @@ export class PluginWorkerRuntime {
       stagedDecorations: new Map(),
       sourceControlProviders: new Map(),
       stagedSourceControlProviders: new Map(),
+      automaticCommits: new Map(),
+      stagedAutomaticCommits: new Map(),
       permissions: new Set(
         plugin.approvedPermissions.map(
           (permission) => permission.capability,
@@ -470,11 +479,16 @@ export class PluginWorkerRuntime {
         runtime.sourceControlProviders.set(providerId, provider);
       }
       runtime.stagedSourceControlProviders.clear();
+      for (const [scheduleId, schedule] of runtime.stagedAutomaticCommits) {
+        runtime.automaticCommits.set(scheduleId, schedule);
+      }
+      runtime.stagedAutomaticCommits.clear();
       this.publishCommands();
       this.publishSidebarViews();
       this.publishStatusItems();
       this.publishDecorations();
       this.publishSourceControlProviders();
+      this.publishAutomaticLocalCommits();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -689,6 +703,46 @@ export class PluginWorkerRuntime {
         runtime.sourceControlProviders.delete(message.id);
         runtime.stagedSourceControlProviders.delete(message.id);
         this.publishSourceControlProviders();
+        return;
+      case "register-automatic-local-commit":
+      case "update-automatic-local-commit": {
+        const registering = message.type === "register-automatic-local-commit";
+        const staged = runtime.activated
+          ? runtime.automaticCommits
+          : runtime.stagedAutomaticCommits;
+        const known =
+          runtime.automaticCommits.has(message.schedule.id) ||
+          runtime.stagedAutomaticCommits.has(message.schedule.id);
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("automatic-local-commit") ||
+          !message.schedule.id.startsWith(`${pluginId}.`) ||
+          (registering && known) ||
+          (!registering && !known)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized automatic local commit registration.`,
+            ),
+          );
+          return;
+        }
+        // The whole schedule is replaced in one step, so a timer is never
+        // rebuilt from a half-updated contribution.
+        staged.set(message.schedule.id, {
+          pluginId,
+          ...message.schedule,
+        });
+        if (runtime.activated) {
+          this.publishAutomaticLocalCommits();
+        }
+        return;
+      }
+      case "unregister-automatic-local-commit":
+        runtime.automaticCommits.delete(message.id);
+        runtime.stagedAutomaticCommits.delete(message.id);
+        this.publishAutomaticLocalCommits();
         return;
       case "host-request":
         if (
@@ -912,6 +966,7 @@ export class PluginWorkerRuntime {
     this.publishStatusItems();
     this.publishDecorations();
     this.publishSourceControlProviders();
+    this.publishAutomaticLocalCommits();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -980,6 +1035,19 @@ export class PluginWorkerRuntime {
     this.onSourceControlProvidersChanged(
       [...this.runtimes.values()].flatMap((runtime) => [
         ...runtime.sourceControlProviders.values(),
+      ]),
+    );
+  }
+
+  /**
+   * Publishes every schedule the host may hold a timer for. A stopped, failed,
+   * or disabled runtime is already gone from the map, so its schedules
+   * disappear in the same publication and the host clears their timers.
+   */
+  private publishAutomaticLocalCommits(): void {
+    this.onAutomaticLocalCommitsChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.automaticCommits.values(),
       ]),
     );
   }

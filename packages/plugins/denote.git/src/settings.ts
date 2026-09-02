@@ -95,15 +95,43 @@ function minutes(value: unknown): number {
   return value;
 }
 
+/**
+ * Comma-separated relative path prefixes. Anything that is not a plain
+ * repository-relative prefix is dropped rather than sent to the host, which
+ * would refuse the whole schedule and leave automatic commits unregistered.
+ */
 function patterns(value: unknown): string[] {
   if (typeof value !== "string") {
     return [];
   }
   return value
     .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
+    .map((entry) => entry.trim().replace(/\/+$/, ""))
+    .filter(isPathPrefix)
     .slice(0, 100);
+}
+
+function isPathPrefix(value: string): boolean {
+  return (
+    value.length > 0 &&
+    value.length <= 1024 &&
+    !hasControlCharacter(value) &&
+    !value.startsWith("-") &&
+    !value.startsWith(":") &&
+    !value.startsWith("/") &&
+    !value.startsWith("~") &&
+    !value.includes("\\") &&
+    !/^[A-Za-z]:/.test(value) &&
+    value
+      .split("/")
+      .every(
+        (segment) =>
+          segment.length > 0 &&
+          segment !== "." &&
+          segment !== ".." &&
+          segment.toLowerCase() !== ".git",
+      )
+  );
 }
 
 function trimmedText(value: unknown, maximum: number): string | null {

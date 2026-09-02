@@ -12,6 +12,7 @@ import { usePlugins } from "./usePlugins";
 interface MockRuntimeInstance {
   onCommandsChanged: unknown;
   onSourceControlProvidersChanged?: unknown;
+  onAutomaticLocalCommitsChanged?: unknown;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
@@ -41,6 +42,7 @@ vi.mock("../lib/api", () => ({
     recoverPluginTransactions: vi.fn(),
     disablePlugin: vi.fn(),
     setPluginSettings: vi.fn(),
+    getPluginSettings: vi.fn(),
     importPluginSettings: vi.fn(),
   },
   errorMessage: (error: unknown) =>
@@ -73,6 +75,7 @@ vi.mock("./workerRuntime", () => {
       public onStatusItemsChanged?: unknown,
       public onDecorationsChanged?: unknown,
       public onSourceControlProvidersChanged?: unknown,
+      public onAutomaticLocalCommitsChanged?: unknown,
     ) {
       runtimeInstances.push(this);
     }
@@ -531,5 +534,107 @@ describe("usePlugins", () => {
       { id: "refresh", values: { force: true } },
       { workspaceScope: "/vault", projectId: "project-alpha" },
     );
+  });
+
+  it("publishes automatic local commit schedules from the active runtime", async () => {
+    const rendered = await mountReady([makePlugin({ enabled: true })]);
+    const publishSchedules = runtimeInstances[0]
+      .onAutomaticLocalCommitsChanged as (
+      schedules: Array<Record<string, unknown>>,
+    ) => void;
+
+    act(() => {
+      publishSchedules([
+        {
+          pluginId,
+          id: "denote.reference.nightly",
+          intervalMinutes: 15,
+          message: "Synthetic automatic commit",
+          includePatterns: [],
+          excludePatterns: [],
+          authorName: null,
+          authorEmail: null,
+        },
+      ]);
+    });
+
+    expect(rendered.result.current.automaticLocalCommits).toEqual([
+      expect.objectContaining({
+        pluginId,
+        id: "denote.reference.nightly",
+        intervalMinutes: 15,
+      }),
+    ]);
+
+    act(() => {
+      publishSchedules([]);
+    });
+    expect(rendered.result.current.automaticLocalCommits).toEqual([]);
+  });
+
+  it("reloads a running runtime so a settings change takes effect", async () => {
+    const enabled = makePlugin({ enabled: true });
+    const { result } = await mountReady([enabled]);
+    queueListPlugins([enabled]);
+    queueListPlugins([enabled]);
+
+    await act(async () => {
+      await result.current.updateSettings(pluginId, {
+        autoCommitIntervalMinutes: 15,
+      });
+    });
+
+    expect(api.setPluginSettings).toHaveBeenCalledWith(pluginId, {
+      autoCommitIntervalMinutes: 15,
+    });
+    // The runtime is restarted, not reinstalled: no transaction is prepared
+    // and the plugin stays enabled throughout.
+    expect(callOrder).toEqual([
+      "listPlugins",
+      "stop",
+      "start",
+      "listPlugins",
+    ]);
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(api.disablePlugin).not.toHaveBeenCalled();
+  });
+
+  it("disables a plugin whose runtime cannot restart after a settings change", async () => {
+    const enabled = makePlugin({ enabled: true });
+    const { result } = await mountReady([enabled]);
+    queueListPlugins([enabled]);
+    runtimeInstances[0].start.mockRejectedValueOnce(
+      new Error("Synthetic reload failure"),
+    );
+    queueListPlugins([makePlugin({ enabled: false })]);
+
+    let failure: unknown = null;
+    await act(async () => {
+      failure = await result.current
+        .updateSettings(pluginId, { autoCommitIntervalMinutes: 15 })
+        .catch((error: unknown) => error);
+    });
+
+    expect(failure).toEqual(
+      expect.objectContaining({ message: "Synthetic reload failure" }),
+    );
+    expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
+    expect(result.current.plugins).toEqual([makePlugin({ enabled: false })]);
+  });
+
+  it("leaves a disabled plugin unstarted when its settings change", async () => {
+    const disabled = makePlugin({ enabled: false });
+    const { result } = await mountReady([disabled]);
+    queueListPlugins([disabled]);
+
+    await act(async () => {
+      await result.current.updateSettings(pluginId, {
+        autoCommitIntervalMinutes: 0,
+      });
+    });
+
+    expect(callOrder).toEqual(["listPlugins"]);
+    expect(runtimeInstances[0].stop).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
   });
 });

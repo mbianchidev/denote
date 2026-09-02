@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
-import type { PluginSourceControlContribution } from "./plugins/workerRuntime";
+import type {
+  PluginAutomaticLocalCommitContribution,
+  PluginSourceControlContribution,
+} from "./plugins/workerRuntime";
 import type { FileNode, WorkspaceSnapshot } from "./types";
 
 const mockApi = vi.hoisted(() => ({
@@ -18,6 +21,7 @@ const mockApi = vi.hoisted(() => ({
   createEntry: vi.fn(),
   trashEntry: vi.fn(),
   restoreTrashItem: vi.fn(),
+  pluginAutomaticCommit: vi.fn(),
 }));
 
 const mockPluginController = vi.hoisted(() => ({
@@ -28,6 +32,7 @@ const mockPluginController = vi.hoisted(() => ({
   statusItems: [],
   decorations: [],
   sourceControlProviders: [] as PluginSourceControlContribution[],
+  automaticLocalCommits: [] as PluginAutomaticLocalCommitContribution[],
   loading: false,
   busyPluginIds: new Set<string>(),
   refresh: vi.fn(),
@@ -206,7 +211,13 @@ describe("App initial file-tree expansion", () => {
     });
     mockApi.restoreTrashItem.mockResolvedValue(fileNode(".gitignore"));
     mockPluginController.sourceControlProviders = [];
+    mockPluginController.automaticLocalCommits = [];
     mockPluginController.runSourceControlAction.mockResolvedValue(undefined);
+    mockApi.pluginAutomaticCommit.mockResolvedValue({
+      status: "committed",
+      message: "Committed the tracked changes.",
+      commitId: "1111111111111111111111111111111111111111",
+    });
   });
 
   it("opens only the first eight eligible top-level folders", async () => {
@@ -715,7 +726,149 @@ describe("App initial file-tree expansion", () => {
       mockPluginController.runSourceControlAction.mock.invocationCallOrder[0],
     );
   });
+
+  it("saves open notes before an automatic commit and refreshes after it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
+      mockPluginController.automaticLocalCommits = [automaticCommitSchedule()];
+      mockApi.getLastVault.mockResolvedValue(snapshot);
+      mockApi.refreshVault.mockResolvedValue(snapshot);
+      mockApi.readNote.mockResolvedValue({
+        path: "sample.py",
+        content: "print('synthetic')",
+        contentHash: "sample-hash",
+        encoding: "utf8",
+        lineEnding: "lf",
+        stats: noteStats(),
+      });
+      mockApi.saveNote.mockResolvedValue({
+        path: "sample.py",
+        changed: true,
+        savedAt: "2026-01-01T00:00:00Z",
+        contentHash: "saved-sample-hash",
+        historyCount: 1,
+        stats: noteStats(),
+      });
+
+      render(<App />);
+      await user.click(
+        await screen.findByRole("button", { name: "Open sample.py" }),
+      );
+      await user.click(
+        screen.getByRole("button", { name: "Change Edit sample.py" }),
+      );
+      // Nothing runs before the configured interval elapses.
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(mockApi.pluginAutomaticCommit).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      await waitFor(() => {
+        expect(mockApi.pluginAutomaticCommit).toHaveBeenCalledWith(
+          "denote.synthetic",
+          {
+            scheduleId: "denote.synthetic.nightly",
+            message: "Synthetic automatic commit",
+            includePatterns: [],
+            excludePatterns: [],
+            authorName: null,
+            authorEmail: null,
+          },
+          "/synthetic-vault",
+          null,
+          expect.any(String),
+        );
+      });
+      expect(mockApi.saveNote).toHaveBeenCalledWith(
+        "sample.py",
+        "print('synthetic') changed",
+        "utf8",
+        "lf",
+        expect.any(String),
+        "sample-hash",
+      );
+      expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(
+        mockApi.pluginAutomaticCommit.mock.invocationCallOrder[0],
+      );
+      await waitFor(() => {
+        expect(mockApi.refreshVault).toHaveBeenCalled();
+      });
+      await waitFor(() => {
+        expect(
+          screen.getAllByText("Automatic commit 1111111").length,
+        ).toBeGreaterThan(0);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports an automatic commit that was skipped and reindexes nothing", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockPluginController.automaticLocalCommits = [automaticCommitSchedule()];
+      mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+      mockApi.pluginAutomaticCommit.mockResolvedValue({
+        status: "skipped",
+        message: "Changes are already staged, so Denote left this commit to you.",
+        commitId: null,
+      });
+
+      render(<App />);
+      await screen.findByTestId("file-tree-expanded");
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByText(
+            "Automatic commit skipped: Changes are already staged, so Denote left this commit to you.",
+          ).length,
+        ).toBeGreaterThan(0);
+      });
+      expect(mockApi.refreshVault).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds no automatic commit timer while the vault is locked", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const locked = workspaceSnapshot([]);
+      locked.encryption = {
+        enabled: true,
+        unlocked: false,
+        phase: "encrypted",
+        remainingRecoveryCodes: 5,
+      };
+      mockPluginController.automaticLocalCommits = [automaticCommitSchedule()];
+      mockApi.getLastVault.mockResolvedValue(locked);
+
+      render(<App />);
+      await screen.findByText("Synthetic vault is locked");
+      await vi.advanceTimersByTimeAsync(300_000);
+
+      expect(mockApi.pluginAutomaticCommit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
+
+function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
+  return {
+    pluginId: "denote.synthetic",
+    id: "denote.synthetic.nightly",
+    intervalMinutes: 1,
+    message: "Synthetic automatic commit",
+    includePatterns: [],
+    excludePatterns: [],
+    authorName: null,
+    authorEmail: null,
+  };
+}
 
 function fileNode(
   path: string,

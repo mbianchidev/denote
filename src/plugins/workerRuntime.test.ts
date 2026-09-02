@@ -104,6 +104,7 @@ class FakeWorker extends EventTarget {
   static completeSourceControlActions = true;
   static sourceControlModelOnActivate: PluginSourceControlViewModel | null = null;
   static sourceControlProviderIdOnActivate = "denote.reference.git";
+  static automaticCommitOnActivate: Record<string, unknown> | null = null;
   static sourceControlActionResultType:
     | "source-control-action-result"
     | "command-result" = "source-control-action-result";
@@ -146,6 +147,12 @@ class FakeWorker extends EventTarget {
             id: FakeWorker.sourceControlProviderIdOnActivate,
             title: "Git",
             model: FakeWorker.sourceControlModelOnActivate,
+          });
+        }
+        if (FakeWorker.automaticCommitOnActivate) {
+          port.postMessage({
+            type: "register-automatic-local-commit",
+            schedule: FakeWorker.automaticCommitOnActivate,
           });
         }
         if (FakeWorker.failActivationAfterSourceControl) {
@@ -303,6 +310,17 @@ function pluginWithSourceControlId(pluginId: string): PluginView {
   };
 }
 
+function pluginWithAutomaticCommit(): PluginView {
+  return {
+    ...plugin(),
+    approvedPermissions: [
+      ...catalog.manifest.permissions,
+      { capability: "automatic-local-commit" },
+      { capability: "git" },
+    ],
+  };
+}
+
 function pluginWithGit(): PluginView {
   return {
     ...plugin(),
@@ -336,6 +354,7 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.completeSourceControlActions = true;
     FakeWorker.sourceControlModelOnActivate = null;
     FakeWorker.sourceControlProviderIdOnActivate = "denote.reference.git";
+    FakeWorker.automaticCommitOnActivate = null;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
@@ -465,6 +484,346 @@ describe("PluginWorkerRuntime", () => {
 
     await runtime.stop("denote.reference");
     expect(onSourceControlChanged).toHaveBeenLastCalledWith([]);
+  });
+
+  it("stages, replaces, and removes automatic local commit schedules", async () => {
+    FakeWorker.automaticCommitOnActivate = {
+      id: "denote.reference.nightly",
+      intervalMinutes: 15,
+      message: "Synthetic automatic commit",
+      includePatterns: ["notes"],
+      excludePatterns: ["notes/drafts"],
+      authorName: null,
+      authorEmail: null,
+    };
+    const onAutomaticCommitsChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onAutomaticCommitsChanged,
+    );
+
+    await runtime.start(pluginWithAutomaticCommit());
+    const worker = FakeWorker.instances[0];
+    expect(onAutomaticCommitsChanged).toHaveBeenLastCalledWith([
+      {
+        pluginId: "denote.reference",
+        id: "denote.reference.nightly",
+        intervalMinutes: 15,
+        message: "Synthetic automatic commit",
+        includePatterns: ["notes"],
+        excludePatterns: ["notes/drafts"],
+        authorName: null,
+        authorEmail: null,
+      },
+    ]);
+
+    worker.runtimePort?.postMessage({
+      type: "update-automatic-local-commit",
+      schedule: {
+        id: "denote.reference.nightly",
+        intervalMinutes: 30,
+        message: "Synthetic automatic commit",
+        includePatterns: [],
+        excludePatterns: [],
+        authorName: "Synthetic Author",
+        authorEmail: "synthetic@example.invalid",
+      },
+    });
+    await vi.waitFor(() => {
+      expect(onAutomaticCommitsChanged).toHaveBeenLastCalledWith([
+        expect.objectContaining({
+          intervalMinutes: 30,
+          includePatterns: [],
+          authorName: "Synthetic Author",
+        }),
+      ]);
+    });
+
+    worker.runtimePort?.postMessage({
+      type: "unregister-automatic-local-commit",
+      id: "denote.reference.nightly",
+    });
+    await vi.waitFor(() => {
+      expect(onAutomaticCommitsChanged).toHaveBeenLastCalledWith([]);
+    });
+    expect(worker.terminated).toBe(false);
+  });
+
+  it("removes automatic local commit schedules when a plugin is disabled", async () => {
+    FakeWorker.automaticCommitOnActivate = {
+      id: "denote.reference.nightly",
+      intervalMinutes: 5,
+      message: "Synthetic automatic commit",
+      includePatterns: [],
+      excludePatterns: [],
+      authorName: null,
+      authorEmail: null,
+    };
+    const onAutomaticCommitsChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onAutomaticCommitsChanged,
+    );
+    await runtime.start(pluginWithAutomaticCommit());
+    expect(onAutomaticCommitsChanged).toHaveBeenLastCalledWith([
+      expect.objectContaining({ id: "denote.reference.nightly" }),
+    ]);
+
+    await runtime.stop("denote.reference");
+
+    expect(onAutomaticCommitsChanged).toHaveBeenLastCalledWith([]);
+  });
+
+  it("rolls back staged automatic local commit schedules when activation fails", async () => {
+    FakeWorker.automaticCommitOnActivate = {
+      id: "denote.reference.nightly",
+      intervalMinutes: 5,
+      message: "Synthetic automatic commit",
+      includePatterns: [],
+      excludePatterns: [],
+      authorName: null,
+      authorEmail: null,
+    };
+    FakeWorker.failActivationAfterSourceControl = true;
+    const onAutomaticCommitsChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onAutomaticCommitsChanged,
+    );
+
+    await expect(runtime.start(pluginWithAutomaticCommit())).rejects.toThrow(
+      "Synthetic activation failure",
+    );
+
+    expect(
+      onAutomaticCommitsChanged.mock.calls.some(
+        ([schedules]) => Array.isArray(schedules) && schedules.length > 0,
+      ),
+    ).toBe(false);
+    expect(FakeWorker.instances[0].terminated).toBe(true);
+  });
+
+  it("terminates automatic local commit registrations without permission", async () => {
+    FakeWorker.automaticCommitOnActivate = {
+      id: "denote.reference.nightly",
+      intervalMinutes: 5,
+      message: "Synthetic automatic commit",
+      includePatterns: [],
+      excludePatterns: [],
+      authorName: null,
+      authorEmail: null,
+    };
+    const onError = vi.fn();
+    const onAutomaticCommitsChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onAutomaticCommitsChanged,
+    );
+
+    await runtime.start(plugin()).catch(() => {});
+
+    await vi.waitFor(() => {
+      expect(FakeWorker.instances[0].terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/automatic local commit/i),
+        }),
+      );
+    });
+    expect(
+      onAutomaticCommitsChanged.mock.calls.every(
+        ([schedules]) => Array.isArray(schedules) && schedules.length === 0,
+      ),
+    ).toBe(true);
+  });
+
+  it("terminates an automatic local commit update for an unknown schedule", async () => {
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+    await runtime.start(pluginWithAutomaticCommit());
+    const worker = FakeWorker.instances[0];
+
+    worker.runtimePort?.postMessage({
+      type: "update-automatic-local-commit",
+      schedule: {
+        id: "denote.reference.nightly",
+        intervalMinutes: 5,
+        message: "Synthetic automatic commit",
+        includePatterns: [],
+        excludePatterns: [],
+        authorName: null,
+        authorEmail: null,
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(worker.terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/automatic local commit/i),
+        }),
+      );
+    });
+  });
+
+  it("registers and disposes real automatic local commit schedules", async () => {
+    const workerScope: Record<string, unknown> & {
+      onmessage:
+        | ((event: { data: unknown; ports: FakePort[] }) => Promise<void>)
+        | null;
+    } = { onmessage: null };
+    vi.stubGlobal("self", workerScope);
+    vi.resetModules();
+    await import("./pluginWorker");
+    const pluginModule = dataModuleUrl(`
+      export default {
+        manifest: { id: "denote.reference", version: "0.1.0" },
+        async activate(context) {
+          const settings = await context.settings.getAll();
+          const registration = context.capabilities.automaticLocalCommit.register({
+            id: "denote.reference.nightly",
+            intervalMinutes: settings.intervalMinutes,
+            message: "Synthetic automatic commit",
+            includePatterns: ["notes/"],
+          });
+          registration.update({
+            intervalMinutes: 45,
+            message: "Synthetic automatic commit",
+            excludePatterns: ["notes/drafts"],
+          });
+          context.subscriptions.add(registration);
+          try {
+            context.capabilities.automaticLocalCommit.register({
+              id: "denote.reference.invalid",
+              intervalMinutes: 0,
+              message: "Synthetic automatic commit",
+            });
+          } catch (error) {
+            context.logger.warn(error.message);
+          }
+        },
+      };
+    `);
+    const port = new FakePort();
+
+    await workerScope.onmessage?.({
+      data: {
+        type: "connect",
+        moduleUrl: pluginModule,
+        pluginId: "denote.reference",
+        expectedVersion: "0.1.0",
+        permissions: ["automatic-local-commit"],
+      },
+      ports: [port],
+    });
+    await vi.waitFor(() =>
+      expect(port.messages).toContainEqual({ type: "ready" }),
+    );
+    port.onmessage?.(
+      new MessageEvent("message", { data: { type: "activate" } }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual(
+        expect.objectContaining({ type: "host-request", operation: "settings.get" }),
+      );
+    });
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: {
+          type: "host-response",
+          requestId: "request-id",
+          value: { intervalMinutes: 20 },
+        },
+      }),
+    );
+
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "register-automatic-local-commit",
+        schedule: {
+          id: "denote.reference.nightly",
+          intervalMinutes: 20,
+          message: "Synthetic automatic commit",
+          // A trailing slash is normalized away, so a prefix always names a
+          // path segment.
+          includePatterns: ["notes"],
+          excludePatterns: [],
+          authorName: null,
+          authorEmail: null,
+        },
+      });
+      expect(port.messages).toContainEqual({
+        type: "update-automatic-local-commit",
+        schedule: {
+          id: "denote.reference.nightly",
+          intervalMinutes: 45,
+          message: "Synthetic automatic commit",
+          includePatterns: [],
+          excludePatterns: ["notes/drafts"],
+          authorName: null,
+          authorEmail: null,
+        },
+      });
+      expect(port.messages).toContainEqual({ type: "activated" });
+    });
+    // A zero interval is refused inside the worker, so an unusable schedule
+    // never reaches the host at all.
+    expect(port.messages).toContainEqual(
+      expect.objectContaining({
+        type: "log",
+        level: "warn",
+        message: expect.stringMatching(/interval must be a whole number/i),
+      }),
+    );
+    expect(
+      port.messages.filter(
+        (message) =>
+          isRecord(message) &&
+          message.type === "register-automatic-local-commit",
+      ),
+    ).toHaveLength(1);
+
+    port.onmessage?.(
+      new MessageEvent("message", {
+        data: { type: "deactivate", requestId: "deactivate-automatic-commit" },
+      }),
+    );
+    await vi.waitFor(() => {
+      expect(port.messages).toContainEqual({
+        type: "unregister-automatic-local-commit",
+        id: "denote.reference.nightly",
+      });
+    });
   });
 
   it("rolls back staged source control contributions when activation fails", async () => {

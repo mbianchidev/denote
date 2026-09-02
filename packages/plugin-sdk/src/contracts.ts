@@ -492,6 +492,45 @@ export interface PluginSourceControlCapability {
   ) => PluginSourceControlRegistration;
 }
 
+/**
+ * One standing automatic local commit. A plugin describes what should be
+ * committed and how often; it never receives a vault path, a project ID, or a
+ * Git capability for it. The host owns the timer, the repository scope, and
+ * the commit itself.
+ */
+export interface PluginAutomaticLocalCommitSchedule {
+  id: string;
+  /** Whole minutes between runs. Must be greater than zero and bounded. */
+  intervalMinutes: number;
+  message: string;
+  /**
+   * Repository-relative path prefixes. An empty list means the whole
+   * repository. Excludes always win over includes.
+   */
+  includePatterns?: string[];
+  excludePatterns?: string[];
+  /** Optional commit identity. Both halves are required together. */
+  authorName?: string;
+  authorEmail?: string;
+}
+
+export type PluginAutomaticLocalCommitUpdate = Omit<
+  PluginAutomaticLocalCommitSchedule,
+  "id"
+>;
+
+export interface PluginAutomaticLocalCommitRegistration
+  extends PluginDisposable {
+  /** Replaces every field except the ID, which identifies the schedule. */
+  update: (schedule: PluginAutomaticLocalCommitUpdate) => void;
+}
+
+export interface PluginAutomaticLocalCommitCapability {
+  register: (
+    schedule: PluginAutomaticLocalCommitSchedule,
+  ) => PluginAutomaticLocalCommitRegistration;
+}
+
 export interface PluginTextDocument {
   content: string;
   version: string;
@@ -764,6 +803,7 @@ export interface PluginCapabilities {
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
   sourceControl?: PluginSourceControlCapability;
+  automaticLocalCommit?: PluginAutomaticLocalCommitCapability;
   secureStorage?: PluginSecureStorage;
 }
 
