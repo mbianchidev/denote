@@ -544,8 +544,8 @@ function HistoryPager({
       <p role="status" className="source-control__history-status">
         {page.loading
           ? "Reading history…"
-          : `Page ${page.pageIndex + 1}, ${count} commit${count === 1 ? "" : "s"}${
-              page.hasNext ? ", more available" : ""
+          : `Page ${page.pageIndex + 1} · ${count} commit${count === 1 ? "" : "s"}${
+              page.hasNext ? " · More available" : ""
             }`}
       </p>
       {page.error ? (
@@ -984,6 +984,8 @@ export function CloneOnboarding({
   );
 }
 
+const ADD_REMOTE_VALUE = "__add-remote__";
+
 function RemoteManagement({
   remotes,
   busy,
@@ -993,121 +995,132 @@ function RemoteManagement({
   busy: boolean;
   onAction: SourceControlPanelProps["onAction"];
 }) {
+  const [selected, setSelected] = useState(
+    remotes[0]?.name ?? ADD_REMOTE_VALUE,
+  );
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const active =
+    remotes.find((remote) => remote.name === selected) ??
+    (selected === ADD_REMOTE_VALUE ? null : remotes[0] ?? null);
+  const selection = active?.name ?? ADD_REMOTE_VALUE;
+  const currentUrl = active?.fetchUrl ?? "";
+  const editedUrl = active ? (edits[active.name] ?? currentUrl) : url;
 
   return (
     <section aria-labelledby="source-control-remotes">
       <h3 id="source-control-remotes">Remotes</h3>
-      {remotes.length > 0 ? (
-        <ul className="source-control__remotes">
-          {remotes.map((remote) => {
-            const current = remote.fetchUrl ?? "";
-            const edited = edits[remote.name] ?? current;
-            return (
-              <li key={remote.name}>
-                <strong>{remote.name}</strong>
-                <span>Fetch: {remote.fetchUrl ?? "Unavailable"}</span>
-                <span>Push: {remote.pushUrl ?? "Unavailable"}</span>
-                <label className="source-control__field">
-                  <span>URL for {remote.name}</span>
-                  <input
-                    type="url"
-                    inputMode="url"
-                    value={edited}
-                    disabled={busy}
-                    onChange={(event) => {
-                      // The value is read before the updater runs: React
-                      // clears the event by the time a functional update is
-                      // applied.
-                      const next = event.currentTarget.value;
-                      setEdits((previous) => ({
-                        ...previous,
-                        [remote.name]: next,
-                      }));
-                    }}
-                  />
-                </label>
-                <div className="source-control__row-actions">
-                  <button
-                    type="button"
-                    aria-label={`Save the URL for ${remote.name}`}
-                    disabled={
-                      busy ||
-                      edited.trim().length === 0 ||
-                      edited.trim() === current
-                    }
-                    onClick={() =>
-                      onAction(
-                        action("set-remote-url", {
-                          name: remote.name,
-                          url: edited.trim(),
-                        }),
-                      )
-                    }
-                  >
-                    Save URL
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Remove the ${remote.name} remote`}
-                    disabled={busy}
-                    onClick={() =>
-                      onAction(action("remove-remote", { name: remote.name }))
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="sidebar-empty">No remotes.</p>
-      )}
       <form
-        className="source-control__remote-form"
+        className="source-control__remote-editor"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!name.trim() || !url.trim()) {
+          if (active) {
+            const next = editedUrl.trim();
+            if (!next || next === currentUrl) {
+              return;
+            }
+            onAction(
+              action("set-remote-url", { name: active.name, url: next }),
+            );
+            return;
+          }
+          const remoteName = name.trim();
+          const remoteUrl = url.trim();
+          if (!remoteName || !remoteUrl) {
             return;
           }
           onAction(
-            action("add-remote", { name: name.trim(), url: url.trim() }),
+            action("add-remote", { name: remoteName, url: remoteUrl }),
           );
           setName("");
           setUrl("");
         }}
       >
         <label className="source-control__field">
-          <span>New remote name</span>
-          <input
-            value={name}
+          <span>Remote</span>
+          <select
+            value={selection}
             disabled={busy}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
+            onChange={(event) => setSelected(event.currentTarget.value)}
+          >
+            {remotes.map((remote) => (
+              <option value={remote.name} key={remote.name}>
+                {remote.name}
+              </option>
+            ))}
+            <option value={ADD_REMOTE_VALUE}>Add remote…</option>
+          </select>
         </label>
+        {active ? (
+          <dl className="source-control__remote-summary">
+            <div>
+              <dt>Fetch</dt>
+              <dd>{active.fetchUrl ?? "Unavailable"}</dd>
+            </div>
+            <div>
+              <dt>Push</dt>
+              <dd>{active.pushUrl ?? "Unavailable"}</dd>
+            </div>
+          </dl>
+        ) : (
+          <label className="source-control__field">
+            <span>Remote name</span>
+            <input
+              value={name}
+              disabled={busy}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
+          </label>
+        )}
         <label className="source-control__field">
-          <span>New remote URL</span>
+          <span>{active ? `URL for ${active.name}` : "Remote URL"}</span>
           <input
             type="url"
             inputMode="url"
             placeholder="https://host.example/owner/repository.git"
-            value={url}
+            value={editedUrl}
             disabled={busy}
-            onChange={(event) => setUrl(event.currentTarget.value)}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              if (active) {
+                setEdits((previous) => ({
+                  ...previous,
+                  [active.name]: next,
+                }));
+              } else {
+                setUrl(next);
+              }
+            }}
           />
         </label>
         <div className="source-control__actions">
           <button
             type="submit"
             className="secondary-button"
-            disabled={busy || !name.trim() || !url.trim()}
+            aria-label={active ? `Save the URL for ${active.name}` : undefined}
+            disabled={
+              busy ||
+              (active
+                ? !editedUrl.trim() || editedUrl.trim() === currentUrl
+                : !name.trim() || !url.trim())
+            }
           >
-            Add remote
+            {active ? "Save URL" : "Add remote"}
           </button>
+          {active ? (
+            <button
+              type="button"
+              className="secondary-button"
+              aria-label={`Remove the ${active.name} remote`}
+              disabled={busy}
+              onClick={() =>
+                onAction(action("remove-remote", { name: active.name }))
+              }
+            >
+              Remove
+            </button>
+          ) : null}
         </div>
       </form>
     </section>
@@ -1144,69 +1157,71 @@ function AdvancedOperations({
   const source = chosen || (options[0]?.name ?? "");
 
   return (
-    <section aria-labelledby="source-control-advanced">
-      <h3 id="source-control-advanced">Merge and rebase</h3>
-      {options.length > 0 ? (
-        <>
-          <label className="source-control__field">
-            <span>Branch to use</span>
-            <select
-              value={source}
-              disabled={busy || blocked}
-              onChange={(event) => setChosen(event.currentTarget.value)}
-            >
-              {options.map((branch) => (
-                <option
-                  value={branch.name}
-                  key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
-                >
-                  {branch.name}
-                  {branch.remote ? " (remote)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="source-control__actions">
-            <button
-              type="button"
-              className="secondary-button"
-              aria-label={`Review merging ${source}`}
-              disabled={busy || blocked || source.length === 0}
-              onClick={() =>
-                onAction(action("prepare-merge", { ref: source }))
-              }
-            >
-              Review merge
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              aria-label={`Review rebasing onto ${source}`}
-              disabled={busy || blocked || source.length === 0}
-              onClick={() =>
-                onAction(action("prepare-rebase", { ref: source }))
-              }
-            >
-              Review rebase
-            </button>
-          </div>
-          <p className="source-control__hint">
-            Denote reviews a merge or a rebase before it runs, and never
-            force-pushes or resets anything.
+    <details className="source-control__advanced">
+      <summary>Merge and rebase</summary>
+      <div className="source-control__advanced-body">
+        {options.length > 0 ? (
+          <>
+            <label className="source-control__field">
+              <span>Branch to use</span>
+              <select
+                value={source}
+                disabled={busy || blocked}
+                onChange={(event) => setChosen(event.currentTarget.value)}
+              >
+                {options.map((branch) => (
+                  <option
+                    value={branch.name}
+                    key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
+                  >
+                    {branch.name}
+                    {branch.remote ? " (remote)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="source-control__actions">
+              <button
+                type="button"
+                className="secondary-button"
+                aria-label={`Review merging ${source}`}
+                disabled={busy || blocked || source.length === 0}
+                onClick={() =>
+                  onAction(action("prepare-merge", { ref: source }))
+                }
+              >
+                Review merge
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                aria-label={`Review rebasing onto ${source}`}
+                disabled={busy || blocked || source.length === 0}
+                onClick={() =>
+                  onAction(action("prepare-rebase", { ref: source }))
+                }
+              >
+                Review rebase
+              </button>
+            </div>
+            <p className="source-control__hint">
+              Denote reviews a merge or a rebase before it runs, and never
+              force-pushes or resets anything.
+            </p>
+          </>
+        ) : (
+          <p className="sidebar-empty">
+            This repository has no other branch to merge or rebase onto.
           </p>
-        </>
-      ) : (
-        <p className="sidebar-empty">
-          This repository has no other branch to merge or rebase onto.
-        </p>
-      )}
-      {blocked ? (
-        <p className="source-control__limitation" role="status">
-          Finish the operation that is already in progress before starting
-          another one.
-        </p>
-      ) : null}
-    </section>
+        )}
+        {blocked ? (
+          <p className="source-control__limitation" role="status">
+            Finish the operation that is already in progress before starting
+            another one.
+          </p>
+        ) : null}
+      </div>
+    </details>
   );
 }
 

@@ -2175,6 +2175,14 @@ button.tag-chip:active,
 
 .source-control {
   contain: layout style paint;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.source-control :is(button, input, select, textarea) {
+  font: inherit;
 }
 
 .source-control__compact-action,
@@ -2182,7 +2190,7 @@ button.tag-chip:active,
 .source-control__tabs button {
   padding: 4px 7px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2264,7 +2272,7 @@ button.tag-chip:active,
 
 .source-control__workspace-repositories strong {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2272,7 +2280,7 @@ button.tag-chip:active,
 .source-control__workspace-repositories span {
   flex: 0 0 auto;
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .source-control h3,
@@ -2285,13 +2293,13 @@ button.tag-chip:active,
 
 .source-control h3 {
   margin-bottom: 9px;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .source-control h4 {
   margin-bottom: 6px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 650;
 }
 
@@ -2316,7 +2324,7 @@ button.tag-chip:active,
 
 .source-control dt {
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .source-control dd {
@@ -2324,7 +2332,7 @@ button.tag-chip:active,
   margin: 0;
   overflow: hidden;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2333,7 +2341,7 @@ button.tag-chip:active,
 .source-control__diff-file > p {
   margin-bottom: 9px;
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -2341,7 +2349,7 @@ button.tag-chip:active,
   display: grid;
   gap: 5px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 650;
 }
 
@@ -2355,7 +2363,8 @@ button.tag-chip:active,
   background: var(--editor-bg);
   border: 1px solid var(--border-strong);
   border-radius: 5px;
-  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
 }
 
 .source-control__field input:focus,
@@ -2414,7 +2423,7 @@ button.tag-chip:active,
 
 .source-control__branch-trigger span {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2425,7 +2434,7 @@ button.tag-chip:active,
 .source-control__commit .primary-button {
   min-height: 30px;
   padding: 5px 9px;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .source-control__change-actions {
@@ -2438,7 +2447,7 @@ button.tag-chip:active,
 .source-control__change-actions button {
   padding: 4px 7px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2459,7 +2468,7 @@ button.tag-chip:active,
   margin: 9px 0 0;
   padding: 7px 8px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
   background: var(--panel-bg);
   border: 1px solid color-mix(in srgb, var(--info) 38%, var(--border));
@@ -2541,7 +2550,7 @@ button.tag-chip:active,
 .source-control__resource-summary strong {
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 580;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2550,10 +2559,9 @@ button.tag-chip:active,
 .source-control__resource-summary span,
 .source-control__branch-lists button span,
 .source-control__history button span,
-.source-control__history time,
-.source-control__remotes span {
+.source-control__history time {
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .source-control__row-actions {
@@ -2563,23 +2571,35 @@ button.tag-chip:active,
 }
 
 .source-control__clone form,
-.source-control__remote-form {
+.source-control__remote-editor {
   display: grid;
   gap: 8px;
 }
 
-/* A remote row styles its metadata as quiet text, so its field label is
-   restated at field weight rather than inheriting that. */
-.source-control__remotes .source-control__field > span {
-  color: var(--text-secondary);
-  font-size: 10px;
-  font-weight: 650;
+.source-control__remote-editor {
+  margin-top: 10px;
+  padding: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
 }
 
-.source-control__remote-form {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+.source-control__remote-summary {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.source-control__remote-summary > div {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.source-control__remote-summary dd {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-control__repositories {
@@ -2610,13 +2630,13 @@ button.tag-chip:active,
 
 .source-control__repositories strong {
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 580;
 }
 
 .source-control__repositories span {
   color: var(--text-tertiary);
-  font-size: 9.5px;
+  font-size: 11px;
 }
 
 .source-control__detail {
@@ -2708,9 +2728,8 @@ button.tag-chip:active,
 }
 
 .source-control__history strong,
-.source-control__branch-lists button strong,
-.source-control__remotes strong {
-  font-size: 11px;
+.source-control__branch-lists button strong {
+  font-size: 12px;
   font-weight: 620;
 }
 
@@ -2727,10 +2746,61 @@ button.tag-chip:active,
   padding: 0 14px;
 }
 
-.source-control__remotes li {
+.source-control__checkbox {
+  display: flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.source-control__checkbox input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.source-control__history-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__history-status {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: right;
+}
+
+.source-control__advanced {
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__advanced > summary {
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+  user-select: none;
+}
+
+.source-control__advanced > summary:hover {
+  background: var(--panel-bg);
+}
+
+.source-control__advanced-body {
   display: grid;
-  gap: 3px;
-  padding: 9px 14px;
+  gap: 10px;
+  padding: 0 14px 12px;
 }
 
 /* An operation waiting for review, one that is part way through, and the
@@ -2749,7 +2819,7 @@ button.tag-chip:active,
   padding: 0;
   margin: 0 0 9px;
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: 11px;
   list-style: none;
 }
 

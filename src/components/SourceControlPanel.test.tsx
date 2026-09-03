@@ -251,7 +251,9 @@ describe("SourceControlPanel", () => {
       />,
     );
     expect(screen.getByRole("heading", { name: "Remotes" })).toBeInTheDocument();
-    expect(screen.getByText("Fetch: https://example.invalid/repo.git")).toBeInTheDocument();
+    expect(
+      screen.getAllByText("https://example.invalid/repo.git"),
+    ).toHaveLength(2);
   });
 
   it("renders initialization and failed recovery actions only when available", async () => {
@@ -339,7 +341,7 @@ describe("SourceControlPanel", () => {
     const model = baseModel();
     model.selectedTab = "branches";
     model.selectedView = { kind: "remotes" };
-    render(
+    const { rerender } = render(
       <SourceControlPanel title="Git" model={model} onAction={onAction} />,
     );
 
@@ -362,9 +364,10 @@ describe("SourceControlPanel", () => {
       values: { name: "origin" },
     });
 
-    await user.type(screen.getByLabelText("New remote name"), "backup");
+    await user.selectOptions(screen.getByLabelText("Remote"), "__add-remote__");
+    await user.type(screen.getByLabelText("Remote name"), "backup");
     await user.type(
-      screen.getByLabelText("New remote URL"),
+      screen.getByLabelText("Remote URL"),
       "https://example.invalid/backup.git",
     );
     await user.click(screen.getByRole("button", { name: "Add remote" }));
@@ -372,6 +375,30 @@ describe("SourceControlPanel", () => {
       id: "add-remote",
       values: { name: "backup", url: "https://example.invalid/backup.git" },
     });
+
+    rerender(
+      <SourceControlPanel
+        title="Git"
+        model={{
+          ...model,
+          remotes: [
+            ...model.remotes,
+            {
+              name: "backup",
+              fetchUrl: "https://example.invalid/backup.git",
+              pushUrl: "https://example.invalid/backup.git",
+            },
+          ],
+        }}
+        onAction={onAction}
+      />,
+    );
+    const remotes = screen.getByRole("heading", { name: "Remotes" }).closest(
+      "section",
+    );
+    expect(
+      within(remotes!).getByRole("option", { name: "backup" }),
+    ).toBeInTheDocument();
   });
 
   it("offers clone onboarding, GitHub selection, and explicit clean-up", async () => {
@@ -854,7 +881,7 @@ describe("SourceControlPanel", () => {
     render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
 
     const status = screen.getByRole("status");
-    expect(status).toHaveTextContent("Page 2, 1 commit, more available");
+    expect(status).toHaveTextContent("Page 2 · 1 commit · More available");
 
     await user.click(screen.getByRole("button", { name: "Refresh history" }));
     await user.click(
@@ -1158,6 +1185,9 @@ describe("SourceControlPanel", () => {
       />,
     );
 
+    const advanced = screen.getByText("Merge and rebase").closest("details");
+    expect(advanced).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Merge and rebase"));
     await user.selectOptions(screen.getByLabelText("Branch to use"), "topic");
     await user.click(
       screen.getByRole("button", { name: "Review merging topic" }),
