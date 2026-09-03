@@ -32,7 +32,11 @@ import { create, extract, list } from "tar";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lockPath = join(root, "bundled-tools.lock.json");
 const resourcesRoot = join(root, "src-tauri", "resources", "tools");
+const preparedRoot = join(root, "src-tauri", "target", "bundled-tools");
 const cacheRoot = join(root, "src-tauri", "target", "bundled-tools-cache");
+const denoteVersion = JSON.parse(
+  readFileSync(join(root, "package.json"), "utf8"),
+).version;
 const MAX_REDIRECTS = 4;
 const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 30_000;
@@ -535,8 +539,9 @@ function executableRecord(staging, definition) {
   };
 }
 
-async function archiveTool(staging, tool) {
-  const archivePath = join(staging, `${tool}.tar.gz`);
+async function archiveTool(staging, targetName, tool) {
+  const archiveName = `denote-tools-${targetName}-${tool}.tar.gz`;
+  const archivePath = join(staging, archiveName);
   await create(
     {
       cwd: staging,
@@ -550,7 +555,7 @@ async function archiveTool(staging, tool) {
     [tool],
   );
   rmSync(join(staging, tool), { recursive: true, force: true });
-  return `${tool}.tar.gz`;
+  return archiveName;
 }
 
 function writeIntegrityManifest(
@@ -571,15 +576,18 @@ function writeIntegrityManifest(
     schemaVersion: 1,
     target: targetName,
     lockSha256: sha256File(lockPath),
+    redirectAllowlist: lock.redirectAllowlist,
     git: {
       version: lock.git.version,
       archivePath: executables.git.archivePath,
+      archiveUrl: `https://github.com/mbianchidev/denote/releases/download/v${denoteVersion}/${executables.git.archivePath}`,
       archiveRoot: "git",
       ...executables.git,
     },
     githubCli: {
       version: lock.githubCli.version,
       archivePath: executables.githubCli.archivePath,
+      archiveUrl: `https://github.com/mbianchidev/denote/releases/download/v${denoteVersion}/${executables.githubCli.archivePath}`,
       archiveRoot: "gh",
       ...executables.githubCli,
     },
@@ -602,7 +610,8 @@ export async function prepare({
   }
   mkdirSync(cacheRoot, { recursive: true });
   mkdirSync(resourcesRoot, { recursive: true });
-  const temporary = mkdtempSync(join(resourcesRoot, ".prepare-"));
+  mkdirSync(preparedRoot, { recursive: true });
+  const temporary = mkdtempSync(join(preparedRoot, ".prepare-"));
   const staging = join(temporary, targetName);
   mkdirSync(staging);
   try {
@@ -629,8 +638,12 @@ export async function prepare({
       git: executableRecord(staging, target.git),
       githubCli: executableRecord(staging, target.githubCli),
     };
-    executables.git.archivePath = await archiveTool(staging, "git");
-    executables.githubCli.archivePath = await archiveTool(staging, "gh");
+    executables.git.archivePath = await archiveTool(staging, targetName, "git");
+    executables.githubCli.archivePath = await archiveTool(
+      staging,
+      targetName,
+      "gh",
+    );
     assertPackagedSize([
       statSync(join(staging, executables.git.archivePath)).size,
       statSync(join(staging, executables.githubCli.archivePath)).size,
@@ -641,10 +654,23 @@ export async function prepare({
       staging,
       executables,
     );
-    const output = join(resourcesRoot, targetName);
-    rmSync(output, { recursive: true, force: true });
-    renameSync(staging, output);
-    return realpathSync(output);
+    const artifactOutput = join(preparedRoot, targetName);
+    rmSync(artifactOutput, { recursive: true, force: true });
+    renameSync(staging, artifactOutput);
+    const resourceStaging = mkdtempSync(join(resourcesRoot, ".prepare-"));
+    cpSync(join(artifactOutput, "legal"), join(resourceStaging, "legal"), {
+      recursive: true,
+    });
+    cpSync(
+      join(artifactOutput, "integrity.json"),
+      join(resourceStaging, "integrity.json"),
+    );
+    const resourceOutput = join(resourcesRoot, targetName);
+    rmSync(resourceOutput, { recursive: true, force: true });
+    renameSync(resourceStaging, resourceOutput);
+    rmSync(join(artifactOutput, "legal"), { recursive: true, force: true });
+    rmSync(join(artifactOutput, "integrity.json"), { force: true });
+    return realpathSync(resourceOutput);
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

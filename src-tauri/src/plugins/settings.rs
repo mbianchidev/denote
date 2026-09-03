@@ -201,6 +201,7 @@ impl PluginManager {
         tools::resolve_git(
             &self.inner.resource_dir,
             &self.inner.app_data_dir.join("plugins").join("tools"),
+            &self.inner.app_cache_dir.join("plugin-tools"),
             mode,
             path.as_deref(),
         )
@@ -222,6 +223,7 @@ impl PluginManager {
         tools::resolve_gh(
             &self.inner.resource_dir,
             &self.inner.app_data_dir.join("plugins").join("tools"),
+            &self.inner.app_cache_dir.join("plugin-tools"),
             mode,
             path.as_deref(),
         )
@@ -266,6 +268,7 @@ impl PluginManager {
             tools::resolve_git(
                 &self.inner.resource_dir,
                 &self.inner.app_data_dir.join("plugins").join("tools"),
+                &self.inner.app_cache_dir.join("plugin-tools"),
                 git_mode,
                 git_path,
             )?;
@@ -283,6 +286,7 @@ impl PluginManager {
             tools::resolve_gh(
                 &self.inner.resource_dir,
                 &self.inner.app_data_dir.join("plugins").join("tools"),
+                &self.inner.app_cache_dir.join("plugin-tools"),
                 github_mode,
                 github_path,
             )?;

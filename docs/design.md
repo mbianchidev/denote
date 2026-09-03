@@ -315,6 +315,11 @@ when approved updates exist. Its first activation opens an inline confirmation
 that lists exact plugin names and explains that the latest full permission sets
 will be accepted; it never hides this security consequence behind a progress
 button.
+Git executable settings use one compact status block per tool: selected source,
+resolved path, locked or detected version, validation state, and prerequisite
+guidance. Bundled mode shows **not downloaded** until an action first needs it;
+opening settings never starts a download. The native path picker appears only
+for Custom mode.
 The source-control commit form places an enabled-by-default **Sign commit**
 control after the commit message. Its native password input exists only while
 signing is selected, explains that it is one-shot and SSH-signing-only, and

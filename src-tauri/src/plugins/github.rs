@@ -76,6 +76,7 @@ pub(crate) fn resolve_gh_executable(configured: Option<&str>) -> AppResult<PathB
     super::tools::resolve_gh(
         Path::new(""),
         Path::new(""),
+        Path::new(""),
         if configured.is_some() {
             super::tools::ExecutableMode::Custom
         } else {

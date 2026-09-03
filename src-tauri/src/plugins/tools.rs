@@ -1,10 +1,12 @@
 use std::{
     fs::{self, File},
+    io::Read,
     path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
 
 use flate2::read::GzDecoder;
+use reqwest::{Url, blocking::Client, header::LOCATION, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tar::{Archive, EntryType};
@@ -147,23 +149,25 @@ struct IntegrityManifest {
     schema_version: u32,
     target: String,
     lock_sha256: String,
+    redirect_allowlist: Vec<String>,
     git: IntegrityTool,
     github_cli: IntegrityTool,
     files: Vec<IntegrityFile>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IntegrityTool {
     version: String,
     archive_path: String,
+    archive_url: String,
     archive_root: String,
     executable_path: String,
     executable_size_bytes: u64,
     executable_sha256: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct IntegrityFile {
     path: String,
@@ -174,6 +178,7 @@ struct IntegrityFile {
 pub(crate) fn resolve_git(
     resource_dir: &Path,
     install_dir: &Path,
+    download_dir: &Path,
     mode: ExecutableMode,
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
@@ -183,12 +188,20 @@ pub(crate) fn resolve_git(
                 .to_string(),
         ));
     }
-    resolve(resource_dir, install_dir, ToolKind::Git, mode, custom_path)
+    resolve(
+        resource_dir,
+        install_dir,
+        download_dir,
+        ToolKind::Git,
+        mode,
+        custom_path,
+    )
 }
 
 pub(crate) fn resolve_gh(
     resource_dir: &Path,
     install_dir: &Path,
+    download_dir: &Path,
     mode: ExecutableMode,
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
@@ -201,6 +214,7 @@ pub(crate) fn resolve_gh(
     resolve(
         resource_dir,
         install_dir,
+        download_dir,
         ToolKind::GitHubCli,
         mode,
         custom_path,
@@ -225,7 +239,17 @@ pub(crate) fn inspect(
             guidance: "Ordinary Git actions remain available. Enable GitHub CLI only for GitHub sign-in and repository browsing.".to_string(),
         };
     }
-    match resolve(resource_dir, install_dir, kind, mode, custom_path) {
+    if mode == ExecutableMode::Bundled {
+        return inspect_bundled(resource_dir, install_dir, kind);
+    }
+    match resolve(
+        resource_dir,
+        install_dir,
+        Path::new(""),
+        kind,
+        mode,
+        custom_path,
+    ) {
         Ok(path) => match probe(&path, kind) {
             Ok(version) => ToolStatus {
                 tool: kind.name().to_string(),
@@ -259,10 +283,50 @@ fn invalid_status(
     }
 }
 
+fn inspect_bundled(resource_dir: &Path, install_dir: &Path, kind: ToolKind) -> ToolStatus {
+    match bundled_metadata(resource_dir, kind) {
+        Ok((tool, record, _)) => {
+            let destination = extracted_destination(install_dir, kind, &record.sha256);
+            if destination.exists() {
+                return match validate_extracted_cache(&destination, &tool, kind, &record.sha256) {
+                    Ok(path) => match probe(&path, kind) {
+                        Ok(version) => ToolStatus {
+                            tool: kind.name().to_string(),
+                            selected_source: ExecutableMode::Bundled.label().to_string(),
+                            resolved_path: Some(path.to_string_lossy().into_owned()),
+                            version: Some(version),
+                            validation_status: "valid".to_string(),
+                            message: format!("{} is downloaded and ready.", kind.name()),
+                            guidance: guidance(kind, ExecutableMode::Bundled),
+                        },
+                        Err(error) => {
+                            invalid_status(kind, ExecutableMode::Bundled, Some(path), error)
+                        }
+                    },
+                    Err(error) => invalid_status(kind, ExecutableMode::Bundled, None, error),
+                };
+            }
+            ToolStatus {
+                tool: kind.name().to_string(),
+                selected_source: ExecutableMode::Bundled.label().to_string(),
+                resolved_path: None,
+                version: Some(tool.version),
+                validation_status: "not-downloaded".to_string(),
+                message: format!(
+                    "{} will be downloaded and verified on its first required action.",
+                    kind.name()
+                ),
+                guidance: guidance(kind, ExecutableMode::Bundled),
+            }
+        }
+        Err(error) => invalid_status(kind, ExecutableMode::Bundled, None, error),
+    }
+}
+
 fn guidance(kind: ToolKind, mode: ExecutableMode) -> String {
     match (kind, mode) {
         (ToolKind::Git, ExecutableMode::Bundled) => {
-            "Bundled Git is verified with the signed Denote installer and the bundled integrity manifest.".to_string()
+            "Bundled Git is downloaded only when selected and required, then checked against Denote's signed integrity manifest.".to_string()
         }
         (ToolKind::Git, ExecutableMode::System) => {
             "Install Git in a standard operating-system location, then validate this setting again.".to_string()
@@ -271,7 +335,7 @@ fn guidance(kind: ToolKind, mode: ExecutableMode) -> String {
             "Choose an absolute path to a Git executable. Denote never falls back to another source.".to_string()
         }
         (ToolKind::GitHubCli, ExecutableMode::Bundled) => {
-            "Run GitHub sign-in when prompted. Generic Git actions do not use GitHub CLI.".to_string()
+            "GitHub CLI is downloaded only for Bundled mode. Run GitHub sign-in when prompted; generic Git actions never use it.".to_string()
         }
         (ToolKind::GitHubCli, ExecutableMode::System) => {
             "Install GitHub CLI in a standard location and run `gh auth login` before GitHub-specific actions.".to_string()
@@ -286,13 +350,14 @@ fn guidance(kind: ToolKind, mode: ExecutableMode) -> String {
 fn resolve(
     resource_dir: &Path,
     install_dir: &Path,
+    download_dir: &Path,
     kind: ToolKind,
     mode: ExecutableMode,
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
     match mode {
         ExecutableMode::Disabled => Err(AppError::Plugin(format!("{} is disabled", kind.name()))),
-        ExecutableMode::Bundled => resolve_bundled(resource_dir, install_dir, kind),
+        ExecutableMode::Bundled => resolve_bundled(resource_dir, install_dir, download_dir, kind),
         ExecutableMode::System => resolve_system(kind),
         ExecutableMode::Custom => {
             let custom = custom_path
@@ -350,10 +415,31 @@ fn resolve_system(kind: ToolKind) -> AppResult<PathBuf> {
     }))
 }
 
-fn resolve_bundled(resource_dir: &Path, install_dir: &Path, kind: ToolKind) -> AppResult<PathBuf> {
+fn resolve_bundled(
+    resource_dir: &Path,
+    install_dir: &Path,
+    download_dir: &Path,
+    kind: ToolKind,
+) -> AppResult<PathBuf> {
+    let (tool, record, allowlist) = bundled_metadata(resource_dir, kind)?;
+    let destination = extracted_destination(install_dir, kind, &record.sha256);
+    if destination.exists() {
+        return validate_extracted_cache(&destination, &tool, kind, &record.sha256);
+    }
+    let archive =
+        download_verified_archive(&tool.archive_url, &allowlist, &record, download_dir, kind)?;
+    let result = ensure_extracted(&archive, install_dir, kind, &tool, &record.sha256);
+    let _ = fs::remove_file(archive);
+    result
+}
+
+fn bundled_metadata(
+    resource_dir: &Path,
+    kind: ToolKind,
+) -> AppResult<(IntegrityTool, IntegrityFile, Vec<String>)> {
     if resource_dir.as_os_str().is_empty() {
         return Err(AppError::Plugin(format!(
-            "Bundled {} resources are unavailable in this build",
+            "Bundled {} metadata is unavailable in this build",
             kind.name()
         )));
     }
@@ -412,29 +498,141 @@ fn resolve_bundled(resource_dir: &Path, install_dir: &Path, kind: ToolKind) -> A
                 kind.name()
             ))
         })?;
-    let archive_path = root.join(&tool.archive_path);
-    let canonical_root = fs::canonicalize(&root)?;
-    let canonical_archive = fs::canonicalize(&archive_path).map_err(|error| {
-        AppError::Plugin(format!(
-            "Bundled {} archive is unavailable: {error}",
-            kind.name()
-        ))
-    })?;
-    if !canonical_archive.starts_with(&canonical_root) {
+    validate_download_url(&tool.archive_url, &integrity.redirect_allowlist)?;
+    Ok((tool.clone(), record.clone(), integrity.redirect_allowlist))
+}
+
+fn extracted_destination(install_dir: &Path, kind: ToolKind, archive_sha256: &str) -> PathBuf {
+    install_dir
+        .join(TARGET_TRIPLE)
+        .join(format!("{}-{archive_sha256}", kind.key()))
+}
+
+#[cfg(test)]
+pub(crate) fn resolve_prepared_bundled(
+    resource_dir: &Path,
+    prepared_dir: &Path,
+    install_dir: &Path,
+    kind: ToolKind,
+) -> AppResult<PathBuf> {
+    let (tool, record, _) = bundled_metadata(resource_dir, kind)?;
+    let archive = prepared_dir.join(TARGET_TRIPLE).join(&tool.archive_path);
+    verify_locked_file(&archive, &record)?;
+    ensure_extracted(&archive, install_dir, kind, &tool, &record.sha256)
+}
+
+fn download_verified_archive(
+    archive_url: &str,
+    allowlist: &[String],
+    record: &IntegrityFile,
+    download_dir: &Path,
+    kind: ToolKind,
+) -> AppResult<PathBuf> {
+    if download_dir.as_os_str().is_empty() {
         return Err(AppError::Plugin(format!(
-            "Bundled {} archive escapes the signed resource directory",
+            "Bundled {} download directory is unavailable",
             kind.name()
         )));
     }
-    verify_locked_file(&canonical_archive, record).map_err(|_| {
-        AppError::Plugin(format!(
-            "Bundled {} archive failed integrity verification. Reinstall Denote from an official signed installer.",
+    if record.size_bytes > 96 * 1024 * 1024 {
+        return Err(AppError::Plugin(format!(
+            "Bundled {} archive exceeds the download limit",
             kind.name()
-        ))
-    })?;
-    let canonical = ensure_extracted(&canonical_archive, install_dir, kind, tool, &record.sha256)?;
-    verify_executable(&canonical, kind)?;
-    Ok(canonical)
+        )));
+    }
+    ensure_managed_directory(download_dir)?;
+    let client = Client::builder()
+        .redirect(Policy::none())
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|error| {
+            AppError::Plugin(format!("Unable to create bundled tool downloader: {error}"))
+        })?;
+    let mut url = Url::parse(archive_url)
+        .map_err(|error| AppError::Plugin(format!("Invalid bundled tool URL: {error}")))?;
+    for _ in 0..=4 {
+        validate_download_url(url.as_str(), allowlist)?;
+        let response = client.get(url.clone()).send().map_err(|error| {
+            AppError::Plugin(format!(
+                "Unable to download bundled {}: {error}",
+                kind.name()
+            ))
+        })?;
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| {
+                    AppError::Plugin(format!(
+                        "Bundled {} download returned an invalid redirect",
+                        kind.name()
+                    ))
+                })?;
+            url = url.join(location).map_err(|error| {
+                AppError::Plugin(format!(
+                    "Bundled {} redirect is invalid: {error}",
+                    kind.name()
+                ))
+            })?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(AppError::Plugin(format!(
+                "Bundled {} download failed with HTTP {}. Check your connection and try again.",
+                kind.name(),
+                response.status()
+            )));
+        }
+        if response
+            .content_length()
+            .is_some_and(|length| length > record.size_bytes)
+        {
+            return Err(AppError::Plugin(format!(
+                "Bundled {} download is larger than the signed manifest",
+                kind.name()
+            )));
+        }
+        let mut bytes = Vec::with_capacity(record.size_bytes as usize);
+        response
+            .take(record.size_bytes + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != record.size_bytes
+            || hex::encode(Sha256::digest(&bytes)) != record.sha256
+        {
+            return Err(AppError::Plugin(format!(
+                "Bundled {} download failed integrity verification",
+                kind.name()
+            )));
+        }
+        let path = download_dir.join(format!(".download-{}", Uuid::new_v4()));
+        let mut file = File::create(&path)?;
+        std::io::Write::write_all(&mut file, &bytes)?;
+        file.sync_all()?;
+        return Ok(path);
+    }
+    Err(AppError::Plugin(format!(
+        "Bundled {} download exceeded the redirect limit",
+        kind.name()
+    )))
+}
+
+fn validate_download_url(url: &str, allowlist: &[String]) -> AppResult<()> {
+    let parsed = Url::parse(url)
+        .map_err(|error| AppError::Plugin(format!("Invalid bundled tool URL: {error}")))?;
+    if parsed.scheme() != "https"
+        || parsed.username() != ""
+        || parsed.password().is_some()
+        || parsed.port().is_some()
+        || !parsed
+            .host_str()
+            .is_some_and(|host| allowlist.iter().any(|allowed| allowed == host))
+    {
+        return Err(AppError::Plugin(
+            "Bundled tool download URL is outside the signed HTTPS allowlist".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 fn ensure_extracted(
@@ -707,6 +905,7 @@ fn sha256_path(path: &Path) -> AppResult<String> {
     Ok(hex::encode(Sha256::digest(fs::read(path)?)))
 }
 
+#[cfg(test)]
 fn verify_locked_file(path: &Path, record: &IntegrityFile) -> AppResult<()> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.is_file()
@@ -781,6 +980,15 @@ mod tests {
         );
     }
 
+    #[test]
+    fn bundled_download_urls_are_https_and_allowlisted() {
+        let allowlist = vec!["github.com".to_string()];
+        assert!(validate_download_url("https://github.com/tool.tar.gz", &allowlist).is_ok());
+        assert!(validate_download_url("http://github.com/tool.tar.gz", &allowlist).is_err());
+        assert!(validate_download_url("https://example.invalid/tool.tar.gz", &allowlist).is_err());
+        assert!(validate_download_url("https://user@github.com/tool.tar.gz", &allowlist).is_err());
+    }
+
     #[cfg(unix)]
     #[test]
     fn verified_archive_extracts_atomically_and_runs_the_locked_executable() {
@@ -809,6 +1017,7 @@ mod tests {
         let tool = IntegrityTool {
             version: "2.55.0".to_string(),
             archive_path: "git.tar.gz".to_string(),
+            archive_url: "https://github.com/synthetic/git.tar.gz".to_string(),
             archive_root: "git".to_string(),
             executable_path: "git/bin/git".to_string(),
             executable_size_bytes: content.len() as u64,
@@ -873,8 +1082,21 @@ mod tests {
             return;
         }
         let install = tempdir().expect("install");
+        let status = inspect(
+            &resources,
+            install.path(),
+            ToolKind::Git,
+            ExecutableMode::Bundled,
+            None,
+        );
+        assert_eq!(status.validation_status, "not-downloaded");
+        assert!(!install.path().join(TARGET_TRIPLE).exists());
+        let prepared = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("bundled-tools");
         let executable =
-            resolve_bundled(&resources, install.path(), ToolKind::Git).expect("bundled Git");
+            resolve_prepared_bundled(&resources, &prepared, install.path(), ToolKind::Git)
+                .expect("bundled Git");
         assert!(
             probe(&executable, ToolKind::Git)
                 .expect("probe")

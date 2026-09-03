@@ -42,10 +42,12 @@ npm run verify:bundled-tools -- --target aarch64-apple-darwin
 The immutable inputs live in `bundled-tools.lock.json`. Preparation never
 resolves `latest`; it verifies bounded downloads, release provenance, archive
 paths, the installed tree, executable permissions, and exact Git/gh versions.
-The generated `src-tauri/resources/tools/` tree is ignored and must not be
-committed. Each target contains compressed `git.tar.gz` and `gh.tar.gz`
-resources plus an anchored integrity manifest; Denote extracts the selected
-archive atomically into application data on first use.
+The generated `src-tauri/resources/tools/` and
+`src-tauri/target/bundled-tools/` trees are ignored and must not be committed.
+The resource tree contains only the anchored integrity manifest and legal
+material. The target tree contains the Git and gh release archives. Denote
+downloads the matching published archive only for Bundled mode, then extracts it
+atomically into application data on first required use.
 
 Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must
@@ -109,9 +111,10 @@ The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
 
 Release builds additionally require Apple signing/notarization secrets and a
-Windows PFX for Authenticode. They prepare and verify bundled resources for each
-target, smoke-test the installed package, generate checksums and SPDX SBOMs,
-attest bundles, and publish Git's corresponding source archive and signature.
+Windows PFX for Authenticode. They prepare and verify on-demand tool assets for
+each target, assert installed packages contain metadata but no tool archive,
+generate checksums and SPDX SBOMs, attest bundles and tool assets, and publish
+Git's corresponding source archive and signature.
 
 ## Extend core syntax highlighting
 

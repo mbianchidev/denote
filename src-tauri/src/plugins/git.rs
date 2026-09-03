@@ -2437,6 +2437,7 @@ pub(crate) fn resolve_git_executable(configured: Option<&str>) -> AppResult<Path
     super::tools::resolve_git(
         Path::new(""),
         Path::new(""),
+        Path::new(""),
         if configured.is_some() {
             super::tools::ExecutableMode::Custom
         } else {

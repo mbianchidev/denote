@@ -410,11 +410,14 @@ than done quietly; **Discard result** puts the merge Denote derived back.
 ## Settings
 
 - **Git source** is `Bundled` by default, or explicitly `System` or `Custom`.
-  There is no fallback between them. Custom requires an absolute path that
-  identifies itself as Git.
+  Bundled downloads the signed release archive only when a Git operation first
+  requires it. System and Custom never download that archive. There is no
+  fallback between them. Custom requires an absolute path that identifies itself
+  as Git.
 - **GitHub CLI source** is `Disabled` by default, or explicitly `Bundled`,
-  `System`, or `Custom`. Ordinary Git never resolves or runs `gh`. GitHub
-  sign-in and repository browsing explain how to enable it when disabled.
+  `System`, or `Custom`. Its Bundled archive is downloaded only when that mode is
+  selected and a GitHub-specific action requires it. Disabled, System, and
+  Custom never download it. Ordinary Git never resolves or runs `gh`.
 - Each executable setting shows the selected source, resolved canonical path,
   version, validation result, prerequisite guidance, and an accessible native
   path picker for Custom mode.

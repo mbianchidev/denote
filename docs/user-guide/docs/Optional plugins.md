@@ -165,11 +165,12 @@ tab is not saved into the vault or restored next session.
 Under plugin settings, **Git source** defaults to **Bundled** and can be changed
 explicitly to **System** or **Custom**. **GitHub CLI source** defaults to
 **Disabled** and can be changed to **Bundled**, **System**, or **Custom**.
-Denote never falls back between sources. Custom paths must be absolute and pass
-a version probe. The settings show each selected source, resolved path, version,
-validation status, path picker, and setup guidance. Generic Git actions never
-require GitHub CLI; GitHub-only actions tell you when to enable and configure
-it.
+Denote never falls back between sources. A Bundled archive is downloaded only
+when that mode is selected and an action first needs the tool. System, Custom,
+and Disabled never download it. Before then, settings show the locked version
+as **not downloaded**. Custom paths must be absolute and pass a version probe.
+Generic Git actions never require GitHub CLI; GitHub-only actions tell you when
+to enable and configure it.
 
 **Use system Git settings** is on by default. Denote
 imports only bounded allowlisted identity, credential-helper, line-ending, and

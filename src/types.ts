@@ -273,7 +273,7 @@ export interface PluginToolStatus {
   selectedSource: "Disabled" | "Bundled" | "System" | "Custom";
   resolvedPath: string | null;
   version: string | null;
-  validationStatus: "valid" | "invalid" | "disabled";
+  validationStatus: "valid" | "invalid" | "disabled" | "not-downloaded";
   message: string;
   guidance: string;
 }

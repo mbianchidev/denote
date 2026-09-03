@@ -17,6 +17,7 @@ import {
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lockPath = join(root, "bundled-tools.lock.json");
 const resourcesRoot = join(root, "src-tauri", "resources", "tools");
+const preparedRoot = join(root, "src-tauri", "target", "bundled-tools");
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -48,6 +49,7 @@ function filesUnder(directory) {
 
 const targetName = argument("--target") ?? currentTarget();
 const targetRoot = join(resourcesRoot, targetName);
+const archiveRoot = join(preparedRoot, targetName);
 const integrityPath = join(targetRoot, "integrity.json");
 if (!existsSync(integrityPath)) {
   throw new Error(
@@ -65,26 +67,28 @@ if (
   throw new Error(`Bundled resource manifest does not match the immutable lock.`);
 }
 const expected = new Map(integrity.files.map((file) => [file.path, file]));
-for (const path of filesUnder(targetRoot)) {
+for (const path of [...filesUnder(targetRoot), ...filesUnder(archiveRoot)]) {
   const name = relative(targetRoot, path).split(sep).join("/");
-  if (name === "integrity.json") {
+  const archiveName = relative(archiveRoot, path).split(sep).join("/");
+  const recordName = name.startsWith("../") ? archiveName : name;
+  if (recordName === "integrity.json") {
     continue;
   }
-  const record = expected.get(name);
+  const record = expected.get(recordName);
   if (!record) {
-    throw new Error(`Bundled resource is not declared: ${name}.`);
+    throw new Error(`Bundled resource is not declared: ${recordName}.`);
   }
   if (statSync(path).size !== record.sizeBytes || sha256File(path) !== record.sha256) {
-    throw new Error(`Bundled resource failed integrity verification: ${name}.`);
+    throw new Error(`Bundled resource failed integrity verification: ${recordName}.`);
   }
-  expected.delete(name);
+  expected.delete(recordName);
 }
 if (expected.size > 0) {
   throw new Error(`Bundled resources are missing: ${[...expected.keys()].join(", ")}.`);
 }
 const packagedToolBytes =
-  statSync(join(targetRoot, integrity.git.archivePath)).size +
-  statSync(join(targetRoot, integrity.githubCli.archivePath)).size;
+  statSync(join(archiveRoot, integrity.git.archivePath)).size +
+  statSync(join(archiveRoot, integrity.githubCli.archivePath)).size;
 if (packagedToolBytes > 96 * 1024 * 1024) {
   throw new Error("Bundled tool archives exceed the installer payload limit.");
 }
@@ -92,7 +96,7 @@ for (const [key, definition, expectedPaths] of [
   ["git", integrity.git, target.git.expectedPaths],
   ["githubCli", integrity.githubCli, target.githubCli.expectedPaths],
 ]) {
-  const archive = join(targetRoot, definition.archivePath);
+  const archive = join(archiveRoot, definition.archivePath);
   let expandedBytes = 0;
   let entries = 0;
   const paths = new Set();

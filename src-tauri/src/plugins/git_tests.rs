@@ -27,7 +27,7 @@ use super::{
     },
     settings::{GitCommitSigningMode, GitSettingsPolicy},
     tests::{catalog, manager},
-    tools::{self, ExecutableMode},
+    tools,
     types::PluginPermission,
 };
 
@@ -450,11 +450,13 @@ fn prepared_bundled_git_runs_repository_commands_from_the_extracted_cache() {
     let directory = TempDir::new().expect("temp");
     let repository = directory.path().join("repository");
     fs::create_dir(&repository).expect("repository");
-    let executable = tools::resolve_git(
+    let executable = tools::resolve_prepared_bundled(
         &resources,
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("bundled-tools"),
         &directory.path().join("installed"),
-        ExecutableMode::Bundled,
-        None,
+        super::tools::ToolKind::Git,
     )
     .expect("bundled Git");
     let hooks = directory.path().join("hooks");

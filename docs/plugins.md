@@ -220,9 +220,10 @@ the host rejects any target outside that set. A user
 who needs another executable selects it through host-owned settings. Git uses
 exactly one of Bundled, System, or Custom; GitHub CLI uses Disabled, Bundled,
 System, or Custom. There is no fallback. Custom paths must be absolute,
-canonical, regular files that pass the tool's version probe. Bundled paths are
-resolved under Tauri's signed resource directory and checked against the
-build-anchored integrity manifest.
+canonical, regular files that pass the tool's version probe. Bundled metadata is resolved under Tauri's signed resource directory and checked
+against the build-anchored integrity manifest. The archive itself is downloaded
+only when Bundled mode is selected and a Git or GitHub-specific operation first
+needs it. System, Custom, and Disabled never use the downloader.
 
 Host-rendered source control may attach an SSH signing passphrase to a manual
 commit action as host-only metadata. It is not part of

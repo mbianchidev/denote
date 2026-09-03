@@ -320,11 +320,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   allowlisted identity, credential-helper, line-ending, and signing values into
   its otherwise isolated Git invocation; repository-local command configuration
   remains rejected.
-- Official installers contain verified Git and GitHub CLI resources for every
-  release target. Git selects exactly one of Bundled (default), System, or
-  Custom. GitHub CLI selects exactly one of Disabled (default), Bundled, System,
-  or Custom. No mode silently falls back, custom paths must be absolute and
-  version-probed, and generic Git never requires GitHub CLI.
+- Official releases publish verified Git and GitHub CLI archives for every
+  release target, while installers contain only signed metadata and legal
+  notices. Git selects exactly one of Bundled (default), System, or Custom.
+  GitHub CLI selects exactly one of Disabled (default), Bundled, System, or
+  Custom. Bundled downloads its archive only when selected and first required;
+  the other modes never download it. No mode silently falls back, custom paths
+  must be absolute and version-probed, and generic Git never requires GitHub
+  CLI.
 - Plugin executable settings report the selected source, canonical resolved
   path, version, validation result, prerequisite guidance, and a native path
   picker. Existing path-only settings migrate to explicit System or Custom

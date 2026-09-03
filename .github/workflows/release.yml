@@ -295,10 +295,12 @@ jobs:
           integrity="$(find "${RUNNER_TEMP}/denote-deb" -path "*/tools/${{ matrix.target }}/integrity.json" -print -quit)"
           test -n "$integrity"
           root="$(dirname "$integrity")"
+          test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          archive_root="src-tauri/target/bundled-tools/${{ matrix.target }}"
           extracted="${RUNNER_TEMP}/denote-tools"
           mkdir "$extracted"
-          tar -xzf "$root/git.tar.gz" -C "$extracted"
-          tar -xzf "$root/gh.tar.gz" -C "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-git.tar.gz" -C "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-gh.tar.gz" -C "$extracted"
           "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
           "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
 
@@ -313,10 +315,12 @@ jobs:
           trap 'hdiutil detach "$mount"' EXIT
           root="$(find "$mount" -path "*/Contents/Resources/tools/${{ matrix.target }}" -type d -print -quit)"
           test -n "$root"
+          test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          archive_root="src-tauri/target/bundled-tools/${{ matrix.target }}"
           extracted="${RUNNER_TEMP}/denote-tools"
           mkdir "$extracted"
-          tar -xzf "$root/git.tar.gz" -C "$extracted"
-          tar -xzf "$root/gh.tar.gz" -C "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-git.tar.gz" -C "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-gh.tar.gz" -C "$extracted"
           "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
           "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
           codesign --verify --deep --strict "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
@@ -336,10 +340,14 @@ jobs:
             Select-Object -First 1
           if (-not $integrity) { throw "Bundled tools are missing from the MSI." }
           $root = $integrity.Directory.FullName
+          if (Get-ChildItem $root -Filter *.tar.gz) {
+            throw "Bundled tool archives must not be installed before the user selects Bundled mode."
+          }
+          $archiveRoot = "src-tauri/target/bundled-tools/${{ matrix.target }}"
           $tools = Join-Path $env:RUNNER_TEMP "denote-tools"
           New-Item -ItemType Directory -Path $tools | Out-Null
-          tar -xzf (Join-Path $root "git.tar.gz") -C $tools
-          tar -xzf (Join-Path $root "gh.tar.gz") -C $tools
+          tar -xzf (Join-Path $archiveRoot "denote-tools-${{ matrix.target }}-git.tar.gz") -C $tools
+          tar -xzf (Join-Path $archiveRoot "denote-tools-${{ matrix.target }}-gh.tar.gz") -C $tools
           & (Join-Path $tools "git\cmd\git.exe") --version |
             Select-String -SimpleMatch "git version 2.55.0"
           & (Join-Path $tools "gh\bin\gh.exe") version |
@@ -365,16 +373,22 @@ jobs:
             xargs -0 shasum -a 256 > "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
           shasum -a 256 "bundled-tools-${{ matrix.artifact }}.spdx.json" \
             >> "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
+          shasum -a 256 src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz \
+            >> "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
 
       - name: Attest release bundles
         uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
         with:
-          subject-path: src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+          subject-path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+            src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
 
       - name: Attest release SBOM
         uses: actions/attest-sbom@51e74621a501c89df81fc1391c5a8f4cfc9fab2f # v3
         with:
-          subject-path: src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+          subject-path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+            src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
           sbom-path: bundled-tools-${{ matrix.artifact }}.spdx.json
 
       - name: Stage supply-chain metadata
@@ -385,6 +399,14 @@ jobs:
             bundled-tools-${{ matrix.artifact }}.spdx.json
             denote-${{ matrix.artifact }}-SHA256SUMS.txt
           if-no-files-found: error
+
+      - name: Stage on-demand bundled tools
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-bundled-tools
+          path: src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
 
       - name: Stage AppImage
         if: runner.os == 'Linux'

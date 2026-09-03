@@ -577,25 +577,32 @@ tar/ZIP paths and entry types, enforces expanded-size limits, builds upstream
 Git with deterministic locale/time inputs on Linux and macOS, installs MinGit
 on Windows, normalizes permissions, checks the expected tree, and version-probes
 both programs. It then stores each target tool tree as a deterministic
-gzip-compressed tar resource, preserving Git's symlink aliases instead of
-expanding each built-in into another multi-megabyte copy. The integrity manifest
-pins both archives and the executable bytes. `build.rs` anchors that manifest's
-digest into the native binary; packaging verification rehashes every resource
-and rejects a combined bundled-tool installer payload above 96 MiB.
+gzip-compressed release asset, preserving Git's symlink aliases instead of
+expanding each built-in into another multi-megabyte copy. The installer receives
+only the target integrity manifest and legal material. That manifest pins exact
+release-asset URLs, archive and executable bytes, and redirect hosts. `build.rs`
+anchors its digest into the native binary; preparation rejects combined tool
+assets above 96 MiB.
 
-On first bundled-tool use, the native resolver revalidates the signed archive,
-checks every entry and link target against the expected tool root, enforces
-entry and expanded-size bounds, extracts to a random app-data staging directory,
-verifies and probes the executable, writes a completion marker, and atomically
-renames the result into a digest-addressed cache. An interrupted or corrupted
-cache is reported explicitly and never causes fallback to another executable
-mode.
+Inspecting settings does not download a Bundled tool: it reports the locked
+version and `not downloaded` status. When and only when Bundled mode is selected
+and an action first requires that tool, the native resolver follows the signed
+HTTPS redirect allowlist, enforces the exact download size, verifies SHA-256,
+checks every archive entry and link target against the expected tool root,
+enforces entry and expanded-size bounds, and extracts to a random app-data
+staging directory. It then verifies and probes the executable, writes a
+completion marker, deletes the downloaded archive, and atomically renames the
+result into a digest-addressed cache. System, Custom, and Disabled never enter
+the downloader. An interrupted or corrupted cache is reported explicitly and
+never causes fallback.
 
-Release jobs prepare the target resources before Tauri packaging, require Apple
+Release jobs prepare the target assets and metadata before Tauri packaging, require Apple
 signing/notarization and Windows Authenticode credentials, smoke-test tools from
 the installed Debian package, mounted DMG, or administrative MSI image, publish
 checksums, notices, SPDX SBOMs, the exact Git corresponding-source archive and
-signature, and GitHub build-provenance and SBOM attestations.
+signature, the on-demand target tool archives, and GitHub build-provenance and
+SBOM attestations. Installed-package smoke tests assert that tool archives are
+absent from the installer.
 
 Downloaded entrypoints are read only for transaction-prepared or enabled
 plugins and passed to a Vite-emitted module worker as a data-URL module. The typed

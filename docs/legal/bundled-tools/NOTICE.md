@@ -1,8 +1,10 @@
 # Bundled tools notice
 
-Official Denote installers include Git and GitHub CLI for the release target.
-They remain separate programs invoked by Denote and keep their upstream
-licenses.
+Official Denote releases publish optional Git and GitHub CLI archives for every
+release target. Installers contain only their signed integrity metadata,
+licenses, notices, and SBOM references. Denote downloads an archive only after
+the user selects Bundled mode and an action requires that tool. The tools remain
+separate programs invoked by Denote and keep their upstream licenses.
 
 ## Git
 

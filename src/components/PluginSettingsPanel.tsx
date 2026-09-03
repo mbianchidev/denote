@@ -658,9 +658,11 @@ export function PluginSettingsPanel({
                               <p>
                                 Git is required. Bundled is the default; System
                                 and Custom require Git installed on this machine.
-                                GitHub CLI is optional and is needed only for
-                                GitHub sign-in and repository browsing. Choose
-                                Bundled, System, or Custom for those actions.
+                                Bundled downloads Git only when the first Git
+                                action needs it. GitHub CLI is optional and is
+                                needed only for GitHub sign-in and repository
+                                browsing; its Bundled archive is likewise
+                                downloaded only for those actions.
                               </p>
                             </div>
                           ) : null}
@@ -1025,7 +1027,7 @@ function ExecutableSettings({
                     </div>
                     <div>
                       <dt>Validation</dt>
-                      <dd>{status.validationStatus}</dd>
+                      <dd>{status.validationStatus.replace("-", " ")}</dd>
                     </div>
                   </dl>
                   <p>{status.message}</p>
