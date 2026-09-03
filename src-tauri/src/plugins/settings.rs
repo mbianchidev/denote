@@ -139,6 +139,14 @@ impl PluginManager {
 
     pub(crate) fn git_executable_mode(&self, plugin_id: &str) -> AppResult<ExecutableMode> {
         let settings = self.settings(plugin_id)?;
+        if settings.get(GIT_EXECUTABLE_MODE_SETTING).is_none()
+            && settings
+                .get(GIT_EXECUTABLE_SETTING)
+                .and_then(Value::as_str)
+                .is_some_and(|path| !path.trim().is_empty())
+        {
+            return Ok(ExecutableMode::Custom);
+        }
         Ok(ExecutableMode::parse(
             settings
                 .get(GIT_EXECUTABLE_MODE_SETTING)
@@ -161,6 +169,14 @@ impl PluginManager {
 
     pub(crate) fn github_executable_mode(&self, plugin_id: &str) -> AppResult<ExecutableMode> {
         let settings = self.settings(plugin_id)?;
+        if settings.get(GITHUB_EXECUTABLE_MODE_SETTING).is_none()
+            && settings
+                .get(GITHUB_EXECUTABLE_SETTING)
+                .and_then(Value::as_str)
+                .is_some_and(|path| !path.trim().is_empty())
+        {
+            return Ok(ExecutableMode::Custom);
+        }
         Ok(ExecutableMode::parse(
             settings
                 .get(GITHUB_EXECUTABLE_MODE_SETTING)
@@ -176,13 +192,12 @@ impl PluginManager {
         let mode = self.git_executable_mode(plugin_id)?;
         let path = self.git_executable_setting(plugin_id)?;
         #[cfg(test)]
-        let mode = if self.inner.resource_dir.as_os_str().is_empty()
-            && mode == ExecutableMode::Bundled
-        {
-            ExecutableMode::System
-        } else {
-            mode
-        };
+        let mode =
+            if self.inner.resource_dir.as_os_str().is_empty() && mode == ExecutableMode::Bundled {
+                ExecutableMode::System
+            } else {
+                mode
+            };
         tools::resolve_git(&self.inner.resource_dir, mode, path.as_deref())
     }
 
@@ -193,13 +208,12 @@ impl PluginManager {
         let mode = self.github_executable_mode(plugin_id)?;
         let path = self.github_executable_setting(plugin_id)?;
         #[cfg(test)]
-        let mode = if self.inner.resource_dir.as_os_str().is_empty()
-            && mode == ExecutableMode::Bundled
-        {
-            ExecutableMode::System
-        } else {
-            mode
-        };
+        let mode =
+            if self.inner.resource_dir.as_os_str().is_empty() && mode == ExecutableMode::Bundled {
+                ExecutableMode::System
+            } else {
+                mode
+            };
         tools::resolve_gh(&self.inner.resource_dir, mode, path.as_deref())
     }
 
@@ -235,9 +249,7 @@ impl PluginManager {
                 .and_then(Value::as_str),
             ExecutableMode::Bundled,
         );
-        let git_path = settings
-            .get(GIT_EXECUTABLE_SETTING)
-            .and_then(Value::as_str);
+        let git_path = settings.get(GIT_EXECUTABLE_SETTING).and_then(Value::as_str);
         if git_mode == ExecutableMode::Custom {
             tools::resolve_git(&self.inner.resource_dir, git_mode, git_path)?;
         }
@@ -409,7 +421,6 @@ pub(crate) fn migrate_settings(
                 {
                     object.entry(to.to_string()).or_insert(value);
                 }
-
             }
         }
         if let Some(remove) = migration.get("remove").and_then(Value::as_array) {

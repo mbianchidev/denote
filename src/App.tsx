@@ -1474,6 +1474,9 @@ function App() {
       }
     }
     for (const provider of pluginController.sourceControlProviders) {
+      if (!provider.model.repository.label.endsWith("refresh required")) {
+        continue;
+      }
       const key = `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`;
       if (initiallyRefreshedProviders.current.has(key)) {
         continue;

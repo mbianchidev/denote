@@ -145,7 +145,7 @@ describe("Git plugin activation", () => {
     expect(capabilities).not.toContain("workspace-write");
     expect(plugin.manifest.category).toBe("code");
     expect(plugin.manifest.compatibility.apiVersion).toBe(1);
-    expect(plugin.manifest.settings?.version).toBe(1);
+    expect(plugin.manifest.settings?.version).toBe(2);
     expect(
       Object.fromEntries(
         Object.entries(plugin.manifest.settings?.properties ?? {}).map(
@@ -153,7 +153,9 @@ describe("Git plugin activation", () => {
         ),
       ),
     ).toEqual({
+      gitExecutableMode: "bundled",
       gitExecutablePath: "",
+      githubExecutableMode: "disabled",
       githubExecutablePath: "",
       useSystemGitSettings: true,
       authenticationMode: "system",
@@ -166,7 +168,7 @@ describe("Git plugin activation", () => {
       autoCommitIntervalMinutes: 0,
       autoCommitMessage: "Denote automatic commit",
       includePatterns: "",
-      excludePatterns: "",
+      excludePatterns: ".denote",
     });
   });
 
@@ -260,7 +262,7 @@ describe("Git plugin activation", () => {
         intervalMinutes: 60,
         message: "Denote automatic commit",
         includePatterns: ["notes"],
-        excludePatterns: [],
+        excludePatterns: [".denote"],
       },
     ]);
   });

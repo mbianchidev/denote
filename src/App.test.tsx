@@ -705,14 +705,14 @@ describe("App initial file-tree expansion", () => {
       "synthetic-passphrase",
     );
     await user.click(
-      screen.getByRole("button", { name: "Commit staged changes" }),
+      screen.getByRole("button", { name: "Commit" }),
     );
 
     await waitFor(() => {
       expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
         "denote.synthetic",
         "git",
-        { id: "commit", values: { message: "Signed change" } },
+        { id: "commit", values: { message: "Signed change", sign: true } },
         "/synthetic-vault",
         { gitSigningPassphrase: "synthetic-passphrase" },
       );
@@ -1296,6 +1296,7 @@ describe("App initial file-tree expansion", () => {
           id: "branch-switch-commit",
           values: {
             message: "Save before rebasing",
+            sign: true,
             branch: "topic",
             from: "main",
             operation: "rebase",
@@ -1889,6 +1890,7 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
     await user.click(screen.getByRole("button", { name: "Switch to topic" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
@@ -1981,6 +1983,7 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
     await user.click(screen.getByRole("button", { name: "Switch to topic" }));
     await user.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
@@ -2059,6 +2062,7 @@ describe("App initial file-tree expansion", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
     fireEvent.click(screen.getByRole("button", { name: "Switch to topic" }));
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("button", {

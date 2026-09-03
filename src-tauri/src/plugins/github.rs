@@ -6,6 +6,8 @@
 //! name `github-https` as an authentication mode; it never receives, and never
 //! sends, a token.
 
+#[cfg(test)]
+use std::path::PathBuf;
 use std::{
     ffi::OsStr,
     io::{Read, Seek, SeekFrom},
@@ -13,8 +15,6 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-#[cfg(test)]
-use std::path::PathBuf;
 
 use command_group::CommandGroup;
 use serde::{Deserialize, Serialize};

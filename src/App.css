@@ -2173,6 +2173,10 @@ button.tag-chip:active,
   overflow: auto;
 }
 
+.source-control {
+  contain: layout style paint;
+}
+
 .source-control__compact-action,
 .source-control__row-actions button,
 .source-control__tabs button {

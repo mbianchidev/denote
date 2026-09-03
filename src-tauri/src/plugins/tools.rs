@@ -267,10 +267,7 @@ fn resolve(
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
     match mode {
-        ExecutableMode::Disabled => Err(AppError::Plugin(format!(
-            "{} is disabled",
-            kind.name()
-        ))),
+        ExecutableMode::Disabled => Err(AppError::Plugin(format!("{} is disabled", kind.name()))),
         ExecutableMode::Bundled => resolve_bundled(resource_dir, kind),
         ExecutableMode::System => resolve_system(kind),
         ExecutableMode::Custom => {

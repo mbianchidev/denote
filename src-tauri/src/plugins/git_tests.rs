@@ -1482,9 +1482,9 @@ fn manages_encrypted_repository_metadata_without_losing_user_lines() {
 
     let exclude = fs::read_to_string(git_directory.join("info").join("exclude")).expect("exclude");
     assert!(exclude.starts_with("# user exclusions\nbuild/\n"));
-    assert!(exclude.contains(".denote/locks/"));
-    assert!(exclude.contains(".denote/trash/"));
-    assert_eq!(exclude.matches(".denote/locks/").count(), 1);
+    assert!(exclude.contains(".denote/*"));
+    assert!(exclude.contains("!.denote/encryption.json"));
+    assert_eq!(exclude.matches(".denote/*").count(), 1);
 }
 
 #[test]
@@ -1778,18 +1778,19 @@ fn runs_a_request_with_the_custom_git_executable_from_settings() {
     set_git_executable_setting(&fixture, &default.to_string_lossy());
     let result = run(
         &fixture,
-        PluginGitRequest::Discover {
+        PluginGitRequest::Initialize {
             scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
         },
         None,
     )
-    .expect("discover");
+    .expect("initialize");
     assert_eq!(result.exit_code, 0, "{}", result.stderr);
 
     set_git_executable_setting(&fixture, "git");
     let rejected = run(
         &fixture,
-        PluginGitRequest::Discover {
+        PluginGitRequest::Status {
             scope: PluginGitScope::Vault,
         },
         None,
@@ -1867,8 +1868,9 @@ fn a_request_refuses_a_non_git_custom_executable() {
 
     let error = run(
         &fixture,
-        PluginGitRequest::Discover {
+        PluginGitRequest::Initialize {
             scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
         },
         None,
     )

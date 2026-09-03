@@ -1091,9 +1091,7 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                 ]),
             ]
         }
-        PluginGitRequest::DeleteRemoteBranch {
-            remote, name, ..
-        } => {
+        PluginGitRequest::DeleteRemoteBranch { remote, name, .. } => {
             validate_remote_name(remote)?;
             validate_branch_name(name)?;
             vec![mutating(vec![
@@ -3244,7 +3242,10 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
         let unix_exec = root.join("libexec").join("git-core");
         let windows_exec = root.join("mingw64").join("libexec").join("git-core");
         let (exec_path, templates) = if unix_exec.is_dir() {
-            (unix_exec, root.join("share").join("git-core").join("templates"))
+            (
+                unix_exec,
+                root.join("share").join("git-core").join("templates"),
+            )
         } else if windows_exec.is_dir() {
             (
                 windows_exec,

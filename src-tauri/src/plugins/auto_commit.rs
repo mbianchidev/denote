@@ -31,9 +31,9 @@ use super::{
     git::{
         CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken,
         GitTransportPolicy, assert_repository_config_is_safe, detect_operation_state,
-        ensure_encrypted_repository_metadata, redact, resolve_git_directory,
-        run_git_command, validate_author_email, validate_author_name,
-        validate_commit_message, validate_operation_id, validated_path,
+        ensure_encrypted_repository_metadata, redact, resolve_git_directory, run_git_command,
+        validate_author_email, validate_author_name, validate_commit_message,
+        validate_operation_id, validated_path,
     },
 };
 

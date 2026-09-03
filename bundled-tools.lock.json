@@ -20,9 +20,9 @@
       "signatureSha256": "8673501946204c38ebfed09603c1f3a041ed8d12b31f0aa06a474d41e359e254",
       "signatureType": "OpenPGP",
       "signerFingerprint": "E1F036B1FEE7221FC778ECEFB0B5E88696AFE6CB",
-      "signingKeyUrl": "https://keys.openpgp.org/vks/v1/by-fingerprint/E1F036B1FEE7221FC778ECEFB0B5E88696AFE6CB",
-      "signingKeySizeBytes": 6798,
-      "signingKeySha256": "49cbf8231dda72c52f9e4483d056fd264bbfaf6b8c8f523078835fcdc8c5dfb7",
+      "signingKeyUrl": "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0xE1F036B1FEE7221FC778ECEFB0B5E88696AFE6CB",
+      "signingKeySizeBytes": 68820,
+      "signingKeySha256": "fd2809d850e844b614ac60f13ded554c55d9052e5c799a5814abcba2a68a063c",
       "verifiedTagApi": "https://api.github.com/repos/git/git/git/tags/5ce91c059e41090e7d2cffad39c04af8acf98dc1"
     },
     "windowsArtifact": {
@@ -61,7 +61,7 @@
     "github.com",
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
-    "keys.openpgp.org",
+    "keyserver.ubuntu.com",
     "api.github.com"
   ],
   "targets": {

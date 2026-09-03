@@ -22,7 +22,6 @@ use crate::{
 
 use super::{
     PluginManager,
-    tools::{ExecutableMode, ToolKind},
     auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
     clone::{
         CloneAttempt, PluginGitCloneCleanupOutcome, PluginGitCloneVaultOutcome,
@@ -32,6 +31,7 @@ use super::{
         GitRequestTarget, GitTransportPolicy, PluginGitRequest, PluginGitResult, PluginGitScope,
     },
     github::GitHubRepository,
+    tools::{ExecutableMode, ToolKind},
     types::{
         InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
         PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,

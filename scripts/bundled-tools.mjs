@@ -16,7 +16,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, relative, resolve, sep } from "node:path";
+import {
+  basename,
+  dirname,
+  join,
+  posix,
+  relative,
+  resolve,
+  sep,
+} from "node:path";
 import { spawnSync } from "node:child_process";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
@@ -52,6 +60,24 @@ export function safeArchivePath(value) {
     !normalized.startsWith("/") &&
     !/^[A-Za-z]:/.test(normalized) &&
     normalized.split("/").every((part) => part !== ".." && part !== "")
+  );
+}
+
+function safeArchiveSymlink(path, linkpath) {
+  const normalizedLink = linkpath.replaceAll("\\", "/");
+  if (
+    normalizedLink.startsWith("/") ||
+    /^[A-Za-z]:/.test(normalizedLink) ||
+    normalizedLink.includes("\0")
+  ) {
+    return false;
+  }
+  const target = posix.normalize(
+    posix.join(posix.dirname(path), normalizedLink),
+  );
+  return (
+    safeArchivePath(target) &&
+    target.split("/")[0] === path.replaceAll("\\", "/").split("/")[0]
   );
 }
 
@@ -152,7 +178,11 @@ async function downloadExact(artifact, allowlist, destination) {
     }
     const expectedSize = artifact.sizeBytes ?? artifact.signatureSizeBytes;
     const declaredSize = Number(response.headers.get("content-length") ?? 0);
-    if (declaredSize && declaredSize !== expectedSize) {
+    if (
+      !response.headers.get("content-encoding") &&
+      declaredSize &&
+      declaredSize !== expectedSize
+    ) {
       throw new Error(`Download size changed for ${url}.`);
     }
     const chunks = [];
@@ -215,10 +245,13 @@ async function validateTar(path) {
     strict: true,
     onentry(entry) {
       entries += 1;
+      const safeSymlink =
+        entry.type === "SymbolicLink" &&
+        safeArchiveSymlink(entry.path, entry.linkpath);
       if (
         entries > MAX_ARCHIVE_ENTRIES ||
         !safeArchivePath(entry.path.replace(/\/$/, "")) ||
-        !["File", "Directory"].includes(entry.type)
+        (!["File", "Directory"].includes(entry.type) && !safeSymlink)
       ) {
         throw new Error(`Archive contains unsafe entry ${entry.path}.`);
       }
@@ -323,29 +356,36 @@ async function prepareGit(lock, targetName, target, staging, temporary) {
       join(cacheRoot, definition.signingKeySha256),
     );
     const signature = join(cacheRoot, definition.signatureSha256);
-    const keyring = join(temporary, "git-signing-key");
+    const keyring = mkdtempSync("/tmp/denote-gpg-");
     const signedTar = join(temporary, "git-source.tar");
-    mkdirSync(keyring, { mode: 0o700 });
     writeFileSync(signedTar, gunzipSync(readFileSync(source)));
-    run("gpg", ["--batch", "--homedir", keyring, "--import", signingKey], {
-      capture: true,
-    });
-    const verification = run(
-      "gpg",
-      [
-        "--batch",
-        "--homedir",
-        keyring,
-        "--status-fd",
-        "1",
-        "--verify",
-        signature,
-        signedTar,
-      ],
-      { capture: true },
-    );
-    if (!verification.includes(`[GNUPG:] VALIDSIG ${definition.signerFingerprint}`)) {
-      throw new Error("Git source signature did not match the locked signer.");
+    try {
+      run("gpg", ["--batch", "--homedir", keyring, "--import", signingKey], {
+        capture: true,
+      });
+      const verification = run(
+        "gpg",
+        [
+          "--batch",
+          "--homedir",
+          keyring,
+          "--status-fd",
+          "1",
+          "--verify",
+          signature,
+          signedTar,
+        ],
+        { capture: true },
+      );
+      if (
+        !verification.includes(
+          `[GNUPG:] VALIDSIG ${definition.signerFingerprint}`,
+        )
+      ) {
+        throw new Error("Git source signature did not match the locked signer.");
+      }
+    } finally {
+      rmSync(keyring, { recursive: true, force: true });
     }
     const extracted = join(temporary, "git-source");
     await extractTar(source, extracted);
