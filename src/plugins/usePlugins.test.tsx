@@ -418,7 +418,10 @@ describe("usePlugins", () => {
     };
     const rendered = await mountReady([makePlugin({ enabled: true })], initial);
 
-    expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(initial);
+    expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(
+      initial,
+      [],
+    );
     expect(runtimeInstances[0].setWorkspaceIdentity).toHaveBeenCalledWith(
       "/synthetic/vault-alpha",
     );
@@ -432,7 +435,10 @@ describe("usePlugins", () => {
       currentWorkspaceIdentity: "/synthetic/vault-alpha",
     });
     await waitFor(() => {
-      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(next);
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(
+        next,
+        [],
+      );
     });
 
     rendered.rerender({
@@ -440,7 +446,10 @@ describe("usePlugins", () => {
       currentWorkspaceIdentity: "/synthetic/vault-alpha",
     });
     await waitFor(() => {
-      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(null);
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(
+        null,
+        [],
+      );
     });
   });
 
