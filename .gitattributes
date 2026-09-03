@@ -1,0 +1,4 @@
+bundled-tools.lock.json text eol=lf
+docs/legal/bundled-tools/*.json text eol=lf
+docs/legal/bundled-tools/*.md text eol=lf
+scripts/*.mjs text eol=lf
