@@ -157,8 +157,7 @@
         "expectedPaths": [
           "git/cmd/git.exe",
           "git/mingw64/bin/git.exe",
-          "git/mingw64/bin/curl.exe",
-          "git/mingw64/bin/ssh.exe",
+          "git/usr/bin/ssh.exe",
           "git/mingw64/etc/ssl/certs/ca-bundle.crt",
           "git/LICENSE.txt"
         ]

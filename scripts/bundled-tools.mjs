@@ -220,6 +220,9 @@ async function verifySignedTag(url, expectedTag, expectedCommit) {
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "Denote bundled-tools preparation",
+      ...(process.env.GH_TOKEN
+        ? { authorization: `Bearer ${process.env.GH_TOKEN}` }
+        : {}),
     },
   });
   if (!response.ok) {

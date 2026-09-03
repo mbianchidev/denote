@@ -3273,6 +3273,10 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
         let portable_bin = root.join("mingw64").join("bin");
         if portable_bin.is_dir() {
             let mut paths = vec![portable_bin];
+            let portable_ssh = root.join("usr").join("bin");
+            if portable_ssh.is_dir() {
+                paths.push(portable_ssh);
+            }
             if let Some(existing) = std::env::var_os("PATH") {
                 paths.extend(std::env::split_paths(&existing));
             }
