@@ -76,6 +76,11 @@ downloads every pinned URL with a timeout and strict byte bound, checks safe
 archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
 supported platforms.
 
+Packaging is per plugin. An unchanged manifest version must match its committed
+archive and is retained without changing its artifact bytes, URL, digest, size,
+guide, or provenance. If one plugin changes, bump only that plugin's version;
+`npm run package:plugins` must leave every unrelated plugin untouched.
+
 ## Build a desktop bundle
 
 ```bash

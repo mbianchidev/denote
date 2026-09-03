@@ -95,6 +95,7 @@ function makePlugin(overrides: Partial<PluginView> = {}): PluginView {
     enabled: false,
     error: null,
     approvedPermissions: [],
+    previouslyApproved: false,
     settings: {},
     hasCredentials: false,
     ...overrides,
@@ -211,6 +212,7 @@ describe("usePlugins", () => {
         transactionId: "tx-1",
       };
     });
+
     queueListPlugins([notEnabled]); // re-fetch of the "prepared" plugin state
     vi.mocked(api.commitPluginEnable).mockImplementationOnce(async () => {
       callOrder.push("commit");
@@ -231,6 +233,51 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].start).toHaveBeenCalledTimes(1);
     expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-1");
     expect(result.current.plugins).toEqual([makePlugin({ enabled: true })]);
+  });
+
+  it("updates only previously approved plugins that actually have updates", async () => {
+    const gitCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        id: "denote.git",
+        name: "Git vault versioning",
+      },
+    };
+    const git = makePlugin({
+      catalog: gitCatalog,
+      status: "update-available",
+      previouslyApproved: true,
+    });
+    const reference = makePlugin({
+      status: "not-installed",
+      previouslyApproved: true,
+    });
+    const { result } = await mountReady([git, reference]);
+    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
+      pluginId: "denote.git",
+      version: "0.4.0",
+      entrypoint: "dist/index.js",
+      transactionId: "tx-git",
+    });
+    queueListPlugins([git, reference]);
+    vi.mocked(api.commitPluginEnable).mockResolvedValueOnce(undefined);
+    queueListPlugins([
+      { ...git, status: "enabled", enabled: true },
+      reference,
+    ]);
+
+    await act(async () => {
+      await result.current.updateAll();
+    });
+
+    expect(api.preparePluginEnable).toHaveBeenCalledTimes(1);
+    expect(api.preparePluginEnable).toHaveBeenCalledWith(
+      "denote.git",
+      gitCatalog.manifest.permissions,
+    );
+    expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-git");
+    expect(runtimeInstances[0].start).toHaveBeenCalledWith(git);
   });
 
   it("stops the runtime and rolls back without committing when the runtime fails to start", async () => {

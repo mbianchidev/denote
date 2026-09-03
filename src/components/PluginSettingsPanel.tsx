@@ -56,6 +56,7 @@ interface PluginSettingsPanelProps {
   ) => Promise<void>;
   onDisable: (pluginId: string) => Promise<void>;
   onDisableAll: () => Promise<void>;
+  onUpdateAll: () => Promise<void>;
   onClearData: (pluginId: string) => Promise<void>;
   onClearCredentials: (pluginId: string) => Promise<void>;
   onUpdateSettings: (
@@ -79,6 +80,7 @@ export function PluginSettingsPanel({
   onEnable,
   onDisable,
   onDisableAll,
+  onUpdateAll,
   onClearData,
   onClearCredentials,
   onUpdateSettings,
@@ -91,6 +93,7 @@ export function PluginSettingsPanel({
     "all" | "enabled" | "disabled"
   >("all");
   const [pendingEnable, setPendingEnable] = useState<string | null>(null);
+  const [pendingUpdateAll, setPendingUpdateAll] = useState(false);
   const [pendingCleanup, setPendingCleanup] = useState<{
     pluginId: string;
     kind: "data" | "credentials";
@@ -176,6 +179,11 @@ export function PluginSettingsPanel({
       return entries ? [[pluginCategory, entries] as const] : [];
     });
   }, [filtered]);
+  const approvedUpdates = plugins.filter(
+    (plugin) =>
+      plugin.status === "update-available" &&
+      plugin.previouslyApproved === true,
+  );
 
   return (
     <section
@@ -194,16 +202,74 @@ export function PluginSettingsPanel({
             enable it. Disabling stops the plugin and deletes its package.
           </p>
         </div>
-        {plugins.some((plugin) => plugin.enabled) ? (
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void onDisableAll().catch(onError)}
-          >
-            Disable all plugins
-          </button>
-        ) : null}
+        <div className="plugin-settings__header-actions">
+          {approvedUpdates.length > 0 ? (
+            <button
+              type="button"
+              className="primary-button"
+              aria-label={`Update all approved plugins (${approvedUpdates.length})`}
+              disabled={loading || approvedUpdates.some((plugin) =>
+                busyPluginIds.has(plugin.catalog.manifest.id),
+              )}
+              onClick={() => setPendingUpdateAll(true)}
+            >
+              Update all ({approvedUpdates.length})
+            </button>
+          ) : null}
+          {plugins.some((plugin) => plugin.enabled) ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void onDisableAll().catch(onError)}
+            >
+              Disable all plugins
+            </button>
+          ) : null}
+        </div>
       </header>
+
+      {pendingUpdateAll ? (
+        <section
+          className="plugin-settings__update-all-confirm"
+          aria-labelledby="plugin-update-all-title"
+        >
+          <h4 id="plugin-update-all-title">
+            <ShieldCheck aria-hidden="true" size={15} />
+            Update approved plugins?
+          </h4>
+          <p>
+            Denote will re-accept each plugin&apos;s complete latest permission
+            list, then download, verify, and update these plugins independently.
+          </p>
+          <ul>
+            {approvedUpdates.map((plugin) => (
+              <li key={plugin.catalog.manifest.id}>
+                {plugin.catalog.manifest.name}
+              </li>
+            ))}
+          </ul>
+          <div>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => setPendingUpdateAll(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="primary-button"
+              onClick={() =>
+                void onUpdateAll()
+                  .then(() => setPendingUpdateAll(false))
+                  .catch(onError)
+              }
+            >
+              Update all
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {activeProject && !loading ? (
         <CodeToolingRecommendations bundles={bundles} plugins={plugins} />

@@ -43,13 +43,13 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://raw.githubusercontent.com/mbianchidev/denote/60c06ad7f2bf58f34ce87181db78ee7403ac213b/plugin-artifacts/denote.reference-0.1.0.tgz",
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/8dee55f0757fbf0ee272f526ebb7e16356697bcc/plugin-artifacts/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "60c06ad7f2bf58f34ce87181db78ee7403ac213b",
+      "sourceCommit": "8dee55f0757fbf0ee272f526ebb7e16356697bcc",
       "trusted": true
     },
     "guide": "# Reference plugin\n\n## Purpose\n\nThis development-only plugin proves the Denote plugin contract and lifecycle. It\ndoes not provide a production user feature.\n\n## Enablement and permissions\n\nEnabling requests Commands, Sidebar, Status, Editor decoration, Note events,\nand Secure storage permissions. The package must be downloaded and verified\nbefore its code loads. Secure values use this plugin's isolated operating-system\nkeychain namespace.\n\n## Usage\n\nThe plugin registers one harmless reference command and one explicit keychain\nverification command. The verification command writes, reads, and deletes a\nsynthetic value without accessing any other plugin or Denote credential.\nIt also adds a small reference sidebar and status item, highlights the literal\nword `reference` in source/plain-text editors, and observes note lifecycle\nevents without reading or changing note content.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling unregisters the command, unloads the runtime, and deletes the\ndownloaded package. It does not edit or delete vault content.\n\n## Troubleshooting\n\nIf activation fails, Denote reports the error, rolls back registrations, unloads\nthe runtime, and removes the package.\n"

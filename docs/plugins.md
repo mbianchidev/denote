@@ -69,6 +69,12 @@ declarative settings, enable/disable controls, and explicit data or credential
 cleanup. Permissions must be approved before download. Structured permission
 objects are persisted and compared with the current manifest, so any permission
 change requires approval again.
+Prior approval metadata remains after package code is disabled or removed; it
+does not grant runtime access. It exists so an explicit **Update all** can select
+only previously approved plugins, show one confirmation, and re-accept each
+latest complete permission payload. Every selected plugin still uses its own
+prepare, verified activation, commit, rollback, busy state, and error path.
+Updating one plugin never prepares, downloads, starts, or changes another.
 When the focused file has an active explicit or implicit project, Settings also
 shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
 server, Linter, Compiler, and Code navigation roles report unavailable,
@@ -564,8 +570,16 @@ The version 1 catalog is embedded in each Denote release. New listings,
 available-version metadata, and revocations therefore arrive with an application
 update. A changed catalog fingerprint disables and removes the previous package
 instead of executing stale code; re-enablement downloads the new artifact and
-repeats permission approval. Automatic background updates and executable-version
-rollback are intentionally unavailable in version 1.
+repeats permission approval. **Update all** is an explicit foreground action,
+not an automatic background update. Executable-version rollback remains
+unavailable in version 1.
+
+`scripts/package-plugins.ts` treats every plugin version independently. When a
+source manifest version matches the catalog, the script verifies that the
+committed archive still matches its source and retains the archive bytes, URL,
+digest, size, guide, and provenance unchanged. A changed package must bump only
+its own version. Packaging or pinning `denote.git` therefore cannot rewrite the
+`denote.reference` artifact or any other plugin.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor

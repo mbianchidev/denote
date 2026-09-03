@@ -309,6 +309,11 @@ layer, so it is never clipped by the sidebar. One surface lists local and remote
 branches and exposes create-and-switch with an explicit start-point selector.
 Current branches remain visible but disabled, and every option keeps an exact
 accessible action name.
+The plugin manager groups **Update all** with the global recovery controls only
+when approved updates exist. Its first activation opens an inline confirmation
+that lists exact plugin names and explains that the latest full permission sets
+will be accepted; it never hides this security consequence behind a progress
+button.
 Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions
 use the shared Lucide icon-button vocabulary, while `aria-label` and `title`
 retain the full action and target. Loaded patches leave the narrow sidebar and

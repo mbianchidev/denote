@@ -551,11 +551,24 @@ journal preserves cleanup discovery if the main state file is corrupt. State
 updates use copy-on-write atomic persistence, and a process-lifetime file lock
 plus the single-instance plugin prevents concurrent writers.
 
+Approved permission records and the artifact/catalog identities last accepted
+by the user remain as inert metadata after code is disabled or removed. They are
+consulted only to mark an independently changed catalog entry update-available
+and to qualify it for the explicit **Update all** flow; runtime authorization
+still requires the plugin to be enabled. Bulk update captures the eligible list,
+then invokes the ordinary per-plugin prepare/start/commit transaction
+sequentially with that plugin's latest full manifest permissions. Failure of one
+is reported without selecting or mutating another.
+
 The catalog is compiled into the desktop release. Catalog additions, update
 metadata, and revocations therefore require an application update in API version
 1. When catalog integrity or permissions change, Denote removes the old package
 and requires a fresh download and approval rather than retaining executable
 rollback copies.
+The packaging tool also enforces catalog independence: an unchanged version is
+extracted and compared with its source, then retained byte-for-byte with its
+existing immutable URL and provenance. Only a plugin whose own version changed
+is rebuilt and repinned.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored

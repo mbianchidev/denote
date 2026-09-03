@@ -256,6 +256,7 @@ export interface PluginView {
   enabled: boolean;
   error: string | null;
   approvedPermissions: PluginPermissionRequest[];
+  previouslyApproved?: boolean;
   settings: Record<string, unknown>;
   hasCredentials: boolean;
 }

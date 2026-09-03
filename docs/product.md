@@ -282,6 +282,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Terminal, Language server, Linter, Compiler, and Code navigation roles show
   unavailable, disabled, or enabled status; Denote never downloads or enables
   them automatically, and core project behavior does not depend on plugins.
+- **Update all** appears only when previously approved plugins have available
+  updates. One confirmation lists the affected plugins and re-accepts each
+  latest complete permission payload. Each plugin then updates through its own
+  transaction and runtime; unrelated, never-approved, current, or incompatible
+  plugins are untouched.
 - The optional **Git vault versioning** plugin is the first production catalog
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,

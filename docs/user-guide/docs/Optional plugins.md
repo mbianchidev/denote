@@ -24,6 +24,13 @@ If a plugin is behaving badly, use **Disable all plugins** in the same settings
 section. The editor remains usable while plugin workers start, and a crashing
 plugin is stopped and removed automatically.
 
+When previously approved plugins have updates, **Update all** appears in the
+plugin manager. It first lists the exact plugins and explains that their complete
+latest permission sets will be accepted again. Confirming updates only those
+listed plugins, one independently verified transaction at a time. Current,
+never-approved, incompatible, and unrelated plugins are not downloaded or
+changed.
+
 Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
 keychain. Plugins cannot read Denote credentials or another plugin's entries.

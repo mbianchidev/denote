@@ -8757,6 +8757,7 @@ function App() {
         onEnablePlugin={pluginController.enable}
         onDisablePlugin={pluginController.disable}
         onDisableAllPlugins={pluginController.disableAll}
+        onUpdateAllPlugins={pluginController.updateAll}
         onClearPluginData={pluginController.clearData}
         onClearPluginCredentials={pluginController.clearCredentials}
         onUpdatePluginSettings={pluginController.updateSettings}

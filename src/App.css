@@ -4026,6 +4026,14 @@ kbd {
   white-space: nowrap;
 }
 
+.plugin-settings__header-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .plugin-settings__header p {
   margin-top: 4px;
   color: var(--text-secondary);
@@ -4428,6 +4436,44 @@ kbd {
   background: var(--editor-bg);
   border: 1px solid var(--accent);
   border-radius: 5px;
+}
+
+.plugin-settings__update-all-confirm {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  background: var(--editor-bg);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+}
+
+.plugin-settings__update-all-confirm h4,
+.plugin-settings__update-all-confirm p {
+  margin: 0;
+}
+
+.plugin-settings__update-all-confirm h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.plugin-settings__update-all-confirm p,
+.plugin-settings__update-all-confirm li {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.plugin-settings__update-all-confirm ul {
+  margin: 0;
+}
+
+.plugin-settings__update-all-confirm > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .plugin-card__permission-confirm h6 {

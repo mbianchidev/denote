@@ -77,6 +77,7 @@ impl PluginManager {
                         .unwrap_or_default()
                         .into_iter()
                         .collect(),
+                    previously_approved: state.approved_permissions.contains_key(plugin_id),
                     settings: state
                         .settings
                         .get(plugin_id)
@@ -254,9 +255,6 @@ impl PluginManager {
         self.update_state(|state| {
             state.enabled.remove(plugin_id);
             state.updates_available.remove(plugin_id);
-            state.approved_permissions.remove(plugin_id);
-            state.artifact_hashes.remove(plugin_id);
-            state.catalog_fingerprints.remove(plugin_id);
             state.entrypoint_hashes.remove(plugin_id);
             state.errors.remove(plugin_id);
             if clear_data {
@@ -410,9 +408,6 @@ impl PluginManager {
                 self.update_state(|state| {
                     state.enabled.remove(plugin_id);
                     state.updates_available.remove(plugin_id);
-                    state.approved_permissions.remove(plugin_id);
-                    state.artifact_hashes.remove(plugin_id);
-                    state.catalog_fingerprints.remove(plugin_id);
                     state.entrypoint_hashes.remove(plugin_id);
                     state.errors.insert(plugin_id.clone(), error);
                     Ok(())
@@ -426,9 +421,6 @@ impl PluginManager {
                 self.update_state(|state| {
                     state.enabled.remove(plugin_id);
                     state.updates_available.insert(plugin_id.clone());
-                    state.approved_permissions.remove(plugin_id);
-                    state.artifact_hashes.remove(plugin_id);
-                    state.catalog_fingerprints.remove(plugin_id);
                     state.entrypoint_hashes.remove(plugin_id);
                     state.errors.insert(
                         plugin_id.clone(),
@@ -460,9 +452,6 @@ impl PluginManager {
                     self.update_state(|state| {
                         state.enabled.remove(plugin_id);
                         state.updates_available.insert(plugin_id.clone());
-                        state.approved_permissions.remove(plugin_id);
-                        state.artifact_hashes.remove(plugin_id);
-                        state.catalog_fingerprints.remove(plugin_id);
                         state.entrypoint_hashes.remove(plugin_id);
                         state.errors.insert(
                             plugin_id.clone(),
@@ -472,6 +461,24 @@ impl PluginManager {
                         Ok(())
                     })?;
                 }
+            } else if approved_permissions.is_some() {
+                if plugin_root.exists() {
+                    self.remove_package(plugin_id)?;
+                }
+                let update_available = approved_permissions.as_ref()
+                    != Some(&requested_permissions)
+                    || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
+                    || stored_catalog_fingerprint.as_deref()
+                        != Some(expected_catalog_fingerprint.as_str());
+                self.update_state(|state| {
+                    if update_available {
+                        state.updates_available.insert(plugin_id.clone());
+                    } else {
+                        state.updates_available.remove(plugin_id);
+                    }
+                    state.entrypoint_hashes.remove(plugin_id);
+                    Ok(())
+                })?;
             } else if plugin_root.exists() {
                 self.remove_package(plugin_id)?;
             }

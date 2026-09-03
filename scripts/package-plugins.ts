@@ -35,6 +35,7 @@ const catalog = JSON.parse(
   readFileSync(catalogPath, "utf8"),
 ) as PluginCatalogEntry[];
 const temporaryRoot = mkdtempSync(join(tmpdir(), "denote-plugin-artifacts-"));
+let catalogChanged = false;
 
 try {
   mkdirSync(artifactsRoot, { recursive: true });
@@ -155,6 +156,44 @@ try {
           );
         }
       }
+    } else if (entry.manifest.version === manifest.version) {
+      if (!existsSync(committedArtifact)) {
+        throw new Error(
+          `${artifactName} is missing. Bump only ${manifest.id}'s version and package it again.`,
+        );
+      }
+      const committed = readFileSync(committedArtifact);
+      const sha256 = createHash("sha256").update(committed).digest("hex");
+      const sizeBytes = statSync(committedArtifact).size;
+      if (
+        entry.artifact.sha256 !== sha256 ||
+        entry.artifact.sizeBytes !== sizeBytes
+      ) {
+        throw new Error(
+          `Committed artifact metadata changed for ${manifest.id} without a version bump.`,
+        );
+      }
+      const extracted = join(temporaryRoot, `${manifest.id}-retained`);
+      mkdirSync(extracted);
+      await extract({
+        cwd: extracted,
+        file: committedArtifact,
+        strict: true,
+      });
+      for (const path of packagePaths) {
+        const packaged = normalizeText(
+          readFileSync(join(extracted, path), "utf8"),
+        );
+        const current = normalizeText(
+          readFileSync(join(pluginDirectory, path), "utf8"),
+        );
+        if (packaged !== current) {
+          throw new Error(
+            `${manifest.id}@${manifest.version} changed ${path}. Bump only this plugin's version before packaging.`,
+          );
+        }
+      }
+      console.log(`Retained ${manifest.id}@${manifest.version}.`);
     } else {
       const temporaryArtifact = join(temporaryRoot, artifactName);
       await create(
@@ -190,10 +229,11 @@ try {
           trusted: true,
         };
       }
+      catalogChanged = true;
       console.log(`Packaged ${manifest.id}@${manifest.version}.`);
     }
   }
-  if (!checkOnly) {
+  if (!checkOnly && catalogChanged) {
     writeFileSync(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
   }
 } finally {

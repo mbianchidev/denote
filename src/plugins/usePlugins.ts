@@ -40,6 +40,7 @@ export interface PluginController {
   ) => Promise<void>;
   disable: (pluginId: string) => Promise<void>;
   disableAll: () => Promise<void>;
+  updateAll: () => Promise<void>;
   clearData: (pluginId: string) => Promise<void>;
   clearCredentials: (pluginId: string) => Promise<void>;
   updateSettings: (
@@ -212,7 +213,7 @@ export function usePlugins(
     // The workspace is applied first: a plugin has to learn that it changed
     // before it is told which project inside it is now current.
     runtimeRef.current?.setWorkspaceIdentity(workspaceIdentity);
-    runtimeRef.current?.setProjectContext(projectContext);
+    runtimeRef.current?.setProjectContext(projectContext, projectRepositories);
   }, [projectContext, projectRepositories, workspaceIdentity]);
 
   const withBusy = useCallback(
@@ -316,6 +317,7 @@ export function usePlugins(
             staleTransaction,
             "Plugin enablement was cancelled.",
           );
+
           pendingTransactionsRef.current.delete(pluginId);
         }
         let runtimeError: unknown = null;
@@ -333,6 +335,30 @@ export function usePlugins(
     },
     [refresh, withBusy],
   );
+
+  const updateAll = useCallback(async () => {
+    const targets = plugins.filter(
+      (plugin) =>
+        plugin.status === "update-available" &&
+        plugin.previouslyApproved === true,
+    );
+    const failures: string[] = [];
+    for (const plugin of targets) {
+      try {
+        await enable(
+          plugin.catalog.manifest.id,
+          plugin.catalog.manifest.permissions,
+        );
+      } catch (error) {
+        failures.push(
+          `${plugin.catalog.manifest.name}: ${errorMessage(error)}`,
+        );
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`Some plugin updates failed. ${failures.join(" ")}`);
+    }
+  }, [enable, plugins]);
 
   const clearData = useCallback(
     async (pluginId: string) => {
@@ -511,6 +537,7 @@ export function usePlugins(
     enable,
     disable,
     disableAll,
+    updateAll,
     clearData,
     clearCredentials,
     updateSettings,

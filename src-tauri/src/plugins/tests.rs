@@ -133,6 +133,10 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
     {
         let mut state = manager.state().expect("state");
         state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
         state
             .storage
             .entry(catalog.manifest.id.clone())
@@ -154,6 +158,13 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
             .and_then(|storage| storage.get("value")),
         Some(&Value::String("kept".to_string()))
     );
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
+    );
 }
 
 #[test]
@@ -173,14 +184,62 @@ fn catalog_version_change_disables_plugin_and_removes_old_code() {
         .expect("state")
         .enabled
         .insert(catalog.manifest.id.clone());
+    manager.state().expect("state").approved_permissions.insert(
+        catalog.manifest.id.clone(),
+        catalog.manifest.permissions.iter().cloned().collect(),
+    );
 
     manager.reconcile_packages().expect("reconcile");
 
     let state = manager.state().expect("state");
     assert!(!state.enabled.contains(&catalog.manifest.id));
+    assert!(
+        state
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
+    );
     assert!(state.updates_available.contains(&catalog.manifest.id));
     assert!(state.errors.contains_key(&catalog.manifest.id));
     assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+}
+
+#[test]
+fn disabled_previously_approved_plugin_reports_an_independent_update() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let catalog = catalog();
+    let manager = manager(catalog.clone(), &data, &cache);
+    {
+        let mut state = manager.state().expect("state");
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
+        state
+            .artifact_hashes
+            .insert(catalog.manifest.id.clone(), "older-artifact".to_string());
+        state
+            .catalog_fingerprints
+            .insert(catalog.manifest.id.clone(), "older-catalog".to_string());
+    }
+
+    manager.reconcile_packages().expect("reconcile");
+
+    let view = manager
+        .list()
+        .expect("plugins")
+        .into_iter()
+        .find(|plugin| plugin.catalog.manifest.id == catalog.manifest.id)
+        .expect("plugin");
+    assert_eq!(view.status, "update-available");
+    assert!(view.previously_approved);
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
+    );
 }
 
 #[test]
@@ -311,6 +370,13 @@ fn tampered_entrypoint_is_removed_during_startup_recovery() {
             .expect("state")
             .enabled
             .contains(&catalog.manifest.id)
+    );
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
     );
     assert!(
         manager
