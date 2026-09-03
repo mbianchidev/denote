@@ -991,6 +991,32 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn custom_mode_never_creates_a_bundled_download() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp");
+        let executable = directory.path().join("git");
+        fs::write(&executable, b"#!/bin/sh\necho 'git version 2.55.0'\n").expect("script");
+        let mut permissions = fs::metadata(&executable).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&executable, permissions).expect("permissions");
+        let download = directory.path().join("downloads");
+
+        resolve(
+            Path::new(""),
+            Path::new(""),
+            &download,
+            ToolKind::Git,
+            ExecutableMode::Custom,
+            executable.to_str(),
+        )
+        .expect("custom Git");
+
+        assert!(!download.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn verified_archive_extracts_atomically_and_runs_the_locked_executable() {
         use std::os::unix::fs::PermissionsExt;
 
