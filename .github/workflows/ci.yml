@@ -108,6 +108,8 @@ jobs:
 
       - name: Prepare bundled Git and GitHub CLI
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           case "${{ runner.os }}-${{ runner.arch }}" in
             Linux-X64) target=x86_64-unknown-linux-gnu ;;

@@ -273,14 +273,22 @@ function extractZip(path, destination) {
   parseZipEntries(readFileSync(path));
   mkdirSync(destination, { recursive: true });
   if (process.platform === "win32") {
-    run("powershell", [
-      "-NoProfile",
-      "-NonInteractive",
-      "-Command",
-      "Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force",
-      path,
-      destination,
-    ]);
+    run(
+      "powershell",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        "Expand-Archive -LiteralPath $env:DENOTE_ARCHIVE -DestinationPath $env:DENOTE_DESTINATION -Force",
+      ],
+      {
+        env: {
+          ...process.env,
+          DENOTE_ARCHIVE: path,
+          DENOTE_DESTINATION: destination,
+        },
+      },
+    );
   } else {
     run("unzip", ["-q", path, "-d", destination]);
   }

@@ -266,6 +266,8 @@ jobs:
           "TAURI_WINDOWS_DIGEST_ALGORITHM=sha256" >> $env:GITHUB_ENV
 
       - name: Prepare bundled Git and GitHub CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           npm run prepare:bundled-tools -- --target "${{ matrix.target }}"
           npm run verify:bundled-tools -- --target "${{ matrix.target }}"
