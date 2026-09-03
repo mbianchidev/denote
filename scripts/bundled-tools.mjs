@@ -15,7 +15,6 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import {
   basename,
   dirname,
@@ -561,7 +560,7 @@ export async function prepare({
   }
   mkdirSync(cacheRoot, { recursive: true });
   mkdirSync(resourcesRoot, { recursive: true });
-  const temporary = mkdtempSync(join(tmpdir(), "denote-bundled-tools-"));
+  const temporary = mkdtempSync(join(resourcesRoot, ".prepare-"));
   const staging = join(temporary, targetName);
   mkdirSync(staging);
   try {
