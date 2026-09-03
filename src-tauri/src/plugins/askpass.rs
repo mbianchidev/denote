@@ -29,11 +29,14 @@ use crate::error::{AppError, AppResult};
 pub(crate) const ASKPASS_MODE_ENV: &str = "DENOTE_GIT_ASKPASS_MODE";
 /// Absolute path of the private file holding the answer.
 pub(crate) const ASKPASS_FILE_ENV: &str = "DENOTE_GIT_ASKPASS_FILE";
+pub(crate) const ASKPASS_CONTEXT_ENV: &str = "DENOTE_GIT_ASKPASS_CONTEXT";
 /// Username Git should use for a GitHub HTTPS token. GitHub ignores the name
 /// when the password is a token, so this is a constant, not a credential.
 pub(crate) const GITHUB_TOKEN_USERNAME: &str = "x-access-token";
 
 const ASKPASS_MODE_VALUE: &str = "1";
+const ASKPASS_CONTEXT_GITHUB: &str = "github";
+const ASKPASS_CONTEXT_SIGNING: &str = "signing";
 const MAX_ASKPASS_FILE_BYTES: u64 = 16 * 1024;
 /// The only hosts a Denote-managed GitHub token is ever offered to. The match
 /// is exact and case-insensitive, so a subdomain, a suffix lookalike, a
@@ -59,7 +62,11 @@ pub fn run_askpass_if_requested() -> bool {
     }
     let prompt = env::args().nth(1).unwrap_or_default();
     let file = env::var_os(ASKPASS_FILE_ENV).map(PathBuf::from);
-    let mut answer = askpass_answer(&prompt, file.as_deref());
+    let mut answer = if env::var(ASKPASS_CONTEXT_ENV).as_deref() == Ok(ASKPASS_CONTEXT_SIGNING) {
+        signing_askpass_answer(&prompt, file.as_deref())
+    } else {
+        askpass_answer(&prompt, file.as_deref())
+    };
     // Standard output is the only channel Git reads. A failure is silent
     // because a diagnostic here would land in Git's stderr, which is reported
     // back to the plugin.
@@ -96,10 +103,19 @@ pub(crate) fn askpass_answer(prompt: &str, file: Option<&Path>) -> String {
     if !prompt_targets_github_https(prompt) {
         return String::new();
     }
+
     match kind {
         PromptKind::Username => GITHUB_TOKEN_USERNAME.to_string(),
         PromptKind::Password => file.and_then(read_secret_file).unwrap_or_default(),
     }
+}
+
+pub(crate) fn signing_askpass_answer(prompt: &str, file: Option<&Path>) -> String {
+    let label = prompt.to_ascii_lowercase();
+    if !label.contains("passphrase") && !label.contains("pin for") {
+        return String::new();
+    }
+    file.and_then(read_secret_file_exact).unwrap_or_default()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,10 +187,25 @@ fn read_secret_file(path: &Path) -> Option<String> {
     if !metadata.is_file() || metadata.len() > MAX_ASKPASS_FILE_BYTES {
         return None;
     }
+
     let mut content = fs::read_to_string(path).ok()?;
     let answer = content.trim_end_matches(['\r', '\n']).to_string();
     content.zeroize();
     Some(answer)
+}
+
+fn read_secret_file_exact(path: &Path) -> Option<String> {
+    let metadata = fs::symlink_metadata(path).ok()?;
+    if !metadata.is_file() || metadata.len() > MAX_ASKPASS_FILE_BYTES {
+        return None;
+    }
+    fs::read_to_string(path).ok()
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AskpassContext {
+    Github,
+    Signing,
 }
 
 /// One live askpass secret on disk.
@@ -187,6 +218,7 @@ pub(crate) struct AskpassMaterial {
     directory: PathBuf,
     file: PathBuf,
     program: PathBuf,
+    context: AskpassContext,
 }
 
 impl AskpassMaterial {
@@ -207,7 +239,18 @@ impl AskpassMaterial {
             directory,
             file,
             program,
+            context: AskpassContext::Github,
         })
+    }
+
+    pub(crate) fn create_signing(
+        support_directory: &Path,
+        program: PathBuf,
+        secret: &str,
+    ) -> AppResult<Self> {
+        let mut material = Self::create(support_directory, program, secret)?;
+        material.context = AskpassContext::Signing;
+        Ok(material)
     }
 
     /// The Denote executable Git will run for a prompt.
@@ -388,9 +431,22 @@ pub(crate) fn askpass_program() -> AppResult<PathBuf> {
 /// unrecognisable, and an unrecognised prompt is answered with nothing.
 pub(crate) fn apply_askpass_environment(command: &mut Command, material: &AskpassMaterial) {
     command
-        .env("GIT_ASKPASS", material.program())
         .env("LC_ALL", "C")
         .env_remove("LANGUAGE")
         .env(ASKPASS_MODE_ENV, ASKPASS_MODE_VALUE)
         .env(ASKPASS_FILE_ENV, material.file());
+    match material.context {
+        AskpassContext::Github => {
+            command
+                .env("GIT_ASKPASS", material.program())
+                .env(ASKPASS_CONTEXT_ENV, ASKPASS_CONTEXT_GITHUB);
+        }
+        AskpassContext::Signing => {
+            command
+                .env("SSH_ASKPASS", material.program())
+                .env("SSH_ASKPASS_REQUIRE", "force")
+                .env("DISPLAY", "denote-signing")
+                .env(ASKPASS_CONTEXT_ENV, ASKPASS_CONTEXT_SIGNING);
+        }
+    }
 }

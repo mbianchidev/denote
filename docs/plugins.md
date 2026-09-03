@@ -223,6 +223,12 @@ host reads that setting itself for the requesting plugin and still requires the
 path to be absolute, canonical, and a real Git executable. The reserved
 `githubExecutablePath` setting works the same way for the GitHub CLI.
 
+Host-rendered source control may attach an SSH signing passphrase to a manual
+commit action as host-only metadata. It is not part of
+`PluginSourceControlAction`, `PluginGitRequest`, any worker message, settings,
+storage, or logs. The native host consumes it through a private one-shot
+`SSH_ASKPASS` file only when the fixed commit plan is signed.
+
 Beyond `run` and `cancel`, the Git capability exposes three host-owned
 operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,
 and `cleanFailedClone`. Each one requires the same approved `git` permission and

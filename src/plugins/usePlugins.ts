@@ -11,6 +11,7 @@ import type {
 import {
   PluginWorkerRuntime,
   type PluginActionLeaseScope,
+  type PluginActionHostSecrets,
   type PluginVaultClonedHandler,
   type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
@@ -62,6 +63,7 @@ export interface PluginController {
     providerId: string,
     action: PluginSourceControlAction,
     workspaceScope: string,
+    hostSecrets?: PluginActionHostSecrets,
   ) => Promise<void>;
   emitNoteEvent: (event: PluginNoteEvent) => void;
   invalidateActionLeases: () => void;
@@ -467,6 +469,7 @@ export function usePlugins(
       providerId: string,
       action: PluginSourceControlAction,
       workspaceScope: string,
+      hostSecrets?: PluginActionHostSecrets,
     ) => {
       const runtime = runtimeRef.current;
       if (!runtime) {
@@ -482,6 +485,11 @@ export function usePlugins(
         projectId: projectContext?.projectId ?? null,
         ...(projectIds.length > 0 ? { projectIds } : {}),
         sourceControlActionId: action.id,
+        ...(action.id === "commit" && hostSecrets?.gitSigningPassphrase
+          ? {
+              gitSigningPassphrase: hostSecrets.gitSigningPassphrase,
+            }
+          : {}),
       };
       await runtime.runSourceControlAction(
         pluginId,

@@ -76,7 +76,9 @@ Open the Git view from the activity rail, select a repository under
 - **Refresh history**, **Previous**, and **Next** read one bounded page of
   commits at a time; selecting a commit shows its details and its exact diff.
 - **Commit staged changes** commits only what is staged, using the message you
-  typed and the configured author identity when one is set.
+  typed and the configured author identity when one is set. The optional
+  password-style **Signing passphrase** is used once for an encrypted SSH
+  signing key, then cleared; it is never stored or sent to this plugin.
 - **New branch** creates and switches to a branch from the current branch without
   opening advanced branch management.
 - Compact refresh, sync, stage, restore, diff, and file actions are icons. Their
@@ -413,6 +415,8 @@ than done quietly; **Discard result** puts the merge Denote derived back.
   never signs them. **GPG signing key** is an optional masked key ID,
   fingerprint, or identity. The system GPG agent or pinentry owns the
   passphrase; Denote never stores it. Automatic commits are always unsigned.
+  SSH-format signing can instead use the one-shot password field beside the
+  manual commit message.
 - **Pull strategy** is `Fast-forward only`, `Merge`, or `Rebase`. Fast-forward
   only never creates a merge commit and never rewrites history, so it is the
   default.

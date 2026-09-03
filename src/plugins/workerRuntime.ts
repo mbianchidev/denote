@@ -34,6 +34,7 @@ export type {
   PluginStatusContribution,
 } from "./runtimeMessages";
 export type {
+  PluginActionHostSecrets,
   PluginActionLeaseScope,
   PluginVaultClonedHandler,
 } from "./hostOperations";

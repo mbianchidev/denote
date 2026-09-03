@@ -167,13 +167,24 @@ describe("SourceControlPanel", () => {
     });
 
     await user.type(screen.getByLabelText("Commit message"), "Synthetic update");
+    expect(screen.getByLabelText(/Signing passphrase/)).toHaveAttribute(
+      "type",
+      "password",
+    );
+    await user.type(
+      screen.getByLabelText(/Signing passphrase/),
+      "synthetic-passphrase",
+    );
     await user.click(
       screen.getByRole("button", { name: "Commit staged changes" }),
     );
-    expect(onAction).toHaveBeenCalledWith({
-      id: "commit",
-      values: { message: "Synthetic update" },
-    });
+    expect(onAction).toHaveBeenCalledWith(
+      {
+        id: "commit",
+        values: { message: "Synthetic update" },
+      },
+      { gitSigningPassphrase: "synthetic-passphrase" },
+    );
 
     // Continue, skip, and abort come from the typed operation the provider
     // reported, so every one of them names the operation it resumes.

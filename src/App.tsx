@@ -82,6 +82,7 @@ import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
+import type { SourceControlActionHostOptions } from "./components/SourceControlPanel";
 import { SourceControlDiffEditor } from "./components/SourceControlDiffEditor";
 import { SourceOutline } from "./components/SourceOutline";
 import { SourceLanguageStatus } from "./components/SourceLanguageStatus";
@@ -4526,6 +4527,7 @@ function App() {
       providerId: string,
       action: PluginSourceControlAction,
       repositoryLabel = "",
+      hostOptions?: SourceControlActionHostOptions,
     ) => {
       if (!workspace) {
         return;
@@ -4546,12 +4548,22 @@ function App() {
           }
           workspaceOperationStarted = true;
         }
-        await pluginController.runSourceControlAction(
-          pluginId,
-          providerId,
-          action,
-          workspace.vaultPath,
-        );
+        if (hostOptions) {
+          await pluginController.runSourceControlAction(
+            pluginId,
+            providerId,
+            action,
+            workspace.vaultPath,
+            hostOptions,
+          );
+        } else {
+          await pluginController.runSourceControlAction(
+            pluginId,
+            providerId,
+            action,
+            workspace.vaultPath,
+          );
+        }
         // A clone already replaced the workspace, so refreshing the vault the
         // action started in would read a vault that is no longer open.
         if (mutatesWorkspace && !clonedDuringAction.current) {
@@ -8002,12 +8014,13 @@ function App() {
             key={`${activeSourceControlContribution.pluginId}:${activeSourceControlContribution.id}`}
             title={activeSourceControlContribution.title}
             model={activeSourceControlContribution.model}
-            onAction={(action) => {
+            onAction={(action, hostOptions) => {
               void runSourceControlAction(
                 activeSourceControlContribution.pluginId,
                 activeSourceControlContribution.id,
                 action,
                 activeSourceControlContribution.model.repository.label,
+                hostOptions,
               );
             }}
             onOpenFile={(path) =>

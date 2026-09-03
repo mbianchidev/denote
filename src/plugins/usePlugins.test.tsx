@@ -621,6 +621,29 @@ describe("usePlugins", () => {
         sourceControlActionId: "refresh",
       },
     );
+
+    await act(async () => {
+      await rendered.result.current.runSourceControlAction(
+        pluginId,
+        "denote.reference.git",
+        { id: "commit", values: { message: "Signed synthetic change" } },
+        "/vault",
+        { gitSigningPassphrase: "synthetic-passphrase" },
+      );
+    });
+    expect(
+      runtimeInstances[0].runSourceControlAction,
+    ).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.git",
+      { id: "commit", values: { message: "Signed synthetic change" } },
+      {
+        workspaceScope: "/vault",
+        projectId: "project-alpha",
+        sourceControlActionId: "commit",
+        gitSigningPassphrase: "synthetic-passphrase",
+      },
+    );
   });
 
   it("publishes automatic local commit schedules from the active runtime", async () => {

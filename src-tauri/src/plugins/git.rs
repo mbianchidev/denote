@@ -29,7 +29,8 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 
 use super::askpass::{
-    ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial, apply_askpass_environment,
+    ASKPASS_CONTEXT_ENV, ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial,
+    apply_askpass_environment,
 };
 use super::settings::{GitCommitSigningMode, GitSettingsPolicy};
 
@@ -3163,11 +3164,13 @@ const REMOVED_ENVIRONMENT: &[&str] = &[
     "GIT_TEMPLATE_DIR",
     "GIT_WORK_TREE",
     "SSH_ASKPASS",
+    "SSH_ASKPASS_REQUIRE",
     // Denote's own askpass markers. An ambient value could otherwise make an
     // ordinary local command answer prompts from a file this operation never
     // created.
     ASKPASS_MODE_ENV,
     ASKPASS_FILE_ENV,
+    ASKPASS_CONTEXT_ENV,
 ];
 
 /// The identity variables are removed rather than pinned. Git reads
@@ -3477,25 +3480,28 @@ impl PluginManager {
     /// the result, so a concurrent action can cancel the operation by ID. A
     /// custom Git executable is read from this plugin's host-owned persisted
     /// settings, never from the request.
-    pub(crate) fn git_request(
+    pub(crate) fn git_request_with_signing_passphrase(
         &self,
         plugin_id: &str,
         request: PluginGitRequest,
         target: GitRequestTarget<'_>,
         operation_id: &str,
+        signing_passphrase: Option<&str>,
     ) -> AppResult<PluginGitResult> {
-        self.git_request_with_transport(
+        self.git_request_with_transport_and_signing_passphrase(
             plugin_id,
             request,
             target,
             operation_id,
             GitTransportPolicy::RemoteOnly,
+            signing_passphrase,
         )
     }
 
     /// The transport policy is a parameter so tests can serve a synthetic bare
     /// repository from a temporary directory. Only `RemoteOnly` exists outside
     /// tests, so no shipped path can reach a local transport.
+    #[cfg(test)]
     pub(crate) fn git_request_with_transport(
         &self,
         plugin_id: &str,
@@ -3503,6 +3509,25 @@ impl PluginManager {
         target: GitRequestTarget<'_>,
         operation_id: &str,
         transport: GitTransportPolicy,
+    ) -> AppResult<PluginGitResult> {
+        self.git_request_with_transport_and_signing_passphrase(
+            plugin_id,
+            request,
+            target,
+            operation_id,
+            transport,
+            None,
+        )
+    }
+
+    fn git_request_with_transport_and_signing_passphrase(
+        &self,
+        plugin_id: &str,
+        request: PluginGitRequest,
+        target: GitRequestTarget<'_>,
+        operation_id: &str,
+        transport: GitTransportPolicy,
+        signing_passphrase: Option<&str>,
     ) -> AppResult<PluginGitResult> {
         let GitRequestTarget {
             repository_root,
@@ -3612,7 +3637,7 @@ impl PluginManager {
         // Credential material exists only for the four operations that reach a
         // remote, is created before Git starts, and is destroyed when it goes
         // out of scope, whatever the outcome is.
-        let askpass = self.remote_authentication(
+        let remote_askpass = self.remote_authentication(
             plugin_id,
             &request,
             RemoteAuthContext {
@@ -3624,6 +3649,25 @@ impl PluginManager {
             },
             operation.token(),
         )?;
+        let signing_askpass = if remote_askpass.is_none()
+            && matches!(request, PluginGitRequest::Commit { .. })
+            && Self::commit_signing_enabled(&steps)
+        {
+            signing_passphrase
+                .filter(|passphrase| !passphrase.is_empty())
+                .map(|passphrase| {
+                    Self::validate_signing_passphrase(passphrase)?;
+                    AskpassMaterial::create_signing(
+                        &self.git_support_directory()?,
+                        super::askpass::askpass_program()?,
+                        passphrase,
+                    )
+                })
+                .transpose()?
+        } else {
+            None
+        };
+        let askpass = remote_askpass.or(signing_askpass);
         let execution = GitExecution {
             executable: &executable,
             repository_root,
@@ -3635,6 +3679,32 @@ impl PluginManager {
             transport,
         };
         run_git_plan(&steps, &execution, operation.token())
+    }
+
+    fn commit_signing_enabled(steps: &[GitPlanStep]) -> bool {
+        steps.iter().any(|step| {
+            let GitPlanStep::Command { args, .. } = step else {
+                return false;
+            };
+            args.iter().any(|argument| {
+                argument == "--gpg-sign"
+                    || argument.starts_with("--gpg-sign=")
+                    || argument.eq_ignore_ascii_case("commit.gpgSign=true")
+            })
+        })
+    }
+
+    fn validate_signing_passphrase(passphrase: &str) -> AppResult<()> {
+        if passphrase.is_empty()
+            || passphrase.len() > 4096
+            || passphrase.chars().any(char::is_control)
+        {
+            return Err(AppError::Plugin(
+                "The signing passphrase is empty, too long, or contains control characters"
+                    .to_string(),
+            ));
+        }
+        Ok(())
     }
 
     /// Prepares credentials for a remote operation.

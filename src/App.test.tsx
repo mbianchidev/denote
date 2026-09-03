@@ -668,6 +668,57 @@ describe("App initial file-tree expansion", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps a signing passphrase host-only when committing", async () => {
+    const user = userEvent.setup();
+    const snapshot = workspaceSnapshot([]);
+    const model = appSourceControlModel("Synthetic repository");
+    model.resourceGroups = [
+      {
+        kind: "staged",
+        label: "Staged changes",
+        resources: [
+          {
+            path: "notes/signed.md",
+            status: "modified",
+            additions: 1,
+            deletions: 0,
+            binary: false,
+          },
+        ],
+      },
+    ];
+    mockPluginController.sourceControlProviders = [
+      { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
+    ];
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.refreshVault.mockResolvedValue(snapshot);
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Source control: Synthetic Git",
+      }),
+    );
+    await user.type(screen.getByLabelText("Commit message"), "Signed change");
+    await user.type(
+      screen.getByLabelText(/Signing passphrase/),
+      "synthetic-passphrase",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Commit staged changes" }),
+    );
+
+    await waitFor(() => {
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "commit", values: { message: "Signed change" } },
+        "/synthetic-vault",
+        { gitSigningPassphrase: "synthetic-passphrase" },
+      );
+    });
+  });
+
   it("opens a file a source control row names, in the focused pane", async () => {
     const user = userEvent.setup();
     const model = appSourceControlModel("Synthetic repository");

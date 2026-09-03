@@ -169,6 +169,12 @@ signing default, always sign, or never sign. The optional GPG key field is maske
 your system GPG agent or pinentry asks for the passphrase, which Denote never
 stores. Automatic commits remain unsigned.
 
+For an encrypted SSH signing key, enter its passphrase in the optional
+password-style field under the manual commit message. Denote uses it for that
+commit only and clears it immediately; the plugin never receives it. Leave it
+empty when your SSH agent already has the key, or when OpenPGP/X.509 signing uses
+the system GPG agent or pinentry.
+
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and
 continue, or abort the operation, then try again. Otherwise Denote lists

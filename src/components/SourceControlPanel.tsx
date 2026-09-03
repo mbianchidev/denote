@@ -39,7 +39,10 @@ import type {
 interface SourceControlPanelProps {
   title: string;
   model: PluginSourceControlViewModel;
-  onAction: (action: PluginSourceControlAction) => void;
+  onAction: (
+    action: PluginSourceControlAction,
+    hostOptions?: SourceControlActionHostOptions,
+  ) => void;
   /**
    * Opens one repository-relative path in the editor.
    *
@@ -48,6 +51,10 @@ interface SourceControlPanelProps {
    * disk and no Git command is involved in opening a note.
    */
   onOpenFile?: (path: string) => void;
+}
+
+export interface SourceControlActionHostOptions {
+  gitSigningPassphrase?: string;
 }
 
 const tabs = [
@@ -1879,6 +1886,7 @@ export function SourceControlPanel({
 }: SourceControlPanelProps) {
   const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
+  const [signingPassphrase, setSigningPassphrase] = useState("");
   const [chosenRemote, setChosenRemote] = useState("");
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
   const selectedBranch =
@@ -1941,6 +1949,7 @@ export function SourceControlPanel({
 
   useEffect(() => {
     setCommitMessage("");
+    setSigningPassphrase("");
     setChosenRemote("");
   }, [repository.repositoryId]);
 
@@ -2227,7 +2236,16 @@ export function SourceControlPanel({
                       if (!message) {
                         return;
                       }
-                      onAction(action("commit", { message }));
+                      const passphrase = signingPassphrase;
+                      const commitAction = action("commit", { message });
+                      if (passphrase) {
+                        onAction(commitAction, {
+                          gitSigningPassphrase: passphrase,
+                        });
+                      } else {
+                        onAction(commitAction);
+                      }
+                      setSigningPassphrase("");
                     }}
                   >
                     <label className="source-control__field">
@@ -2239,6 +2257,24 @@ export function SourceControlPanel({
                           setCommitMessage(event.currentTarget.value)
                         }
                       />
+                    </label>
+                    <label className="source-control__field">
+                      <span>Signing passphrase (optional)</span>
+                      <input
+                        type="password"
+                        value={signingPassphrase}
+                        autoComplete="off"
+                        spellCheck={false}
+                        maxLength={4096}
+                        disabled={repository.busy}
+                        onChange={(event) =>
+                          setSigningPassphrase(event.currentTarget.value)
+                        }
+                      />
+                      <small>
+                        Used once for SSH-format commit signing. Never stored or
+                        sent to the plugin.
+                      </small>
                     </label>
                     <button
                       type="submit"

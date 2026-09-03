@@ -9,6 +9,7 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
+use zeroize::Zeroize;
 
 use crate::{
     commands,
@@ -432,11 +433,13 @@ pub async fn plugin_git_request(
     workspace_scope: String,
     project_id: Option<String>,
     operation_id: String,
+    signing_passphrase: Option<String>,
 ) -> AppResult<PluginGitResult> {
     let manager = state.inner().clone();
     run_blocking(move || {
+        let mut signing_passphrase = signing_passphrase;
         let app_state = app.state::<AppState>();
-        git_request_with_app_state(
+        let result = git_request_with_app_state_and_passphrase(
             &manager,
             &app_state,
             &plugin_id,
@@ -444,7 +447,12 @@ pub async fn plugin_git_request(
             &workspace_scope,
             project_id.as_deref(),
             &operation_id,
-        )
+            signing_passphrase.as_deref(),
+        );
+        if let Some(passphrase) = signing_passphrase.as_mut() {
+            passphrase.zeroize();
+        }
+        result
     })
     .await
 }
@@ -452,6 +460,7 @@ pub async fn plugin_git_request(
 // Every parameter is a distinct authorisation input: plugin identity, request,
 // captured scope, project identity, and operation ID. The Git executable is
 // deliberately not among them; it is read from host-owned plugin settings.
+#[cfg(test)]
 pub(super) fn git_request_with_app_state(
     manager: &PluginManager,
     app_state: &AppState,
@@ -461,11 +470,33 @@ pub(super) fn git_request_with_app_state(
     project_id: Option<&str>,
     operation_id: &str,
 ) -> AppResult<PluginGitResult> {
+    git_request_with_app_state_and_passphrase(
+        manager,
+        app_state,
+        plugin_id,
+        request,
+        workspace_scope,
+        project_id,
+        operation_id,
+        None,
+    )
+}
+
+fn git_request_with_app_state_and_passphrase(
+    manager: &PluginManager,
+    app_state: &AppState,
+    plugin_id: &str,
+    request: PluginGitRequest,
+    workspace_scope: &str,
+    project_id: Option<&str>,
+    operation_id: &str,
+    signing_passphrase: Option<&str>,
+) -> AppResult<PluginGitResult> {
     manager.enabled_permission(plugin_id, "git")?;
     let Some(scope) = request.scope() else {
         // Cancellation carries no scope so it stays callable from a concurrent
         // source-control action while an operation is still running.
-        return manager.git_request(
+        return manager.git_request_with_signing_passphrase(
             plugin_id,
             request,
             GitRequestTarget {
@@ -474,6 +505,7 @@ pub(super) fn git_request_with_app_state(
                 encrypted: false,
             },
             operation_id,
+            signing_passphrase,
         );
     };
     let _vault_access = app_state.read_vault_access()?;
@@ -509,7 +541,7 @@ pub(super) fn git_request_with_app_state(
         }
     }
     let redacted_roots = vec![repository_root.clone(), root];
-    manager.git_request(
+    manager.git_request_with_signing_passphrase(
         plugin_id,
         request,
         GitRequestTarget {
@@ -518,6 +550,7 @@ pub(super) fn git_request_with_app_state(
             encrypted,
         },
         operation_id,
+        signing_passphrase,
     )
 }
 

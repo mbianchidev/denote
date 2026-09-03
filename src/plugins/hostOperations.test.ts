@@ -158,6 +158,42 @@ describe("plugin Git host operation", () => {
     );
   });
 
+  it("keeps a signing passphrase in the host action lease", async () => {
+    await runHostOperation(
+      "denote.git",
+      "git.run",
+      undefined,
+      {
+        request: {
+          operation: "commit",
+          scope: "vault",
+          message: "Signed synthetic change",
+        },
+        target: null,
+      },
+      {
+        workspaceScope: "/vaults/synthetic",
+        projectId: null,
+        sourceControlActionId: "commit",
+        gitSigningPassphrase: "synthetic-passphrase",
+      },
+      OPERATION_ID,
+    );
+
+    expect(api.pluginGitRequest).toHaveBeenCalledWith(
+      "denote.git",
+      {
+        operation: "commit",
+        scope: "vault",
+        message: "Signed synthetic change",
+      },
+      "/vaults/synthetic",
+      null,
+      OPERATION_ID,
+      "synthetic-passphrase",
+    );
+  });
+
   it("rejects unsupported Git operations", async () => {
     await expect(
       runHostOperation(

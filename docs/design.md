@@ -314,6 +314,9 @@ when approved updates exist. Its first activation opens an inline confirmation
 that lists exact plugin names and explains that the latest full permission sets
 will be accepted; it never hides this security consequence behind a progress
 button.
+The source-control commit form places the optional signing passphrase directly
+after the commit message. It uses a native password input, explains that it is
+one-shot and SSH-signing-only, and clears after submission or repository change.
 Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions
 use the shared Lucide icon-button vocabulary, while `aria-label` and `title`
 retain the full action and target. Loaded patches leave the narrow sidebar and

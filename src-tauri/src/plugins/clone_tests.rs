@@ -15,7 +15,10 @@ use tempfile::TempDir;
 
 use super::{
     PluginManager,
-    askpass::{ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial, askpass_answer},
+    askpass::{
+        ASKPASS_CONTEXT_ENV, ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial, askpass_answer,
+        signing_askpass_answer,
+    },
     clone::{
         CloneAttempt, PluginGitCloneVaultRequest, clone_arguments, is_github_https_url,
         validate_empty_destination,
@@ -623,6 +626,25 @@ fn answers_a_password_prompt_from_the_private_file_only() {
     );
 }
 
+#[test]
+fn answers_only_signing_passphrase_prompts_from_the_private_file() {
+    let directory = TempDir::new().expect("directory");
+    let file = directory.path().join("secret");
+    fs::write(&file, "synthetic-passphrase").expect("secret");
+
+    assert_eq!(
+        signing_askpass_answer(
+            "Enter passphrase for \"/synthetic/id_ed25519\": ",
+            Some(&file),
+        ),
+        "synthetic-passphrase"
+    );
+    assert_eq!(
+        signing_askpass_answer("Password for 'https://github.com': ", Some(&file)),
+        ""
+    );
+}
+
 /// Every prompt shape Git can produce for a target Denote is willing to
 /// authenticate to. The host in the prompt is the authority, so a token is
 /// offered to these and to nothing else.
@@ -849,6 +871,50 @@ fn only_an_authenticated_invocation_sees_the_askpass_marker() {
             "{name} was not stripped from an unauthenticated command"
         );
     }
+}
+
+#[test]
+fn signing_invocation_sees_only_the_ssh_askpass_channel() {
+    let directory = TempDir::new().expect("directory");
+    let hooks = directory.path().join("hooks");
+    let global_config = directory.path().join("empty-global-config");
+    let material = AskpassMaterial::create_signing(
+        directory.path(),
+        PathBuf::from("/usr/bin/true"),
+        "synthetic-passphrase",
+    )
+    .expect("material");
+    let execution = GitExecution {
+        executable: Path::new("/usr/bin/git"),
+        repository_root: directory.path(),
+        hooks_directory: &hooks,
+        global_config: &global_config,
+        redacted_roots: vec![],
+        askpass: Some(&material),
+        encrypted: false,
+        transport: GitTransportPolicy::RemoteOnly,
+    };
+    let mut command = Command::new("/usr/bin/git");
+    apply_environment(&mut command, &execution);
+    let environment = environment_of(&command);
+
+    assert!(environment.iter().any(|(name, _)| name == "SSH_ASKPASS"));
+    assert!(environment.iter().any(|(name, value)| {
+        name == "SSH_ASKPASS_REQUIRE" && value.as_deref() == Some("force")
+    }));
+    assert!(environment.iter().any(|(name, value)| {
+        name == ASKPASS_CONTEXT_ENV && value.as_deref() == Some("signing")
+    }));
+    assert!(
+        !environment
+            .iter()
+            .any(|(name, value)| name == "GIT_ASKPASS" && value.is_some())
+    );
+    assert!(
+        !environment
+            .iter()
+            .any(|(_, value)| value.as_deref() == Some("synthetic-passphrase"))
+    );
 }
 
 #[test]

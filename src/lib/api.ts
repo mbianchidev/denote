@@ -352,6 +352,7 @@ export const api = {
     workspaceScope: string,
     projectId: string | null,
     operationId: string,
+    signingPassphrase?: string,
   ) =>
     invoke<PluginGitResult>("plugin_git_request", {
       pluginId,
@@ -359,6 +360,7 @@ export const api = {
       workspaceScope,
       projectId,
       operationId,
+      signingPassphrase,
     }),
   pluginGithubListRepositories: (
     pluginId: string,

@@ -363,6 +363,19 @@ Git's format default (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures, or
 `gpgsm` for X.509). This prevents an empty `gpg.program` from being executed
 without weakening unsigned operations.
 
+An SSH signing passphrase never enters plugin code. `SourceControlPanel` passes
+it as host-only metadata beside the typed commit action;
+`PluginWorkerRuntime` keeps it only in the in-memory action lease and posts the
+ordinary commit action to the worker. When the plugin invokes `git.run`,
+`hostOperations` attaches the secret directly to the native command. The native
+layer validates and zeroizes the received string, writes it to an owner-only
+one-shot askpass file, and sets `SSH_ASKPASS` to Denote's early-exit helper with
+`SSH_ASKPASS_REQUIRE=force` for that signed commit only. A separate signing
+context answers only passphrase/PIN prompts, never GitHub credential prompts.
+The file is overwritten and removed with the operation scope on success,
+failure, cancellation, timeout, disable, or shutdown. OpenPGP/X.509 signing
+continues to use the system GPG agent or pinentry.
+
 Structured diff models remain the plugin boundary. The host serializes them into
 a bounded unified patch only for presentation, creates an in-memory read-only
 `EditorTab` whose name ends in `.diff`, and renders each file with

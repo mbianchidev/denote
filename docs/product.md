@@ -323,6 +323,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   never sign. An optional masked GPG key setting selects the key. The system GPG
   agent or pinentry owns any passphrase; Denote never stores or receives it.
   Automatic commits remain unsigned and unattended.
+- The manual commit form also provides an optional password-style **Signing
+  passphrase** for encrypted SSH signing keys. It is used once, cleared
+  immediately, kept out of the plugin worker and action payload, and never
+  persisted. OpenPGP and X.509 continue to use the system GPG agent or pinentry.
 - **Clone repo as vault** lives in the Switch vault dialog beside **Open another
   folder**. It asks you to choose an empty folder, clones into it, checks the result,
   and only then opens it as a vault, so an encrypted clone shows the usual

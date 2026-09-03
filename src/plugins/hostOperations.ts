@@ -27,6 +27,11 @@ export interface PluginActionLeaseScope {
    * confirmation, so neither can reach them.
    */
   sourceControlActionId: string | null;
+  gitSigningPassphrase?: string;
+}
+
+export interface PluginActionHostSecrets {
+  gitSigningPassphrase?: string;
 }
 
 /**
@@ -128,16 +133,53 @@ export async function runHostOperation(
       const scope = requireActionScope(actionScope);
       const invocation = parsePluginGitInvocation(value);
       const projectId = gitProjectId(invocation.request, invocation.target, scope);
+      const signingPassphrase = gitSigningPassphrase(
+        invocation.request,
+        scope,
+      );
       // The request is the only thing a plugin contributes. A custom Git
       // executable lives in host-owned plugin settings, so nothing here can
       // name one.
-      return api.pluginGitRequest(
-        pluginId,
-        invocation.request,
-        scope.workspaceScope,
-        projectId,
-        requireOperationId(operationId),
-      );
+      const resolvedOperationId = requireOperationId(operationId);
+      return signingPassphrase
+        ? api.pluginGitRequest(
+            pluginId,
+            invocation.request,
+            scope.workspaceScope,
+            projectId,
+            resolvedOperationId,
+            signingPassphrase,
+          )
+        : api.pluginGitRequest(
+            pluginId,
+            invocation.request,
+            scope.workspaceScope,
+            projectId,
+            resolvedOperationId,
+          );
+    }
+
+    function gitSigningPassphrase(
+      request: ReturnType<typeof parsePluginGitRequest>,
+      scope: PluginActionLeaseScope,
+    ): string | null {
+      const passphrase =
+        request.operation === "commit" ? scope.gitSigningPassphrase : undefined;
+      if (!passphrase) {
+        return null;
+      }
+      if (
+        passphrase.length > 4096 ||
+        [...passphrase].some((character) => {
+          const code = character.codePointAt(0) ?? 0;
+          return code < 0x20 || code === 0x7f;
+        })
+      ) {
+        throw new Error(
+          "The signing passphrase is too long or contains control characters.",
+        );
+      }
+      return passphrase;
     }
 
     function gitProjectId(
