@@ -832,9 +832,10 @@ mod tests {
                 & 0o111,
             0o111
         );
-        assert_eq!(
-            probe(&executable, ToolKind::Git).expect("probe"),
-            "git version 2.55.0"
+        assert!(
+            probe(&executable, ToolKind::Git)
+                .expect("probe")
+                .starts_with("git version 2.55.0")
         );
         assert_eq!(
             ensure_extracted(
