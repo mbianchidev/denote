@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  assertPackagedSize,
   currentTarget,
   parseZipEntries,
   redirectAllowed,
@@ -34,4 +35,12 @@ test("allows only pinned HTTPS redirect hosts", () => {
 
 test("rejects malformed ZIP input before extraction", () => {
   assert.throws(() => parseZipEntries(Buffer.from("not-a-zip")), /missing/);
+});
+
+test("caps the combined installer payload for bundled tools", () => {
+  assert.doesNotThrow(() => assertPackagedSize([32 * 1024 * 1024, 16 * 1024 * 1024]));
+  assert.throws(
+    () => assertPackagedSize([80 * 1024 * 1024, 20 * 1024 * 1024]),
+    /package limit/,
+  );
 });

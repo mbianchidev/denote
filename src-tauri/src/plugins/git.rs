@@ -2436,6 +2436,7 @@ fn write_managed_block(path: &Path, begin: &str, end: &str, lines: &[&str]) -> A
 pub(crate) fn resolve_git_executable(configured: Option<&str>) -> AppResult<PathBuf> {
     super::tools::resolve_git(
         Path::new(""),
+        Path::new(""),
         if configured.is_some() {
             super::tools::ExecutableMode::Custom
         } else {

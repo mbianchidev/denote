@@ -295,8 +295,12 @@ jobs:
           integrity="$(find "${RUNNER_TEMP}/denote-deb" -path "*/tools/${{ matrix.target }}/integrity.json" -print -quit)"
           test -n "$integrity"
           root="$(dirname "$integrity")"
-          "$root/git/bin/git" --version | grep -F "git version 2.55.0"
-          "$root/gh/bin/gh" version | grep -F "gh version 2.99.0"
+          extracted="${RUNNER_TEMP}/denote-tools"
+          mkdir "$extracted"
+          tar -xzf "$root/git.tar.gz" -C "$extracted"
+          tar -xzf "$root/gh.tar.gz" -C "$extracted"
+          "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
+          "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
 
       - name: Smoke test installed macOS disk image
         if: runner.os == 'macOS'
@@ -309,8 +313,12 @@ jobs:
           trap 'hdiutil detach "$mount"' EXIT
           root="$(find "$mount" -path "*/Contents/Resources/tools/${{ matrix.target }}" -type d -print -quit)"
           test -n "$root"
-          "$root/git/bin/git" --version | grep -F "git version 2.55.0"
-          "$root/gh/bin/gh" version | grep -F "gh version 2.99.0"
+          extracted="${RUNNER_TEMP}/denote-tools"
+          mkdir "$extracted"
+          tar -xzf "$root/git.tar.gz" -C "$extracted"
+          tar -xzf "$root/gh.tar.gz" -C "$extracted"
+          "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
+          "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
           codesign --verify --deep --strict "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
           spctl --assess --type execute "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
 
@@ -328,9 +336,13 @@ jobs:
             Select-Object -First 1
           if (-not $integrity) { throw "Bundled tools are missing from the MSI." }
           $root = $integrity.Directory.FullName
-          & (Join-Path $root "git\cmd\git.exe") --version |
+          $tools = Join-Path $env:RUNNER_TEMP "denote-tools"
+          New-Item -ItemType Directory -Path $tools | Out-Null
+          tar -xzf (Join-Path $root "git.tar.gz") -C $tools
+          tar -xzf (Join-Path $root "gh.tar.gz") -C $tools
+          & (Join-Path $tools "git\cmd\git.exe") --version |
             Select-String -SimpleMatch "git version 2.55.0"
-          & (Join-Path $root "gh\bin\gh.exe") version |
+          & (Join-Path $tools "gh\bin\gh.exe") version |
             Select-String -SimpleMatch "gh version 2.99.0"
           $signature = Get-AuthenticodeSignature $msi.FullName
           if ($signature.Status -ne "Valid") {

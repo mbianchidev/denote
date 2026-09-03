@@ -27,7 +27,7 @@ import {
 import { spawnSync } from "node:child_process";
 import { gunzipSync } from "node:zlib";
 import { fileURLToPath } from "node:url";
-import { extract, list } from "tar";
+import { create, extract, list } from "tar";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lockPath = join(root, "bundled-tools.lock.json");
@@ -36,6 +36,7 @@ const cacheRoot = join(root, "src-tauri", "target", "bundled-tools-cache");
 const MAX_REDIRECTS = 4;
 const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 30_000;
+const MAX_PACKAGED_TOOL_BYTES = 96 * 1024 * 1024;
 
 export function currentTarget(platform = process.platform, arch = process.arch) {
   const key = `${platform}:${arch}`;
@@ -146,6 +147,15 @@ export function sha256File(path) {
   const bytes = readFileSync(path);
   hash.update(bytes);
   return hash.digest("hex");
+}
+
+export function assertPackagedSize(sizes) {
+  const total = sizes.reduce((sum, size) => sum + size, 0);
+  if (total > MAX_PACKAGED_TOOL_BYTES) {
+    throw new Error(
+      `Bundled tool archives exceed the ${MAX_PACKAGED_TOOL_BYTES} byte package limit.`,
+    );
+  }
 }
 
 async function downloadExact(artifact, allowlist, destination) {
@@ -414,6 +424,7 @@ async function prepareGit(lock, targetName, target, staging, temporary) {
       "NO_GETTEXT=YesPlease",
       "NO_TCLTK=YesPlease",
       "NO_PYTHON=YesPlease",
+      "INSTALL_SYMLINKS=YesPlease",
     ];
     run("make", [...makeFlags, "all"], { cwd: sourceRoot, env: environment });
     run("make", [...makeFlags, "install"], { cwd: sourceRoot, env: environment });
@@ -515,16 +526,45 @@ function filesUnder(directory) {
   return files.sort();
 }
 
-function writeIntegrityManifest(lock, targetName, target, staging) {
+function executableRecord(staging, definition) {
+  const path = join(staging, definition.executablePath);
+  return {
+    executablePath: definition.executablePath,
+    executableSizeBytes: statSync(path).size,
+    executableSha256: sha256File(path),
+  };
+}
+
+async function archiveTool(staging, tool) {
+  const archivePath = join(staging, `${tool}.tar.gz`);
+  await create(
+    {
+      cwd: staging,
+      file: archivePath,
+      gzip: true,
+      portable: true,
+      noMtime: true,
+      follow: false,
+      strict: true,
+    },
+    [tool],
+  );
+  rmSync(join(staging, tool), { recursive: true, force: true });
+  return `${tool}.tar.gz`;
+}
+
+function writeIntegrityManifest(
+  lock,
+  targetName,
+  staging,
+  executables,
+) {
   const files = filesUnder(staging).map((path) => {
     const metadata = statSync(path);
     return {
       path: relative(staging, path).split(sep).join("/"),
       sizeBytes: metadata.size,
       sha256: sha256File(path),
-      executable:
-        path === join(staging, target.git.executablePath) ||
-        path === join(staging, target.githubCli.executablePath),
     };
   });
   const manifest = {
@@ -533,11 +573,15 @@ function writeIntegrityManifest(lock, targetName, target, staging) {
     lockSha256: sha256File(lockPath),
     git: {
       version: lock.git.version,
-      executablePath: target.git.executablePath,
+      archivePath: executables.git.archivePath,
+      archiveRoot: "git",
+      ...executables.git,
     },
     githubCli: {
       version: lock.githubCli.version,
-      executablePath: target.githubCli.executablePath,
+      archivePath: executables.githubCli.archivePath,
+      archiveRoot: "gh",
+      ...executables.githubCli,
     },
     files,
   };
@@ -581,7 +625,22 @@ export async function prepare({
       cpSync(join(root, path), join(legal, basename(path)));
     }
     assertExpectedTree(staging, target);
-    writeIntegrityManifest(lock, targetName, target, staging);
+    const executables = {
+      git: executableRecord(staging, target.git),
+      githubCli: executableRecord(staging, target.githubCli),
+    };
+    executables.git.archivePath = await archiveTool(staging, "git");
+    executables.githubCli.archivePath = await archiveTool(staging, "gh");
+    assertPackagedSize([
+      statSync(join(staging, executables.git.archivePath)).size,
+      statSync(join(staging, executables.githubCli.archivePath)).size,
+    ]);
+    writeIntegrityManifest(
+      lock,
+      targetName,
+      staging,
+      executables,
+    );
     const output = join(resourcesRoot, targetName);
     rmSync(output, { recursive: true, force: true });
     renameSync(staging, output);

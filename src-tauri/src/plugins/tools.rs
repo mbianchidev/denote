@@ -1,12 +1,16 @@
 use std::{
-    fs,
-    path::{Path, PathBuf},
+    fs::{self, File},
+    path::{Component, Path, PathBuf},
     process::{Command, Stdio},
 };
 
+use flate2::read::GzDecoder;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tar::{Archive, EntryType};
+use uuid::Uuid;
 
+use super::package::ensure_managed_directory;
 use crate::error::{AppError, AppResult};
 
 const LOCK_JSON: &str = include_str!("../../../bundled-tools.lock.json");
@@ -38,13 +42,13 @@ const SYSTEM_GH_PATHS: &[&str] = &[
 ];
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const TARGET_TRIPLE: &str = "aarch64-apple-darwin";
+pub(crate) const TARGET_TRIPLE: &str = "aarch64-apple-darwin";
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const TARGET_TRIPLE: &str = "x86_64-apple-darwin";
+pub(crate) const TARGET_TRIPLE: &str = "x86_64-apple-darwin";
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const TARGET_TRIPLE: &str = "x86_64-unknown-linux-gnu";
+pub(crate) const TARGET_TRIPLE: &str = "x86_64-unknown-linux-gnu";
 #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
-const TARGET_TRIPLE: &str = "x86_64-pc-windows-msvc";
+pub(crate) const TARGET_TRIPLE: &str = "x86_64-pc-windows-msvc";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ExecutableMode {
@@ -82,6 +86,13 @@ pub(crate) enum ToolKind {
 }
 
 impl ToolKind {
+    fn key(self) -> &'static str {
+        match self {
+            Self::Git => "git",
+            Self::GitHubCli => "github-cli",
+        }
+    }
+
     fn name(self) -> &'static str {
         match self {
             Self::Git => "Git",
@@ -145,7 +156,11 @@ struct IntegrityManifest {
 #[serde(rename_all = "camelCase")]
 struct IntegrityTool {
     version: String,
+    archive_path: String,
+    archive_root: String,
     executable_path: String,
+    executable_size_bytes: u64,
+    executable_sha256: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -154,11 +169,11 @@ struct IntegrityFile {
     path: String,
     size_bytes: u64,
     sha256: String,
-    executable: bool,
 }
 
 pub(crate) fn resolve_git(
     resource_dir: &Path,
+    install_dir: &Path,
     mode: ExecutableMode,
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
@@ -168,11 +183,12 @@ pub(crate) fn resolve_git(
                 .to_string(),
         ));
     }
-    resolve(resource_dir, ToolKind::Git, mode, custom_path)
+    resolve(resource_dir, install_dir, ToolKind::Git, mode, custom_path)
 }
 
 pub(crate) fn resolve_gh(
     resource_dir: &Path,
+    install_dir: &Path,
     mode: ExecutableMode,
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
@@ -182,11 +198,18 @@ pub(crate) fn resolve_gh(
                 .to_string(),
         ));
     }
-    resolve(resource_dir, ToolKind::GitHubCli, mode, custom_path)
+    resolve(
+        resource_dir,
+        install_dir,
+        ToolKind::GitHubCli,
+        mode,
+        custom_path,
+    )
 }
 
 pub(crate) fn inspect(
     resource_dir: &Path,
+    install_dir: &Path,
     kind: ToolKind,
     mode: ExecutableMode,
     custom_path: Option<&str>,
@@ -202,7 +225,7 @@ pub(crate) fn inspect(
             guidance: "Ordinary Git actions remain available. Enable GitHub CLI only for GitHub sign-in and repository browsing.".to_string(),
         };
     }
-    match resolve(resource_dir, kind, mode, custom_path) {
+    match resolve(resource_dir, install_dir, kind, mode, custom_path) {
         Ok(path) => match probe(&path, kind) {
             Ok(version) => ToolStatus {
                 tool: kind.name().to_string(),
@@ -262,13 +285,14 @@ fn guidance(kind: ToolKind, mode: ExecutableMode) -> String {
 
 fn resolve(
     resource_dir: &Path,
+    install_dir: &Path,
     kind: ToolKind,
     mode: ExecutableMode,
     custom_path: Option<&str>,
 ) -> AppResult<PathBuf> {
     match mode {
         ExecutableMode::Disabled => Err(AppError::Plugin(format!("{} is disabled", kind.name()))),
-        ExecutableMode::Bundled => resolve_bundled(resource_dir, kind),
+        ExecutableMode::Bundled => resolve_bundled(resource_dir, install_dir, kind),
         ExecutableMode::System => resolve_system(kind),
         ExecutableMode::Custom => {
             let custom = custom_path
@@ -326,7 +350,7 @@ fn resolve_system(kind: ToolKind) -> AppResult<PathBuf> {
     }))
 }
 
-fn resolve_bundled(resource_dir: &Path, kind: ToolKind) -> AppResult<PathBuf> {
+fn resolve_bundled(resource_dir: &Path, install_dir: &Path, kind: ToolKind) -> AppResult<PathBuf> {
     if resource_dir.as_os_str().is_empty() {
         return Err(AppError::Plugin(format!(
             "Bundled {} resources are unavailable in this build",
@@ -381,41 +405,227 @@ fn resolve_bundled(resource_dir: &Path, kind: ToolKind) -> AppResult<PathBuf> {
     let record = integrity
         .files
         .iter()
-        .find(|file| file.path == tool.executable_path)
+        .find(|file| file.path == tool.archive_path)
         .ok_or_else(|| {
             AppError::Plugin(format!(
-                "Bundled {} executable is missing from the integrity manifest",
+                "Bundled {} archive is missing from the integrity manifest",
                 kind.name()
             ))
         })?;
-    if !record.executable {
-        return Err(AppError::Plugin(format!(
-            "Bundled {} executable is not marked executable",
-            kind.name()
-        )));
-    }
-    let path = root.join(&tool.executable_path);
+    let archive_path = root.join(&tool.archive_path);
     let canonical_root = fs::canonicalize(&root)?;
-    let canonical = fs::canonicalize(&path).map_err(|error| {
+    let canonical_archive = fs::canonicalize(&archive_path).map_err(|error| {
         AppError::Plugin(format!(
-            "Bundled {} executable is unavailable: {error}",
+            "Bundled {} archive is unavailable: {error}",
             kind.name()
         ))
     })?;
-    if !canonical.starts_with(&canonical_root) {
+    if !canonical_archive.starts_with(&canonical_root) {
         return Err(AppError::Plugin(format!(
-            "Bundled {} executable escapes the signed resource directory",
+            "Bundled {} archive escapes the signed resource directory",
             kind.name()
         )));
     }
-    verify_locked_file(&canonical, record).map_err(|_| {
+    verify_locked_file(&canonical_archive, record).map_err(|_| {
         AppError::Plugin(format!(
-            "Bundled {} executable failed integrity verification. Reinstall Denote from an official signed installer.",
+            "Bundled {} archive failed integrity verification. Reinstall Denote from an official signed installer.",
             kind.name()
         ))
     })?;
+    let canonical = ensure_extracted(&canonical_archive, install_dir, kind, tool, &record.sha256)?;
     verify_executable(&canonical, kind)?;
     Ok(canonical)
+}
+
+fn ensure_extracted(
+    archive_path: &Path,
+    install_dir: &Path,
+    kind: ToolKind,
+    tool: &IntegrityTool,
+    archive_sha256: &str,
+) -> AppResult<PathBuf> {
+    if install_dir.as_os_str().is_empty() {
+        return Err(AppError::Plugin(format!(
+            "Bundled {} installation directory is unavailable",
+            kind.name()
+        )));
+    }
+    ensure_managed_directory(install_dir)?;
+    let target_root = install_dir.join(TARGET_TRIPLE);
+    ensure_managed_directory(&target_root)?;
+    let destination = target_root.join(format!("{}-{archive_sha256}", kind.key()));
+    let executable = destination.join(&tool.executable_path);
+    if destination.exists() {
+        return validate_extracted_cache(&destination, tool, kind, archive_sha256);
+    }
+
+    let staging = target_root.join(format!(".prepare-{}", Uuid::new_v4()));
+    fs::create_dir(&staging)?;
+    let result = (|| {
+        extract_verified_archive(archive_path, &staging, &tool.archive_root)?;
+        let staged_executable = staging.join(&tool.executable_path);
+        verify_extracted_executable(&staged_executable, tool, kind)?;
+        fs::write(staging.join(".complete"), archive_sha256.as_bytes())?;
+        match fs::rename(&staging, &destination) {
+            Ok(()) => {}
+            Err(_error) if destination.exists() => {
+                fs::remove_dir_all(&staging)?;
+                return validate_extracted_cache(&destination, tool, kind, archive_sha256);
+            }
+            Err(error) => return Err(error.into()),
+        }
+        fs::canonicalize(&executable).map_err(Into::into)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+fn validate_extracted_cache(
+    destination: &Path,
+    tool: &IntegrityTool,
+    kind: ToolKind,
+    archive_sha256: &str,
+) -> AppResult<PathBuf> {
+    let destination_metadata = fs::symlink_metadata(destination)?;
+    if !destination_metadata.is_dir() || destination_metadata.file_type().is_symlink() {
+        return Err(AppError::Plugin(format!(
+            "The extracted bundled {} cache is not a safe directory",
+            kind.name()
+        )));
+    }
+    let marker = destination.join(".complete");
+    if !fs::symlink_metadata(&marker).is_ok_and(|metadata| metadata.is_file())
+        || fs::read_to_string(&marker).ok().as_deref() != Some(archive_sha256)
+    {
+        return Err(AppError::Plugin(format!(
+            "The extracted bundled {} cache is incomplete. Remove {} and restart Denote.",
+            kind.name(),
+            destination.display()
+        )));
+    }
+    let executable = destination.join(&tool.executable_path);
+    verify_extracted_executable(&executable, tool, kind)?;
+    fs::canonicalize(executable).map_err(Into::into)
+}
+
+fn extract_verified_archive(
+    archive_path: &Path,
+    destination: &Path,
+    archive_root: &str,
+) -> AppResult<()> {
+    let file = File::open(archive_path)?;
+    let mut archive = Archive::new(GzDecoder::new(file));
+    let mut entries = 0usize;
+    let mut expanded_bytes = 0u64;
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        entries += 1;
+        expanded_bytes = expanded_bytes.saturating_add(entry.size());
+        if entries > 30_000 || expanded_bytes > 512 * 1024 * 1024 {
+            return Err(AppError::Plugin(
+                "Bundled tool archive exceeds the extraction limit".to_string(),
+            ));
+        }
+        let path = entry.path()?.into_owned();
+        validate_archive_path(&path, archive_root)?;
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            let target = entry
+                .link_name()?
+                .ok_or_else(|| AppError::Plugin("Archive link has no target".to_string()))?;
+            validate_archive_link(&path, &target, archive_root, entry_type)?;
+        } else if !(entry_type.is_file() || entry_type.is_dir()) {
+            return Err(AppError::Plugin(format!(
+                "Bundled tool archive contains unsupported entry {}",
+                path.display()
+            )));
+        }
+        if !entry.unpack_in(destination)? {
+            return Err(AppError::Plugin(format!(
+                "Bundled tool archive entry escapes extraction: {}",
+                path.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_archive_path(path: &Path, archive_root: &str) -> AppResult<()> {
+    let normalized = normalize_archive_path(path)?;
+    if normalized.components().next() != Some(Component::Normal(archive_root.as_ref())) {
+        return Err(AppError::Plugin(format!(
+            "Bundled tool archive entry is outside {archive_root}"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_archive_link(
+    path: &Path,
+    target: &Path,
+    archive_root: &str,
+    entry_type: EntryType,
+) -> AppResult<()> {
+    if target.is_absolute() {
+        return Err(AppError::Plugin(
+            "Bundled tool archive contains an absolute link".to_string(),
+        ));
+    }
+    let resolved = if entry_type.is_symlink() {
+        path.parent().unwrap_or_else(|| Path::new("")).join(target)
+    } else {
+        target.to_path_buf()
+    };
+    validate_archive_path(&resolved, archive_root)
+}
+
+fn normalize_archive_path(path: &Path) -> AppResult<PathBuf> {
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(part) => normalized.push(part),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return Err(AppError::Plugin(
+                        "Bundled tool archive path escapes its root".to_string(),
+                    ));
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(AppError::Plugin(
+                    "Bundled tool archive path must be relative".to_string(),
+                ));
+            }
+        }
+    }
+    if normalized.as_os_str().is_empty() {
+        return Err(AppError::Plugin(
+            "Bundled tool archive path is empty".to_string(),
+        ));
+    }
+    Ok(normalized)
+}
+
+fn verify_extracted_executable(path: &Path, tool: &IntegrityTool, kind: ToolKind) -> AppResult<()> {
+    let metadata = fs::symlink_metadata(path).map_err(|error| {
+        AppError::Plugin(format!(
+            "Extracted bundled {} executable is unavailable: {error}",
+            kind.name()
+        ))
+    })?;
+    if !metadata.is_file()
+        || metadata.len() != tool.executable_size_bytes
+        || sha256_path(path)? != tool.executable_sha256
+    {
+        return Err(AppError::Plugin(format!(
+            "Extracted bundled {} executable failed integrity verification",
+            kind.name()
+        )));
+    }
+    Ok(())
 }
 
 fn verify_compiled_manifest_digest(bytes: &[u8]) -> AppResult<()> {
@@ -513,7 +723,9 @@ fn verify_locked_file(path: &Path, record: &IntegrityFile) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use flate2::{Compression, write::GzEncoder};
     use std::io::Write;
+    use tar::{Builder, Header};
     use tempfile::tempdir;
 
     #[test]
@@ -532,6 +744,7 @@ mod tests {
     fn disabled_github_cli_is_explicit() {
         let status = inspect(
             Path::new(""),
+            Path::new(""),
             ToolKind::GitHubCli,
             ExecutableMode::Disabled,
             None,
@@ -549,8 +762,121 @@ mod tests {
             path: "git/bin/git".to_string(),
             size_bytes: 20,
             sha256: hex::encode(Sha256::digest(b"different bytes")),
-            executable: true,
         };
         assert!(verify_locked_file(&path, &record).is_err());
+    }
+
+    #[test]
+    fn archive_paths_and_links_cannot_escape_the_tool_root() {
+        assert!(validate_archive_path(Path::new("../git"), "git").is_err());
+        assert!(validate_archive_path(Path::new("gh/bin/gh"), "git").is_err());
+        assert!(
+            validate_archive_link(
+                Path::new("git/bin/alias"),
+                Path::new("../../../outside"),
+                "git",
+                EntryType::Symlink,
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn verified_archive_extracts_atomically_and_runs_the_locked_executable() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp");
+        let archive_path = directory.path().join("git.tar.gz");
+        let encoder = GzEncoder::new(
+            File::create(&archive_path).expect("archive"),
+            Compression::default(),
+        );
+        let mut builder = Builder::new(encoder);
+        let content = b"#!/bin/sh\necho 'git version 2.55.0'\n";
+        let mut header = Header::new_gnu();
+        header.set_path("git/bin/git").expect("path");
+        header.set_size(content.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        builder.append(&header, content.as_slice()).expect("append");
+        builder
+            .into_inner()
+            .expect("builder")
+            .finish()
+            .expect("gzip");
+
+        let tool = IntegrityTool {
+            version: "2.55.0".to_string(),
+            archive_path: "git.tar.gz".to_string(),
+            archive_root: "git".to_string(),
+            executable_path: "git/bin/git".to_string(),
+            executable_size_bytes: content.len() as u64,
+            executable_sha256: hex::encode(Sha256::digest(content)),
+        };
+        let install = directory.path().join("installed");
+        let executable = ensure_extracted(
+            &archive_path,
+            &install,
+            ToolKind::Git,
+            &tool,
+            "synthetic-archive-digest",
+        )
+        .expect("extract");
+
+        assert_eq!(
+            fs::metadata(&executable)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o111,
+            0o111
+        );
+        assert_eq!(
+            probe(&executable, ToolKind::Git).expect("probe"),
+            "git version 2.55.0"
+        );
+        assert_eq!(
+            ensure_extracted(
+                &archive_path,
+                &install,
+                ToolKind::Git,
+                &tool,
+                "synthetic-archive-digest",
+            )
+            .expect("reuse"),
+            executable
+        );
+        fs::write(&executable, b"corrupted").expect("corrupt");
+        assert!(
+            ensure_extracted(
+                &archive_path,
+                &install,
+                ToolKind::Git,
+                &tool,
+                "synthetic-archive-digest",
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn prepared_release_resource_resolves_when_present() {
+        let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+        if !resources
+            .join("tools")
+            .join(TARGET_TRIPLE)
+            .join("integrity.json")
+            .exists()
+        {
+            return;
+        }
+        let install = tempdir().expect("install");
+        let executable =
+            resolve_bundled(&resources, install.path(), ToolKind::Git).expect("bundled Git");
+        assert_eq!(
+            probe(&executable, ToolKind::Git).expect("probe"),
+            "git version 2.55.0"
+        );
     }
 }

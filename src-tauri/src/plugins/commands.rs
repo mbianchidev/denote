@@ -186,6 +186,7 @@ pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Optio
     let value = path.to_string_lossy().into_owned();
     let status = super::tools::inspect(
         std::path::Path::new(""),
+        std::path::Path::new(""),
         kind,
         ExecutableMode::Custom,
         Some(&value),

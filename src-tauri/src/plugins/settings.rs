@@ -198,7 +198,12 @@ impl PluginManager {
             } else {
                 mode
             };
-        tools::resolve_git(&self.inner.resource_dir, mode, path.as_deref())
+        tools::resolve_git(
+            &self.inner.resource_dir,
+            &self.inner.app_data_dir.join("plugins").join("tools"),
+            mode,
+            path.as_deref(),
+        )
     }
 
     pub(crate) fn resolve_github_executable_for_plugin(
@@ -214,7 +219,12 @@ impl PluginManager {
             } else {
                 mode
             };
-        tools::resolve_gh(&self.inner.resource_dir, mode, path.as_deref())
+        tools::resolve_gh(
+            &self.inner.resource_dir,
+            &self.inner.app_data_dir.join("plugins").join("tools"),
+            mode,
+            path.as_deref(),
+        )
     }
 
     pub(crate) fn tool_statuses(&self, plugin_id: &str) -> AppResult<Vec<ToolStatus>> {
@@ -226,12 +236,14 @@ impl PluginManager {
         Ok(vec![
             tools::inspect(
                 &self.inner.resource_dir,
+                &self.inner.app_data_dir.join("plugins").join("tools"),
                 ToolKind::Git,
                 git_mode,
                 git_path.as_deref(),
             ),
             tools::inspect(
                 &self.inner.resource_dir,
+                &self.inner.app_data_dir.join("plugins").join("tools"),
                 ToolKind::GitHubCli,
                 github_mode,
                 github_path.as_deref(),
@@ -251,7 +263,12 @@ impl PluginManager {
         );
         let git_path = settings.get(GIT_EXECUTABLE_SETTING).and_then(Value::as_str);
         if git_mode == ExecutableMode::Custom {
-            tools::resolve_git(&self.inner.resource_dir, git_mode, git_path)?;
+            tools::resolve_git(
+                &self.inner.resource_dir,
+                &self.inner.app_data_dir.join("plugins").join("tools"),
+                git_mode,
+                git_path,
+            )?;
         }
         let github_mode = ExecutableMode::parse(
             settings
@@ -263,7 +280,12 @@ impl PluginManager {
             .get(GITHUB_EXECUTABLE_SETTING)
             .and_then(Value::as_str);
         if github_mode == ExecutableMode::Custom {
-            tools::resolve_gh(&self.inner.resource_dir, github_mode, github_path)?;
+            tools::resolve_gh(
+                &self.inner.resource_dir,
+                &self.inner.app_data_dir.join("plugins").join("tools"),
+                github_mode,
+                github_path,
+            )?;
         }
         Ok(())
     }

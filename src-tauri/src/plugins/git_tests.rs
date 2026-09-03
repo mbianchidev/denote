@@ -5,7 +5,7 @@ use std::{
     process::Command,
     sync::{Arc, mpsc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -21,12 +21,13 @@ use super::{
         PluginGitScope, PluginGitSequencer, PluginGitStashAction, SystemGitSettings,
         apply_environment, apply_system_git_settings, assert_repository_config_is_safe,
         detect_operation_state, ensure_encrypted_repository_metadata, hardening_arguments,
-        plan_git_request, redact, resolve_git_directory, resolve_git_executable,
+        plan_git_request, redact, resolve_git_directory, resolve_git_executable, run_git_command,
         validate_branch_name, validate_operation_id, validate_remote_name, validate_remote_url,
         validate_revision, validated_path,
     },
     settings::{GitCommitSigningMode, GitSettingsPolicy},
     tests::{catalog, manager},
+    tools::{self, ExecutableMode},
     types::PluginPermission,
 };
 
@@ -433,6 +434,82 @@ fn remote_branch_changes_use_only_fixed_non_force_pushes() {
             "release"
         ]
     );
+}
+
+#[test]
+fn prepared_bundled_git_runs_repository_commands_from_the_extracted_cache() {
+    let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+    if !resources
+        .join("tools")
+        .join(super::tools::TARGET_TRIPLE)
+        .join("integrity.json")
+        .exists()
+    {
+        return;
+    }
+    let directory = TempDir::new().expect("temp");
+    let repository = directory.path().join("repository");
+    fs::create_dir(&repository).expect("repository");
+    let executable = tools::resolve_git(
+        &resources,
+        &directory.path().join("installed"),
+        ExecutableMode::Bundled,
+        None,
+    )
+    .expect("bundled Git");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir(&hooks).expect("hooks");
+    let global = directory.path().join("global");
+    fs::write(&global, b"").expect("global");
+    let execution = GitExecution {
+        executable: &executable,
+        repository_root: &repository,
+        hooks_directory: &hooks,
+        global_config: &global,
+        redacted_roots: vec![repository.clone()],
+        askpass: None,
+        encrypted: false,
+        transport: GitTransportPolicy::RemoteOnly,
+    };
+    let token = super::git::GitOperationToken::detached();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    for (arguments, mutating) in [
+        (
+            vec!["init".to_string(), "--initial-branch=main".to_string()],
+            true,
+        ),
+        (
+            vec![
+                "-c".to_string(),
+                "user.name=Synthetic Author".to_string(),
+                "-c".to_string(),
+                "user.email=author@example.invalid".to_string(),
+                "commit".to_string(),
+                "--allow-empty".to_string(),
+                "--no-gpg-sign".to_string(),
+                "--message".to_string(),
+                "Synthetic commit".to_string(),
+            ],
+            true,
+        ),
+        (
+            vec![
+                "status".to_string(),
+                "--short".to_string(),
+                "--branch".to_string(),
+            ],
+            false,
+        ),
+    ] {
+        let outcome =
+            run_git_command(&arguments, &execution, &token, deadline, mutating).expect("command");
+        assert_eq!(
+            outcome.exit_code,
+            0,
+            "{}",
+            String::from_utf8_lossy(&outcome.stderr)
+        );
+    }
 }
 
 #[test]

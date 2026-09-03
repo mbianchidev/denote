@@ -7,7 +7,12 @@ import {
 } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { currentTarget, sha256File } from "./bundled-tools.mjs";
+import { list } from "tar";
+import {
+  currentTarget,
+  safeArchivePath,
+  sha256File,
+} from "./bundled-tools.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const lockPath = join(root, "bundled-tools.lock.json");
@@ -77,9 +82,42 @@ for (const path of filesUnder(targetRoot)) {
 if (expected.size > 0) {
   throw new Error(`Bundled resources are missing: ${[...expected.keys()].join(", ")}.`);
 }
-for (const path of [...target.git.expectedPaths, ...target.githubCli.expectedPaths]) {
-  if (!existsSync(join(targetRoot, path))) {
-    throw new Error(`Bundled resource tree is missing ${path}.`);
+const packagedToolBytes =
+  statSync(join(targetRoot, integrity.git.archivePath)).size +
+  statSync(join(targetRoot, integrity.githubCli.archivePath)).size;
+if (packagedToolBytes > 96 * 1024 * 1024) {
+  throw new Error("Bundled tool archives exceed the installer payload limit.");
+}
+for (const [key, definition, expectedPaths] of [
+  ["git", integrity.git, target.git.expectedPaths],
+  ["githubCli", integrity.githubCli, target.githubCli.expectedPaths],
+]) {
+  const archive = join(targetRoot, definition.archivePath);
+  let expandedBytes = 0;
+  let entries = 0;
+  const paths = new Set();
+  await list({
+    file: archive,
+    strict: true,
+    onentry(entry) {
+      entries += 1;
+      expandedBytes += entry.size;
+      const path = entry.path.replace(/\/$/, "");
+      if (
+        entries > 30_000 ||
+        expandedBytes > 512 * 1024 * 1024 ||
+        !safeArchivePath(path) ||
+        !["File", "Directory", "SymbolicLink", "Link"].includes(entry.type)
+      ) {
+        throw new Error(`${key} archive contains unsafe entry ${entry.path}.`);
+      }
+      paths.add(path);
+    },
+  });
+  for (const path of expectedPaths) {
+    if (!paths.has(path)) {
+      throw new Error(`${key} archive is missing ${path}.`);
+    }
   }
 }
 for (const sbom of [lock.git.sbom, lock.githubCli.sbom]) {

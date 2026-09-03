@@ -576,9 +576,20 @@ validates signed tag metadata or GitHub artifact attestations, rejects unsafe
 tar/ZIP paths and entry types, enforces expanded-size limits, builds upstream
 Git with deterministic locale/time inputs on Linux and macOS, installs MinGit
 on Windows, normalizes permissions, checks the expected tree, and version-probes
-both programs. It emits a complete per-file integrity manifest. `build.rs`
-anchors that manifest's digest into the native binary; packaging verification
-rehashes every file.
+both programs. It then stores each target tool tree as a deterministic
+gzip-compressed tar resource, preserving Git's symlink aliases instead of
+expanding each built-in into another multi-megabyte copy. The integrity manifest
+pins both archives and the executable bytes. `build.rs` anchors that manifest's
+digest into the native binary; packaging verification rehashes every resource
+and rejects a combined bundled-tool installer payload above 96 MiB.
+
+On first bundled-tool use, the native resolver revalidates the signed archive,
+checks every entry and link target against the expected tool root, enforces
+entry and expanded-size bounds, extracts to a random app-data staging directory,
+verifies and probes the executable, writes a completion marker, and atomically
+renames the result into a digest-addressed cache. An interrupted or corrupted
+cache is reported explicitly and never causes fallback to another executable
+mode.
 
 Release jobs prepare the target resources before Tauri packaging, require Apple
 signing/notarization and Windows Authenticode credentials, smoke-test tools from

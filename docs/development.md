@@ -43,7 +43,9 @@ The immutable inputs live in `bundled-tools.lock.json`. Preparation never
 resolves `latest`; it verifies bounded downloads, release provenance, archive
 paths, the installed tree, executable permissions, and exact Git/gh versions.
 The generated `src-tauri/resources/tools/` tree is ignored and must not be
-committed.
+committed. Each target contains compressed `git.tar.gz` and `gh.tar.gz`
+resources plus an anchored integrity manifest; Denote extracts the selected
+archive atomically into application data on first use.
 
 Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must

@@ -75,6 +75,7 @@ struct GhRepository {
 pub(crate) fn resolve_gh_executable(configured: Option<&str>) -> AppResult<PathBuf> {
     super::tools::resolve_gh(
         Path::new(""),
+        Path::new(""),
         if configured.is_some() {
             super::tools::ExecutableMode::Custom
         } else {
