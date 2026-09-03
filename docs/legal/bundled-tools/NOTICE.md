@@ -12,6 +12,8 @@ licenses.
   https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.gz
 - License: GNU General Public License version 2, included as `COPYING` in the
   source archive and installed beside the bundled executable.
+- Release signing key: the minimal OpenPGP export in `git-maintainer.asc`,
+  pinned by fingerprint and SHA-256 in `bundled-tools.lock.json`.
 
 The Windows x64 package uses MinGit 2.55.0.5 from Git for Windows:
 https://github.com/git-for-windows/git/tree/32c4f7689275d233577576630e1ac5b7eb354eb0.

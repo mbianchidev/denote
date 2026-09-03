@@ -356,15 +356,13 @@ async function prepareGit(lock, targetName, target, staging, temporary) {
       lock.redirectAllowlist,
       join(cacheRoot, definition.signatureSha256),
     );
-    const signingKey = await downloadExact(
-      {
-        archiveUrl: definition.signingKeyUrl,
-        sizeBytes: definition.signingKeySizeBytes,
-        sha256: definition.signingKeySha256,
-      },
-      lock.redirectAllowlist,
-      join(cacheRoot, definition.signingKeySha256),
-    );
+    const signingKey = join(root, definition.signingKeyPath);
+    if (
+      statSync(signingKey).size !== definition.signingKeySizeBytes ||
+      sha256File(signingKey) !== definition.signingKeySha256
+    ) {
+      throw new Error("The vendored Git release signing key failed integrity verification.");
+    }
     const signature = join(cacheRoot, definition.signatureSha256);
     const keyring = mkdtempSync("/tmp/denote-gpg-");
     const signedTar = join(temporary, "git-source.tar");
@@ -576,6 +574,7 @@ export async function prepare({
     mkdirSync(legal);
     for (const path of [
       lock.git.notice,
+      lock.git.sourceArtifact.signingKeyPath,
       lock.git.sbom.path,
       lock.githubCli.sbom.path,
     ]) {
