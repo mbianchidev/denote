@@ -142,6 +142,13 @@ current upstream version; **Restore from remote** does the same for all tracked
 staged and unstaged changes. Both require a dangerous confirmation and never
 delete untracked files.
 
+Select the current branch button to open the branch picker. Search for a local
+branch and select it to switch, choose a remote branch to create its proposed
+local tracking branch, or type a new name and choose any local or remote
+**Create from** point. Creating always switches to the new branch. Denote still
+saves open notes, reviews dirty work, and asks for confirmation before the
+checkout changes files.
+
 Compact actions use icons; hover them for the full label, and screen readers
 receive the same name. **Open diff** opens a read-only temporary `.diff` tab in
 the main editor using Pierre Diffs. File and hunk stage/unstage actions stay

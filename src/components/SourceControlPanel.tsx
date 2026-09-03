@@ -6,7 +6,6 @@ import {
   ArrowUpFromLine,
   FileDiff,
   FileText,
-  GitBranchPlus,
   ListMinus,
   ListPlus,
   Minus,
@@ -15,6 +14,7 @@ import {
   Undo2,
   X,
 } from "lucide-react";
+import { SourceControlBranchPicker } from "./SourceControlBranchPicker";
 import type {
   PluginSourceControlAction,
   PluginSourceControlAdvancedOperation,
@@ -1879,7 +1879,6 @@ export function SourceControlPanel({
 }: SourceControlPanelProps) {
   const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
-  const [newBranchName, setNewBranchName] = useState("");
   const [chosenRemote, setChosenRemote] = useState("");
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
   const selectedBranch =
@@ -1942,7 +1941,6 @@ export function SourceControlPanel({
 
   useEffect(() => {
     setCommitMessage("");
-    setNewBranchName("");
     setChosenRemote("");
   }, [repository.repositoryId]);
 
@@ -2051,82 +2049,12 @@ export function SourceControlPanel({
               <span>({repository.latestCommit.shortId})</span>
             </p>
           ) : null}
-          <label className="source-control__field">
-            <span>Branch</span>
-            <select
-              value={selectedBranch}
-              disabled={repository.busy || branchOptions.length === 0}
-              onChange={(event) =>
-                onAction(
-                  action("switch-branch", {
-                    branch: event.currentTarget.value,
-                    from: selectedBranch,
-                  }),
-                )
-              }
-            >
-              {!selectedBranch && branchOptions.length > 0 ? (
-                <option value="" disabled>
-                  Select a branch
-                </option>
-              ) : null}
-              {branchOptions.length === 0 ? (
-                <option value="">No branches</option>
-              ) : (
-                branchOptions.map((branch) => (
-                  <option
-                    value={branch.name}
-                    key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
-                  >
-                    {branch.name}
-                    {branch.remote ? " (remote)" : ""}
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          {repository.initialized ? (
-            <form
-              className="source-control__quick-branch"
-              onSubmit={(event) => {
-                event.preventDefault();
-                const name = newBranchName.trim();
-                if (!name) {
-                  return;
-                }
-                onAction(
-                  action("create-branch", {
-                    name,
-                    startPoint: selectedBranch,
-                    checkout: true,
-                    from: selectedBranch,
-                  }),
-                );
-                setNewBranchName("");
-              }}
-            >
-              <label className="source-control__field">
-                <span>New branch</span>
-                <input
-                  value={newBranchName}
-                  disabled={repository.busy}
-                  placeholder="feature/name"
-                  onChange={(event) =>
-                    setNewBranchName(event.currentTarget.value)
-                  }
-                />
-              </label>
-              <button
-                type="submit"
-                className="secondary-button"
-                aria-label="Create and switch branch"
-                title="Create and switch branch"
-                disabled={repository.busy || newBranchName.trim().length === 0}
-              >
-                <GitBranchPlus aria-hidden="true" size={15} />
-              </button>
-            </form>
-          ) : null}
+          <SourceControlBranchPicker
+            branches={branchOptions}
+            currentBranch={selectedBranch}
+            busy={repository.busy || !repository.initialized}
+            onAction={onAction}
+          />
           <div className="source-control__actions">
             {!repository.initialized ? (
               <button

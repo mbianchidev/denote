@@ -341,6 +341,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   history or branch management. A tracked file, or all tracked changes, can be
   restored from the current upstream only after a dangerous confirmation.
   Untracked files are never removed.
+- The branch control opens one searchable picker. It switches local branches,
+  checks out remote branches with a proposed local name, or creates and switches
+  to a new branch from any listed local or remote branch. The existing
+  save/dirty-worktree review and explicit confirmation still run before checkout.
 - Compact source-control actions use icons with accessible names and native
   tooltips. Opening a working-tree, staged, or commit diff creates a read-only
   temporary `.diff` tab in the editor, rendered with `@pierre/diffs`. The tab

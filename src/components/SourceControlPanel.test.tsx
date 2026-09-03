@@ -57,7 +57,9 @@ describe("SourceControlPanel", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Synthetic repository" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Branch")).toHaveValue("main");
+    expect(
+      screen.getByRole("button", { name: "Branch: main" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByText(/Git recorded this file as binary content/),
     ).toBeInTheDocument();
@@ -82,14 +84,21 @@ describe("SourceControlPanel", () => {
       values: { remote: "origin", branch: "main" },
     });
 
-    await user.selectOptions(screen.getByLabelText("Branch"), "topic");
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
+    await user.click(screen.getByRole("button", { name: "Switch to topic" }));
     expect(onAction).toHaveBeenCalledWith({
       id: "switch-branch",
       values: { branch: "topic", from: "main" },
     });
-    await user.type(screen.getByLabelText("New branch"), "feature");
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
+    await user.type(
+      screen.getByRole("searchbox", { name: "Find or create branch" }),
+      "feature",
+    );
     await user.click(
-      screen.getByRole("button", { name: "Create and switch branch" }),
+      screen.getByRole("button", {
+        name: "Create feature from main and switch",
+      }),
     );
     expect(onAction).toHaveBeenCalledWith({
       id: "create-branch",
@@ -260,7 +269,7 @@ describe("SourceControlPanel", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Branch")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Branch: none" })).toBeDisabled();
     await user.click(
       screen.getByRole("button", { name: "Initialize repository" }),
     );
@@ -613,7 +622,9 @@ describe("SourceControlPanel", () => {
       />,
     );
 
-    expect(screen.getByLabelText("Branch")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Branch: main" }),
+    ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Switch to topic" }));
     expect(onAction).toHaveBeenCalledWith({

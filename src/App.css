@@ -2077,7 +2077,6 @@ button.tag-chip:active,
 .source-control__compact-action,
 .source-control__row-actions button,
 .source-control__change-actions button,
-.source-control__quick-branch .secondary-button,
 .source-control__repository > .source-control__actions .secondary-button {
   display: inline-grid;
   width: 30px;
@@ -2269,16 +2268,34 @@ button.tag-chip:active,
   margin-top: 9px;
 }
 
-.source-control__quick-branch {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 6px;
+.source-control__branch-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
   margin-top: 8px;
+  color: var(--text-primary);
+  text-align: left;
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  cursor: pointer;
 }
 
-.source-control__quick-branch .secondary-button {
-  align-self: end;
+.source-control__branch-trigger:hover:not(:disabled) {
+  background: var(--panel-bg);
+  border-color: var(--accent);
+}
+
+.source-control__branch-trigger span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .source-control__actions .primary-button,
@@ -4491,6 +4508,146 @@ kbd {
 
 .vault-switcher-dialog {
   width: min(620px, calc(100vw - 48px));
+}
+
+.source-control-branch-dialog {
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 48px));
+}
+
+.source-control-branch-dialog__body {
+  display: grid;
+  gap: 12px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.source-control-branch-dialog__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--text-tertiary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.source-control-branch-dialog__search:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.source-control-branch-dialog__search input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.source-control-branch-dialog__create {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.45fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.source-control-branch-dialog__create label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-control-branch-dialog__create select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.source-control-branch-dialog__create .primary-button {
+  min-width: 0;
+  min-height: 32px;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-branch-dialog__body h3 {
+  margin: 0 8px 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.source-control-branch-dialog__body ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.source-control-branch-dialog__body li + li {
+  border-top: 1px solid var(--border);
+}
+
+.source-control-branch-dialog__body li > button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control-branch-dialog__body li > button:hover:not(:disabled) {
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
+.source-control-branch-dialog__body li > button:disabled {
+  opacity: 0.72;
+}
+
+.source-control-branch-dialog__body li > button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.source-control-branch-dialog__body li strong,
+.source-control-branch-dialog__body li small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-branch-dialog__body li strong {
+  font-size: 12px;
+}
+
+.source-control-branch-dialog__body li small {
+  color: var(--text-tertiary);
+  font-size: 10px;
 }
 
 .vault-switcher-dialog__body {
