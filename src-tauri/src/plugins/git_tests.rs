@@ -374,6 +374,68 @@ fn maps_every_operation_to_a_fixed_argument_template() {
 }
 
 #[test]
+fn remote_branch_changes_use_only_fixed_non_force_pushes() {
+    let rename = plan_git_request(&PluginGitRequest::RenameRemoteBranch {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        name: "release".to_string(),
+        new_name: "stable".to_string(),
+        auth_mode: PluginGitAuthMode::Public,
+    })
+    .expect("rename plan");
+    let commands = rename
+        .iter()
+        .map(|step| match step {
+            GitPlanStep::Command { args, .. } => args.clone(),
+            other => panic!("expected command, found {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        commands,
+        vec![
+            vec![
+                "push",
+                "--no-recurse-submodules",
+                "--no-verify",
+                "origin",
+                "refs/remotes/origin/release:refs/heads/stable"
+            ],
+            vec![
+                "push",
+                "--no-recurse-submodules",
+                "--no-verify",
+                "--delete",
+                "origin",
+                "release"
+            ]
+        ]
+    );
+    assert!(
+        commands
+            .iter()
+            .flatten()
+            .all(|argument| !argument.starts_with("--force"))
+    );
+
+    assert_eq!(
+        command_args(PluginGitRequest::DeleteRemoteBranch {
+            scope: PluginGitScope::Vault,
+            remote: "origin".to_string(),
+            name: "release".to_string(),
+            auth_mode: PluginGitAuthMode::Public,
+        }),
+        vec![
+            "push",
+            "--no-recurse-submodules",
+            "--no-verify",
+            "--delete",
+            "origin",
+            "release"
+        ]
+    );
+}
+
+#[test]
 fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
     let mut commit = plan_git_request(&PluginGitRequest::Commit {
         scope: PluginGitScope::Vault,
@@ -451,6 +513,43 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
         other => panic!("expected command, found {other:?}"),
     };
     expect_args_in_order(args, &["credential.helper=osxkeychain", "fetch"]);
+}
+
+#[test]
+fn explicit_signing_remains_enabled_when_system_settings_are_disabled() {
+    let request = PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    };
+    let mut plan = plan_git_request(&request).expect("commit plan");
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: false,
+            signing: GitCommitSigningMode::Always,
+            signing_key: Some("SYNTHETIC-KEY".to_string()),
+        },
+        &SystemGitSettings::default(),
+    )
+    .expect("signing policy");
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(
+        args,
+        &[
+            "gpg.program=gpg",
+            "commit.gpgSign=true",
+            "--gpg-sign=SYNTHETIC-KEY",
+        ],
+    );
+    assert!(!args.iter().any(|argument| argument == "--no-gpg-sign"));
 }
 
 fn expect_args_in_order(args: &[String], expected: &[&str]) {

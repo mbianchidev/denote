@@ -18,6 +18,7 @@ import type {
   PluginAutomaticCommitRequest,
   PluginCloneVaultResponse,
   PluginView,
+  PluginToolStatus,
   PluginBundleMetadata,
   ProjectConfiguration,
   RecoveryCodesResult,
@@ -267,6 +268,10 @@ export const api = {
       sourceVersion,
       settings,
     }),
+  getPluginToolStatuses: (pluginId: string) =>
+    invoke<PluginToolStatus[]>("get_plugin_tool_statuses", { pluginId }),
+  choosePluginExecutable: (tool: "git" | "github-cli") =>
+    invoke<string | null>("choose_plugin_executable", { tool }),
   pluginStorageGet: (pluginId: string, key: string) =>
     invoke<unknown | null>("plugin_storage_get", { pluginId, key }),
   pluginStorageSet: (pluginId: string, key: string, value: unknown) =>
@@ -353,6 +358,7 @@ export const api = {
     projectId: string | null,
     operationId: string,
     signingPassphrase?: string,
+    signingOverride?: boolean,
   ) =>
     invoke<PluginGitResult>("plugin_git_request", {
       pluginId,
@@ -361,6 +367,7 @@ export const api = {
       projectId,
       operationId,
       signingPassphrase,
+      signingOverride,
     }),
   pluginGithubListRepositories: (
     pluginId: string,

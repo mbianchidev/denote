@@ -5,6 +5,7 @@ use crate::error::{AppError, AppResult};
 use super::{
     PluginManager,
     sandbox::enforce_storage_quota,
+    tools::{self, ExecutableMode, ToolKind, ToolStatus},
     types::{MAX_PLUGIN_SETTINGS_BYTES, PluginManifest},
 };
 
@@ -13,11 +14,13 @@ use super::{
 /// the user fills it in through Denote's own settings surface, and a Git
 /// request can never name an executable itself.
 pub(crate) const GIT_EXECUTABLE_SETTING: &str = "gitExecutablePath";
+pub(crate) const GIT_EXECUTABLE_MODE_SETTING: &str = "gitExecutableMode";
 
 /// Reserved settings key that names the GitHub CLI executable a user selected.
 /// It is host-owned in exactly the same way as the Git executable: a plugin
 /// declares the key, the user fills it in, and no request can name a binary.
 pub(crate) const GITHUB_EXECUTABLE_SETTING: &str = "githubExecutablePath";
+pub(crate) const GITHUB_EXECUTABLE_MODE_SETTING: &str = "githubExecutableMode";
 pub(crate) const USE_SYSTEM_GIT_SETTINGS: &str = "useSystemGitSettings";
 pub(crate) const COMMIT_SIGNING_SETTING: &str = "commitSigning";
 pub(crate) const GPG_SIGNING_KEY_SETTING: &str = "gpgSigningKey";
@@ -62,7 +65,11 @@ impl PluginManager {
 
     pub(crate) fn set_settings(&self, plugin_id: &str, settings: Value) -> AppResult<Value> {
         let catalog = self.catalog_entry(plugin_id)?;
-        let settings = validate_settings(&catalog.manifest, settings)?;
+        let settings = validate_settings(
+            &catalog.manifest,
+            normalize_legacy_executable_settings(&catalog.manifest, settings)?,
+        )?;
+        self.validate_executable_settings(plugin_id, &settings)?;
         if serde_json::to_vec(&settings)
             .map_err(|error| AppError::Plugin(format!("Unable to size settings: {error}")))?
             .len()
@@ -93,6 +100,7 @@ impl PluginManager {
     ) -> AppResult<Value> {
         let catalog = self.catalog_entry(plugin_id)?;
         let settings = migrate_settings(&catalog.manifest, settings, Some(source_version))?;
+        self.validate_executable_settings(plugin_id, &settings)?;
         if serde_json::to_vec(&settings)
             .map_err(|error| AppError::Plugin(format!("Unable to size settings: {error}")))?
             .len()
@@ -129,6 +137,16 @@ impl PluginManager {
             .map(str::to_string))
     }
 
+    pub(crate) fn git_executable_mode(&self, plugin_id: &str) -> AppResult<ExecutableMode> {
+        let settings = self.settings(plugin_id)?;
+        Ok(ExecutableMode::parse(
+            settings
+                .get(GIT_EXECUTABLE_MODE_SETTING)
+                .and_then(Value::as_str),
+            ExecutableMode::Bundled,
+        ))
+    }
+
     /// Reads the reserved GitHub CLI path the same way, so an unset value keeps
     /// the host resolving `gh` from its own fixed locations.
     pub(crate) fn github_executable_setting(&self, plugin_id: &str) -> AppResult<Option<String>> {
@@ -139,6 +157,103 @@ impl PluginManager {
             .map(str::trim)
             .filter(|path| !path.is_empty())
             .map(str::to_string))
+    }
+
+    pub(crate) fn github_executable_mode(&self, plugin_id: &str) -> AppResult<ExecutableMode> {
+        let settings = self.settings(plugin_id)?;
+        Ok(ExecutableMode::parse(
+            settings
+                .get(GITHUB_EXECUTABLE_MODE_SETTING)
+                .and_then(Value::as_str),
+            ExecutableMode::Disabled,
+        ))
+    }
+
+    pub(crate) fn resolve_git_executable_for_plugin(
+        &self,
+        plugin_id: &str,
+    ) -> AppResult<std::path::PathBuf> {
+        let mode = self.git_executable_mode(plugin_id)?;
+        let path = self.git_executable_setting(plugin_id)?;
+        #[cfg(test)]
+        let mode = if self.inner.resource_dir.as_os_str().is_empty()
+            && mode == ExecutableMode::Bundled
+        {
+            ExecutableMode::System
+        } else {
+            mode
+        };
+        tools::resolve_git(&self.inner.resource_dir, mode, path.as_deref())
+    }
+
+    pub(crate) fn resolve_github_executable_for_plugin(
+        &self,
+        plugin_id: &str,
+    ) -> AppResult<std::path::PathBuf> {
+        let mode = self.github_executable_mode(plugin_id)?;
+        let path = self.github_executable_setting(plugin_id)?;
+        #[cfg(test)]
+        let mode = if self.inner.resource_dir.as_os_str().is_empty()
+            && mode == ExecutableMode::Bundled
+        {
+            ExecutableMode::System
+        } else {
+            mode
+        };
+        tools::resolve_gh(&self.inner.resource_dir, mode, path.as_deref())
+    }
+
+    pub(crate) fn tool_statuses(&self, plugin_id: &str) -> AppResult<Vec<ToolStatus>> {
+        self.catalog_entry(plugin_id)?;
+        let git_mode = self.git_executable_mode(plugin_id)?;
+        let git_path = self.git_executable_setting(plugin_id)?;
+        let github_mode = self.github_executable_mode(plugin_id)?;
+        let github_path = self.github_executable_setting(plugin_id)?;
+        Ok(vec![
+            tools::inspect(
+                &self.inner.resource_dir,
+                ToolKind::Git,
+                git_mode,
+                git_path.as_deref(),
+            ),
+            tools::inspect(
+                &self.inner.resource_dir,
+                ToolKind::GitHubCli,
+                github_mode,
+                github_path.as_deref(),
+            ),
+        ])
+    }
+
+    fn validate_executable_settings(&self, plugin_id: &str, settings: &Value) -> AppResult<()> {
+        if plugin_id != "denote.git" {
+            return Ok(());
+        }
+        let git_mode = ExecutableMode::parse(
+            settings
+                .get(GIT_EXECUTABLE_MODE_SETTING)
+                .and_then(Value::as_str),
+            ExecutableMode::Bundled,
+        );
+        let git_path = settings
+            .get(GIT_EXECUTABLE_SETTING)
+            .and_then(Value::as_str);
+        if git_mode == ExecutableMode::Custom {
+            tools::resolve_git(&self.inner.resource_dir, git_mode, git_path)?;
+        }
+        let github_mode = ExecutableMode::parse(
+            settings
+                .get(GITHUB_EXECUTABLE_MODE_SETTING)
+                .and_then(Value::as_str),
+            ExecutableMode::Disabled,
+        );
+        let github_path = settings
+            .get(GITHUB_EXECUTABLE_SETTING)
+            .and_then(Value::as_str);
+        if github_mode == ExecutableMode::Custom {
+            tools::resolve_gh(&self.inner.resource_dir, github_mode, github_path)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn git_settings_policy(&self, plugin_id: &str) -> AppResult<GitSettingsPolicy> {
@@ -264,6 +379,7 @@ pub(crate) fn migrate_settings(
     let mut object = settings.as_object().cloned().ok_or_else(|| {
         AppError::Plugin(format!("Settings for {} must be an object", manifest.id))
     })?;
+    apply_legacy_executable_modes(manifest, &mut object, current_version);
     while current_version < target_version {
         let migration = manifest
             .settings
@@ -293,6 +409,7 @@ pub(crate) fn migrate_settings(
                 {
                     object.entry(to.to_string()).or_insert(value);
                 }
+
             }
         }
         if let Some(remove) = migration.get("remove").and_then(Value::as_array) {
@@ -308,6 +425,51 @@ pub(crate) fn migrate_settings(
         current_version += 1;
     }
     validate_settings(manifest, Value::Object(object))
+}
+
+fn normalize_legacy_executable_settings(
+    manifest: &PluginManifest,
+    settings: Value,
+) -> AppResult<Value> {
+    let mut object = settings.as_object().cloned().ok_or_else(|| {
+        AppError::Plugin(format!("Settings for {} must be an object", manifest.id))
+    })?;
+    apply_legacy_executable_modes(manifest, &mut object, 1);
+    Ok(Value::Object(object))
+}
+
+fn apply_legacy_executable_modes(
+    manifest: &PluginManifest,
+    object: &mut Map<String, Value>,
+    source_version: u32,
+) {
+    if manifest.id != "denote.git" || source_version != 1 {
+        return;
+    }
+    if !object.contains_key(GIT_EXECUTABLE_MODE_SETTING) {
+        let mode = object
+            .get(GIT_EXECUTABLE_SETTING)
+            .and_then(Value::as_str)
+            .is_some_and(|path| !path.trim().is_empty())
+            .then_some("custom")
+            .unwrap_or("system");
+        object.insert(
+            GIT_EXECUTABLE_MODE_SETTING.to_string(),
+            Value::String(mode.to_string()),
+        );
+    }
+    if !object.contains_key(GITHUB_EXECUTABLE_MODE_SETTING) {
+        let mode = object
+            .get(GITHUB_EXECUTABLE_SETTING)
+            .and_then(Value::as_str)
+            .is_some_and(|path| !path.trim().is_empty())
+            .then_some("custom")
+            .unwrap_or("system");
+        object.insert(
+            GITHUB_EXECUTABLE_MODE_SETTING.to_string(),
+            Value::String(mode.to_string()),
+        );
+    }
 }
 
 pub(crate) fn validate_settings(manifest: &PluginManifest, settings: Value) -> AppResult<Value> {
@@ -404,4 +566,44 @@ pub(crate) fn validate_storage_key(key: &str) -> AppResult<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn git_manifest() -> PluginManifest {
+        serde_json::from_str(include_str!(
+            "../../../packages/plugins/denote.git/plugin.json"
+        ))
+        .expect("Git plugin manifest")
+    }
+
+    #[test]
+    fn fresh_git_settings_use_bundled_git_and_disabled_github_cli() {
+        let settings = default_settings(&git_manifest());
+        assert_eq!(settings["gitExecutableMode"], "bundled");
+        assert_eq!(settings["githubExecutableMode"], "disabled");
+    }
+
+    #[test]
+    fn legacy_executable_paths_migrate_without_changing_their_source() {
+        let manifest = git_manifest();
+        let custom = migrate_settings(
+            &manifest,
+            serde_json::json!({
+                "gitExecutablePath": "/synthetic/git",
+                "githubExecutablePath": "/synthetic/gh"
+            }),
+            Some(1),
+        )
+        .expect("custom migration");
+        assert_eq!(custom["gitExecutableMode"], "custom");
+        assert_eq!(custom["githubExecutableMode"], "custom");
+
+        let system =
+            migrate_settings(&manifest, serde_json::json!({}), Some(1)).expect("system migration");
+        assert_eq!(system["gitExecutableMode"], "system");
+        assert_eq!(system["githubExecutableMode"], "system");
+    }
 }

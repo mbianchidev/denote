@@ -9,6 +9,7 @@ import {
 } from "../lib/editorDisplay";
 import type {
   PluginBundleMetadata,
+  PluginToolStatus,
   PluginView,
   ProjectRoot,
 } from "../types";
@@ -49,6 +50,10 @@ interface EditorSettingsDialogProps {
     sourceVersion: number,
     settings: Record<string, unknown>,
   ) => Promise<void>;
+  onInspectPluginTools?: (pluginId: string) => Promise<PluginToolStatus[]>;
+  onPickPluginExecutable?: (
+    tool: "git" | "github-cli",
+  ) => Promise<string | null>;
   onPluginError: (error: unknown) => void;
   onClose: () => void;
 }
@@ -77,6 +82,8 @@ export function EditorSettingsDialog({
   onClearPluginCredentials,
   onUpdatePluginSettings,
   onImportPluginSettings,
+  onInspectPluginTools,
+  onPickPluginExecutable,
   onPluginError,
   onClose,
 }: EditorSettingsDialogProps) {
@@ -358,6 +365,8 @@ export function EditorSettingsDialog({
           onClearCredentials={onClearPluginCredentials}
           onUpdateSettings={onUpdatePluginSettings}
           onImportSettings={onImportPluginSettings}
+          onInspectTools={onInspectPluginTools}
+          onPickExecutable={onPickPluginExecutable}
           onError={onPluginError}
         />
       )}

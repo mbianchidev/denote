@@ -176,12 +176,12 @@ describe("SourceControlPanel", () => {
       "synthetic-passphrase",
     );
     await user.click(
-      screen.getByRole("button", { name: "Commit staged changes" }),
+      screen.getByRole("button", { name: "Commit" }),
     );
     expect(onAction).toHaveBeenCalledWith(
       {
         id: "commit",
-        values: { message: "Synthetic update" },
+        values: { message: "Synthetic update", sign: true },
       },
       { gitSigningPassphrase: "synthetic-passphrase" },
     );
@@ -637,15 +637,17 @@ describe("SourceControlPanel", () => {
       screen.getByRole("button", { name: "Branch: main" }),
     ).toBeInTheDocument();
 
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
     await user.click(screen.getByRole("button", { name: "Switch to topic" }));
     expect(onAction).toHaveBeenCalledWith({
       id: "switch-branch",
       values: { branch: "topic", from: "main" },
     });
 
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
     await user.click(
       screen.getByRole("button", {
-        name: "Check out origin/release as a local branch",
+        name: "Check out origin/release as release",
       }),
     );
     expect(onAction).toHaveBeenCalledWith({
@@ -657,6 +659,8 @@ describe("SourceControlPanel", () => {
       },
     });
 
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
+    await user.click(screen.getByRole("button", { name: "Edit branch topic" }));
     const rename = screen.getByLabelText("New name for topic");
     await user.clear(rename);
     await user.type(rename, "topic-two");
@@ -666,6 +670,7 @@ describe("SourceControlPanel", () => {
       values: { name: "topic", newName: "topic-two" },
     });
 
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
     await user.click(screen.getByRole("button", { name: "Delete topic" }));
     expect(onAction).toHaveBeenCalledWith({
       id: "delete-branch",
@@ -673,11 +678,12 @@ describe("SourceControlPanel", () => {
     });
 
     // The branch that is checked out can never be switched to or deleted.
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
     expect(screen.getByRole("button", { name: "Switch to main" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete main" })).toBeDisabled();
   });
 
-  it("creates a branch from a chosen start point, with or without checking out", async () => {
+  it("creates and switches from a chosen start point when search has no result", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
     render(
@@ -688,12 +694,17 @@ describe("SourceControlPanel", () => {
       />,
     );
 
-    await user.type(screen.getByLabelText("New branch name"), "release-notes");
-    await user.selectOptions(screen.getByLabelText("Start point"), "origin/release");
-    await user.click(
-      screen.getByLabelText("Check out the new branch straight away"),
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
+    await user.type(
+      screen.getByRole("searchbox", { name: "Find or create branch" }),
+      "release-notes",
     );
-    await user.click(screen.getByRole("button", { name: "Create branch" }));
+    await user.selectOptions(screen.getByLabelText("Create from"), "origin/release");
+    await user.click(
+      screen.getByRole("button", {
+        name: "Create release-notes from origin/release and switch",
+      }),
+    );
 
     expect(onAction).toHaveBeenCalledWith({
       id: "create-branch",
@@ -741,15 +752,19 @@ describe("SourceControlPanel", () => {
     await user.click(
       screen.getByRole("button", { name: "Commit all and switch" }),
     );
-    expect(onAction).toHaveBeenCalledWith({
-      id: "branch-switch-commit",
-      values: {
-        message: "Record work before switching",
-        branch: "release",
-        from: "main",
-        operation: "checkout",
+    expect(onAction).toHaveBeenCalledWith(
+      {
+        id: "branch-switch-commit",
+        values: {
+          message: "Record work before switching",
+          sign: true,
+          branch: "release",
+          from: "main",
+          operation: "checkout",
+        },
       },
-    });
+      undefined,
+    );
 
     await user.click(screen.getByRole("button", { name: "Stash and switch" }));
     expect(onAction).toHaveBeenCalledWith({

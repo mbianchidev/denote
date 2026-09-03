@@ -50,7 +50,7 @@ export const DEFAULT_SETTINGS: GitPluginSettings = {
   autoCommitIntervalMinutes: 0,
   autoCommitMessage: DEFAULT_AUTO_COMMIT_MESSAGE,
   includePatterns: [],
-  excludePatterns: [],
+  excludePatterns: [".denote"],
   authMode: "system",
   pullStrategy: "fast-forward-only",
   signingMode: "system",
@@ -75,7 +75,7 @@ export function readGitSettings(value: unknown): GitPluginSettings {
       trimmedText(settings.autoCommitMessage, 500) ??
       DEFAULT_AUTO_COMMIT_MESSAGE,
     includePatterns: patterns(settings.includePatterns),
-    excludePatterns: patterns(settings.excludePatterns),
+    excludePatterns: patterns(settings.excludePatterns, [".denote"]),
     authMode: choice(settings.authenticationMode, AUTH_MODES, "system"),
     pullStrategy: choice(
       settings.pullStrategy,
@@ -155,9 +155,9 @@ function minutes(value: unknown): number {
  * repository-relative prefix is dropped rather than sent to the host, which
  * would refuse the whole schedule and leave automatic commits unregistered.
  */
-function patterns(value: unknown): string[] {
+function patterns(value: unknown, fallback: string[] = []): string[] {
   if (typeof value !== "string") {
-    return [];
+    return fallback;
   }
   return value
     .split(",")

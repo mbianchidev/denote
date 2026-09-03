@@ -373,6 +373,7 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "stage-hunk",
   "unstage-hunk",
   "commit",
+  "commit-and-push",
   "pull",
   "add-remote",
   "set-remote-url",
@@ -382,6 +383,8 @@ const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
   "checkout-remote-branch",
   "rename-branch",
   "delete-branch",
+  "rename-remote-branch",
+  "delete-remote-branch",
   "branch-switch-commit",
   "branch-switch-stash",
   "stash",
@@ -524,6 +527,20 @@ function sourceControlConfirmation(
         confirmLabel: "Delete branch",
         dangerous: true,
       };
+    case "rename-remote-branch":
+      return {
+        title: "Rename a remote branch",
+        message: `Rename the remote branch "${name}" to "${newName}"? Denote first creates the new remote branch, then removes the old one. If the second step fails, both names remain and Denote reports it.`,
+        confirmLabel: "Rename remote branch",
+        dangerous: true,
+      };
+    case "delete-remote-branch":
+      return {
+        title: "Delete a remote branch",
+        message: `Delete the remote branch "${name}"? Other people may still be using it. Local branches and commits remain unchanged.`,
+        confirmLabel: "Delete remote branch",
+        dangerous: true,
+      };
     case "branch-switch-commit":
     case "branch-switch-stash": {
       // The review can be holding a checkout or one of the four operations, so
@@ -596,6 +613,13 @@ function sourceControlConfirmation(
         title: "Push to a remote",
         message: `Push "${branch}" to "${remote}"? This publishes the commits on that branch to the remote.`,
         confirmLabel: "Push",
+        dangerous: false,
+      };
+    case "commit-and-push":
+      return {
+        title: "Commit and push",
+        message: `Commit the staged changes, then push "${branch}" to "${remote}"? If the commit succeeds but the push fails, the commit stays safely recorded locally.`,
+        confirmLabel: "Commit and push",
         dangerous: false,
       };
     case "set-remote-url":
@@ -1431,6 +1455,43 @@ function App() {
   const shutdownPlugins = pluginController.shutdown;
   const emitPluginNoteEvent = pluginController.emitNoteEvent;
   const invalidatePluginActions = pluginController.invalidateActionLeases;
+  const runPluginSourceControlAction =
+    pluginController.runSourceControlAction;
+  const initiallyRefreshedProviders = useRef(new Set<string>());
+  useEffect(() => {
+    if (!workspace) {
+      return;
+    }
+    const availableKeys = new Set(
+      pluginController.sourceControlProviders.map(
+        (provider) =>
+          `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`,
+      ),
+    );
+    for (const key of initiallyRefreshedProviders.current) {
+      if (key.startsWith(`${workspace.vaultPath}\u0000`) && !availableKeys.has(key)) {
+        initiallyRefreshedProviders.current.delete(key);
+      }
+    }
+    for (const provider of pluginController.sourceControlProviders) {
+      const key = `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`;
+      if (initiallyRefreshedProviders.current.has(key)) {
+        continue;
+      }
+      initiallyRefreshedProviders.current.add(key);
+      void runPluginSourceControlAction(
+        provider.pluginId,
+        provider.id,
+        { id: "refresh" },
+        workspace.vaultPath,
+      ).catch(showError);
+    }
+  }, [
+    pluginController.sourceControlProviders,
+    runPluginSourceControlAction,
+    showError,
+    workspace,
+  ]);
   useEffect(() => {
     invalidatePluginActions();
   }, [invalidatePluginActions, workspace?.vaultPath]);
@@ -4064,7 +4125,7 @@ function App() {
       }));
       setSelectedPath(null);
       try {
-        await pluginController.runSourceControlAction(
+        await runPluginSourceControlAction(
           detail.pluginId,
           detail.providerId,
           {
@@ -4549,7 +4610,7 @@ function App() {
           workspaceOperationStarted = true;
         }
         if (hostOptions) {
-          await pluginController.runSourceControlAction(
+          await runPluginSourceControlAction(
             pluginId,
             providerId,
             action,
@@ -4557,7 +4618,7 @@ function App() {
             hostOptions,
           );
         } else {
-          await pluginController.runSourceControlAction(
+          await runPluginSourceControlAction(
             pluginId,
             providerId,
             action,
@@ -4588,7 +4649,7 @@ function App() {
     },
     [
       beginWorkspaceOperation,
-      pluginController,
+      runPluginSourceControlAction,
       refreshAndReindex,
       refreshIgnoredStatus,
       reloadOpenTabsFromDisk,
@@ -7635,6 +7696,44 @@ function App() {
         provider.pluginId === activeSourceControlProvider?.pluginId &&
         provider.id === activeSourceControlProvider.providerId,
     ) ?? null;
+  const activeSourceControlAction = useCallback(
+    (
+      action: PluginSourceControlAction,
+      hostOptions?: SourceControlActionHostOptions,
+    ) => {
+      if (!activeSourceControlContribution) {
+        return;
+      }
+      void runSourceControlAction(
+        activeSourceControlContribution.pluginId,
+        activeSourceControlContribution.id,
+        action,
+        activeSourceControlContribution.model.repository.label,
+        hostOptions,
+      );
+    },
+    [
+      activeSourceControlContribution?.id,
+      activeSourceControlContribution?.model.repository.label,
+      activeSourceControlContribution?.pluginId,
+      runSourceControlAction,
+    ],
+  );
+  const activeSourceControlFileOpen = useCallback(
+    (path: string) => {
+      if (!activeSourceControlContribution) {
+        return;
+      }
+      openSourceControlFile(
+        path,
+        activeSourceControlContribution.model.repository.repositoryId,
+      );
+    },
+    [
+      activeSourceControlContribution?.model.repository.repositoryId,
+      openSourceControlFile,
+    ],
+  );
 
   useEffect(() => {
     if (activeSourceControlProvider && !activeSourceControlContribution) {
@@ -8014,21 +8113,8 @@ function App() {
             key={`${activeSourceControlContribution.pluginId}:${activeSourceControlContribution.id}`}
             title={activeSourceControlContribution.title}
             model={activeSourceControlContribution.model}
-            onAction={(action, hostOptions) => {
-              void runSourceControlAction(
-                activeSourceControlContribution.pluginId,
-                activeSourceControlContribution.id,
-                action,
-                activeSourceControlContribution.model.repository.label,
-                hostOptions,
-              );
-            }}
-            onOpenFile={(path) =>
-              openSourceControlFile(
-                path,
-                activeSourceControlContribution.model.repository.repositoryId,
-              )
-            }
+            onAction={activeSourceControlAction}
+            onOpenFile={activeSourceControlFileOpen}
           />
         ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">
@@ -8775,6 +8861,8 @@ function App() {
         onClearPluginCredentials={pluginController.clearCredentials}
         onUpdatePluginSettings={pluginController.updateSettings}
         onImportPluginSettings={pluginController.importSettings}
+        onInspectPluginTools={api.getPluginToolStatuses}
+        onPickPluginExecutable={api.choosePluginExecutable}
         onPluginError={showError}
         onClose={() => setEditorSettingsOpen(false)}
       />

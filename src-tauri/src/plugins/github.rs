@@ -8,12 +8,13 @@
 
 use std::{
     ffi::OsStr,
-    fs,
     io::{Read, Seek, SeekFrom},
-    path::{Path, PathBuf},
+    path::Path,
     process::{Command, Stdio},
     time::Duration,
 };
+#[cfg(test)]
+use std::path::PathBuf;
 
 use command_group::CommandGroup;
 use serde::{Deserialize, Serialize};
@@ -33,16 +34,6 @@ const GH_OUTPUT_LIMIT: u64 = 1024 * 1024;
 const MAX_TOKEN_BYTES: usize = 4096;
 pub(crate) const MAX_REPOSITORY_LIMIT: u32 = 200;
 const MAX_FIELD_BYTES: usize = 512;
-
-#[cfg(target_os = "macos")]
-const DEFAULT_GH_PATHS: &[&str] = &["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"];
-#[cfg(target_os = "linux")]
-const DEFAULT_GH_PATHS: &[&str] = &["/usr/bin/gh", "/bin/gh", "/usr/local/bin/gh"];
-#[cfg(target_os = "windows")]
-const DEFAULT_GH_PATHS: &[&str] = &[
-    r"C:\Program Files\GitHub CLI\gh.exe",
-    r"C:\Program Files (x86)\GitHub CLI\gh.exe",
-];
 
 /// Bounded repository metadata. Nothing else from `gh` is kept, so no
 /// description, topic, or other free text ever reaches a plugin.
@@ -80,54 +71,17 @@ struct GhRepository {
 /// searched, and a custom executable, which only ever comes from the
 /// host-owned persisted `githubExecutablePath` setting, must be an absolute,
 /// canonical, regular file that identifies itself as `gh`.
+#[cfg(test)]
 pub(crate) fn resolve_gh_executable(configured: Option<&str>) -> AppResult<PathBuf> {
-    if let Some(custom) = configured {
-        let candidate = Path::new(custom);
-        if !candidate.is_absolute() {
-            return Err(AppError::Plugin(
-                "The configured GitHub CLI executable must be an absolute path".to_string(),
-            ));
-        }
-        let canonical = fs::canonicalize(candidate).map_err(|error| {
-            AppError::Plugin(format!(
-                "The configured GitHub CLI executable is unavailable: {error}"
-            ))
-        })?;
-        return verify_gh_executable(&canonical);
-    }
-    let mut last_error = None;
-    for candidate in DEFAULT_GH_PATHS {
-        let Ok(canonical) = fs::canonicalize(candidate) else {
-            continue;
-        };
-        match verify_gh_executable(&canonical) {
-            Ok(path) => return Ok(path),
-            Err(error) => last_error = Some(error),
-        }
-    }
-    Err(last_error.unwrap_or_else(|| {
-        AppError::Plugin(
-            "The GitHub CLI was not found in a standard location. Install it, or select its executable in settings."
-                .to_string(),
-        )
-    }))
-}
-
-pub(crate) fn verify_gh_executable(canonical: &Path) -> AppResult<PathBuf> {
-    let metadata = fs::symlink_metadata(canonical)?;
-    if !metadata.is_file() {
-        return Err(AppError::Plugin(
-            "The GitHub CLI executable must be a regular file".to_string(),
-        ));
-    }
-    let outcome = run_gh(canonical, &["version".to_string()], None)?;
-    let version = String::from_utf8_lossy(&outcome.stdout);
-    if outcome.exit_code != 0 || !version.trim_start().starts_with("gh version") {
-        return Err(AppError::Plugin(
-            "The selected executable did not identify itself as the GitHub CLI".to_string(),
-        ));
-    }
-    Ok(canonical.to_path_buf())
+    super::tools::resolve_gh(
+        Path::new(""),
+        if configured.is_some() {
+            super::tools::ExecutableMode::Custom
+        } else {
+            super::tools::ExecutableMode::System
+        },
+        configured,
+    )
 }
 
 /// Lists repositories the authenticated account can reach. The listing is
@@ -394,9 +348,13 @@ impl PluginManager {
         operation_id: &str,
     ) -> AppResult<Vec<GitHubRepository>> {
         self.enabled_permission(plugin_id, "git")?;
-        let executable =
-            resolve_gh_executable(self.github_executable_setting(plugin_id)?.as_deref())?;
         let operation = self.register_git_operation(plugin_id, operation_id)?;
+        let executable = self.resolve_github_executable_for_plugin(plugin_id)?;
+        if operation.token().is_cancelled() {
+            return Err(AppError::Plugin(
+                "The GitHub CLI request was cancelled before it started".to_string(),
+            ));
+        }
         list_repositories(&executable, limit, Some(operation.token()))
     }
 }

@@ -28,6 +28,7 @@ export interface PluginActionLeaseScope {
    */
   sourceControlActionId: string | null;
   gitSigningPassphrase?: string;
+  gitCommitSign?: boolean;
 }
 
 export interface PluginActionHostSecrets {
@@ -137,10 +138,25 @@ export async function runHostOperation(
         invocation.request,
         scope,
       );
+      const signingOverride =
+        invocation.request.operation === "commit"
+          ? scope.gitCommitSign
+          : undefined;
       // The request is the only thing a plugin contributes. A custom Git
       // executable lives in host-owned plugin settings, so nothing here can
       // name one.
       const resolvedOperationId = requireOperationId(operationId);
+      if (signingOverride !== undefined) {
+        return api.pluginGitRequest(
+          pluginId,
+          invocation.request,
+          scope.workspaceScope,
+          projectId,
+          resolvedOperationId,
+          signingPassphrase ?? undefined,
+          signingOverride,
+        );
+      }
       return signingPassphrase
         ? api.pluginGitRequest(
             pluginId,

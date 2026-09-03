@@ -42,8 +42,8 @@ const plugin: DenotePlugin = {
 
     let registration: PluginSourceControlRegistration | null = null;
     const statusItem = createStatusItem(status, STATUS_ID);
-    // Activation registers surfaces only. No Git command runs and no vault
-    // content is touched until the user asks for one.
+    // Activation registers the surface before its first bounded refresh. The
+    // refresh reads repository state only; it never mutates the vault.
     const repositories = scopesFor(projectContext?.getRepositories() ?? []);
     const settings = readGitSettings(await context.settings.getAll());
     const selectedScope = initialScope(

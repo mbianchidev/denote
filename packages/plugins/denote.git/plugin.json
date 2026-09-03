@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.git",
   "name": "Git vault versioning",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
   "publisher": {
     "name": "Denote",
@@ -38,18 +38,72 @@
     }
   ],
   "settings": {
-    "version": 1,
+    "version": 2,
+    "migrations": [
+      {
+        "from": 1,
+        "to": 2,
+        "defaults": {
+          "gitExecutableMode": "system",
+          "githubExecutableMode": "system"
+        }
+      }
+    ],
     "properties": {
+      "gitExecutableMode": {
+        "type": "select",
+        "title": "Git source",
+        "description": "Bundled uses the verified Git shipped with Denote. System checks fixed operating-system install locations. Custom uses only the absolute path below.",
+        "default": "bundled",
+        "options": [
+          {
+            "value": "bundled",
+            "label": "Bundled"
+          },
+          {
+            "value": "system",
+            "label": "System"
+          },
+          {
+            "value": "custom",
+            "label": "Custom"
+          }
+        ]
+      },
       "gitExecutablePath": {
         "type": "string",
-        "title": "Git executable",
-        "description": "Absolute path to a Git executable. Leave empty to use the Git the host finds in its own fixed locations.",
+        "title": "Custom Git executable",
+        "description": "Absolute path used only when Git source is Custom.",
         "default": ""
+      },
+      "githubExecutableMode": {
+        "type": "select",
+        "title": "GitHub CLI source",
+        "description": "Disabled keeps GitHub-specific actions unavailable. Bundled uses the verified gh shipped with Denote. System checks fixed install locations. Custom uses only the absolute path below.",
+        "default": "disabled",
+        "options": [
+          {
+            "value": "disabled",
+            "label": "Disabled"
+          },
+          {
+            "value": "bundled",
+            "label": "Bundled"
+          },
+          {
+            "value": "system",
+            "label": "System"
+          },
+          {
+            "value": "custom",
+            "label": "Custom"
+          }
+        ]
       },
       "githubExecutablePath": {
         "type": "string",
-        "title": "GitHub CLI executable",
-        "description": "Absolute path to the GitHub CLI (gh). Leave empty to use the one the host finds in its own fixed locations. Only used when authentication is set to GitHub sign-in.",
+        "title": "Custom GitHub CLI executable",
+        "description": "Absolute path used only when GitHub CLI source is Custom.",
         "default": ""
       },
       "useSystemGitSettings": {
@@ -171,7 +225,7 @@
         "type": "string",
         "title": "Exclude patterns",
         "description": "Comma-separated relative path prefixes excluded from automatic commits. Excludes win over includes.",
-        "default": ""
+        "default": ".denote"
       }
     }
   },

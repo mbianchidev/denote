@@ -1116,6 +1116,21 @@ export type PluginGitRunRequest =
       force?: boolean;
     }
   | {
+      operation: "rename-remote-branch";
+      scope: PluginGitScope;
+      remote: string;
+      name: string;
+      newName: string;
+      authMode?: PluginGitAuthMode;
+    }
+  | {
+      operation: "delete-remote-branch";
+      scope: PluginGitScope;
+      remote: string;
+      name: string;
+      authMode?: PluginGitAuthMode;
+    }
+  | {
       operation: "stash";
       scope: PluginGitScope;
       action: PluginGitStashAction;

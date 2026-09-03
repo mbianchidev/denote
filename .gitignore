@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 .impeccable/hook.cache.json
+src-tauri/resources/tools/
+!src-tauri/resources/tools/
+src-tauri/resources/tools/*
+!src-tauri/resources/tools/.gitkeep
 
 # Editor directories and files
 .vscode/*

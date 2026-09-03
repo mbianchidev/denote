@@ -879,12 +879,17 @@ export class PluginWorkerRuntime {
     actionScope?: PluginActionLeaseScope,
   ): Promise<void> {
     try {
+      const hostScope = takeHostOperationScope(
+        actionScope,
+        message.operation,
+        message.value,
+      );
       const value = await runHostOperation(
         pluginId,
         message.operation,
         message.key,
         message.value,
-        actionScope,
+        hostScope,
         message.operationId,
         this.onVaultCloned,
       );
@@ -900,6 +905,7 @@ export class PluginWorkerRuntime {
         error: errorMessage(error),
       });
     }
+
   }
 
   private waitForMessage(
@@ -1118,6 +1124,33 @@ export class PluginWorkerRuntime {
       throw new Error(`Plugin ${pluginId} start was cancelled.`);
     }
   }
+}
+
+function isCommitGitRequest(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "request" in value &&
+    typeof value.request === "object" &&
+    value.request !== null &&
+    "operation" in value.request &&
+    value.request.operation === "commit"
+  );
+}
+
+export function takeHostOperationScope(
+  actionScope: PluginActionLeaseScope | undefined,
+  operation: string,
+  value: unknown,
+): PluginActionLeaseScope | undefined {
+  const hostScope = actionScope ? { ...actionScope } : undefined;
+  if (operation === "git.run" && isCommitGitRequest(value) && actionScope) {
+    // The sign choice and passphrase belong to one commit request. The copy
+    // returned here receives them; the reusable live lease does not.
+    delete actionScope.gitSigningPassphrase;
+    delete actionScope.gitCommitSign;
+  }
+  return hostScope;
 }
 
 function dataModuleUrl(source: string): string {

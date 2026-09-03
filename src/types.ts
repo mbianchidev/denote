@@ -268,6 +268,16 @@ export interface InstalledPlugin {
   transactionId: string;
 }
 
+export interface PluginToolStatus {
+  tool: "Git" | "GitHub CLI";
+  selectedSource: "Disabled" | "Bundled" | "System" | "Custom";
+  resolvedPath: string | null;
+  version: string | null;
+  validationStatus: "valid" | "invalid" | "disabled";
+  message: string;
+  guidance: string;
+}
+
 /**
  * One host-scheduled automatic local commit. The renderer supplies the vault
  * scope and the project separately, so nothing here identifies a repository.

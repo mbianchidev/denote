@@ -217,17 +217,20 @@ request plus an optional host-issued project target and nothing else: there is n
 raw argument, flag, environment value, executable path, or arbitrary filesystem
 path. The action lease lists every project ID currently issued for the vault, and
 the host rejects any target outside that set. A user
-who needs a Git that is not in a standard location fills in the plugin's
-`gitExecutablePath` setting, a host-rendered string whose default is empty; the
-host reads that setting itself for the requesting plugin and still requires the
-path to be absolute, canonical, and a real Git executable. The reserved
-`githubExecutablePath` setting works the same way for the GitHub CLI.
+who needs another executable selects it through host-owned settings. Git uses
+exactly one of Bundled, System, or Custom; GitHub CLI uses Disabled, Bundled,
+System, or Custom. There is no fallback. Custom paths must be absolute,
+canonical, regular files that pass the tool's version probe. Bundled paths are
+resolved under Tauri's signed resource directory and checked against the
+build-anchored integrity manifest.
 
 Host-rendered source control may attach an SSH signing passphrase to a manual
 commit action as host-only metadata. It is not part of
 `PluginSourceControlAction`, `PluginGitRequest`, any worker message, settings,
 storage, or logs. The native host consumes it through a private one-shot
-`SSH_ASKPASS` file only when the fixed commit plan is signed.
+`SSH_ASKPASS` file only when the fixed commit plan is signed. The host also
+consumes the per-commit signing override on that first commit request, so a
+reusable action lease cannot sign a second commit with either value.
 
 Beyond `run` and `cancel`, the Git capability exposes three host-owned
 operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,
@@ -245,7 +248,8 @@ command runs.
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
 unmerged-path listing, operation-state detection, initialize, stage, unstage,
 hunk stage and unstage, restore from the current upstream, commit, branch and remote listing, history, diff, fetch,
-pull, push, remote add/set/remove, branch create/checkout/rename/delete, stash,
+pull, push, remote add/set/remove, branch create/checkout/rename/delete,
+remote-branch rename/delete, stash,
 merge, rebase, cherry-pick, revert, continue/skip/abort, conflict-stage reads,
 conflict resolution, clone, and cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
 `system`, `public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
@@ -318,8 +322,10 @@ control. The host refuses all three itself in any case.
 
 Requests are scoped to the vault root or one of the host-issued project
 repository identities exposed by `projectContext.getRepositories()`, and vault
-scope works without a marked project. The host resolves and pins a
-canonical Git executable, refuses `PATH` lookup, disables hooks, filters,
+scope works without a marked project. Filesystem-only discovery and
+operation-state requests do not resolve Git. Other requests register
+cancellation before executable probing. The host resolves and pins the exact
+selected Git source, refuses `PATH` lookup for System resolution, disables hooks, filters,
 pagers, editors, prompts, submodule recursion, and
 every protocol except HTTPS and SSH, pins every command-bearing configuration
 key on the command line so repository configuration cannot win, replaces the

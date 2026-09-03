@@ -74,11 +74,14 @@ jobs:
             curl \
             file \
             libayatana-appindicator3-dev \
+            libcurl4-openssl-dev \
+            libexpat1-dev \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
             librsvg2-dev \
             patchelf \
+            zlib1g-dev \
             wget
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -102,6 +105,19 @@ jobs:
         env:
           npm_config_logs_dir: ${{ runner.temp }}/npm-logs
         run: npm ci --ignore-scripts
+
+      - name: Prepare bundled Git and GitHub CLI
+        shell: bash
+        run: |
+          case "${{ runner.os }}-${{ runner.arch }}" in
+            Linux-X64) target=x86_64-unknown-linux-gnu ;;
+            macOS-ARM64) target=aarch64-apple-darwin ;;
+            macOS-X64) target=x86_64-apple-darwin ;;
+            Windows-X64) target=x86_64-pc-windows-msvc ;;
+            *) echo "::error::Unsupported release target"; exit 1 ;;
+          esac
+          npm run prepare:bundled-tools -- --target "$target"
+          npm run verify:bundled-tools -- --target "$target"
 
       - name: Upload npm debug logs
         if: failure() && steps.npm-ci.outcome == 'failure'

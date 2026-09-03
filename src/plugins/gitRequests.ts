@@ -192,6 +192,27 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
         { operation: "delete-branch", scope, name: text(value, "name") },
         { force: optionalFlag(value, "force") },
       );
+    case "rename-remote-branch":
+      return withOptional(
+        {
+          operation: "rename-remote-branch",
+          scope,
+          remote: text(value, "remote"),
+          name: text(value, "name"),
+          newName: text(value, "newName"),
+        },
+        { authMode: optionalLiteral(value, "authMode", AUTH_MODES) },
+      );
+    case "delete-remote-branch":
+      return withOptional(
+        {
+          operation: "delete-remote-branch",
+          scope,
+          remote: text(value, "remote"),
+          name: text(value, "name"),
+        },
+        { authMode: optionalLiteral(value, "authMode", AUTH_MODES) },
+      );
     case "stash":
       return withOptional(
         {

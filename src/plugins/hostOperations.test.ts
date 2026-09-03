@@ -176,6 +176,7 @@ describe("plugin Git host operation", () => {
         projectId: null,
         sourceControlActionId: "commit",
         gitSigningPassphrase: "synthetic-passphrase",
+        gitCommitSign: true,
       },
       OPERATION_ID,
     );
@@ -191,6 +192,7 @@ describe("plugin Git host operation", () => {
       null,
       OPERATION_ID,
       "synthetic-passphrase",
+      true,
     );
   });
 

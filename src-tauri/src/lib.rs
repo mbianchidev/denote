@@ -251,15 +251,17 @@ pub fn run() {
             configure_macos_menu(app)?;
             let app_data_dir = app.path().app_data_dir()?;
             let app_cache_dir = app.path().app_cache_dir()?;
+            let resource_dir = app.path().resource_dir()?;
             std::fs::create_dir_all(&app_data_dir)?;
             if let Err(error) = vault::prune_stale_clipboard_files(&app_cache_dir) {
                 eprintln!("Unable to prune stale clipboard attachment files: {error}");
             }
             app.manage(commands::FileClipboard::new());
             app.manage(commands::LinkRewriteLeases::new());
-            app.manage(plugins::PluginManager::new(
+            app.manage(plugins::PluginManager::with_resource_dir(
                 app_data_dir.clone(),
                 app_cache_dir.clone(),
+                resource_dir,
             ));
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
@@ -345,6 +347,8 @@ pub fn run() {
             plugins::get_plugin_settings,
             plugins::set_plugin_settings,
             plugins::import_plugin_settings,
+            plugins::get_plugin_tool_statuses,
+            plugins::choose_plugin_executable,
             plugins::plugin_storage_get,
             plugins::plugin_storage_set,
             plugins::plugin_storage_delete,

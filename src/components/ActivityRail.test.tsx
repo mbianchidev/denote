@@ -1,9 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityRail } from "./ActivityRail";
 
 describe("ActivityRail", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   it("opens About Denote from a named button", async () => {
     const user = userEvent.setup();
     const onAbout = vi.fn();
@@ -151,6 +155,50 @@ describe("ActivityRail", () => {
         name: "Source control: Git (denote.git.secondary)",
       }),
     ).toBeInTheDocument();
+  });
+
+  it("reorders, groups, hides, and restores plugin entries", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActivityRail
+        activeView="files"
+        activePluginView={null}
+        activeSourceControlProvider={null}
+        pluginViews={[
+          { id: "denote.alpha.view", title: "Alpha" },
+          { id: "denote.beta.view", title: "Beta" },
+        ]}
+        sourceControlProviders={[]}
+        theme="dark"
+        onViewChange={vi.fn()}
+        onPluginViewChange={vi.fn()}
+        onSourceControlProviderChange={vi.fn()}
+        onAbout={vi.fn()}
+        onThemeToggle={vi.fn()}
+      />,
+    );
+
+    fireEvent.dragStart(screen.getByRole("button", { name: "Alpha" }));
+    fireEvent.drop(screen.getByRole("button", { name: "Beta" }));
+    expect(localStorage.getItem("denote.plugin-rail.v1")).toContain(
+      "view:denote.alpha.view",
+    );
+
+    await user.click(screen.getByText("Organize plugins"));
+    await user.type(screen.getByLabelText("Group for Alpha"), "Writing");
+    expect(
+      screen.getByRole("button", {
+        name: "Collapse Writing plugin group",
+      }),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Hide Alpha" }));
+    expect(
+      screen.queryByRole("button", { name: "Alpha" }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByText("Hidden plugins (1)"));
+    await user.click(screen.getByRole("button", { name: "Show Alpha" }));
+    expect(screen.getByRole("button", { name: "Alpha" })).toBeInTheDocument();
   });
 });
 

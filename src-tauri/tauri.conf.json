@@ -34,8 +34,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "macOS": {
-      "signingIdentity": "-"
+    "resources": {
+      "resources/tools": "tools"
     }
   }
 }
