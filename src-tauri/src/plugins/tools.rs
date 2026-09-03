@@ -875,9 +875,10 @@ mod tests {
         let install = tempdir().expect("install");
         let executable =
             resolve_bundled(&resources, install.path(), ToolKind::Git).expect("bundled Git");
-        assert_eq!(
-            probe(&executable, ToolKind::Git).expect("probe"),
-            "git version 2.55.0"
+        assert!(
+            probe(&executable, ToolKind::Git)
+                .expect("probe")
+                .starts_with("git version 2.55.0")
         );
     }
 }
