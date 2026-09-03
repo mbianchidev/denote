@@ -279,7 +279,7 @@ function extractZip(path, destination) {
         "-NoProfile",
         "-NonInteractive",
         "-Command",
-        "Expand-Archive -LiteralPath $env:DENOTE_ARCHIVE -DestinationPath $env:DENOTE_DESTINATION -Force",
+        "Add-Type -AssemblyName System.IO.Compression.FileSystem; [IO.Compression.ZipFile]::ExtractToDirectory($env:DENOTE_ARCHIVE, $env:DENOTE_DESTINATION)",
       ],
       {
         env: {
