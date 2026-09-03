@@ -3,7 +3,19 @@ import type {
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginProjectRepositoryContext,
+  PluginSourceControlAction,
+  PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
+import {
+  isPluginAutomaticLocalCommitPayload,
+  type PluginAutomaticLocalCommitPayload,
+} from "./automaticCommits";
+
+export type {
+  PluginAutomaticLocalCommitContribution,
+  PluginAutomaticLocalCommitPayload,
+} from "./automaticCommits";
 
 export interface PluginCommandContribution {
   pluginId: string;
@@ -32,6 +44,13 @@ export interface PluginDecorationContribution {
   caseSensitive: boolean;
 }
 
+export interface PluginSourceControlContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+  model: PluginSourceControlViewModel;
+}
+
 export interface PluginWorkerConnectMessage {
   type: "connect";
   moduleUrl: string;
@@ -44,8 +63,15 @@ export type PluginHostMessage =
   | {
       type: "activate";
       projectContext?: PluginProjectContext | null;
+      repositories?: PluginProjectRepositoryContext[];
     }
   | { type: "run-command"; commandId: string; requestId: string }
+  | {
+      type: "run-source-control-action";
+      providerId: string;
+      action: PluginSourceControlAction;
+      requestId: string;
+    }
   | { type: "note-event"; event: PluginNoteEvent }
   | {
       type: "project-context-change";
@@ -80,14 +106,42 @@ export type PluginRuntimeMessage =
     }
   | { type: "unregister-decoration"; id: string }
   | {
+      type: "register-source-control";
+      id: string;
+      title: string;
+      model: PluginSourceControlViewModel;
+    }
+  | {
+      type: "update-source-control";
+      id: string;
+      model: PluginSourceControlViewModel;
+    }
+  | { type: "unregister-source-control"; id: string }
+  | {
+      type: "register-automatic-local-commit";
+      schedule: PluginAutomaticLocalCommitPayload;
+    }
+  | {
+      type: "update-automatic-local-commit";
+      schedule: PluginAutomaticLocalCommitPayload;
+    }
+  | { type: "unregister-automatic-local-commit"; id: string }
+  | {
       type: "host-request";
       requestId: string;
       operation: string;
       actionId?: string;
       key?: string;
       value?: unknown;
+      /** Caller-generated ID for a cancellable native operation. */
+      operationId?: string;
     }
   | { type: "command-result"; requestId: string; error?: string }
+  | {
+      type: "source-control-action-result";
+      requestId: string;
+      error?: string;
+    }
   | {
       type: "log";
       level: "debug" | "info" | "warn" | "error";
@@ -110,6 +164,7 @@ export function isPluginRuntimeMessage(
       return typeof value.error === "string";
     case "deactivated":
     case "command-result":
+    case "source-control-action-result":
       return (
         typeof value.requestId === "string" &&
         (value.error === undefined || typeof value.error === "string")
@@ -139,12 +194,32 @@ export function isPluginRuntimeMessage(
       );
     case "unregister-decoration":
       return typeof value.id === "string";
+    case "register-source-control":
+      return (
+        typeof value.id === "string" &&
+        typeof value.title === "string" &&
+        isPluginSourceControlViewModel(value.model)
+      );
+    case "update-source-control":
+      return (
+        typeof value.id === "string" &&
+        isPluginSourceControlViewModel(value.model)
+      );
+    case "unregister-source-control":
+      return typeof value.id === "string";
+    case "register-automatic-local-commit":
+    case "update-automatic-local-commit":
+      return isPluginAutomaticLocalCommitPayload(value.schedule);
+    case "unregister-automatic-local-commit":
+      return typeof value.id === "string";
     case "host-request":
       return (
         typeof value.requestId === "string" &&
         typeof value.operation === "string" &&
         (value.key === undefined || typeof value.key === "string") &&
-        (value.actionId === undefined || typeof value.actionId === "string")
+        (value.actionId === undefined || typeof value.actionId === "string") &&
+        (value.operationId === undefined ||
+          typeof value.operationId === "string")
       );
     case "log":
       return (
@@ -156,6 +231,574 @@ export function isPluginRuntimeMessage(
   }
 }
 
+export function isPluginHostMessage(value: unknown): value is PluginHostMessage {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return false;
+  }
+  switch (value.type) {
+    case "activate":
+      return (
+        (value.projectContext === undefined ||
+          value.projectContext === null ||
+          isProjectContext(value.projectContext)) &&
+        (value.repositories === undefined ||
+          isArrayOf(value.repositories, isProjectRepositoryContext))
+      );
+    case "run-command":
+      return (
+        typeof value.commandId === "string" &&
+        typeof value.requestId === "string"
+      );
+    case "run-source-control-action":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginSourceControlAction(value.action)
+      );
+    case "note-event":
+      return (
+        isRecord(value.event) &&
+        typeof value.event.path === "string" &&
+        ["opened", "changed", "saved", "closed"].includes(
+          String(value.event.kind),
+        )
+      );
+    case "project-context-change":
+      return (
+        isRecord(value.event) &&
+        isNullableProjectContext(value.event.previous) &&
+        isNullableProjectContext(value.event.current) &&
+        (value.event.repositories === undefined ||
+          isArrayOf(value.event.repositories, isProjectRepositoryContext)) &&
+        typeof value.event.workspaceChanged === "boolean"
+      );
+    case "deactivate":
+      return typeof value.requestId === "string";
+    case "host-response":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string")
+      );
+    default:
+      return false;
+  }
+}
+
+export function isPluginSourceControlAction(
+  value: unknown,
+): value is PluginSourceControlAction {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    (value.values === undefined ||
+      (isRecord(value.values) &&
+        Object.values(value.values).every(
+          (entry) =>
+            typeof entry === "string" ||
+            typeof entry === "boolean" ||
+            (typeof entry === "number" && Number.isFinite(entry)),
+        )))
+  );
+}
+
+export function isPluginSourceControlViewModel(
+  value: unknown,
+): value is PluginSourceControlViewModel {
+  if (
+    !isRecord(value) ||
+    !isRepository(value.repository) ||
+    !isArrayOf(value.resourceGroups, isResourceGroup) ||
+    !isArrayOf(value.branches, isBranch) ||
+    !isArrayOf(value.remotes, isRemote) ||
+    !isArrayOf(value.history, isHistoryEntry) ||
+    !isHistoryPage(value.historyPage) ||
+    !isCommitDetail(value.commitDetail) ||
+    !isArrayOf(value.diffFiles, isDiffFile) ||
+    !isDiffSource(value.diffSource) ||
+    !isArrayOf(value.conflicts, isConflict) ||
+    !isConflictDetail(value.conflictDetail) ||
+    !isOperationProgress(value.operationProgress) ||
+    !isOperationPlan(value.operationPlan) ||
+    !isRecovery(value.recovery) ||
+    !isRemoteAccess(value.remoteAccess) ||
+    !isPendingBranchSwitch(value.pendingBranchSwitch) ||
+    !isRecord(value.selectedView)
+  ) {
+    return false;
+  }
+  if (value.selectedTab === "changes") {
+    return (
+      value.selectedView.kind === "repository" ||
+      ((value.selectedView.kind === "diff" ||
+        value.selectedView.kind === "conflict") &&
+        typeof value.selectedView.path === "string")
+    );
+  }
+  if (value.selectedTab === "history") {
+    return (
+      value.selectedView.kind === "history" ||
+      (value.selectedView.kind === "commit" &&
+        typeof value.selectedView.commitId === "string") ||
+      (value.selectedView.kind === "diff" &&
+        typeof value.selectedView.path === "string" &&
+        typeof value.selectedView.commitId === "string")
+    );
+  }
+  return (
+    value.selectedTab === "branches" &&
+    (value.selectedView.kind === "branches" ||
+      value.selectedView.kind === "remotes")
+  );
+}
+
+function isRepository(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.repositoryId === "string" &&
+    typeof value.label === "string" &&
+    typeof value.initialized === "boolean" &&
+    isNullableString(value.branch) &&
+    isNullableString(value.upstream) &&
+    isNonNegativeInteger(value.ahead) &&
+    isNonNegativeInteger(value.behind) &&
+    (value.latestCommit === null || isCommitSummary(value.latestCommit)) &&
+    typeof value.busy === "boolean" &&
+    (value.busyMessage === undefined || typeof value.busyMessage === "string") &&
+    (value.activeOperationId === undefined ||
+      typeof value.activeOperationId === "string")
+  );
+}
+
+function isCommitSummary(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    ["id", "shortId", "summary", "authorName", "authoredAt"].every(
+      (key) => typeof value[key] === "string",
+    )
+  );
+}
+
+function isResourceGroup(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.kind === "string" &&
+    ["staged", "unstaged", "untracked", "conflicted", "ignored"].includes(
+      value.kind,
+    ) &&
+    typeof value.label === "string" &&
+    isArrayOf(value.resources, isResource)
+  );
+}
+
+function isResource(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    isResourceStatus(value.status) &&
+    isNonNegativeInteger(value.additions) &&
+    isNonNegativeInteger(value.deletions) &&
+    typeof value.binary === "boolean"
+  );
+}
+
+function isBranch(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.current === "boolean" &&
+    typeof value.remote === "boolean" &&
+    isNullableString(value.upstream) &&
+    isNonNegativeInteger(value.ahead) &&
+    isNonNegativeInteger(value.behind)
+  );
+}
+
+function isRemoteAccess(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.authMode === "string" &&
+    ["public", "ssh-agent", "github-https"].includes(value.authMode) &&
+    typeof value.cloneAvailable === "boolean" &&
+    typeof value.githubAvailable === "boolean" &&
+    isArrayOf(value.repositories, isRepositoryChoice) &&
+    (value.cleanup === null || isCloneCleanup(value.cleanup)) &&
+    (value.review === null || isOperationReview(value.review))
+  );
+}
+
+function isRepositoryChoice(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.nameWithOwner === "string" &&
+    typeof value.httpsUrl === "string" &&
+    typeof value.sshUrl === "string" &&
+    isNullableString(value.defaultBranch) &&
+    typeof value.private === "boolean"
+  );
+}
+
+function isCloneCleanup(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.token === "string" &&
+    typeof value.label === "string"
+  );
+}
+
+function isOperationReview(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    typeof value.outcome === "string" &&
+    ["succeeded", "failed", "cancelled"].includes(value.outcome) &&
+    typeof value.summary === "string" &&
+    isNullableString(value.detail) &&
+    (value.retryActionId === undefined ||
+      typeof value.retryActionId === "string")
+  );
+}
+
+function isRemote(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    isNullableString(value.fetchUrl) &&
+    isNullableString(value.pushUrl)
+  );
+}
+
+function isHistoryEntry(value: unknown): boolean {
+  return (
+    isCommitSummary(value) &&
+    isRecord(value) &&
+    isArrayOf(value.parentIds, isString) &&
+    isArrayOf(value.refs, isString)
+  );
+}
+
+/**
+ * A history page describes the bounded window a provider read. Both counts are
+ * whole numbers, so a surface cannot be asked to render a page of unknown or
+ * negative size.
+ */
+function isHistoryPage(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isNonNegativeInteger(value.pageIndex) &&
+    isNonNegativeInteger(value.pageSize) &&
+    typeof value.hasPrevious === "boolean" &&
+    typeof value.hasNext === "boolean" &&
+    typeof value.loading === "boolean" &&
+    isNullableString(value.error)
+  );
+}
+
+function isCommitDetail(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    isHistoryEntry(value.commit) &&
+    isArrayOf(value.files, isDiffFile) &&
+    isNullableString(value.limitation)
+  );
+}
+
+/**
+ * Which comparison produced the diff a model carries. Only the two directions
+ * the host can apply a hunk in, and a commit that names the exact revision it
+ * came from, are accepted.
+ */
+function isDiffSource(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    value.kind === "worktree" ||
+    value.kind === "index" ||
+    (value.kind === "commit" && typeof value.commitId === "string")
+  );
+}
+
+function isDiffFile(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    isNullableString(value.previousPath) &&
+    isResourceStatus(value.status) &&
+    isNonNegativeInteger(value.additions) &&
+    isNonNegativeInteger(value.deletions) &&
+    typeof value.binary === "boolean" &&
+    isArrayOf(value.hunks, isDiffHunk)
+  );
+}
+
+function isDiffHunk(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.header === "string" &&
+    isNonNegativeInteger(value.oldStart) &&
+    isNonNegativeInteger(value.oldLines) &&
+    isNonNegativeInteger(value.newStart) &&
+    isNonNegativeInteger(value.newLines) &&
+    isArrayOf(value.lines, isDiffLine)
+  );
+}
+
+function isDiffLine(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.kind === "string" &&
+    ["context", "addition", "deletion"].includes(value.kind) &&
+    isNullableNonNegativeInteger(value.oldLineNumber) &&
+    isNullableNonNegativeInteger(value.newLineNumber) &&
+    typeof value.content === "string"
+  );
+}
+
+function isConflict(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    isResourceStatus(value.status) &&
+    typeof value.oursLabel === "string" &&
+    typeof value.theirsLabel === "string" &&
+    isNullableString(value.baseLabel)
+  );
+}
+
+const ADVANCED_OPERATIONS = ["merge", "rebase", "cherry-pick", "revert"];
+const CONFLICT_SIDES = ["base", "ours", "theirs"];
+
+/**
+ * The conflict a provider has open. Every side is described structurally, and
+ * every chunk carries the three recorded sides as line arrays, so a surface
+ * renders text a provider read out of the index and nothing else.
+ */
+function isConflictDetail(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    (value.operation === null ||
+      (typeof value.operation === "string" &&
+        ADVANCED_OPERATIONS.includes(value.operation))) &&
+    typeof value.binary === "boolean" &&
+    typeof value.encrypted === "boolean" &&
+    isConflictSide(value.base, "base") &&
+    isConflictSide(value.ours, "ours") &&
+    isConflictSide(value.theirs, "theirs") &&
+    isArrayOf(value.chunks, isConflictChunk) &&
+    isNullableString(value.result) &&
+    typeof value.unsavedResult === "boolean" &&
+    isNonNegativeInteger(value.unresolvedChunks) &&
+    typeof value.wholeSideOnly === "boolean" &&
+    isNullableString(value.limitation) &&
+    isNullableString(value.status) &&
+    isNullableString(value.error) &&
+    typeof value.loading === "boolean"
+  );
+}
+
+function isConflictSide(value: unknown, side: string): boolean {
+  return (
+    isRecord(value) &&
+    value.side === side &&
+    typeof value.label === "string" &&
+    typeof value.present === "boolean" &&
+    isNullableString(value.text) &&
+    isNonNegativeInteger(value.byteLength)
+  );
+}
+
+function isConflictChunk(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.kind === "string" &&
+    ["stable", "resolved", "conflict"].includes(value.kind) &&
+    isArrayOf(value.base, isText) &&
+    isArrayOf(value.ours, isText) &&
+    isArrayOf(value.theirs, isText) &&
+    (value.choice === null ||
+      (typeof value.choice === "string" &&
+        CONFLICT_SIDES.includes(value.choice))) &&
+    typeof value.automatic === "boolean"
+  );
+}
+
+/**
+ * The operation Git reports is in progress. Only the four operations Denote
+ * can resume are accepted, so a model can never ask the host to offer Continue
+ * for something Denote does not run.
+ */
+function isOperationProgress(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    ADVANCED_OPERATIONS.includes(value.operation) &&
+    typeof value.summary === "string" &&
+    isArrayOf(value.conflictedPaths, isText) &&
+    typeof value.continueAvailable === "boolean" &&
+    isNullableString(value.continueUnavailableReason) &&
+    typeof value.skipAvailable === "boolean" &&
+    typeof value.abortAvailable === "boolean"
+  );
+}
+
+/** One prepared operation that is waiting for an explicit answer. */
+function isOperationPlan(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    ADVANCED_OPERATIONS.includes(value.operation) &&
+    typeof value.source === "string" &&
+    isNullableString(value.sourceDetail) &&
+    isNullableString(value.currentBranch) &&
+    typeof value.risk === "string" &&
+    ["creates-commit", "may-conflict", "rewrites-history"].includes(
+      value.risk,
+    ) &&
+    typeof value.summary === "string" &&
+    isArrayOf(value.affectedPaths, isText) &&
+    isNullableString(value.affectedPathsLimitation) &&
+    typeof value.startActionId === "string" &&
+    typeof value.cancelActionId === "string"
+  );
+}
+
+/**
+ * A pending branch switch names the exact ref, the exact paths it would
+ * disturb, and the three action IDs a surface may return. Anything else is
+ * rejected, so a model can never ask the host to render an unstructured
+ * prompt.
+ */
+function isPendingBranchSwitch(value: unknown): boolean {
+  if (value === null) {
+    return true;
+  }
+  return (
+    isRecord(value) &&
+    typeof value.operation === "string" &&
+    ["checkout", ...ADVANCED_OPERATIONS].includes(value.operation) &&
+    typeof value.target === "string" &&
+    (value.localBranch === null || typeof value.localBranch === "string") &&
+    (value.fromBranch === null || typeof value.fromBranch === "string") &&
+    isArrayOf(value.stagedPaths, isText) &&
+    isArrayOf(value.unstagedPaths, isText) &&
+    isArrayOf(value.untrackedPaths, isText) &&
+    typeof value.commitAvailable === "boolean" &&
+    typeof value.stashAvailable === "boolean" &&
+    (value.stashUnavailableReason === null ||
+      typeof value.stashUnavailableReason === "string") &&
+    typeof value.commitActionId === "string" &&
+    typeof value.stashActionId === "string" &&
+    typeof value.cancelActionId === "string"
+  );
+}
+
+function isText(value: unknown): boolean {
+  return typeof value === "string";
+}
+
+function isRecovery(value: unknown): boolean {  if (!isRecord(value)) {
+    return false;
+  }
+  if (value.state === "idle") {
+    return true;
+  }
+  if (
+    (value.state !== "running" && value.state !== "failed") ||
+    typeof value.operationId !== "string" ||
+    typeof value.message !== "string"
+  ) {
+    return false;
+  }
+  return (
+    value.state === "running" ||
+    ((value.retryActionId === undefined ||
+      typeof value.retryActionId === "string") &&
+      (value.dismissActionId === undefined ||
+        typeof value.dismissActionId === "string"))
+  );
+}
+
+function isResourceStatus(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    [
+      "added",
+      "modified",
+      "deleted",
+      "renamed",
+      "copied",
+      "type-changed",
+      "unmerged",
+      "unknown",
+    ].includes(value)
+  );
+}
+
+function isProjectContext(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.projectId === "string" &&
+    typeof value.rootPath === "string"
+  );
+}
+
+function isProjectRepositoryContext(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.repositoryId === "string" &&
+    value.repositoryId.length > 0 &&
+    (value.projectId === null ||
+      (typeof value.projectId === "string" && value.projectId.length > 0)) &&
+    typeof value.label === "string" &&
+    value.label.length > 0
+  );
+}
+
+function isNullableProjectContext(value: unknown): boolean {
+  return value === null || isProjectContext(value);
+}
+
+function isArrayOf(
+  value: unknown,
+  predicate: (entry: unknown) => boolean,
+): boolean {
+  return Array.isArray(value) && value.every(predicate);
+}
+
+function isString(value: unknown): boolean {
+  return typeof value === "string";
+}
+
+function isNullableString(value: unknown): boolean {
+  return value === null || typeof value === "string";
+}
+
+function isNonNegativeInteger(value: unknown): boolean {
+  return (
+    typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+  );
+}
+
+function isNullableNonNegativeInteger(value: unknown): boolean {
+    return value === null || isNonNegativeInteger(value);
+}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -46,6 +46,12 @@ import {
   useState,
   type CSSProperties,
 } from "react";
+import type {
+  PluginProjectRepositoryContext,
+  PluginSourceControlAction,
+  PluginSourceControlDiffFile,
+  PluginSourceControlDiffSource,
+} from "@denote/plugin-sdk";
 import { ActivityRail } from "./components/ActivityRail";
 import { AboutDialog } from "./components/AboutDialog";
 import { ActionDialog } from "./components/ActionDialog";
@@ -75,6 +81,9 @@ import {
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
+import { SourceControlPanel } from "./components/SourceControlPanel";
+import type { SourceControlActionHostOptions } from "./components/SourceControlPanel";
+import { SourceControlDiffEditor } from "./components/SourceControlDiffEditor";
 import { SourceOutline } from "./components/SourceOutline";
 import { SourceLanguageStatus } from "./components/SourceLanguageStatus";
 import { TableOfContents } from "./components/TableOfContents";
@@ -127,6 +136,10 @@ import {
   resolveSourceLanguage,
   type SourceLanguageOverride,
 } from "./lib/syntaxLanguages";
+import {
+  shouldPublishOutline,
+  type StableOutlineSnapshot,
+} from "./lib/outlineStability";
 import { buildProjectCommands } from "./lib/projectCommands";
 import { welcomePageTarget } from "./lib/welcomePage";
 import {
@@ -234,6 +247,8 @@ import {
 } from "./lib/replace";
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
+import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
+import type { PluginAutomaticLocalCommitContribution } from "./plugins/workerRuntime";
 import { getOutlineWidth, saveOutlineWidth } from "./lib/outlineWidth";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
@@ -254,6 +269,11 @@ import {
   isWebLink,
 } from "./lib/links";
 import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
+import {
+  sourceControlDiffPath,
+  sourceControlDiffTitle,
+  sourceControlPatch,
+} from "./lib/sourceControlDiff";
 import type {
   SourceEditorNavigation,
   SourceMinimapLine,
@@ -268,6 +288,7 @@ import type {
   HeadingItem,
   HistoryRevision,
   KnownVaultFile,
+  NoteDocument,
   PaneLayoutKind,
   ProjectConfiguration,
   ProjectRoot,
@@ -311,6 +332,27 @@ interface LinkRewriteSave {
   lineEnding: EditorTab["lineEnding"];
 }
 
+interface OutlineCacheEntry {
+  ready: boolean;
+  snapshot: StableOutlineSnapshot | null;
+}
+
+function outlineCacheKey(
+  vaultPath: string,
+  path: string,
+  languageId: string | null,
+): string {
+  return `${vaultPath}\u0000${path}\u0000${languageId ?? "markdown"}`;
+}
+
+function sourceViewportCacheKey(
+  vaultPath: string,
+  paneId: string,
+  path: string,
+): string {
+  return `${vaultPath}\u0000${paneId}\u0000${path}`;
+}
+
 const DOCK_POSITION_LABELS: Record<PaneDockPosition, string> = {
   center: "into the pane",
   "tab-strip": "into the pane",
@@ -320,6 +362,351 @@ const DOCK_POSITION_LABELS: Record<PaneDockPosition, string> = {
   bottom: "below",
 };
 
+const WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS = new Set([
+  "initialize",
+  "stage",
+  "unstage",
+  "stage-all",
+  "unstage-all",
+  "restore-from-upstream",
+  "restore-all-from-upstream",
+  "stage-hunk",
+  "unstage-hunk",
+  "commit",
+  "pull",
+  "add-remote",
+  "set-remote-url",
+  "remove-remote",
+  "create-branch",
+  "switch-branch",
+  "checkout-remote-branch",
+  "rename-branch",
+  "delete-branch",
+  "branch-switch-commit",
+  "branch-switch-stash",
+  "stash",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "revert",
+  "continue",
+  "skip",
+  "abort",
+  "resolve-conflict",
+  "resolve-conflict-stage",
+  "clone",
+]);
+
+/**
+ * Source-control actions that can replace what is on disk.
+ *
+ * A checkout, a merge, and everything that resumes one rewrite tracked files
+ * underneath the editor. Every open note was already flushed before the action
+ * started, so after one of these the workspace is read again and every open tab
+ * is reloaded from disk: what the editor shows is then the branch the
+ * repository is actually on, never a mixture of two.
+ */
+const WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS = new Set([
+  "switch-branch",
+  "checkout-remote-branch",
+  "create-branch",
+  "branch-switch-commit",
+  "branch-switch-stash",
+  "pull",
+  "merge",
+  "rebase",
+  "cherry-pick",
+  "revert",
+  "continue",
+  "skip",
+  "abort",
+  // Resolving a conflict writes the chosen content into the vault, so the
+  // editor has to read that file again like any other checkout would.
+  "resolve-conflict",
+  "resolve-conflict-stage",
+]);
+
+/**
+ * The four operations Denote runs, and the labels it uses for them.
+ *
+ * A confirmation is built from this map alone, so an action can only ever be
+ * confirmed as one of the operations the host itself knows: a provider cannot
+ * supply wording, and a value that is not one of these is confirmed in the
+ * neutral wording below instead.
+ */
+const ADVANCED_OPERATION_LABELS: Record<string, string> = {
+  merge: "merge",
+  rebase: "rebase",
+  "cherry-pick": "cherry-pick",
+  revert: "revert",
+};
+
+const CONFLICT_SIDE_LABELS: Record<string, string> = {
+  base: "the common ancestor",
+  ours: "this branch's side",
+  theirs: "the incoming side",
+};
+
+/** The typed operation an action names, or null when it names none. */
+function advancedOperation(values: Record<string, unknown>): string | null {
+  const operation = values.operation ?? values.sequencer;
+  return typeof operation === "string" &&
+    operation in ADVANCED_OPERATION_LABELS
+    ? operation
+    : null;
+}
+
+/**
+ * Confirmations the host owns for source-control actions that reach a remote,
+ * change where a remote points, or delete something.
+ *
+ * The exact remote, URL, and branch are always named, so a confirmation can
+ * never be about a different repository than the one the user is looking at. A
+ * plugin cannot suppress, reword, or pre-answer one: the host reads the action
+ * it was given and decides.
+ */
+function sourceControlConfirmation(
+  action: PluginSourceControlAction,
+  repositoryLabel = "",
+): Omit<ActionDialogState, "mode" | "initialValue"> | null {
+  const values = action.values ?? {};
+  const value = (key: string) =>
+    typeof values[key] === "string" ? (values[key] as string) : "";
+  const flag = (key: string) => values[key] === true;
+  const remote = value("remote");
+  const branch = value("branch");
+  const name = value("name");
+  const url = value("url");
+  const path = value("path");
+  const from = value("from");
+  const newName = value("newName");
+  const startPoint = value("startPoint");
+  const remoteBranch = value("remoteBranch");
+  const localName = value("localName");
+  const leaving = from ? `"${from}"` : "the current branch";
+  switch (action.id) {
+    case "switch-branch":
+      return {
+        title: "Switch branches",
+        message: `Switch from ${leaving} to "${branch}"? Denote saves open notes first, and the checkout can change, add, or remove files in this vault.`,
+        confirmLabel: "Switch branch",
+        dangerous: false,
+      };
+    case "create-branch":
+      return {
+        title: flag("checkout") ? "Create and switch" : "Create a branch",
+        message: `Create "${name}" from ${startPoint ? `"${startPoint}"` : leaving}${
+          flag("checkout")
+            ? ", then switch to it? Denote saves open notes first, and the checkout can change, add, or remove files in this vault."
+            : "? You stay on the branch you are on and nothing in this vault changes."
+        }`,
+        confirmLabel: flag("checkout") ? "Create and switch" : "Create branch",
+        dangerous: false,
+      };
+    case "checkout-remote-branch":
+      return {
+        title: "Check out a remote branch",
+        message: `Create the local branch "${localName}" from "${remoteBranch}" and switch to it from ${leaving}? Denote saves open notes first, and the checkout can change, add, or remove files in this vault.`,
+        confirmLabel: "Check out",
+        dangerous: false,
+      };
+    case "rename-branch":
+      return {
+        title: "Rename a branch",
+        message: `Rename the local branch "${name}" to "${newName}"? Its commits stay exactly as they are, and any remote branch keeps its own name.`,
+        confirmLabel: "Rename branch",
+        dangerous: false,
+      };
+    case "delete-branch":
+      return {
+        title: "Delete a branch",
+        message: `Delete the local branch "${name}"? Commits that exist only on it can become unreachable. Denote never deletes the branch you are on, and never deletes a remote branch.`,
+        confirmLabel: "Delete branch",
+        dangerous: true,
+      };
+    case "branch-switch-commit":
+    case "branch-switch-stash": {
+      // The review can be holding a checkout or one of the four operations, so
+      // the confirmation names whichever typed operation will actually run.
+      const operation = advancedOperation(values);
+      const preserving =
+        action.id === "branch-switch-commit"
+          ? {
+              title: "Commit everything, then ",
+              lead: `Commit every listed change on ${leaving}`,
+              tail: "Denote commits exactly the files it listed and discards nothing.",
+              label: "Commit and ",
+            }
+          : {
+              title: "Stash everything, then ",
+              lead: `Stash every listed change from ${leaving}`,
+              tail: "The work is kept in the repository's stash; Denote never drops a stash for you.",
+              label: "Stash and ",
+            };
+      if (!operation) {
+        return {
+          title: `${preserving.title}switch`,
+          message: `${preserving.lead} and then switch to "${branch}"? ${preserving.tail}`,
+          confirmLabel: `${preserving.label}switch`,
+          dangerous: false,
+        };
+      }
+      const named = ADVANCED_OPERATION_LABELS[operation];
+      return {
+        title: `${preserving.title}${named}`,
+        message: `${preserving.lead} and then ${named} "${branch}"? ${preserving.tail}${
+          operation === "rebase"
+            ? ` The rebase then rewrites the commits on ${leaving}: they are recorded again with new identities.`
+            : ""
+        }`,
+        confirmLabel: `${preserving.label}${named}`,
+        dangerous: operation === "rebase",
+      };
+    }
+    case "pull":
+      return {
+        title: "Pull from a remote",
+        message: `Pull "${branch}" from "${remote}" into this vault? Denote saves open notes first, and the pull can change, add, or remove files in the vault.`,
+        confirmLabel: "Pull",
+        dangerous: false,
+      };
+    case "restore-from-upstream":
+    case "restore-all-from-upstream":
+      return {
+        title: "Restore from the remote branch",
+        message: `Replace ${
+          action.id === "restore-all-from-upstream"
+            ? "all tracked staged and working-tree changes"
+            : `the staged and working-tree versions of "${path}"`
+        }${
+          repositoryLabel ? ` in ${repositoryLabel}` : ""
+        } with the version on its current upstream branch? Local changes to ${
+          action.id === "restore-all-from-upstream"
+            ? "those tracked files"
+            : "this tracked file"
+        } will be lost. Untracked files are never removed.`,
+        confirmLabel:
+          action.id === "restore-all-from-upstream"
+            ? "Restore tracked files"
+            : "Restore file",
+        dangerous: true,
+      };
+    case "push":
+      return {
+        title: "Push to a remote",
+        message: `Push "${branch}" to "${remote}"? This publishes the commits on that branch to the remote.`,
+        confirmLabel: "Push",
+        dangerous: false,
+      };
+    case "set-remote-url":
+      return {
+        title: "Change a remote URL",
+        message: `Point the "${name}" remote at ${url}? Every later fetch, pull, and push for "${name}" will use that address instead.`,
+        confirmLabel: "Change URL",
+        dangerous: true,
+      };
+    case "remove-remote":
+      return {
+        title: "Remove a remote",
+        message: `Remove the "${name}" remote? Its remote-tracking branches are removed with it. Your commits and files stay exactly as they are.`,
+        confirmLabel: "Remove remote",
+        dangerous: true,
+      };
+    case "clone":
+      return {
+        title: "Clone a repository",
+        message: `Clone ${url}${branch ? ` on branch "${branch}"` : ""} into an empty folder you choose? Denote saves and closes the current vault, then opens the clone as a vault.`,
+        confirmLabel: "Choose a folder",
+        dangerous: false,
+      };
+    case "clean-failed-clone":
+      return {
+        title: "Delete the incomplete clone",
+        message:
+          "Permanently delete the folder that the failed clone left behind? Everything inside it is removed. Denote checks first that the folder is still that failed clone and nothing else.",
+        confirmLabel: "Delete the folder",
+        dangerous: true,
+      };
+    case "merge":
+    case "rebase":
+    case "cherry-pick":
+    case "revert": {
+      // The action ID is the operation, so the wording can never describe
+      // something other than what will run.
+      const operation = action.id;
+      const target = operation === "merge" || operation === "rebase"
+        ? `"${value("ref")}"`
+        : `commit ${value("commitId")}`;
+      // The review names the branch it was prepared on, so the confirmation
+      // says which branch changes rather than "the current branch". The only
+      // wording left for a missing name is the state that has no branch.
+      const changing = from ? `"${from}"` : "the detached HEAD you are on";
+      const rewrites = operation === "rebase";
+      return {
+        title: `Start a ${operation}`,
+        message: rewrites
+          ? `Rebase ${changing} onto ${target}? This rewrites the commits on ${changing}: they are recorded again with new identities, and anyone who already has them will see a different history. Denote saves open notes first, and the rebase can change, add, or remove files in this vault.`
+          : `${operation === "merge" ? "Merge" : operation === "cherry-pick" ? "Cherry-pick" : "Revert"} ${target} into ${changing}? Denote saves open notes first, and the operation can change, add, or remove files in this vault. It may stop with conflicts for you to resolve.`,
+        confirmLabel: `Start ${operation}`,
+        dangerous: rewrites,
+      };
+    }
+    case "continue":
+    case "skip":
+    case "abort": {
+      const operation = advancedOperation(values);
+      const named = operation
+        ? `the ${ADVANCED_OPERATION_LABELS[operation]}`
+        : "the operation in progress";
+      if (action.id === "continue") {
+        return {
+          title: "Continue the operation",
+          message: `Continue ${named}? Git records what you have staged and carries on. Denote saves open notes first, and the vault can change as it does.`,
+          confirmLabel: "Continue",
+          dangerous: false,
+        };
+      }
+      if (action.id === "skip") {
+        return {
+          title: "Skip this step",
+          message: `Skip this step of ${named}? The commit being replayed is dropped: its change is not recorded anywhere, and this cannot be undone from Denote.`,
+          confirmLabel: "Skip the step",
+          dangerous: true,
+        };
+      }
+      return {
+        title: "Abort the operation",
+        message: `Abort ${named}? The repository goes back to the state it was in before the operation started, and every conflict resolution you have made in it is discarded.`,
+        confirmLabel: "Abort",
+        dangerous: true,
+      };
+    }
+    case "resolve-conflict":
+      return {
+        title: "Mark the conflict resolved",
+        message:
+          "Write the merged result into the vault and stage it? The conflicted copy of that file is replaced by the result you reviewed. Every other conflicted file stays as it is.",
+        confirmLabel: "Mark resolved",
+        dangerous: false,
+      };
+    case "resolve-conflict-stage": {
+      const side = value("side");
+      const named =
+        side in CONFLICT_SIDE_LABELS
+          ? CONFLICT_SIDE_LABELS[side]
+          : "the chosen side";
+      return {
+        title: "Resolve with one whole side",
+        message: `Replace the conflicted file with ${named}, exactly as Git recorded it, and stage it? The other sides of that file are not kept in the vault.`,
+        confirmLabel: "Use that side",
+        dangerous: true,
+      };
+    }
+    default:
+      return null;
+  }
+}
+
 function App() {
   const [theme, setTheme] = useState<Theme>(() => getTheme());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
@@ -328,6 +715,16 @@ function App() {
   const [activePluginSidebar, setActivePluginSidebar] = useState<string | null>(
     null,
   );
+  const [activeSourceControlProvider, setActiveSourceControlProvider] =
+    useState<{
+      pluginId: string;
+      providerId: string;
+    } | null>(null);
+  const showSidebarView = useCallback((view: SidebarView) => {
+    setActiveSourceControlProvider(null);
+    setActivePluginSidebar(null);
+    setSidebarView(view);
+  }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [showDotfiles, setShowDotfiles] = useState(() => getShowDotfiles());
@@ -379,15 +776,13 @@ function App() {
     path: string;
     content: string;
     links: string[];
-    headings: HeadingItem[];
-    symbols: SourceSymbol[];
-    minimap: SourceMinimapLine[];
   } | null>(null);
-  const documentAnalysisGeneration = useRef(0);
-  const [sourceViewport, setSourceViewport] = useState<{
-    path: string;
-    viewport: SourceViewport;
-  } | null>(null);
+  const outlineCache = useRef(new Map<string, OutlineCacheEntry>());
+  const outlineGeneration = useRef(new Map<string, number>());
+  const [, setOutlineRevision] = useState(0);
+  const [sourceViewports, setSourceViewports] = useState<
+    Record<string, SourceViewport>
+  >({});
   const [sourceNavigation, setSourceNavigation] = useState<
     (SourceEditorNavigation & { path: string }) | null
   >(null);
@@ -443,6 +838,16 @@ function App() {
   const beginWorkspaceOperationRef = useRef<() => Promise<boolean>>(
     async () => true,
   );
+  /**
+   * Opens the vault a host clone produced. It is held in a ref because the
+   * plugin runtime is created before the workspace loader exists, and because
+   * the snapshot must never travel any further than the host renderer.
+   */
+  const clonedVaultHandler = useRef<
+    (snapshot: WorkspaceSnapshot) => Promise<void>
+  >(async () => {});
+  /** True once a source-control action has already swapped the workspace. */
+  const clonedDuringAction = useRef(false);
   const indexTimer = useRef<number | null>(null);
   const pendingWelcomePage = useRef<string | null>(null);
   const pendingWorkspaceFile = useRef<{
@@ -633,15 +1038,13 @@ function App() {
     setSourceNavigation((current) =>
       current?.path === activePath ? current : null,
     );
-    setSourceViewport((current) =>
-      current?.path === activePath ? current : null,
-    );
   }, [activePath]);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
     [activePath, tabs],
   );
-  const activeFileTab = activeTab?.placeholder ? null : activeTab;
+  const activeFileTab =
+    activeTab?.placeholder || activeTab?.transient ? null : activeTab;
   const activeProject = useMemo(
     () =>
       closestAvailableProjectRoot(
@@ -753,33 +1156,57 @@ function App() {
         : [],
     [activeFileTab],
   );
+  const activeOutlineKey =
+    workspace && activeFileTab
+      ? outlineCacheKey(
+          workspace.vaultPath,
+          activeFileTab.path,
+          activeFileTab.kind === "markdown" ? null : activeSourceLanguageId,
+        )
+      : null;
+  const activeOutlineEntry = activeOutlineKey
+    ? outlineCache.current.get(activeOutlineKey)
+    : undefined;
+  const stableOutline = activeOutlineEntry?.snapshot ?? null;
+  const outlineLoading = activeOutlineEntry?.ready !== true;
   const analysisMatchesActiveFile =
     activeFileTab &&
     activeDocumentAnalysis?.path === activeFileTab.path &&
     activeDocumentAnalysis.content === activeFileTab.content;
   const headings =
-    analysisMatchesActiveFile && activeFileTab.kind === "markdown"
-      ? activeDocumentAnalysis.headings
+    activeFileTab?.kind === "markdown"
+      ? (stableOutline?.headings ?? [])
       : [];
   const sourceSymbols =
-    analysisMatchesActiveFile && activeSourceOutlineAvailable
-      ? activeDocumentAnalysis.symbols
+    activeSourceOutlineAvailable
+      ? (stableOutline?.symbols ?? [])
       : [];
   const sourceMinimap =
-    analysisMatchesActiveFile && activeSourceOutlineAvailable
-      ? activeDocumentAnalysis.minimap
+    activeSourceOutlineAvailable
+      ? (stableOutline?.minimap ?? [])
       : [];
   const activeWebLinks = analysisMatchesActiveFile
     ? activeDocumentAnalysis.links
     : [];
   useEffect(() => {
-    const generation = ++documentAnalysisGeneration.current;
-    setActiveDocumentAnalysis(null);
-    if (!activeFileTab || activeFileTab.encoding !== "utf8") {
+    if (
+      !activeFileTab ||
+      activeFileTab.encoding !== "utf8" ||
+      !activeOutlineKey
+    ) {
       return;
     }
+    const generation = (outlineGeneration.current.get(activeOutlineKey) ?? 0) + 1;
+    outlineGeneration.current.set(activeOutlineKey, generation);
+    const currentEntry = outlineCache.current.get(activeOutlineKey);
+    outlineCache.current.set(activeOutlineKey, {
+      ready: currentEntry?.ready ?? false,
+      snapshot: currentEntry?.snapshot ?? null,
+    });
+    setOutlineRevision((current) => current + 1);
 
     let worker: Worker | null = null;
+    let settleTimer: number | null = null;
     const timer = window.setTimeout(() => {
       try {
         worker = new Worker(
@@ -792,38 +1219,83 @@ function App() {
             headings?: HeadingItem[];
             symbols?: SourceSymbol[];
             minimap?: SourceMinimapLine[];
+            incompleteHeading?: boolean;
             error?: string;
           }>,
         ) => {
           worker?.terminate();
           worker = null;
-          if (generation !== documentAnalysisGeneration.current) {
+          if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
             return;
           }
           if (event.data.error) {
             console.error(
               `Unable to analyze ${activeFileTab.path}: ${event.data.error}`,
             );
+            const failedEntry = outlineCache.current.get(activeOutlineKey);
+            outlineCache.current.set(activeOutlineKey, {
+              ready: failedEntry?.ready ?? false,
+              snapshot: failedEntry?.snapshot ?? null,
+            });
+            setOutlineRevision((current) => current + 1);
             return;
           }
           setActiveDocumentAnalysis({
             path: activeFileTab.path,
             content: activeFileTab.content,
             links: event.data.links ?? [],
+          });
+          const candidate: StableOutlineSnapshot = {
             headings: event.data.headings ?? [],
             symbols: event.data.symbols ?? [],
             minimap: event.data.minimap ?? [],
-          });
+          };
+          const publish = () => {
+            if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
+              return;
+            }
+            outlineCache.current.set(activeOutlineKey, {
+              ready: true,
+              snapshot: candidate,
+            });
+            setOutlineRevision((current) => current + 1);
+          };
+          const previous =
+            outlineCache.current.get(activeOutlineKey)?.snapshot ?? null;
+          const incomplete = event.data.incompleteHeading === true;
+          if (
+            shouldPublishOutline(previous, candidate, {
+              incomplete,
+              settled: false,
+            })
+          ) {
+            publish();
+          } else if (!incomplete || previous === null) {
+            settleTimer = window.setTimeout(publish, 400);
+          } else {
+            const pendingEntry = outlineCache.current.get(activeOutlineKey);
+            outlineCache.current.set(activeOutlineKey, {
+              ready: pendingEntry?.ready ?? false,
+              snapshot: pendingEntry?.snapshot ?? null,
+            });
+            setOutlineRevision((current) => current + 1);
+          }
         };
         worker.onerror = (event) => {
           worker?.terminate();
           worker = null;
-          if (generation !== documentAnalysisGeneration.current) {
+          if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
             return;
           }
           console.error(
             `Unable to analyze ${activeFileTab.path}: ${event.message}`,
           );
+          const failedEntry = outlineCache.current.get(activeOutlineKey);
+          outlineCache.current.set(activeOutlineKey, {
+            ready: failedEntry?.ready ?? false,
+            snapshot: failedEntry?.snapshot ?? null,
+          });
+          setOutlineRevision((current) => current + 1);
         };
         worker.postMessage({
           markdown: activeFileTab.content,
@@ -839,16 +1311,20 @@ function App() {
     }, 200);
 
     return () => {
-      if (generation === documentAnalysisGeneration.current) {
-        documentAnalysisGeneration.current += 1;
+      if (outlineGeneration.current.get(activeOutlineKey) === generation) {
+        outlineGeneration.current.set(activeOutlineKey, generation + 1);
       }
       window.clearTimeout(timer);
+      if (settleTimer !== null) {
+        window.clearTimeout(settleTimer);
+      }
       worker?.terminate();
     };
   }, [
     activeFileTab?.content,
     activeFileTab?.encoding,
     activeFileTab?.path,
+    activeOutlineKey,
     activeSourceOutlineAvailable,
     activeSourceLanguageId,
   ]);
@@ -899,7 +1375,53 @@ function App() {
         : null,
     [activeProject?.id, activeProject?.rootPath],
   );
-  const pluginController = usePlugins(showError, pluginProjectContext);
+  const pluginRepositoryKey = (workspace?.projectRoots ?? [])
+    .map(
+      (project) =>
+        `${project.id}\u0000${project.rootPath}\u0000${project.available}\u0000${project.gitRepository === true}`,
+    )
+    .join("\u0001");
+  const pluginProjectRepositories = useMemo<PluginProjectRepositoryContext[]>(
+    () => {
+      if (!workspace) {
+        return [];
+      }
+      const repositories: PluginProjectRepositoryContext[] = [];
+      if (workspace.gitRepositoryRoot) {
+        repositories.push({
+          repositoryId: "vault",
+          projectId: null,
+          label: workspace.vaultName,
+        });
+      }
+      for (const project of workspace.projectRoots) {
+        if (
+          project.available &&
+          project.gitRepository &&
+          project.rootPath.length > 0
+        ) {
+          repositories.push({
+            repositoryId: `project:${project.id}`,
+            projectId: project.id,
+            label: projectRootLabel(project),
+          });
+        }
+      }
+      return repositories;
+    },
+    [
+      pluginRepositoryKey,
+      workspace?.gitRepositoryRoot,
+      workspace?.vaultName,
+    ],
+  );
+  const pluginController = usePlugins(
+    showError,
+    pluginProjectContext,
+    workspace?.vaultPath ?? null,
+    (snapshot) => clonedVaultHandler.current(snapshot),
+    pluginProjectRepositories,
+  );
   const pluginDecorationKey = pluginController.decorations
     .map(
       (decoration) =>
@@ -1408,50 +1930,59 @@ function App() {
     ],
   );
 
-  const refreshWorkspace = useCallback(async (reindex = false) => {
-    if (!workspace) {
-      return;
-    }
-    const generation = vaultGeneration.current;
-    const request = ++workspaceRefreshRequest.current;
-    const ignoredUpdates: GitignoreStatusUpdate[] = [];
-    gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
-    const configurationRevision = projectConfigurationRevision.current;
-    try {
-      const snapshot = await api.refreshVault();
-      if (
-        generation === vaultGeneration.current &&
-        request === workspaceRefreshRequest.current
-      ) {
-        setWorkspace((current) => {
-          const next =
-            configurationRevision === projectConfigurationRevision.current
-              ? snapshot
-              : withProjectConfiguration(snapshot, current ?? snapshot);
-          return {
-            ...next,
-            ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
-              next.ignoredPaths,
-              ignoredUpdates,
-            ),
-          };
-        });
-        if (reindex || !searchIndexReady.current) {
-          await rebuildSearchIndex(generation);
+  const refreshWorkspace = useCallback(
+    async (reindex = false): Promise<WorkspaceSnapshot | null> => {
+      if (!workspace) {
+        return null;
+      }
+      const generation = vaultGeneration.current;
+      const request = ++workspaceRefreshRequest.current;
+      const ignoredUpdates: GitignoreStatusUpdate[] = [];
+      gitignoreSnapshotUpdates.current.set(request, ignoredUpdates);
+      const configurationRevision = projectConfigurationRevision.current;
+      let applied: WorkspaceSnapshot | null = null;
+      try {
+        const snapshot = await api.refreshVault();
+        if (
+          generation === vaultGeneration.current &&
+          request === workspaceRefreshRequest.current
+        ) {
+          setWorkspace((current) => {
+            const next =
+              configurationRevision === projectConfigurationRevision.current
+                ? snapshot
+                : withProjectConfiguration(snapshot, current ?? snapshot);
+            return {
+              ...next,
+              ignoredPaths: ignoredPathsAfterWorkspaceSnapshot(
+                next.ignoredPaths,
+                ignoredUpdates,
+              ),
+            };
+          });
+          // Only the file tree is reported back, and it is the same in either
+          // branch of the updater above, so it is read from the snapshot
+          // rather than from a state updater React may run later.
+          applied = snapshot;
+          if (reindex || !searchIndexReady.current) {
+            await rebuildSearchIndex(generation);
+          }
         }
+      } catch (caught) {
+        if (
+          generation === vaultGeneration.current &&
+          request === workspaceRefreshRequest.current
+        ) {
+          setIndexing(false);
+          showError(caught);
+        }
+      } finally {
+        gitignoreSnapshotUpdates.current.delete(request);
       }
-    } catch (caught) {
-      if (
-        generation === vaultGeneration.current &&
-        request === workspaceRefreshRequest.current
-      ) {
-        setIndexing(false);
-        showError(caught);
-      }
-    } finally {
-      gitignoreSnapshotUpdates.current.delete(request);
-    }
-  }, [rebuildSearchIndex, showError, workspace]);
+      return applied;
+    },
+    [rebuildSearchIndex, showError, workspace],
+  );
 
   const applyProjectConfiguration = useCallback(
     (
@@ -2044,7 +2575,7 @@ function App() {
         panes: setPaneActivePath(current.panes, pane.id, path),
       }));
       const tab = pane.tabs.find((candidate) => candidate.path === path);
-      setSelectedPath(tab?.placeholder ? null : path);
+      setSelectedPath(tab?.placeholder || tab?.transient ? null : path);
     },
     [commitPaneState, nextOpenRequest],
   );
@@ -2061,7 +2592,9 @@ function App() {
       }
       commitPaneState((state) => ({ ...state, focusedPaneId: paneId }));
       const active = pane.tabs.find((tab) => tab.path === pane.activePath);
-      setSelectedPath(active && !active.placeholder ? active.path : null);
+      setSelectedPath(
+        active && !active.placeholder && !active.transient ? active.path : null,
+      );
     },
     [commitPaneState],
   );
@@ -3514,8 +4047,42 @@ function App() {
   );
 
   const closeTab = useCallback(
-    async (path: string) => closeTabs([path]),
-    [closeTabs],
+    async (path: string) => {
+      const tab = tabsRef.current.find((candidate) => candidate.path === path);
+      const detail = tab?.sourceControlDiff;
+      if (!detail) {
+        await closeTabs([path]);
+        return;
+      }
+      commitPaneState((current) => ({
+        ...current,
+        panes: removePaneTabs(
+          current.panes,
+          (candidate) => candidate === path,
+          false,
+        ).panes,
+      }));
+      setSelectedPath(null);
+      try {
+        await pluginController.runSourceControlAction(
+          detail.pluginId,
+          detail.providerId,
+          {
+            id: detail.source.kind === "commit" ? "close-commit" : "close-diff",
+          },
+          workspace?.vaultPath ?? "",
+        );
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [
+      closeTabs,
+      commitPaneState,
+      pluginController,
+      showError,
+      workspace?.vaultPath,
+    ],
   );
 
   const moveTabToPane = useCallback(
@@ -3839,10 +4406,464 @@ function App() {
 
   const refreshAndReindex = useCallback(async () => {
     if (!workspace) {
+      return null;
+    }
+    return refreshWorkspace(true);
+  }, [refreshWorkspace, workspace]);
+
+  /**
+   * Puts every open tab back in step with the working tree after Git replaced
+   * what is on disk.
+   *
+   * Open notes were flushed before the action started, so nothing here can
+   * lose an edit: every tab is read again from disk. Pane layout, tab order,
+   * groups, and each tab's language and view choices are untouched, so only
+   * the bytes change. A tab whose file the checkout removed is closed and
+   * named, and a tab whose content really changed is given a new editor
+   * revision, because an editor history built on the previous branch could
+   * otherwise write those bytes back.
+   */
+  const reloadOpenTabsFromDisk = useCallback(
+    async (snapshot: WorkspaceSnapshot | null): Promise<void> => {
+      const open = [...tabsRef.current];
+      if (open.length === 0) {
+        return;
+      }
+      const reloaded = new Map<
+        string,
+        { document: NoteDocument; imageDataUrl?: string }
+      >();
+      const disappeared = new Set<string>();
+      for (const tab of open) {
+        // A placeholder tab has a synthetic path rather than a vault path, so
+        // there is nothing on disk to reload and nothing that can disappear.
+        if (
+          tab.placeholder ||
+          tab.transient ||
+          reloaded.has(tab.path) ||
+          disappeared.has(tab.path)
+        ) {
+          continue;
+        }
+        if (snapshot && !findNode(snapshot.tree, tab.path)) {
+          disappeared.add(tab.path);
+          continue;
+        }
+        cancelPendingPath(tab.path);
+        try {
+          const document = await api.readNote(tab.path);
+          const imageDataUrl =
+            tab.kind === "image"
+              ? await api.readImageDataUrl(tab.path)
+              : undefined;
+          reloaded.set(
+            tab.path,
+            imageDataUrl === undefined
+              ? { document }
+              : { document, imageDataUrl },
+          );
+        } catch {
+          disappeared.add(tab.path);
+        }
+      }
+      let removedPaths: string[] = [];
+      commitPaneState((current) => {
+        const removal = removePaneTabs(current.panes, (path) =>
+          disappeared.has(path),
+        );
+        removedPaths = removal.removedPaths;
+        return {
+          ...current,
+          panes: removal.panes.map((pane) => ({
+            ...pane,
+            tabs: pane.tabs.map((tab) => {
+              const update = reloaded.get(tab.path);
+              if (!update) {
+                return tab;
+              }
+              const changed = update.document.content !== tab.savedContent;
+              return {
+                ...tab,
+                content: update.document.content,
+                savedContent: update.document.content,
+                savedHash: update.document.contentHash,
+                encoding: update.document.encoding,
+                lineEnding: update.document.lineEnding,
+                stats: update.document.stats,
+                ...(update.imageDataUrl === undefined
+                  ? {}
+                  : { imageDataUrl: update.imageDataUrl }),
+                editorRevision: changed
+                  ? tab.editorRevision + 1
+                  : tab.editorRevision,
+                editRecorded: false,
+                saveState: "saved" as const,
+              };
+            }),
+          })),
+        };
+      });
+      for (const path of removedPaths) {
+        cancelPendingPath(path);
+        dispatchErrors({ type: "remove-markdown-prefix", path });
+      }
+      if (removedPaths.length > 0) {
+        setSelectedPath((current) =>
+          current !== null && disappeared.has(current) ? null : current,
+        );
+        setStatus(
+          `Closed ${removedPaths.length} tab${
+            removedPaths.length === 1 ? "" : "s"
+          } whose file is not on this branch: ${removedPaths.join(", ")}`,
+        );
+      }
+    },
+    [cancelPendingPath, commitPaneState],
+  );
+
+  const runSourceControlAction = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      action: PluginSourceControlAction,
+      repositoryLabel = "",
+      hostOptions?: SourceControlActionHostOptions,
+    ) => {
+      if (!workspace) {
+        return;
+      }
+      const confirmation = sourceControlConfirmation(action, repositoryLabel);
+      if (confirmation && !(await requestConfirmation(confirmation))) {
+        return;
+      }
+      const mutatesWorkspace = WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS.has(
+        action.id,
+      );
+      let workspaceOperationStarted = false;
+      clonedDuringAction.current = false;
+      try {
+        if (mutatesWorkspace) {
+          if (!(await beginWorkspaceOperation())) {
+            return;
+          }
+          workspaceOperationStarted = true;
+        }
+        if (hostOptions) {
+          await pluginController.runSourceControlAction(
+            pluginId,
+            providerId,
+            action,
+            workspace.vaultPath,
+            hostOptions,
+          );
+        } else {
+          await pluginController.runSourceControlAction(
+            pluginId,
+            providerId,
+            action,
+            workspace.vaultPath,
+          );
+        }
+        // A clone already replaced the workspace, so refreshing the vault the
+        // action started in would read a vault that is no longer open.
+        if (mutatesWorkspace && !clonedDuringAction.current) {
+          const snapshot = await refreshAndReindex();
+          if (WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS.has(action.id)) {
+            await reloadOpenTabsFromDisk(snapshot);
+            await refreshIgnoredStatus(
+              vaultGeneration.current,
+              workspace.vaultPath,
+              [],
+            );
+          }
+        }
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        clonedDuringAction.current = false;
+        if (workspaceOperationStarted) {
+          setWorkspaceLock(false);
+        }
+      }
+    },
+    [
+      beginWorkspaceOperation,
+      pluginController,
+      refreshAndReindex,
+      refreshIgnoredStatus,
+      reloadOpenTabsFromDisk,
+      requestConfirmation,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
+
+  /**
+   * Opens one file a source control surface named, in the editor.
+   *
+   * This never goes through the provider: the path is repository-relative, so
+   * the host resolves it inside the repository the provider is scoped to, and
+   * then opens it with the ordinary file-open flow. Nothing absolute is built
+   * or shown, a path that tries to leave the vault is refused, and a file that
+   * is not in the vault any more is reported instead of silently doing
+   * nothing.
+   */
+  const openSourceControlFile = useCallback(
+    (repositoryPath: string, repositoryId: string) => {
+      if (!workspace) {
+        return;
+      }
+      const repositoryRoot =
+        repositoryId === "vault"
+          ? ""
+          : (workspace.projectRoots.find(
+              (project) => `project:${project.id}` === repositoryId,
+            )?.rootPath ??
+            activeProject?.rootPath ??
+            "");
+      const vaultPath =
+        repositoryRoot === null
+          ? null
+          : vaultRelativePath(repositoryRoot, repositoryPath);
+      if (!vaultPath) {
+        showError(
+          `Denote cannot open ${repositoryPath} because it is not inside this vault.`,
+        );
+        return;
+      }
+      const node = findNode(workspace.tree, vaultPath);
+      if (!node || node.kind === "folder") {
+        showError(
+          `Denote could not open ${vaultPath} because it is no longer in this vault. Refresh the repository to read it again.`,
+        );
+        return;
+      }
+      void openFile(vaultPath);
+    },
+    [activeProject?.rootPath, openFile, showError, workspace],
+  );
+
+  const openSourceControlDiff = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      repositoryId: string,
+      repositoryLabel: string,
+      repositoryPath: string,
+      files: PluginSourceControlDiffFile[],
+      source: PluginSourceControlDiffSource,
+    ) => {
+      if (files.length === 0) {
+        return;
+      }
+      const title = sourceControlDiffTitle(repositoryPath, source.kind);
+      const path = sourceControlDiffPath(repositoryId, title, source);
+      const content = sourceControlPatch(files);
+      const tab: EditorTab = {
+        path,
+        title,
+        kind: "text",
+        content,
+        savedContent: content,
+        encoding: "utf8",
+        lineEnding: "lf",
+        placeholder: false,
+        groupId: null,
+        navigationHistory: [path],
+        navigationIndex: 0,
+        rawEditing: false,
+        readOnly: true,
+        editorRevision: 0,
+        editRecorded: false,
+        saveState: "saved",
+        transient: "diff",
+        sourceControlDiff: {
+          pluginId,
+          providerId,
+          repositoryId,
+          repositoryLabel,
+          repositoryPath,
+          files,
+          source,
+        },
+      };
+      commitPaneState((current) => {
+        const existingPane = findPaneByPath(current.panes, path);
+        const targetPane = existingPane ?? focusedPaneOf(current);
+        return {
+          ...current,
+          focusedPaneId: targetPane.id,
+          panes: updatePane(current.panes, targetPane.id, (pane) => {
+            const existing = pane.tabs.find(
+              (candidate) => candidate.path === path,
+            );
+            return {
+              ...pane,
+              tabs: existing
+                ? pane.tabs.map((candidate) =>
+                    candidate.path === path
+                      ? {
+                          ...candidate,
+                          ...tab,
+                          groupId: candidate.groupId,
+                          navigationHistory: candidate.navigationHistory,
+                          navigationIndex: candidate.navigationIndex,
+                          editorRevision: candidate.editorRevision + 1,
+                        }
+                      : candidate,
+                  )
+                : placeOpenedTab(pane.tabs, pane.activePath, tab),
+              activePath: path,
+            };
+          }),
+        };
+      });
+      setSelectedPath(null);
+      setStatus(`Opened ${title}`);
+    },
+    [commitPaneState],
+  );
+
+  useEffect(() => {
+    if (!workspace) {
       return;
     }
-    await refreshWorkspace(true);
-  }, [refreshWorkspace, workspace]);
+    for (const provider of pluginController.sourceControlProviders) {
+      const model = provider.model;
+      if (
+        model.selectedView.kind === "diff" &&
+        model.diffSource &&
+        model.diffFiles.length > 0
+      ) {
+        openSourceControlDiff(
+          provider.pluginId,
+          provider.id,
+          model.repository.repositoryId,
+          model.repository.label,
+          model.selectedView.path,
+          model.diffFiles,
+          model.diffSource,
+        );
+        continue;
+      }
+      if (model.commitDetail && model.commitDetail.files.length > 0) {
+        openSourceControlDiff(
+          provider.pluginId,
+          provider.id,
+          model.repository.repositoryId,
+          model.repository.label,
+          model.commitDetail.commit.shortId,
+          model.commitDetail.files,
+          {
+            kind: "commit",
+            commitId: model.commitDetail.commit.id,
+          },
+        );
+      }
+    }
+  }, [
+    openSourceControlDiff,
+    pluginController.sourceControlProviders,
+    workspace?.vaultPath,
+  ]);
+
+  /**
+   * Opens a cloned repository as the active vault.
+   *
+   * The clone action already holds the workspace lock, so nothing is flushed
+   * again here. An encrypted clone arrives locked, and `loadWorkspace` shows
+   * the password and recovery screen before any content, so no note from
+   * either vault is ever displayed for a vault that is not unlocked.
+   */
+  const openClonedVault = useCallback(
+    async (snapshot: WorkspaceSnapshot) => {
+      clonedDuringAction.current = true;
+      setVaultSwitcherOpen(false);
+      vaultGeneration.current += 1;
+      await loadWorkspace(snapshot, true);
+      setStatus(
+        snapshot.encryption.enabled && !snapshot.encryption.unlocked
+          ? "Cloned repository opened; unlock the vault to see its notes"
+          : "Cloned repository opened as the active vault",
+      );
+    },
+    [loadWorkspace],
+  );
+  clonedVaultHandler.current = openClonedVault;
+
+  const runAutomaticLocalCommit = useCallback(
+    async (schedule: PluginAutomaticLocalCommitContribution) => {
+      if (!workspace) {
+        return;
+      }
+      const vaultPath = workspace.vaultPath;
+      const projectId = activeProject?.id ?? null;
+      // Saves, uploads, and preference writes are drained first, so the commit
+      // sees the same tree the user is looking at rather than a half-written
+      // one. The lock is always released, whatever the outcome is.
+      if (!(await beginWorkspaceOperation())) {
+        setStatus("Automatic commit skipped because a note could not be saved");
+        return;
+      }
+      try {
+        const outcome = await api.pluginAutomaticCommit(
+          schedule.pluginId,
+          {
+            scheduleId: schedule.id,
+            message: schedule.message,
+            includePatterns: schedule.includePatterns,
+            excludePatterns: schedule.excludePatterns,
+            authorName: schedule.authorName,
+            authorEmail: schedule.authorEmail,
+          },
+          vaultPath,
+          projectId,
+          crypto.randomUUID(),
+        );
+        if (outcome.status === "committed") {
+          await refreshAndReindex();
+          setStatus(
+            outcome.commitId
+              ? `Automatic commit ${outcome.commitId.slice(0, 7)}`
+              : "Automatic commit created",
+          );
+        } else if (outcome.status === "unchanged") {
+          setStatus("Automatic commit: no changes");
+        } else {
+          setStatus(`Automatic commit skipped: ${outcome.message}`);
+        }
+      } catch (caught) {
+        showError(caught);
+      } finally {
+        setWorkspaceLock(false);
+      }
+    },
+    [
+      activeProject?.id,
+      beginWorkspaceOperation,
+      refreshAndReindex,
+      setWorkspaceLock,
+      showError,
+      workspace,
+    ],
+  );
+
+  useAutomaticLocalCommits({
+    schedules: pluginController.automaticLocalCommits,
+    // A locked or maintaining vault holds no timer at all, so unlocking starts
+    // a fresh interval instead of firing a backlog.
+    enabled:
+      workspace !== null &&
+      (!workspace.encryption.enabled || workspace.encryption.unlocked) &&
+      (workspace.encryption.phase === null ||
+        workspace.encryption.phase === "encrypted"),
+    workspaceIdentity: workspace?.vaultPath ?? null,
+    projectId: activeProject?.id ?? null,
+    canRun: () => !workspaceLockedRef.current && !closingWindow.current,
+    run: runAutomaticLocalCommit,
+    onError: showError,
+  });
 
   const rewriteLinksForMove = useCallback(
     async (oldPath: string, newPath: string) => {
@@ -4737,7 +5758,7 @@ function App() {
           }
           return next;
         });
-        setSidebarView("files");
+        showSidebarView("files");
         setSelectedPath(restoredNode.path);
         setStatus(`Restored ${restoredNode.name}`);
         restored = true;
@@ -5606,9 +6627,9 @@ function App() {
 
   const focusVaultSearch = useCallback(() => {
     setSearchLocation(activeFileTab?.path ?? "*");
-    setSidebarView("search");
+    showSidebarView("search");
     setSearchQueryFocusRequest((current) => current + 1);
-  }, [activeFileTab?.path]);
+  }, [activeFileTab?.path, showSidebarView]);
 
   const navigateToEditorError = useCallback(() => {
     if (activePath) {
@@ -5948,7 +6969,9 @@ function App() {
       description: "Rescan files and rebuild search.",
       category: "Vault",
       disabled: !workspaceReady,
-      run: refreshAndReindex,
+      run: () => {
+        void refreshAndReindex();
+      },
     },
     ...projectCommands,
     {
@@ -5957,7 +6980,7 @@ function App() {
       description: "Open the file-tree sidebar.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("files"),
+      run: () => showSidebarView("files"),
     },
     {
       id: "view.search",
@@ -5965,7 +6988,7 @@ function App() {
       description: "Open and focus the search sidebar.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("search"),
+      run: () => showSidebarView("search"),
     },
     {
       id: "view.bookmarks",
@@ -5973,7 +6996,7 @@ function App() {
       description: "Open bookmarked files.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("bookmarks"),
+      run: () => showSidebarView("bookmarks"),
     },
     {
       id: "view.recent",
@@ -5981,7 +7004,7 @@ function App() {
       description: "Open recently viewed files.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("recent"),
+      run: () => showSidebarView("recent"),
     },
     {
       id: "view.trash",
@@ -5989,7 +7012,7 @@ function App() {
       description: "Open deleted files that can be restored.",
       category: "View",
       disabled: !workspaceReady,
-      run: () => setSidebarView("trash"),
+      run: () => showSidebarView("trash"),
     },
     {
       id: "file.new",
@@ -6541,6 +7564,10 @@ function App() {
     };
   }, [showError]);
 
+  const gitSourceControlContribution =
+    pluginController.sourceControlProviders.find(
+      (provider) => provider.model.remoteAccess.cloneAvailable,
+    ) ?? null;
   const vaultSwitcherDialog = (
     <VaultSwitcherDialog
       open={vaultSwitcherOpen}
@@ -6548,6 +7575,21 @@ function App() {
       onSwitch={switchKnownVault}
       onDelete={deleteKnownVault}
       onChooseFolder={() => void chooseVault()}
+      clone={
+        workspace && gitSourceControlContribution
+          ? {
+              remoteAccess: gitSourceControlContribution.model.remoteAccess,
+              busy: gitSourceControlContribution.model.repository.busy,
+              onAction: (action) => {
+                void runSourceControlAction(
+                  gitSourceControlContribution.pluginId,
+                  gitSourceControlContribution.id,
+                  action,
+                );
+              },
+            }
+          : undefined
+      }
       onClose={() => setVaultSwitcherOpen(false)}
     />
   );
@@ -6587,6 +7629,20 @@ function App() {
     pluginController.sidebarViews.find(
       (view) => view.id === activePluginSidebar,
     ) ?? null;
+  const activeSourceControlContribution =
+    pluginController.sourceControlProviders.find(
+      (provider) =>
+        provider.pluginId === activeSourceControlProvider?.pluginId &&
+        provider.id === activeSourceControlProvider.providerId,
+    ) ?? null;
+
+  useEffect(() => {
+    if (activeSourceControlProvider && !activeSourceControlContribution) {
+      setActiveSourceControlProvider(null);
+      setActivePluginSidebar(null);
+      setSidebarView("files");
+    }
+  }, [activeSourceControlContribution, activeSourceControlProvider]);
 
   if (!workspace) {
     return (
@@ -6651,6 +7707,41 @@ function App() {
           <h2>New tab</h2>
           <p>Choose a file from the sidebar to open it in this tab.</p>
         </div>
+      );
+    }
+    if (paneTab?.transient === "diff" && paneTab.sourceControlDiff) {
+      const detail = paneTab.sourceControlDiff;
+      const provider =
+        pluginController.sourceControlProviders.find(
+          (candidate) =>
+            candidate.pluginId === detail.pluginId &&
+            candidate.id === detail.providerId,
+        ) ?? null;
+      const providerSource = provider?.model.diffSource ?? null;
+      const actionsAvailable =
+        provider?.model.repository.repositoryId === detail.repositoryId &&
+        detail.source.kind !== "commit" &&
+        providerSource?.kind === detail.source.kind;
+      return (
+        <SourceControlDiffEditor
+          tab={paneTab}
+          theme={theme}
+          actionsAvailable={actionsAvailable}
+          onAction={(action) => {
+            if (!provider) {
+              return;
+            }
+            void runSourceControlAction(
+              provider.pluginId,
+              provider.id,
+              action,
+              detail.repositoryLabel,
+            );
+          }}
+          onOpenFile={(path) =>
+            openSourceControlFile(path, detail.repositoryId)
+          }
+        />
       );
     }
     if (!paneTab) {
@@ -6792,16 +7883,25 @@ function App() {
                 pane.id === focusedPaneId &&
                 paneSourceOutlineAvailable &&
                 outlineVisible
-                  ? (viewport) =>
-                      setSourceViewport((current) =>
-                        current?.path === paneTab.path &&
-                        current.viewport.firstLine === viewport.firstLine &&
-                        current.viewport.lastLine === viewport.lastLine &&
-                        current.viewport.totalLines === viewport.totalLines &&
-                        current.viewport.progress === viewport.progress
-                          ? current
-                          : { path: paneTab.path, viewport },
-                      )
+                  ? (viewport) => {
+                      const key = sourceViewportCacheKey(
+                        workspace.vaultPath,
+                        pane.id,
+                        paneTab.path,
+                      );
+                      setSourceViewports((current) => {
+                        const existing = current[key];
+                        if (
+                          existing?.firstLine === viewport.firstLine &&
+                          existing.lastLine === viewport.lastLine &&
+                          existing.totalLines === viewport.totalLines &&
+                          existing.progress === viewport.progress
+                        ) {
+                          return current;
+                        }
+                        return { ...current, [key]: viewport };
+                      });
+                    }
                   : undefined
               }
               onError={showError}
@@ -6817,7 +7917,7 @@ function App() {
                 editable
                 key={tag}
                 onActivate={() => {
-                  setSidebarView("search");
+                  showSidebarView("search");
                   setSearchLocation("*");
                   setSearchQuery("");
                   setSearchFilters({
@@ -6858,13 +7958,21 @@ function App() {
       <ActivityRail
         activeView={sidebarView}
         activePluginView={activePluginSidebarView?.id ?? null}
+        activeSourceControlProvider={activeSourceControlProvider}
         pluginViews={pluginController.sidebarViews}
+        sourceControlProviders={pluginController.sourceControlProviders}
         theme={theme}
         onViewChange={(view) => {
-          setActivePluginSidebar(null);
-          setSidebarView(view);
+          showSidebarView(view);
         }}
-        onPluginViewChange={setActivePluginSidebar}
+        onPluginViewChange={(viewId) => {
+          setActiveSourceControlProvider(null);
+          setActivePluginSidebar(viewId);
+        }}
+        onSourceControlProviderChange={(pluginId, providerId) => {
+          setActivePluginSidebar(null);
+          setActiveSourceControlProvider({ pluginId, providerId });
+        }}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={() =>
           setTheme((current) => (current === "dark" ? "light" : "dark"))
@@ -6901,7 +8009,28 @@ function App() {
             </button>
           </div>
         </header>
-        {activePluginSidebarView ? (
+        {activeSourceControlContribution ? (
+          <SourceControlPanel
+            key={`${activeSourceControlContribution.pluginId}:${activeSourceControlContribution.id}`}
+            title={activeSourceControlContribution.title}
+            model={activeSourceControlContribution.model}
+            onAction={(action, hostOptions) => {
+              void runSourceControlAction(
+                activeSourceControlContribution.pluginId,
+                activeSourceControlContribution.id,
+                action,
+                activeSourceControlContribution.model.repository.label,
+                hostOptions,
+              );
+            }}
+            onOpenFile={(path) =>
+              openSourceControlFile(
+                path,
+                activeSourceControlContribution.model.repository.repositoryId,
+              )
+            }
+          />
+        ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">
             <div className="sidebar-view__title">
               <h2>{activePluginSidebarView.title}</h2>
@@ -7515,16 +8644,23 @@ function App() {
           {outlineVisible && activeFileTab?.kind === "markdown" ? (
             <TableOfContents
               headings={headings}
+              loading={outlineLoading}
               onNavigate={navigateToHeading}
             />
           ) : outlineVisible && activeSourceOutlineAvailable ? (
             <SourceOutline
               symbols={sourceSymbols}
               minimap={sourceMinimap}
-              loading={!analysisMatchesActiveFile}
+              loading={outlineLoading}
               viewport={
-                sourceViewport?.path === activeFileTab?.path
-                  ? sourceViewport.viewport
+                activeFileTab
+                  ? (sourceViewports[
+                      sourceViewportCacheKey(
+                        workspace.vaultPath,
+                        focusedPaneId,
+                        activeFileTab.path,
+                      )
+                    ] ?? null)
                   : null
               }
               onNavigateLine={navigateToSourceLine}
@@ -7634,6 +8770,7 @@ function App() {
         onEnablePlugin={pluginController.enable}
         onDisablePlugin={pluginController.disable}
         onDisableAllPlugins={pluginController.disableAll}
+        onUpdateAllPlugins={pluginController.updateAll}
         onClearPluginData={pluginController.clearData}
         onClearPluginCredentials={pluginController.clearCredentials}
         onUpdatePluginSettings={pluginController.updateSettings}
@@ -7764,8 +8901,41 @@ function flattenNodes(nodes: FileNode[]): FileNode[] {
   return flattened;
 }
 
-function findNode(nodes: FileNode[], path: string | null): FileNode | null {
+/**
+ * Resolves one repository-relative path to a vault-relative one.
+ *
+ * A vault-scoped repository is the vault itself, and a project-scoped one is a
+ * folder inside it, so the project's own root is the only prefix that is ever
+ * added. Anything absolute, anything with a drive letter, and any `..` segment
+ * is refused rather than normalized, so a path a provider supplies can only
+ * ever name something inside the open vault.
+ */
+function vaultRelativePath(
+  projectRoot: string,
+  repositoryPath: string,
+): string | null {
+  const trimmed = repositoryPath.trim();
+  if (
+    !trimmed ||
+    trimmed.startsWith("/") ||
+    trimmed.startsWith("\\") ||
+    /^[A-Za-z]:/.test(trimmed)
+  ) {
+    return null;
+  }
+  const segments = trimmed.split(/[\\/]/);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return null;
+  }
+  const path = segments.filter(Boolean).join("/");
   if (!path) {
+    return null;
+  }
+  const root = projectRoot.split(/[\\/]/).filter(Boolean).join("/");
+  return root ? `${root}/${path}` : path;
+}
+
+function findNode(nodes: FileNode[], path: string | null): FileNode | null {  if (!path) {
     return null;
   }
   const stack = [...nodes].reverse();

@@ -119,6 +119,7 @@ pub struct PluginView {
     pub enabled: bool,
     pub error: Option<String>,
     pub approved_permissions: Vec<PluginPermission>,
+    pub previously_approved: bool,
     pub settings: Value,
     pub has_credentials: bool,
 }

@@ -11,13 +11,17 @@ import { usePlugins } from "./usePlugins";
 
 interface MockRuntimeInstance {
   onCommandsChanged: unknown;
+  onSourceControlProvidersChanged?: unknown;
+  onAutomaticLocalCommitsChanged?: unknown;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
+  runSourceControlAction: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
+  setWorkspaceIdentity: ReturnType<typeof vi.fn>;
   invalidateActionLeases: ReturnType<typeof vi.fn>;
 }
 
@@ -38,6 +42,7 @@ vi.mock("../lib/api", () => ({
     recoverPluginTransactions: vi.fn(),
     disablePlugin: vi.fn(),
     setPluginSettings: vi.fn(),
+    getPluginSettings: vi.fn(),
     importPluginSettings: vi.fn(),
   },
   errorMessage: (error: unknown) =>
@@ -57,8 +62,10 @@ vi.mock("./workerRuntime", () => {
     });
     isRunning = vi.fn(() => true);
     runCommand = vi.fn(async () => {});
+    runSourceControlAction = vi.fn(async () => {});
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
+    setWorkspaceIdentity = vi.fn();
     invalidateActionLeases = vi.fn();
 
     constructor(
@@ -67,6 +74,8 @@ vi.mock("./workerRuntime", () => {
       public onSidebarViewsChanged?: unknown,
       public onStatusItemsChanged?: unknown,
       public onDecorationsChanged?: unknown,
+      public onSourceControlProvidersChanged?: unknown,
+      public onAutomaticLocalCommitsChanged?: unknown,
     ) {
       runtimeInstances.push(this);
     }
@@ -86,6 +95,7 @@ function makePlugin(overrides: Partial<PluginView> = {}): PluginView {
     enabled: false,
     error: null,
     approvedPermissions: [],
+    previouslyApproved: false,
     settings: {},
     hasCredentials: false,
     ...overrides,
@@ -117,6 +127,7 @@ function queueRecoverTransactions() {
 async function mountReady(
   initialPlugins: PluginView[],
   projectContext: PluginProjectContext | null = null,
+  workspaceIdentity: string | null = "/synthetic/vault-alpha",
 ) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
@@ -124,10 +135,18 @@ async function mountReady(
   const rendered = renderHook(
     ({
       currentProjectContext,
+      currentWorkspaceIdentity,
     }: {
       currentProjectContext: PluginProjectContext | null;
-    }) => usePlugins(reportError, currentProjectContext),
-    { initialProps: { currentProjectContext: projectContext } },
+      currentWorkspaceIdentity: string | null;
+    }) =>
+      usePlugins(reportError, currentProjectContext, currentWorkspaceIdentity),
+    {
+      initialProps: {
+        currentProjectContext: projectContext,
+        currentWorkspaceIdentity: workspaceIdentity,
+      },
+    },
   );
   await waitFor(() => expect(rendered.result.current.loading).toBe(false));
   callOrder.length = 0;
@@ -193,6 +212,7 @@ describe("usePlugins", () => {
         transactionId: "tx-1",
       };
     });
+
     queueListPlugins([notEnabled]); // re-fetch of the "prepared" plugin state
     vi.mocked(api.commitPluginEnable).mockImplementationOnce(async () => {
       callOrder.push("commit");
@@ -213,6 +233,51 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].start).toHaveBeenCalledTimes(1);
     expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-1");
     expect(result.current.plugins).toEqual([makePlugin({ enabled: true })]);
+  });
+
+  it("updates only previously approved plugins that actually have updates", async () => {
+    const gitCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        id: "denote.git",
+        name: "Git vault versioning",
+      },
+    };
+    const git = makePlugin({
+      catalog: gitCatalog,
+      status: "update-available",
+      previouslyApproved: true,
+    });
+    const reference = makePlugin({
+      status: "not-installed",
+      previouslyApproved: true,
+    });
+    const { result } = await mountReady([git, reference]);
+    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
+      pluginId: "denote.git",
+      version: "0.4.0",
+      entrypoint: "dist/index.js",
+      transactionId: "tx-git",
+    });
+    queueListPlugins([git, reference]);
+    vi.mocked(api.commitPluginEnable).mockResolvedValueOnce(undefined);
+    queueListPlugins([
+      { ...git, status: "enabled", enabled: true },
+      reference,
+    ]);
+
+    await act(async () => {
+      await result.current.updateAll();
+    });
+
+    expect(api.preparePluginEnable).toHaveBeenCalledTimes(1);
+    expect(api.preparePluginEnable).toHaveBeenCalledWith(
+      "denote.git",
+      gitCatalog.manifest.permissions,
+    );
+    expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-git");
+    expect(runtimeInstances[0].start).toHaveBeenCalledWith(git);
   });
 
   it("stops the runtime and rolls back without committing when the runtime fails to start", async () => {
@@ -353,21 +418,62 @@ describe("usePlugins", () => {
     };
     const rendered = await mountReady([makePlugin({ enabled: true })], initial);
 
-    expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(initial);
+    expect(runtimeInstances[0].setProjectContext).toHaveBeenCalledWith(
+      initial,
+      [],
+    );
+    expect(runtimeInstances[0].setWorkspaceIdentity).toHaveBeenCalledWith(
+      "/synthetic/vault-alpha",
+    );
 
     const next = {
       projectId: "project-beta",
       rootPath: "code/beta",
     };
-    rendered.rerender({ currentProjectContext: next });
+    rendered.rerender({
+      currentProjectContext: next,
+      currentWorkspaceIdentity: "/synthetic/vault-alpha",
+    });
     await waitFor(() => {
-      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(next);
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(
+        next,
+        [],
+      );
     });
 
-    rendered.rerender({ currentProjectContext: null });
-    await waitFor(() => {
-      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(null);
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-alpha",
     });
+    await waitFor(() => {
+      expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(
+        null,
+        [],
+      );
+    });
+  });
+
+  it("reports a vault switch that leaves the project context null", async () => {
+    const rendered = await mountReady([makePlugin({ enabled: true })]);
+    const runtime = runtimeInstances[0];
+    runtime.setWorkspaceIdentity.mockClear();
+    runtime.setProjectContext.mockClear();
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+    });
+
+    await waitFor(() => {
+      expect(runtime.setWorkspaceIdentity).toHaveBeenLastCalledWith(
+        "/synthetic/vault-beta",
+      );
+    });
+    // The workspace is applied before the project, so a plugin cannot act on
+    // the new project while it still believes it is in the previous vault.
+    expect(
+      runtime.setWorkspaceIdentity.mock.invocationCallOrder[0],
+    ).toBeLessThan(runtime.setProjectContext.mock.invocationCallOrder[0]);
   });
 
   it("captures the current nullable project ID when a command starts", async () => {
@@ -387,10 +493,17 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
       pluginId,
       "denote.reference.synthetic",
-      { workspaceScope: "/vault", projectId: "project-alpha" },
+      {
+        workspaceScope: "/vault",
+        projectId: "project-alpha",
+        sourceControlActionId: null,
+      },
     );
 
-    rendered.rerender({ currentProjectContext: null });
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-alpha",
+    });
     await act(async () => {
       await rendered.result.current.runCommand(
         pluginId,
@@ -401,7 +514,237 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].runCommand).toHaveBeenLastCalledWith(
       pluginId,
       "denote.reference.synthetic",
-      { workspaceScope: "/vault", projectId: null },
+      { workspaceScope: "/vault", projectId: null, sourceControlActionId: null },
     );
+  });
+
+  it("publishes source control providers and scopes their actions", async () => {
+    const projectContext = {
+      projectId: "project-alpha",
+      rootPath: "code/alpha",
+    };
+    const rendered = await mountReady(
+      [makePlugin({ enabled: true })],
+      projectContext,
+    );
+    const model = {
+      selectedTab: "changes",
+      selectedView: { kind: "repository" },
+      repository: {
+        repositoryId: "repo-1",
+        label: "Synthetic repository",
+        initialized: true,
+        branch: "main",
+        upstream: null,
+        ahead: 0,
+        behind: 0,
+        latestCommit: null,
+        busy: false,
+      },
+      resourceGroups: [],
+      branches: [],
+      remotes: [],
+      history: [],
+      historyPage: {
+        pageIndex: 0,
+        pageSize: 20,
+        hasPrevious: false,
+        hasNext: false,
+        loading: false,
+        error: null,
+      },
+      commitDetail: null,
+      diffFiles: [],
+      diffSource: null,
+      conflicts: [],
+      conflictDetail: null,
+      operationProgress: null,
+      operationPlan: null,
+      recovery: { state: "idle" },
+      remoteAccess: {
+        authMode: "public" as const,
+        cloneAvailable: true,
+        githubAvailable: false,
+        repositories: [],
+        cleanup: null,
+        review: null,
+      },
+    } as const;
+    const publishProviders = runtimeInstances[0]
+      .onSourceControlProvidersChanged as (
+      providers: Array<{
+        pluginId: string;
+        id: string;
+        title: string;
+        model: typeof model;
+      }>,
+    ) => void;
+
+    act(() => {
+      publishProviders([
+        {
+          pluginId,
+          id: "denote.reference.git",
+          title: "Git",
+          model,
+        },
+      ]);
+    });
+    expect(rendered.result.current.sourceControlProviders).toEqual([
+      {
+        pluginId,
+        id: "denote.reference.git",
+        title: "Git",
+        model,
+      },
+    ]);
+
+    await act(async () => {
+      await rendered.result.current.runSourceControlAction(
+        pluginId,
+        "denote.reference.git",
+        { id: "refresh", values: { force: true } },
+        "/vault",
+      );
+    });
+    expect(
+      runtimeInstances[0].runSourceControlAction,
+    ).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.git",
+      { id: "refresh", values: { force: true } },
+      {
+        workspaceScope: "/vault",
+        projectId: "project-alpha",
+        // The lease names the action the host is running, so a host operation
+        // reserved for one action cannot be reached from another.
+        sourceControlActionId: "refresh",
+      },
+    );
+
+    await act(async () => {
+      await rendered.result.current.runSourceControlAction(
+        pluginId,
+        "denote.reference.git",
+        { id: "commit", values: { message: "Signed synthetic change" } },
+        "/vault",
+        { gitSigningPassphrase: "synthetic-passphrase" },
+      );
+    });
+    expect(
+      runtimeInstances[0].runSourceControlAction,
+    ).toHaveBeenLastCalledWith(
+      pluginId,
+      "denote.reference.git",
+      { id: "commit", values: { message: "Signed synthetic change" } },
+      {
+        workspaceScope: "/vault",
+        projectId: "project-alpha",
+        sourceControlActionId: "commit",
+        gitSigningPassphrase: "synthetic-passphrase",
+      },
+    );
+  });
+
+  it("publishes automatic local commit schedules from the active runtime", async () => {
+    const rendered = await mountReady([makePlugin({ enabled: true })]);
+    const publishSchedules = runtimeInstances[0]
+      .onAutomaticLocalCommitsChanged as (
+      schedules: Array<Record<string, unknown>>,
+    ) => void;
+
+    act(() => {
+      publishSchedules([
+        {
+          pluginId,
+          id: "denote.reference.nightly",
+          intervalMinutes: 15,
+          message: "Synthetic automatic commit",
+          includePatterns: [],
+          excludePatterns: [],
+          authorName: null,
+          authorEmail: null,
+        },
+      ]);
+    });
+
+    expect(rendered.result.current.automaticLocalCommits).toEqual([
+      expect.objectContaining({
+        pluginId,
+        id: "denote.reference.nightly",
+        intervalMinutes: 15,
+      }),
+    ]);
+
+    act(() => {
+      publishSchedules([]);
+    });
+    expect(rendered.result.current.automaticLocalCommits).toEqual([]);
+  });
+
+  it("reloads a running runtime so a settings change takes effect", async () => {
+    const enabled = makePlugin({ enabled: true });
+    const { result } = await mountReady([enabled]);
+    queueListPlugins([enabled]);
+    queueListPlugins([enabled]);
+
+    await act(async () => {
+      await result.current.updateSettings(pluginId, {
+        autoCommitIntervalMinutes: 15,
+      });
+    });
+
+    expect(api.setPluginSettings).toHaveBeenCalledWith(pluginId, {
+      autoCommitIntervalMinutes: 15,
+    });
+    // The runtime is restarted, not reinstalled: no transaction is prepared
+    // and the plugin stays enabled throughout.
+    expect(callOrder).toEqual([
+      "listPlugins",
+      "stop",
+      "start",
+      "listPlugins",
+    ]);
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(api.disablePlugin).not.toHaveBeenCalled();
+  });
+
+  it("disables a plugin whose runtime cannot restart after a settings change", async () => {
+    const enabled = makePlugin({ enabled: true });
+    const { result } = await mountReady([enabled]);
+    queueListPlugins([enabled]);
+    runtimeInstances[0].start.mockRejectedValueOnce(
+      new Error("Synthetic reload failure"),
+    );
+    queueListPlugins([makePlugin({ enabled: false })]);
+
+    let failure: unknown = null;
+    await act(async () => {
+      failure = await result.current
+        .updateSettings(pluginId, { autoCommitIntervalMinutes: 15 })
+        .catch((error: unknown) => error);
+    });
+
+    expect(failure).toEqual(
+      expect.objectContaining({ message: "Synthetic reload failure" }),
+    );
+    expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
+    expect(result.current.plugins).toEqual([makePlugin({ enabled: false })]);
+  });
+
+  it("leaves a disabled plugin unstarted when its settings change", async () => {
+    const disabled = makePlugin({ enabled: false });
+    const { result } = await mountReady([disabled]);
+    queueListPlugins([disabled]);
+
+    await act(async () => {
+      await result.current.updateSettings(pluginId, {
+        autoCommitIntervalMinutes: 0,
+      });
+    });
+
+    expect(callOrder).toEqual(["listPlugins"]);
+    expect(runtimeInstances[0].stop).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
   });
 });

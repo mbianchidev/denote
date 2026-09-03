@@ -24,6 +24,13 @@ If a plugin is behaving badly, use **Disable all plugins** in the same settings
 section. The editor remains usable while plugin workers start, and a crashing
 plugin is stopped and removed automatically.
 
+When previously approved plugins have updates, **Update all** appears in the
+plugin manager. It first lists the exact plugins and explains that their complete
+latest permission sets will be accepted again. Confirming updates only those
+listed plugins, one independently verified transaction at a time. Current,
+never-approved, incompatible, and unrelated plugins are not downloaded or
+changed.
+
 Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
 keychain. Plugins cannot read Denote credentials or another plugin's entries.
@@ -55,11 +62,11 @@ disabled. Plugin API version 1 cannot inject or download grammars. A future
 specialized grammar extension would require a separately approved typed,
 bundled host contract.
 Diff highlighting and interactive diff presentation are intentionally not core
-language entries; they belong to the future Git plugin.
+language entries; the optional Git plugin provides them through its
+host-rendered source-control view.
 
 These capabilities are planned as separately enabled plugins:
 
-- Git vault versioning and optional timed commits;
 - graph view;
 - Kanban boards;
 - Mermaid diagrams;
@@ -69,14 +76,193 @@ These capabilities are planned as separately enabled plugins:
 - calendar and time tracking;
 - colorful text.
 
+**Git vault versioning** is now in the catalog. Enable it to get one Git view in
+the activity rail that lists the vault root and every configured project root
+with a safe `.git` marker. Select one repository, then refresh or initialize it with your configured
+default branch, stage and unstage a file, commit staged changes with an optional
+configured author identity, and cancel a running operation. Enabling it does not
+run Git or change your vault, and it asks for no network, process, or
+note-writing permission. Switching projects, or switching vaults, resets the
+view and asks for a refresh, so it never shows one repository's state as if it
+belonged to another.
+
+Set **Automatic commit interval** above zero to let Denote commit for you on a
+timer. Denote saves your open notes first, then commits only tracked files that
+changed and match your include and exclude prefixes. It never adds a new file
+you have not tracked yourself, never contacts a remote, and waits for the next
+interval when work is already staged, a merge is unfinished, the vault is
+locked, or Denote is busy. Nothing happens the moment you enable it: the first
+automatic commit is one full interval later. If a run cannot finish, whatever
+you had staged is left exactly as it was, and if another Git tool changed your
+index in the meantime Denote leaves that index untouched and tells you so.
+Changing any plugin setting reloads the plugin so the new interval, message, or
+prefixes apply straight away.
+
+You can also work with remotes. The Branches tab adds a remote, changes a
+remote's URL, and removes one, and the repository section fetches, pulls, and
+pushes. Denote never does any of that on its own. A pull, a push, a URL change,
+and a remote removal each ask you first and name the exact remote, URL, and
+branch involved, and only an ordinary push is offered: there is no force push.
+
+Choose how Denote signs in under **Remote authentication**, in the plugin's
+settings. *System Git credentials* is the default and uses your configured
+credential helper or OS keychain. *Public repository* needs no credentials, *SSH agent* uses the agent
+you already have running, and *GitHub sign-in* uses the GitHub CLI on your
+machine. The Git view shows the mode you configured and sends you to Settings to
+change it, so it always matches what the next fetch, pull, push, or clone will
+use. With GitHub sign-in you can browse your repositories and pick one to clone.
+Denote reads the token itself, uses it only for that one Git command, and
+deletes it straight afterwards; it is never stored in plugin settings, written
+into your repository's configuration, or shown in a message or log. Denote also
+checks the address it is really about to contact, so a remote that fetches from
+GitHub but pushes somewhere else is refused rather than sent your token. If a
+mode is not set up, Denote says so instead of leaving Git waiting for a
+password.
+
+Open **Switch vault**, choose **Clone repo as vault**, and enter the repository
+there. Denote asks you to choose an empty folder, clones into it,
+checks the result, and only then opens it as a vault. Your open notes are saved
+before the clone starts, so nothing you typed in the current vault is lost when
+the clone replaces it. Cancelling the folder chooser does nothing at all, and
+Cancel stops a clone or a repository browse while it is still running. If the clone fails, the folder is left exactly as
+it is: you can retry, or use **Clean incomplete clone**, which asks for a
+separate confirmation and deletes only that one folder. Denote never cleans it
+up for you. A cloned vault that is encrypted opens on the usual unlock screen,
+so no note is shown before you unlock it.
+
+The Branches tab does branch work. You can create a branch from the branch you
+are on, from another local branch, or from a remote-tracking branch, and check
+it out straight away if you want to. You can switch to a local branch, rename
+one, and delete one. Checking out a remote branch creates a local branch that
+follows it: Denote proposes the name by dropping the remote, lets you change it,
+and tells you when that name is already taken rather than quietly reusing an
+existing branch. Renaming and deleting only ever touch local branches, Denote
+refuses to delete the branch you are on, and nothing ever switches on its own
+after a fetch, a remote update, or startup. Each of these asks first and names
+the exact branch you are leaving and the one you are going to; deleting asks a
+dangerous confirmation.
+
+The main Changes view keeps common work close together: select or create and
+switch a branch, pull, stage or unstage one file or all eligible files, type a
+commit message, commit, and push. **Restore** replaces one tracked file with the
+current upstream version; **Restore from remote** does the same for all tracked
+staged and unstaged changes. Both require a dangerous confirmation and never
+delete untracked files.
+
+Select the current branch button to open the branch picker. Search for a local
+branch and select it to switch, choose a remote branch to create its proposed
+local tracking branch, or type a new name and choose any local or remote
+**Create from** point. Creating always switches to the new branch. Denote still
+saves open notes, reviews dirty work, and asks for confirmation before the
+checkout changes files.
+
+Compact actions use icons; hover them for the full label, and screen readers
+receive the same name. **Open diff** opens a read-only temporary `.diff` tab in
+the main editor using Pierre Diffs. File and hunk stage/unstage actions stay
+above the patch. Closing the tab closes the provider's diff selection, and the
+tab is not saved into the vault or restored next session.
+
+Under plugin settings, **Use system Git settings** is on by default. Denote
+imports only bounded allowlisted identity, credential-helper, line-ending, and
+GPG values into its hardened Git process. Manual commits can follow the system
+signing default, always sign, or never sign. The optional GPG key field is masked;
+your system GPG agent or pinentry asks for the passphrase, which Denote never
+stores. Automatic commits remain unsigned.
+
+For an encrypted SSH signing key, enter its passphrase in the optional
+password-style field under the manual commit message. Denote uses it for that
+commit only and clears it immediately; the plugin never receives it. Leave it
+empty when your SSH agent already has the key, or when OpenPGP/X.509 signing uses
+the system GPG agent or pinentry.
+
+If switching would disturb work, Denote does not switch. It reads the working
+tree again first. Unresolved conflicts stop a checkout outright: resolve them and
+continue, or abort the operation, then try again. Otherwise Denote lists
+every staged, changed, and untracked file and offers you three answers.
+**Commit all and switch** stages exactly those files and commits them with the
+message you type. **Stash and switch** puts them in the repository's stash;
+untracked files are included only when the vault is not encrypted, and while an
+encrypted vault has untracked files stashing is unavailable and says why.
+**Cancel switch** does nothing at all. Denote never discards your work: once it
+has committed or stashed, anything that goes wrong afterwards — the switch
+failing, you cancelling it, or opening another vault while it runs — is reported
+with a message that says exactly where your work is.
+
+After a switch, Denote saves your open notes first, then reads the vault again
+and reloads every open tab from disk. Your panes, tab order, tab groups, and
+each tab's language and view choices stay as they were. Only tabs whose files do
+not exist on the new branch are closed, and Denote names them.
+
+You can also stage part of a file. **Open diff** on a changed or staged file
+shows its hunks, and **Stage hunk** and **Unstage hunk** apply exactly that one
+hunk to the staging area without touching the file on disk. A binary, added,
+deleted, renamed, or copied change has no pair of matching text sides to split,
+so Denote stages it as a whole file and says so. An encrypted vault stages whole
+files too: Git records the ciphertext, so there are no lines in it to choose
+between. When the same file is both staged and changed, **Working tree** and
+**Staged** switch between its two diffs, and the heading always names the side
+you are looking at.
+
+The History tab reads one page of commits at a time. **Refresh history** reads
+the page again, and **Previous** and **Next** move a page at a time; each button
+is offered only when that page exists, and the status line says which page is on
+screen. Selecting a commit shows its author, date, parents, refs, and the exact
+diff Git reports for it, file by file. A merge commit is shown compared with its
+first parent, which includes what the merge brought into that branch but does
+not distinguish cleanly merged changes from merge-resolution edits. A commit
+that changed no files says exactly that. History is
+read-only: there is no hunk action on a commit's diff, because a commit records
+what already happened.
+
+**Open file** on a changed row, or on a file in a commit, opens that note in the
+editor. Denote opens the file at the path it has now, so a file that a commit
+renamed opens under its current name, and a file that has been deleted since is
+still shown in the commit but cannot be opened. If the file is no longer in the
+vault, Denote says so instead of opening nothing.
+
+Merge and rebase act on a branch the repository already has, and cherry-pick and
+revert act on the commit you selected in the History tab. None of them starts
+when you press the button: Denote reads the repository again and shows a review
+naming the operation, its source, the branch it changes, what it risks, and the
+files it expects to touch. Starting one asks for confirmation, and a rebase asks
+a dangerous confirmation because it rewrites the commits on your branch. Work in
+the vault goes through the same commit-or-stash review a branch switch uses, and
+an operation never starts while another one is in progress. Cancelling the
+review cancels the whole operation, including the commit-or-stash question, and
+a review stops being valid once the branch it named moves: after a checkout, a
+pull, a commit, or a change made outside Denote, you are asked to preview the
+operation again rather than run the one you read about somewhere else.
+
+An operation that stopped stays where Git left it. Denote reads that state on
+every refresh and after a restart, and offers only the controls Git allows:
+**Continue** stays disabled until no file is unmerged, **Skip** appears only for
+a rebase, cherry-pick, or revert, and **Abort** puts the repository back where it
+was. Nothing resumes on its own.
+
+**Open conflict** reads the three sides Git recorded for a conflicted file — the
+common ancestor, your side, and the incoming side — from the index rather than
+from the file on disk, so a note that contains conflict-marker characters is
+never mistaken for one. Denote merges the sides itself: a change only one side
+made is already in the result, and a change both sides made differently is listed
+with **Base**, **Ours**, and **Theirs** to choose from. You can also take one
+whole side, or edit the merged result yourself, and **Mark resolved** writes it
+into the vault and stages it. A side the index does not hold is shown as not
+recorded rather than as empty content.
+
+Binary files and encrypted vaults never show line content and never receive
+plaintext: they offer the recorded sides as whole-file choices, and Denote writes
+the exact content Git holds for the side you pick. Resolving one file resolves
+only that file, and leaving the editor with an unsaved result is refused rather
+than done quietly.
+
 The Git plugin is designed to commit ciphertext when vault encryption is enabled
 and must run an encryption sweep before committing.
 
-The current catalog includes a development reference plugin that proves
+The current catalog also includes a development reference plugin that proves
 download, verification, isolated activation, command registration, disablement,
 sidebar and status contributions, note events, source-editor decorations,
-keychain isolation, restart restoration, and package removal. Production
-feature plugins remain tracked separately.
+keychain isolation, restart restoration, and package removal. Remaining
+production feature plugins are tracked separately.
 
 [Back to Welcome](<../Welcome.md>)
 

@@ -109,7 +109,7 @@ pub(crate) fn active_key(
     Ok(Some(state.vault_key()?))
 }
 
-fn populate_encryption_status(
+pub(crate) fn populate_encryption_status(
     state: &State<'_, AppState>,
     snapshot: &mut WorkspaceSnapshot,
 ) -> AppResult<()> {
@@ -126,7 +126,7 @@ fn populate_encryption_status(
     Ok(())
 }
 
-fn seal_active_vault_before_switch(state: &State<'_, AppState>) -> AppResult<()> {
+pub(crate) fn seal_active_vault_before_switch(state: &State<'_, AppState>) -> AppResult<()> {
     let Some(root) = state.active_vault_optional()? else {
         return Ok(());
     };

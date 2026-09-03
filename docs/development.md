@@ -35,6 +35,11 @@ not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
 `packages/plugins/denote.reference/` as the contract example; it is not bundled into
 the Denote application.
 
+Plugin unit tests belong in `packages/plugins/<plugin-id>/tests/`, outside
+`src/`, so the packaged source keeps its strict import boundary while the tests
+still type check with `npm run check:plugins` and run with `npm test`. Use
+`packages/plugins/denote.git/tests/` as the example.
+
 Create a complete package skeleton and draft catalog entry with:
 
 ```bash
@@ -70,6 +75,11 @@ checks the committed archive contents, requires a 40-character commit pin, and
 downloads every pinned URL with a timeout and strict byte bound, checks safe
 archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
 supported platforms.
+
+Packaging is per plugin. An unchanged manifest version must match its committed
+archive and is retained without changing its artifact bytes, URL, digest, size,
+guide, or provenance. If one plugin changes, bump only that plugin's version;
+`npm run package:plugins` must leave every unrelated plugin untouched.
 
 ## Build a desktop bundle
 

@@ -4,38 +4,56 @@ import type {
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginProjectRepositoryContext,
+  PluginSourceControlAction,
 } from "@denote/plugin-sdk";
 import {
   privilegedHostOperation,
   runHostOperation,
+  type PluginVaultClonedHandler,
   type PluginActionLeaseScope,
 } from "./hostOperations";
 import {
   isPluginRuntimeMessage,
+  type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginDecorationContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
+  type PluginSourceControlContribution,
   type PluginStatusContribution,
   type PluginWorkerConnectMessage,
 } from "./runtimeMessages";
 
 export type {
+  PluginAutomaticLocalCommitContribution,
   PluginCommandContribution,
   PluginDecorationContribution,
   PluginSidebarContribution,
+  PluginSourceControlContribution,
   PluginStatusContribution,
 } from "./runtimeMessages";
-export type { PluginActionLeaseScope } from "./hostOperations";
+export type {
+  PluginActionHostSecrets,
+  PluginActionLeaseScope,
+  PluginVaultClonedHandler,
+} from "./hostOperations";
 
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 30_000;
+// Source-control actions drive the bounded native Git transport, whose own hard
+// timeout is ten minutes. Only this lease is extended to match it.
+const SOURCE_CONTROL_ACTION_TIMEOUT_MS = 600_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timeout: number;
+  expectedType:
+    | "command-result"
+    | "source-control-action-result"
+    | "deactivated";
 }
 
 interface PendingHandshake {
@@ -54,6 +72,10 @@ interface Runtime {
   stagedStatusItems: Map<string, PluginStatusContribution>;
   decorations: Map<string, PluginDecorationContribution>;
   stagedDecorations: Map<string, PluginDecorationContribution>;
+  sourceControlProviders: Map<string, PluginSourceControlContribution>;
+  stagedSourceControlProviders: Map<string, PluginSourceControlContribution>;
+  automaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
+  stagedAutomaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
   permissions: Set<string>;
   pending: Map<string, PendingRequest>;
   activeActions: Map<string, PluginActionLeaseScope>;
@@ -74,6 +96,12 @@ export class PluginWorkerRuntime {
   private readonly stops = new Map<string, Promise<void>>();
   private readonly generations = new Map<string, number>();
   private projectContext: PluginProjectContext | null = null;
+  private projectRepositories: PluginProjectRepositoryContext[] = [];
+  /**
+   * Identifies the workspace the host is showing. It never leaves the host: it
+   * is compared here and only the resulting change flag is broadcast.
+   */
+  private workspaceIdentity: string | null = null;
 
   constructor(
     private readonly onCommandsChanged: (
@@ -89,6 +117,18 @@ export class PluginWorkerRuntime {
     private readonly onDecorationsChanged: (
       decorations: PluginDecorationContribution[],
     ) => void = () => {},
+    private readonly onSourceControlProvidersChanged: (
+      providers: PluginSourceControlContribution[],
+    ) => void = () => {},
+    private readonly onAutomaticLocalCommitsChanged: (
+      schedules: PluginAutomaticLocalCommitContribution[],
+    ) => void = () => {},
+    /**
+     * Receives the workspace a host clone produced. It stays in the host: the
+     * runtime hands the snapshot to the renderer and returns only the clone
+     * outcome to the plugin.
+     */
+    private readonly onVaultCloned: PluginVaultClonedHandler = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -149,6 +189,7 @@ export class PluginWorkerRuntime {
       runtime,
       requestId,
       DEACTIVATION_TIMEOUT_MS,
+      "deactivated",
     );
     runtime.port.postMessage({ type: "deactivate", requestId });
     try {
@@ -194,17 +235,76 @@ export class PluginWorkerRuntime {
     if (!runtime.activated || !runtime.commands.has(commandId)) {
       throw new Error(`Plugin command ${commandId} is not registered.`);
     }
+
     const requestId = crypto.randomUUID();
-    const result = this.waitForRequest(runtime, requestId, COMMAND_TIMEOUT_MS);
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      COMMAND_TIMEOUT_MS,
+      "command-result",
+    );
     runtime.activeActions.set(requestId, {
       ...actionScope,
       projectId: runtime.permissions.has("project-context")
         ? actionScope.projectId
         : null,
+      projectIds: runtime.permissions.has("project-context")
+        ? [...(actionScope.projectIds ?? [])]
+        : [],
+      // A command is not a source-control action, so its lease authorises none
+      // of the host operations that are bound to one.
+      sourceControlActionId: null,
     });
     runtime.port.postMessage({
       type: "run-command",
       commandId,
+      requestId,
+    });
+    try {
+      await result;
+    } finally {
+      runtime.activeActions.delete(requestId);
+    }
+  }
+
+  async runSourceControlAction(
+    pluginId: string,
+    providerId: string,
+    action: PluginSourceControlAction,
+    actionScope: PluginActionLeaseScope,
+  ): Promise<void> {
+    const runtime = this.requireRuntime(pluginId);
+    if (
+      !runtime.activated ||
+      !runtime.sourceControlProviders.has(providerId)
+    ) {
+      throw new Error(
+        `Plugin source control provider ${providerId} is not registered.`,
+      );
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      SOURCE_CONTROL_ACTION_TIMEOUT_MS,
+      "source-control-action-result",
+    );
+    runtime.activeActions.set(requestId, {
+      ...actionScope,
+      projectId: runtime.permissions.has("project-context")
+        ? actionScope.projectId
+        : null,
+      projectIds: runtime.permissions.has("project-context")
+        ? [...(actionScope.projectIds ?? [])]
+        : [],
+      // The lease carries the action the host is running, so a host operation
+      // reserved for one action cannot be reached from another.
+      sourceControlActionId: action.id,
+    });
+    runtime.port.postMessage({
+      type: "run-source-control-action",
+      providerId,
+      action,
       requestId,
     });
     try {
@@ -229,19 +329,65 @@ export class PluginWorkerRuntime {
     }
   }
 
-  setProjectContext(context: PluginProjectContext | null): void {
+  setProjectContext(
+    context: PluginProjectContext | null,
+    repositories: PluginProjectRepositoryContext[] = [],
+  ): void {
     validateProjectContext(context);
-    if (sameProjectContext(this.projectContext, context)) {
+    validateProjectRepositories(repositories);
+    if (
+      sameProjectContext(this.projectContext, context) &&
+      sameProjectRepositories(this.projectRepositories, repositories)
+    ) {
       return;
     }
     if (projectIdentity(this.projectContext) !== projectIdentity(context)) {
       this.invalidateActionLeases();
     }
+    const nextRepositories = cloneProjectRepositories(repositories);
     const event: PluginProjectContextChangeEvent = {
       previous: cloneProjectContext(this.projectContext),
       current: cloneProjectContext(context),
+      ...(nextRepositories.length > 0
+        ? { repositories: nextRepositories }
+        : {}),
+      workspaceChanged: false,
     };
     this.projectContext = cloneProjectContext(context);
+    this.projectRepositories = nextRepositories;
+    this.broadcastProjectContextChange(event);
+  }
+
+  /**
+   * Records which workspace the host is showing. The identity is host-only: it
+   * is never sent to a worker, so plugin code cannot read the vault path or
+   * correlate one workspace with another. Only the fact that the workspace
+   * changed crosses the boundary.
+   */
+  setWorkspaceIdentity(identity: string | null): void {
+    if (this.workspaceIdentity === identity) {
+      return;
+    }
+    this.workspaceIdentity = identity;
+    // Every lease was granted against the previous workspace, so an action
+    // still in flight must not be allowed to land on the new one. Unlike a
+    // project change, this reaches plugins that never asked for project
+    // context: their leases named the previous vault just the same.
+    for (const runtime of this.runtimes.values()) {
+      runtime.activeActions.clear();
+    }
+    const repositories = cloneProjectRepositories(this.projectRepositories);
+    this.broadcastProjectContextChange({
+      previous: cloneProjectContext(this.projectContext),
+      current: cloneProjectContext(this.projectContext),
+      ...(repositories.length > 0 ? { repositories } : {}),
+      workspaceChanged: true,
+    });
+  }
+
+  private broadcastProjectContextChange(
+    event: PluginProjectContextChangeEvent,
+  ): void {
     for (const runtime of this.runtimes.values()) {
       if (
         (runtime.phase === "activating" || runtime.phase === "active") &&
@@ -285,6 +431,10 @@ export class PluginWorkerRuntime {
       stagedStatusItems: new Map(),
       decorations: new Map(),
       stagedDecorations: new Map(),
+      sourceControlProviders: new Map(),
+      stagedSourceControlProviders: new Map(),
+      automaticCommits: new Map(),
+      stagedAutomaticCommits: new Map(),
       permissions: new Set(
         plugin.approvedPermissions.map(
           (permission) => permission.capability,
@@ -341,6 +491,13 @@ export class PluginWorkerRuntime {
           ? {
               type: "activate",
               projectContext: cloneProjectContext(this.projectContext),
+              ...(this.projectRepositories.length > 0
+                ? {
+                    repositories: cloneProjectRepositories(
+                      this.projectRepositories,
+                    ),
+                  }
+                : {}),
             }
           : { type: "activate" },
       );
@@ -364,10 +521,20 @@ export class PluginWorkerRuntime {
         runtime.decorations.set(decorationId, decoration);
       }
       runtime.stagedDecorations.clear();
+      for (const [providerId, provider] of runtime.stagedSourceControlProviders) {
+        runtime.sourceControlProviders.set(providerId, provider);
+      }
+      runtime.stagedSourceControlProviders.clear();
+      for (const [scheduleId, schedule] of runtime.stagedAutomaticCommits) {
+        runtime.automaticCommits.set(scheduleId, schedule);
+      }
+      runtime.stagedAutomaticCommits.clear();
       this.publishCommands();
       this.publishSidebarViews();
       this.publishStatusItems();
       this.publishDecorations();
+      this.publishSourceControlProviders();
+      this.publishAutomaticLocalCommits();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -513,6 +680,116 @@ export class PluginWorkerRuntime {
         runtime.stagedDecorations.delete(message.id);
         this.publishDecorations();
         return;
+      case "register-source-control": {
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("source-control") ||
+          !message.id.startsWith(`${pluginId}.`)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized source control registration.`,
+            ),
+          );
+          return;
+        }
+        if (
+          this.sourceControlProviderIdRegistered(message.id)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted a duplicate source control registration.`,
+            ),
+          );
+          return;
+        }
+        const provider: PluginSourceControlContribution = {
+          pluginId,
+          id: message.id,
+          title: message.title,
+          model: message.model,
+        };
+        if (runtime.activated) {
+          runtime.sourceControlProviders.set(message.id, provider);
+          this.publishSourceControlProviders();
+        } else {
+          runtime.stagedSourceControlProviders.set(message.id, provider);
+        }
+        return;
+      }
+      case "update-source-control": {
+        const current =
+          runtime.sourceControlProviders.get(message.id) ??
+          runtime.stagedSourceControlProviders.get(message.id);
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("source-control") ||
+          !current
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted to update an unregistered source control provider.`,
+            ),
+          );
+          return;
+        }
+        const updated = { ...current, model: message.model };
+        if (runtime.activated) {
+          runtime.sourceControlProviders.set(message.id, updated);
+          this.publishSourceControlProviders();
+        } else {
+          runtime.stagedSourceControlProviders.set(message.id, updated);
+        }
+        return;
+      }
+      case "unregister-source-control":
+        runtime.sourceControlProviders.delete(message.id);
+        runtime.stagedSourceControlProviders.delete(message.id);
+        this.publishSourceControlProviders();
+        return;
+      case "register-automatic-local-commit":
+      case "update-automatic-local-commit": {
+        const registering = message.type === "register-automatic-local-commit";
+        const staged = runtime.activated
+          ? runtime.automaticCommits
+          : runtime.stagedAutomaticCommits;
+        const known =
+          runtime.automaticCommits.has(message.schedule.id) ||
+          runtime.stagedAutomaticCommits.has(message.schedule.id);
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("automatic-local-commit") ||
+          !message.schedule.id.startsWith(`${pluginId}.`) ||
+          (registering && known) ||
+          (!registering && !known)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized automatic local commit registration.`,
+            ),
+          );
+          return;
+        }
+        // The whole schedule is replaced in one step, so a timer is never
+        // rebuilt from a half-updated contribution.
+        staged.set(message.schedule.id, {
+          pluginId,
+          ...message.schedule,
+        });
+        if (runtime.activated) {
+          this.publishAutomaticLocalCommits();
+        }
+        return;
+      }
+      case "unregister-automatic-local-commit":
+        runtime.automaticCommits.delete(message.id);
+        runtime.stagedAutomaticCommits.delete(message.id);
+        this.publishAutomaticLocalCommits();
+        return;
       case "host-request":
         if (
           privilegedHostOperation(message.operation) &&
@@ -549,11 +826,24 @@ export class PluginWorkerRuntime {
         }
         return;
       case "command-result":
+      case "source-control-action-result": {
+        if (!this.settle(runtime, message.requestId, message.type, message.error)) {
+          this.protocolViolation(
+            pluginId,
+            `unexpected ${message.type} for pending request`,
+          );
+          return;
+        }
         runtime.activeActions.delete(message.requestId);
-        this.settle(runtime, message.requestId, message.error);
         return;
+      }
       case "deactivated":
-        this.settle(runtime, message.requestId, message.error);
+        if (!this.settle(runtime, message.requestId, message.type, message.error)) {
+          this.protocolViolation(
+            pluginId,
+            `unexpected ${message.type} for pending request`,
+          );
+        }
         return;
       case "runtime-error":
         void this.failRuntime(pluginId, new Error(message.error));
@@ -595,6 +885,8 @@ export class PluginWorkerRuntime {
         message.key,
         message.value,
         actionScope,
+        message.operationId,
+        this.onVaultCloned,
       );
       runtime.port.postMessage({
         type: "host-response",
@@ -651,20 +943,34 @@ export class PluginWorkerRuntime {
     runtime: Runtime,
     requestId: string,
     timeoutMs: number,
+    expectedType: PendingRequest["expectedType"],
   ): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const timeout = window.setTimeout(() => {
         runtime.pending.delete(requestId);
         reject(new Error("Plugin operation timed out."));
       }, timeoutMs);
-      runtime.pending.set(requestId, { resolve, reject, timeout });
+      runtime.pending.set(requestId, {
+        resolve,
+        reject,
+        timeout,
+        expectedType,
+      });
     });
   }
 
-  private settle(runtime: Runtime, requestId: string, error?: string): void {
+  private settle(
+    runtime: Runtime,
+    requestId: string,
+    responseType: PendingRequest["expectedType"],
+    error?: string,
+  ): boolean {
     const pending = runtime.pending.get(requestId);
     if (!pending) {
-      return;
+      return true;
+    }
+    if (pending.expectedType !== responseType) {
+      return false;
     }
     window.clearTimeout(pending.timeout);
     runtime.pending.delete(requestId);
@@ -673,6 +979,19 @@ export class PluginWorkerRuntime {
     } else {
       pending.resolve(undefined);
     }
+    return true;
+  }
+
+  private sourceControlProviderIdRegistered(id: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (
+        runtime.sourceControlProviders.has(id) ||
+        runtime.stagedSourceControlProviders.has(id)
+      ) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private terminate(pluginId: string): void {
@@ -693,6 +1012,8 @@ export class PluginWorkerRuntime {
     this.publishSidebarViews();
     this.publishStatusItems();
     this.publishDecorations();
+    this.publishSourceControlProviders();
+    this.publishAutomaticLocalCommits();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -757,6 +1078,27 @@ export class PluginWorkerRuntime {
     );
   }
 
+  private publishSourceControlProviders(): void {
+    this.onSourceControlProvidersChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.sourceControlProviders.values(),
+      ]),
+    );
+  }
+
+  /**
+   * Publishes every schedule the host may hold a timer for. A stopped, failed,
+   * or disabled runtime is already gone from the map, so its schedules
+   * disappear in the same publication and the host clears their timers.
+   */
+  private publishAutomaticLocalCommits(): void {
+    this.onAutomaticLocalCommitsChanged(
+      [...this.runtimes.values()].flatMap((runtime) => [
+        ...runtime.automaticCommits.values(),
+      ]),
+    );
+  }
+
   private requireRuntime(pluginId: string): Runtime {
     const runtime = this.runtimes.get(pluginId);
     if (!runtime) {
@@ -795,6 +1137,29 @@ function cloneProjectContext(
     : null;
 }
 
+function cloneProjectRepositories(
+  repositories: PluginProjectRepositoryContext[],
+): PluginProjectRepositoryContext[] {
+  return repositories.map((repository) => ({ ...repository }));
+}
+
+function sameProjectRepositories(
+  left: PluginProjectRepositoryContext[],
+  right: PluginProjectRepositoryContext[],
+): boolean {
+  return (
+    left.length === right.length &&
+    left.every((repository, index) => {
+      const candidate = right[index];
+      return (
+        candidate?.repositoryId === repository.repositoryId &&
+        candidate.projectId === repository.projectId &&
+        candidate.label === repository.label
+      );
+    })
+  );
+}
+
 function sameProjectContext(
   left: PluginProjectContext | null,
   right: PluginProjectContext | null,
@@ -827,5 +1192,24 @@ function validateProjectContext(context: PluginProjectContext | null): void {
     context.rootPath.split(/[\\/]/).some((segment) => segment === "..")
   ) {
     throw new Error("Plugin project context must use a vault-relative root path.");
+  }
+}
+
+function validateProjectRepositories(
+  repositories: PluginProjectRepositoryContext[],
+): void {
+  const ids = new Set<string>();
+  for (const repository of repositories) {
+    if (
+      !repository.repositoryId ||
+      !repository.label ||
+      (repository.projectId !== null && !repository.projectId) ||
+      ids.has(repository.repositoryId)
+    ) {
+      throw new Error(
+        "Plugin repository contexts must use unique host-issued identities.",
+      );
+    }
+    ids.add(repository.repositoryId);
   }
 }

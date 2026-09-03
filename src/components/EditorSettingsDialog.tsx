@@ -37,6 +37,7 @@ interface EditorSettingsDialogProps {
   ) => Promise<void>;
   onDisablePlugin: (pluginId: string) => Promise<void>;
   onDisableAllPlugins: () => Promise<void>;
+  onUpdateAllPlugins: () => Promise<void>;
   onClearPluginData: (pluginId: string) => Promise<void>;
   onClearPluginCredentials: (pluginId: string) => Promise<void>;
   onUpdatePluginSettings: (
@@ -71,6 +72,7 @@ export function EditorSettingsDialog({
   onEnablePlugin,
   onDisablePlugin,
   onDisableAllPlugins,
+  onUpdateAllPlugins,
   onClearPluginData,
   onClearPluginCredentials,
   onUpdatePluginSettings,
@@ -351,6 +353,7 @@ export function EditorSettingsDialog({
           onEnable={onEnablePlugin}
           onDisable={onDisablePlugin}
           onDisableAll={onDisableAllPlugins}
+          onUpdateAll={onUpdateAllPlugins}
           onClearData={onClearPluginData}
           onClearCredentials={onClearPluginCredentials}
           onUpdateSettings={onUpdatePluginSettings}

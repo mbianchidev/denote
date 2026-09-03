@@ -280,6 +280,49 @@ semantic meaning.
 
 The activity rail is icon-led and uses an active indicator on the leading edge.
 File rows, tabs, and outline entries share compact hover and selected states.
+Plugin source-control providers receive distinct, named rail buttons without
+becoming static sidebar views. Their host-rendered sidebar starts with a compact
+repository list for every detected vault or project repository, then uses visible
+branch, create-branch, sync, and commit fields, native controls, semantic lists and headings, keyboard
+operable tabs, structured diffs, and polite status regions for progress,
+recovery, and limitations. A busy provider that reports the operation it is
+running also shows a cancel control beside that status. Remote work uses the
+same vocabulary: labelled URL and name fields for adding, editing, and removing
+a remote, the configured authentication mode shown read-only beside a line
+directing the user to Settings. Clone onboarding appears in the Switch vault
+dialog beside the ordinary folder action; its submit opens the host's own folder
+chooser, its offered repositories remain ordinary buttons, and failures retain a
+review region with Retry
+and Dismiss. Anything that reaches a remote, changes where one points, removes
+one, restores tracked content from an upstream, or deletes a folder is confirmed
+in the standard action dialog, which
+names the exact remote, URL, and branch, and a deletion uses the dangerous
+variant. History is paged rather than scrolled without end: named refresh,
+previous, and next controls sit above the commit list, each disabled when that
+page does not exist, and a polite status region names the page on screen or the
+read in progress. A selected commit is a definition list of its own metadata
+followed by its changed files, and its diff carries no hunk action. Opening a
+file is a named button on the row or the changed file it belongs to, absent
+where the file was deleted. Plugin data never supplies arbitrary markup.
+The always-visible branch button opens a searchable native dialog in the top
+layer, so it is never clipped by the sidebar. One surface lists local and remote
+branches and exposes create-and-switch with an explicit start-point selector.
+Current branches remain visible but disabled, and every option keeps an exact
+accessible action name.
+The plugin manager groups **Update all** with the global recovery controls only
+when approved updates exist. Its first activation opens an inline confirmation
+that lists exact plugin names and explains that the latest full permission sets
+will be accepted; it never hides this security consequence behind a progress
+button.
+The source-control commit form places the optional signing passphrase directly
+after the commit message. It uses a native password input, explains that it is
+one-shot and SSH-signing-only, and clears after submission or repository change.
+Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions
+use the shared Lucide icon-button vocabulary, while `aria-label` and `title`
+retain the full action and target. Loaded patches leave the narrow sidebar and
+open as read-only temporary `.diff` tabs in the editor. The editor uses
+`@pierre/diffs` for virtualized highlighted patch rendering and keeps compact
+file/hunk actions above the patch.
 Each pane owns a compact tab row. Tabs use the editor surface plus a two-pixel
 moss top edge when active.
 Tabs support pointer-driven ordering with a quiet full-outline drop target and a
@@ -411,8 +454,9 @@ highlighting.
 The picker also includes LaTeX, Jinja, Vue, Angular templates, React JSX/TSX,
 common SQL dialects, and the supported functional, scientific, legacy, and
 configuration languages. Automatic detection does not guess when extensions are
-ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Diff rendering
-is absent from core and belongs to the Git plugin's future surfaces.
+ambiguous: `.pp` stays plain until Pascal or Puppet is selected. Editor diff
+highlighting remains absent from core; optional source-control plugins provide
+typed diff data that Denote renders in the host sidebar.
 Terraform/HCL uses its bundled parser. Helm `.tpl` files and explicit Helm
 overrides use a restrained YAML-plus-template tokenizer that distinguishes
 values, actions, functions, variables, and control blocks without executing

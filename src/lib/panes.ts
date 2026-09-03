@@ -896,7 +896,7 @@ export function buildPaneSessionState(
 ): TabSessionState {
   const panes: TabSessionPane[] = state.panes.map((pane) => {
     const realTabs = tabsInVisualOrder(pane.tabs).filter(
-      (tab) => !tab.placeholder,
+      (tab) => !tab.placeholder && !tab.transient,
     );
     const groupIds = new Set(
       realTabs

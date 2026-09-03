@@ -216,8 +216,21 @@ fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result
     Ok(())
 }
 
+/// Answers one Git credential prompt and exits.
+///
+/// Git runs `GIT_ASKPASS` as an ordinary program, and Denote names itself so
+/// no shell or helper script is involved. The check happens before anything
+/// else starts, so an askpass invocation never opens a window, never touches
+/// the database, and never becomes a second Denote instance.
+pub fn run_askpass_if_requested() -> bool {
+    plugins::askpass::run_askpass_if_requested()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    if run_askpass_if_requested() {
+        return;
+    }
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
             if let Some(window) = app.get_webview_window("main") {
@@ -347,10 +360,19 @@ pub fn run() {
             plugins::plugin_clipboard_write,
             plugins::plugin_show_notification,
             plugins::plugin_process_request,
+            plugins::plugin_git_request,
+            plugins::plugin_github_list_repositories,
+            plugins::plugin_git_clone_vault,
+            plugins::plugin_git_clean_failed_clone,
+            plugins::plugin_automatic_commit,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Denote")
         .run(|app, event| match event {
+            RunEvent::Exit => {
+                app.state::<plugins::PluginManager>()
+                    .cancel_all_git_operations();
+            }
             RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<AppState>();
                 if !state.exit_is_allowed() {

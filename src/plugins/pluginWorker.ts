@@ -7,12 +7,16 @@ import type {
   PluginCapability,
   PluginCommand,
   PluginDisposable,
+  PluginGitResult,
   PluginLogger,
   PluginNetworkResponse,
   PluginNoteEvent,
   PluginProcessResult,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
+  PluginProjectRepositoryContext,
+  PluginSourceControlProvider,
+  PluginSourceControlViewModel,
   PluginTextDocument,
   PluginUserActionContext,
 } from "@denote/plugin-sdk";
@@ -21,16 +25,34 @@ import type {
   PluginRuntimeMessage,
   PluginWorkerConnectMessage,
 } from "./runtimeMessages";
+import {
+  isPluginHostMessage,
+  isPluginSourceControlViewModel,
+} from "./runtimeMessages";
+import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
+import { createGitCapability } from "./gitCapability";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
 }
 
+/**
+ * The one standardized source-control action that must reach a provider while
+ * the operation it names is still running. Queueing it behind that operation
+ * would make it arrive only once there is nothing left to cancel.
+ */
+const CANCEL_SOURCE_CONTROL_ACTION = "cancel-operation";
+
 const commandHandlers = new Map<string, PluginCommand["run"]>();
+const sourceControlHandlers = new Map<
+  string,
+  PluginSourceControlProvider["runAction"]
+>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
+const automaticCommitSchedules = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
 >();
@@ -43,7 +65,10 @@ let plugin: DenotePlugin | null = null;
 let port: MessagePort | null = null;
 let cleaned = false;
 let projectContext: PluginProjectContext | null = null;
+let projectRepositories: PluginProjectRepositoryContext[] = [];
+let projectContextObserved = false;
 let hostMessageQueue = Promise.resolve();
+let projectContextQueue = Promise.resolve();
 
 function send(message: PluginRuntimeMessage): void {
   if (!port) {
@@ -57,6 +82,7 @@ function hostRequest<T>(
   key?: string,
   value?: unknown,
   actionId?: string,
+  operationId?: string,
 ): Promise<T> {
   const requestId = crypto.randomUUID();
   send({
@@ -66,6 +92,7 @@ function hostRequest<T>(
     key,
     value,
     actionId,
+    operationId,
   });
   return new Promise<T>((resolve, reject) => {
     pending.set(requestId, {
@@ -155,6 +182,20 @@ function userActionContext(actionId: string): PluginUserActionContext {
           actionId,
         ),
     };
+  }
+  if (permissions.has("git")) {
+    capabilities.git = createGitCapability(
+      (request, operationId) =>
+        hostRequest<PluginGitResult>(
+          "git.run",
+          undefined,
+          request,
+          actionId,
+          operationId,
+        ),
+      (operation, value, operationId) =>
+        hostRequest(operation, undefined, value, actionId, operationId),
+    );
   }
   return { capabilities };
 }
@@ -267,12 +308,111 @@ function runtimeContext(): PluginActivationContext {
   if (permissions.has("project-context")) {
     capabilities.projectContext = {
       getCurrent: () => cloneProjectContext(projectContext),
+      getRepositories: () => cloneProjectRepositories(projectRepositories),
       subscribe(listener) {
         if (typeof listener !== "function") {
           throw new Error("Project context listener must be a function.");
         }
         projectContextListeners.add(listener);
         return disposable(() => projectContextListeners.delete(listener));
+      },
+    };
+  }
+  if (permissions.has("source-control")) {
+    capabilities.sourceControl = {
+      register(provider) {
+        validateContribution(provider, "source control provider");
+        if (typeof provider.runAction !== "function") {
+          throw new Error("Invalid source control provider registration.");
+        }
+        validateSourceControlModel(provider.initialModel);
+        if (sourceControlHandlers.has(provider.id)) {
+          throw new Error(
+            `Source control provider ${provider.id} is already registered.`,
+          );
+        }
+        sourceControlHandlers.set(provider.id, provider.runAction);
+        let disposed = false;
+        send({
+          type: "register-source-control",
+          id: provider.id,
+          title: provider.title,
+          model: provider.initialModel,
+        });
+        return {
+          update(model) {
+            if (disposed || !sourceControlHandlers.has(provider.id)) {
+              throw new Error(
+                `Source control provider ${provider.id} is no longer registered.`,
+              );
+            }
+            validateSourceControlModel(model);
+            send({
+              type: "update-source-control",
+              id: provider.id,
+              model,
+            });
+          },
+          dispose() {
+            if (disposed) {
+              return;
+            }
+            disposed = true;
+            sourceControlHandlers.delete(provider.id);
+            send({ type: "unregister-source-control", id: provider.id });
+          },
+        };
+      },
+    };
+  }
+  if (permissions.has("automatic-local-commit")) {
+    capabilities.automaticLocalCommit = {
+      register(schedule) {
+        // A standing schedule is validated before it leaves the worker, so a
+        // plugin learns immediately that a value was refused instead of
+        // silently running on host-repaired terms.
+        const normalized = normalizeAutomaticLocalCommitSchedule(
+          pluginId,
+          schedule,
+        );
+        if (automaticCommitSchedules.has(normalized.id)) {
+          throw new Error(
+            `Automatic local commit ${normalized.id} is already registered.`,
+          );
+        }
+        automaticCommitSchedules.add(normalized.id);
+        let disposed = false;
+        send({
+          type: "register-automatic-local-commit",
+          schedule: normalized,
+        });
+        return {
+          update(next) {
+            if (disposed || !automaticCommitSchedules.has(normalized.id)) {
+              throw new Error(
+                `Automatic local commit ${normalized.id} is no longer registered.`,
+              );
+            }
+            send({
+              type: "update-automatic-local-commit",
+              schedule: normalizeAutomaticLocalCommitSchedule(pluginId, {
+                ...next,
+                id: normalized.id,
+              }),
+            });
+          },
+          dispose() {
+            if (disposed) {
+              return;
+            }
+            disposed = true;
+            automaticCommitSchedules.delete(normalized.id);
+            send({
+              type: "unregister-automatic-local-commit",
+              id: normalized.id,
+            });
+          },
+        };
       },
     };
   }
@@ -331,6 +471,14 @@ function validateContributionId(id: string, kind: string): void {
   }
 }
 
+function validateSourceControlModel(
+  model: PluginSourceControlViewModel,
+): void {
+  if (!isPluginSourceControlViewModel(model)) {
+    throw new Error("Invalid source control view model.");
+  }
+}
+
 function disposable(dispose: () => void): PluginDisposable {
   return { dispose };
 }
@@ -346,10 +494,19 @@ function cloneProjectContext(
 function cloneProjectContextChangeEvent(
   event: PluginProjectContextChangeEvent,
 ): PluginProjectContextChangeEvent {
+  const repositories = cloneProjectRepositories(event.repositories ?? []);
   return {
     previous: cloneProjectContext(event.previous),
     current: cloneProjectContext(event.current),
+    ...(repositories.length > 0 ? { repositories } : {}),
+    workspaceChanged: event.workspaceChanged === true,
   };
+}
+
+function cloneProjectRepositories(
+  repositories: PluginProjectRepositoryContext[],
+): PluginProjectRepositoryContext[] {
+  return repositories.map((repository) => ({ ...repository }));
 }
 
 async function cleanup(): Promise<unknown[]> {
@@ -373,6 +530,8 @@ async function cleanup(): Promise<unknown[]> {
   noteListeners.clear();
   projectContextListeners.clear();
   commandHandlers.clear();
+  sourceControlHandlers.clear();
+  automaticCommitSchedules.clear();
   return failures;
 }
 
@@ -401,9 +560,13 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
       }
       if (
         permissions.has("project-context") &&
+        !projectContextObserved &&
         Object.prototype.hasOwnProperty.call(message, "projectContext")
       ) {
+        // A change that arrived while activation was still running is newer
+        // than the snapshot the activation message carried.
         projectContext = cloneProjectContext(message.projectContext ?? null);
+        projectRepositories = cloneProjectRepositories(message.repositories ?? []);
       }
       await plugin.activate(runtimeContext());
       send({ type: "activated" });
@@ -417,7 +580,9 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     if (!permissions.has("project-context")) {
       return;
     }
+    projectContextObserved = true;
     projectContext = cloneProjectContext(message.event.current);
+    projectRepositories = cloneProjectRepositories(message.event.repositories ?? []);
     const event = cloneProjectContextChangeEvent(message.event);
     for (const listener of projectContextListeners) {
       try {
@@ -440,6 +605,26 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     } catch (error) {
       send({
         type: "command-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "run-source-control-action") {
+    try {
+      const run = sourceControlHandlers.get(message.providerId);
+      if (!run) {
+        throw new Error("Source control provider is no longer registered.");
+      }
+      await run(message.action, userActionContext(message.requestId));
+      send({
+        type: "source-control-action-result",
+        requestId: message.requestId,
+      });
+    } catch (error) {
+      send({
+        type: "source-control-action-result",
         requestId: message.requestId,
         error: errorMessage(error),
       });
@@ -519,6 +704,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function reportRuntimeError(error: unknown): void {
+  send({ type: "runtime-error", error: errorMessage(error) });
+}
+
 self.onmessage = async (event: MessageEvent<unknown>) => {
   if (!isConnectMessage(event.data) || event.ports.length !== 1) {
     return;
@@ -529,16 +718,42 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
   permissions = new Set(message.permissions);
   port = event.ports[0];
   self.onmessage = null;
-  port.onmessage = (portEvent: MessageEvent<PluginHostMessage>) => {
-    if (portEvent.data.type === "host-response") {
-      void handleMessage(portEvent.data);
+  port.onmessage = (portEvent: MessageEvent<unknown>) => {
+    if (!isPluginHostMessage(portEvent.data)) {
+      send({ type: "runtime-error", error: "Invalid plugin host message." });
+      return;
+    }
+    const hostMessage: PluginHostMessage = portEvent.data;
+    if (hostMessage.type === "host-response") {
+      void handleMessage(hostMessage);
+      return;
+    }
+    if (
+      hostMessage.type === "run-source-control-action" &&
+      hostMessage.action.id === CANCEL_SOURCE_CONTROL_ACTION
+    ) {
+      // Cancellation is the only action that runs concurrently, because the
+      // operation it names is what would otherwise be holding the queue. It
+      // still carries its own request ID and its own host-validated action
+      // lease, so correlation, lease checks, and the failure result it reports
+      // are exactly those of any other action.
+      void handleMessage(hostMessage).catch(reportRuntimeError);
+      return;
+    }
+    if (hostMessage.type === "project-context-change") {
+      // A project change is delivered while an action is still in flight, so a
+      // provider can invalidate a model update that belongs to the workspace
+      // the user just left. Ordinary messages received afterwards still wait
+      // for it, so nothing else becomes concurrent.
+      const change = (projectContextQueue = projectContextQueue
+        .then(() => handleMessage(hostMessage))
+        .catch(reportRuntimeError));
+      hostMessageQueue = hostMessageQueue.then(() => change);
       return;
     }
     hostMessageQueue = hostMessageQueue
-      .then(() => handleMessage(portEvent.data))
-      .catch((error) => {
-        send({ type: "runtime-error", error: errorMessage(error) });
-      });
+      .then(() => handleMessage(hostMessage))
+      .catch(reportRuntimeError);
   };
   port.start();
   try {

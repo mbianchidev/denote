@@ -494,6 +494,14 @@ function validateSettings(value: unknown, errors: string[]): void {
         if (typeof definition.default !== "string") {
           errors.push(`settings.properties.${key}.default must be a string.`);
         }
+        if (
+          definition.sensitive !== undefined &&
+          typeof definition.sensitive !== "boolean"
+        ) {
+          errors.push(
+            `settings.properties.${key}.sensitive must be a boolean.`,
+          );
+        }
         break;
       case "number":
         if (

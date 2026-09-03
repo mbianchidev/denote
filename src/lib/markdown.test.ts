@@ -114,6 +114,12 @@ describe("markdown utilities", () => {
     ]);
   });
 
+  it("omits marker-only headings until text is complete", () => {
+    expect(extractHeadings("# Introduction\n\n## ")).toEqual([
+      { depth: 1, text: "Introduction", slug: "introduction" },
+    ]);
+  });
+
   it("creates stable duplicate anchors and finds their source lines", () => {
     expect(extractHeadings("# Same\n\n## Same")).toEqual([
       { depth: 1, text: "Same", slug: "same" },

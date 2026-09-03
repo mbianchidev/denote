@@ -4,6 +4,49 @@ import { describe, expect, it, vi } from "vitest";
 import { VaultSwitcherDialog } from "./VaultSwitcherDialog";
 
 describe("VaultSwitcherDialog", () => {
+  it("starts clone onboarding from the switch-vault surface", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <VaultSwitcherDialog
+        open
+        onLoad={vi.fn().mockResolvedValue([])}
+        onSwitch={vi.fn()}
+        onDelete={vi.fn()}
+        onChooseFolder={vi.fn()}
+        clone={{
+          busy: false,
+          remoteAccess: {
+            authMode: "public",
+            cloneAvailable: true,
+            githubAvailable: false,
+            repositories: [],
+            cleanup: null,
+            review: null,
+          },
+          onAction,
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      await screen.findByRole("button", { name: "Clone repo as vault" }),
+    );
+    await user.type(
+      screen.getByLabelText("Repository URL"),
+      "https://example.invalid/synthetic.git",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Choose folder and clone" }),
+    );
+
+    expect(onAction).toHaveBeenCalledWith({
+      id: "clone",
+      values: { url: "https://example.invalid/synthetic.git" },
+    });
+  });
+
   it("switches to an available recent vault", async () => {
     const user = userEvent.setup();
     const onSwitch = vi.fn().mockResolvedValue(undefined);

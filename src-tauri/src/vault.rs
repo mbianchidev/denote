@@ -304,7 +304,21 @@ fn transform_vault_encryption_with_mode(
 ) -> AppResult<usize> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
-    let walker = WalkDir::new(&root).follow_links(false).into_iter();
+    if encrypting {
+        // Repository metadata written by an older build may still be
+        // ciphertext, and Git cannot read it. It is recovered with the active
+        // key before this pass leaves `.git` alone for good.
+        recover_legacy_encrypted_git_metadata(&root, vault_key)?;
+    }
+    let walker = WalkDir::new(&root)
+        .follow_links(false)
+        .into_iter()
+        // Git metadata is never encrypted, but disabling encryption must still
+        // descend into `.git` so metadata an older build encrypted is restored
+        // before the manifest and the key go away.
+        .filter_entry(|entry| {
+            entry.depth() == 0 || !encrypting || !is_git_metadata_name(entry.file_name())
+        });
     let mut skipped_files = 0;
     for entry in walker {
         let entry = match entry {
@@ -400,6 +414,95 @@ fn transform_vault_encryption_with_mode(
         db::scrub_deleted_content(&connection)?;
     }
     Ok(skipped_files)
+}
+
+/// Denote no longer encrypts Git metadata, but a vault encrypted by an older
+/// build still holds a `.git` subtree of ciphertext that Git cannot read. Every
+/// repository whose pointer file carries the Denote encrypted-file magic is
+/// decrypted in place with the active key before an encrypting pass runs, and
+/// is then left out of encryption for good. Nothing is deleted, so the
+/// migration is safe to repeat and safe on a vault that never needed it.
+///
+/// A migration that cannot be completed fails the whole operation: leaving a
+/// partly decrypted repository behind silently would be worse than refusing.
+fn recover_legacy_encrypted_git_metadata(root: &Path, vault_key: &[u8; 32]) -> AppResult<()> {
+    let mut pending = vec![root.to_path_buf()];
+    let mut repositories = Vec::new();
+    while let Some(directory) = pending.pop() {
+        for child in fs::read_dir(&directory)? {
+            let child = child?;
+            // `DirEntry::file_type` never follows a symbolic link, so a linked
+            // directory is neither descended into nor recovered.
+            let file_type = child.file_type()?;
+            if file_type.is_symlink() {
+                continue;
+            }
+            if is_git_metadata_name(&child.file_name()) {
+                // A repository is recovered as a whole, so there is never a
+                // reason to walk further down into one.
+                repositories.push(child.path());
+                continue;
+            }
+            if file_type.is_dir() {
+                // Nested project repositories are found by continuing through
+                // ordinary folders.
+                pending.push(child.path());
+            }
+        }
+    }
+    for repository in repositories {
+        recover_legacy_encrypted_repository(&repository, vault_key)?;
+    }
+    Ok(())
+}
+
+/// Recovers one `.git` directory or `.git` pointer file. Symbolic links are
+/// never followed, and a repository is only touched when its own pointer,
+/// `HEAD` for a directory and the file itself for Git directory indirection,
+/// is Denote ciphertext.
+fn recover_legacy_encrypted_repository(repository: &Path, vault_key: &[u8; 32]) -> AppResult<()> {
+    let metadata = fs::symlink_metadata(repository)?;
+    if metadata_is_link(&metadata) {
+        return Ok(());
+    }
+    if metadata.is_file() {
+        if file_is_encrypted(repository)? {
+            transform_file_encryption(repository, vault_key, false)?;
+        }
+        return Ok(());
+    }
+    if !metadata.is_dir() {
+        return Ok(());
+    }
+    let head = repository.join("HEAD");
+    match fs::symlink_metadata(&head) {
+        Ok(metadata) if metadata.is_file() && !metadata_is_link(&metadata) => {
+            if !file_is_encrypted(&head)? {
+                return Ok(());
+            }
+        }
+        Ok(_) => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    }
+    for entry in WalkDir::new(repository).follow_links(false) {
+        let entry = entry.map_err(|error| {
+            AppError::Io(
+                error
+                    .into_io_error()
+                    .unwrap_or_else(|| std::io::Error::other("Unable to scan Git metadata")),
+            )
+        })?;
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata_is_link(&metadata) || !file_is_encrypted(entry.path())? {
+            continue;
+        }
+        transform_file_encryption(entry.path(), vault_key, false)?;
+    }
+    Ok(())
 }
 
 pub fn read_note(
@@ -1859,6 +1962,7 @@ fn snapshot_with_tree(
         project_roots: project_configuration.project_roots,
         project_workspaces: project_configuration.project_workspaces,
         suggest_git_project: project_configuration.suggest_git_project,
+        git_repository_root: project_configuration.git_repository_root,
         ignored_paths: Vec::new(),
         from_cache,
         encryption: Default::default(),
@@ -1878,6 +1982,7 @@ fn project_roots(
         .into_iter()
         .map(|record| ProjectRoot {
             available: project_root_available(root, &record.root_path),
+            git_repository: safe_git_marker_exists(&root.join(&record.root_path)),
             id: record.id,
             root_path: record.root_path,
             explicit: record.is_explicit,
@@ -1922,6 +2027,7 @@ fn project_configuration(
         project_roots,
         project_workspaces,
         suggest_git_project,
+        git_repository_root: safe_git_marker_exists(root),
     })
 }
 
@@ -2544,6 +2650,23 @@ fn validated_project_root_path(root: &Path, relative_path: &str) -> AppResult<St
 
 fn is_encryption_control_file(root: &Path, path: &Path) -> bool {
     path == crypto::manifest_path(root) || path.starts_with(root.join(".denote").join("locks"))
+}
+
+/// Git metadata is never encrypted or deleted by Denote. Repository internals
+/// must stay byte-identical so an optional source-control plugin can version
+/// ciphertext without corrupting the repository. Decryption is the single
+/// exception: it descends into `.git` so metadata an older build encrypted is
+/// restored before the manifest and the key are removed.
+pub(crate) fn is_git_metadata_name(name: &std::ffi::OsStr) -> bool {
+    let Some(name) = name.to_str() else {
+        return false;
+    };
+    if name == ".git" {
+        return true;
+    }
+    // macOS and Windows resolve paths case-insensitively, so a differently
+    // cased directory names the same repository metadata there.
+    cfg!(any(target_os = "macos", target_os = "windows")) && name.eq_ignore_ascii_case(".git")
 }
 
 fn internal_entry(root: &Path, relative_path: &str) -> AppResult<PathBuf> {
@@ -5037,6 +5160,7 @@ mod tests {
         fs::create_dir_all(dismissed_vault.join(".git")).expect("git directory");
         let snapshot = open_vault(&db_path, dismissed_vault.to_str().unwrap()).expect("git vault");
         assert!(snapshot.suggest_git_project);
+        assert!(snapshot.git_repository_root);
         let dismissed = dismiss_git_project_suggestion(&db_path, dismissed_vault.to_str().unwrap())
             .expect("dismiss suggestion");
         assert!(!dismissed.suggest_git_project);
@@ -5057,6 +5181,7 @@ mod tests {
         let marked = mark_project_root(&db_path, project_vault.to_str().unwrap(), "")
             .expect("mark root project");
         let project_id = marked.project_roots[0].id.clone();
+        assert!(marked.project_roots[0].git_repository);
         assert!(!marked.suggest_git_project);
         unmark_project_root(&db_path, project_vault.to_str().unwrap(), &project_id)
             .expect("unmark root project");
@@ -6453,6 +6578,309 @@ mod tests {
         assert_eq!(
             fs::read_to_string(unreadable_path).expect("plain unreadable file"),
             "unreadable"
+        );
+    }
+
+    #[test]
+    fn encryption_leaves_git_metadata_byte_identical() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let db_path = directory.path().join("denote.sqlite3");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::create_dir_all(vault_path.join(".git").join("objects").join("ab"))
+            .expect("git objects");
+        fs::create_dir_all(vault_path.join(".git").join("refs").join("heads")).expect("git refs");
+        fs::create_dir_all(vault_path.join("notes").join(".git")).expect("nested git");
+        let git_files = [
+            (
+                vault_path.join(".git").join("HEAD"),
+                b"ref: refs/heads/main\n".to_vec(),
+            ),
+            (
+                vault_path.join(".git").join("config"),
+                b"[core]\n\trepositoryformatversion = 0\n".to_vec(),
+            ),
+            (
+                vault_path
+                    .join(".git")
+                    .join("objects")
+                    .join("ab")
+                    .join("cd"),
+                vec![0x78, 0x01, 0x4b, 0xca, 0xc9, 0x4f, 0x52, 0x00],
+            ),
+            (
+                vault_path
+                    .join(".git")
+                    .join("refs")
+                    .join("heads")
+                    .join("main"),
+                b"0123456789abcdef0123456789abcdef01234567\n".to_vec(),
+            ),
+            (
+                vault_path.join("notes").join(".git").join("HEAD"),
+                b"ref: refs/heads/nested\n".to_vec(),
+            ),
+        ];
+        for (path, content) in &git_files {
+            fs::write(path, content).expect("git metadata file");
+        }
+        fs::write(vault_path.join("notes").join("alpha.md"), "plain note").expect("note");
+        db::initialize(&db_path).expect("database");
+        let (_, vault_key, _) =
+            crypto::create_manifest("correct horse battery staple").expect("manifest");
+        let key = vault_key.copy_bytes();
+
+        encrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("encrypt vault");
+
+        assert!(crypto::is_encrypted_file(
+            &fs::read(vault_path.join("notes").join("alpha.md")).expect("encrypted note")
+        ));
+        for (path, content) in &git_files {
+            assert_eq!(
+                &fs::read(path).expect("git metadata after encryption"),
+                content,
+                "{} changed during encryption",
+                path.display()
+            );
+        }
+
+        assert_eq!(
+            sweep_vault_encryption(&db_path, vault_path.to_str().unwrap(), &key).expect("sweep"),
+            0
+        );
+        for (path, content) in &git_files {
+            assert_eq!(
+                &fs::read(path).expect("git metadata after sweep"),
+                content,
+                "{} changed during sweep",
+                path.display()
+            );
+        }
+
+        decrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("decrypt vault");
+
+        assert_eq!(
+            fs::read_to_string(vault_path.join("notes").join("alpha.md")).expect("plain note"),
+            "plain note"
+        );
+        for (path, content) in &git_files {
+            assert_eq!(
+                &fs::read(path).expect("git metadata after decryption"),
+                content,
+                "{} changed during decryption",
+                path.display()
+            );
+        }
+    }
+
+    /// Builds a vault whose Git metadata was encrypted by an older build: a
+    /// vault repository, a nested project repository, and a repository reached
+    /// through `.git` file indirection. Returns the plaintext every one of
+    /// those files must hold again after recovery.
+    fn legacy_encrypted_git_vault(vault_path: &Path, key: &[u8; 32]) -> Vec<(PathBuf, Vec<u8>)> {
+        fs::create_dir_all(vault_path.join(".git").join("objects").join("ab"))
+            .expect("git objects");
+        fs::create_dir_all(vault_path.join(".git").join("refs").join("heads")).expect("git refs");
+        fs::create_dir_all(vault_path.join("notes").join("project").join(".git"))
+            .expect("nested git");
+        fs::create_dir_all(vault_path.join("notes").join("linked")).expect("linked project");
+        let legacy_files = vec![
+            (
+                vault_path.join(".git").join("HEAD"),
+                b"ref: refs/heads/main\n".to_vec(),
+            ),
+            (
+                vault_path.join(".git").join("config"),
+                b"[core]\n\trepositoryformatversion = 0\n".to_vec(),
+            ),
+            (
+                vault_path
+                    .join(".git")
+                    .join("objects")
+                    .join("ab")
+                    .join("cd"),
+                vec![0x78, 0x01, 0x4b, 0xca, 0xc9, 0x4f, 0x52, 0x00],
+            ),
+            (
+                vault_path
+                    .join(".git")
+                    .join("refs")
+                    .join("heads")
+                    .join("main"),
+                b"0123456789abcdef0123456789abcdef01234567\n".to_vec(),
+            ),
+            (
+                vault_path
+                    .join("notes")
+                    .join("project")
+                    .join(".git")
+                    .join("HEAD"),
+                b"ref: refs/heads/nested\n".to_vec(),
+            ),
+            (
+                vault_path.join("notes").join("linked").join(".git"),
+                b"gitdir: ../project/.git/worktrees/linked\n".to_vec(),
+            ),
+        ];
+        for (path, content) in &legacy_files {
+            fs::write(
+                path,
+                crypto::encrypt_file_content(key, content).expect("legacy ciphertext"),
+            )
+            .expect("legacy git metadata");
+        }
+        legacy_files
+    }
+
+    #[test]
+    fn disabling_encryption_recovers_legacy_encrypted_git_metadata() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let db_path = directory.path().join("denote.sqlite3");
+        fs::create_dir(&vault_path).expect("vault directory");
+        db::initialize(&db_path).expect("database");
+        let (_, vault_key, _) =
+            crypto::create_manifest("correct horse battery staple").expect("manifest");
+        let key = vault_key.copy_bytes();
+        let legacy_files = legacy_encrypted_git_vault(&vault_path, &key);
+        fs::write(
+            vault_path.join("notes").join("alpha.md"),
+            crypto::encrypt_file_content(&key, b"plain note").expect("ciphertext"),
+        )
+        .expect("note");
+
+        decrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("decrypt vault");
+
+        assert_eq!(
+            fs::read_to_string(vault_path.join("notes").join("alpha.md")).expect("plain note"),
+            "plain note"
+        );
+        for (path, content) in &legacy_files {
+            assert_eq!(
+                &fs::read(path).expect("recovered git metadata"),
+                content,
+                "{} was not recovered while disabling encryption",
+                path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn a_sweep_recovers_legacy_git_metadata_and_leaves_normal_metadata_identical() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let db_path = directory.path().join("denote.sqlite3");
+        fs::create_dir(&vault_path).expect("vault directory");
+        db::initialize(&db_path).expect("database");
+        let (_, vault_key, _) =
+            crypto::create_manifest("correct horse battery staple").expect("manifest");
+        let key = vault_key.copy_bytes();
+        let legacy_files = legacy_encrypted_git_vault(&vault_path, &key);
+        // A repository this build wrote is ordinary plaintext and must stay
+        // byte-identical through the same sweep.
+        fs::create_dir_all(vault_path.join("notes").join("current").join(".git"))
+            .expect("current git");
+        let normal_files = [
+            (
+                vault_path
+                    .join("notes")
+                    .join("current")
+                    .join(".git")
+                    .join("HEAD"),
+                b"ref: refs/heads/current\n".to_vec(),
+            ),
+            (
+                vault_path
+                    .join("notes")
+                    .join("current")
+                    .join(".git")
+                    .join("config"),
+                b"[core]\n\tbare = false\n".to_vec(),
+            ),
+        ];
+        for (path, content) in &normal_files {
+            fs::write(path, content).expect("normal git metadata");
+        }
+        fs::write(vault_path.join("notes").join("alpha.md"), "plain note").expect("note");
+
+        assert_eq!(
+            sweep_vault_encryption(&db_path, vault_path.to_str().unwrap(), &key).expect("sweep"),
+            0
+        );
+
+        assert!(crypto::is_encrypted_file(
+            &fs::read(vault_path.join("notes").join("alpha.md")).expect("swept note")
+        ));
+        for (path, content) in &legacy_files {
+            assert_eq!(
+                &fs::read(path).expect("recovered git metadata"),
+                content,
+                "{} was not recovered by the sweep",
+                path.display()
+            );
+        }
+        for (path, content) in &normal_files {
+            assert_eq!(
+                &fs::read(path).expect("normal git metadata"),
+                content,
+                "{} changed during the sweep",
+                path.display()
+            );
+        }
+
+        // Recovered metadata is left out of encryption for good, so a second
+        // sweep changes nothing.
+        assert_eq!(
+            sweep_vault_encryption(&db_path, vault_path.to_str().unwrap(), &key).expect("sweep"),
+            0
+        );
+        for (path, content) in legacy_files.iter().chain(normal_files.iter()) {
+            assert_eq!(
+                &fs::read(path).expect("git metadata after a repeated sweep"),
+                content,
+                "{} changed during the second sweep",
+                path.display()
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_legacy_git_recovery_that_cannot_be_completed_fails_visibly() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        let db_path = directory.path().join("denote.sqlite3");
+        fs::create_dir(&vault_path).expect("vault directory");
+        db::initialize(&db_path).expect("database");
+        let (_, vault_key, _) =
+            crypto::create_manifest("correct horse battery staple").expect("manifest");
+        let key = vault_key.copy_bytes();
+        legacy_encrypted_git_vault(&vault_path, &key);
+        fs::write(vault_path.join("notes").join("alpha.md"), "plain note").expect("note");
+        let unreadable = vault_path.join(".git").join("config");
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o000))
+            .expect("remove permissions");
+
+        // The sweep tolerates unreadable notes, but never a repository it
+        // cannot finish recovering.
+        let error = sweep_vault_encryption(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect_err("unrecoverable git metadata");
+
+        fs::set_permissions(&unreadable, fs::Permissions::from_mode(0o600))
+            .expect("restore permissions");
+        assert!(
+            matches!(error, AppError::Io(_)),
+            "an unreadable repository must fail the operation: {error}"
+        );
+        assert_eq!(
+            fs::read_to_string(vault_path.join("notes").join("alpha.md")).expect("note"),
+            "plain note",
+            "a failed recovery must stop before encrypting the vault"
         );
     }
 }

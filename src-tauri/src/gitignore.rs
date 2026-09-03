@@ -659,6 +659,7 @@ mod tests {
             available,
             explicit,
             workspace_id: (!explicit).then(|| "workspace".to_string()),
+            git_repository: false,
         }
     }
 

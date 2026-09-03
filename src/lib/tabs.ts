@@ -20,14 +20,18 @@ export function tabsInVisualOrder(tabs: EditorTab[]): EditorTab[] {
 export function tabReferencedPaths(tabs: EditorTab[]): string[] {
   return [
     ...new Set(
-      tabs.flatMap((tab) => [tab.path, ...(tab.navigationHistory ?? [])]),
+      tabs.flatMap((tab) =>
+        tab.transient ? [] : [tab.path, ...(tab.navigationHistory ?? [])],
+      ),
     ),
   ];
 }
 
 export function tabsReferencePath(tabs: EditorTab[], path: string): boolean {
   return tabs.some(
-    (tab) => tab.path === path || tab.navigationHistory?.includes(path),
+    (tab) =>
+      !tab.transient &&
+      (tab.path === path || tab.navigationHistory?.includes(path)),
   );
 }
 
@@ -89,7 +93,7 @@ export function placeOpenedTab(
 }
 
 export function tabHasUnsavedChanges(tab: EditorTab): boolean {
-  return tab.content !== tab.savedContent;
+  return !tab.transient && tab.content !== tab.savedContent;
 }
 
 export function placeTabInGroup(

@@ -441,17 +441,22 @@ describe("pane session state", () => {
     expect(session.layout).toEqual({ kind: "vertical", sizes: [0.6, 0.4] });
   });
 
-  it("omits placeholder tabs and unknown active files from the session", () => {
+  it("omits placeholder and temporary diff tabs from the session", () => {
     const placeholder: EditorTab = {
       ...tab("denote:new-tab:1"),
       placeholder: true,
+    };
+    const temporaryDiff: EditorTab = {
+      ...tab("denote-diff:vault:index:example.diff"),
+      transient: "diff",
+      readOnly: true,
     };
     const session = buildPaneSessionState(
       workspace([
         {
           id: "pane-1",
-          tabs: [placeholder],
-          activePath: "denote:new-tab:1",
+          tabs: [placeholder, temporaryDiff],
+          activePath: temporaryDiff.path,
         },
       ]),
     );

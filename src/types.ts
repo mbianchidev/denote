@@ -3,6 +3,9 @@ import type { SourceLanguageOverride } from "./lib/syntaxLanguages";
 import type {
   PluginBundle,
   PluginCatalogEntry,
+  PluginSourceControlDiffFile,
+  PluginSourceControlDiffSource,
+  PluginGitCloneVaultResult,
   PluginLifecycleState,
   PluginPermissionRequest,
 } from "@denote/plugin-sdk";
@@ -151,6 +154,7 @@ export interface ProjectRoot {
   available: boolean;
   explicit: boolean;
   workspaceId: string | null;
+  gitRepository?: boolean;
 }
 
 export interface ProjectWorkspace {
@@ -163,6 +167,7 @@ export interface ProjectConfiguration {
   projectRoots: ProjectRoot[];
   projectWorkspaces: ProjectWorkspace[];
   suggestGitProject: boolean;
+  gitRepositoryRoot?: boolean;
 }
 
 export interface GitignoreStatusUpdate {
@@ -187,6 +192,7 @@ export interface WorkspaceSnapshot {
   projectRoots: ProjectRoot[];
   projectWorkspaces: ProjectWorkspace[];
   suggestGitProject: boolean;
+  gitRepositoryRoot?: boolean;
   ignoredPaths: string[];
   fromCache: boolean;
   encryption: EncryptionStatus;
@@ -250,6 +256,7 @@ export interface PluginView {
   enabled: boolean;
   error: string | null;
   approvedPermissions: PluginPermissionRequest[];
+  previouslyApproved?: boolean;
   settings: Record<string, unknown>;
   hasCredentials: boolean;
 }
@@ -259,6 +266,42 @@ export interface InstalledPlugin {
   version: string;
   entrypoint: string;
   transactionId: string;
+}
+
+/**
+ * One host-scheduled automatic local commit. The renderer supplies the vault
+ * scope and the project separately, so nothing here identifies a repository.
+ */
+export interface PluginAutomaticCommitRequest {
+  scheduleId: string;
+  message: string;
+  includePatterns: string[];
+  excludePatterns: string[];
+  authorName: string | null;
+  authorEmail: string | null;
+}
+
+export type PluginAutomaticCommitStatus =
+  | "committed"
+  | "unchanged"
+  | "skipped";
+
+export interface PluginAutomaticCommitOutcome {
+  status: PluginAutomaticCommitStatus;
+  message: string;
+  commitId: string | null;
+}
+
+/**
+ * What a host clone returns to the renderer.
+ *
+ * `outcome` is the only half the plugin runtime forwards to a plugin. The
+ * snapshot is a renderer-only value: it identifies the new vault, so it is
+ * consumed by the host and never crosses the plugin boundary.
+ */
+export interface PluginCloneVaultResponse {
+  outcome: PluginGitCloneVaultResult;
+  snapshot: WorkspaceSnapshot | null;
 }
 
 export interface MoveEntryResult {
@@ -305,6 +348,16 @@ export interface EditorTab {
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
+  transient?: "diff";
+  sourceControlDiff?: {
+    pluginId: string;
+    providerId: string;
+    repositoryId: string;
+    repositoryLabel: string;
+    repositoryPath: string;
+    files: PluginSourceControlDiffFile[];
+    source: PluginSourceControlDiffSource;
+  };
 }
 
 export type SidebarView = "files" | "search" | "bookmarks" | "recent" | "trash";

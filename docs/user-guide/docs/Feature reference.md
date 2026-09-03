@@ -250,9 +250,14 @@ more detail and examples.
   auto-download or enable.
 - Core project behavior remains independent of missing, disabled, or failed
   plugins.
-- Git synchronization, graph view, Kanban, Mermaid, task enhancements,
-  reminders, comments, highlighting, TTS/dictation, calendar, time tracking, and
-  colorful text remain optional rather than built into the minimal core.
+- The optional Git plugin provides local and timed commits; remotes and
+  authenticated GitHub cloning; branch and selected-hunk staging workflows;
+  paged history and diffs; and merge, rebase, cherry-pick, revert, and
+  three-way conflict recovery. It remains disabled by default, never contacts a
+  remote automatically, and removes its executable package when disabled.
+- Graph view, Kanban, Mermaid, task enhancements, reminders, comments,
+  highlighting, TTS/dictation, calendar, time tracking, and colorful text remain
+  optional rather than built into the minimal core.
 
 [Back to Welcome](../Welcome.md)
 

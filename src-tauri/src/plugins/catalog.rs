@@ -83,9 +83,21 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
         validate_relative_path(&entry.manifest.icon)?;
         for permission in &entry.manifest.permissions {
             match permission.capability.as_str() {
-                "commands" | "sidebar" | "status" | "editor-decoration" | "note-events"
-                | "project-context" | "workspace-read" | "workspace-write" | "clipboard-read"
-                | "clipboard-write" | "notifications" | "secure-storage" => {
+                "commands"
+                | "sidebar"
+                | "status"
+                | "editor-decoration"
+                | "note-events"
+                | "project-context"
+                | "source-control"
+                | "automatic-local-commit"
+                | "git"
+                | "workspace-read"
+                | "workspace-write"
+                | "clipboard-read"
+                | "clipboard-write"
+                | "notifications"
+                | "secure-storage" => {
                     if !permission.hosts.is_empty() || !permission.executables.is_empty() {
                         return Err(AppError::Plugin(format!(
                             "Unexpected permission constraints for {id}: {}",

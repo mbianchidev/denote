@@ -5,15 +5,23 @@ import type {
   PluginNoteEvent,
   PluginPermissionRequest,
   PluginProjectContext,
+  PluginProjectRepositoryContext,
+  PluginSourceControlAction,
 } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
   type PluginActionLeaseScope,
+  type PluginActionHostSecrets,
+  type PluginVaultClonedHandler,
+  type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginSidebarContribution,
   type PluginStatusContribution,
   type PluginDecorationContribution,
+  type PluginSourceControlContribution,
 } from "./workerRuntime";
+
+const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 
 export interface PluginController {
   plugins: PluginView[];
@@ -22,6 +30,8 @@ export interface PluginController {
   sidebarViews: PluginSidebarContribution[];
   statusItems: PluginStatusContribution[];
   decorations: PluginDecorationContribution[];
+  sourceControlProviders: PluginSourceControlContribution[];
+  automaticLocalCommits: PluginAutomaticLocalCommitContribution[];
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
@@ -31,6 +41,7 @@ export interface PluginController {
   ) => Promise<void>;
   disable: (pluginId: string) => Promise<void>;
   disableAll: () => Promise<void>;
+  updateAll: () => Promise<void>;
   clearData: (pluginId: string) => Promise<void>;
   clearCredentials: (pluginId: string) => Promise<void>;
   updateSettings: (
@@ -47,6 +58,13 @@ export interface PluginController {
     commandId: string,
     workspaceScope: string,
   ) => Promise<void>;
+  runSourceControlAction: (
+    pluginId: string,
+    providerId: string,
+    action: PluginSourceControlAction,
+    workspaceScope: string,
+    hostSecrets?: PluginActionHostSecrets,
+  ) => Promise<void>;
   emitNoteEvent: (event: PluginNoteEvent) => void;
   invalidateActionLeases: () => void;
   shutdown: () => Promise<void>;
@@ -55,6 +73,19 @@ export interface PluginController {
 export function usePlugins(
   reportError: (error: unknown) => void,
   projectContext: PluginProjectContext | null = null,
+  /**
+   * Identifies the workspace the host is showing. It stays inside the host:
+   * the runtime only compares it, and a plugin is told that the workspace
+   * changed without ever being told which one it is.
+   */
+  workspaceIdentity: string | null = null,
+  /**
+   * Opens the workspace a host clone produced. It is a host-only callback: the
+   * snapshot never crosses the plugin boundary, so a plugin cannot learn where
+   * the new vault is.
+   */
+  onVaultCloned: PluginVaultClonedHandler = () => {},
+  projectRepositories: PluginProjectRepositoryContext[] = EMPTY_PROJECT_REPOSITORIES,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
@@ -66,9 +97,18 @@ export function usePlugins(
   const [decorations, setDecorations] = useState<
     PluginDecorationContribution[]
   >([]);
+  const [sourceControlProviders, setSourceControlProviders] = useState<
+    PluginSourceControlContribution[]
+  >([]);
+  const [automaticLocalCommits, setAutomaticLocalCommits] = useState<
+    PluginAutomaticLocalCommitContribution[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
   const runtimeRef = useRef<PluginWorkerRuntime | null>(null);
+  // Held in a ref so a changing handler never restarts every plugin runtime.
+  const vaultClonedRef = useRef(onVaultCloned);
+  vaultClonedRef.current = onVaultCloned;
   const pendingTransactionsRef = useRef(new Map<string, string>());
   const startsAllowedRef = useRef(true);
 
@@ -105,8 +145,12 @@ export function usePlugins(
       setSidebarViews,
       setStatusItems,
       setDecorations,
+      setSourceControlProviders,
+      setAutomaticLocalCommits,
+      (snapshot) => vaultClonedRef.current(snapshot),
     );
-    runtime.setProjectContext(projectContext);
+    runtime.setWorkspaceIdentity(workspaceIdentity);
+    runtime.setProjectContext(projectContext, projectRepositories);
     runtimeRef.current = runtime;
     void api
       .listPluginBundles()
@@ -168,8 +212,11 @@ export function usePlugins(
   }, [refresh, reportError]);
 
   useEffect(() => {
-    runtimeRef.current?.setProjectContext(projectContext);
-  }, [projectContext]);
+    // The workspace is applied first: a plugin has to learn that it changed
+    // before it is told which project inside it is now current.
+    runtimeRef.current?.setWorkspaceIdentity(workspaceIdentity);
+    runtimeRef.current?.setProjectContext(projectContext, projectRepositories);
+  }, [projectContext, projectRepositories, workspaceIdentity]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -272,6 +319,7 @@ export function usePlugins(
             staleTransaction,
             "Plugin enablement was cancelled.",
           );
+
           pendingTransactionsRef.current.delete(pluginId);
         }
         let runtimeError: unknown = null;
@@ -289,6 +337,30 @@ export function usePlugins(
     },
     [refresh, withBusy],
   );
+
+  const updateAll = useCallback(async () => {
+    const targets = plugins.filter(
+      (plugin) =>
+        plugin.status === "update-available" &&
+        plugin.previouslyApproved === true,
+    );
+    const failures: string[] = [];
+    for (const plugin of targets) {
+      try {
+        await enable(
+          plugin.catalog.manifest.id,
+          plugin.catalog.manifest.permissions,
+        );
+      } catch (error) {
+        failures.push(
+          `${plugin.catalog.manifest.name}: ${errorMessage(error)}`,
+        );
+      }
+    }
+    if (failures.length > 0) {
+      throw new Error(`Some plugin updates failed. ${failures.join(" ")}`);
+    }
+  }, [enable, plugins]);
 
   const clearData = useCallback(
     async (pluginId: string) => {
@@ -330,10 +402,39 @@ export function usePlugins(
     async (pluginId: string, settings: Record<string, unknown>) => {
       await withBusy(pluginId, async () => {
         await api.setPluginSettings(pluginId, settings);
+        const available = await api.listPlugins();
+        setPlugins(available);
+        const plugin = available.find(
+          (entry) => entry.catalog.manifest.id === pluginId,
+        );
+        const runtime = runtimeRef.current;
+        // Settings are read during activation, so a running plugin only sees a
+        // change after its runtime is reloaded. Nothing is reinstalled: the
+        // package, the approved permissions, and the enablement record all
+        // stay exactly as they are.
+        if (
+          !plugin?.enabled ||
+          !runtime ||
+          !runtime.isRunning(pluginId) ||
+          !startsAllowedRef.current
+        ) {
+          return;
+        }
+        await runtime.stop(pluginId);
+        if (!startsAllowedRef.current) {
+          return;
+        }
+        try {
+          await runtime.start(plugin);
+        } catch (error) {
+          await api.disablePlugin(pluginId);
+          await refresh().catch(reportError);
+          throw error;
+        }
         await refresh();
       });
     },
-    [refresh, withBusy],
+    [refresh, reportError, withBusy],
   );
 
   const runCommand = useCallback(
@@ -346,14 +447,58 @@ export function usePlugins(
       if (!runtime) {
         throw new Error("Plugin runtime is unavailable.");
       }
-      runtime.setProjectContext(projectContext);
+      runtime.setWorkspaceIdentity(workspaceIdentity);
+      runtime.setProjectContext(projectContext, projectRepositories);
+      const projectIds = projectRepositories.flatMap((repository) =>
+        repository.projectId ? [repository.projectId] : [],
+      );
       const actionScope: PluginActionLeaseScope = {
         workspaceScope,
         projectId: projectContext?.projectId ?? null,
+        ...(projectIds.length > 0 ? { projectIds } : {}),
+        sourceControlActionId: null,
       };
       await runtime.runCommand(pluginId, commandId, actionScope);
     },
-    [projectContext],
+    [projectContext, projectRepositories, workspaceIdentity],
+  );
+
+  const runSourceControlAction = useCallback(
+    async (
+      pluginId: string,
+      providerId: string,
+      action: PluginSourceControlAction,
+      workspaceScope: string,
+      hostSecrets?: PluginActionHostSecrets,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      runtime.setWorkspaceIdentity(workspaceIdentity);
+      runtime.setProjectContext(projectContext, projectRepositories);
+      const projectIds = projectRepositories.flatMap((repository) =>
+        repository.projectId ? [repository.projectId] : [],
+      );
+      const actionScope: PluginActionLeaseScope = {
+        workspaceScope,
+        projectId: projectContext?.projectId ?? null,
+        ...(projectIds.length > 0 ? { projectIds } : {}),
+        sourceControlActionId: action.id,
+        ...(action.id === "commit" && hostSecrets?.gitSigningPassphrase
+          ? {
+              gitSigningPassphrase: hostSecrets.gitSigningPassphrase,
+            }
+          : {}),
+      };
+      await runtime.runSourceControlAction(
+        pluginId,
+        providerId,
+        action,
+        actionScope,
+      );
+    },
+    [projectContext, projectRepositories, workspaceIdentity],
   );
 
   const importSettings = useCallback(
@@ -392,17 +537,21 @@ export function usePlugins(
     sidebarViews,
     statusItems,
     decorations,
+    sourceControlProviders,
+    automaticLocalCommits,
     loading,
     busyPluginIds,
     refresh,
     enable,
     disable,
     disableAll,
+    updateAll,
     clearData,
     clearCredentials,
     updateSettings,
     importSettings,
     runCommand,
+    runSourceControlAction,
     emitNoteEvent,
     invalidateActionLeases,
     shutdown,

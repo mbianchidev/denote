@@ -16,7 +16,7 @@ use tempfile::TempDir;
 
 use crate::{db, vault};
 
-fn catalog() -> PluginCatalogEntry {
+pub(super) fn catalog() -> PluginCatalogEntry {
     serde_json::from_str::<Vec<PluginCatalogEntry>>(CATALOG_JSON)
         .expect("catalog")
         .remove(0)
@@ -49,7 +49,11 @@ fn append(builder: &mut Builder<GzEncoder<Vec<u8>>>, path: &str, content: &[u8])
         .expect("append");
 }
 
-fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> PluginManager {
+pub(super) fn manager(
+    catalog: PluginCatalogEntry,
+    data: &TempDir,
+    cache: &TempDir,
+) -> PluginManager {
     fs::create_dir_all(data.path().join("plugins").join("packages")).expect("plugin packages");
     fs::create_dir_all(cache.path().join("plugin-downloads")).expect("plugin cache");
     PluginManager {
@@ -64,6 +68,8 @@ fn manager(catalog: PluginCatalogEntry, data: &TempDir, cache: &TempDir) -> Plug
             preparation_lock: Mutex::new(()),
             operations: Mutex::new(HashSet::new()),
             initialization_error: Mutex::new(None),
+            git_operations: Default::default(),
+            clone_cleanups: Default::default(),
             _process_lock: None,
         }),
     }
@@ -127,6 +133,10 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
     {
         let mut state = manager.state().expect("state");
         state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
         state
             .storage
             .entry(catalog.manifest.id.clone())
@@ -148,6 +158,13 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
             .and_then(|storage| storage.get("value")),
         Some(&Value::String("kept".to_string()))
     );
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
+    );
 }
 
 #[test]
@@ -167,14 +184,62 @@ fn catalog_version_change_disables_plugin_and_removes_old_code() {
         .expect("state")
         .enabled
         .insert(catalog.manifest.id.clone());
+    manager.state().expect("state").approved_permissions.insert(
+        catalog.manifest.id.clone(),
+        catalog.manifest.permissions.iter().cloned().collect(),
+    );
 
     manager.reconcile_packages().expect("reconcile");
 
     let state = manager.state().expect("state");
     assert!(!state.enabled.contains(&catalog.manifest.id));
+    assert!(
+        state
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
+    );
     assert!(state.updates_available.contains(&catalog.manifest.id));
     assert!(state.errors.contains_key(&catalog.manifest.id));
     assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+}
+
+#[test]
+fn disabled_previously_approved_plugin_reports_an_independent_update() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let catalog = catalog();
+    let manager = manager(catalog.clone(), &data, &cache);
+    {
+        let mut state = manager.state().expect("state");
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            catalog.manifest.permissions.iter().cloned().collect(),
+        );
+        state
+            .artifact_hashes
+            .insert(catalog.manifest.id.clone(), "older-artifact".to_string());
+        state
+            .catalog_fingerprints
+            .insert(catalog.manifest.id.clone(), "older-catalog".to_string());
+    }
+
+    manager.reconcile_packages().expect("reconcile");
+
+    let view = manager
+        .list()
+        .expect("plugins")
+        .into_iter()
+        .find(|plugin| plugin.catalog.manifest.id == catalog.manifest.id)
+        .expect("plugin");
+    assert_eq!(view.status, "update-available");
+    assert!(view.previously_approved);
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
+    );
 }
 
 #[test]
@@ -305,6 +370,13 @@ fn tampered_entrypoint_is_removed_during_startup_recovery() {
             .expect("state")
             .enabled
             .contains(&catalog.manifest.id)
+    );
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .approved_permissions
+            .contains_key(&catalog.manifest.id)
     );
     assert!(
         manager
@@ -509,10 +581,18 @@ fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
         .find(|bundle| bundle.id == "code-tooling")
         .expect("code tooling bundle");
     assert_eq!(code_tooling.roles.len(), 6);
+    let git = code_tooling
+        .roles
+        .iter()
+        .find(|role| role.id == "git")
+        .expect("git role");
+    assert_eq!(git.candidate_plugin_ids, vec!["denote.git".to_string()]);
+    // Every other code role is still waiting for its first candidate.
     assert!(
         code_tooling
             .roles
             .iter()
+            .filter(|role| role.id != "git")
             .all(|role| role.candidate_plugin_ids.is_empty())
     );
 }
@@ -538,6 +618,20 @@ fn catalog_accepts_unconstrained_project_context_capability() {
         hosts: vec![],
         executables: BTreeMap::new(),
     });
+
+    assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
+fn catalog_accepts_unconstrained_source_control_capabilities() {
+    let mut catalog = catalog();
+    for capability in ["source-control", "automatic-local-commit", "git"] {
+        catalog.manifest.permissions.push(PluginPermission {
+            capability: capability.to_string(),
+            hosts: vec![],
+            executables: BTreeMap::new(),
+        });
+    }
 
     assert!(validate_catalog(&[catalog]).is_ok());
 }

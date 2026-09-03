@@ -3,12 +3,18 @@ import {
   Check,
   FolderOpen,
   FolderPlus,
+  GitBranch,
   Trash2,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/api";
 import type { KnownVault } from "../types";
+import type {
+  PluginSourceControlAction,
+  PluginSourceControlRemoteAccess,
+} from "@denote/plugin-sdk";
+import { CloneOnboarding } from "./SourceControlPanel";
 
 interface VaultSwitcherDialogProps {
   open: boolean;
@@ -16,6 +22,11 @@ interface VaultSwitcherDialogProps {
   onSwitch: (vaultId: number) => Promise<void>;
   onDelete: (vaultId: number, trashFiles: boolean) => Promise<void>;
   onChooseFolder: () => void;
+  clone?: {
+    remoteAccess: PluginSourceControlRemoteAccess;
+    busy: boolean;
+    onAction: (action: PluginSourceControlAction) => void;
+  };
   onClose: () => void;
 }
 
@@ -25,6 +36,7 @@ export function VaultSwitcherDialog({
   onSwitch,
   onDelete,
   onChooseFolder,
+  clone,
   onClose,
 }: VaultSwitcherDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -36,6 +48,7 @@ export function VaultSwitcherDialog({
   const [trashFiles, setTrashFiles] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [cloneOpen, setCloneOpen] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -79,6 +92,7 @@ export function VaultSwitcherDialog({
 
   useEffect(() => {
     if (open) {
+      setCloneOpen(false);
       setPendingDelete(null);
       setTrashFiles(false);
       void reloadVaults();
@@ -158,7 +172,13 @@ export function VaultSwitcherDialog({
             {error}
           </p>
         ) : null}
-        {pendingDelete ? (
+        {cloneOpen && clone ? (
+          <CloneOnboarding
+            remoteAccess={clone.remoteAccess}
+            busy={clone.busy}
+            onAction={clone.onAction}
+          />
+        ) : pendingDelete ? (
           <section
             className="vault-delete-confirmation"
             aria-labelledby="vault-delete-title"
@@ -290,6 +310,18 @@ export function VaultSwitcherDialog({
       </div>
 
       <footer className="vault-switcher-dialog__actions">
+        {clone ? (
+          <button
+            type="button"
+            className="secondary-button"
+            aria-expanded={cloneOpen}
+            disabled={busy || pendingDelete !== null}
+            onClick={() => setCloneOpen((current) => !current)}
+          >
+            <GitBranch aria-hidden="true" size={15} />
+            Clone repo as vault
+          </button>
+        ) : null}
         <button
           type="button"
           className="secondary-button"

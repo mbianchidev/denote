@@ -280,6 +280,7 @@ pub struct ProjectRoot {
     pub available: bool,
     pub explicit: bool,
     pub workspace_id: Option<String>,
+    pub git_repository: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -296,6 +297,7 @@ pub struct ProjectConfiguration {
     pub project_roots: Vec<ProjectRoot>,
     pub project_workspaces: Vec<ProjectWorkspace>,
     pub suggest_git_project: bool,
+    pub git_repository_root: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -324,6 +326,7 @@ pub struct WorkspaceSnapshot {
     pub project_roots: Vec<ProjectRoot>,
     pub project_workspaces: Vec<ProjectWorkspace>,
     pub suggest_git_project: bool,
+    pub git_repository_root: bool,
     pub ignored_paths: Vec<String>,
     pub from_cache: bool,
     pub encryption: EncryptionStatus,

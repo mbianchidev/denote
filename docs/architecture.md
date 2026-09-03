@@ -126,20 +126,396 @@ cannot receive a capability absent from its signed manifest. Enabling alone must
 not invoke any workspace mutation. Plugin API version 1 intentionally exposes
 command registration, static sidebar views, note events, plugin-scoped
 state/settings, optional secure storage, status items, literal source-editor
-decorations, and explicit command-action services. Workspace text reads return
+decorations, typed source-control view models, typed automatic local commit
+schedules, and explicit user-action services.
+Source-control providers contribute host-rendered repository, resource, branch,
+remote, history, diff, conflict, operation, and recovery data; they cannot render
+HTML or execute Git directly. A provider describes an advanced operation as a
+typed plan — the operation, its source, the branch it changes, its risk, and the
+bounded paths it expects to touch — and an operation in progress as the typed
+operation plus which of continue, skip, and abort are valid for it, so the host
+renders controls and confirmations from typed values rather than from provider
+wording. A conflict is described as the three recorded sides, each with whether
+the index holds it and its exact UTF-8 text when the provider may show one, plus
+the chunk model, the editable result, and whether that result is unsaved. Their history is a bounded page with its own index, size,
+and whether an adjacent page exists, and their diff content names the comparison
+it came from, so the host offers a hunk action only for the working tree and the
+index and never for commit history. Opening a file is host-owned: a provider
+names a repository-relative path, and the host resolves it inside the open vault
+and uses its ordinary file-open flow, so no absolute path is built, shown, or
+returned to a plugin.
+
+The separate `automatic-local-commit` permission exposes exactly one activation
+capability: registering a typed schedule with an ID, a bounded interval in whole
+minutes above zero, a commit message, validated repository-relative include and
+exclude path prefixes, and an optional commit identity. Registration returns a
+handle that replaces or removes the schedule, and the runtime applies every
+register, update, and unregister transactionally, discarding staged schedules
+when activation fails and clearing them when the plugin stops, crashes, or is
+disabled. No vault path, project ID, or Git capability is exposed to plugin code
+through it, and the schedule itself runs no Git command.
+
+The host owns the timers. One timer exists per plugin, schedule, and current
+vault and project; none exists while no workspace is open or while an encrypted
+vault is locked or mid-maintenance. Nothing runs when a timer is created: the
+first run is one whole interval later. A tick is skipped when the workspace lock
+is held, when the app is closing, or when another automatic run is still active,
+and timers are cleared and recreated on a schedule update, a vault or project
+switch, an unlock, a plugin removal or disablement, shutdown, and unmount. A
+run drains uploads and preference writes and flushes every tab through the same
+workspace operation used by explicit mutations, then calls one dedicated native
+command, refreshes and reindexes after a commit, and always releases the lock.
+It never creates a plugin user-action lease and never dispatches a provider
+action.
+
+That native command requires both the `git` and `automatic-local-commit`
+approved permissions, revalidates workspace and project identity, and reuses the
+host-owned Git executable with the same hardening and encryption preflight as
+the typed transport. It refuses to act when there is no repository or HEAD, when
+a merge, rebase, cherry-pick, revert, sequencer, or conflict is in progress, when
+anything is already staged, when the vault is locked or its encryption sweep
+fails, and when no tracked worktree change matches the configured prefixes. It
+never adds an untracked file: eligible paths come from NUL-safe tracked-change
+output, are filtered by normalized prefixes where excludes win, and are staged
+with `git add -u --` alone. Before staging it snapshots the index bytes and
+metadata, or its safe absence, revalidates HEAD immediately before committing,
+and restores that snapshot exactly whenever staging, the commit, or cancellation
+stops the run. Restoring is conditional on ownership: every index state the run
+produces, the snapshot itself and then each staging batch that lands, is
+fingerprinted by SHA-256 digest, size, filesystem identity, and timestamp, read
+through one handle that refuses to follow a link and is bounded by the snapshot
+ceiling. Rollback rereads the index and writes only while it still matches that
+fingerprint, so an index another Git process committed, staged, or replaced in
+the meantime is left exactly as that process wrote it and the run reports a
+skipped or failed outcome saying the concurrent Git activity was preserved.
+Ownership moving with each staging batch is what keeps a failed or cancelled run
+from leaving its own partial staging behind. Fetch, pull, push, checkout, merge,
+rebase, revert, and every
+other remote or history-rewriting command are unreachable from it: a standing
+run is local by construction, whatever remotes the repository has. It returns a
+typed `committed`, `unchanged`, or `skipped` status with a message and, where
+available, a commit ID, and its generated messages never contain note content or
+paths. Standing runs register in the same Git operation registry as typed
+requests, so plugin disablement and application shutdown cancel them.
+Each provider is addressed by its `(pluginId, providerId)` pair. The activity
+rail and vault sidebar render only the typed model with native host controls;
+standardized user actions are returned to the owning provider through a
+workspace-scoped action lease. A provider that reports an `activeOperationId`
+while it is busy also gets a host-rendered cancel control, which returns that
+exact ID to the provider as a `cancel-operation` action rather than cancelling
+anything itself. That one action bypasses the worker's serialized host-message
+queue, so it reaches the provider while the operation it names is still
+running; every other action stays serialized. A project-context change is
+likewise observed during an in-flight action, so a provider can discard a model
+update that belongs to the workspace the user just left. Provider updates
+replace the displayed model
+live, while unregistering or disabling the provider clears its selection and
+returns the sidebar to Files.
+
+Source-control actions that can mutate the vault take the workspace lock, which
+flushes every open note and the tab session before the provider runs, and
+refresh the workspace snapshot and search index afterwards. A smaller set —
+checkout, create-and-checkout, the two answers that resolve a pending branch
+switch, pull, merge, rebase, cherry-pick, revert, and continue, skip, or abort —
+can also replace what is on disk, so those additionally reload every open tab
+from the refreshed vault. The reconciliation keeps pane layout, tab order,
+groups, and each tab's language and view choices, replaces only the bytes,
+closes and names the tabs whose paths the refreshed tree no longer has, and
+gives a tab whose content really changed a new editor revision so an editor
+history built on the previous branch cannot write those bytes back. Ignored
+status is re-read in the same pass.
+Workspace text reads return
 a content version that writes must present unchanged, reusing the canonical
 vault boundary and conflict hashes;
 network requests require HTTPS and declared hosts; clipboard, notifications, and
 processes require separate permissions; processes use platform-qualified exact
 absolute executable allowlists, cross-platform process groups, bounded output,
 and a timeout.
+
+### Git transport
+
+The approved `git` permission adds one privileged, action-lease-scoped service,
+`git.run`, routed from the plugin worker through `hostOperations` and
+`src/lib/api` to the native `plugin_git_request` command. Only the
+source-control action lease is extended to a bounded ten minutes so it can span
+one native Git operation; ordinary commands keep the 30 second lease.
+
+`PluginGitRequest` is a typed discriminated union. Each operation carries exact
+structured fields, and `src-tauri/src/plugins/git.rs` maps it to a fixed
+argument template. Plugins never supply argument arrays, option flags, or shell
+input, and option-like values, control characters, path traversal, absolute or
+`.git` paths, pathspec magic, revision syntax in branch names, unsupported URL
+schemes, and embedded passwords are all rejected before a process starts.
+`restore-from-upstream` maps to one fixed `git restore --source=@{upstream}
+--staged --worktree -- <paths>` template. The plugin supplies only bounded
+repository-relative tracked paths. The host confirmation names the selected
+repository and warns that local tracked changes are replaced; untracked paths
+are never included or removed. `discover` and `operation-state` are answered from the filesystem without
+running Git at all.
+
+A commit request may carry an optional `authorName` and `authorEmail`. Each is
+validated as a bounded, non-empty, control-free value that carries no angle
+bracket, so it cannot split Git's `name <email>` identity, and is then applied
+as `-c user.name=` and `-c user.email=` immediately before the `commit`
+subcommand. Command-line configuration outranks every configuration file, so a
+repository cannot replace the identity a user configured, and a request that
+omits both leaves the repository-local identity untouched.
+
+Conflict resolution is gated on the index. Before either a stage or a content
+resolution touches the worktree, the transport requires that exact path to have
+unmerged index entries, so an ordinary tracked file, an untracked file, or a
+folder that merely contains a conflict can never be overwritten. A plan that writes a resolution and then stops before staging it
+puts the original file back. `list-conflicts` reports those entries directly,
+running `ls-files --unmerged -z`, so a surface reads exact repository-relative
+paths and the stages the index actually holds rather than inferring either.
+
+The repository's own state also decides which advanced operations may run. Before
+planning, the transport reads the same filesystem markers `operation-state`
+reports and refuses a merge, rebase, cherry-pick, or revert while any of them is
+already in progress, and refuses a continue, skip, or abort that names an
+operation the repository is not running. A rebase is recognised ahead of the
+merge head it records for the commit it is replaying, and a cherry-pick or revert
+of several commits stays resumable between commits: the command it is replaying
+is read from the first instruction of the sequencer's own bounded to-do list, so
+a paused sequence is never resumed as the other command, and a list the host
+cannot read names nothing rather than a guess. Cancellation keeps the same guarantee as every other mutating
+command: a step that reached its process boundary reports its real result, so the
+index and the worktree are never left disagreeing, and nothing resumes on its
+own.
+
+Hunk staging is structural, not textual. `stage-hunk` and `unstage-hunk` carry
+one validated path and one hunk described as four line numbers and an ordered
+list of typed lines. The host writes every structural byte of the patch itself —
+both file headers, the hunk header, each line prefix, and every newline — so a
+request cannot introduce a second file, a second hunk, a rename, a mode change,
+or binary content. Line text may end with the single carriage return of a CRLF
+ending, which is preserved so a real CRLF diff still applies. Line text that
+carries a line terminator, a second or misplaced carriage return, or any other
+control character, a header that disagrees with its lines, a hunk that changes nothing,
+a missing-newline marker away from the end of its side, and anything beyond the
+line, count, and patch-size bounds are all refused before a process starts. The
+patch is fed to `apply --cached --no-unsafe-paths --whitespace=nowarn -p1
+[--reverse] -` on standard input, from a dedicated writer thread so a payload
+larger than the pipe buffer cannot deadlock the child. `--cached` restricts the
+change to the index, and Git applies a patch whole or not at all, so a refused,
+failed, or cancelled hunk leaves the index and the worktree exactly as they
+were. Standard input is a closed handle for every other Git invocation.
+
+`GitExecution` carries the host's encryption preflight result, and the
+`discover` inspection reports it alongside `initialized`. That is the only way
+encryption state reaches a plugin, and it exists so a surface can withhold an
+operation an encrypted vault cannot survive instead of failing after the user
+presses the control. The host does not rely on it: an encrypted vault refuses a
+content conflict resolution, an untracked stash, and both hunk directions
+natively, before any Git command starts, whatever a surface offered.
+
+Every request is scoped to either the vault root or a host-issued project
+repository identity. The project-context capability exposes a bounded list of
+repository IDs, project IDs, and labels for safe `.git` markers, never inactive
+filesystem paths. A Git action lease carries the complete set of project IDs
+issued for that vault; `git.run` may target one of them and rejects anything else.
+The command layer revalidates the workspace scope and resolves the selected
+project identity immediately before execution, so a vault switch, removed
+repository, or moved project invalidates the lease. Git is
+resolved to a pinned canonical absolute regular file from fixed per-platform
+locations, never `PATH`, and must identify itself as Git. A request carries no
+executable at all: `PluginManager::git_request` reads the reserved
+`gitExecutablePath` key from the requesting plugin's validated persisted
+settings through `PluginManager::git_executable_setting`, and passes only that
+to `resolve_git_executable`, which validates a custom executable exactly like a
+default one. The key defaults to an empty string, which names no executable, and
+a plugin declares it as an ordinary host-rendered string setting the user fills
+in, so nothing a plugin sends over the runtime bridge can choose the binary that
+runs.
+
+Every invocation disables the pager, editor, interactive terminal prompts, hooks,
+fsmonitor, external diff and textconv, recursive submodules, automatic
+maintenance, and every protocol except
+HTTPS and SSH. Every remaining configuration key that names a command,
+including `core.sshCommand`, `core.askpass`, `core.editor`, `core.gitProxy`,
+`sequence.editor`, `diff.external`, and the `gpg` programs, is pinned on the
+command line, which outranks every configuration file, so repository
+configuration can never win. System configuration is disabled with
+`GIT_CONFIG_NOSYSTEM`, and global configuration is not merely unset but pointed
+at a host-owned empty file kept beside the empty hooks directory, refused unless
+it is a regular file and truncated before use. Removing `GIT_CONFIG_GLOBAL`
+would only fall back to `$HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config`,
+either of which could reintroduce a filter or a command-bearing key.
+
+The Git plugin can explicitly opt into **Use system Git settings**, which is its
+default. The host reads the user's global configuration with the resolved Git
+binary, keeps only bounded values for `user.name`, `user.email`,
+`user.signingKey`, `commit.gpgSign`, the `gpg.*` program/format keys,
+`credential.helper`, `credential.useHttpPath`, `credential.username`, and the
+safe `core.autocrlf`, `core.eol`, `core.ignoreCase`, and
+`core.precomposeUnicode` values, then reapplies only the values needed by the
+typed operation after the hardening overrides. Credential helpers are enabled
+only for the `system` authentication mode. GPG programs and signing values are
+enabled only for a manual commit whose signing policy requires them. A masked
+key setting can override `user.signingKey`; the passphrase remains entirely in
+the system GPG agent or pinentry. Automatic commits keep the isolated unsigned
+path.
+
+Hardening pins every GPG program to an empty value before operation-specific
+settings are applied. A signed manual commit therefore always restores one
+explicit program after that pin: the configured program when present, otherwise
+Git's format default (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures, or
+`gpgsm` for X.509). This prevents an empty `gpg.program` from being executed
+without weakening unsigned operations.
+
+An SSH signing passphrase never enters plugin code. `SourceControlPanel` passes
+it as host-only metadata beside the typed commit action;
+`PluginWorkerRuntime` keeps it only in the in-memory action lease and posts the
+ordinary commit action to the worker. When the plugin invokes `git.run`,
+`hostOperations` attaches the secret directly to the native command. The native
+layer validates and zeroizes the received string, writes it to an owner-only
+one-shot askpass file, and sets `SSH_ASKPASS` to Denote's early-exit helper with
+`SSH_ASKPASS_REQUIRE=force` for that signed commit only. A separate signing
+context answers only passphrase/PIN prompts, never GitHub credential prompts.
+The file is overwritten and removed with the operation scope on success,
+failure, cancellation, timeout, disable, or shutdown. OpenPGP/X.509 signing
+continues to use the system GPG agent or pinentry.
+
+Structured diff models remain the plugin boundary. The host serializes them into
+a bounded unified patch only for presentation, creates an in-memory read-only
+`EditorTab` whose name ends in `.diff`, and renders each file with
+`@pierre/diffs/react`. The tab retains the structured model for typed file and
+hunk actions; raw patch text is never accepted back as an operation. Transient
+diff tabs are excluded from file references, autosave, search/recent tracking,
+and persisted pane sessions, and closing one sends the provider's typed
+`close-diff` or `close-commit` action.
+
+Every Git child, including the executable probe, also has its inherited
+environment stripped. `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`,
+`GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL`, `GIT_AUTHOR_DATE`, and
+`GIT_COMMITTER_DATE` are removed with the rest, because Git reads them ahead of
+every `user.name` and `user.email` setting, including a command-line override.
+`EMAIL` is removed for the same reason: Git falls back to it whenever no
+`user.email` is configured, so it can supply an address the user never gave
+Denote. An ambient value inherited from whatever launched Denote would otherwise
+silently outrank the configured identity and stamp the wrong person, the wrong
+address, or the wrong time, onto a commit.
+
+Git output that a plugin has to parse is delimited so repository text cannot
+reshape it. History is read with `-z` under a NUL separated format, which makes
+the whole report one flat stream of fields, seven per commit. Git cannot place a
+NUL into an author name, a subject, a ref, or a path, so no text read out of a
+repository can shift a field or split a record the way a tab or a newline
+could.
+
+Repository-local configuration that defines filters, includes, credential
+helpers, URL rewrites, protocol overrides, command-bearing `remote` keys, or
+executable `core`, `diff`, `merge`, `gpg`, and hook keys is rejected before any
+operation runs, and pathspecs are always literal. That inspection reads
+configuration the way Git does: a variable written beside its section header on
+one line, a quoted subsection, the deprecated dotted section form, and values
+continued across lines are all understood, and anything it cannot parse is
+treated as unsafe. Comments are resolved before continuations, because Git
+discards a comment or a blank line before it ever looks for a trailing
+backslash, so neither `; \` nor `# \` can hide the dangerous line that follows
+it.
+
+Remote authentication is host-owned. `system` uses the allowlisted global
+credential-helper configuration and is the default; Git terminal prompts remain
+disabled, so an unavailable helper fails instead of hanging. `public` clears the
+helper, `ssh-agent` uses the pinned SSH client and running agent, and
+`github-https` is bound to the address the operation
+will really contact. A `github-https` fetch or pull reads the remote's fetch
+URLs, and a push reads its push URLs, with `git remote get-url [--push] --all`,
+so a separate `pushurl` or a mirror list cannot route a GitHub token to another
+host. No credential material is created unless every one of those URLs is an
+`https://github.com` URL. That preflight cannot see a remote that is repointed
+after it runs, so the askpass answer is bound to Git's own prompt as well: it
+parses the target Git quotes there and answers only for an HTTPS URL whose host
+is exactly `github.com` or `www.github.com`, and answers an absent, malformed,
+non-HTTPS, userinfo-confused, port-bearing, lookalike, or non-GitHub target with
+nothing. The cancellable operation is registered before the GitHub CLI is
+reached, so cancelling during credential acquisition stops the
+adapter and the Git command never starts, and both the registration and the
+secret are released by scope guards on every error, timeout, and cancellation
+path. The GitHub adapter captures its output into bounded private temporary
+files and polls their size the same way the Git transport does, so it cannot
+deadlock on an undrained pipe. Askpass directories a killed process left behind
+are removed once, while the plugin manager is constructed, only after the
+exclusive manager lock is acquired, and only after symbolic-link and path
+validation, so a second Denote that loses the lock cannot delete a live
+instance's secret; nothing is swept during ordinary operation.
+Diagnostics repeated back from Git or the GitHub CLI are truncated on a
+character boundary, so multi-byte output cannot panic an operation out of its
+own clean-up.
+
+Cloning and deleting a failed clone are bound to the standardised source-control
+action the host confirmed. The renderer's action lease carries the action ID it
+was opened for, `null` for a plugin command, and the host operation refuses
+anything but `clone` and `clean-failed-clone` respectively, before the native
+folder chooser opens or any native command runs.
+
+Operations run in a command process group with a ten minute hard timeout and
+output bounded at 8 MiB. The bound is enforced while the command runs and again
+once it has exited, so output from a command that finishes between two polls
+fails the operation instead of being silently truncated, and a truncated
+conflict stage can never be written into the worktree.
+
+The operation ID is generated by the host runtime for each invocation and
+returned to the plugin as `{ operationId, result }` before the operation
+completes, so a concurrent source-control action can cancel a running operation.
+The native command validates that ID as a canonical UUID and refuses one that is
+already live. A plugin can cancel only its own operation. Cancellation during a
+mutating command waits for that atomic Git command boundary: the command that
+reached its boundary reports its real exit status and output, and the token
+stops the next plan step instead, reporting the recoverable operation state
+(`MERGE_HEAD`, `CHERRY_PICK_HEAD`, `REVERT_HEAD`, `rebase-merge`,
+`rebase-apply`, and sequencer state). Work Git already committed is never rolled
+back, so a cancelled conflict resolution is either fully unresolved or fully
+resolved with the index and the worktree agreeing, and it stays retryable either
+way. Plugin disable, failed enable rollback, disable-all, and application
+exit cancel with force, so no live child is ever left behind. Errors carry
+command output with absolute host paths and URL passwords redacted. Standard
+error is redacted for every operation without exception; standard output is too,
+except for the typed `diff` and `show` reads, whose output is returned byte for
+byte because it is the content a surface renders and quotes back verbatim in a
+hunk request — a redacted diff would stage `<repository>` into the index in
+place of a note's real bytes. The `show` template additionally suppresses the
+commit header and message with `--format=` and `--no-show-signature`, so that
+exact output is the patch alone: a repository that sets `format.pretty` cannot
+print a message flush left where a line quoting `diff --git` would parse as
+another changed file. `list-history` is bounded by `maxCount` and an optional
+`skip`, so paging a log never produces unbounded output.
+
+Encryption is handled entirely by the host. Vault encryption, sealing, and
+sweeping skip every `.git` file and directory subtree without deleting it, so
+repository metadata stays byte-identical. Disabling encryption is the single
+pass that descends into `.git`, and every encrypting pass first recovers
+repository metadata an older build encrypted: a `.git` directory whose `HEAD`,
+or a `.git` pointer file that itself, carries the Denote encrypted-file magic is
+decrypted in place with the active key, whole subtree at a time, nested project
+repositories included and symbolic links never followed. The recovery is
+non-destructive and repeatable, it leaves recovered metadata out of encryption
+for good, and a recovery that cannot be completed fails the operation rather
+than leaving half-readable metadata behind. Before a Git
+operation, an encrypted vault must be in the `encrypted` phase with an unlocked
+key, and a sweep must verify every file; the key is used only for that sweep and
+never reaches the plugin or the transport. Encrypted repositories also receive
+host-owned `.git/info/attributes` and `.git/info/exclude` managed blocks that
+mark every tracked path, including the `.denote/encryption.json` manifest,
+binary with no text, diff, or text merge, and exclude Denote operational paths,
+while preserving unrelated user lines. The manifest stays tracked and therefore
+versioned, but Git can never line-merge wrapped-key metadata. Encrypted conflicts resolve by choosing a whole
+side, because merged plaintext cannot be written into ciphertext. A `stash`
+`push` that asks to include untracked files is refused on an encrypted vault
+before any Git command runs, because it would remove an untracked
+`.denote/encryption.json` from the worktree and leave the ciphertext
+unreadable; stashing tracked changes stays available. Repositories
+that use `.git` file indirection, such as linked worktrees and submodules,
+report a clear limitation instead of being modified.
 The additive API version 1 `project-context` capability exposes only the active
 explicit or implicit project's opaque ID and vault-relative root plus change events. It provides no
 absolute path and no dependency on editor or project-root implementation
 objects.
 
-Each explicit plugin command lease snapshots both vault scope and active project
-identity. Changing project identity invalidates outstanding leases. Existing
+Each explicit plugin command or source-control action lease snapshots both vault
+scope and active project identity. Changing project identity invalidates
+outstanding leases. Existing
 bounded process execution resolves the captured ID through native SQLite,
 revalidates that it still belongs to the active vault and names a safe available
 directory, and uses that directory as `cwd`. Persistent terminal sessions and
@@ -172,8 +548,10 @@ DOM or direct Tauri bindings; the CSP denies direct network connections, and the
 host terminates the worker on invalid protocol messages or timeouts. Messages are
 scoped to the plugin ID by the host, so plugin code cannot choose the ID used for
 native storage or keychain calls.
-Command contributions require the plugin ID prefix, remain staged until
-activation succeeds, and disappear when the worker terminates.
+Command and source-control contributions require the plugin ID prefix, remain
+staged until activation succeeds, and disappear when the worker terminates.
+Source-control model updates use the original registration handle and do not
+re-register the provider.
 
 Plugin state lives in `plugins/state.json` under application data. Package code
 lives under `plugins/packages/<plugin-id>/<version>/`; transient downloads use
@@ -186,11 +564,24 @@ journal preserves cleanup discovery if the main state file is corrupt. State
 updates use copy-on-write atomic persistence, and a process-lifetime file lock
 plus the single-instance plugin prevents concurrent writers.
 
+Approved permission records and the artifact/catalog identities last accepted
+by the user remain as inert metadata after code is disabled or removed. They are
+consulted only to mark an independently changed catalog entry update-available
+and to qualify it for the explicit **Update all** flow; runtime authorization
+still requires the plugin to be enabled. Bulk update captures the eligible list,
+then invokes the ordinary per-plugin prepare/start/commit transaction
+sequentially with that plugin's latest full manifest permissions. Failure of one
+is reported without selecting or mutating another.
+
 The catalog is compiled into the desktop release. Catalog additions, update
 metadata, and revocations therefore require an application update in API version
 1. When catalog integrity or permissions change, Denote removes the old package
 and requires a fresh download and approval rather than retaining executable
 rollback copies.
+The packaging tool also enforces catalog independence: an unchanged version is
+extracted and compared with its source, then retained byte-for-byte with its
+existing immutable URL and provenance. Only a plugin whose own version changed
+is rebuilt and repinned.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored

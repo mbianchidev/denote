@@ -282,6 +282,141 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Terminal, Language server, Linter, Compiler, and Code navigation roles show
   unavailable, disabled, or enabled status; Denote never downloads or enables
   them automatically, and core project behavior does not depend on plugins.
+- **Update all** appears only when previously approved plugins have available
+  updates. One confirmation lists the affected plugins and re-accepts each
+  latest complete permission payload. Each plugin then updates through its own
+  transaction and runtime; unrelated, never-approved, current, or incompatible
+  plugins are untouched.
+- The optional **Git vault versioning** plugin is the first production catalog
+  entry. Its host-rendered view lists the vault root and configured project roots
+  that contain a safe `.git` file or directory, keeps one explicitly selected,
+  and binds every action to that host-issued repository identity. It supports
+  refresh, initialize, stage, unstage, commit of staged changes, and cancellation
+  of a running operation. It
+  requests no network, process, or workspace-write permission. Setting an
+  automatic commit interval above zero also enables timed local commits: Denote
+  saves open notes first, then commits only tracked changes that match the
+  configured include and exclude prefixes, never adds untracked files, never
+  contacts a remote, skips the run when work is already staged or a merge is
+  unfinished, and leaves the index exactly as it was whenever a run does not
+  finish.
+- Remote work is explicit and confirmed. The same view adds remotes, changes a
+  remote URL, removes a remote, fetches, pulls, and pushes, and clones a
+  repository into a new vault. Denote never fetches, pulls, or pushes on its own
+  or from an automatic commit; a pull, a push, a URL change, a remote removal,
+  and a clone each ask first, naming the exact remote, URL, and branch, and only
+  an ordinary push is offered. Remotes may be public HTTPS, an SSH remote served
+  by a running agent, or GitHub over HTTPS, where Denote's own GitHub CLI
+  adapter can list your repositories to pick from and supplies the credential
+  itself; no token is ever stored in plugin settings, written into repository
+  configuration, or shown in a message or log, and a credential is only ever
+  offered to the address the operation will really contact. The mode is a
+  setting, so the view reports the configured one and sends you to Settings to
+  change it.
+- The default authentication mode uses the credential helpers and stored
+  credentials from the user's global Git configuration. Public, SSH-agent, and
+  host-owned GitHub CLI modes remain available. The host imports only bounded
+  allowlisted identity, credential-helper, line-ending, and signing values into
+  its otherwise isolated Git invocation; repository-local command configuration
+  remains rejected.
+- Manual commits can follow the global Git signing default, always sign, or
+  never sign. An optional masked GPG key setting selects the key. The system GPG
+  agent or pinentry owns any passphrase; Denote never stores or receives it.
+  Automatic commits remain unsigned and unattended.
+- The manual commit form also provides an optional password-style **Signing
+  passphrase** for encrypted SSH signing keys. It is used once, cleared
+  immediately, kept out of the plugin worker and action payload, and never
+  persisted. OpenPGP and X.509 continue to use the system GPG agent or pinentry.
+- **Clone repo as vault** lives in the Switch vault dialog beside **Open another
+  folder**. It asks you to choose an empty folder, clones into it, checks the result,
+  and only then opens it as a vault, so an encrypted clone shows the usual
+  unlock screen before any note. Open notes are saved before the clone starts,
+  and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
+  and offers Retry, or an explicitly confirmed clean-up that deletes only that
+  exact folder. Nothing is ever deleted automatically.
+- Branch work is explicit, reviewed, and never destructive. The Branches tab
+  creates a branch from the current branch, a local branch, or a
+  remote-tracking branch, optionally checking it out; switches, renames, and
+  deletes local branches; and checks out a remote-tracking branch by creating a
+  local branch that follows it, proposing the name and reporting a collision
+  instead of reusing an existing branch. The branch selector stays visible at
+  all times. Renaming and deleting apply to local branches only, the branch you
+  are on is never deleted, and nothing switches on its own after a fetch, a
+  remote update, or startup. Each of these asks first and names the exact
+  source and target; deleting is a dangerous confirmation.
+- The daily path stays compact: the selected repository row, branch selector,
+  create-and-switch field, pull and push controls, commit message, stage-all,
+  unstage-all, and per-file actions are available without opening advanced
+  history or branch management. A tracked file, or all tracked changes, can be
+  restored from the current upstream only after a dangerous confirmation.
+  Untracked files are never removed.
+- The branch control opens one searchable picker. It switches local branches,
+  checks out remote branches with a proposed local name, or creates and switches
+  to a new branch from any listed local or remote branch. The existing
+  save/dirty-worktree review and explicit confirmation still run before checkout.
+- Compact source-control actions use icons with accessible names and native
+  tooltips. Opening a working-tree, staged, or commit diff creates a read-only
+  temporary `.diff` tab in the editor, rendered with `@pierre/diffs`. The tab
+  keeps file and hunk stage/unstage controls, is never autosaved or indexed, and
+  is omitted from restored tab sessions.
+- A switch that would disturb work never runs. Denote re-reads the working tree
+  first: unresolved conflicts refuse the checkout outright, and any staged,
+  changed, or untracked file produces a review that lists every affected path
+  and offers exactly three answers — commit all of them, stash them, or cancel.
+  Committing stages exactly the listed paths and commits them with the message
+  and identity given. Stashing includes untracked files only in an unencrypted
+  vault; while an encrypted vault has untracked files, stashing is unavailable
+  and says why. Nothing is ever discarded, and once the commit or the stash has
+  succeeded every later problem — a failed checkout, a failed refresh, a
+  cancellation, a host refusal, or opening another repository part way through —
+  is reported with the same sentence saying where the work was preserved.
+- After a successful checkout, merge, rebase, pull, or the actions that resume
+  one, Denote reads the vault again and reloads every open tab from disk. Open
+  notes were saved before the action started, so nothing typed is lost. Pane
+  layout, tab order, groups, and each tab's language and view choices are kept;
+  only tabs whose files are not on the new branch are closed, and those are
+  named.
+- Changes can be staged a hunk at a time. Opening the diff for a changed or
+  staged file shows its hunks, and Stage hunk and Unstage hunk apply exactly
+  that one hunk of that one file to the index, leaving the file on disk alone.
+  Whole-file staging is unchanged. A binary, added, deleted, renamed, or copied
+  change is staged as a whole file instead, and says so, as does an encrypted
+  vault, whose tracked content is ciphertext with no lines to choose between.
+- Commit history is read one bounded page at a time, newest first, with explicit
+  refresh and page controls that are offered only when that page exists. A
+  surface describes the page it holds rather than the size of the log, because
+  nothing counts it. Selecting a commit shows its summary, author, date,
+  parents, refs, and the exact diff Git reports for it, including renames,
+  previous paths, and binary or encrypted content with no line-level text. A
+  merge is shown compared with its first parent and says so. Commit history is
+  read-only: no hunk action is offered on it. A diff larger than Denote parses
+  is refused with a message rather than shown cut short.
+- Opening a file from a source control row or a commit is the host's own
+  file-open flow. A provider names a repository-relative path only; the host
+  resolves it inside the open vault, opens or focuses it, and reports a file
+  that is no longer there. A renamed file opens under the path it has now, a
+  deleted file stays reviewable without being openable, and no absolute path is
+  ever built or shown.
+- Merge, rebase, cherry-pick, and revert are host-rendered and always reviewed
+  before they run: the review names the operation, its source, the branch it
+  changes, its risk, and the files it is expected to touch. Starting one is
+  confirmed, a rebase and every destructive step are confirmed as dangerous,
+  and no operation starts on refresh, activation, or restart. Reset and force
+  push are not offered at all.
+- An interrupted merge, rebase, cherry-pick, or revert is detected from the
+  repository itself on every refresh, so it survives a restart. Only the
+  controls Git allows are offered: continue stays unavailable while any path is
+  unmerged, skip is offered only where Git has one, and abort returns the
+  repository to its pre-operation state.
+- Conflict resolution reads the three sides Git recorded in the index, never the
+  working-tree copy, and merges unencrypted text with a deterministic bounded
+  three-way merge: non-overlapping changes combine automatically, and a change
+  both sides made differently is chosen between per change or by taking one
+  whole side. The merged result is editable, unresolved changes block marking a
+  file resolved, and an unsaved result is never discarded silently. Binary and
+  encrypted content never exposes line content or accepts plaintext: it offers
+  the recorded sides as whole-file choices, and only when the index holds that
+  side.
 - No cloud account, synchronization service, telemetry, or remote content
   storage is part of the initial product.
 

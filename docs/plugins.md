@@ -69,6 +69,12 @@ declarative settings, enable/disable controls, and explicit data or credential
 cleanup. Permissions must be approved before download. Structured permission
 objects are persisted and compared with the current manifest, so any permission
 change requires approval again.
+Prior approval metadata remains after package code is disabled or removed; it
+does not grant runtime access. It exists so an explicit **Update all** can select
+only previously approved plugins, show one confirmation, and re-accept each
+latest complete permission payload. Every selected plugin still uses its own
+prepare, verified activation, commit, rollback, busy state, and error path.
+Updating one plugin never prepares, downloads, starts, or changes another.
 When the focused file has an active explicit or implicit project, Settings also
 shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
 server, Linter, Compiler, and Code navigation roles report unavailable,
@@ -101,6 +107,18 @@ plugin-scoped state, keychain access, and registered contributions. Worker crash
 trigger termination and package removal. Enabled workers restart from verified
 installed packages when Denote starts.
 
+Host messages reach a plugin one at a time, so activation, commands, note
+events, and source-control actions never interleave. Two message kinds are
+exempt. A `cancel-operation` source-control action runs concurrently, because
+the operation it names is exactly what would otherwise be holding the queue; it
+still carries its own request ID and its own host-validated action lease, so
+correlation, lease checks, and failure reporting are those of any other action,
+and a provider must expect its `runAction` to be re-entered for that one action.
+A project-context change is delivered while an action is still in flight, so a
+provider can invalidate a model update belonging to the workspace the user just
+left; messages received after it still wait for it, so nothing else becomes
+concurrent.
+
 ## Security and data boundaries
 
 - Plugins receive no raw vault path or editor implementation object.
@@ -108,11 +126,18 @@ installed packages when Denote starts.
   the active explicit or implicit project's stable opaque ID and vault-relative
   root, with change events. It exposes no absolute filesystem path or project
   implementation object.
+- A change event also carries `workspaceChanged`, which reports that the host
+  switched to a different vault. It is reported even when the project context
+  is null before and after the switch, because two vaults reach the same
+  vault-scoped identity and a provider would otherwise keep showing a
+  repository the user has left. The vault itself is never identified: the host
+  compares the workspace internally and only the flag crosses the boundary.
 - Plugin API version 1 exposes command registration, static sidebar views,
   note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
   explicit-command-action capabilities for versioned workspace text,
-  allowlisted HTTPS, clipboard access, notifications, and platform-qualified
-  allowlisted process groups. Static status items and literal source-editor
+  allowlisted HTTPS, clipboard access, notifications, platform-qualified
+  allowlisted process groups, and the typed hardened Git transport. Static
+  status items and literal source-editor
   decorations use disposable contribution handles like commands and sidebars.
   Privileged action leases expire when the command settles, the worker starts
   deactivating, or the active vault changes.
@@ -171,13 +196,350 @@ APIs remain separate future plugin work rather than extensions of bounded
 
 Content-oriented capabilities remain unavailable while an encrypted vault is
 locked. Plugins must use host APIs rather than reading decrypted temporary
-files. A future Git plugin may stage ciphertext only, include
-`.denote/encryption.json`, and run the host encryption preflight before
-committing.
+files. A Git plugin therefore stages ciphertext only, tracks
+`.denote/encryption.json` as binary, and passes the host encryption preflight
+before committing.
+
+### Git transport
+
+The approved `git` permission adds a `git` capability to the user-action
+context. It is privileged, so it exists only inside an explicit command or
+source-control action lease. Only the source-control lease is extended to a
+bounded ten minutes; ordinary commands keep the 30 second lease.
+
+`git.run(request, target?)` returns a `PluginGitOperation` handle,
+`{ operationId, result }`, rather than a bare promise. The host generates the
+operation ID and hands it back before the operation completes, so a plugin can
+store it and call `git.cancel(operationId)` from a concurrent source-control
+action while the first operation is still running. The host validates every
+operation ID and refuses one that is already live. An invocation carries the
+request plus an optional host-issued project target and nothing else: there is no
+raw argument, flag, environment value, executable path, or arbitrary filesystem
+path. The action lease lists every project ID currently issued for the vault, and
+the host rejects any target outside that set. A user
+who needs a Git that is not in a standard location fills in the plugin's
+`gitExecutablePath` setting, a host-rendered string whose default is empty; the
+host reads that setting itself for the requesting plugin and still requires the
+path to be absolute, canonical, and a real Git executable. The reserved
+`githubExecutablePath` setting works the same way for the GitHub CLI.
+
+Host-rendered source control may attach an SSH signing passphrase to a manual
+commit action as host-only metadata. It is not part of
+`PluginSourceControlAction`, `PluginGitRequest`, any worker message, settings,
+storage, or logs. The native host consumes it through a private one-shot
+`SSH_ASKPASS` file only when the fixed commit plan is signed.
+
+Beyond `run` and `cancel`, the Git capability exposes three host-owned
+operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,
+and `cleanFailedClone`. Each one requires the same approved `git` permission and
+the same user-action lease as a Git command. `listGitHubRepositories` and
+`cloneVault` both reach the network, so both return `{ operationId, result }`
+exactly as `git.run` does: the ID is published before the work is awaited, and
+`git.cancel(operationId)` stops a browse or a clone while it is still running.
+Cloning and deleting a failed clone additionally require the lease to belong to
+the standardised source-control action the host confirmed, `clone` and
+`clean-failed-clone`; a plugin command carries no source-control action at all,
+and any other action ID is refused before the folder chooser opens or any native
+command runs.
+
+`PluginGitRequest` is a typed discriminated union covering discovery, status,
+unmerged-path listing, operation-state detection, initialize, stage, unstage,
+hunk stage and unstage, restore from the current upstream, commit, branch and remote listing, history, diff, fetch,
+pull, push, remote add/set/remove, branch create/checkout/rename/delete, stash,
+merge, rebase, cherry-pick, revert, continue/skip/abort, conflict-stage reads,
+conflict resolution, clone, and cancel. `fetch`, `pull`, `push`, and `clone` additionally carry an `authMode` of
+`system`, `public`, `ssh-agent`, or `github-https`; only the mode crosses the boundary,
+never a credential. Every operation names exact structured fields; there is no argument
+array, option flag, or shell input, and the native host maps each operation to a
+fixed argument template. A commit may carry an optional `authorName` and
+`authorEmail`; the host validates each as a bounded, non-empty, control-free,
+bracket-free value and applies it as a highest-precedence command-line
+configuration override placed before the `commit` subcommand, so repository
+configuration cannot replace the identity a user configured. Omitting both keeps
+whatever safe repository-local identity the repository already has.
+`PluginGitResult` returns the operation ID, exit code,
+standard output, standard error, and whether the operation was cancelled.
+Conflict resolution requires the path to be genuinely unmerged in the index, so
+it can never overwrite an ordinary tracked or untracked file, and a resolution
+that is written but not staged is rolled back. `list-conflicts` runs
+`ls-files --unmerged -z`, so a surface reads the exact repository-relative paths
+and the stages the index holds for each rather than inferring them. The host
+also refuses a merge, rebase, cherry-pick, or revert while any of those is
+already in progress, and refuses a continue, skip, or abort that names an
+operation the repository is not running, both decided from the repository's own
+state rather than from anything a plugin reported.
+
+`stage-hunk` and `unstage-hunk` carry one validated repository-relative path and
+one structured hunk: the four line numbers and an ordered list of lines, each a
+kind of `context`, `addition`, or `deletion` plus its text and an optional
+missing-final-newline marker. No patch text ever crosses the boundary. The host
+reconstructs a bounded unified patch for that exact path, writing every
+structural byte itself — both file headers, the hunk header, each line prefix,
+and every newline — and runs the fixed template
+`apply --cached --no-unsafe-paths --whitespace=nowarn -p1 [--reverse] -` with
+the patch on standard input. It refuses a line that carries a line terminator or
+any other control character, a hunk whose header disagrees with its lines, a
+hunk that changes nothing, a missing-newline marker anywhere but at the end of
+its side, a line over 8 KiB, more than 5000 lines, a patch over 1 MiB, and any
+path the existing path validation rejects. A line may end with one carriage
+return, because that is how Git reports a CRLF file, and it is written back into
+the patch unchanged; a second one, or one anywhere else in the line, is refused
+as a control character. An encrypted vault refuses both directions natively,
+because Git tracks ciphertext there and a hunk of it is not a change Denote can
+apply. `--cached` means only the index can
+change, and Git applies a patch whole or not at all, so a rejected, failed, or
+cancelled hunk leaves the index exactly as it was and never touches the working
+tree.
+
+`list-history` reads one bounded page: `maxCount` between 1 and 1000, an
+optional `skip` up to 100000, an optional validated revision, and an optional
+validated repository-relative path. Its report is one flat NUL separated stream
+of seven fields per commit, so no author name, subject, ref, or path can shift a
+field or split a record. `diff` names one of four comparisons — the working
+tree, the index, one commit, or a range — and every revision is validated before
+it reaches Git. The commit comparison runs `show` with the commit header and
+message suppressed, so the report is the patch alone: a repository that sets
+`format.pretty` cannot print a message flush left where a line quoting
+`diff --git` would read as another changed file. A merge has no ordinary
+one-parent patch, so a surface reads it as the range against its first parent
+rather than parsing Git's combined diff.
+
+The host presents a loaded diff as a transient read-only `.diff` editor tab.
+`@pierre/diffs/react` renders the host-serialized patch, while file and hunk
+buttons continue to send the original typed action IDs and indexes. The
+temporary tab is host state, never plugin markup or a vault file, and is omitted
+from autosave, indexing, recent files, and tab-session persistence.
+
+`discover` reports `initialized` and `encrypted`. The encryption flag is thehost's own preflight result, so a surface can rule out an operation an encrypted
+vault cannot survive — stashing untracked files, which would remove the vault's
+encryption manifest, and staging by hunk, which has no plaintext lines to choose
+between — before it offers it, rather than failing after the user presses the
+control. The host refuses all three itself in any case.
+
+Requests are scoped to the vault root or one of the host-issued project
+repository identities exposed by `projectContext.getRepositories()`, and vault
+scope works without a marked project. The host resolves and pins a
+canonical Git executable, refuses `PATH` lookup, disables hooks, filters,
+pagers, editors, prompts, submodule recursion, and
+every protocol except HTTPS and SSH, pins every command-bearing configuration
+key on the command line so repository configuration cannot win, replaces the
+user's global configuration with a host-owned empty file so nothing in `$HOME`
+can reintroduce a filter or a command. When the plugin's host-owned
+`useSystemGitSettings` setting is true, the host reads the global config and
+reapplies only bounded allowlisted identity, credential-helper, line-ending, and
+GPG signing values after those hardening pins. Credential helpers are restored
+only for `system` authentication, and GPG programs only for signed manual
+commits; passphrases remain in system pinentry. The host still rejects dangerous repository-local
+configuration before running. Operations use process
+groups, output bounded at 8 MiB that fails rather than truncates, a ten minute
+hard timeout, and a native per-plugin cancellation registry that is also cleared
+on disable, failed enable rollback, disable-all, and shutdown. Errors redact
+absolute host paths and URL passwords, as does the standard output of every
+operation except the typed `diff` and `show` reads: those return Git's bytes
+unchanged, because a surface renders them as content and quotes them back in a
+hunk request.
+
+### Remote authentication
+
+`system` restores the user's allowlisted global credential helpers and is the
+default. `public` and `ssh-agent` need nothing beyond the hardened invocation: prompts
+are already disabled, so an unconfigured agent fails with Git's own error rather
+than waiting for input. `github-https` is served by a host-owned GitHub adapter.
+The host resolves the GitHub CLI from fixed platform locations or the reserved
+`githubExecutablePath` setting, requires an absolute, canonical, regular file
+that answers `gh version`, and runs it with a stripped environment that removes
+every ambient GitHub and Git token variable. `gh repo list` is asked for exactly
+five fields, and each entry is dropped unless its name, HTTPS URL, SSH URL, and
+default branch pass the same bounds the Git transport already enforces, so a
+plugin receives only `nameWithOwner`, an HTTPS URL, an SSH URL, a default
+branch, and a private flag.
+
+The host registers the cancellable operation before it reads anything, so
+cancelling during credential acquisition stops the GitHub CLI and the Git
+command never starts. Registration and credential material are both released by
+scope guards, so every error, timeout, and cancellation path unregisters the
+operation and deletes the secret. The adapter captures `gh` output into bounded
+private temporary files and polls their size, exactly as the Git transport does,
+so a flood of output is refused at 1 MiB instead of deadlocking on an undrained
+pipe. Askpass directories a killed process left behind are removed once, while
+the plugin manager is being constructed, after the exclusive manager lock has
+been acquired and after symbolic-link and path validation; a second Denote that
+loses that lock never touches the material the live instance is authenticating
+with, and nothing is swept during ordinary operation.
+
+A token is read with `gh auth token` inside the native host, held in a zeroizing
+buffer, and written to a private owner-only file in a fresh directory beside the
+other host-owned Git support files. Git reaches it through `GIT_ASKPASS`
+pointing at Denote's own executable in an early-exit askpass mode, selected by a
+private environment marker that is stripped from every other child. The token
+therefore never appears in an argument vector, a URL, `.git/config`, Git output,
+a log line, or any plugin message, and the file is overwritten and removed when
+the operation succeeds, fails, times out, or is cancelled. A `github-https`
+operation is refused unless every URL it will actually contact really is an
+`https://github.com` URL. For `fetch`, `pull`, and `push` those URLs are read
+from repository configuration first, for the direction the operation uses: a
+push reads `git remote get-url --push --all`, so a remote carrying a separate
+`pushurl`, or several mirror URLs, cannot route a GitHub token to another host.
+No credential material is created at all unless that check passes. The prompt
+itself is the final authority: the askpass answer parses the target Git quoted
+in its own prompt and answers only when that target is an HTTPS URL whose host
+is exactly `github.com` or `www.github.com`. An absent, malformed, non-HTTPS,
+userinfo-confused, port-bearing, lookalike, or non-GitHub target is answered
+with nothing, so a remote repointed after the preflight and before the prompt
+gets Git's own authentication error rather than the token. An
+unsupported or unconfigured mode produces an actionable error and never falls
+back to an interactive prompt.
+
+The mode itself is a host-persisted plugin setting rather than plugin state. The
+source-control panel reports the configured mode read-only and points at
+Settings, so what is on screen is always the mode the next remote operation will
+use.
+
+### Cloning a vault
+
+`cloneVault` is presented by the host in the Switch vault dialog and is the one
+operation that creates a whole vault, so the host owns
+every part of it. A plugin supplies a URL, an authentication mode, and an
+optional branch; it never supplies, learns, or influences a destination. The
+host opens a native folder chooser, and closing it is an ordinary `cancelled`
+outcome rather than an error. The chosen folder must be a real, empty directory
+that is not a symbolic link. The clone runs through the same hardened Git with a
+fixed template that disables submodules, local object sharing, and hard links,
+and the standard protocol pins still allow only HTTPS and SSH.
+
+Before anything is registered, the checkout is validated: `.git` must be an
+ordinary directory, repository-local configuration must pass the same dangerous
+key inspection, no symbolic link may resolve outside the folder, Denote's
+`.denote/locks` and `.denote/trash` control paths must not arrive as tracked
+content, and `HEAD`, the origin URL, the current branch, the remote default
+branch, and the upstream are read back. Only then does the host seal the
+previous vault, register the clone, and hand a workspace snapshot to its own
+renderer. The snapshot never crosses the plugin boundary, and an encrypted clone
+opens locked, so the normal password and recovery screen appears before any
+content.
+
+A clone that fails leaves the destination exactly as it is and returns an opaque
+host-owned clean-up token instead of a path. The panel offers Retry and
+"Clean incomplete clone"; the clean-up needs its own dangerous confirmation, is
+bound to that one canonical destination, revalidates that the folder is still
+the failed clone and is not a live vault, deletes nothing else, and cannot be
+spent twice. Nothing is ever cleaned automatically, and disabling the plugin
+drops its tokens along with its running processes.
+
+Vault encryption, sealing, and sweeping skip `.git` entirely, so repository
+metadata is never encrypted or deleted. Disabling encryption is the one pass
+that descends into `.git`, and an encrypting pass first recovers any repository
+an older build encrypted: a `.git` directory whose `HEAD`, or a `.git` pointer
+file that itself, carries Denote ciphertext is decrypted in place with the
+active key, nested project repositories included, and is then left out of
+encryption for good. A recovery that cannot be completed fails the operation
+instead of leaving half-readable metadata behind. Encrypted vaults must be
+unlocked, in the `encrypted` phase, and pass a full sweep before Git runs; the
+vault key is never exposed to a plugin. Encrypted repositories get host-owned
+managed blocks in `.git/info/attributes` and `.git/info/exclude`, so Git treats
+content as binary and never writes conflict markers into ciphertext. The
+`.denote/encryption.json` manifest is tracked like any other file and is covered
+by the same rules, so Git can never line-merge wrapped-key metadata. Conflicts
+in an encrypted vault are resolved by choosing a whole side. A `stash` `push`
+with `includeUntracked` is refused on an encrypted vault before any Git command
+runs, because it would remove an untracked `.denote/encryption.json` from the
+worktree; stashing tracked changes still works. Repositories that
+use `.git` file indirection, such as linked worktrees and submodules, report a
+clear limitation rather than being modified.
+
+### Automatic local commits
+
+The approved `automatic-local-commit` permission adds one activation capability,
+`automaticLocalCommit`. It is not a Git capability: a plugin registers a typed
+schedule with an ID, a whole-minute interval above zero and bounded at a day, a
+commit message, validated repository-relative include and exclude path prefixes,
+and an optional commit identity, and receives a handle that replaces or removes
+it. The worker validates every field before the registration leaves it, and the
+host validates the message again and refuses anything a plugin sent without
+going through the capability. Registering, replacing, and removing a schedule
+are applied transactionally, staged schedules are discarded when activation
+fails, and every schedule disappears the moment the plugin stops, crashes, or is
+disabled. Plugin code receives no vault path, no project ID, and no Git handle
+through it, and registering runs no Git command.
+
+The host owns the timers and the commit. One timer exists per plugin, schedule,
+and current vault and project, and only while a workspace is open and an
+encrypted vault is unlocked and stable. Nothing runs when a timer is created:
+the first run is one whole interval later, so enabling, unlocking, or switching
+vault or project starts a fresh interval. A tick is skipped when the workspace
+lock is held, when the window is closing, or when another automatic run is still
+in flight, and a skipped tick is dropped rather than queued. Timers are cleared
+and recreated on a schedule update, a vault or project switch, a lock or
+maintenance phase, plugin removal, disablement, shutdown, and unmount.
+
+A run drains uploads and preference writes and flushes every tab through the
+same workspace operation explicit mutations use, so a commit matches what the
+user sees, then calls one dedicated native command and always releases the lock.
+It creates no plugin action lease and dispatches no provider action, so plugin
+code never runs on a timer.
+
+The native command requires both the `git` and `automatic-local-commit`
+approved permissions, revalidates vault scope and project identity, and reuses
+the host-owned executable, the hardening, and the encryption preflight of the
+typed transport. It refuses to act without a repository or a commit on `HEAD`,
+during a merge, rebase, cherry-pick, revert, or sequencer, with an unresolved
+conflict, with anything already staged, and when the vault is locked or its
+sweep cannot verify a file. Eligible paths come from NUL-safe tracked-change
+output, are filtered by normalized prefixes where an empty include list means
+everything and excludes always win, and are staged with `git add -u --` alone,
+so an untracked file is never added. The index is snapshotted, bytes and
+metadata or its safe absence, before staging and restored exactly when staging,
+the commit, or cancellation stops the run, but only while the index on disk is
+still the one Denote's own staging produced. Each index state Denote writes is
+fingerprinted by digest, size, filesystem identity, and timestamp through a
+single bounded, link-refusing read, and rollback rechecks that fingerprint
+first: an index another Git process took over is left exactly as that process
+wrote it, and the run reports that the concurrent Git activity was preserved.
+`HEAD` is confirmed again immediately before committing so external Git activity
+cannot be raced. No fetch, pull,
+push, checkout, merge, rebase, revert, or other remote or history-rewriting
+command is reachable from an automatic run, which stays local by construction. The result is a typed `committed`, `unchanged`, or
+`skipped` status with a message and, where available, a commit ID, and no
+generated message contains note content or paths. Standing runs join the same
+cancellation registry as typed requests, so disabling the plugin or closing
+Denote stops them.
 
 The repository reference plugin is the end-to-end fixture. Its independently
 downloadable artifact is stored under `plugin-artifacts/`, while only catalog
 metadata enters the desktop bundle.
+
+`denote.git`, the Git vault versioning plugin, is the first production catalog
+entry and the `git` role candidate in the Code tooling bundle. It requests
+commands, status, source control, project context, Git, and
+`automatic-local-commit`, and requests no network, process, or workspace-write
+permission. Its current increment registers one source-control provider, one
+status item, refresh and initialize commands, and, when its interval setting is
+above zero, one automatic local commit schedule. It supports refresh,
+initialize, stage, unstage, commit of staged changes, remote operations,
+cloning, branch work, staging by hunk, paged commit history with its commit
+diffs, working-tree and index diffs, scheduled local commits of tracked changes,
+reviewed merge, rebase, cherry-pick and revert, detection and resumption of an
+interrupted operation, and three-way conflict resolution. The plugin merges the
+three recorded sides itself with a deterministic bounded line-based merge, so no
+conflict marker is ever read back out of the working tree, and it offers whole
+recorded sides only for binary or encrypted content, which it never decodes or
+replaces with plaintext.
+
+The provider's view model carries the page it read rather than the size of the
+log: a page index, a page size, and whether an earlier or later page exists,
+which it learns by reading one commit beyond the page and never showing it. It
+also carries the comparison its diff content came from, so a surface offers a
+hunk action only for the working tree and the index, never for a commit. A
+selected commit survives a refresh only while the page still lists it, and a
+commit is named by the hash of its own content, so its diff is never read twice.
+Opening a file is host-owned: the provider reports repository-relative paths,
+and the host resolves one inside the open vault and uses its ordinary file-open
+flow, so no absolute path is ever built, shown, or returned to a plugin.
+
+Changing a plugin's settings reloads its runtime, because settings are read
+during activation. The package, the approved permissions, and the enablement
+record are untouched, so a schedule or a setting takes effect without
+reinstalling the plugin.
 
 ## Publication and governance
 
@@ -214,8 +576,16 @@ The version 1 catalog is embedded in each Denote release. New listings,
 available-version metadata, and revocations therefore arrive with an application
 update. A changed catalog fingerprint disables and removes the previous package
 instead of executing stale code; re-enablement downloads the new artifact and
-repeats permission approval. Automatic background updates and executable-version
-rollback are intentionally unavailable in version 1.
+repeats permission approval. **Update all** is an explicit foreground action,
+not an automatic background update. Executable-version rollback remains
+unavailable in version 1.
+
+`scripts/package-plugins.ts` treats every plugin version independently. When a
+source manifest version matches the catalog, the script verifies that the
+committed archive still matches its source and retains the archive bytes, URL,
+digest, size, guide, and provenance unchanged. A changed package must bump only
+its own version. Packaging or pinning `denote.git` therefore cannot rewrite the
+`denote.reference` artifact or any other plugin.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor

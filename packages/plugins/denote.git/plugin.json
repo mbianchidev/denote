@@ -1,0 +1,180 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.git",
+  "name": "Git vault versioning",
+  "version": "0.4.0",
+  "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "code",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.1.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "commands"
+    },
+    {
+      "capability": "status"
+    },
+    {
+      "capability": "source-control"
+    },
+    {
+      "capability": "project-context"
+    },
+    {
+      "capability": "git"
+    },
+    {
+      "capability": "automatic-local-commit"
+    }
+  ],
+  "settings": {
+    "version": 1,
+    "properties": {
+      "gitExecutablePath": {
+        "type": "string",
+        "title": "Git executable",
+        "description": "Absolute path to a Git executable. Leave empty to use the Git the host finds in its own fixed locations.",
+        "default": ""
+      },
+      "githubExecutablePath": {
+        "type": "string",
+        "title": "GitHub CLI executable",
+        "description": "Absolute path to the GitHub CLI (gh). Leave empty to use the one the host finds in its own fixed locations. Only used when authentication is set to GitHub sign-in.",
+        "default": ""
+      },
+      "useSystemGitSettings": {
+        "type": "boolean",
+        "title": "Use system Git settings",
+        "description": "Use your system and global Git configuration for identity, credential helpers, signing, and other ordinary defaults. Turn this off to use Denote's isolated Git settings instead.",
+        "default": true
+      },
+      "authenticationMode": {
+        "type": "select",
+        "title": "Remote authentication",
+        "description": "How Denote authenticates fetch, pull, push, and clone. System Git credentials uses your configured credential helper or keychain by default.",
+        "default": "system",
+        "options": [
+          {
+            "value": "system",
+            "label": "System Git credentials"
+          },
+          {
+            "value": "public",
+            "label": "Public repository"
+          },
+          {
+            "value": "ssh-agent",
+            "label": "SSH agent"
+          },
+          {
+            "value": "github-https",
+            "label": "GitHub sign-in"
+          }
+        ]
+      },
+      "pullStrategy": {
+        "type": "select",
+        "title": "Pull strategy",
+        "description": "How a pull combines remote work with yours. Fast-forward only never creates a merge and never rewrites history.",
+        "default": "fast-forward-only",
+        "options": [
+          {
+            "value": "fast-forward-only",
+            "label": "Fast-forward only"
+          },
+          {
+            "value": "merge",
+            "label": "Merge"
+          },
+          {
+            "value": "rebase",
+            "label": "Rebase"
+          }
+        ]
+      },
+      "defaultBranch": {
+        "type": "string",
+        "title": "Default branch",
+        "description": "Branch name used when you initialize a repository from Denote.",
+        "default": "main"
+      },
+      "authorName": {
+        "type": "string",
+        "title": "Commit author name",
+        "description": "Optional name recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
+        "default": ""
+      },
+      "authorEmail": {
+        "type": "string",
+        "title": "Commit author email",
+        "description": "Optional email recorded on commits Denote creates. Leave empty to use the repository's own Git identity.",
+        "default": ""
+      },
+      "commitSigning": {
+        "type": "select",
+        "title": "Commit signing",
+        "description": "Use the system Git default, always sign manual commits, or never sign manual commits. Automatic commits remain unsigned.",
+        "default": "system",
+        "options": [
+          {
+            "value": "system",
+            "label": "Use system Git default"
+          },
+          {
+            "value": "always",
+            "label": "Always sign manual commits"
+          },
+          {
+            "value": "never",
+            "label": "Never sign manual commits"
+          }
+        ]
+      },
+      "gpgSigningKey": {
+        "type": "string",
+        "title": "GPG signing key",
+        "description": "Optional GPG key ID, fingerprint, or identity for signed manual commits. The value is masked here. Your system GPG agent or pinentry asks for the passphrase; Denote never stores it.",
+        "default": "",
+        "sensitive": true
+      },
+      "autoCommitIntervalMinutes": {
+        "type": "number",
+        "title": "Automatic commit interval",
+        "description": "Whole minutes between automatic local commits of tracked changes. Zero disables automatic commits.",
+        "default": 0,
+        "minimum": 0,
+        "maximum": 1440
+      },
+      "autoCommitMessage": {
+        "type": "string",
+        "title": "Automatic commit message",
+        "description": "Message recorded on each automatic local commit.",
+        "default": "Denote automatic commit"
+      },
+      "includePatterns": {
+        "type": "string",
+        "title": "Include patterns",
+        "description": "Comma-separated relative path prefixes included in automatic commits. Empty means the whole scope.",
+        "default": ""
+      },
+      "excludePatterns": {
+        "type": "string",
+        "title": "Exclude patterns",
+        "description": "Comma-separated relative path prefixes excluded from automatic commits. Excludes win over includes.",
+        "default": ""
+      }
+    }
+  },
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

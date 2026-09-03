@@ -2048,6 +2048,778 @@ button.tag-chip:active,
   white-space: pre-wrap;
 }
 
+.source-control__content {
+  min-height: 0;
+  flex: 1;
+  padding-bottom: 14px;
+  overflow: auto;
+}
+
+.source-control__compact-action,
+.source-control__row-actions button,
+.source-control__tabs button {
+  padding: 4px 7px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.source-control__compact-action:hover:not(:disabled),
+.source-control__row-actions button:hover:not(:disabled),
+.source-control__tabs button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.source-control__compact-action,
+.source-control__row-actions button,
+.source-control__change-actions button,
+.source-control__repository > .source-control__actions .secondary-button {
+  display: inline-grid;
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  place-items: center;
+}
+
+.source-control__repository,
+.source-control__workspace-repositories,
+.source-control__recovery,
+.source-control__detail,
+.source-control__clone,
+.source-control__review,
+.source-control__branch-lists > section {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__workspace-repositories {
+  padding: 9px 8px;
+}
+
+.source-control__workspace-repositories h3 {
+  padding: 0 6px;
+}
+
+.source-control__workspace-repositories ul {
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.source-control__workspace-repositories button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 8px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control__workspace-repositories button:hover:not(:disabled),
+.source-control__workspace-repositories button[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
+.source-control__workspace-repositories button[aria-pressed="true"] {
+  background: var(--accent-muted);
+}
+
+.source-control__workspace-repositories strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control__workspace-repositories span {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+}
+
+.source-control h3,
+.source-control h4,
+.source-control h5,
+.source-control p,
+.source-control dl {
+  margin-top: 0;
+}
+
+.source-control h3 {
+  margin-bottom: 9px;
+  font-size: 12px;
+}
+
+.source-control h4 {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-control h4 > span {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.source-control__repository dl,
+.source-control__detail dl {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.source-control__repository dl > div,
+.source-control__detail dl > div {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.42fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.source-control dt {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.source-control dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control__repository > p,
+.source-control__diff-file > p {
+  margin-bottom: 9px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.source-control__field {
+  display: grid;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-control__field input,
+.source-control__field select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.source-control__field input:focus,
+.source-control__field select:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 1px;
+}
+
+/* The authentication mode is a Settings value, so it is reported in the same
+   read-only pairing the repository summary uses rather than as a control. */
+.source-control__configured {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 0;
+}
+
+.source-control__configured > div {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.42fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.source-control__configured dd {
+  color: var(--text-primary);
+}
+
+.source-control__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.source-control__branch-trigger {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  margin-top: 8px;
+  color: var(--text-primary);
+  text-align: left;
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control__branch-trigger:hover:not(:disabled) {
+  background: var(--panel-bg);
+  border-color: var(--accent);
+}
+
+.source-control__branch-trigger span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control__actions .primary-button,
+.source-control__actions .secondary-button,
+.source-control__commit .primary-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 10px;
+}
+
+.source-control__change-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 14px 0;
+}
+
+.source-control__change-actions button {
+  padding: 4px 7px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.source-control__change-actions button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.source-control__status,
+.source-control__limitation,
+.source-control__hint,
+.source-control__cleanup > p,
+.source-control__review > p,
+.source-control__recovery > p {
+  margin: 9px 0 0;
+  padding: 7px 8px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.45;
+  background: var(--panel-bg);
+  border-left: 1px solid var(--accent);
+}
+
+.source-control__limitation {
+  border-left-color: var(--danger);
+}
+
+.source-control__tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 3px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__tabs button {
+  min-height: 28px;
+}
+
+.source-control__tabs button[aria-selected="true"] {
+  color: var(--accent-strong);
+  background: var(--accent-muted);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.source-control__tab-panel {
+  min-height: 0;
+}
+
+.source-control__commit {
+  display: grid;
+  gap: 8px;
+  padding: 10px 14px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__commit .primary-button {
+  justify-content: center;
+}
+
+.source-control__resource-group {
+  padding: 10px 8px 0;
+}
+
+.source-control__resource-group ul,
+.source-control__history,
+.source-control__branch-lists ul,
+.source-control__diff-hunk ol {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.source-control__resource-group li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 6px;
+  border-top: 1px solid var(--border);
+}
+
+.source-control__resource-summary {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.source-control__resource-summary strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 580;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control__resource-summary span,
+.source-control__branch-lists button span,
+.source-control__history button span,
+.source-control__history time,
+.source-control__remotes span {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+}
+
+.source-control__row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.source-control__clone form,
+.source-control__remote-form {
+  display: grid;
+  gap: 8px;
+}
+
+/* A remote row styles its metadata as quiet text, so its field label is
+   restated at field weight rather than inheriting that. */
+.source-control__remotes .source-control__field > span {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-control__remote-form {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.source-control__repositories {
+  padding: 0;
+  margin: 10px 0 0;
+  list-style: none;
+}
+
+.source-control__repositories li + li {
+  border-top: 1px solid var(--border);
+}
+
+.source-control__repositories button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 7px 6px;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control__repositories button:hover:not(:disabled) {
+  background: var(--panel-bg);
+}
+
+.source-control__repositories strong {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 580;
+}
+
+.source-control__repositories span {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+}
+
+.source-control__detail {
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.source-control__diff-file {
+  margin-top: 10px;
+}
+
+.source-control__diff-hunk {
+  margin: 8px -8px 0;
+  overflow: hidden;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+}
+
+.source-control__diff-hunk h5 {
+  padding: 6px 7px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--code-gutter-bg);
+  border-bottom: 1px solid var(--code-border);
+}
+
+.source-control__diff-hunk li {
+  display: grid;
+  grid-template-columns: 28px 28px minmax(0, 1fr);
+  min-height: 18px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 18px;
+}
+
+.source-control__diff-hunk li[data-kind="addition"] {
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+}
+
+.source-control__diff-hunk li[data-kind="deletion"] {
+  background: var(--danger-muted);
+}
+
+.source-control__diff-hunk li > span {
+  color: var(--text-tertiary);
+  text-align: right;
+  background: color-mix(in srgb, var(--code-gutter-bg) 72%, transparent);
+  border-right: 1px solid var(--code-border);
+}
+
+.source-control__diff-hunk code {
+  padding: 0 6px;
+  overflow-x: auto;
+  color: var(--text-primary);
+  white-space: pre;
+}
+
+.source-control__history li,
+.source-control__branch-lists li {
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__history button,
+.source-control__branch-lists button {
+  display: grid;
+  width: 100%;
+  gap: 3px;
+  padding: 9px 14px;
+  color: var(--text-secondary);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.source-control__history button:hover,
+.source-control__branch-lists button:hover:not(:disabled),
+.source-control__history button[aria-pressed="true"],
+.source-control__branch-lists button[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.source-control__history strong,
+.source-control__branch-lists button strong,
+.source-control__remotes strong {
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.source-control__branch-lists {
+  display: grid;
+}
+
+.source-control__branch-lists > section {
+  padding-right: 0;
+  padding-left: 0;
+}
+
+.source-control__branch-lists h3 {
+  padding: 0 14px;
+}
+
+.source-control__remotes li {
+  display: grid;
+  gap: 3px;
+  padding: 9px 14px;
+}
+
+/* An operation waiting for review, one that is part way through, and the
+   conflict editor share the panel's sectioned layout. */
+.source-control__operation,
+.source-control__operation-plan,
+.source-control__conflict,
+.source-control__pending-switch {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control__pending-paths {
+  display: grid;
+  gap: 3px;
+  padding: 0;
+  margin: 0 0 9px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  list-style: none;
+}
+
+.source-control__pending-paths li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control__conflict-panes {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.source-control__conflict-pane {
+  overflow: hidden;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+}
+
+.source-control__conflict-pane h5 {
+  padding: 6px 7px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--code-gutter-bg);
+  border-bottom: 1px solid var(--code-border);
+}
+
+.source-control__conflict-pane pre,
+.source-control__conflict-lines pre {
+  max-height: 160px;
+  padding: 6px 7px;
+  margin: 0;
+  overflow: auto;
+  color: var(--text-primary);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.source-control__conflict-pane p {
+  padding: 6px 7px;
+  margin: 0;
+}
+
+.source-control__conflict-chunks {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0 0 10px;
+  list-style: none;
+}
+
+.source-control__conflict-chunks > li {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.source-control__conflict-lines {
+  display: grid;
+  gap: 4px;
+}
+
+.source-control__conflict textarea {
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 10px;
+  line-height: 16px;
+  resize: vertical;
+}
+
+.source-control__conflict textarea:focus {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.source-control-diff-editor {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  background: var(--editor-bg);
+}
+
+.source-control-diff-editor__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control-diff-editor__header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.source-control-diff-editor__header strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-diff-editor__header span {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.source-control-diff-editor__actions {
+  display: flex;
+  gap: 6px;
+  padding: 7px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.source-control-diff-editor__actions section,
+.source-control-diff-editor__actions section > div {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.source-control-diff-editor__actions section {
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+
+.source-control-diff-editor__actions strong {
+  max-width: 240px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-diff-editor__actions button {
+  display: inline-grid;
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0 6px;
+  place-items: center;
+  color: var(--text-secondary);
+  font-size: 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.source-control-diff-editor__actions button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.source-control-diff-editor__actions button > span {
+  margin-left: 4px;
+}
+
+.source-control-diff-editor__patch {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  contain: layout paint;
+}
+
+.source-control-diff-editor__fallback {
+  min-width: max-content;
+  padding: 12px;
+  margin: 0;
+  color: var(--text-primary);
+  font: 12px/1.55 var(--font-mono);
+  white-space: pre;
+}
+
 .status-bar {
   display: flex;
   height: 24px;
@@ -3254,6 +4026,14 @@ kbd {
   white-space: nowrap;
 }
 
+.plugin-settings__header-actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .plugin-settings__header p {
   margin-top: 4px;
   color: var(--text-secondary);
@@ -3658,6 +4438,44 @@ kbd {
   border-radius: 5px;
 }
 
+.plugin-settings__update-all-confirm {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  background: var(--editor-bg);
+  border: 1px solid var(--accent);
+  border-radius: 5px;
+}
+
+.plugin-settings__update-all-confirm h4,
+.plugin-settings__update-all-confirm p {
+  margin: 0;
+}
+
+.plugin-settings__update-all-confirm h4 {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+}
+
+.plugin-settings__update-all-confirm p,
+.plugin-settings__update-all-confirm li {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.plugin-settings__update-all-confirm ul {
+  margin: 0;
+}
+
+.plugin-settings__update-all-confirm > div {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .plugin-card__permission-confirm h6 {
   display: flex;
   align-items: center;
@@ -3736,6 +4554,146 @@ kbd {
 
 .vault-switcher-dialog {
   width: min(620px, calc(100vw - 48px));
+}
+
+.source-control-branch-dialog {
+  width: min(720px, calc(100vw - 48px));
+  max-height: min(620px, calc(100vh - 48px));
+}
+
+.source-control-branch-dialog__body {
+  display: grid;
+  gap: 12px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.source-control-branch-dialog__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  color: var(--text-tertiary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.source-control-branch-dialog__search:focus-within {
+  border-color: var(--accent);
+  outline: 2px solid color-mix(in srgb, var(--focus) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.source-control-branch-dialog__search input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.source-control-branch-dialog__create {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.45fr) minmax(0, 1fr);
+  align-items: end;
+  gap: 8px;
+  padding: 10px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.source-control-branch-dialog__create label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.source-control-branch-dialog__create select {
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.source-control-branch-dialog__create .primary-button {
+  min-width: 0;
+  min-height: 32px;
+  justify-content: flex-start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-branch-dialog__body h3 {
+  margin: 0 8px 5px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.source-control-branch-dialog__body ul {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.source-control-branch-dialog__body li + li {
+  border-top: 1px solid var(--border);
+}
+
+.source-control-branch-dialog__body li > button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control-branch-dialog__body li > button:hover:not(:disabled) {
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
+.source-control-branch-dialog__body li > button:disabled {
+  opacity: 0.72;
+}
+
+.source-control-branch-dialog__body li > button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.source-control-branch-dialog__body li strong,
+.source-control-branch-dialog__body li small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-control-branch-dialog__body li strong {
+  font-size: 12px;
+}
+
+.source-control-branch-dialog__body li small {
+  color: var(--text-tertiary);
+  font-size: 10px;
 }
 
 .vault-switcher-dialog__body {
@@ -3845,10 +4803,20 @@ kbd {
 
 .vault-switcher-dialog__actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   padding: 12px 18px 18px;
   border-top: 1px solid var(--border);
+}
+
+.vault-switcher-dialog__actions .primary-button {
+  margin-left: auto;
+}
+
+.vault-switcher-dialog .source-control__clone {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
 }
 
 .vault-delete-confirmation {

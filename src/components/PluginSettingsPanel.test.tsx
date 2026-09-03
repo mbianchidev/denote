@@ -21,6 +21,7 @@ function plugin(overrides: Partial<PluginView> = {}): PluginView {
     enabled: false,
     error: null,
     approvedPermissions: [],
+    previouslyApproved: false,
     settings: {},
     hasCredentials: false,
     ...overrides,
@@ -37,6 +38,7 @@ function props(overrides: Partial<Parameters<typeof PluginSettingsPanel>[0]> = {
     onEnable: vi.fn().mockResolvedValue(undefined),
     onDisable: vi.fn().mockResolvedValue(undefined),
     onDisableAll: vi.fn().mockResolvedValue(undefined),
+    onUpdateAll: vi.fn().mockResolvedValue(undefined),
     onClearData: vi.fn().mockResolvedValue(undefined),
     onClearCredentials: vi.fn().mockResolvedValue(undefined),
     onUpdateSettings: vi.fn().mockResolvedValue(undefined),
@@ -88,6 +90,60 @@ describe("PluginSettingsPanel", () => {
       { capability: "note-events" },
       { capability: "secure-storage" },
     ]);
+  });
+
+  it("updates every previously approved plugin with an available update", async () => {
+    const user = userEvent.setup();
+    const onUpdateAll = vi.fn().mockResolvedValue(undefined);
+    const git = plugin({
+      catalog: {
+        ...catalog,
+        manifest: {
+          ...catalog.manifest,
+          id: "denote.git",
+          name: "Git vault versioning",
+        },
+      },
+      status: "update-available",
+      previouslyApproved: true,
+    });
+    const reference = plugin({
+      status: "not-installed",
+      previouslyApproved: true,
+    });
+    const neverApproved = plugin({
+      catalog: {
+        ...catalog,
+        manifest: {
+          ...catalog.manifest,
+          id: "denote.never-approved",
+          name: "Never approved",
+        },
+      },
+      status: "update-available",
+      previouslyApproved: false,
+    });
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [git, reference, neverApproved],
+          onUpdateAll,
+        })}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Update all approved plugins (1)" }),
+    );
+    const confirmation = screen
+      .getByRole("heading", { name: "Update approved plugins?" })
+      .closest("section");
+    expect(confirmation).not.toBeNull();
+    expect(within(confirmation!).getByText("Git vault versioning")).toBeInTheDocument();
+    expect(within(confirmation!).queryByText("Reference plugin")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Update all" }));
+
+    expect(onUpdateAll).toHaveBeenCalledOnce();
   });
 
   it("describes and approves focused project context access", async () => {
@@ -425,6 +481,43 @@ describe("PluginSettingsPanel", () => {
       "denote.reference",
       1,
       { enabled: true },
+    );
+  });
+
+  it("masks sensitive string settings", () => {
+    const configurableCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        settings: {
+          version: 1,
+          properties: {
+            signingKey: {
+              type: "string" as const,
+              title: "GPG signing key",
+              default: "",
+              sensitive: true,
+            },
+          },
+        },
+      },
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              catalog: configurableCatalog,
+              settings: { signingKey: "ABCDEF1234567890" },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByLabelText("GPG signing key")).toHaveAttribute(
+      "type",
+      "password",
     );
   });
 
