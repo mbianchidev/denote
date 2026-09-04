@@ -198,6 +198,12 @@ plugins** also provides keyboard move controls, optional group names, group
 collapse/expand controls, and a **Hidden plugins** section for restoring hidden
 entries. These preferences affect only the local sidebar.
 
+Development builds have a **Load local plugin archive** action in this section.
+It accepts a locally built `.tgz`, labels it as a local development archive, and
+still requires permission approval before enablement. Disable it before loading
+a rebuilt archive with the same ID. Installed releases do not expose this
+action.
+
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and
 continue, or abort the operation, then try again. Otherwise Denote lists

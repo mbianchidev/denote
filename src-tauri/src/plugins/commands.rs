@@ -72,6 +72,46 @@ pub fn list_plugin_bundles(state: State<'_, PluginManager>) -> AppResult<Vec<Plu
 }
 
 #[tauri::command]
+pub async fn choose_development_plugin_archive(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+) -> AppResult<Option<String>> {
+    #[cfg(not(debug_assertions))]
+    {
+        let _ = app;
+        let _ = state;
+        Err(AppError::Plugin(
+            "Local development plugins are unavailable in release builds".to_string(),
+        ))
+    }
+    #[cfg(debug_assertions)]
+    {
+        if app.config().identifier != "dev.mbianchi.denote.development" {
+            return Err(AppError::Plugin(
+                "Local development plugins require npm run dev:desktop so development data stays isolated"
+                    .to_string(),
+            ));
+        }
+        let selected = app
+            .dialog()
+            .file()
+            .set_title("Choose a development plugin archive")
+            .add_filter("Denote plugin archive", &["tgz"])
+            .blocking_pick_file();
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        let path = selected
+            .into_path()
+            .map_err(|error| AppError::InvalidPath(error.to_string()))?;
+        let manager = state.inner().clone();
+        run_blocking(move || manager.load_development_archive(&path))
+            .await
+            .map(Some)
+    }
+}
+
+#[tauri::command]
 pub async fn prepare_plugin_enable(
     state: State<'_, PluginManager>,
     plugin_id: String,

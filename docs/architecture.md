@@ -111,6 +111,24 @@ rewrites each current catalog URL to the matching versioned GitHub Release asset
 while the source commit, byte count, and SHA-256 digest remain independently
 pinned. The downloader follows only bounded HTTPS redirects across approved
 GitHub asset hosts. Installers contain the catalog but no plugin archive.
+
+Debug builds have a separate local-development adapter, compiled out of release
+builds. It is available only when Tauri runs with the
+`dev.mbianchi.denote.development` identifier. The native file picker reads one
+regular bounded `.tgz` into memory, derives an explicitly untrusted development
+entry, and overlays it on the embedded catalog for that process only. It never
+adds `file:` or localhost support to the production downloader. The archive
+still passes common manifest, category, permission, settings, path, extraction,
+entrypoint, and worker checks before enablement. A local package must be
+disabled before replacement, and stale development enablement is removed at
+startup instead of being restored under production metadata.
+
+The development Tauri configuration uses separate application data, cache, and
+manager-lock locations. The keychain service is derived from the runtime
+application identity while preserving the existing production service name, so
+even a differently named debug/preview build cannot corrupt production
+credential tracking. Local archives live only in ignored `.plugin-dev/` output
+and are never Tauri resources or installer inputs.
 An enable operation must pass compatibility checks, native download, checksum
 verification, atomic installation, isolated runtime loading, exact manifest
 matching, capability construction, and activation before enabled state is

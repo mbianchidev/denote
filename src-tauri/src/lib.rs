@@ -262,6 +262,7 @@ pub fn run() {
                 app_data_dir.clone(),
                 app_cache_dir.clone(),
                 resource_dir,
+                app.config().identifier.clone(),
             ));
             let default_vault_path = default_vault::ensure(&app_data_dir)?;
             let db_path = app_data_dir.join("denote.sqlite3");
@@ -338,6 +339,7 @@ pub fn run() {
             commands::save_attachment,
             plugins::list_plugins,
             plugins::list_plugin_bundles,
+            plugins::choose_development_plugin_archive,
             plugins::prepare_plugin_enable,
             plugins::commit_plugin_enable,
             plugins::rollback_plugin_enable,

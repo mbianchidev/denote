@@ -1,14 +1,12 @@
 import {
   existsSync,
   mkdirSync,
-  readFileSync,
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   PLUGIN_CATEGORIES,
-  type PluginCatalogEntry,
   type PluginCategory,
   type PluginManifest,
 } from "@denote/plugin-sdk";
@@ -91,25 +89,6 @@ Explain retained data and confirm that package code is deleted.
 
 List actionable recovery steps and known limitations.
 `;
-const catalogPath = join(root, "packages", "plugins", "catalog.json");
-const catalog = JSON.parse(
-  readFileSync(catalogPath, "utf8"),
-) as PluginCatalogEntry[];
-catalog.push({
-  manifest,
-  artifact: {
-    url: `https://raw.githubusercontent.com/mbianchidev/denote/${"0".repeat(40)}/plugin-artifacts/${pluginId}-0.1.0.tgz`,
-    sha256: "0".repeat(64),
-    sizeBytes: 1,
-  },
-  provenance: {
-    publisherId: "denote",
-    sourceCommit: "0".repeat(40),
-    trusted: true,
-  },
-  guide: guide.trim(),
-});
-
 mkdirSync(join(pluginDirectory, "src"), { recursive: true });
 writeJson(join(pluginDirectory, "package.json"), {
   name: `@denote/plugin-${packageSuffix}`,
@@ -150,9 +129,9 @@ const plugin: DenotePlugin = {
 export default plugin;
 `,
 );
-writeFileSync(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
 console.log(`Created ${pluginDirectory}.`);
-console.log("Implement the plugin, then run npm run package:plugins.");
+console.log(`Run npm run dev:plugin -- ${pluginId} while implementing it.`);
+console.log(`Publish it later with npm run package:plugin -- ${pluginId}.`);
 
 function writeJson(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);

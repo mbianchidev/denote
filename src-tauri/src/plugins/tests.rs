@@ -23,6 +23,94 @@ pub(super) fn catalog() -> PluginCatalogEntry {
         .remove(0)
 }
 
+#[test]
+fn development_archive_is_listed_installed_and_removed_without_network() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let catalog = catalog();
+    let manager = manager(catalog.clone(), &data, &cache);
+    let mut development = catalog;
+    development.manifest.id = "denote.synthetic".to_string();
+    development.manifest.name = "Synthetic development plugin".to_string();
+    let bytes = package_bytes(&development);
+    let archive = data.path().join("denote.synthetic.tgz");
+    fs::write(&archive, bytes).expect("development archive");
+
+    let plugin_id = manager
+        .load_development_archive(&archive)
+        .expect("load development archive");
+    let view = manager
+        .list()
+        .expect("list")
+        .into_iter()
+        .find(|plugin| plugin.catalog.manifest.id == plugin_id)
+        .expect("development plugin");
+    assert!(view.development);
+    assert!(!view.catalog.provenance.trusted);
+
+    let installed = manager
+        .prepare(&plugin_id, view.catalog.manifest.permissions.clone())
+        .expect("prepare");
+    manager
+        .commit_enable(&installed.transaction_id)
+        .expect("commit");
+    assert!(manager.read_entrypoint(&plugin_id).is_ok());
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .development_plugin_ids
+            .contains(&plugin_id)
+    );
+    let error = manager
+        .load_development_archive(&archive)
+        .expect_err("enabled development plugin replacement");
+    assert!(error.to_string().contains("Disable"));
+
+    manager.disable(&plugin_id, false, false).expect("disable");
+    assert!(!manager.plugin_root(&plugin_id).exists());
+}
+
+#[test]
+fn persisted_development_plugin_is_removed_before_startup_restore() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut development = catalog();
+    development.manifest.id = "denote.synthetic".to_string();
+    let bytes = package_bytes(&development);
+    let archive = data.path().join("denote.synthetic.tgz");
+    fs::write(&archive, bytes).expect("development archive");
+    {
+        let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+        let plugin_id = manager
+            .load_development_archive(&archive)
+            .expect("load development archive");
+        let permissions = manager
+            .catalog_entry(&plugin_id)
+            .expect("development catalog")
+            .manifest
+            .permissions;
+        let installed = manager
+            .prepare(&plugin_id, permissions)
+            .expect("prepare development plugin");
+        manager
+            .commit_enable(&installed.transaction_id)
+            .expect("commit development plugin");
+        assert!(manager.plugin_root(&plugin_id).is_dir());
+    }
+
+    let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+
+    assert!(!manager.plugin_root("denote.synthetic").exists());
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .development_plugin_ids
+            .is_empty()
+    );
+}
+
 fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
@@ -33,6 +121,13 @@ fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
         &catalog.manifest.entrypoint,
         b"export default {};",
     );
+    append(
+        &mut builder,
+        &catalog.manifest.documentation,
+        b"# Synthetic plugin",
+    );
+    append(&mut builder, &catalog.manifest.icon, b"<svg></svg>");
+    append(&mut builder, "package.json", br#"{"private":true}"#);
     builder
         .into_inner()
         .expect("archive")
@@ -62,7 +157,9 @@ pub(super) fn manager(
             app_data_dir: data.path().to_path_buf(),
             app_cache_dir: cache.path().to_path_buf(),
             resource_dir: PathBuf::new(),
+            keychain_service: "dev.denote.plugin.test".to_string(),
             catalog: vec![catalog],
+            development_plugins: Mutex::new(BTreeMap::new()),
             bundles: vec![],
             bundle_error: None,
             state: Mutex::new(PersistentPluginState::default()),
@@ -75,6 +172,22 @@ pub(super) fn manager(
             _process_lock: None,
         }),
     }
+}
+
+#[test]
+fn keychain_services_follow_application_identity_without_changing_production() {
+    assert_eq!(
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote"),
+        "dev.denote.plugin"
+    );
+    assert_eq!(
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote.development"),
+        "dev.denote.plugin.development"
+    );
+    assert_ne!(
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote.preview"),
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote")
+    );
 }
 
 #[test]

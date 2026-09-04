@@ -294,6 +294,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   content, and removal backups. Catalog metadata remains available for a later
   reinstall; plugin settings and generated data follow their separate cleanup
   controls.
+- Development builds use a separate application identity and can explicitly
+  load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
+  untrusted, pass the ordinary package/runtime safety checks, and are
+  unavailable in release builds.
 - The optional **Git vault versioning** plugin is the first production catalog
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,

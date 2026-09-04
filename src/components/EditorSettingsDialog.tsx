@@ -25,6 +25,7 @@ interface EditorSettingsDialogProps {
   allowAllExternalDomains: boolean;
   plugins: PluginView[];
   pluginBundles: PluginBundleMetadata[];
+  pluginDevelopmentSupported?: boolean;
   activeProject: ProjectRoot | null;
   pluginsLoading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -39,6 +40,7 @@ interface EditorSettingsDialogProps {
   onDisablePlugin: (pluginId: string) => Promise<void>;
   onDisableAllPlugins: () => Promise<void>;
   onUpdateAllPlugins: () => Promise<void>;
+  onLoadDevelopmentPlugin?: () => Promise<void>;
   onClearPluginData: (pluginId: string) => Promise<void>;
   onClearPluginCredentials: (pluginId: string) => Promise<void>;
   onUpdatePluginSettings: (
@@ -67,6 +69,7 @@ export function EditorSettingsDialog({
   allowAllExternalDomains,
   plugins,
   pluginBundles,
+  pluginDevelopmentSupported = false,
   activeProject,
   pluginsLoading,
   busyPluginIds,
@@ -78,6 +81,7 @@ export function EditorSettingsDialog({
   onDisablePlugin,
   onDisableAllPlugins,
   onUpdateAllPlugins,
+  onLoadDevelopmentPlugin = async () => {},
   onClearPluginData,
   onClearPluginCredentials,
   onUpdatePluginSettings,
@@ -354,6 +358,7 @@ export function EditorSettingsDialog({
         <PluginSettingsPanel
           plugins={plugins}
           bundles={pluginBundles}
+          developmentSupported={pluginDevelopmentSupported}
           activeProject={activeProject}
           loading={pluginsLoading}
           busyPluginIds={busyPluginIds}
@@ -361,6 +366,7 @@ export function EditorSettingsDialog({
           onDisable={onDisablePlugin}
           onDisableAll={onDisableAllPlugins}
           onUpdateAll={onUpdateAllPlugins}
+          onLoadDevelopment={onLoadDevelopmentPlugin}
           onClearData={onClearPluginData}
           onClearCredentials={onClearPluginCredentials}
           onUpdateSettings={onUpdatePluginSettings}

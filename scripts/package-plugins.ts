@@ -13,11 +13,15 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { create, extract, list } from "tar";
+import { extract, list } from "tar";
 import {
   parsePluginManifest,
   type PluginCatalogEntry,
 } from "@denote/plugin-sdk";
+import {
+  pluginPackagePaths,
+  writePluginArchive,
+} from "./plugin-archive";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "packages", "plugins");
@@ -44,13 +48,7 @@ try {
       JSON.parse(readFileSync(join(pluginDirectory, "plugin.json"), "utf8")) as unknown,
     );
     const artifactName = `${manifest.id}-${manifest.version}.tgz`;
-    const packagePaths = [
-      manifest.entrypoint,
-      manifest.documentation,
-      manifest.icon,
-      "plugin.json",
-      "package.json",
-    ];
+    const packagePaths = pluginPackagePaths(manifest);
     const committedArtifact = join(artifactsRoot, artifactName);
     const entry = catalog.find(
       (candidate) => candidate.manifest.id === manifest.id,
@@ -194,20 +192,11 @@ try {
       console.log(`Retained ${manifest.id}@${manifest.version}.`);
     } else {
       const temporaryArtifact = join(temporaryRoot, artifactName);
-      await create(
-        {
-          cwd: pluginDirectory,
-          file: temporaryArtifact,
-          gzip: true,
-          portable: true,
-          noMtime: true,
-          follow: false,
-        },
-        packagePaths,
+      const { bytes, sha256, sizeBytes } = await writePluginArchive(
+        pluginDirectory,
+        manifest,
+        temporaryArtifact,
       );
-      const bytes = readFileSync(temporaryArtifact);
-      const sha256 = createHash("sha256").update(bytes).digest("hex");
-      const sizeBytes = statSync(temporaryArtifact).size;
       writeFileSync(committedArtifact, bytes);
       entry.manifest = manifest;
       entry.guide = normalizeText(

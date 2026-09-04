@@ -11,8 +11,12 @@ for your operating system, Node.js 24.15 or newer, and stable Rust.
 npm ci
 npm run prepare:bundled-tools
 npm run verify:bundled-tools
-npm run tauri dev
+npm run dev:desktop
 ```
+
+`dev:desktop` uses the separate `dev.mbianchi.denote.development` application
+identity, so development vault state, plugin packages, process locks, and
+keychain entries cannot collide with an installed Denote release.
 
 ## Validate changes
 
@@ -60,40 +64,62 @@ Plugin unit tests belong in `packages/plugins/<plugin-id>/tests/`, outside
 still type check with `npm run check:plugins` and run with `npm test`. Use
 `packages/plugins/denote.git/tests/` as the example.
 
-Create a complete package skeleton and draft catalog entry with:
+Create a complete package skeleton with:
 
 ```bash
 npm run create:plugin -- denote.example "Example plugin" productivity
 ```
 
 The scaffold includes the manifest, required guide sections, icon, package
-metadata, and SDK entrypoint. Implement and test it entirely inside that folder
-before packaging.
+metadata, and SDK entrypoint. It does not add an invalid unpublished entry to
+the production catalog.
+
+Build one plugin continuously while editing:
+
+```bash
+npm run dev:plugin -- denote.example
+```
+
+The watcher writes `.plugin-dev/denote.example.tgz`, which is ignored by Git.
+Run `npm run dev:desktop`, open **Settings → Plugins**, and choose **Load local
+plugin archive**. Local archives are available only in the isolated development
+app, are labeled untrusted, and still pass package bounds, path, manifest,
+permission, extraction, entrypoint-integrity, worker-isolation, rollback, and
+cleanup checks. Disable the plugin before loading its rebuilt archive. Use
+`--once` for one build without watching.
+
+Targeted one-off builds are also available:
+
+```bash
+npm run build:plugin -- denote.example
+```
 
 Plugin packages cannot declare npm lifecycle scripts or executable `bin`
 entries. CI checks this before dependency installation, installs with lifecycle
 scripts disabled, audits JavaScript and Rust dependencies, and rejects new
 high-severity dependency vulnerabilities.
 
-Build the independently downloadable plugin artifacts and update catalog
-integrity metadata with:
+Build one independently downloadable plugin artifact with:
 
 ```bash
-npm run package:plugins
+npm run package:plugin -- denote.example
 ```
 
-Commit the resulting files under `plugin-artifacts/`, then pin a new artifact
-URL to that commit:
+Commit the plugin source and resulting archive under `plugin-artifacts/`, then
+pin the catalog entry to that commit:
 
 ```bash
-DENOTE_PLUGIN_ARTIFACT_REF=$(git rev-parse HEAD) npm run package:plugins
+npm run pin:plugin -- denote.example --ref "$(git rev-parse HEAD)"
 ```
 
-Commit the catalog-only pin separately. Existing versions retain their immutable
-source commit when repackaged. CI rebuilds every plugin, validates the real
-entrypoint, checks the committed archive against that 40-character source
-commit, checks safe archive paths/types/sizes, and verifies catalog size and
-SHA-256 digest on all supported platforms. Set
+Both commands finish successfully and affect only the selected plugin.
+`package:plugin` refuses to replace different bytes at an existing version.
+Commit the catalog-only pin separately. Repository-wide
+`npm run package:plugins` and `npm run check:plugins` remain the release/CI
+aggregation commands. CI rebuilds every plugin, validates the real entrypoint,
+checks the committed archive against its 40-character source commit, checks safe
+archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
+supported platforms. Set
 `DENOTE_VERIFY_REMOTE_PLUGIN_ARTIFACTS=1` to additionally verify already
 published catalog URLs.
 

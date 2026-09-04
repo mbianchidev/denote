@@ -63,6 +63,15 @@ package into application data. Failed or interrupted enablement removes staging
 content. Disablement terminates the worker before removing package code, its
 per-plugin cached archive, staging content, and atomic-removal backups.
 
+Development builds add one explicit local source without changing this
+production downloader. `npm run dev:plugin -- <id>` builds and watches a single
+plugin into an ignored `.plugin-dev/<id>.tgz`. The isolated Denote Development
+app can select that archive in Settings. Native code reads and hashes the bytes,
+constructs an untrusted process-local entry, and feeds them through the same
+validation, extraction, permission approval, worker activation, rollback, and
+disable cleanup. Release builds do not compile the local adapter and never show
+the picker.
+
 The Settings dialog contains the searchable, category-grouped plugin manager.
 It shows catalog metadata, requested permissions, status, in-app guides,
 declarative settings, enable/disable controls, and explicit data or credential
@@ -599,6 +608,12 @@ committed archive still matches its source and retains the archive bytes, URL,
 digest, size, guide, and provenance unchanged. A changed package must bump only
 its own version. Packaging or pinning `denote.git` therefore cannot rewrite the
 `denote.reference` artifact or any other plugin.
+
+For authoring, `package:plugin -- <id>` creates one immutable archive without
+requiring a commit that does not exist yet. After that source/archive commit,
+`pin:plugin -- <id> --ref <sha>` verifies the committed bytes and creates or
+updates only that catalog entry. The repository-wide commands remain the final
+CI and release checks.
 
 Release preparation rewrites every current catalog URL to
 `https://github.com/mbianchidev/denote/releases/download/<tag>/<plugin-id>-<plugin-version>.tgz`.

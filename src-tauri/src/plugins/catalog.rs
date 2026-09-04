@@ -30,20 +30,12 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
     let mut ids = HashSet::new();
     for entry in catalog {
         let id = &entry.manifest.id;
-        if !valid_plugin_id(id) || !ids.insert(id) {
+        if !ids.insert(id) {
             return Err(AppError::Plugin(format!(
-                "Invalid or duplicate plugin ID in catalog: {id}"
+                "Duplicate plugin ID in catalog: {id}"
             )));
         }
-
-        if Version::parse(&entry.manifest.version).is_err()
-            || entry.manifest.version.contains(['/', '\\'])
-        {
-            return Err(AppError::Plugin(format!(
-                "Invalid plugin version in catalog for {id}: {}",
-                entry.manifest.version
-            )));
-        }
+        validate_catalog_entry(entry)?;
         if !entry.provenance.trusted
             || entry.provenance.publisher_id != "denote"
             || entry.provenance.source_commit.len() != 40
@@ -60,87 +52,128 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
                 "Invalid trusted provenance for plugin {id}"
             )));
         }
-        if !entry.artifact.url.starts_with("https://")
-            || entry.artifact.sha256.len() != 64
-            || !entry
-                .artifact
-                .sha256
-                .bytes()
-                .all(|byte| byte.is_ascii_hexdigit())
-            || entry.artifact.size_bytes == 0
-            || entry.artifact.size_bytes > MAX_PLUGIN_PACKAGE_BYTES as u64
-        {
-            return Err(AppError::Plugin(format!(
-                "Invalid artifact metadata for plugin {id}"
-            )));
-        }
-        validate_relative_path(&entry.manifest.entrypoint)?;
-        validate_relative_path(&entry.manifest.documentation)?;
-        validate_relative_path(&entry.manifest.icon)?;
-        for permission in &entry.manifest.permissions {
-            match permission.capability.as_str() {
-                "commands"
-                | "sidebar"
-                | "status"
-                | "editor-decoration"
-                | "note-events"
-                | "project-context"
-                | "source-control"
-                | "automatic-local-commit"
-                | "git"
-                | "workspace-read"
-                | "workspace-write"
-                | "clipboard-read"
-                | "clipboard-write"
-                | "notifications"
-                | "secure-storage" => {
-                    if !permission.hosts.is_empty() || !permission.executables.is_empty() {
-                        return Err(AppError::Plugin(format!(
-                            "Unexpected permission constraints for {id}: {}",
-                            permission.capability
-                        )));
-                    }
-                }
-                "network" => {
-                    if permission.hosts.is_empty()
-                        || permission
-                            .hosts
-                            .iter()
-                            .any(|host| !valid_host_pattern(host))
-                    {
-                        return Err(AppError::Plugin(format!(
-                            "Invalid network host permission for {id}"
-                        )));
-                    }
-                }
-                "process" => {
-                    if permission.executables.is_empty()
-                        || permission
-                            .executables
-                            .iter()
-                            .any(|(platform, executables)| {
-                                !matches!(platform.as_str(), "macos" | "linux" | "windows")
-                                    || executables.is_empty()
-                                    || executables.iter().any(|executable| {
-                                        !platform_executable_is_absolute(platform, executable)
-                                    })
-                            })
-                    {
-                        return Err(AppError::Plugin(format!(
-                            "Invalid process executable permission for {id}"
-                        )));
-                    }
-                }
-                capability => {
+    }
+    Ok(())
+}
+
+#[cfg(debug_assertions)]
+pub(crate) fn validate_development_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
+    validate_catalog_entry(entry)?;
+    if entry.provenance.trusted
+        || entry.provenance.publisher_id != "development"
+        || entry.artifact.url
+            != format!(
+                "denote-development://archive/{}-{}.tgz",
+                entry.manifest.id, entry.manifest.version
+            )
+    {
+        return Err(AppError::Plugin(format!(
+            "Invalid development provenance for plugin {}",
+            entry.manifest.id
+        )));
+    }
+    Ok(())
+}
+
+fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
+    let id = &entry.manifest.id;
+    if !valid_plugin_id(id) {
+        return Err(AppError::Plugin(format!(
+            "Invalid plugin ID in catalog: {id}"
+        )));
+    }
+    if !PLUGIN_CATEGORIES.contains(&entry.manifest.category.as_str()) {
+        return Err(AppError::Plugin(format!(
+            "Invalid plugin category for {id}: {}",
+            entry.manifest.category
+        )));
+    }
+    if Version::parse(&entry.manifest.version).is_err()
+        || entry.manifest.version.contains(['/', '\\'])
+    {
+        return Err(AppError::Plugin(format!(
+            "Invalid plugin version in catalog for {id}: {}",
+            entry.manifest.version
+        )));
+    }
+    if entry.artifact.sha256.len() != 64
+        || !entry
+            .artifact
+            .sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+        || entry.artifact.size_bytes == 0
+        || entry.artifact.size_bytes > MAX_PLUGIN_PACKAGE_BYTES as u64
+    {
+        return Err(AppError::Plugin(format!(
+            "Invalid artifact metadata for plugin {id}"
+        )));
+    }
+    validate_relative_path(&entry.manifest.entrypoint)?;
+    validate_relative_path(&entry.manifest.documentation)?;
+    validate_relative_path(&entry.manifest.icon)?;
+    for permission in &entry.manifest.permissions {
+        match permission.capability.as_str() {
+            "commands"
+            | "sidebar"
+            | "status"
+            | "editor-decoration"
+            | "note-events"
+            | "project-context"
+            | "source-control"
+            | "automatic-local-commit"
+            | "git"
+            | "workspace-read"
+            | "workspace-write"
+            | "clipboard-read"
+            | "clipboard-write"
+            | "notifications"
+            | "secure-storage" => {
+                if !permission.hosts.is_empty() || !permission.executables.is_empty() {
                     return Err(AppError::Plugin(format!(
-                        "Unsupported plugin capability for {id}: {capability}"
+                        "Unexpected permission constraints for {id}: {}",
+                        permission.capability
                     )));
                 }
             }
+            "network" => {
+                if permission.hosts.is_empty()
+                    || permission
+                        .hosts
+                        .iter()
+                        .any(|host| !valid_host_pattern(host))
+                {
+                    return Err(AppError::Plugin(format!(
+                        "Invalid network host permission for {id}"
+                    )));
+                }
+            }
+            "process" => {
+                if permission.executables.is_empty()
+                    || permission
+                        .executables
+                        .iter()
+                        .any(|(platform, executables)| {
+                            !matches!(platform.as_str(), "macos" | "linux" | "windows")
+                                || executables.is_empty()
+                                || executables.iter().any(|executable| {
+                                    !platform_executable_is_absolute(platform, executable)
+                                })
+                        })
+                {
+                    return Err(AppError::Plugin(format!(
+                        "Invalid process executable permission for {id}"
+                    )));
+                }
+            }
+            capability => {
+                return Err(AppError::Plugin(format!(
+                    "Unsupported plugin capability for {id}: {capability}"
+                )));
+            }
         }
-        validate_settings(&entry.manifest, default_settings(&entry.manifest))?;
     }
-    Ok(())
+    validate_settings(&entry.manifest, default_settings(&entry.manifest)).map(|_| ())
 }
 
 fn trusted_artifact_url(entry: &PluginCatalogEntry) -> bool {

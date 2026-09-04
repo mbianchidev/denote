@@ -253,6 +253,7 @@ export interface LinkRewriteBatch extends DocumentBatch {
 
 export interface PluginView {
   catalog: PluginCatalogEntry;
+  development?: boolean;
   runtimeManifest?: PluginManifest | null;
   status: PluginLifecycleState;
   enabled: boolean;

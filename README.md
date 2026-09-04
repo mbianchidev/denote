@@ -31,3 +31,6 @@ they are not bundled in the desktop installers.
 
 Read the [project documentation](docs/index.md) or start with the
 [development guide](docs/development.md).
+
+Plugin authors can use the targeted local workflow documented under
+[plugin development](docs/development.md).

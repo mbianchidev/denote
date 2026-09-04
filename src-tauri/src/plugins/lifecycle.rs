@@ -35,12 +35,11 @@ impl PluginManager {
         }
         let state = self.state()?.clone();
         let pending = self.pending_transactions()?.clone();
-        self.inner
-            .catalog
-            .iter()
+        self.catalog_entries()?
+            .into_iter()
             .map(|catalog| {
                 let plugin_id = &catalog.manifest.id;
-                let compatibility_error = compatibility_error(catalog);
+                let compatibility_error = compatibility_error(&catalog);
                 let enabled = state.enabled.contains(plugin_id);
                 let prepared_permissions = pending
                     .values()
@@ -73,6 +72,7 @@ impl PluginManager {
                     "not-installed"
                 };
                 Ok(PluginView {
+                    development: self.is_development_plugin(plugin_id)?,
                     catalog: catalog.clone(),
                     runtime_manifest: runtime_manifest.clone(),
                     status: status.to_string(),
@@ -128,7 +128,7 @@ impl PluginManager {
     ) -> AppResult<InstalledPlugin> {
         let _preparation = self.preparation_lock()?;
         let mut operation = self.begin_operation(plugin_id)?;
-        let catalog = self.catalog_entry(plugin_id)?.clone();
+        let catalog = self.catalog_entry(plugin_id)?;
         if let Some(error) = compatibility_error(&catalog) {
             return Err(AppError::Plugin(error));
         }
@@ -205,7 +205,7 @@ impl PluginManager {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
         })?;
         let plugin_id = transaction.plugin_id;
-        let catalog = self.catalog_entry(&plugin_id)?.clone();
+        let catalog = self.catalog_entry(&plugin_id)?;
         self.installed_plugin(&catalog, transaction_id.to_string())?;
         let saved_settings = self.state()?.settings.get(&plugin_id).cloned();
         let saved_version = self.state()?.settings_versions.get(&plugin_id).copied();
@@ -235,6 +235,11 @@ impl PluginManager {
             state
                 .installed_manifests
                 .insert(plugin_id.clone(), catalog.manifest.clone());
+            if self.is_development_plugin(&plugin_id)? {
+                state.development_plugin_ids.insert(plugin_id.clone());
+            } else {
+                state.development_plugin_ids.remove(&plugin_id);
+            }
             state.settings.insert(plugin_id.clone(), settings.clone());
             state
                 .settings_versions
@@ -261,7 +266,7 @@ impl PluginManager {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
         })?;
         let plugin_id = transaction.plugin_id;
-        let catalog = self.catalog_entry(&plugin_id)?.clone();
+        let catalog = self.catalog_entry(&plugin_id)?;
         self.cancel_git_operations(&plugin_id);
         self.remove_installation(&catalog.manifest)?;
         self.update_state(|state| {
@@ -309,6 +314,7 @@ impl PluginManager {
             state.updates_available.remove(plugin_id);
             state.entrypoint_hashes.remove(plugin_id);
             state.installed_manifests.remove(plugin_id);
+            state.development_plugin_ids.remove(plugin_id);
             state.errors.remove(plugin_id);
             if clear_data {
                 state.settings.remove(plugin_id);
@@ -410,7 +416,10 @@ impl PluginManager {
     }
 
     pub(crate) fn download_to_cache(&self, catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
-        let bytes = download_artifact(catalog)?;
+        let bytes = match self.development_artifact_bytes(&catalog.manifest.id)? {
+            Some(bytes) => bytes,
+            None => download_artifact(catalog)?,
+        };
         let cache_root = self.inner.app_cache_dir.join("plugin-downloads");
         ensure_managed_directory(&cache_root)?;
         let cache_dir = cache_root.join(&catalog.manifest.id);
@@ -581,9 +590,11 @@ impl PluginManager {
     }
 
     pub(crate) fn reconcile_packages(&self) -> AppResult<()> {
+        self.remove_persisted_development_plugins()?;
         self.prune_transient_paths()?;
         let enabled = self.state()?.enabled.clone();
-        for catalog in &self.inner.catalog {
+        let catalog_entries = self.catalog_entries()?;
+        for catalog in &catalog_entries {
             let plugin_id = &catalog.manifest.id;
             let plugin_root = self.plugin_root(plugin_id);
             let requested_permissions: BTreeSet<PluginPermission> =
@@ -670,15 +681,14 @@ impl PluginManager {
                 self.remove_package(plugin_id)?;
             }
         }
-        let known_ids: BTreeSet<String> = self
-            .inner
-            .catalog
+        let known_ids: BTreeSet<String> = catalog_entries
             .iter()
             .map(|entry| entry.manifest.id.clone())
             .collect();
         let state_snapshot = self.state()?.clone();
         let mut orphaned_ids = BTreeSet::new();
         orphaned_ids.extend(state_snapshot.enabled.iter().cloned());
+        orphaned_ids.extend(state_snapshot.development_plugin_ids.iter().cloned());
         orphaned_ids.extend(state_snapshot.updates_available.iter().cloned());
         orphaned_ids.extend(state_snapshot.approved_permissions.keys().cloned());
         orphaned_ids.extend(state_snapshot.artifact_hashes.keys().cloned());
@@ -695,6 +705,7 @@ impl PluginManager {
             self.clear_credentials(&plugin_id)?;
             self.update_state(|state| {
                 state.enabled.remove(&plugin_id);
+                state.development_plugin_ids.remove(&plugin_id);
                 state.updates_available.remove(&plugin_id);
                 state.approved_permissions.remove(&plugin_id);
                 state.artifact_hashes.remove(&plugin_id);
@@ -733,9 +744,8 @@ impl PluginManager {
         }
         let packages_dir = self.inner.app_data_dir.join("plugins").join("packages");
         ensure_managed_directory(&packages_dir)?;
-        let known: BTreeSet<&str> = self
-            .inner
-            .catalog
+        let catalog_entries = self.catalog_entries()?;
+        let known: BTreeSet<&str> = catalog_entries
             .iter()
             .map(|entry| entry.manifest.id.as_str())
             .collect();
@@ -786,6 +796,30 @@ impl PluginManager {
             }
         }
         Ok(())
+    }
+
+    fn remove_persisted_development_plugins(&self) -> AppResult<()> {
+        let plugin_ids = self.state()?.development_plugin_ids.clone();
+        for plugin_id in &plugin_ids {
+            self.remove_package(plugin_id)?;
+        }
+        if plugin_ids.is_empty() {
+            return Ok(());
+        }
+        self.update_state(|state| {
+            for plugin_id in &plugin_ids {
+                state.enabled.remove(plugin_id);
+                state.development_plugin_ids.remove(plugin_id);
+                state.updates_available.remove(plugin_id);
+                state.approved_permissions.remove(plugin_id);
+                state.artifact_hashes.remove(plugin_id);
+                state.catalog_fingerprints.remove(plugin_id);
+                state.entrypoint_hashes.remove(plugin_id);
+                state.installed_manifests.remove(plugin_id);
+                state.errors.remove(plugin_id);
+            }
+            Ok(())
+        })
     }
 }
 
