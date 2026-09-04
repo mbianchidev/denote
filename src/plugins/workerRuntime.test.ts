@@ -3,6 +3,7 @@ import catalogJson from "../../plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
   type PluginGitResult,
+  type PluginEmojiPicker,
   type PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
@@ -35,6 +36,16 @@ assertValidPluginCatalogEntry(catalogValue);
 const catalog = catalogValue;
 const GIT_OPERATION_ID = "11111111-2222-4333-8444-555555555555";
 const GIT_CANCEL_ID = "99999999-8888-4777-8666-555555555555";
+const emojiPicker: PluginEmojiPicker = {
+  id: "denote.reference.emoji",
+  title: "Insert emoji",
+  entries: [{
+    id: "wave", name: "Waving hand", unicode: "\u{1f44b}", category: "People",
+    keywords: ["hello"], shortcodes: ["wave"], variants: [],
+  }],
+  shortcodes: true,
+  settingsKeys: { recents: "recents", favorites: "favorites", tone: "tone" },
+};
 /** Two synthetic vaults. Neither path may ever reach a plugin worker. */
 const VAULT_ALPHA = "/synthetic/vault-alpha";
 const VAULT_BETA = "/synthetic/vault-beta";
@@ -130,6 +141,7 @@ class FakeWorker extends EventTarget {
   static sourceControlModelOnActivate: PluginSourceControlViewModel | null = null;
   static sourceControlProviderIdOnActivate = "denote.reference.git";
   static automaticCommitOnActivate: Record<string, unknown> | null = null;
+  static emojiPickerOnActivate: PluginEmojiPicker | null = null;
   static sourceControlActionResultType:
     | "source-control-action-result"
     | "command-result" = "source-control-action-result";
@@ -179,6 +191,9 @@ class FakeWorker extends EventTarget {
             type: "register-automatic-local-commit",
             schedule: FakeWorker.automaticCommitOnActivate,
           });
+        }
+        if (FakeWorker.emojiPickerOnActivate) {
+          port.postMessage({ type: "register-emoji-picker", picker: FakeWorker.emojiPickerOnActivate });
         }
         if (FakeWorker.failActivationAfterSourceControl) {
           port.postMessage({
@@ -346,6 +361,28 @@ function pluginWithAutomaticCommit(): PluginView {
   };
 }
 
+function pluginWithEmojiPicker(): PluginView {
+  const source = plugin();
+  return {
+    ...source,
+    approvedPermissions: [...source.approvedPermissions, { capability: "emoji-picker" }],
+    catalog: {
+      ...source.catalog,
+      manifest: {
+        ...source.catalog.manifest,
+        settings: {
+          version: 1,
+          properties: {
+            recents: { title: "Recents", type: "string", default: "[]" },
+            favorites: { title: "Favorites", type: "string", default: "[]" },
+            tone: { title: "Tone", type: "number", default: 0, minimum: 0, maximum: 5 },
+          },
+        },
+      },
+    },
+  };
+}
+
 function pluginWithGit(): PluginView {
   return {
     ...plugin(),
@@ -380,6 +417,7 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.sourceControlModelOnActivate = null;
     FakeWorker.sourceControlProviderIdOnActivate = "denote.reference.git";
     FakeWorker.automaticCommitOnActivate = null;
+    FakeWorker.emojiPickerOnActivate = null;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
@@ -392,6 +430,80 @@ describe("PluginWorkerRuntime", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("registers emoji data transactionally and removes it immediately when stopping", async () => {
+    const changed = vi.fn();
+    FakeWorker.emojiPickerOnActivate = emojiPicker;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(), vi.fn(), undefined, undefined, undefined, undefined, undefined, undefined, changed,
+    );
+    await runtime.start(pluginWithEmojiPicker());
+    expect(changed).toHaveBeenLastCalledWith([{ ...emojiPicker, pluginId: "denote.reference" }]);
+    expect(runtime.getEmojiPicker("denote.reference", emojiPicker.id).entries).toEqual(emojiPicker.entries);
+    const stop = runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+    expect(() => runtime.getEmojiPicker("denote.reference", emojiPicker.id)).toThrow();
+    await stop;
+    await runtime.start(pluginWithEmojiPicker());
+    expect(changed).toHaveBeenLastCalledWith([{ ...emojiPicker, pluginId: "denote.reference" }]);
+    FakeWorker.instances[0].runtimePort?.postMessage({ type: "runtime-error", error: "Late old worker" });
+    await new Promise<void>((resolve) => queueMicrotask(resolve));
+    expect(runtime.isRunning("denote.reference")).toBe(true);
+    FakeWorker.instances[1].runtimePort?.postMessage({ type: "runtime-error", error: "Synthetic crash" });
+    await vi.waitFor(() => expect(changed).toHaveBeenLastCalledWith([]));
+  });
+
+  it("discards staged emoji data on activation failure", async () => {
+    const changed = vi.fn();
+    FakeWorker.emojiPickerOnActivate = emojiPicker;
+    FakeWorker.failActivationAfterSourceControl = true;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(), vi.fn(), undefined, undefined, undefined, undefined, undefined, undefined, changed,
+    );
+    await expect(runtime.start(pluginWithEmojiPicker())).rejects.toThrow();
+    expect(changed.mock.calls.every(([pickers]) => pickers.length === 0)).toBe(true);
+  });
+
+  it("refuses emoji registration without permission, declared settings or unique identity", async () => {
+    for (const source of [plugin(), {
+      ...plugin(), approvedPermissions: [...catalog.manifest.permissions, { capability: "emoji-picker" } as const],
+    }]) {
+      FakeWorker.emojiPickerOnActivate = emojiPicker;
+      const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+      await expect(runtime.start(source)).rejects.toThrow();
+    }
+    const errors = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), errors);
+    await runtime.start(pluginWithEmojiPicker());
+    FakeWorker.instances[FakeWorker.instances.length - 1]?.runtimePort?.postMessage({
+      type: "register-emoji-picker", picker: emojiPicker,
+    });
+    await vi.waitFor(() => expect(errors).toHaveBeenCalled());
+    expect(runtime.isRunning("denote.reference")).toBe(false);
+  });
+
+  it("registers and disposes emoji data through the actual isolated worker capability", async () => {
+    await bridgeRealPluginWorker();
+    const source = pluginWithEmojiPicker();
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          if (context.capabilities.workspaceWrite || context.capabilities.network) throw Error("Unexpected access");
+          context.subscriptions.add(context.capabilities.emojiPicker.register(${JSON.stringify(emojiPicker)}));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(), vi.fn(), undefined, undefined, undefined, undefined, undefined, undefined, changed,
+    );
+    await runtime.start(source);
+    expect(changed).toHaveBeenLastCalledWith([{ ...emojiPicker, pluginId: "denote.reference" }]);
+    expect(BridgedWorker.instances[0].received).toEqual([{ type: "activate" }]);
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
   });
 
   it("loads code only when started and publishes commands after activation", async () => {

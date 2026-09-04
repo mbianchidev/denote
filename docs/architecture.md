@@ -664,6 +664,30 @@ staged until activation succeeds, and disappear when the worker terminates.
 Source-control model updates use the original registration handle and do not
 re-register the provider.
 
+The additive API version 1 `emoji-picker` capability accepts one bounded
+declarative picker per plugin. The SDK and runtime both validate field shapes,
+IDs, labels, Unicode graphemes, variants, settings-key references, entry counts,
+and total bytes. Registration is staged until activation succeeds and is
+withdrawn immediately when deactivation or failure starts. Delayed messages from
+a replaced worker cannot register contributions in its successor.
+
+The host owns emoji indexing, search, shortcode context, toolbar/palette
+commands, keyboard handling, and editor transactions. The plugin receives no
+query, surrounding text, selection, file identity, editor object, or insertion
+callback. The permission grants no native workspace, network, filesystem, or
+encryption-key access. Rich Lexical and source CodeMirror adapters capture
+selection and document identity and insert complete Unicode sequences only on
+explicit acceptance, using ordinary undo history. Code and composition contexts
+suppress automatic suggestions.
+
+Recent/favorite Unicode strings and the chosen skin tone use three declared
+plugin setting keys. Preference writes validate dataset membership, serialize
+per plugin, merge the current settings, and guard runtime/workspace identity.
+Settings mutations invalidate queued writes and wait for issued writes before
+reset, disablement, or cleanup. These host-owned preference updates do not
+restart the worker. Explicit settings changes still use the ordinary restart
+flow. No emoji implementation or dataset is imported into the desktop bundle.
+
 Plugin state lives in `plugins/state.json` under application data. Package code
 lives under `plugins/packages/<plugin-id>/<version>/`; transient downloads use
 application cache. Startup removes orphaned downloads and packages for disabled,

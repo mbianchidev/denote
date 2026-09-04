@@ -1,5 +1,6 @@
 import type {
   PluginCapability,
+  PluginEmojiPicker,
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
@@ -7,6 +8,8 @@ import type {
   PluginSourceControlAction,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
+import { isPluginEmojiPicker } from "@denote/plugin-sdk";
+export type { PluginEmojiPickerContribution } from "./emojiPickers";
 import {
   isPluginAutomaticLocalCommitPayload,
   type PluginAutomaticLocalCommitPayload,
@@ -105,6 +108,8 @@ export type PluginRuntimeMessage =
       caseSensitive: boolean;
     }
   | { type: "unregister-decoration"; id: string }
+  | { type: "register-emoji-picker"; picker: PluginEmojiPicker }
+  | { type: "unregister-emoji-picker"; id: string }
   | {
       type: "register-source-control";
       id: string;
@@ -193,6 +198,10 @@ export function isPluginRuntimeMessage(
         typeof value.caseSensitive === "boolean"
       );
     case "unregister-decoration":
+      return typeof value.id === "string";
+    case "register-emoji-picker":
+      return isPluginEmojiPicker(value.picker);
+    case "unregister-emoji-picker":
       return typeof value.id === "string";
     case "register-source-control":
       return (

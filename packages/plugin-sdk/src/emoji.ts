@@ -50,9 +50,8 @@ export function isPluginEmojiPicker(value: unknown): value is PluginEmojiPicker 
       (key) => typeof key === "string" && identifier.test(key),
     ) ||
     new Set(Object.values(value.settingsKeys)).size !== 3 ||
-    !Array.isArray(value.entries) ||
+    !plainArray(value.entries, EMOJI_MAX_ENTRIES) ||
     value.entries.length === 0 ||
-    value.entries.length > EMOJI_MAX_ENTRIES ||
     !value.entries.every(entry)
   ) {
     return false;
@@ -102,8 +101,7 @@ export function isPluginEmojiPreferences(
 
 function sequences(value: unknown, limit: number): value is string[] {
   return (
-    Array.isArray(value) &&
-    value.length <= limit &&
+    plainArray(value, limit) &&
     value.every(isEmojiSequence) &&
     new Set(value).size === value.length
   );
@@ -118,15 +116,12 @@ function entry(value: unknown): value is PluginEmojiEntry {
     label(value.name, 160) &&
     isEmojiSequence(value.unicode) &&
     label(value.category, 80) &&
-    Array.isArray(value.keywords) &&
-    value.keywords.length <= 32 &&
+    plainArray(value.keywords, 32) &&
     value.keywords.every((item) => label(item, 80)) &&
-    Array.isArray(value.shortcodes) &&
+    plainArray(value.shortcodes, 32) &&
     value.shortcodes.length > 0 &&
-    value.shortcodes.length <= 32 &&
     value.shortcodes.every((item) => typeof item === "string" && shortcode.test(item)) &&
-    Array.isArray(value.variants) &&
-    value.variants.length <= 30 &&
+    plainArray(value.variants, 30) &&
     value.variants.every(variant) &&
     new Set(value.variants.map((item) => item.unicode)).size === value.variants.length
   );
@@ -168,4 +163,15 @@ function keys(
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function plainArray(value: unknown, maximum: number): value is unknown[] {
+  if (!Array.isArray(value) || value.length > maximum) {
+    return false;
+  }
+  const ownKeys = Reflect.ownKeys(value);
+  return ownKeys.length === value.length + 1 && ownKeys.every((key) =>
+    key === "length" ||
+    (typeof key === "string" && /^(0|[1-9]\d*)$/.test(key) && Number(key) < value.length),
+  );
 }

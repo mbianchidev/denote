@@ -2,11 +2,13 @@ import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
 import type {
   PluginNoteEvent,
+  PluginManifest,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
   PluginProjectRepositoryContext,
   PluginSourceControlAction,
 } from "@denote/plugin-sdk";
+import { emojiPickerMatchesManifest } from "@denote/plugin-sdk";
 import {
   privilegedHostOperation,
   runHostOperation,
@@ -18,6 +20,7 @@ import {
   type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginDecorationContribution,
+  type PluginEmojiPickerContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
   type PluginSourceControlContribution,
@@ -29,6 +32,7 @@ export type {
   PluginAutomaticLocalCommitContribution,
   PluginCommandContribution,
   PluginDecorationContribution,
+  PluginEmojiPickerContribution,
   PluginSidebarContribution,
   PluginSourceControlContribution,
   PluginStatusContribution,
@@ -62,6 +66,7 @@ interface PendingHandshake {
 }
 
 interface Runtime {
+  manifest: PluginManifest;
   worker: Worker;
   port: MessagePort;
   commands: Map<string, PluginCommandContribution>;
@@ -72,6 +77,8 @@ interface Runtime {
   stagedStatusItems: Map<string, PluginStatusContribution>;
   decorations: Map<string, PluginDecorationContribution>;
   stagedDecorations: Map<string, PluginDecorationContribution>;
+  emojiPickers: Map<string, PluginEmojiPickerContribution>;
+  stagedEmojiPickers: Map<string, PluginEmojiPickerContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
   stagedSourceControlProviders: Map<string, PluginSourceControlContribution>;
   automaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
@@ -129,6 +136,9 @@ export class PluginWorkerRuntime {
      * outcome to the plugin.
      */
     private readonly onVaultCloned: PluginVaultClonedHandler = () => {},
+    private readonly onEmojiPickersChanged: (
+      pickers: PluginEmojiPickerContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -183,6 +193,7 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "deactivating";
+    this.publishEmojiPickers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(
@@ -318,6 +329,15 @@ export class PluginWorkerRuntime {
     return this.runtimes.get(pluginId)?.phase === "active";
   }
 
+  getEmojiPicker(pluginId: string, pickerId: string): PluginEmojiPickerContribution {
+    const runtime = this.requireRuntime(pluginId);
+    const picker = runtime.emojiPickers.get(pickerId);
+    if (runtime.phase !== "active" || !picker) {
+      throw new Error("The emoji picker is no longer available.");
+    }
+    return picker;
+  }
+
   broadcastNoteEvent(event: PluginNoteEvent): void {
     for (const runtime of this.runtimes.values()) {
       if (
@@ -422,6 +442,7 @@ export class PluginWorkerRuntime {
     });
     const channel = new MessageChannel();
     const runtime: Runtime = {
+      manifest,
       worker,
       port: channel.port1,
       commands: new Map(),
@@ -432,6 +453,8 @@ export class PluginWorkerRuntime {
       stagedStatusItems: new Map(),
       decorations: new Map(),
       stagedDecorations: new Map(),
+      emojiPickers: new Map(),
+      stagedEmojiPickers: new Map(),
       sourceControlProviders: new Map(),
       stagedSourceControlProviders: new Map(),
       automaticCommits: new Map(),
@@ -450,6 +473,9 @@ export class PluginWorkerRuntime {
     };
     this.runtimes.set(pluginId, runtime);
     runtime.port.addEventListener("message", (event: MessageEvent<unknown>) => {
+      if (this.runtimes.get(pluginId) !== runtime) {
+        return;
+      }
       if (!isPluginRuntimeMessage(event.data)) {
         const error = new Error(
           `Plugin ${pluginId} sent an invalid runtime message.`,
@@ -461,6 +487,9 @@ export class PluginWorkerRuntime {
     });
     runtime.port.start();
     runtime.worker.addEventListener("error", (event) => {
+      if (this.runtimes.get(pluginId) !== runtime) {
+        return;
+      }
       const error = new Error(
         event.message || `Plugin ${pluginId} worker crashed.`,
       );
@@ -522,6 +551,10 @@ export class PluginWorkerRuntime {
         runtime.decorations.set(decorationId, decoration);
       }
       runtime.stagedDecorations.clear();
+      for (const [id, picker] of runtime.stagedEmojiPickers) {
+        runtime.emojiPickers.set(id, picker);
+      }
+      runtime.stagedEmojiPickers.clear();
       for (const [providerId, provider] of runtime.stagedSourceControlProviders) {
         runtime.sourceControlProviders.set(providerId, provider);
       }
@@ -536,6 +569,7 @@ export class PluginWorkerRuntime {
       this.publishDecorations();
       this.publishSourceControlProviders();
       this.publishAutomaticLocalCommits();
+      this.publishEmojiPickers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -680,6 +714,31 @@ export class PluginWorkerRuntime {
         runtime.decorations.delete(message.id);
         runtime.stagedDecorations.delete(message.id);
         this.publishDecorations();
+        return;
+      case "register-emoji-picker": {
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("emoji-picker") ||
+          !emojiPickerMatchesManifest(message.picker, runtime.manifest) ||
+          runtime.emojiPickers.size + runtime.stagedEmojiPickers.size > 0
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(`Plugin ${pluginId} attempted an unauthorized emoji picker registration.`),
+          );
+          return;
+        }
+        const pickers = runtime.activated ? runtime.emojiPickers : runtime.stagedEmojiPickers;
+        pickers.set(message.picker.id, { ...message.picker, pluginId });
+        if (runtime.activated) {
+          this.publishEmojiPickers();
+        }
+        return;
+      }
+      case "unregister-emoji-picker":
+        runtime.emojiPickers.delete(message.id);
+        runtime.stagedEmojiPickers.delete(message.id);
+        this.publishEmojiPickers();
         return;
       case "register-source-control": {
         if (
@@ -1021,6 +1080,7 @@ export class PluginWorkerRuntime {
     this.publishDecorations();
     this.publishSourceControlProviders();
     this.publishAutomaticLocalCommits();
+    this.publishEmojiPickers();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -1031,6 +1091,7 @@ export class PluginWorkerRuntime {
   }
 
   private async failRuntime(pluginId: string, error: Error): Promise<void> {
+    this.nextGeneration(pluginId);
     await this.teardownRuntime(pluginId);
     this.onError(pluginId, error);
   }
@@ -1041,6 +1102,7 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "stopping";
+    this.publishEmojiPickers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
   }
@@ -1082,6 +1144,14 @@ export class PluginWorkerRuntime {
       [...this.runtimes.values()].flatMap((runtime) => [
         ...runtime.decorations.values(),
       ]),
+    );
+  }
+
+  private publishEmojiPickers(): void {
+    this.onEmojiPickersChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active" ? [...runtime.emojiPickers.values()] : [],
+      ),
     );
   }
 

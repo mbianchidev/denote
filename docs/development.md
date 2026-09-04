@@ -247,6 +247,35 @@ exercise historical raw pins before a new Denote release, but a newly pinned
 source-built version needs its origin release published before that network
 smoke test can pass. Use `check:plugins` for offline pending-source validation.
 
+An already-pinned plugin builds against the SDK source at its catalog
+`sourceCommit`, keeping later additive host capabilities out of its immutable
+archive. A new or bumped plugin version builds against the current SDK.
+Keep full Git history available when rebuilding pinned artifacts. A plugin that
+needs a newly added SDK function must bump its own version before building.
+
+### Emoji plugin development
+
+Use `npm run dev:plugin -- denote.emoji-picker` with the isolated development
+app to load the local archive. The plugin owns the bundled dataset and manifest;
+the SDK's `emoji-picker` contract and host editor adapters own validation and
+interaction. Do not import its dataset into `src/` or grant workspace/network
+permissions to implement insertion.
+
+Targeted coverage includes `src/plugins/emojiPickers.test.ts`,
+`src/plugins/workerRuntime.test.ts`, `src/plugins/usePlugins.test.tsx`, emoji
+editor/component tests, package tests under
+`plugins/emoji-picker/tests/`, and native
+`plugins::emoji_tests`. Keep all note text and paths synthetic. Exercise Rich
+and both source-editor paths, composition, code exclusion, Unicode variants,
+undo/redo, focus restoration, and runtime/locked-vault changes.
+
+Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
+build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`
+using `--ref` and `--release` for the intended Denote release. Commit only the
+catalog and release ledger separately, never the archive. The package guide documents dataset
+provenance and regeneration; license notices must be included in the archive's
+guide, not just an unpackaged source file.
+
 ## Build a desktop bundle
 
 ```bash

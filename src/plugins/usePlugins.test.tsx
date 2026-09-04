@@ -4,7 +4,9 @@ import catalogJson from "../../plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
   type PluginProjectContext,
+  type PluginEmojiPreferences,
 } from "@denote/plugin-sdk";
+import type { PluginEmojiPickerContribution } from "./emojiPickers";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
@@ -13,6 +15,8 @@ interface MockRuntimeInstance {
   onCommandsChanged: unknown;
   onSourceControlProvidersChanged?: unknown;
   onAutomaticLocalCommitsChanged?: unknown;
+  onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void;
+  getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
@@ -67,6 +71,7 @@ vi.mock("./workerRuntime", () => {
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
     invalidateActionLeases = vi.fn();
+    getEmojiPicker = vi.fn();
 
     constructor(
       public onCommandsChanged: unknown,
@@ -76,6 +81,8 @@ vi.mock("./workerRuntime", () => {
       public onDecorationsChanged?: unknown,
       public onSourceControlProvidersChanged?: unknown,
       public onAutomaticLocalCommitsChanged?: unknown,
+      public onVaultCloned?: unknown,
+      public onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -87,6 +94,20 @@ const catalogValue: unknown = catalogJson[0];
 assertValidPluginCatalogEntry(catalogValue);
 const catalog = catalogValue;
 const pluginId = catalog.manifest.id;
+const emojiPicker: PluginEmojiPickerContribution = {
+  pluginId,
+  id: `${pluginId}.emoji`,
+  title: "Insert emoji",
+  entries: [{
+    id: "wave", name: "Waving hand", unicode: "\u{1f44b}", category: "People",
+    keywords: ["hello"], shortcodes: ["wave"], variants: [],
+  }],
+  shortcodes: true,
+  settingsKeys: { recents: "recents", favorites: "favorites", tone: "tone" },
+};
+const emojiPreferences: PluginEmojiPreferences = {
+  recents: ["\u{1f44b}"], favorites: [], tone: 0,
+};
 
 function makePlugin(overrides: Partial<PluginView> = {}): PluginView {
   return {
@@ -159,12 +180,144 @@ const reportError = vi.fn();
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.setPluginSettings).mockReset().mockResolvedValue({});
+  vi.mocked(api.getPluginSettings).mockReset().mockResolvedValue({});
   vi.mocked(api.listPluginBundles).mockResolvedValue([]);
   runtimeInstances.length = 0;
   callOrder.length = 0;
 });
 
 describe("usePlugins", () => {
+  it("reactivates after settings import so shortcode enablement and lists take effect", async () => {
+    const enabled = makePlugin({ enabled: true });
+    const { result } = await mountReady([enabled]);
+    const imported = { autocomplete: false, recents: "[]", favorites: "[]", tone: 0 };
+    queueListPlugins([{ ...enabled, settings: imported }]);
+    queueListPlugins([{ ...enabled, settings: imported }]);
+    runtimeInstances[0].start.mockClear();
+    await act(async () => {
+      await result.current.importSettings(pluginId, 1, imported);
+    });
+    expect(api.importPluginSettings).toHaveBeenCalledWith(pluginId, 1, imported);
+    expect(runtimeInstances[0].stop).toHaveBeenCalledWith(pluginId);
+    expect(runtimeInstances[0].start).toHaveBeenCalledWith(expect.objectContaining({ settings: imported }));
+  });
+
+  it("rejects preference writes while a Settings operation owns the plugin queue", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: false })]);
+    runtimeInstances[0].getEmojiPicker.mockReturnValue(emojiPicker);
+    let finish: (value: Record<string, unknown>) => void = () => {};
+    vi.mocked(api.setPluginSettings).mockImplementationOnce(
+      () => new Promise((resolve) => { finish = resolve; }),
+    );
+    queueListPlugins([makePlugin()]);
+    await act(async () => {
+      const updating = result.current.updateSettings(pluginId, {});
+      await vi.waitFor(() => expect(api.setPluginSettings).toHaveBeenCalled());
+      await expect(result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences))
+        .rejects.toThrow(/no longer available/);
+      finish({});
+      await updating;
+    });
+    expect(api.getPluginSettings).not.toHaveBeenCalled();
+  });
+
+  it("publishes emoji contributions and saves scoped preferences without a worker restart", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const runtime = runtimeInstances[0];
+    runtime.getEmojiPicker.mockReturnValue(emojiPicker);
+    await act(async () => runtime.onEmojiPickersChanged?.([emojiPicker]));
+    expect(result.current.emojiPickers).toEqual([emojiPicker]);
+    vi.mocked(api.getPluginSettings).mockResolvedValue({ autocomplete: true });
+    vi.mocked(api.setPluginSettings).mockImplementation(async (_id, settings) => settings);
+    runtime.start.mockClear();
+    await act(async () => {
+      await result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences);
+    });
+    expect(api.setPluginSettings).toHaveBeenCalledWith(pluginId, {
+      autocomplete: true, recents: '["\u{1f44b}"]', favorites: "[]", tone: 0,
+    });
+    expect(result.current.plugins[0].settings.recents).toBe('["\u{1f44b}"]');
+    expect(runtime.start).not.toHaveBeenCalled();
+    expect(runtime.stop).not.toHaveBeenCalled();
+  });
+
+  it("serializes preferences and reports persistence errors without suppressing the next save", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    runtimeInstances[0].getEmojiPicker.mockReturnValue(emojiPicker);
+    vi.mocked(api.getPluginSettings).mockResolvedValue({});
+    vi.mocked(api.setPluginSettings)
+      .mockRejectedValueOnce(new Error("Synthetic settings failure"))
+      .mockImplementationOnce(async (_id, settings) => settings);
+    await act(async () => {
+      const first = result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences);
+      const second = result.current.saveEmojiPreferences(pluginId, emojiPicker.id, { ...emojiPreferences, tone: 3 });
+      await expect(first).rejects.toThrow("Synthetic settings failure");
+      await second;
+    });
+    expect(result.current.plugins[0].settings.tone).toBe(3);
+  });
+
+  it("flushes accepted preferences before shutdown while refusing new writes", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    runtimeInstances[0].getEmojiPicker.mockReturnValue(emojiPicker);
+    vi.mocked(api.recoverPluginTransactions).mockResolvedValue();
+    vi.mocked(api.getPluginSettings).mockResolvedValue({});
+    vi.mocked(api.setPluginSettings).mockImplementation(async (_id, settings) => settings);
+    await act(async () => {
+      const write = result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences);
+      const shutdown = result.current.shutdown();
+      await expect(result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences))
+        .rejects.toThrow(/no longer available/);
+      await write;
+      await shutdown;
+    });
+    expect(api.setPluginSettings).toHaveBeenCalledTimes(1);
+    expect(runtimeInstances[0].stopAll).toHaveBeenCalled();
+  });
+
+  it("rejects in-flight preferences after a vault change or worker replacement", async () => {
+    const { result, rerender } = await mountReady([makePlugin({ enabled: true })]);
+    runtimeInstances[0].getEmojiPicker.mockReturnValue(emojiPicker);
+    let finishRead: (value: Record<string, unknown>) => void = () => {};
+    vi.mocked(api.getPluginSettings).mockImplementation(
+      () => new Promise((resolve) => { finishRead = resolve; }),
+    );
+    await act(async () => {
+      const write = result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences);
+      const rejected = expect(write).rejects.toThrow(/changed/);
+      await Promise.resolve();
+      rerender({ currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta" });
+      runtimeInstances[0].getEmojiPicker.mockReturnValue({ ...emojiPicker });
+      finishRead({});
+      await rejected;
+    });
+    expect(api.setPluginSettings).not.toHaveBeenCalled();
+  });
+
+  it("waits for an issued settings write before disabling and deleting plugin data", async () => {
+    const enabled = makePlugin({ enabled: true });
+    const { result } = await mountReady([enabled]);
+    runtimeInstances[0].getEmojiPicker.mockReturnValue(emojiPicker);
+    vi.mocked(api.getPluginSettings).mockResolvedValue({});
+    let finishWrite: (value: Record<string, unknown>) => void = () => {};
+    vi.mocked(api.setPluginSettings).mockImplementation(
+      () => new Promise((resolve) => { finishWrite = resolve; }),
+    );
+    queueListPlugins([makePlugin()]);
+    await act(async () => {
+      const write = result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences);
+      const rejected = expect(write).rejects.toThrow(/changed/);
+      await vi.waitFor(() => expect(api.setPluginSettings).toHaveBeenCalled());
+      const disable = result.current.disable(pluginId);
+      expect(api.disablePlugin).not.toHaveBeenCalled();
+      finishWrite({});
+      await rejected;
+      await disable;
+    });
+    expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
+  });
+
   it("keeps the catalog usable when bundle metadata fails to load", async () => {
     vi.mocked(api.listPluginBundles).mockRejectedValueOnce(
       new Error("Invalid embedded plugin bundles"),

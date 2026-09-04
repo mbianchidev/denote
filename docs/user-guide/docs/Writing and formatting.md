@@ -20,6 +20,11 @@ Denote cannot silently rewrite unsupported syntax.
 Use the toolbar for headings, emphasis, lists, links, images, tables, code
 blocks, thematic breaks, frontmatter, and callouts.
 
+The optional [Emoji picker](<Optional plugins.md#emoji-picker>) adds a local
+searchable toolbar picker and dismissible shortcode suggestions in Rich and
+Source modes. Emoji insert as ordinary Unicode and support undo/redo; disabling
+the plugin never changes inserted text.
+
 Generated tables of contents using exact `<!-- toc -->` and `<!-- /toc -->`
 marker lines render as tables of contents in Rich mode. Every item must
 be a link; nested link-only lists are supported. Denote preserves those markers
