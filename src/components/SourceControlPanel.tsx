@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -60,7 +60,7 @@ export interface SourceControlActionHostOptions {
 const tabs = [
   { id: "changes", label: "Changes" },
   { id: "history", label: "History" },
-  { id: "branches", label: "Branches" },
+  { id: "branches", label: "Remotes" },
 ] as const;
 
 type SourceControlTab = (typeof tabs)[number]["id"];
@@ -544,8 +544,8 @@ function HistoryPager({
       <p role="status" className="source-control__history-status">
         {page.loading
           ? "Reading history…"
-          : `Page ${page.pageIndex + 1}, ${count} commit${count === 1 ? "" : "s"}${
-              page.hasNext ? ", more available" : ""
+          : `Page ${page.pageIndex + 1} · ${count} commit${count === 1 ? "" : "s"}${
+              page.hasNext ? " · More available" : ""
             }`}
       </p>
       {page.error ? (
@@ -670,6 +670,8 @@ function PendingBranchSwitch({
   onAction: SourceControlPanelProps["onAction"];
 }) {
   const [message, setMessage] = useState("");
+  const [sign, setSign] = useState(true);
+  const [signingPassphrase, setSigningPassphrase] = useState("");
   const destination = pending.localBranch ?? pending.target;
   const checkout = pending.operation === "checkout";
   // Every label comes from the typed operation the provider named, so the
@@ -735,14 +737,20 @@ function PendingBranchSwitch({
           if (!trimmed) {
             return;
           }
+          const commitAction = action(pending.commitActionId, {
+            message: trimmed,
+            sign,
+            branch: destination,
+            from: pending.fromBranch ?? "",
+            operation: pending.operation,
+          });
           onAction(
-            action(pending.commitActionId, {
-              message: trimmed,
-              branch: destination,
-              from: pending.fromBranch ?? "",
-              operation: pending.operation,
-            }),
+            commitAction,
+            sign && signingPassphrase
+              ? { gitSigningPassphrase: signingPassphrase }
+              : undefined,
           );
+          setSigningPassphrase("");
         }}
       >
         <label className="source-control__field">
@@ -753,6 +761,36 @@ function PendingBranchSwitch({
             onChange={(event) => setMessage(event.currentTarget.value)}
           />
         </label>
+        <label className="source-control__checkbox">
+          <input
+            type="checkbox"
+            checked={sign}
+            disabled={busy || !pending.commitAvailable}
+            onChange={(event) => {
+              setSign(event.currentTarget.checked);
+              if (!event.currentTarget.checked) {
+                setSigningPassphrase("");
+              }
+            }}
+          />
+          <span>Sign this commit</span>
+        </label>
+        {sign ? (
+          <label className="source-control__field">
+            <span>Signing passphrase (SSH keys only, optional)</span>
+            <input
+              type="password"
+              value={signingPassphrase}
+              autoComplete="off"
+              spellCheck={false}
+              maxLength={4096}
+              disabled={busy || !pending.commitAvailable}
+              onChange={(event) =>
+                setSigningPassphrase(event.currentTarget.value)
+              }
+            />
+          </label>
+        ) : null}
         <div className="source-control__actions">
           <button
             type="submit"
@@ -796,235 +834,6 @@ function PendingBranchSwitch({
       ) : null}
     </section>
   );
-}
-
-/**
- * Branch creation, switching, renaming, deletion, and remote-tracking
- * checkout. Every control names the exact branch it acts on, and the host
- * confirms the ones that change or delete something.
- */
-function BranchManagement({
-  branches,
-  busy,
-  onAction,
-}: {
-  branches: PluginSourceControlBranchChoice[];
-  busy: boolean;
-  onAction: SourceControlPanelProps["onAction"];
-}) {
-  const [name, setName] = useState("");
-  const [startPoint, setStartPoint] = useState("");
-  const [checkout, setCheckout] = useState(false);
-  const [renames, setRenames] = useState<Record<string, string>>({});
-  const [locals, setLocals] = useState<Record<string, string>>({});
-  const current = branches.find((branch) => branch.current)?.name ?? "";
-
-  return (
-    <section aria-labelledby="source-control-branches">
-      <h3 id="source-control-branches">Branches</h3>
-      {branches.length > 0 ? (
-        <ul className="source-control__branches">
-          {branches.map((branch) => {
-            const key = `${branch.remote ? "remote" : "local"}:${branch.name}`;
-            const proposed =
-              locals[branch.name] ?? localBranchNameFor(branch.name);
-            const renamed = renames[branch.name] ?? branch.name;
-            return (
-              <li key={key}>
-                <div className="source-control__resource-summary">
-                  <strong>{branch.name}</strong>
-                  <span>
-                    {branch.remote ? "Remote" : "Local"}
-                    {branch.current ? " · current" : ""} · {branch.ahead} ahead,{" "}
-                    {branch.behind} behind
-                  </span>
-                </div>
-                {branch.remote ? (
-                  <>
-                    <label className="source-control__field">
-                      <span>Local branch name for {branch.name}</span>
-                      <input
-                        value={proposed}
-                        disabled={busy}
-                        onChange={(event) => {
-                          const next = event.currentTarget.value;
-                          setLocals((previous) => ({
-                            ...previous,
-                            [branch.name]: next,
-                          }));
-                        }}
-                      />
-                    </label>
-                    <div className="source-control__row-actions">
-                      <button
-                        type="button"
-                        aria-label={`Check out ${branch.name} as a local branch`}
-                        disabled={busy || proposed.trim().length === 0}
-                        onClick={() =>
-                          onAction(
-                            action("checkout-remote-branch", {
-                              remoteBranch: branch.name,
-                              localName: proposed.trim(),
-                              from: current,
-                            }),
-                          )
-                        }
-                      >
-                        Check out
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <label className="source-control__field">
-                      <span>New name for {branch.name}</span>
-                      <input
-                        value={renamed}
-                        disabled={busy}
-                        onChange={(event) => {
-                          const next = event.currentTarget.value;
-                          setRenames((previous) => ({
-                            ...previous,
-                            [branch.name]: next,
-                          }));
-                        }}
-                      />
-                    </label>
-                    <div className="source-control__row-actions">
-                      <button
-                        type="button"
-                        aria-label={`Switch to ${branch.name}`}
-                        disabled={busy || branch.current}
-                        onClick={() =>
-                          onAction(
-                            action("switch-branch", {
-                              branch: branch.name,
-                              from: current,
-                            }),
-                          )
-                        }
-                      >
-                        Switch
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Rename ${branch.name}`}
-                        disabled={
-                          busy ||
-                          renamed.trim().length === 0 ||
-                          renamed.trim() === branch.name
-                        }
-                        onClick={() =>
-                          onAction(
-                            action("rename-branch", {
-                              name: branch.name,
-                              newName: renamed.trim(),
-                            }),
-                          )
-                        }
-                      >
-                        Rename
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Delete ${branch.name}`}
-                        disabled={busy || branch.current}
-                        onClick={() =>
-                          onAction(
-                            action("delete-branch", { name: branch.name }),
-                          )
-                        }
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="sidebar-empty">No branches.</p>
-      )}
-      <form
-        className="source-control__branch-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          const trimmed = name.trim();
-          if (!trimmed) {
-            return;
-          }
-          onAction(
-            action("create-branch", {
-              name: trimmed,
-              startPoint: startPoint.trim(),
-              checkout,
-              from: current,
-            }),
-          );
-          setName("");
-        }}
-      >
-        <label className="source-control__field">
-          <span>New branch name</span>
-          <input
-            value={name}
-            disabled={busy}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
-        </label>
-        <label className="source-control__field">
-          <span>Start point</span>
-          <select
-            value={startPoint}
-            disabled={busy}
-            onChange={(event) => setStartPoint(event.currentTarget.value)}
-          >
-            <option value="">
-              {current ? `Current branch (${current})` : "Current branch"}
-            </option>
-            {branches.map((branch) => (
-              <option
-                value={branch.name}
-                key={`start:${branch.remote ? "remote" : "local"}:${branch.name}`}
-              >
-                {branch.name}
-                {branch.remote ? " (remote)" : ""}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="source-control__checkbox">
-          <input
-            type="checkbox"
-            checked={checkout}
-            disabled={busy}
-            onChange={(event) => setCheckout(event.currentTarget.checked)}
-          />
-          <span>Check out the new branch straight away</span>
-        </label>
-        <div className="source-control__actions">
-          <button
-            type="submit"
-            className="secondary-button"
-            disabled={busy || name.trim().length === 0}
-          >
-            Create branch
-          </button>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-/**
- * Proposes the local name for a remote-tracking branch by dropping the remote
- * it lives under.
- */
-function localBranchNameFor(remoteBranch: string): string {
-  const separator = remoteBranch.indexOf("/");
-  return separator === -1 ? remoteBranch : remoteBranch.slice(separator + 1);
 }
 
 export function CloneOnboarding({
@@ -1175,6 +984,8 @@ export function CloneOnboarding({
   );
 }
 
+const ADD_REMOTE_VALUE = "__add-remote__";
+
 function RemoteManagement({
   remotes,
   busy,
@@ -1184,121 +995,132 @@ function RemoteManagement({
   busy: boolean;
   onAction: SourceControlPanelProps["onAction"];
 }) {
+  const [selected, setSelected] = useState(
+    remotes[0]?.name ?? ADD_REMOTE_VALUE,
+  );
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const active =
+    remotes.find((remote) => remote.name === selected) ??
+    (selected === ADD_REMOTE_VALUE ? null : remotes[0] ?? null);
+  const selection = active?.name ?? ADD_REMOTE_VALUE;
+  const currentUrl = active?.fetchUrl ?? "";
+  const editedUrl = active ? (edits[active.name] ?? currentUrl) : url;
 
   return (
     <section aria-labelledby="source-control-remotes">
       <h3 id="source-control-remotes">Remotes</h3>
-      {remotes.length > 0 ? (
-        <ul className="source-control__remotes">
-          {remotes.map((remote) => {
-            const current = remote.fetchUrl ?? "";
-            const edited = edits[remote.name] ?? current;
-            return (
-              <li key={remote.name}>
-                <strong>{remote.name}</strong>
-                <span>Fetch: {remote.fetchUrl ?? "Unavailable"}</span>
-                <span>Push: {remote.pushUrl ?? "Unavailable"}</span>
-                <label className="source-control__field">
-                  <span>URL for {remote.name}</span>
-                  <input
-                    type="url"
-                    inputMode="url"
-                    value={edited}
-                    disabled={busy}
-                    onChange={(event) => {
-                      // The value is read before the updater runs: React
-                      // clears the event by the time a functional update is
-                      // applied.
-                      const next = event.currentTarget.value;
-                      setEdits((previous) => ({
-                        ...previous,
-                        [remote.name]: next,
-                      }));
-                    }}
-                  />
-                </label>
-                <div className="source-control__row-actions">
-                  <button
-                    type="button"
-                    aria-label={`Save the URL for ${remote.name}`}
-                    disabled={
-                      busy ||
-                      edited.trim().length === 0 ||
-                      edited.trim() === current
-                    }
-                    onClick={() =>
-                      onAction(
-                        action("set-remote-url", {
-                          name: remote.name,
-                          url: edited.trim(),
-                        }),
-                      )
-                    }
-                  >
-                    Save URL
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Remove the ${remote.name} remote`}
-                    disabled={busy}
-                    onClick={() =>
-                      onAction(action("remove-remote", { name: remote.name }))
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="sidebar-empty">No remotes.</p>
-      )}
       <form
-        className="source-control__remote-form"
+        className="source-control__remote-editor"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!name.trim() || !url.trim()) {
+          if (active) {
+            const next = editedUrl.trim();
+            if (!next || next === currentUrl) {
+              return;
+            }
+            onAction(
+              action("set-remote-url", { name: active.name, url: next }),
+            );
+            return;
+          }
+          const remoteName = name.trim();
+          const remoteUrl = url.trim();
+          if (!remoteName || !remoteUrl) {
             return;
           }
           onAction(
-            action("add-remote", { name: name.trim(), url: url.trim() }),
+            action("add-remote", { name: remoteName, url: remoteUrl }),
           );
           setName("");
           setUrl("");
         }}
       >
         <label className="source-control__field">
-          <span>New remote name</span>
-          <input
-            value={name}
+          <span>Remote</span>
+          <select
+            value={selection}
             disabled={busy}
-            onChange={(event) => setName(event.currentTarget.value)}
-          />
+            onChange={(event) => setSelected(event.currentTarget.value)}
+          >
+            {remotes.map((remote) => (
+              <option value={remote.name} key={remote.name}>
+                {remote.name}
+              </option>
+            ))}
+            <option value={ADD_REMOTE_VALUE}>Add remote…</option>
+          </select>
         </label>
+        {active ? (
+          <dl className="source-control__remote-summary">
+            <div>
+              <dt>Fetch</dt>
+              <dd>{active.fetchUrl ?? "Unavailable"}</dd>
+            </div>
+            <div>
+              <dt>Push</dt>
+              <dd>{active.pushUrl ?? "Unavailable"}</dd>
+            </div>
+          </dl>
+        ) : (
+          <label className="source-control__field">
+            <span>Remote name</span>
+            <input
+              value={name}
+              disabled={busy}
+              onChange={(event) => setName(event.currentTarget.value)}
+            />
+          </label>
+        )}
         <label className="source-control__field">
-          <span>New remote URL</span>
+          <span>{active ? `URL for ${active.name}` : "Remote URL"}</span>
           <input
             type="url"
             inputMode="url"
             placeholder="https://host.example/owner/repository.git"
-            value={url}
+            value={editedUrl}
             disabled={busy}
-            onChange={(event) => setUrl(event.currentTarget.value)}
+            onChange={(event) => {
+              const next = event.currentTarget.value;
+              if (active) {
+                setEdits((previous) => ({
+                  ...previous,
+                  [active.name]: next,
+                }));
+              } else {
+                setUrl(next);
+              }
+            }}
           />
         </label>
         <div className="source-control__actions">
           <button
             type="submit"
             className="secondary-button"
-            disabled={busy || !name.trim() || !url.trim()}
+            aria-label={active ? `Save the URL for ${active.name}` : undefined}
+            disabled={
+              busy ||
+              (active
+                ? !editedUrl.trim() || editedUrl.trim() === currentUrl
+                : !name.trim() || !url.trim())
+            }
           >
-            Add remote
+            {active ? "Save URL" : "Add remote"}
           </button>
+          {active ? (
+            <button
+              type="button"
+              className="secondary-button"
+              aria-label={`Remove the ${active.name} remote`}
+              disabled={busy}
+              onClick={() =>
+                onAction(action("remove-remote", { name: active.name }))
+              }
+            >
+              Remove
+            </button>
+          ) : null}
         </div>
       </form>
     </section>
@@ -1335,69 +1157,71 @@ function AdvancedOperations({
   const source = chosen || (options[0]?.name ?? "");
 
   return (
-    <section aria-labelledby="source-control-advanced">
-      <h3 id="source-control-advanced">Merge and rebase</h3>
-      {options.length > 0 ? (
-        <>
-          <label className="source-control__field">
-            <span>Branch to use</span>
-            <select
-              value={source}
-              disabled={busy || blocked}
-              onChange={(event) => setChosen(event.currentTarget.value)}
-            >
-              {options.map((branch) => (
-                <option
-                  value={branch.name}
-                  key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
-                >
-                  {branch.name}
-                  {branch.remote ? " (remote)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="source-control__actions">
-            <button
-              type="button"
-              className="secondary-button"
-              aria-label={`Review merging ${source}`}
-              disabled={busy || blocked || source.length === 0}
-              onClick={() =>
-                onAction(action("prepare-merge", { ref: source }))
-              }
-            >
-              Review merge
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              aria-label={`Review rebasing onto ${source}`}
-              disabled={busy || blocked || source.length === 0}
-              onClick={() =>
-                onAction(action("prepare-rebase", { ref: source }))
-              }
-            >
-              Review rebase
-            </button>
-          </div>
-          <p className="source-control__hint">
-            Denote reviews a merge or a rebase before it runs, and never
-            force-pushes or resets anything.
+    <details className="source-control__advanced">
+      <summary>Merge and rebase</summary>
+      <div className="source-control__advanced-body">
+        {options.length > 0 ? (
+          <>
+            <label className="source-control__field">
+              <span>Branch to use</span>
+              <select
+                value={source}
+                disabled={busy || blocked}
+                onChange={(event) => setChosen(event.currentTarget.value)}
+              >
+                {options.map((branch) => (
+                  <option
+                    value={branch.name}
+                    key={`${branch.remote ? "remote" : "local"}:${branch.name}`}
+                  >
+                    {branch.name}
+                    {branch.remote ? " (remote)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="source-control__actions">
+              <button
+                type="button"
+                className="secondary-button"
+                aria-label={`Review merging ${source}`}
+                disabled={busy || blocked || source.length === 0}
+                onClick={() =>
+                  onAction(action("prepare-merge", { ref: source }))
+                }
+              >
+                Review merge
+              </button>
+              <button
+                type="button"
+                className="secondary-button"
+                aria-label={`Review rebasing onto ${source}`}
+                disabled={busy || blocked || source.length === 0}
+                onClick={() =>
+                  onAction(action("prepare-rebase", { ref: source }))
+                }
+              >
+                Review rebase
+              </button>
+            </div>
+            <p className="source-control__hint">
+              Denote reviews a merge or a rebase before it runs, and never
+              force-pushes or resets anything.
+            </p>
+          </>
+        ) : (
+          <p className="sidebar-empty">
+            This repository has no other branch to merge or rebase onto.
           </p>
-        </>
-      ) : (
-        <p className="sidebar-empty">
-          This repository has no other branch to merge or rebase onto.
-        </p>
-      )}
-      {blocked ? (
-        <p className="source-control__limitation" role="status">
-          Finish the operation that is already in progress before starting
-          another one.
-        </p>
-      ) : null}
-    </section>
+        )}
+        {blocked ? (
+          <p className="source-control__limitation" role="status">
+            Finish the operation that is already in progress before starting
+            another one.
+          </p>
+        ) : null}
+      </div>
+    </details>
   );
 }
 
@@ -1878,7 +1702,7 @@ function OperationReview({
   );
 }
 
-export function SourceControlPanel({
+function SourceControlPanelComponent({
   title,
   model,
   onAction,
@@ -1886,6 +1710,7 @@ export function SourceControlPanel({
 }: SourceControlPanelProps) {
   const { repository, remoteAccess } = model;
   const [commitMessage, setCommitMessage] = useState("");
+  const [signCommit, setSignCommit] = useState(true);
   const [signingPassphrase, setSigningPassphrase] = useState("");
   const [chosenRemote, setChosenRemote] = useState("");
   const tabRefs = useRef(new Map<SourceControlTab, HTMLButtonElement>());
@@ -1949,6 +1774,7 @@ export function SourceControlPanel({
 
   useEffect(() => {
     setCommitMessage("");
+    setSignCommit(true);
     setSigningPassphrase("");
     setChosenRemote("");
   }, [repository.repositoryId]);
@@ -1983,6 +1809,28 @@ export function SourceControlPanel({
       : (remoteNames[0] ?? "");
   const remoteBranch = selectedBranch || repository.branch || "";
   const canReachRemote = activeRemote.length > 0 && !repository.busy;
+  const submitCommit = (push: boolean) => {
+    const message = commitMessage.trim();
+    if (!message) {
+      return;
+    }
+    const values: Record<string, string | boolean> = {
+      message,
+      sign: signCommit,
+    };
+    if (push) {
+      values.remote = activeRemote;
+      values.branch = remoteBranch;
+    }
+    const commitAction = action(push ? "commit-and-push" : "commit", values);
+    onAction(
+      commitAction,
+      signCommit && signingPassphrase
+        ? { gitSigningPassphrase: signingPassphrase }
+        : undefined,
+    );
+    setSigningPassphrase("");
+  };
 
   const selectTab = (tab: SourceControlTab) => {
     onAction(action("select-tab", { tab }));
@@ -2232,20 +2080,7 @@ export function SourceControlPanel({
                     className="source-control__commit"
                     onSubmit={(event) => {
                       event.preventDefault();
-                      const message = commitMessage.trim();
-                      if (!message) {
-                        return;
-                      }
-                      const passphrase = signingPassphrase;
-                      const commitAction = action("commit", { message });
-                      if (passphrase) {
-                        onAction(commitAction, {
-                          gitSigningPassphrase: passphrase,
-                        });
-                      } else {
-                        onAction(commitAction);
-                      }
-                      setSigningPassphrase("");
+                      submitCommit(false);
                     }}
                   >
                     <label className="source-control__field">
@@ -2258,35 +2093,67 @@ export function SourceControlPanel({
                         }
                       />
                     </label>
-                    <label className="source-control__field">
-                      <span>Signing passphrase (optional)</span>
+                    <label className="source-control__checkbox">
                       <input
-                        type="password"
-                        value={signingPassphrase}
-                        autoComplete="off"
-                        spellCheck={false}
-                        maxLength={4096}
+                        type="checkbox"
+                        checked={signCommit}
                         disabled={repository.busy}
-                        onChange={(event) =>
-                          setSigningPassphrase(event.currentTarget.value)
-                        }
+                        onChange={(event) => {
+                          setSignCommit(event.currentTarget.checked);
+                          if (!event.currentTarget.checked) {
+                            setSigningPassphrase("");
+                          }
+                        }}
                       />
-                      <small>
-                        Used once for SSH-format commit signing. Never stored or
-                        sent to the plugin.
-                      </small>
+                      <span>Sign commit</span>
                     </label>
-                    <button
-                      type="submit"
-                      className="primary-button"
-                      disabled={
-                        repository.busy ||
-                        stagedChanges === 0 ||
-                        commitMessage.trim().length === 0
-                      }
-                    >
-                      Commit staged changes
-                    </button>
+                    {signCommit ? (
+                      <label className="source-control__field">
+                        <span>Signing passphrase (SSH keys only, optional)</span>
+                        <input
+                          type="password"
+                          value={signingPassphrase}
+                          autoComplete="off"
+                          spellCheck={false}
+                          maxLength={4096}
+                          disabled={repository.busy}
+                          onChange={(event) =>
+                            setSigningPassphrase(event.currentTarget.value)
+                          }
+                        />
+                        <small>
+                          Used once. OpenPGP and X.509 use the system agent or
+                          pinentry.
+                        </small>
+                      </label>
+                    ) : null}
+                    <div className="source-control__actions">
+                      <button
+                        type="submit"
+                        className="primary-button"
+                        disabled={
+                          repository.busy ||
+                          stagedChanges === 0 ||
+                          commitMessage.trim().length === 0
+                        }
+                      >
+                        Commit
+                      </button>
+                      <button
+                        type="button"
+                        className="primary-button"
+                        disabled={
+                          repository.busy ||
+                          stagedChanges === 0 ||
+                          commitMessage.trim().length === 0 ||
+                          !canReachRemote ||
+                          remoteBranch.length === 0
+                        }
+                        onClick={() => submitCommit(true)}
+                      >
+                        Commit and push
+                      </button>
+                    </div>
                   </form>
                   <div
                     className="source-control__change-actions"
@@ -2495,11 +2362,6 @@ export function SourceControlPanel({
                     blocked={model.operationProgress !== null}
                     onAction={onAction}
                   />
-                  <BranchManagement
-                    branches={model.branches}
-                    busy={repository.busy}
-                    onAction={onAction}
-                  />
                   <RemoteManagement
                     remotes={model.remotes}
                     busy={repository.busy}
@@ -2562,3 +2424,5 @@ export function SourceControlPanel({
     </div>
   );
 }
+
+export const SourceControlPanel = memo(SourceControlPanelComponent);

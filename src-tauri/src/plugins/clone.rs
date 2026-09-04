@@ -27,7 +27,7 @@ use super::{
         GitPlanStep, GitTransportPolicy, PluginGitAuthMode, PluginGitRequest, PluginGitScope,
         SystemGitSettings, apply_system_git_settings, assert_repository_config_is_safe, first_line,
         git_cli_path_string, read_system_git_settings, redact, resolve_git_directory,
-        resolve_git_executable, run_git_command, validate_branch_name, validate_remote_url_for,
+        run_git_command, validate_branch_name, validate_remote_url_for,
     },
 };
 
@@ -175,8 +175,14 @@ impl PluginManager {
             validate_branch_name(branch)?;
         }
         let destination = validate_empty_destination(destination)?;
-        let executable =
-            resolve_git_executable(self.git_executable_setting(plugin_id)?.as_deref())?;
+        let operation = self.register_git_operation(plugin_id, operation_id)?;
+        let executable = self.resolve_git_executable_for_plugin(plugin_id)?;
+        if operation.token().is_cancelled() {
+            return Ok(CloneAttempt::Failed {
+                message: "The clone was cancelled before it started.".to_string(),
+                cleanup_token: None,
+            });
+        }
         let policy = self.git_settings_policy(plugin_id)?;
         let system_settings = if policy.use_system_settings {
             read_system_git_settings(&executable)?
@@ -207,7 +213,6 @@ impl PluginManager {
         // however this function returns. Credential material is created before
         // Git starts and destroyed when it goes out of scope, whichever way
         // the clone ends.
-        let operation = self.register_git_operation(plugin_id, operation_id)?;
         let token = operation.token();
         let askpass = self.authentication_material(
             plugin_id,
@@ -346,9 +351,7 @@ impl PluginManager {
                             .to_string(),
                     ));
                 }
-                let executable = super::github::resolve_gh_executable(
-                    self.github_executable_setting(plugin_id)?.as_deref(),
-                )?;
+                let executable = self.resolve_github_executable_for_plugin(plugin_id)?;
                 let token = super::github::auth_token(&executable, cancellation)?;
                 let program = super::askpass::askpass_program()?;
                 Ok(Some(AskpassMaterial::create(

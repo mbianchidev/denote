@@ -85,5 +85,29 @@ describe("SourceControlBranchPicker", () => {
         from: "main",
       },
     });
+
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
+    await user.click(
+      screen.getByRole("button", { name: "Edit branch origin/review" }),
+    );
+    const remoteName = screen.getByLabelText("New name for origin/review");
+    await user.clear(remoteName);
+    await user.type(remoteName, "stable");
+    await user.click(
+      screen.getByRole("button", { name: "Rename origin/review" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "rename-remote-branch",
+      values: { name: "origin/review", newName: "stable" },
+    });
+
+    await user.click(screen.getByRole("button", { name: "Branch: main" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete origin/review" }),
+    );
+    expect(onAction).toHaveBeenCalledWith({
+      id: "delete-remote-branch",
+      values: { name: "origin/review" },
+    });
   });
 });

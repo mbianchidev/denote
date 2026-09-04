@@ -1,4 +1,13 @@
-import { Plug, Search, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  FolderOpen,
+  Info,
+  Plug,
+  Search,
+  ShieldCheck,
+  Trash2,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
   PLUGIN_CATEGORIES,
@@ -9,6 +18,7 @@ import {
 import type {
   PluginBundleMetadata,
   PluginView,
+  PluginToolStatus,
   ProjectRoot,
 } from "../types";
 
@@ -68,6 +78,8 @@ interface PluginSettingsPanelProps {
     sourceVersion: number,
     settings: Record<string, unknown>,
   ) => Promise<void>;
+  onInspectTools?: (pluginId: string) => Promise<PluginToolStatus[]>;
+  onPickExecutable?: (tool: "git" | "github-cli") => Promise<string | null>;
   onError: (error: unknown) => void;
 }
 
@@ -85,6 +97,8 @@ export function PluginSettingsPanel({
   onClearCredentials,
   onUpdateSettings,
   onImportSettings,
+  onInspectTools = async () => [],
+  onPickExecutable = async () => null,
   onError,
 }: PluginSettingsPanelProps) {
   const [query, setQuery] = useState("");
@@ -105,6 +119,9 @@ export function PluginSettingsPanel({
     new Set(),
   );
   const [settingsJson, setSettingsJson] = useState<Record<string, string>>({});
+  const [toolStatuses, setToolStatuses] = useState<
+    Record<string, PluginToolStatus[]>
+  >({});
 
   useEffect(() => {
     setDrafts((current) => {
@@ -133,6 +150,29 @@ export function PluginSettingsPanel({
       return next;
     });
   }, [dirtyPluginIds, plugins]);
+
+  useEffect(() => {
+    const gitPlugin = plugins.find(
+      (plugin) => plugin.catalog.manifest.id === "denote.git",
+    );
+    if (!gitPlugin) {
+      return;
+    }
+    let cancelled = false;
+    void onInspectTools("denote.git")
+      .then((statuses) => {
+        if (!cancelled) {
+          setToolStatuses((current) => ({
+            ...current,
+            "denote.git": statuses,
+          }));
+        }
+      })
+      .catch(onError);
+    return () => {
+      cancelled = true;
+    };
+  }, [onError, onInspectTools, plugins]);
 
   const filtered = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -423,7 +463,8 @@ export function PluginSettingsPanel({
                         <fieldset className="plugin-card__settings" disabled={busy}>
                           <legend>Settings</legend>
                           {Object.entries(settingDefinitions).map(
-                            ([key, definition]) => (
+                            ([key, definition]) =>
+                              !EXECUTABLE_SETTING_KEYS.has(key) ? (
                               <PluginSetting
                                 key={key}
                                 id={`${pluginId}-${key}`}
@@ -442,21 +483,63 @@ export function PluginSettingsPanel({
                                   }));
                                 }}
                               />
-                            ),
+                              ) : null,
                           )}
+                          {pluginId === "denote.git" ? (
+                            <ExecutableSettings
+                              definitions={settingDefinitions}
+                              draft={draft}
+                              statuses={toolStatuses[pluginId] ?? []}
+                              onChange={(key, value) => {
+                                setDirtyPluginIds((current) =>
+                                  new Set(current).add(pluginId),
+                                );
+                                setDrafts((current) => ({
+                                  ...current,
+                                  [pluginId]: {
+                                    ...(current[pluginId] ?? plugin.settings),
+                                    [key]: value,
+                                  },
+                                }));
+                              }}
+                              onPick={async (tool, key) => {
+                                const path = await onPickExecutable(tool);
+                                if (path) {
+                                  setDirtyPluginIds((current) =>
+                                    new Set(current).add(pluginId),
+                                  );
+                                  setDrafts((current) => ({
+                                    ...current,
+                                    [pluginId]: {
+                                      ...(current[pluginId] ?? plugin.settings),
+                                      [key]: path,
+                                    },
+                                  }));
+                                }
+                              }}
+                            />
+                          ) : null}
                           <div className="plugin-card__settings-actions">
                             <button
                               type="button"
                               className="secondary-button"
                               onClick={() =>
                                 void onUpdateSettings(pluginId, draft)
-                                  .then(() =>
+                                  .then(async () => {
                                     setDirtyPluginIds((current) => {
                                       const next = new Set(current);
                                       next.delete(pluginId);
                                       return next;
-                                    }),
-                                  )
+                                    });
+                                    if (pluginId === "denote.git") {
+                                      const statuses =
+                                        await onInspectTools(pluginId);
+                                      setToolStatuses((current) => ({
+                                        ...current,
+                                        [pluginId]: statuses,
+                                      }));
+                                    }
+                                  })
                                   .catch(onError)
                               }
                             >
@@ -569,6 +652,20 @@ export function PluginSettingsPanel({
                             Denote will download and verify the package, then run
                             it in an isolated worker.
                           </p>
+                          {pluginId === "denote.git" ? (
+                            <div className="notice-block notice-block--info">
+                              <Info aria-hidden="true" size={15} />
+                              <p>
+                                Git is required. Bundled is the default; System
+                                and Custom require Git installed on this machine.
+                                Bundled downloads Git only when the first Git
+                                action needs it. GitHub CLI is optional and is
+                                needed only for GitHub sign-in and repository
+                                browsing; its Bundled archive is likewise
+                                downloaded only for those actions.
+                              </p>
+                            </div>
+                          ) : null}
                           <div>
                             <button
                               type="button"
@@ -785,6 +882,162 @@ function CodeToolingRecommendations({
           );
         })}
       </ul>
+    </section>
+  );
+}
+
+const EXECUTABLE_SETTING_KEYS = new Set([
+  "gitExecutableMode",
+  "gitExecutablePath",
+  "githubExecutableMode",
+  "githubExecutablePath",
+]);
+
+function ExecutableSettings({
+  definitions,
+  draft,
+  statuses,
+  onChange,
+  onPick,
+}: {
+  definitions: Record<string, PluginSettingDefinition>;
+  draft: Record<string, unknown>;
+  statuses: PluginToolStatus[];
+  onChange: (key: string, value: unknown) => void;
+  onPick: (
+    tool: "git" | "github-cli",
+    pathKey: "gitExecutablePath" | "githubExecutablePath",
+  ) => Promise<void>;
+}) {
+  const tools = [
+    {
+      tool: "git" as const,
+      statusName: "Git" as const,
+      modeKey: "gitExecutableMode",
+      pathKey: "gitExecutablePath" as const,
+    },
+    {
+      tool: "github-cli" as const,
+      statusName: "GitHub CLI" as const,
+      modeKey: "githubExecutableMode",
+      pathKey: "githubExecutablePath" as const,
+    },
+  ];
+  return (
+    <section
+      className="plugin-tool-settings"
+      aria-labelledby="denote-git-executables"
+    >
+      <h6 id="denote-git-executables">Executables</h6>
+      {tools.map((tool) => {
+        const definition = definitions[tool.modeKey];
+        if (!definition || definition.type !== "select") {
+          return null;
+        }
+        const mode =
+          typeof draft[tool.modeKey] === "string"
+            ? String(draft[tool.modeKey])
+            : definition.default;
+        const status = statuses.find(
+          (candidate) => candidate.tool === tool.statusName,
+        );
+        return (
+          <section className="plugin-tool" key={tool.tool}>
+            <label className="plugin-setting">
+              <span>
+                <strong>{definition.title}</strong>
+                {definition.description ? (
+                  <small>{definition.description}</small>
+                ) : null}
+              </span>
+              <select
+                value={mode}
+                onChange={(event) =>
+                  onChange(tool.modeKey, event.currentTarget.value)
+                }
+              >
+                {definition.options.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {mode === "custom" ? (
+              <label className="plugin-setting">
+                <span>
+                  <strong>
+                    {definitions[tool.pathKey]?.title ?? "Custom executable"}
+                  </strong>
+                  <small>Choose an absolute executable path.</small>
+                </span>
+                <span className="plugin-tool__path">
+                  <input
+                    value={
+                      typeof draft[tool.pathKey] === "string"
+                        ? String(draft[tool.pathKey])
+                        : ""
+                    }
+                    onChange={(event) =>
+                      onChange(tool.pathKey, event.currentTarget.value)
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => void onPick(tool.tool, tool.pathKey)}
+                  >
+                    <FolderOpen aria-hidden="true" size={14} />
+                    Choose
+                  </button>
+                </span>
+              </label>
+            ) : null}
+            {status ? (
+              <div
+                className={`notice-block ${
+                  status.validationStatus === "valid"
+                    ? "notice-block--success"
+                    : status.validationStatus === "invalid"
+                      ? "notice-block--warning"
+                      : "notice-block--info"
+                }`}
+                role="status"
+              >
+                {status.validationStatus === "valid" ? (
+                  <CheckCircle2 aria-hidden="true" size={15} />
+                ) : status.validationStatus === "invalid" ? (
+                  <AlertTriangle aria-hidden="true" size={15} />
+                ) : (
+                  <Info aria-hidden="true" size={15} />
+                )}
+                <div>
+                  <dl>
+                    <div>
+                      <dt>Selected source</dt>
+                      <dd>{status.selectedSource}</dd>
+                    </div>
+                    <div>
+                      <dt>Resolved path</dt>
+                      <dd>{status.resolvedPath ?? "None"}</dd>
+                    </div>
+                    <div>
+                      <dt>Version</dt>
+                      <dd>{status.version ?? "Not available"}</dd>
+                    </div>
+                    <div>
+                      <dt>Validation</dt>
+                      <dd>{status.validationStatus.replace("-", " ")}</dd>
+                    </div>
+                  </dl>
+                  <p>{status.message}</p>
+                  <p>{status.guidance}</p>
+                </div>
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
     </section>
   );
 }

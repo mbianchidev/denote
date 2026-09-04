@@ -5,7 +5,7 @@ use std::{
     process::Command,
     sync::{Arc, mpsc},
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -21,12 +21,13 @@ use super::{
         PluginGitScope, PluginGitSequencer, PluginGitStashAction, SystemGitSettings,
         apply_environment, apply_system_git_settings, assert_repository_config_is_safe,
         detect_operation_state, ensure_encrypted_repository_metadata, hardening_arguments,
-        plan_git_request, redact, resolve_git_directory, resolve_git_executable,
+        plan_git_request, redact, resolve_git_directory, resolve_git_executable, run_git_command,
         validate_branch_name, validate_operation_id, validate_remote_name, validate_remote_url,
         validate_revision, validated_path,
     },
     settings::{GitCommitSigningMode, GitSettingsPolicy},
     tests::{catalog, manager},
+    tools,
     types::PluginPermission,
 };
 
@@ -374,6 +375,146 @@ fn maps_every_operation_to_a_fixed_argument_template() {
 }
 
 #[test]
+fn remote_branch_changes_use_only_fixed_non_force_pushes() {
+    let rename = plan_git_request(&PluginGitRequest::RenameRemoteBranch {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        name: "release".to_string(),
+        new_name: "stable".to_string(),
+        auth_mode: PluginGitAuthMode::Public,
+    })
+    .expect("rename plan");
+    let commands = rename
+        .iter()
+        .map(|step| match step {
+            GitPlanStep::Command { args, .. } => args.clone(),
+            other => panic!("expected command, found {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        commands,
+        vec![
+            vec![
+                "push",
+                "--no-recurse-submodules",
+                "--no-verify",
+                "origin",
+                "refs/remotes/origin/release:refs/heads/stable"
+            ],
+            vec![
+                "push",
+                "--no-recurse-submodules",
+                "--no-verify",
+                "--delete",
+                "origin",
+                "release"
+            ]
+        ]
+    );
+    assert!(
+        commands
+            .iter()
+            .flatten()
+            .all(|argument| !argument.starts_with("--force"))
+    );
+
+    assert_eq!(
+        command_args(PluginGitRequest::DeleteRemoteBranch {
+            scope: PluginGitScope::Vault,
+            remote: "origin".to_string(),
+            name: "release".to_string(),
+            auth_mode: PluginGitAuthMode::Public,
+        }),
+        vec![
+            "push",
+            "--no-recurse-submodules",
+            "--no-verify",
+            "--delete",
+            "origin",
+            "release"
+        ]
+    );
+}
+
+#[test]
+fn prepared_bundled_git_runs_repository_commands_from_the_extracted_cache() {
+    let resources = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources");
+    if !resources
+        .join("tools")
+        .join(super::tools::TARGET_TRIPLE)
+        .join("integrity.json")
+        .exists()
+    {
+        return;
+    }
+    let directory = TempDir::new().expect("temp");
+    let repository = directory.path().join("repository");
+    fs::create_dir(&repository).expect("repository");
+    let executable = tools::resolve_prepared_bundled(
+        &resources,
+        &Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("bundled-tools"),
+        &directory.path().join("installed"),
+        super::tools::ToolKind::Git,
+    )
+    .expect("bundled Git");
+    let hooks = directory.path().join("hooks");
+    fs::create_dir(&hooks).expect("hooks");
+    let global = directory.path().join("global");
+    fs::write(&global, b"").expect("global");
+    let execution = GitExecution {
+        executable: &executable,
+        repository_root: &repository,
+        hooks_directory: &hooks,
+        global_config: &global,
+        redacted_roots: vec![repository.clone()],
+        askpass: None,
+        encrypted: false,
+        transport: GitTransportPolicy::RemoteOnly,
+    };
+    let token = super::git::GitOperationToken::detached();
+    let deadline = Instant::now() + Duration::from_secs(30);
+    for (arguments, mutating) in [
+        (
+            vec!["init".to_string(), "--initial-branch=main".to_string()],
+            true,
+        ),
+        (
+            vec![
+                "-c".to_string(),
+                "user.name=Synthetic Author".to_string(),
+                "-c".to_string(),
+                "user.email=author@example.invalid".to_string(),
+                "commit".to_string(),
+                "--allow-empty".to_string(),
+                "--no-gpg-sign".to_string(),
+                "--message".to_string(),
+                "Synthetic commit".to_string(),
+            ],
+            true,
+        ),
+        (
+            vec![
+                "status".to_string(),
+                "--short".to_string(),
+                "--branch".to_string(),
+            ],
+            false,
+        ),
+    ] {
+        let outcome =
+            run_git_command(&arguments, &execution, &token, deadline, mutating).expect("command");
+        assert_eq!(
+            outcome.exit_code,
+            0,
+            "{}",
+            String::from_utf8_lossy(&outcome.stderr)
+        );
+    }
+}
+
+#[test]
 fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
     let mut commit = plan_git_request(&PluginGitRequest::Commit {
         scope: PluginGitScope::Vault,
@@ -451,6 +592,43 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
         other => panic!("expected command, found {other:?}"),
     };
     expect_args_in_order(args, &["credential.helper=osxkeychain", "fetch"]);
+}
+
+#[test]
+fn explicit_signing_remains_enabled_when_system_settings_are_disabled() {
+    let request = PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    };
+    let mut plan = plan_git_request(&request).expect("commit plan");
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: false,
+            signing: GitCommitSigningMode::Always,
+            signing_key: Some("SYNTHETIC-KEY".to_string()),
+        },
+        &SystemGitSettings::default(),
+    )
+    .expect("signing policy");
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(
+        args,
+        &[
+            "gpg.program=gpg",
+            "commit.gpgSign=true",
+            "--gpg-sign=SYNTHETIC-KEY",
+        ],
+    );
+    assert!(!args.iter().any(|argument| argument == "--no-gpg-sign"));
 }
 
 fn expect_args_in_order(args: &[String], expected: &[&str]) {
@@ -1383,9 +1561,9 @@ fn manages_encrypted_repository_metadata_without_losing_user_lines() {
 
     let exclude = fs::read_to_string(git_directory.join("info").join("exclude")).expect("exclude");
     assert!(exclude.starts_with("# user exclusions\nbuild/\n"));
-    assert!(exclude.contains(".denote/locks/"));
-    assert!(exclude.contains(".denote/trash/"));
-    assert_eq!(exclude.matches(".denote/locks/").count(), 1);
+    assert!(exclude.contains(".denote/*"));
+    assert!(exclude.contains("!.denote/encryption.json"));
+    assert_eq!(exclude.matches(".denote/*").count(), 1);
 }
 
 #[test]
@@ -1679,18 +1857,19 @@ fn runs_a_request_with_the_custom_git_executable_from_settings() {
     set_git_executable_setting(&fixture, &default.to_string_lossy());
     let result = run(
         &fixture,
-        PluginGitRequest::Discover {
+        PluginGitRequest::Initialize {
             scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
         },
         None,
     )
-    .expect("discover");
+    .expect("initialize");
     assert_eq!(result.exit_code, 0, "{}", result.stderr);
 
     set_git_executable_setting(&fixture, "git");
     let rejected = run(
         &fixture,
-        PluginGitRequest::Discover {
+        PluginGitRequest::Status {
             scope: PluginGitScope::Vault,
         },
         None,
@@ -1768,8 +1947,9 @@ fn a_request_refuses_a_non_git_custom_executable() {
 
     let error = run(
         &fixture,
-        PluginGitRequest::Discover {
+        PluginGitRequest::Initialize {
             scope: PluginGitScope::Vault,
+            default_branch: "main".to_string(),
         },
         None,
     )

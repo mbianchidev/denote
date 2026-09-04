@@ -193,6 +193,25 @@ try {
           );
         }
       }
+      if (
+        artifactRef &&
+        !pinnedArtifactMatches(
+          entry.provenance.sourceCommit,
+          artifactName,
+          sha256,
+        )
+      ) {
+        verifyPinnedArtifact(artifactRef, artifactName, sha256);
+        entry.artifact.url =
+          `https://raw.githubusercontent.com/mbianchidev/denote/${artifactRef}/plugin-artifacts/${artifactName}`;
+        entry.provenance = {
+          publisherId: "denote",
+          sourceCommit: artifactRef,
+          trusted: true,
+        };
+        catalogChanged = true;
+        console.log(`Repinned ${manifest.id}@${manifest.version}.`);
+      }
       console.log(`Retained ${manifest.id}@${manifest.version}.`);
     } else {
       const temporaryArtifact = join(temporaryRoot, artifactName);
@@ -257,6 +276,7 @@ function retainedArtifactUrl(
       `Set DENOTE_PLUGIN_ARTIFACT_REF to the commit containing ${artifactName}.`,
     );
   }
+
   let pinnedArtifact: Buffer;
   try {
     pinnedArtifact = execFileSync(
@@ -278,4 +298,58 @@ function retainedArtifactUrl(
     );
   }
   return current;
+}
+
+function verifyPinnedArtifact(
+  sourceCommit: string,
+  artifactName: string,
+  expectedSha256: string,
+): void {
+  if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
+    throw new Error("DENOTE_PLUGIN_ARTIFACT_REF must be a 40-character commit.");
+  }
+
+  let pinnedArtifact: Buffer;
+  try {
+    pinnedArtifact = execFileSync(
+      "git",
+      ["show", `${sourceCommit}:plugin-artifacts/${artifactName}`],
+      { cwd: root, maxBuffer: MAX_PACKAGE_BYTES + 1 },
+    );
+  } catch {
+    throw new Error(
+      `Unable to read ${artifactName} from pinned commit ${sourceCommit}.`,
+    );
+  }
+  const pinnedSha256 = createHash("sha256")
+    .update(pinnedArtifact)
+    .digest("hex");
+  if (pinnedSha256 !== expectedSha256) {
+    throw new Error(
+      `${artifactName} in ${sourceCommit} does not match the committed artifact.`,
+    );
+  }
+}
+
+function pinnedArtifactMatches(
+  sourceCommit: string,
+  artifactName: string,
+  expectedSha256: string,
+): boolean {
+  if (!/^[0-9a-f]{40}$/.test(sourceCommit)) {
+    return false;
+  }
+  try {
+    const pinnedArtifact = execFileSync(
+      "git",
+      ["show", `${sourceCommit}:plugin-artifacts/${artifactName}`],
+      { cwd: root, maxBuffer: MAX_PACKAGE_BYTES + 1 },
+    );
+    return (
+      createHash("sha256").update(pinnedArtifact).digest("hex") ===
+      expectedSha256
+    );
+  } catch {
+    return false;
+  }
 }

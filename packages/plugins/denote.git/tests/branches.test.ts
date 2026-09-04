@@ -60,6 +60,42 @@ function recoveryMessage(model: PluginSourceControlViewModel): string {
 }
 
 describe("branch workflows", () => {
+  it("uses explicit authenticated requests for remote branch rename and delete", async () => {
+    const { controller } = harness({ authenticationMode: "public" });
+    const git = cleanGit({
+      "list-branches": { stdout: SYNTHETIC_BRANCHES_WITH_REMOTE },
+    });
+    await controller.runAction({ id: "refresh" }, git);
+
+    await controller.runAction(
+      {
+        id: "rename-remote-branch",
+        values: { name: "origin/release", newName: "stable" },
+      },
+      git,
+    );
+    expect(issued(git, "rename-remote-branch")).toEqual({
+      operation: "rename-remote-branch",
+      scope: "vault",
+      remote: "origin",
+      name: "release",
+      newName: "stable",
+      authMode: "public",
+    });
+
+    await controller.runAction(
+      { id: "delete-remote-branch", values: { name: "origin/release" } },
+      git,
+    );
+    expect(issued(git, "delete-remote-branch")).toEqual({
+      operation: "delete-remote-branch",
+      scope: "vault",
+      remote: "origin",
+      name: "release",
+      authMode: "public",
+    });
+  });
+
   it("checks out immediately when the working tree is clean", async () => {
     const { controller } = harness();
     const git = cleanGit();

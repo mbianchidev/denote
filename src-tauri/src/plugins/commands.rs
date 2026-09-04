@@ -31,6 +31,7 @@ use super::{
         GitRequestTarget, GitTransportPolicy, PluginGitRequest, PluginGitResult, PluginGitScope,
     },
     github::GitHubRepository,
+    tools::{ExecutableMode, ToolKind},
     types::{
         InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
         PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,
@@ -147,6 +148,53 @@ pub fn import_plugin_settings(
     settings: Value,
 ) -> AppResult<Value> {
     state.import_settings(&plugin_id, source_version, settings)
+}
+
+#[tauri::command]
+pub fn get_plugin_tool_statuses(
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+) -> AppResult<Vec<super::ToolStatus>> {
+    state.tool_statuses(&plugin_id)
+}
+
+#[tauri::command]
+pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Option<String>> {
+    let kind = match tool.as_str() {
+        "git" => ToolKind::Git,
+        "github-cli" => ToolKind::GitHubCli,
+        _ => {
+            return Err(AppError::Plugin(
+                "Executable picker received an unknown tool".to_string(),
+            ));
+        }
+    };
+    let selected = app
+        .dialog()
+        .file()
+        .set_title(match kind {
+            ToolKind::Git => "Choose a Git executable",
+            ToolKind::GitHubCli => "Choose a GitHub CLI executable",
+        })
+        .blocking_pick_file();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let path = selected
+        .into_path()
+        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
+    let value = path.to_string_lossy().into_owned();
+    let status = super::tools::inspect(
+        std::path::Path::new(""),
+        std::path::Path::new(""),
+        kind,
+        ExecutableMode::Custom,
+        Some(&value),
+    );
+    if status.validation_status != "valid" {
+        return Err(AppError::Plugin(status.message));
+    }
+    Ok(status.resolved_path)
 }
 
 #[tauri::command]
@@ -434,6 +482,7 @@ pub async fn plugin_git_request(
     project_id: Option<String>,
     operation_id: String,
     signing_passphrase: Option<String>,
+    signing_override: Option<bool>,
 ) -> AppResult<PluginGitResult> {
     let manager = state.inner().clone();
     run_blocking(move || {
@@ -448,6 +497,7 @@ pub async fn plugin_git_request(
             project_id.as_deref(),
             &operation_id,
             signing_passphrase.as_deref(),
+            signing_override,
         );
         if let Some(passphrase) = signing_passphrase.as_mut() {
             passphrase.zeroize();
@@ -479,6 +529,7 @@ pub(super) fn git_request_with_app_state(
         project_id,
         operation_id,
         None,
+        None,
     )
 }
 
@@ -491,12 +542,13 @@ fn git_request_with_app_state_and_passphrase(
     project_id: Option<&str>,
     operation_id: &str,
     signing_passphrase: Option<&str>,
+    signing_override: Option<bool>,
 ) -> AppResult<PluginGitResult> {
     manager.enabled_permission(plugin_id, "git")?;
     let Some(scope) = request.scope() else {
         // Cancellation carries no scope so it stays callable from a concurrent
         // source-control action while an operation is still running.
-        return manager.git_request_with_signing_passphrase(
+        return manager.git_request_with_signing_options(
             plugin_id,
             request,
             GitRequestTarget {
@@ -506,6 +558,7 @@ fn git_request_with_app_state_and_passphrase(
             },
             operation_id,
             signing_passphrase,
+            signing_override,
         );
     };
     let _vault_access = app_state.read_vault_access()?;
@@ -541,7 +594,7 @@ fn git_request_with_app_state_and_passphrase(
         }
     }
     let redacted_roots = vec![repository_root.clone(), root];
-    manager.git_request_with_signing_passphrase(
+    manager.git_request_with_signing_options(
         plugin_id,
         request,
         GitRequestTarget {
@@ -551,6 +604,7 @@ fn git_request_with_app_state_and_passphrase(
         },
         operation_id,
         signing_passphrase,
+        signing_override,
     )
 }
 

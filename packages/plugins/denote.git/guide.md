@@ -6,9 +6,9 @@ This plugin keeps a Git history of your vault and configured projects without
 leaving Denote. It adds one source control view that lists every safe detected
 repository, then shows the selected repository's working tree changes, branches, remotes, and commit
 history, and it lets you initialize a repository, stage and unstage a file or a
-single hunk, commit what you staged, create, switch, rename, and delete
-branches, and review a commit's own diff. It can also commit tracked changes for
-you on a timer.
+single hunk, commit or commit-and-push what you staged, create, switch, rename,
+and delete local or remote branches, and review a commit's own diff. It can also
+commit tracked changes for you on a timer.
 
 It now works with remotes too: add, change, and remove a remote, fetch, pull,
 push, and clone a repository into a new vault. Every one of those is something
@@ -44,10 +44,10 @@ it cannot open a connection of its own, run its own executable, or arbitrarily
 edit your notes. Remote work and an explicitly submitted conflict resolution go
 through the Git permission: Denote validates and performs the exact operation.
 
-Enabling alone does not run Git and does not change your vault. The first model
-reports that a refresh is required and makes no claim about the repository until
-you refresh. Registering an automatic commit schedule runs no Git command
-either: the first automatic commit happens one whole interval later.
+Enabling does not change your vault. After the provider is registered, Denote
+runs one read-only refresh so the first Git view already shows repository
+status. Registering an automatic commit schedule runs no Git command: the first
+automatic commit happens one whole interval later.
 
 ## Usage
 
@@ -75,12 +75,17 @@ Open the Git view from the activity rail, select a repository under
   in the editor.
 - **Refresh history**, **Previous**, and **Next** read one bounded page of
   commits at a time; selecting a commit shows its details and its exact diff.
-- **Commit staged changes** commits only what is staged, using the message you
-  typed and the configured author identity when one is set. The optional
-  password-style **Signing passphrase** is used once for an encrypted SSH
-  signing key, then cleared; it is never stored or sent to this plugin.
-- **New branch** creates and switches to a branch from the current branch without
-  opening advanced branch management.
+- **Commit** records only what is staged. **Commit and push** records the same
+  commit and then performs an ordinary push to the selected remote. The
+  per-commit **Sign commit** control is enabled by default and can be turned off.
+  Its password field is shown only while signing is requested, applies only to
+  encrypted SSH signing keys, is consumed once, and is never stored or sent to
+  this plugin.
+- The current branch opens one inline, searchable local-and-remote list. Choose a
+  local branch to switch, choose a remote branch to create its local tracking
+  branch, or type a missing name to create and switch from any listed start
+  point. Edit and trash buttons rename or delete the exact local or remote
+  branch after host confirmation.
 - Compact refresh, sync, stage, restore, diff, and file actions are icons. Their
   full names remain available to screen readers and as hover tooltips.
 - **Cancel operation** stops the Git operation that is running, including a
@@ -95,7 +100,7 @@ Open the Git view from the activity rail, select a repository under
 
 ### Remotes
 
-The Branches tab lists every remote with its fetch and push URL, an editable URL
+The Repository tab lists every remote with its fetch and push URL, an editable URL
 field, and a Remove button, plus a form to add a new remote. The repository
 section has Fetch, Pull, and Push, and a remote picker when there is more than
 one remote to choose from.
@@ -108,6 +113,9 @@ one remote to choose from.
   the confirmation, and records an upstream the first time a branch is pushed.
 - **Only ordinary pushes** are offered. There is no force push, with or without
   a lease.
+- Renaming a remote branch creates its replacement first and deletes the old
+  name second. If deletion fails, both names remain and Denote reports the
+  partial result. Remote branch deletion is a dangerous confirmed action.
 - **Changing a remote's URL** and **removing a remote** each ask for their own
   confirmation, showing the exact remote name and URL. Removing a remote leaves
   your commits and files untouched.
@@ -205,20 +213,19 @@ Denote error.
 
 ### Branches
 
-The Branches tab lists every local and remote-tracking branch, and the branch
-selector at the top of the view is always there.
+The branch selector at the top of the view expands inside the plugin into one
+searchable list of Local and Remote branches.
 
-- **Create branch** takes a name, a start point — the branch you are on, another
-  local branch, or a remote-tracking branch — and an optional *Check out the new
-  branch straight away*. Creating without checking out changes nothing in your
-  vault.
-- **Switch** checks out a local branch.
-- **Check out** on a remote-tracking branch creates a local branch that follows
-  it. Denote proposes the name by dropping the remote, lets you edit it, and
-  tells you when that name already exists instead of quietly reusing an
-  existing branch.
-- **Rename** and **Delete** work on local branches only. Denote refuses to
-  delete the branch you are on.
+- Selecting a local branch switches to it.
+- Selecting a remote-tracking branch creates a local branch that follows it.
+  Denote proposes the name by dropping the remote and reports a collision
+  instead of reusing an existing branch.
+- When search has no exact match, **Create and switch** creates that name from
+  any listed local or remote start point.
+- Edit and trash buttons rename or delete the exact local or remote branch.
+  Denote refuses to delete the local branch you are on. Remote rename creates
+  the replacement first; if deleting the old name fails, both remain and the
+  partial result is reported.
 - Nothing switches on its own. A fetch, a remote update, and starting Denote all
   leave the current branch exactly where it is.
 
@@ -316,7 +323,7 @@ path, and no Git command is involved in opening anything.
 
 ### Merging, rebasing, cherry-picking, and reverting
 
-**Merge and rebase** on the Branches tab act on a branch this repository already
+**Merge and rebase** on the Repository tab act on a branch this repository already
 has, so neither needs a network. **Review cherry-pick** and **Review revert** on
 an open commit act on that exact commit.
 
@@ -402,11 +409,18 @@ than done quietly; **Discard result** puts the merge Denote derived back.
 
 ## Settings
 
-- **Git executable** is an absolute path to Git. Leave it empty to use the Git
-  the host finds in its own fixed locations. Denote reads this key itself; the
-  plugin never sees or sends an executable path.
-- **GitHub CLI executable** is the same kind of setting for `gh`, and is used
-  only when authentication is set to GitHub sign-in.
+- **Git source** is `Bundled` by default, or explicitly `System` or `Custom`.
+  Bundled downloads the signed release archive only when a Git operation first
+  requires it. System and Custom never download that archive. There is no
+  fallback between them. Custom requires an absolute path that identifies itself
+  as Git.
+- **GitHub CLI source** is `Disabled` by default, or explicitly `Bundled`,
+  `System`, or `Custom`. Its Bundled archive is downloaded only when that mode is
+  selected and a GitHub-specific action requires it. Disabled, System, and
+  Custom never download it. Ordinary Git never resolves or runs `gh`.
+- Each executable setting shows the selected source, resolved canonical path,
+  version, validation result, prerequisite guidance, and an accessible native
+  path picker for Custom mode.
 - **Remote authentication** defaults to `System Git credentials`; `Public
   repository`, `SSH agent`, and `GitHub sign-in` remain available. It is set here
   rather than in the Git view. No remote token or password is stored in plugin
@@ -453,15 +467,16 @@ restores them.
 
 ## Troubleshooting
 
-- **"refresh required" beside the repository name** means no Git command has
-  run yet, so Denote is not claiming anything about the repository. Use Refresh.
+- **"refresh required" beside the repository name** appears only until the
+  host's first read-only refresh finishes. Use Refresh to retry a failed read.
 - **"Not initialized"** after a refresh means this vault or project has no
   repository. Use `Git: Initialize repository`, or open one that already has a
   repository.
 - **A Git failure** reports the exit code and Git's own error output, and keeps
   the last stable view on screen. Fix the reported cause, then use Refresh.
-- **No Git executable** means Denote could not find Git in its fixed locations.
-  Install Git, or set the Git executable setting to an absolute path.
+- **No Git executable** reports the selected source. Reinstall Denote for a
+  corrupt Bundled source, install Git for System, or choose a valid absolute
+  executable for Custom. Denote never silently tries another source.
 - **Repositories that use a `.git` file**, such as linked worktrees and
   submodules, are refused by the host rather than modified.
 - **Encrypted vaults** must be unlocked and pass the host's encryption check
@@ -474,13 +489,13 @@ restores them.
 - **A commit that fails with an identity error** needs either the author
   settings above or a Git identity configured in the repository.
 - **"Choose a remote first"** means the repository has no remote yet. Add one on
-  the Branches tab.
+  the Repository tab.
 - **A fetch, pull, or push that fails to authenticate** usually means the mode
   does not match the remote: a private HTTPS remote needs GitHub sign-in, and an
   SSH remote needs a running agent. Denote never falls back to a prompt.
-- **"The GitHub CLI is not authenticated"** means `gh auth login` has not been
-  run for this machine, or `gh` is not where Denote looks. Set the GitHub CLI
-  executable setting to its absolute path.
+- **"GitHub CLI is disabled"** means a GitHub-only action needs it. Choose
+  Bundled, System, or Custom, then run `gh auth login` when authentication is
+  still required. Local Git, public remotes, and SSH remain available.
 - **"GitHub sign-in only applies to https://github.com remotes"** protects the
   token: choose public or SSH agent authentication for that remote instead.
 - **A clone that fails** leaves the folder untouched. Retry it, or use Clean

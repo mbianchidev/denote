@@ -290,8 +290,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - The optional **Git vault versioning** plugin is the first production catalog
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,
-  and binds every action to that host-issued repository identity. It supports
-  refresh, initialize, stage, unstage, commit of staged changes, and cancellation
+  and binds every action to that host-issued repository identity. It performs
+  one read-only refresh when its provider first appears and supports initialize,
+  stage, unstage, commit or commit-and-push of staged changes, and cancellation
   of a running operation. It
   requests no network, process, or workspace-write permission. Setting an
   automatic commit interval above zero also enables timed local commits: Denote
@@ -319,14 +320,28 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   allowlisted identity, credential-helper, line-ending, and signing values into
   its otherwise isolated Git invocation; repository-local command configuration
   remains rejected.
+- Official releases publish verified Git and GitHub CLI archives for every
+  release target, while installers contain only signed metadata and legal
+  notices. Git selects exactly one of Bundled (default), System, or Custom.
+  GitHub CLI selects exactly one of Disabled (default), Bundled, System, or
+  Custom. Bundled downloads its archive only when selected and first required;
+  the other modes never download it. No mode silently falls back, custom paths
+  must be absolute and version-probed, and generic Git never requires GitHub
+  CLI.
+- Plugin executable settings report the selected source, canonical resolved
+  path, version, validation result, prerequisite guidance, and a native path
+  picker. Existing path-only settings migrate to explicit System or Custom
+  modes without changing the executable previously used.
 - Manual commits can follow the global Git signing default, always sign, or
   never sign. An optional masked GPG key setting selects the key. The system GPG
   agent or pinentry owns any passphrase; Denote never stores or receives it.
   Automatic commits remain unsigned and unattended.
-- The manual commit form also provides an optional password-style **Signing
-  passphrase** for encrypted SSH signing keys. It is used once, cleared
-  immediately, kept out of the plugin worker and action payload, and never
-  persisted. OpenPGP and X.509 continue to use the system GPG agent or pinentry.
+- The manual commit form offers Commit and Commit and push. Its per-commit
+  signing control defaults on and can explicitly request an unsigned commit.
+  The password-style **Signing passphrase** appears only while signing is
+  requested, is used once for encrypted SSH signing keys, is cleared
+  immediately, and never enters the plugin worker. OpenPGP and X.509 continue
+  to use the system GPG agent or pinentry.
 - **Clone repo as vault** lives in the Switch vault dialog beside **Open another
   folder**. It asks you to choose an empty folder, clones into it, checks the result,
   and only then opens it as a vault, so an encrypted clone shows the usual
@@ -334,16 +349,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
   and offers Retry, or an explicitly confirmed clean-up that deletes only that
   exact folder. Nothing is ever deleted automatically.
-- Branch work is explicit, reviewed, and never destructive. The Branches tab
-  creates a branch from the current branch, a local branch, or a
-  remote-tracking branch, optionally checking it out; switches, renames, and
-  deletes local branches; and checks out a remote-tracking branch by creating a
-  local branch that follows it, proposing the name and reporting a collision
-  instead of reusing an existing branch. The branch selector stays visible at
-  all times. Renaming and deleting apply to local branches only, the branch you
-  are on is never deleted, and nothing switches on its own after a fetch, a
-  remote update, or startup. Each of these asks first and names the exact
-  source and target; deleting is a dangerous confirmation.
+- Branch work is explicit, reviewed, and never destructive. The always-visible
+  selector expands inside the plugin into one searchable local-and-remote list.
+  It switches local branches, creates local tracking branches, creates and
+  switches when search has no exact result, and provides accessible rename and
+  delete controls for local and remote branches. The branch you are on is never
+  deleted and nothing switches on its own. Remote rename creates the replacement
+  before deleting the old name; partial completion is reported rather than
+  hidden. Remote URL management stays on its own Repository tab.
 - The daily path stays compact: the selected repository row, branch selector,
   create-and-switch field, pull and push controls, commit message, stage-all,
   unstage-all, and per-file actions are available without opening advanced
@@ -359,6 +372,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   temporary `.diff` tab in the editor, rendered with `@pierre/diffs`. The tab
   keeps file and hunk stage/unstage controls, is never autosaved or indexed, and
   is omitted from restored tab sessions.
+- Plugin activity-rail entries can be pointer-dragged or keyboard-reordered,
+  hidden into a disclosed Hidden plugins section, assigned to local groups, and
+  collapsed by group. Source-control panels are memoized so editor keystrokes
+  do not rerender a large unchanged repository model.
 - A switch that would disturb work never runs. Denote re-reads the working tree
   first: unresolved conflicts refuse the checkout outright, and any staged,
   changed, or untracked file produces a review that lists every affected path

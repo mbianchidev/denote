@@ -304,19 +304,27 @@ read in progress. A selected commit is a definition list of its own metadata
 followed by its changed files, and its diff carries no hunk action. Opening a
 file is a named button on the row or the changed file it belongs to, absent
 where the file was deleted. Plugin data never supplies arbitrary markup.
-The always-visible branch button opens a searchable native dialog in the top
-layer, so it is never clipped by the sidebar. One surface lists local and remote
-branches and exposes create-and-switch with an explicit start-point selector.
-Current branches remain visible but disabled, and every option keeps an exact
-accessible action name.
+The always-visible branch button expands a searchable picker inside the plugin
+sidebar. One compact list labels local and remote branches, exposes
+create-and-switch with an explicit start-point selector when search has no exact
+match, and keeps icon buttons for rename and delete. Current branches remain
+visible but disabled, and every option keeps an exact accessible action name.
+Remote URL management lives on the separate Repository tab.
 The plugin manager groups **Update all** with the global recovery controls only
 when approved updates exist. Its first activation opens an inline confirmation
 that lists exact plugin names and explains that the latest full permission sets
 will be accepted; it never hides this security consequence behind a progress
 button.
-The source-control commit form places the optional signing passphrase directly
-after the commit message. It uses a native password input, explains that it is
-one-shot and SSH-signing-only, and clears after submission or repository change.
+Git executable settings use one compact status block per tool: selected source,
+resolved path, locked or detected version, validation state, and prerequisite
+guidance. Bundled mode shows **not downloaded** until an action first needs it;
+opening settings never starts a download. The native path picker appears only
+for Custom mode.
+The source-control commit form places an enabled-by-default **Sign commit**
+control after the commit message. Its native password input exists only while
+signing is selected, explains that it is one-shot and SSH-signing-only, and
+clears after submission or repository change. Commit and Commit and push are
+adjacent primary actions.
 Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions
 use the shared Lucide icon-button vocabulary, while `aria-label` and `title`
 retain the full action and target. Loaded patches leave the narrow sidebar and
@@ -340,6 +348,11 @@ target pane. Focused-pane contrast stays quiet but visible, and separator focus
 uses the normal two-pixel moss ring. Back and forward arrows act on the focused
 pane's active tab history, remain disabled when no destination exists, and never
 look like global application history.
+Plugin rail entries support direct drag reordering plus keyboard move controls
+in an Organize plugins popover. That popover uses ordinary text fields for
+optional group names, hide/show controls, and a disclosed Hidden plugins list.
+Group headers are compact disclosure buttons; grouping never changes plugin
+runtime order or permission.
 Pinned tree entries use a compact pin marker and remain above ordinary siblings.
 The file-tree toolbar includes a compact eye control that persistently hides or
 shows dotfiles and dot folders locally. Hidden dot folders remove their complete

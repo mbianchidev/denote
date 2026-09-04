@@ -1,0 +1,109 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "Denote bundled GitHub CLI 2.99.0",
+  "documentNamespace": "https://github.com/mbianchidev/denote/sbom/github-cli-2.99.0",
+  "creationInfo": {
+    "created": "2026-09-03T00:00:00Z",
+    "creators": [
+      "Tool: Denote bundled-tools preparation"
+    ]
+  },
+  "packages": [
+    {
+      "name": "GitHub CLI",
+      "SPDXID": "SPDXRef-Package-GitHubCLI",
+      "versionInfo": "2.99.0",
+      "downloadLocation": "https://github.com/cli/cli/releases/tag/v2.99.0",
+      "filesAnalyzed": false,
+      "licenseConcluded": "MIT",
+      "licenseDeclared": "MIT",
+      "copyrightText": "Copyright (c) 2019 GitHub Inc.",
+      "externalRefs": [
+        {
+          "referenceCategory": "VCS",
+          "referenceType": "vcs",
+          "referenceLocator": "git+https://github.com/cli/cli@d528f20f2ee02f6703773e9f56c90e3c3f5d46b0"
+        }
+      ]
+    }
+  ],
+  "files": [
+    {
+      "fileName": "gh_2.99.0_linux_amd64.tar.gz",
+      "SPDXID": "SPDXRef-File-LinuxX64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ed4960225d2833e04a61590d9fa2b5773d147f3aa375459e5466a40c102f3832"
+        }
+      ],
+      "licenseConcluded": "MIT",
+      "copyrightText": "Copyright (c) 2019 GitHub Inc."
+    },
+    {
+      "fileName": "gh_2.99.0_macOS_amd64.zip",
+      "SPDXID": "SPDXRef-File-MacX64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "70c05750c75df9465bc73b994e8bc379243bb494271f1b51f54ead2e19e45471"
+        }
+      ],
+      "licenseConcluded": "MIT",
+      "copyrightText": "Copyright (c) 2019 GitHub Inc."
+    },
+    {
+      "fileName": "gh_2.99.0_macOS_arm64.zip",
+      "SPDXID": "SPDXRef-File-MacArm64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "94d4bd7e88563a9cb414e651e88acc4f1728a87476752460906d824230748d37"
+        }
+      ],
+      "licenseConcluded": "MIT",
+      "copyrightText": "Copyright (c) 2019 GitHub Inc."
+    },
+    {
+      "fileName": "gh_2.99.0_windows_amd64.zip",
+      "SPDXID": "SPDXRef-File-WindowsX64",
+      "checksums": [
+        {
+          "algorithm": "SHA256",
+          "checksumValue": "ea040d0ba03176440d13481caf67f742236c3b38ce1d4442a9da37e9bb98d8f2"
+        }
+      ],
+      "licenseConcluded": "MIT",
+      "copyrightText": "Copyright (c) 2019 GitHub Inc."
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-GitHubCLI"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-GitHubCLI",
+      "relationshipType": "GENERATES",
+      "relatedSpdxElement": "SPDXRef-File-LinuxX64"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-GitHubCLI",
+      "relationshipType": "GENERATES",
+      "relatedSpdxElement": "SPDXRef-File-MacX64"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-GitHubCLI",
+      "relationshipType": "GENERATES",
+      "relatedSpdxElement": "SPDXRef-File-MacArm64"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-GitHubCLI",
+      "relationshipType": "GENERATES",
+      "relatedSpdxElement": "SPDXRef-File-WindowsX64"
+    }
+  ]
+}

@@ -77,8 +77,8 @@ const ENCRYPTED_ATTRIBUTES: &[&str] = &[
 ];
 
 const OPERATIONAL_EXCLUDES: &[&str] = &[
-    ".denote/locks/",
-    ".denote/trash/",
+    ".denote/*",
+    "!.denote/encryption.json",
     ".*.denote-tmp",
     ".*.denote-backup",
     ".*.denote-create",
@@ -440,6 +440,21 @@ pub enum PluginGitRequest {
         #[serde(default)]
         force: bool,
     },
+    RenameRemoteBranch {
+        scope: PluginGitScope,
+        remote: String,
+        name: String,
+        new_name: String,
+        #[serde(default)]
+        auth_mode: PluginGitAuthMode,
+    },
+    DeleteRemoteBranch {
+        scope: PluginGitScope,
+        remote: String,
+        name: String,
+        #[serde(default)]
+        auth_mode: PluginGitAuthMode,
+    },
     Stash {
         scope: PluginGitScope,
         action: PluginGitStashAction,
@@ -534,6 +549,8 @@ impl PluginGitRequest {
             | Self::CheckoutBranch { scope, .. }
             | Self::RenameBranch { scope, .. }
             | Self::DeleteBranch { scope, .. }
+            | Self::RenameRemoteBranch { scope, .. }
+            | Self::DeleteRemoteBranch { scope, .. }
             | Self::Stash { scope, .. }
             | Self::Merge { scope, .. }
             | Self::Rebase { scope, .. }
@@ -570,6 +587,8 @@ impl PluginGitRequest {
             Self::Fetch { auth_mode, .. }
             | Self::Pull { auth_mode, .. }
             | Self::Push { auth_mode, .. }
+            | Self::RenameRemoteBranch { auth_mode, .. }
+            | Self::DeleteRemoteBranch { auth_mode, .. }
             | Self::Clone { auth_mode, .. } => Some(*auth_mode),
             _ => None,
         }
@@ -588,9 +607,11 @@ impl PluginGitRequest {
     /// The configured remote a remote operation names.
     pub(crate) fn remote_name(&self) -> Option<&str> {
         match self {
-            Self::Fetch { remote, .. } | Self::Pull { remote, .. } | Self::Push { remote, .. } => {
-                Some(remote.as_str())
-            }
+            Self::Fetch { remote, .. }
+            | Self::Pull { remote, .. }
+            | Self::Push { remote, .. }
+            | Self::RenameRemoteBranch { remote, .. }
+            | Self::DeleteRemoteBranch { remote, .. } => Some(remote.as_str()),
             _ => None,
         }
     }
@@ -602,7 +623,9 @@ impl PluginGitRequest {
     /// direction the operation will really use, never from the fetch URL alone.
     pub(crate) fn remote_direction(&self) -> Option<RemoteDirection> {
         match self {
-            Self::Push { .. } => Some(RemoteDirection::Push),
+            Self::Push { .. }
+            | Self::RenameRemoteBranch { .. }
+            | Self::DeleteRemoteBranch { .. } => Some(RemoteDirection::Push),
             Self::Fetch { .. } | Self::Pull { .. } => Some(RemoteDirection::Fetch),
             _ => None,
         }
@@ -1041,6 +1064,45 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
             args.push(name.clone());
             vec![mutating(args)]
         }
+        PluginGitRequest::RenameRemoteBranch {
+            remote,
+            name,
+            new_name,
+            ..
+        } => {
+            validate_remote_name(remote)?;
+            validate_branch_name(name)?;
+            validate_branch_name(new_name)?;
+            vec![
+                mutating(vec![
+                    "push".into(),
+                    "--no-recurse-submodules".into(),
+                    "--no-verify".into(),
+                    remote.clone(),
+                    format!("refs/remotes/{remote}/{name}:refs/heads/{new_name}"),
+                ]),
+                mutating(vec![
+                    "push".into(),
+                    "--no-recurse-submodules".into(),
+                    "--no-verify".into(),
+                    "--delete".into(),
+                    remote.clone(),
+                    name.clone(),
+                ]),
+            ]
+        }
+        PluginGitRequest::DeleteRemoteBranch { remote, name, .. } => {
+            validate_remote_name(remote)?;
+            validate_branch_name(name)?;
+            vec![mutating(vec![
+                "push".into(),
+                "--no-recurse-submodules".into(),
+                "--no-verify".into(),
+                "--delete".into(),
+                remote.clone(),
+                name.clone(),
+            ])]
+        }
         PluginGitRequest::Stash {
             action,
             message,
@@ -1252,27 +1314,28 @@ pub(crate) fn apply_system_git_settings(
     policy: &GitSettingsPolicy,
     settings: &SystemGitSettings,
 ) -> AppResult<()> {
-    if !policy.use_system_settings {
-        return Ok(());
-    }
     for step in steps {
         let GitPlanStep::Command { args, .. } = step else {
             continue;
         };
         let mut prefix = Vec::new();
-        for key in [
-            "user.name",
-            "user.email",
-            "core.autocrlf",
-            "core.eol",
-            "core.ignorecase",
-            "core.precomposeunicode",
-        ] {
-            if let Some(value) = settings.last(key) {
-                push_system_config(&mut prefix, key, value)?;
+        if policy.use_system_settings {
+            for key in [
+                "user.name",
+                "user.email",
+                "core.autocrlf",
+                "core.eol",
+                "core.ignorecase",
+                "core.precomposeunicode",
+            ] {
+                if let Some(value) = settings.last(key) {
+                    push_system_config(&mut prefix, key, value)?;
+                }
             }
         }
-        if matches!(request.auth_mode(), Some(PluginGitAuthMode::System)) {
+        if policy.use_system_settings
+            && matches!(request.auth_mode(), Some(PluginGitAuthMode::System))
+        {
             for value in settings.values("credential.helper") {
                 push_system_config(&mut prefix, "credential.helper", value)?;
             }
@@ -1283,17 +1346,20 @@ pub(crate) fn apply_system_git_settings(
             }
         }
         if matches!(request, PluginGitRequest::Commit { .. }) {
-            let system_signing = settings
-                .last("commit.gpgsign")
-                .is_some_and(git_config_truthy);
+            let system_signing = policy.use_system_settings
+                && settings
+                    .last("commit.gpgsign")
+                    .is_some_and(git_config_truthy);
             let signing = match policy.signing {
                 GitCommitSigningMode::Always => true,
                 GitCommitSigningMode::Never => false,
                 GitCommitSigningMode::System => system_signing,
             };
             if signing {
-                let format = settings
-                    .last("gpg.format")
+                let format = policy
+                    .use_system_settings
+                    .then(|| settings.last("gpg.format"))
+                    .flatten()
                     .unwrap_or("openpgp")
                     .to_ascii_lowercase();
                 if format != "openpgp" {
@@ -1307,9 +1373,15 @@ pub(crate) fn apply_system_git_settings(
                 push_system_config(
                     &mut prefix,
                     program_key,
-                    settings.last(program_key).unwrap_or(default_program),
+                    policy
+                        .use_system_settings
+                        .then(|| settings.last(program_key))
+                        .flatten()
+                        .unwrap_or(default_program),
                 )?;
-                if let Some(value) = settings.last("user.signingkey") {
+                if policy.use_system_settings
+                    && let Some(value) = settings.last("user.signingkey")
+                {
                     push_system_config(&mut prefix, "user.signingkey", value)?;
                 }
                 if let Some(key) = policy.signing_key.as_deref() {
@@ -2281,6 +2353,14 @@ pub(crate) fn ensure_encrypted_repository_metadata(git_directory: &Path) -> AppR
         ATTRIBUTES_END,
         ENCRYPTED_ATTRIBUTES,
     )?;
+    ensure_repository_excludes(git_directory)
+}
+
+pub(crate) fn ensure_repository_excludes(git_directory: &Path) -> AppResult<()> {
+    let info = git_directory.join("info");
+    if !info.exists() {
+        fs::create_dir_all(&info)?;
+    }
     write_managed_block(
         &info.join("exclude"),
         EXCLUDE_BEGIN,
@@ -2348,82 +2428,23 @@ fn write_managed_block(path: &Path, begin: &str, end: &str, lines: &[&str]) -> A
 // Executable resolution
 // ---------------------------------------------------------------------------
 
-#[cfg(target_os = "macos")]
-const DEFAULT_GIT_PATHS: &[&str] = &[
-    "/usr/bin/git",
-    "/opt/homebrew/bin/git",
-    "/usr/local/bin/git",
-];
-#[cfg(target_os = "linux")]
-const DEFAULT_GIT_PATHS: &[&str] = &["/usr/bin/git", "/bin/git", "/usr/local/bin/git"];
-#[cfg(target_os = "windows")]
-const DEFAULT_GIT_PATHS: &[&str] = &[
-    r"C:\Program Files\Git\cmd\git.exe",
-    r"C:\Program Files\Git\bin\git.exe",
-    r"C:\Program Files (x86)\Git\cmd\git.exe",
-];
-
 /// Resolves and pins one canonical Git executable for a request. `PATH` is
 /// never searched, and a custom executable, which only ever comes from the
 /// host-owned persisted plugin setting, must be an absolute, canonical,
 /// regular file that identifies itself as Git.
+#[cfg(test)]
 pub(crate) fn resolve_git_executable(configured: Option<&str>) -> AppResult<PathBuf> {
-    if let Some(custom) = configured {
-        let candidate = Path::new(custom);
-        if !candidate.is_absolute() {
-            return Err(AppError::Plugin(
-                "The configured Git executable must be an absolute path".to_string(),
-            ));
-        }
-        let canonical = fs::canonicalize(candidate).map_err(|error| {
-            AppError::Plugin(format!(
-                "The configured Git executable is unavailable: {error}"
-            ))
-        })?;
-        return verify_git_executable(&canonical);
-    }
-    let mut last_error = None;
-    for candidate in DEFAULT_GIT_PATHS {
-        let Ok(canonical) = fs::canonicalize(candidate) else {
-            continue;
-        };
-        match verify_git_executable(&canonical) {
-            Ok(path) => return Ok(path),
-            Err(error) => last_error = Some(error),
-        }
-    }
-    Err(last_error.unwrap_or_else(|| {
-        AppError::Plugin(
-            "Git was not found in a standard location. Install Git, or select its executable in settings."
-                .to_string(),
-        )
-    }))
-}
-
-fn verify_git_executable(canonical: &Path) -> AppResult<PathBuf> {
-    let metadata = fs::symlink_metadata(canonical)?;
-    if !metadata.is_file() {
-        return Err(AppError::Plugin(
-            "The Git executable must be a regular file".to_string(),
-        ));
-    }
-    let mut probe = Command::new(canonical);
-    probe
-        .arg("--version")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
-    remove_inherited_environment(&mut probe);
-    let output = probe.output().map_err(|error| {
-        AppError::Plugin(format!("Unable to start the Git executable: {error}"))
-    })?;
-    let version = String::from_utf8_lossy(&output.stdout);
-    if !output.status.success() || !version.trim_start().starts_with("git version") {
-        return Err(AppError::Plugin(
-            "The selected executable did not identify itself as Git".to_string(),
-        ));
-    }
-    Ok(canonical.to_path_buf())
+    super::tools::resolve_git(
+        Path::new(""),
+        Path::new(""),
+        Path::new(""),
+        if configured.is_some() {
+            super::tools::ExecutableMode::Custom
+        } else {
+            super::tools::ExecutableMode::System
+        },
+        configured,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -3205,11 +3226,66 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
         .env("GIT_PROTOCOL_FROM_USER", "0")
         .env("GIT_FLUSH", "1")
         .env("GIT_ADVICE", "0");
+    apply_portable_git_environment(command, execution.executable);
     // Applied last, and only for an authenticated remote operation, so exactly
     // one child can answer a credential prompt and every other child keeps the
     // stripped environment.
     if let Some(material) = execution.askpass {
         apply_askpass_environment(command, material);
+    }
+
+    fn apply_portable_git_environment(command: &mut Command, executable: &Path) {
+        let Some(bin_or_cmd) = executable.parent() else {
+            return;
+        };
+        let Some(root) = bin_or_cmd.parent() else {
+            return;
+        };
+        let unix_exec = root.join("libexec").join("git-core");
+        let windows_exec = root.join("mingw64").join("libexec").join("git-core");
+        let (exec_path, templates) = if unix_exec.is_dir() {
+            (
+                unix_exec,
+                root.join("share").join("git-core").join("templates"),
+            )
+        } else if windows_exec.is_dir() {
+            (
+                windows_exec,
+                root.join("mingw64")
+                    .join("share")
+                    .join("git-core")
+                    .join("templates"),
+            )
+        } else {
+            return;
+        };
+        command.env("GIT_EXEC_PATH", git_cli_path(exec_path.as_path()));
+        if templates.is_dir() {
+            command.env("GIT_TEMPLATE_DIR", git_cli_path(templates.as_path()));
+        }
+        let certificates = root
+            .join("mingw64")
+            .join("etc")
+            .join("ssl")
+            .join("certs")
+            .join("ca-bundle.crt");
+        if certificates.is_file() {
+            command.env("GIT_SSL_CAINFO", git_cli_path(certificates.as_path()));
+        }
+        let portable_bin = root.join("mingw64").join("bin");
+        if portable_bin.is_dir() {
+            let mut paths = vec![portable_bin];
+            let portable_ssh = root.join("usr").join("bin");
+            if portable_ssh.is_dir() {
+                paths.push(portable_ssh);
+            }
+            if let Some(existing) = std::env::var_os("PATH") {
+                paths.extend(std::env::split_paths(&existing));
+            }
+            if let Ok(path) = std::env::join_paths(paths) {
+                command.env("PATH", path);
+            }
+        }
     }
 }
 
@@ -3245,12 +3321,20 @@ fn remove_inherited_environment(command: &mut Command) {
 }
 
 fn inspect_report(inspection: GitInspection, execution: &GitExecution<'_>) -> AppResult<String> {
-    let git_directory = execution.repository_root.join(".git");
+    inspect_report_for(inspection, execution.repository_root, execution.encrypted)
+}
+
+fn inspect_report_for(
+    inspection: GitInspection,
+    repository_root: &Path,
+    encrypted: bool,
+) -> AppResult<String> {
+    let git_directory = repository_root.join(".git");
     let value = match inspection {
         GitInspection::Discover => serde_json::json!({
-            "initialized": resolve_git_directory(execution.repository_root)?
+            "initialized": resolve_git_directory(repository_root)?
                 == GitDirectoryState::Directory,
-            "encrypted": execution.encrypted,
+            "encrypted": encrypted,
         }),
         GitInspection::OperationState => {
             serde_json::to_value(detect_operation_state(&git_directory)).map_err(|error| {
@@ -3480,13 +3564,14 @@ impl PluginManager {
     /// the result, so a concurrent action can cancel the operation by ID. A
     /// custom Git executable is read from this plugin's host-owned persisted
     /// settings, never from the request.
-    pub(crate) fn git_request_with_signing_passphrase(
+    pub(crate) fn git_request_with_signing_options(
         &self,
         plugin_id: &str,
         request: PluginGitRequest,
         target: GitRequestTarget<'_>,
         operation_id: &str,
         signing_passphrase: Option<&str>,
+        signing_override: Option<bool>,
     ) -> AppResult<PluginGitResult> {
         self.git_request_with_transport_and_signing_passphrase(
             plugin_id,
@@ -3495,6 +3580,7 @@ impl PluginManager {
             operation_id,
             GitTransportPolicy::RemoteOnly,
             signing_passphrase,
+            signing_override,
         )
     }
 
@@ -3517,6 +3603,7 @@ impl PluginManager {
             operation_id,
             transport,
             None,
+            None,
         )
     }
 
@@ -3528,6 +3615,7 @@ impl PluginManager {
         operation_id: &str,
         transport: GitTransportPolicy,
         signing_passphrase: Option<&str>,
+        signing_override: Option<bool>,
     ) -> AppResult<PluginGitResult> {
         let GitRequestTarget {
             repository_root,
@@ -3614,14 +3702,46 @@ impl PluginManager {
             let git_directory = repository_root.join(".git");
             assert_repository_config_is_safe(&git_directory)?;
             assert_operation_state_allows(&request, &git_directory)?;
+            ensure_repository_excludes(&git_directory)?;
             if encrypted {
                 ensure_encrypted_repository_metadata(&git_directory)?;
             }
         }
         let mut steps = plan_git_request(&request)?;
-        let configured = self.git_executable_setting(plugin_id)?;
-        let executable = resolve_git_executable(configured.as_deref())?;
-        let policy = self.git_settings_policy(plugin_id)?;
+        if let [GitPlanStep::Inspect(inspection)] = steps.as_slice() {
+            return Ok(PluginGitResult {
+                operation_id: operation_id.to_string(),
+                exit_code: 0,
+                stdout: inspect_report_for(*inspection, repository_root, encrypted)?,
+                stderr: String::new(),
+                cancelled: false,
+            });
+        }
+        // Register before executable probing and settings reads. A cancellation
+        // that arrives immediately after the renderer publishes the operation
+        // ID therefore always finds the operation, even if no Git child has
+        // started yet.
+        let operation = self.register_git_operation(plugin_id, operation_id)?;
+        let executable = self.resolve_git_executable_for_plugin(plugin_id)?;
+        if operation.token().is_cancelled() {
+            return Ok(PluginGitResult {
+                operation_id: operation_id.to_string(),
+                exit_code: -1,
+                stdout: String::new(),
+                stderr: "The Git operation was cancelled before it started.".to_string(),
+                cancelled: true,
+            });
+        }
+        let mut policy = self.git_settings_policy(plugin_id)?;
+        if matches!(request, PluginGitRequest::Commit { .. })
+            && let Some(signing_override) = signing_override
+        {
+            policy.signing = if signing_override {
+                GitCommitSigningMode::Always
+            } else {
+                GitCommitSigningMode::Never
+            };
+        }
         let system_settings = if policy.use_system_settings {
             read_system_git_settings(&executable)?
         } else {
@@ -3630,10 +3750,6 @@ impl PluginManager {
         apply_system_git_settings(&mut steps, &request, &policy, &system_settings)?;
         let hooks_directory = self.git_hooks_directory()?;
         let global_config = self.git_global_config()?;
-        // The operation is registered before any credential is read, so
-        // cancelling it already reaches the GitHub CLI, and the guard
-        // unregisters it however this function returns.
-        let operation = self.register_git_operation(plugin_id, operation_id)?;
         // Credential material exists only for the four operations that reach a
         // remote, is created before Git starts, and is destroyed when it goes
         // out of scope, whatever the outcome is.

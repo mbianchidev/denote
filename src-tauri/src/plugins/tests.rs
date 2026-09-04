@@ -60,6 +60,7 @@ pub(super) fn manager(
         inner: Arc::new(PluginManagerInner {
             app_data_dir: data.path().to_path_buf(),
             app_cache_dir: cache.path().to_path_buf(),
+            resource_dir: PathBuf::new(),
             catalog: vec![catalog],
             bundles: vec![],
             bundle_error: None,

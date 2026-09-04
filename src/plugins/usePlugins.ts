@@ -485,7 +485,16 @@ export function usePlugins(
         projectId: projectContext?.projectId ?? null,
         ...(projectIds.length > 0 ? { projectIds } : {}),
         sourceControlActionId: action.id,
-        ...(action.id === "commit" && hostSecrets?.gitSigningPassphrase
+        ...((action.id === "commit" ||
+          action.id === "commit-and-push" ||
+          action.id === "branch-switch-commit") &&
+        typeof action.values?.sign === "boolean"
+          ? { gitCommitSign: action.values.sign }
+          : {}),
+        ...((action.id === "commit" ||
+          action.id === "commit-and-push" ||
+          action.id === "branch-switch-commit") &&
+        hostSecrets?.gitSigningPassphrase
           ? {
               gitSigningPassphrase: hostSecrets.gitSigningPassphrase,
             }

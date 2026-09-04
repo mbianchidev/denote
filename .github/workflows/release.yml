@@ -15,7 +15,9 @@ env:
   RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
+  attestations: write
   contents: read
+  id-token: write
 
 concurrency:
   group: release-${{ inputs.tag || github.ref_name }}
@@ -83,6 +85,8 @@ jobs:
             curl \
             file \
             libayatana-appindicator3-dev \
+            libcurl4-openssl-dev \
+            libexpat1-dev \
             libfuse2 \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
@@ -90,6 +94,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             rpm \
+            zlib1g-dev \
             wget \
             xdg-utils
 
@@ -130,6 +135,10 @@ jobs:
   build:
     name: ${{ matrix.name }}
     needs: validate
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
@@ -167,6 +176,8 @@ jobs:
             curl \
             file \
             libayatana-appindicator3-dev \
+            libcurl4-openssl-dev \
+            libexpat1-dev \
             libfuse2 \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
@@ -174,6 +185,7 @@ jobs:
             librsvg2-dev \
             patchelf \
             rpm \
+            zlib1g-dev \
             wget \
             xdg-utils
 
@@ -194,15 +206,207 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Require release signing credentials
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+              if [[ -z "${!name}" ]]; then
+                echo "::error::${name} is required for signed and notarized macOS releases."
+                exit 1
+              fi
+            done
+          fi
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            for name in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
+              if [[ -z "${!name}" ]]; then
+                echo "::error::${name} is required for Authenticode-signed Windows releases."
+                exit 1
+              fi
+            done
+          fi
+
+      - name: Import macOS signing certificate
+        if: runner.os == 'macOS'
+        uses: apple-actions/import-codesign-certs@d5eb0a74eba413a19c8ee15d93a538d1657da86d # v5
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Import Windows signing certificate
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          $certificatePath = Join-Path $env:RUNNER_TEMP "denote-signing.pfx"
+          [IO.File]::WriteAllBytes(
+            $certificatePath,
+            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+          )
+          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+          $certificate = Import-PfxCertificate `
+            -FilePath $certificatePath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password
+          if (-not $certificate.Thumbprint) {
+            throw "Windows signing certificate import did not return a thumbprint."
+          }
+          "TAURI_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
+          "TAURI_WINDOWS_DIGEST_ALGORITHM=sha256" >> $env:GITHUB_ENV
+
+      - name: Prepare bundled Git and GitHub CLI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          npm run prepare:bundled-tools -- --target "${{ matrix.target }}"
+          npm run verify:bundled-tools -- --target "${{ matrix.target }}"
+
       - name: Build bundles
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           DENOTE_COMMIT_HASH: ${{ needs.validate.outputs.source_sha }}
           DENOTE_BUILD_DIRTY: "false"
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           args: --target ${{ matrix.target }}
           retryAttempts: 2
           uploadUpdaterJson: false
+
+      - name: Smoke test installed Linux package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          mkdir "${RUNNER_TEMP}/denote-deb"
+          dpkg-deb -x src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb "${RUNNER_TEMP}/denote-deb"
+          integrity="$(find "${RUNNER_TEMP}/denote-deb" -path "*/tools/${{ matrix.target }}/integrity.json" -print -quit)"
+          test -n "$integrity"
+          root="$(dirname "$integrity")"
+          test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          archive_root="src-tauri/target/bundled-tools/${{ matrix.target }}"
+          extracted="${RUNNER_TEMP}/denote-tools"
+          mkdir "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-git.tar.gz" -C "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-gh.tar.gz" -C "$extracted"
+          "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
+          "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
+
+      - name: Smoke test installed macOS disk image
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mount="${RUNNER_TEMP}/denote-dmg"
+          mkdir "$mount"
+          image="$(find src-tauri/target/${{ matrix.target }}/release/bundle/dmg -name '*.dmg' -print -quit)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$image"
+          trap 'hdiutil detach "$mount"' EXIT
+          root="$(find "$mount" -path "*/Contents/Resources/tools/${{ matrix.target }}" -type d -print -quit)"
+          test -n "$root"
+          test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          archive_root="src-tauri/target/bundled-tools/${{ matrix.target }}"
+          extracted="${RUNNER_TEMP}/denote-tools"
+          mkdir "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-git.tar.gz" -C "$extracted"
+          tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-gh.tar.gz" -C "$extracted"
+          "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
+          "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
+          codesign --verify --deep --strict "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
+          spctl --assess --type execute "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
+
+      - name: Smoke test installed Windows package
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem "src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi" | Select-Object -First 1
+          $destination = Join-Path $env:RUNNER_TEMP "denote-msi"
+          Start-Process msiexec.exe -Wait -NoNewWindow -ArgumentList @(
+            "/a", "`"$($msi.FullName)`"", "/qn", "TARGETDIR=`"$destination`""
+          )
+          $integrity = Get-ChildItem $destination -Recurse -Filter integrity.json |
+            Where-Object FullName -Like "*\tools\${{ matrix.target }}\integrity.json" |
+            Select-Object -First 1
+          if (-not $integrity) { throw "Bundled tools are missing from the MSI." }
+          $root = $integrity.Directory.FullName
+          if (Get-ChildItem $root -Filter *.tar.gz) {
+            throw "Bundled tool archives must not be installed before the user selects Bundled mode."
+          }
+          $archiveRoot = "src-tauri/target/bundled-tools/${{ matrix.target }}"
+          $tools = Join-Path $env:RUNNER_TEMP "denote-tools"
+          New-Item -ItemType Directory -Path $tools | Out-Null
+          tar -xzf (Join-Path $archiveRoot "denote-tools-${{ matrix.target }}-git.tar.gz") -C $tools
+          tar -xzf (Join-Path $archiveRoot "denote-tools-${{ matrix.target }}-gh.tar.gz") -C $tools
+          & (Join-Path $tools "git\cmd\git.exe") --version |
+            Select-String -SimpleMatch "git version 2.55.0"
+          & (Join-Path $tools "gh\bin\gh.exe") version |
+            Select-String -SimpleMatch "gh version 2.99.0"
+          $signature = Get-AuthenticodeSignature $msi.FullName
+          if ($signature.Status -ne "Valid") {
+            throw "The MSI does not have a valid Authenticode signature."
+          }
+
+      - name: Generate bundled tools SBOM
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0
+        with:
+          path: src-tauri/resources/tools/${{ matrix.target }}
+          format: spdx-json
+          output-file: bundled-tools-${{ matrix.artifact }}.spdx.json
+          upload-artifact: false
+
+      - name: Write release checksums
+        shell: bash
+        run: |
+          find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f -print0 |
+            sort -z |
+            xargs -0 shasum -a 256 > "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
+          shasum -a 256 "bundled-tools-${{ matrix.artifact }}.spdx.json" \
+            >> "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
+          shasum -a 256 src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz \
+            >> "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
+
+      - name: Attest release bundles
+        uses: actions/attest-build-provenance@43d14bc2b83dec42d39ecae14e916627a18bb661 # v3
+        with:
+          subject-path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+            src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+
+      - name: Attest release SBOM
+        uses: actions/attest-sbom@51e74621a501c89df81fc1391c5a8f4cfc9fab2f # v3
+        with:
+          subject-path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+            src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+          sbom-path: bundled-tools-${{ matrix.artifact }}.spdx.json
+
+      - name: Stage supply-chain metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-supply-chain
+          path: |
+            bundled-tools-${{ matrix.artifact }}.spdx.json
+            denote-${{ matrix.artifact }}-SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Stage on-demand bundled tools
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-bundled-tools
+          path: src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
 
       - name: Stage AppImage
         if: runner.os == 'Linux'
@@ -280,6 +484,27 @@ jobs:
           pattern: denote-*
           path: release-assets
           merge-multiple: true
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          persist-credentials: false
+          clean: false
+
+      - name: Stage corresponding Git source and legal notices
+        shell: bash
+        run: |
+          curl --fail --location --max-redirs 3 --proto '=https' --tlsv1.2 \
+            --output release-assets/git-2.55.0.tar.gz \
+            https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.gz
+          echo "0842dc384a23ac33ba3e570c4f3a8ded85963ee4713b1cd21153c3db41813d1e  release-assets/git-2.55.0.tar.gz" |
+            shasum -a 256 --check
+          curl --fail --location --max-redirs 3 --proto '=https' --tlsv1.2 \
+            --output release-assets/git-2.55.0.tar.sign \
+            https://www.kernel.org/pub/software/scm/git/git-2.55.0.tar.sign
+          echo "8673501946204c38ebfed09603c1f3a041ed8d12b31f0aa06a474d41e359e254  release-assets/git-2.55.0.tar.sign" |
+            shasum -a 256 --check
+          cp bundled-tools.lock.json docs/legal/bundled-tools/* release-assets/
 
       - name: Create release with all bundles
         env:

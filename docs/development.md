@@ -9,6 +9,8 @@ for your operating system, Node.js 24.15 or newer, and stable Rust.
 
 ```bash
 npm ci
+npm run prepare:bundled-tools
+npm run verify:bundled-tools
 npm run tauri dev
 ```
 
@@ -16,6 +18,7 @@ npm run tauri dev
 
 ```bash
 npm test
+npm run verify:bundled-tools
 npm run build
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
@@ -28,6 +31,23 @@ editor/plugin import boundaries separately with:
 ```bash
 npm run check:plugins
 ```
+
+Bundled tool preparation accepts an explicit release target:
+
+```bash
+npm run prepare:bundled-tools -- --target aarch64-apple-darwin
+npm run verify:bundled-tools -- --target aarch64-apple-darwin
+```
+
+The immutable inputs live in `bundled-tools.lock.json`. Preparation never
+resolves `latest`; it verifies bounded downloads, release provenance, archive
+paths, the installed tree, executable permissions, and exact Git/gh versions.
+The generated `src-tauri/resources/tools/` and
+`src-tauri/target/bundled-tools/` trees are ignored and must not be committed.
+The resource tree contains only the anchored integrity manifest and legal
+material. The target tree contains the Git and gh release archives. Denote
+downloads the matching published archive only for Bundled mode, then extracts it
+atomically into application data on first required use.
 
 Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must
@@ -89,6 +109,12 @@ npm run tauri build
 
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
+
+Release builds additionally require Apple signing/notarization secrets and a
+Windows PFX for Authenticode. They prepare and verify on-demand tool assets for
+each target, assert installed packages contain metadata but no tool archive,
+generate checksums and SPDX SBOMs, attest bundles and tool assets, and publish
+Git's corresponding source archive and signature.
 
 ## Extend core syntax highlighting
 

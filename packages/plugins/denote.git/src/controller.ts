@@ -657,7 +657,22 @@ export class GitRepositoryController {
       }
       case "commit":
         await this.withOperation(git, (capability, generation) =>
-          this.commit(capability, generation, text(action, "message")),
+          this.commit(
+            capability,
+            generation,
+            text(action, "message"),
+          ),
+        );
+        return;
+      case "commit-and-push":
+        await this.withOperation(git, (capability, generation) =>
+          this.commitAndPush(
+            capability,
+            generation,
+            text(action, "message"),
+            text(action, "remote"),
+            text(action, "branch"),
+          ),
         );
         return;
       case "open-diff":
@@ -734,6 +749,25 @@ export class GitRepositoryController {
       case "delete-branch":
         await this.withOperation(git, (capability, generation) =>
           this.deleteBranch(capability, generation, text(action, "name")),
+        );
+        return;
+      case "rename-remote-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.renameRemoteBranch(
+            capability,
+            generation,
+            text(action, "name"),
+            text(action, "newName"),
+          ),
+        );
+        return;
+      case "delete-remote-branch":
+        await this.withOperation(git, (capability, generation) =>
+          this.deleteRemoteBranch(
+            capability,
+            generation,
+            text(action, "name"),
+          ),
         );
         return;
       case "branch-switch-commit":
@@ -1648,6 +1682,63 @@ export class GitRepositoryController {
     await this.refresh(git, generation);
   }
 
+  private async commitAndPush(
+    git: PluginGitCapability,
+    generation: number,
+    message: string,
+    remote: string,
+    branch: string,
+  ): Promise<void> {
+    const name = requireRemote(remote);
+    const target = requireBranch(branch);
+    const trimmed = message.trim();
+    if (!trimmed) {
+      throw new GitRefused("A commit needs a message.");
+    }
+    const staged =
+      this.current.resourceGroups.find((group) => group.kind === "staged")
+        ?.resources.length ?? 0;
+    if (staged === 0) {
+      throw new GitRefused(
+        "Stage at least one change before committing and pushing.",
+      );
+    }
+    const settings = readGitSettings(await this.options.readSettings());
+    let committed = false;
+    try {
+      await this.perform(git, generation, "Committing staged changes", {
+        operation: "commit",
+        scope: this.scope.kind,
+        message: trimmed,
+        ...(settings.identity
+          ? {
+              authorName: settings.identity.authorName,
+              authorEmail: settings.identity.authorEmail,
+            }
+          : {}),
+      });
+      committed = true;
+      await this.perform(git, generation, `Pushing ${target} to ${name}`, {
+        operation: "push",
+        scope: this.scope.kind,
+        remote: name,
+        branch: target,
+        setUpstream: this.current.repository.upstream === null,
+        mode: "normal",
+        authMode: settings.authMode,
+      });
+    } finally {
+      if (committed && generation === this.generation) {
+        await this.refresh(git, generation);
+      }
+    }
+    this.reviewed(
+      "Commit and push",
+      "succeeded",
+      `Committed staged changes and pushed ${target} to ${name}.`,
+    );
+  }
+
   /**
    * Creates a branch from the current branch, a local branch, or a
    * remote-tracking branch, and optionally checks it out straight away.
@@ -1840,6 +1931,79 @@ export class GitRepositoryController {
     );
   }
 
+  private async renameRemoteBranch(
+      git: PluginGitCapability,
+      generation: number,
+      name: string,
+      newName: string,
+    ): Promise<void> {
+      const branch = this.requireRemoteBranch(name);
+      const renamed = requireBranchName(newName, "A rename needs a new name.");
+      if (branch.name === renamed) {
+        throw new GitRefused(`${name} already has that name.`);
+      }
+      const authMode = await this.authMode();
+      try {
+        await this.perform(git, generation, `Renaming ${name}`, {
+          operation: "rename-remote-branch",
+          scope: this.scope.kind,
+          remote: branch.remote,
+          name: branch.name,
+          newName: renamed,
+          authMode,
+        });
+      } catch (error) {
+        await this.refresh(git, generation);
+        throw error;
+      }
+      await this.refresh(git, generation);
+      this.reviewed(
+        "Rename remote branch",
+        "succeeded",
+        `${name} is now ${branch.remote}/${renamed}.`,
+      );
+    }
+
+  private async deleteRemoteBranch(
+      git: PluginGitCapability,
+      generation: number,
+      name: string,
+    ): Promise<void> {
+      const branch = this.requireRemoteBranch(name);
+      const authMode = await this.authMode();
+      await this.perform(git, generation, `Deleting ${name}`, {
+        operation: "delete-remote-branch",
+        scope: this.scope.kind,
+        remote: branch.remote,
+        name: branch.name,
+        authMode,
+      });
+      await this.refresh(git, generation);
+      this.reviewed(
+        "Delete remote branch",
+        "succeeded",
+        `${name} was deleted from ${branch.remote}. Local branches are unchanged.`,
+      );
+    }
+
+  private requireRemoteBranch(value: string): {
+      remote: string;
+      name: string;
+    } {
+      const known = this.current.branches.find(
+        (branch) => branch.remote && branch.name === value,
+      );
+      const separator = value.indexOf("/");
+      if (!known || separator <= 0 || separator === value.length - 1) {
+        throw new GitRefused(
+          `${value || "That branch"} is not a remote branch in this repository. Refresh and try again.`,
+        );
+      }
+      return {
+        remote: value.slice(0, separator),
+        name: value.slice(separator + 1),
+      };
+    }
   /**
    * Reads the working tree before a checkout and decides whether the checkout
    * may run at all.

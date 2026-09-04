@@ -9,6 +9,7 @@ mod lifecycle;
 mod package;
 mod sandbox;
 mod settings;
+mod tools;
 mod types;
 
 #[cfg(test)]
@@ -21,6 +22,7 @@ mod git_tests;
 mod tests;
 
 pub use commands::*;
+pub use tools::ToolStatus;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};
@@ -46,6 +48,7 @@ use crate::error::{AppError, AppResult};
 struct PluginManagerInner {
     app_data_dir: PathBuf,
     app_cache_dir: PathBuf,
+    resource_dir: PathBuf,
     catalog: Vec<PluginCatalogEntry>,
     bundles: Vec<PluginBundle>,
     bundle_error: Option<String>,
@@ -91,10 +94,20 @@ impl Drop for PluginOperation {
 }
 
 impl PluginManager {
+    #[cfg(test)]
     pub fn new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> Self {
+        Self::with_resource_dir(app_data_dir, app_cache_dir, PathBuf::new())
+    }
+
+    pub fn with_resource_dir(
+        app_data_dir: PathBuf,
+        app_cache_dir: PathBuf,
+        resource_dir: PathBuf,
+    ) -> Self {
         let (manager, initialized) = match Self::try_new(
             app_data_dir.clone(),
             app_cache_dir.clone(),
+            resource_dir.clone(),
         ) {
             Ok(manager) => (manager, true),
             Err(error) => {
@@ -104,6 +117,7 @@ impl PluginManager {
                             inner: Arc::new(PluginManagerInner {
                                 app_data_dir,
                                 app_cache_dir,
+                                resource_dir,
                                 catalog: vec![],
                                 bundles: vec![],
                                 bundle_error: Some(
@@ -138,7 +152,11 @@ impl PluginManager {
         manager
     }
 
-    fn try_new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> AppResult<Self> {
+    fn try_new(
+        app_data_dir: PathBuf,
+        app_cache_dir: PathBuf,
+        resource_dir: PathBuf,
+    ) -> AppResult<Self> {
         let catalog: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON)
             .map_err(|error| AppError::Plugin(format!("Invalid embedded catalog: {error}")))?;
         validate_catalog(&catalog)?;
@@ -221,6 +239,7 @@ impl PluginManager {
             inner: Arc::new(PluginManagerInner {
                 app_data_dir,
                 app_cache_dir,
+                resource_dir,
                 catalog,
                 bundles,
                 bundle_error,

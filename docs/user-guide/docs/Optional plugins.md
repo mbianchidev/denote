@@ -78,7 +78,9 @@ These capabilities are planned as separately enabled plugins:
 
 **Git vault versioning** is now in the catalog. Enable it to get one Git view in
 the activity rail that lists the vault root and every configured project root
-with a safe `.git` marker. Select one repository, then refresh or initialize it with your configured
+with a safe `.git` marker. Select one repository. Denote performs one read-only refresh when the provider
+first appears, so repository status is available immediately; you can still
+refresh or initialize it with your configured
 default branch, stage and unstage a file, commit staged changes with an optional
 configured author identity, and cancel a running operation. Enabling it does not
 run Git or change your vault, and it asks for no network, process, or
@@ -98,7 +100,7 @@ index in the meantime Denote leaves that index untouched and tells you so.
 Changing any plugin setting reloads the plugin so the new interval, message, or
 prefixes apply straight away.
 
-You can also work with remotes. The Branches tab adds a remote, changes a
+You can also work with remotes. The Repository tab adds a remote, changes a
 remote's URL, and removes one, and the repository section fetches, pulls, and
 pushes. Denote never does any of that on its own. A pull, a push, a URL change,
 and a remote removal each ask you first and name the exact remote, URL, and
@@ -130,17 +132,13 @@ separate confirmation and deletes only that one folder. Denote never cleans it
 up for you. A cloned vault that is encrypted opens on the usual unlock screen,
 so no note is shown before you unlock it.
 
-The Branches tab does branch work. You can create a branch from the branch you
-are on, from another local branch, or from a remote-tracking branch, and check
-it out straight away if you want to. You can switch to a local branch, rename
-one, and delete one. Checking out a remote branch creates a local branch that
-follows it: Denote proposes the name by dropping the remote, lets you change it,
-and tells you when that name is already taken rather than quietly reusing an
-existing branch. Renaming and deleting only ever touch local branches, Denote
-refuses to delete the branch you are on, and nothing ever switches on its own
-after a fetch, a remote update, or startup. Each of these asks first and names
-the exact branch you are leaving and the one you are going to; deleting asks a
-dangerous confirmation.
+The current branch control does branch work inside the Git view. You can create
+from the branch you are on, another local branch, or a remote-tracking branch,
+and switch immediately. The single searchable list labels Local and Remote
+entries. Edit and trash buttons rename or delete either kind after confirmation.
+Denote refuses to delete the local branch you are on. A remote rename creates
+the replacement first and reports a partial result if removing the old name
+fails. Nothing switches on its own after a fetch, remote update, or startup.
 
 The main Changes view keeps common work close together: select or create and
 switch a branch, pull, stage or unstage one file or all eligible files, type a
@@ -149,10 +147,12 @@ current upstream version; **Restore from remote** does the same for all tracked
 staged and unstaged changes. Both require a dangerous confirmation and never
 delete untracked files.
 
-Select the current branch button to open the branch picker. Search for a local
-branch and select it to switch, choose a remote branch to create its proposed
-local tracking branch, or type a new name and choose any local or remote
-**Create from** point. Creating always switches to the new branch. Denote still
+Select the current branch button to open the branch picker inside the Git view.
+It is one searchable list with explicit Local and Remote labels. Select a local
+branch to switch, choose a remote branch to create its proposed local tracking
+branch, or type a new name and choose any local or remote **Create from** point.
+Edit and trash buttons rename or delete the exact local or remote branch after
+confirmation. Creating always switches to the new branch. Denote still
 saves open notes, reviews dirty work, and asks for confirmation before the
 checkout changes files.
 
@@ -162,18 +162,35 @@ the main editor using Pierre Diffs. File and hunk stage/unstage actions stay
 above the patch. Closing the tab closes the provider's diff selection, and the
 tab is not saved into the vault or restored next session.
 
-Under plugin settings, **Use system Git settings** is on by default. Denote
+Under plugin settings, **Git source** defaults to **Bundled** and can be changed
+explicitly to **System** or **Custom**. **GitHub CLI source** defaults to
+**Disabled** and can be changed to **Bundled**, **System**, or **Custom**.
+Denote never falls back between sources. A Bundled archive is downloaded only
+when that mode is selected and an action first needs the tool. System, Custom,
+and Disabled never download it. Before then, settings show the locked version
+as **not downloaded**. Custom paths must be absolute and pass a version probe.
+Generic Git actions never require GitHub CLI; GitHub-only actions tell you when
+to enable and configure it.
+
+**Use system Git settings** is on by default. Denote
 imports only bounded allowlisted identity, credential-helper, line-ending, and
 GPG values into its hardened Git process. Manual commits can follow the system
 signing default, always sign, or never sign. The optional GPG key field is masked;
 your system GPG agent or pinentry asks for the passphrase, which Denote never
 stores. Automatic commits remain unsigned.
 
-For an encrypted SSH signing key, enter its passphrase in the optional
-password-style field under the manual commit message. Denote uses it for that
-commit only and clears it immediately; the plugin never receives it. Leave it
-empty when your SSH agent already has the key, or when OpenPGP/X.509 signing uses
-the system GPG agent or pinentry.
+The manual commit form provides **Sign commit**, enabled by default for each
+submission, plus **Commit** and **Commit and push**. Turn signing off for an
+unsigned commit. For an encrypted SSH signing key, enter its passphrase in the
+password-style field that appears while signing is selected. Denote uses it for
+that commit only and clears it immediately; the plugin never receives it. Leave
+it empty when your SSH agent already has the key, or when OpenPGP/X.509 signing
+uses the system GPG agent or pinentry.
+
+Plugin icons in the activity rail can be reordered by dragging. **Organize
+plugins** also provides keyboard move controls, optional group names, group
+collapse/expand controls, and a **Hidden plugins** section for restoring hidden
+entries. These preferences affect only the local sidebar.
 
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and
