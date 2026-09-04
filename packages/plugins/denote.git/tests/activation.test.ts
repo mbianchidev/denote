@@ -166,7 +166,7 @@ describe("Git plugin activation", () => {
       commitSigning: "system",
       gpgSigningKey: "",
       autoCommitIntervalMinutes: 0,
-      autoCommitMessage: "Denote automatic commit",
+      autoCommitMessage: "Denote automatic commit {timestamp}",
       includePatterns: "",
       excludePatterns: ".denote",
     });
@@ -260,7 +260,7 @@ describe("Git plugin activation", () => {
       {
         id: "denote.git.automatic-commit",
         intervalMinutes: 60,
-        message: "Denote automatic commit",
+        message: "Denote automatic commit {timestamp}",
         includePatterns: ["notes"],
         excludePatterns: [".denote"],
       },
