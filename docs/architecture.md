@@ -106,7 +106,11 @@ plugin imports of editor/Tauri internals, and direct plugin-to-plugin
 dependencies.
 
 The plugin catalog accepts metadata, not executable modules. Catalog display is
-therefore safe before enablement and cannot run plugin code.
+therefore safe before enablement and cannot run plugin code. Release preparation
+rewrites each current catalog URL to the matching versioned GitHub Release asset,
+while the source commit, byte count, and SHA-256 digest remain independently
+pinned. The downloader follows only bounded HTTPS redirects across approved
+GitHub asset hosts. Installers contain the catalog but no plugin archive.
 An enable operation must pass compatibility checks, native download, checksum
 verification, atomic installation, isolated runtime loading, exact manifest
 matching, capability construction, and activation before enabled state is
@@ -115,7 +119,8 @@ runtime, and removes package code.
 
 Disablement runs even after plugin failures: deactivation and every registered
 disposable are attempted, then the runtime is terminated and its downloaded
-package is deleted. Plugin settings and generated data use an app-data namespace
+package, per-plugin download cache, staging content, and atomic-removal backups
+are deleted. Plugin settings and generated data use an app-data namespace
 separate from the vault. Secure-storage capability is backed by an OS keychain
 namespace derived by the host from the plugin ID; plugins cannot select or list
 other namespaces. User-authored vault content is never removed with a plugin.

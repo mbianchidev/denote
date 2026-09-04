@@ -14,9 +14,9 @@ use super::{
     PluginManager, PreparedPluginTransaction,
     catalog::{catalog_fingerprint, compatibility_error},
     package::{
-        download_artifact, ensure_managed_directory, extract_archive, metadata_is_link,
-        read_packaged_manifest, reject_symlink, remove_directory_atomically, sha256_file,
-        validate_extracted_package, validate_installed_package, verify_artifact,
+        download_artifact, ensure_managed_directory, extract_archive, is_removal_backup_name,
+        metadata_is_link, read_packaged_manifest, reject_symlink, remove_directory_atomically,
+        sha256_file, validate_extracted_package, validate_installed_package, verify_artifact,
     },
     settings::{default_settings, migrate_settings, settings_schema_version},
     types::{
@@ -411,34 +411,75 @@ impl PluginManager {
 
     pub(crate) fn download_to_cache(&self, catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
         let bytes = download_artifact(catalog)?;
-        let cache_dir = self.inner.app_cache_dir.join("plugin-downloads");
+        let cache_root = self.inner.app_cache_dir.join("plugin-downloads");
+        ensure_managed_directory(&cache_root)?;
+        let cache_dir = cache_root.join(&catalog.manifest.id);
+        reject_symlink(&cache_dir)?;
         fs::create_dir_all(&cache_dir)?;
         let cache_path = cache_dir.join(format!(
-            "{}-{}-{}.tgz",
-            catalog.manifest.id,
+            "{}-{}.tgz",
             catalog.manifest.version,
             Uuid::new_v4()
         ));
-        let mut file = AtomicWriteFile::options().open(&cache_path)?;
-        file.write_all(&bytes)?;
-        file.commit()?;
-        let cached = fs::read(&cache_path)?;
-        if let Err(error) = fs::remove_file(&cache_path) {
-            eprintln!(
-                "Unable to remove plugin download cache {}: {error}",
-                cache_path.display()
-            );
+        let result = (|| {
+            let mut file = AtomicWriteFile::options().open(&cache_path)?;
+            file.write_all(&bytes)?;
+            file.commit()?;
+            Ok(fs::read(&cache_path)?)
+        })();
+        let cleanup = remove_managed_path(&cache_dir);
+        match (result, cleanup) {
+            (Ok(cached), Ok(())) => Ok(cached),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(cleanup_error)) => Err(AppError::Plugin(format!(
+                "Unable to remove plugin download cache: {cleanup_error}"
+            ))),
+            (Err(error), Err(cleanup_error)) => Err(AppError::Plugin(format!(
+                "{error}; additionally failed to remove the plugin download cache: {cleanup_error}"
+            ))),
         }
-        Ok(cached)
     }
 
     pub(crate) fn remove_package(&self, plugin_id: &str) -> AppResult<()> {
         let plugin_root = self.plugin_root(plugin_id);
-        if !plugin_root.exists() {
-            return Ok(());
+        let removal_error = if path_entry_exists(&plugin_root)? {
+            reject_symlink(&plugin_root)
+                .and_then(|_| remove_directory_atomically(&plugin_root))
+                .err()
+        } else {
+            None
+        };
+        self.remove_plugin_transient_paths(plugin_id)?;
+        if path_entry_exists(&plugin_root)? {
+            return Err(removal_error.unwrap_or_else(|| {
+                AppError::Plugin(format!(
+                    "Unable to remove plugin package {}",
+                    plugin_root.display()
+                ))
+            }));
         }
-        reject_symlink(&plugin_root)?;
-        remove_directory_atomically(&plugin_root)
+        Ok(())
+    }
+
+    fn remove_plugin_transient_paths(&self, plugin_id: &str) -> AppResult<()> {
+        let cache_root = self.inner.app_cache_dir.join("plugin-downloads");
+        ensure_managed_directory(&cache_root)?;
+        remove_managed_path(&cache_root.join(plugin_id))?;
+
+        let packages_dir = self.inner.app_data_dir.join("plugins").join("packages");
+        ensure_managed_directory(&packages_dir)?;
+        let removal_prefix = format!(".{plugin_id}.removing-");
+        for entry in fs::read_dir(packages_dir)? {
+            let entry = entry?;
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&removal_prefix)
+            {
+                remove_managed_path(&entry.path())?;
+            }
+        }
+        Ok(())
     }
 
     fn remove_installation(&self, manifest: &super::types::PluginManifest) -> AppResult<()> {
@@ -549,9 +590,6 @@ impl PluginManager {
                 catalog.manifest.permissions.iter().cloned().collect();
             let approved_permissions = self.state()?.approved_permissions.get(plugin_id).cloned();
             let artifact_hash = self.state()?.artifact_hashes.get(plugin_id).cloned();
-            let stored_catalog_fingerprint =
-                self.state()?.catalog_fingerprints.get(plugin_id).cloned();
-            let expected_catalog_fingerprint = catalog_fingerprint(catalog)?;
             let entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
             if enabled.contains(plugin_id) {
                 let active_manifest = self.recover_installed_manifest(plugin_id)?;
@@ -599,9 +637,7 @@ impl PluginManager {
                 }
                 let active_manifest = active_manifest.expect("validated installed manifest");
                 let update_available = compatibility_error(catalog).is_none()
-                    && (stored_catalog_fingerprint.as_deref()
-                        != Some(expected_catalog_fingerprint.as_str())
-                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
+                    && (artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
                         || approved_permissions.as_ref() != Some(&requested_permissions));
                 self.update_state(|state| {
                     if update_available {
@@ -619,9 +655,7 @@ impl PluginManager {
                 }
                 let update_available = compatibility_error(catalog).is_none()
                     && (approved_permissions.as_ref() != Some(&requested_permissions)
-                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
-                        || stored_catalog_fingerprint.as_deref()
-                            != Some(expected_catalog_fingerprint.as_str()));
+                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str()));
                 self.update_state(|state| {
                     if update_available {
                         state.updates_available.insert(plugin_id.clone());
@@ -733,7 +767,10 @@ impl PluginManager {
                     let metadata = fs::symlink_metadata(&child_path)?;
                     let child_name = child.file_name();
                     let child_name = child_name.to_string_lossy();
-                    if child_name.starts_with(".staging-") || child_name.starts_with(".removing-") {
+                    if child_name.starts_with(".staging-")
+                        || child_name.starts_with(".removing-")
+                        || is_removal_backup_name(&child_name)
+                    {
                         if metadata_is_link(&metadata) || metadata.is_file() {
                             fs::remove_file(child_path)?;
                         } else if metadata.is_dir() {
@@ -749,5 +786,32 @@ impl PluginManager {
             }
         }
         Ok(())
+    }
+}
+
+fn remove_managed_path(path: &std::path::Path) -> AppResult<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata_is_link(&metadata) || metadata.is_file() {
+        fs::remove_file(path)?;
+    } else if metadata.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        return Err(AppError::Plugin(format!(
+            "Unsupported plugin cleanup entry: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn path_entry_exists(path: &std::path::Path) -> AppResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
     }
 }

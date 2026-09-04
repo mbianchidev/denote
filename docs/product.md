@@ -268,8 +268,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   recovery codes, and resumable full-vault encryption and decryption.
 - Disabling vault encryption requires every encrypted file and revision to be
   decrypted successfully first.
-- The core application stays minimal. Additional capabilities are tracked as
-  optional plugins rather than bundled into the first release.
+- The core application stays minimal. It embeds only plugin catalog metadata;
+  executable plugin archives are separate, checksum-pinned GitHub Release
+  assets downloaded only after explicit installation.
 - Approved plugins may request the additive API version 1 `project-context`
   capability. It exposes only a stable opaque project ID, a vault-relative root,
   and context-change events, never an absolute path or editor implementation.
@@ -289,6 +290,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   until the replacement has downloaded, verified, activated, and committed;
   a failed or cancelled update restores that installed version. Unrelated,
   never-approved, current, or incompatible plugins are untouched.
+- Disabling a plugin removes its installed package, cached archive, staging
+  content, and removal backups. Catalog metadata remains available for a later
+  reinstall; plugin settings and generated data follow their separate cleanup
+  controls.
 - The optional **Git vault versioning** plugin is the first production catalog
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,

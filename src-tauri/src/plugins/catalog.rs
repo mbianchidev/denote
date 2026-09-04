@@ -23,6 +23,8 @@ const PLUGIN_CATEGORIES: &[&str] = &[
     "security-privacy",
     "other",
 ];
+const RELEASE_ARTIFACT_PREFIX: &str = "https://github.com/mbianchidev/denote/releases/download/";
+const RAW_ARTIFACT_PREFIX: &str = "https://raw.githubusercontent.com/mbianchidev/denote/";
 
 pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> {
     let mut ids = HashSet::new();
@@ -50,10 +52,7 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
                 .source_commit
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
-            || !entry.artifact.url.contains(&format!(
-                "/{}/plugin-artifacts/",
-                entry.provenance.source_commit
-            ))
+            || !trusted_artifact_url(entry)
             || entry.manifest.publisher.name != "Denote"
             || entry.manifest.repository != "https://github.com/mbianchidev/denote"
         {
@@ -142,6 +141,28 @@ pub(crate) fn validate_catalog(catalog: &[PluginCatalogEntry]) -> AppResult<()> 
         validate_settings(&entry.manifest, default_settings(&entry.manifest))?;
     }
     Ok(())
+}
+
+fn trusted_artifact_url(entry: &PluginCatalogEntry) -> bool {
+    let artifact_name = format!("{}-{}.tgz", entry.manifest.id, entry.manifest.version);
+    let raw_url = format!(
+        "{RAW_ARTIFACT_PREFIX}{}/plugin-artifacts/{artifact_name}",
+        entry.provenance.source_commit
+    );
+    if entry.artifact.url == raw_url {
+        return true;
+    }
+    let Some(release_path) = entry.artifact.url.strip_prefix(RELEASE_ARTIFACT_PREFIX) else {
+        return false;
+    };
+    let Some((tag, name)) = release_path.split_once('/') else {
+        return false;
+    };
+    name == artifact_name
+        && !name.contains('/')
+        && tag
+            .strip_prefix('v')
+            .is_some_and(|version| Version::parse(version).is_ok())
 }
 
 pub(crate) fn validate_bundles(

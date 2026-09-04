@@ -15,10 +15,10 @@ your notes. Actions that change vault content require both your explicit action
 and write permission.
 
 Turning a plugin off stops its isolated worker, removes its commands and views,
-and deletes its
-downloaded executable package. It never deletes notes or other user-authored
-content. Plugin settings, generated data, and saved credentials have separate,
-clearly described cleanup controls.
+and deletes its downloaded executable package, cached archive, staging content,
+and removal backups. Only its catalog listing remains for a later reinstall. It
+never deletes notes or other user-authored content. Plugin settings, generated
+data, and saved credentials have separate, clearly described cleanup controls.
 
 If a plugin is behaving badly, use **Disable all plugins** in the same settings
 section. The editor remains usable while plugin workers start, and a crashing

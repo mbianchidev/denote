@@ -90,11 +90,12 @@ DENOTE_PLUGIN_ARTIFACT_REF=$(git rev-parse HEAD) npm run package:plugins
 ```
 
 Commit the catalog-only pin separately. Existing versions retain their immutable
-URL when repackaged. CI rebuilds every plugin, validates the real entrypoint,
-checks the committed archive contents, requires a 40-character commit pin, and
-downloads every pinned URL with a timeout and strict byte bound, checks safe
-archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
-supported platforms.
+source commit when repackaged. CI rebuilds every plugin, validates the real
+entrypoint, checks the committed archive against that 40-character source
+commit, checks safe archive paths/types/sizes, and verifies catalog size and
+SHA-256 digest on all supported platforms. Set
+`DENOTE_VERIFY_REMOTE_PLUGIN_ARTIFACTS=1` to additionally verify already
+published catalog URLs.
 
 Packaging is per plugin. An unchanged manifest version must match its committed
 archive and is retained without changing its artifact bytes, URL, digest, size,
@@ -112,9 +113,9 @@ Linux.
 
 Release builds additionally require Apple signing/notarization secrets and a
 Windows PFX for Authenticode. They prepare and verify on-demand tool assets for
-each target, assert installed packages contain metadata but no tool archive,
-generate checksums and SPDX SBOMs, attest bundles and tool assets, and publish
-Git's corresponding source archive and signature.
+each target, assert installed packages contain metadata but no tool or plugin
+archive, generate checksums and SPDX SBOMs, attest bundles and tool assets, and
+publish Git's corresponding source archive and signature.
 
 ## Extend core syntax highlighting
 
@@ -154,14 +155,17 @@ npm run release -- 0.1.1 && git add . && git commit -m "Release v0.1.1" && git p
 ```
 
 The script updates `package.json`, `package-lock.json`,
-`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`, and
-`src-tauri/tauri.conf.json`.
+`src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
+`src-tauri/tauri.conf.json`, and every current plugin catalog URL. The URLs
+target the matching versioned GitHub Release while retaining each archive's
+source commit, checksum, and size.
 
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
 platform before it creates a GitHub Release. It stages Linux AppImage, Debian,
 and RPM packages, macOS Apple Silicon and Intel disk images, and Windows MSI and
-NSIS installers, then publishes them together with generated release notes.
+NSIS installers, validates the current catalog archives, then publishes the
+installers and plugin archives together with generated release notes.
 
 If a release run fails, run the **Release** workflow manually and provide the
 existing tag. Incomplete draft releases are replaced automatically after every

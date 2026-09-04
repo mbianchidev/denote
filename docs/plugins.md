@@ -60,8 +60,8 @@ The native host downloads HTTPS artifacts into application cache, enforces the
 catalog byte count and SHA-256 digest, rejects links and traversal during
 extraction, validates the packaged manifest, and atomically moves the verified
 package into application data. Failed or interrupted enablement removes staging
-content. Disablement terminates the worker before atomically removing package
-code.
+content. Disablement terminates the worker before removing package code, its
+per-plugin cached archive, staging content, and atomic-removal backups.
 
 The Settings dialog contains the searchable, category-grouped plugin manager.
 It shows catalog metadata, requested permissions, status, in-app guides,
@@ -561,9 +561,10 @@ The initial catalog is first-party only. A plugin artifact is publishable when:
 - automated JavaScript and Rust audits report no unresolved high-severity
   vulnerability;
 - the committed archive exactly matches built source;
-- its catalog entry pins an immutable repository commit and SHA-256 digest;
-- its trusted provenance publisher and source commit match the immutable
-  artifact URL;
+- its catalog entry pins an immutable repository source commit, byte size, and
+  SHA-256 digest;
+- its release URL names the exact plugin archive under the matching versioned
+  Denote GitHub Release;
 - requested permissions are minimal and accurately explained in the guide;
 - accessibility, privacy, failure, disablement, and data-cleanup behavior are
   reviewed by a Denote maintainer.
@@ -585,12 +586,12 @@ designed and reviewed.
 
 The version 1 catalog is embedded in each Denote release. New listings,
 available-version metadata, and revocations therefore arrive with an application
-update. A changed catalog fingerprint leaves a valid installed package running
-under its recorded manifest and marks the replacement available. **Review and
-update** or **Update all** downloads the new artifact, repeats permission
-approval, and keeps the installed package as the rollback target until the new
-runtime commits. Updates remain explicit foreground actions, never automatic
-background replacements.
+update. Rehosting unchanged bytes under a newer Denote release URL does not mark
+a plugin update available; a changed archive digest or permission set does.
+**Review and update** or **Update all** downloads the new artifact, repeats
+permission approval, and keeps the installed package as the rollback target
+until the new runtime commits. Updates remain explicit foreground actions,
+never automatic background replacements.
 
 `scripts/package-plugins.ts` treats every plugin version independently. When a
 source manifest version matches the catalog, the script verifies that the
@@ -598,6 +599,12 @@ committed archive still matches its source and retains the archive bytes, URL,
 digest, size, guide, and provenance unchanged. A changed package must bump only
 its own version. Packaging or pinning `denote.git` therefore cannot rewrite the
 `denote.reference` artifact or any other plugin.
+
+Release preparation rewrites every current catalog URL to
+`https://github.com/mbianchidev/denote/releases/download/<tag>/<plugin-id>-<plugin-version>.tgz`.
+The release workflow verifies the committed archive against its catalog digest
+and size, uploads it beside the desktop installers, and rejects installers that
+contain any plugin `.tgz`.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor

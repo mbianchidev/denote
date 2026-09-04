@@ -23,7 +23,9 @@ storage, telemetry, or a proprietary document format.
 
 Tagged versions are published on
 [GitHub Releases](https://github.com/mbianchidev/denote/releases) with desktop
-bundles for Linux, Windows, and both Apple Silicon and Intel Macs.
+bundles for Linux, Windows, and both Apple Silicon and Intel Macs. Optional
+plugin archives are separate release assets downloaded only when installed;
+they are not bundled in the desktop installers.
 
 ## Documentation
 
