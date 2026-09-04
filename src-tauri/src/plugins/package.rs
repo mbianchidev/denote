@@ -6,7 +6,7 @@ use std::{
 };
 
 use flate2::read::GzDecoder;
-use reqwest::blocking::Client;
+use reqwest::{Url, blocking::Client, header::LOCATION, redirect::Policy};
 use sha2::{Digest, Sha256};
 use tar::Archive;
 use uuid::Uuid;
@@ -17,63 +17,112 @@ use super::types::{
     MAX_PLUGIN_ENTRYPOINT_BYTES, MAX_PLUGIN_PACKAGE_BYTES, PluginCatalogEntry, PluginManifest,
 };
 
+const PLUGIN_DOWNLOAD_HOSTS: &[&str] = &[
+    "github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "release-assets.githubusercontent.com",
+];
+const MAX_PLUGIN_DOWNLOAD_REDIRECTS: usize = 4;
+
 pub(crate) fn download_artifact(catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
         .user_agent("Denote plugin installer")
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(Policy::none())
         .build()
         .map_err(|error| AppError::Plugin(format!("Unable to create HTTP client: {error}")))?;
-    let response = client.get(&catalog.artifact.url).send().map_err(|error| {
-        AppError::Plugin(format!(
-            "Unable to download plugin {}: {error}",
-            catalog.manifest.id
-        ))
-    })?;
-    if !response.status().is_success() {
-        return Err(AppError::Plugin(format!(
-            "Plugin download returned HTTP {} for {}",
-            response.status(),
-            catalog.manifest.id
-        )));
-    }
-    if response.url().scheme() != "https" {
-        return Err(AppError::Plugin(format!(
-            "Plugin {} download resolved to a non-HTTPS URL",
-            catalog.manifest.id
-        )));
-    }
-    if let Some(length) = response.content_length()
-        && (length > MAX_PLUGIN_PACKAGE_BYTES as u64 || length != catalog.artifact.size_bytes)
-    {
-        return Err(AppError::Plugin(format!(
-            "Plugin {} download size does not match catalog metadata",
-            catalog.manifest.id
-        )));
-    }
-    let expected_size = usize::try_from(catalog.artifact.size_bytes).map_err(|_| {
-        AppError::Plugin(format!(
-            "Plugin {} package size is unsupported",
-            catalog.manifest.id
-        ))
-    })?;
-    let mut bytes = Vec::with_capacity(expected_size);
-    response
-        .take(catalog.artifact.size_bytes + 1)
-        .read_to_end(&mut bytes)
-        .map_err(|error| {
+    let mut url = Url::parse(&catalog.artifact.url)
+        .map_err(|error| AppError::Plugin(format!("Invalid plugin download URL: {error}")))?;
+    for redirects in 0..=MAX_PLUGIN_DOWNLOAD_REDIRECTS {
+        validate_plugin_download_url(&url)?;
+        let response = client.get(url.clone()).send().map_err(|error| {
             AppError::Plugin(format!(
-                "Unable to read plugin {} download: {error}",
+                "Unable to download plugin {}: {error}",
                 catalog.manifest.id
             ))
         })?;
-    if bytes.len() != expected_size {
-        return Err(AppError::Plugin(format!(
-            "Plugin {} download size does not match catalog metadata",
-            catalog.manifest.id
-        )));
+        if response.status().is_redirection() {
+            let location = response
+                .headers()
+                .get(LOCATION)
+                .and_then(|value| value.to_str().ok())
+                .ok_or_else(|| {
+                    AppError::Plugin(format!(
+                        "Plugin {} download returned an invalid redirect",
+                        catalog.manifest.id
+                    ))
+                })?;
+            if redirects == MAX_PLUGIN_DOWNLOAD_REDIRECTS {
+                break;
+            }
+            url = url.join(location).map_err(|error| {
+                AppError::Plugin(format!(
+                    "Plugin {} download redirect is invalid: {error}",
+                    catalog.manifest.id
+                ))
+            })?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return Err(AppError::Plugin(format!(
+                "Plugin download returned HTTP {} for {}",
+                response.status(),
+                catalog.manifest.id
+            )));
+        }
+        if let Some(length) = response.content_length()
+            && (length > MAX_PLUGIN_PACKAGE_BYTES as u64 || length != catalog.artifact.size_bytes)
+        {
+            return Err(AppError::Plugin(format!(
+                "Plugin {} download size does not match catalog metadata",
+                catalog.manifest.id
+            )));
+        }
+        let expected_size = usize::try_from(catalog.artifact.size_bytes).map_err(|_| {
+            AppError::Plugin(format!(
+                "Plugin {} package size is unsupported",
+                catalog.manifest.id
+            ))
+        })?;
+        let mut bytes = Vec::with_capacity(expected_size);
+        response
+            .take(catalog.artifact.size_bytes + 1)
+            .read_to_end(&mut bytes)
+            .map_err(|error| {
+                AppError::Plugin(format!(
+                    "Unable to read plugin {} download: {error}",
+                    catalog.manifest.id
+                ))
+            })?;
+        if bytes.len() != expected_size {
+            return Err(AppError::Plugin(format!(
+                "Plugin {} download size does not match catalog metadata",
+                catalog.manifest.id
+            )));
+        }
+        return Ok(bytes);
     }
-    Ok(bytes)
+    Err(AppError::Plugin(format!(
+        "Plugin {} download exceeded the redirect limit",
+        catalog.manifest.id
+    )))
+}
+
+pub(crate) fn validate_plugin_download_url(url: &Url) -> AppResult<()> {
+    if url.scheme() != "https"
+        || url.username() != ""
+        || url.password().is_some()
+        || url.port().is_some()
+        || !url
+            .host_str()
+            .is_some_and(|host| PLUGIN_DOWNLOAD_HOSTS.contains(&host))
+    {
+        return Err(AppError::Plugin(
+            "Plugin download URL is outside the approved GitHub HTTPS hosts".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) fn verify_artifact(catalog: &PluginCatalogEntry, bytes: &[u8]) -> AppResult<()> {
@@ -216,10 +265,18 @@ pub(crate) fn remove_directory_atomically(path: &Path) -> AppResult<()> {
     let parent = path
         .parent()
         .ok_or_else(|| AppError::Plugin("Plugin folder has no parent".to_string()))?;
-    let removing = parent.join(format!(".removing-{}", Uuid::new_v4()));
+    let name = path
+        .file_name()
+        .ok_or_else(|| AppError::Plugin("Plugin folder has no name".to_string()))?
+        .to_string_lossy();
+    let removing = parent.join(format!(".{name}.removing-{}", Uuid::new_v4()));
     fs::rename(path, &removing)?;
     fs::remove_dir_all(removing)?;
     Ok(())
+}
+
+pub(crate) fn is_removal_backup_name(name: &str) -> bool {
+    name.starts_with('.') && name.contains(".removing-")
 }
 
 pub(crate) fn reject_symlink(path: &Path) -> AppResult<()> {

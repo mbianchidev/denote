@@ -20,6 +20,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "packages", "plugins");
 const requireArtifacts = process.argv.includes("--artifacts");
 const errors: string[] = [];
+const RELEASE_TAG_PATTERN =
+  /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 const catalog = readCatalog();
 validateBundles(catalog);
 const validatedPluginIds = new Set<string>();
@@ -345,21 +347,27 @@ function readCatalog(): PluginCatalogEntry[] {
   for (const [index, entry] of value.entries()) {
     try {
       assertValidPluginCatalogEntry(entry);
-      if (
-        !/^https:\/\/raw\.githubusercontent\.com\/mbianchidev\/denote\/[0-9a-f]{40}\/plugin-artifacts\/[^/]+\.tgz$/.test(
-          entry.artifact.url,
-        )
-      ) {
+      if (!/^[0-9a-f]{40}$/.test(entry.provenance.sourceCommit)) {
         throw new Error(
-          "Artifact URL must use an immutable 40-character commit SHA.",
+          "provenance.sourceCommit must be a 40-character commit SHA.",
         );
       }
-      const artifactCommit = entry.artifact.url.match(
-        /\/([0-9a-f]{40})\/plugin-artifacts\//,
-      )?.[1];
-      if (artifactCommit !== entry.provenance.sourceCommit) {
+      const artifactName = `${entry.manifest.id}-${entry.manifest.version}.tgz`;
+      const rawUrl =
+        `https://raw.githubusercontent.com/mbianchidev/denote/${entry.provenance.sourceCommit}/plugin-artifacts/${artifactName}`;
+      const releasePrefix =
+        "https://github.com/mbianchidev/denote/releases/download/";
+      const releasePath = entry.artifact.url.startsWith(releasePrefix)
+        ? entry.artifact.url.slice(releasePrefix.length)
+        : "";
+      const releaseParts = releasePath.split("/");
+      const validReleaseUrl =
+        releaseParts.length === 2 &&
+        RELEASE_TAG_PATTERN.test(releaseParts[0]) &&
+        releaseParts[1] === artifactName;
+      if (entry.artifact.url !== rawUrl && !validReleaseUrl) {
         throw new Error(
-          "Artifact URL commit must match provenance.sourceCommit.",
+          "Artifact URL must use the pinned source commit or an exact versioned Denote release asset.",
         );
       }
       if (

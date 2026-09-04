@@ -57,6 +57,7 @@ const PERMISSION_LABELS: Record<string, string> = {
 interface PluginSettingsPanelProps {
   plugins: PluginView[];
   bundles: PluginBundleMetadata[];
+  developmentSupported?: boolean;
   activeProject: ProjectRoot | null;
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -67,6 +68,7 @@ interface PluginSettingsPanelProps {
   onDisable: (pluginId: string) => Promise<void>;
   onDisableAll: () => Promise<void>;
   onUpdateAll: () => Promise<void>;
+  onLoadDevelopment?: () => Promise<void>;
   onClearData: (pluginId: string) => Promise<void>;
   onClearCredentials: (pluginId: string) => Promise<void>;
   onUpdateSettings: (
@@ -86,6 +88,7 @@ interface PluginSettingsPanelProps {
 export function PluginSettingsPanel({
   plugins,
   bundles,
+  developmentSupported = false,
   activeProject,
   loading,
   busyPluginIds,
@@ -93,6 +96,7 @@ export function PluginSettingsPanel({
   onDisable,
   onDisableAll,
   onUpdateAll,
+  onLoadDevelopment = async () => {},
   onClearData,
   onClearCredentials,
   onUpdateSettings,
@@ -243,6 +247,16 @@ export function PluginSettingsPanel({
           </p>
         </div>
         <div className="plugin-settings__header-actions">
+          {developmentSupported ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void onLoadDevelopment().catch(onError)}
+            >
+              <FolderOpen aria-hidden="true" size={14} />
+              Load local plugin archive
+            </button>
+          ) : null}
           {approvedUpdates.length > 0 ? (
             <button
               type="button"
@@ -425,12 +439,24 @@ export function PluginSettingsPanel({
                         <div>
                           <dt>Trust</dt>
                           <dd>
-                            {plugin.catalog.provenance.trusted
+                            {plugin.development
+                              ? "Local development archive"
+                              : plugin.catalog.provenance.trusted
                               ? `Verified ${plugin.catalog.provenance.publisherId}`
                               : "Untrusted"}
                           </dd>
                         </div>
                       </dl>
+                      {plugin.development ? (
+                        <div className="notice-block notice-block--info">
+                          <Info aria-hidden="true" size={15} />
+                          <p>
+                            This archive is trusted only for this development
+                            session. Disable the plugin before loading a rebuilt
+                            archive with the same ID.
+                          </p>
+                        </div>
+                      ) : null}
                       {plugin.error ? (
                         <p className="plugin-card__error" role="alert">
                           {plugin.error}
@@ -656,9 +682,10 @@ export function PluginSettingsPanel({
                               : "Approve permissions?"}
                           </h6>
                           <p>
-                            Denote will download and verify the package, then run
-                            it in an isolated worker. An installed version remains
-                            available unless the update completes successfully.
+                            Denote will {plugin.development ? "verify" : "download and verify"} the
+                            package, then run it in an isolated worker. An
+                            installed version remains available unless the update
+                            completes successfully.
                           </p>
                           {pluginId === "denote.git" ? (
                             <div className="notice-block notice-block--info">

@@ -32,6 +32,7 @@ export interface PluginController {
   decorations: PluginDecorationContribution[];
   sourceControlProviders: PluginSourceControlContribution[];
   automaticLocalCommits: PluginAutomaticLocalCommitContribution[];
+  developmentSupported: boolean;
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
@@ -42,6 +43,7 @@ export interface PluginController {
   disable: (pluginId: string) => Promise<void>;
   disableAll: () => Promise<void>;
   updateAll: () => Promise<void>;
+  loadDevelopmentPlugin: () => Promise<void>;
   clearData: (pluginId: string) => Promise<void>;
   clearCredentials: (pluginId: string) => Promise<void>;
   updateSettings: (
@@ -402,6 +404,13 @@ export function usePlugins(
     }
   }, [enable, plugins]);
 
+  const loadDevelopmentPlugin = useCallback(async () => {
+    const pluginId = await api.chooseDevelopmentPluginArchive();
+    if (pluginId) {
+      await refresh();
+    }
+  }, [refresh]);
+
   const clearData = useCallback(
     async (pluginId: string) => {
       await withBusy(pluginId, async () => {
@@ -588,6 +597,7 @@ export function usePlugins(
     decorations,
     sourceControlProviders,
     automaticLocalCommits,
+    developmentSupported: import.meta.env.DEV,
     loading,
     busyPluginIds,
     refresh,
@@ -595,6 +605,7 @@ export function usePlugins(
     disable,
     disableAll,
     updateAll,
+    loadDevelopmentPlugin,
     clearData,
     clearCredentials,
     updateSettings,

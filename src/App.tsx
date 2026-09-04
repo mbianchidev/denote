@@ -8850,6 +8850,7 @@ function App() {
         allowAllExternalDomains={externalDomainPolicy.allowAll}
         plugins={pluginController.plugins}
         pluginBundles={pluginController.bundles}
+        pluginDevelopmentSupported={pluginController.developmentSupported}
         activeProject={activeProject}
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}
@@ -8861,6 +8862,7 @@ function App() {
         onDisablePlugin={pluginController.disable}
         onDisableAllPlugins={pluginController.disableAll}
         onUpdateAllPlugins={pluginController.updateAll}
+        onLoadDevelopmentPlugin={pluginController.loadDevelopmentPlugin}
         onClearPluginData={pluginController.clearData}
         onClearPluginCredentials={pluginController.clearCredentials}
         onUpdatePluginSettings={pluginController.updateSettings}

@@ -11,7 +11,6 @@ pub(crate) const MAX_PLUGIN_SETTINGS_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_PLUGIN_STORAGE_VALUE_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_PLUGIN_STORAGE_BYTES: usize = 2 * 1024 * 1024;
 pub(crate) const MAX_PLUGIN_STORAGE_KEYS: usize = 256;
-pub(crate) const KEYCHAIN_SERVICE_PREFIX: &str = "dev.denote.plugin";
 pub(crate) const PLUGIN_API_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -115,6 +114,7 @@ pub struct PluginBundle {
 #[serde(rename_all = "camelCase")]
 pub struct PluginView {
     pub catalog: PluginCatalogEntry,
+    pub development: bool,
     pub runtime_manifest: Option<PluginManifest>,
     pub status: String,
     pub enabled: bool,
@@ -177,6 +177,7 @@ pub struct PluginTextDocument {
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct PersistentPluginState {
     pub(crate) enabled: BTreeSet<String>,
+    pub(crate) development_plugin_ids: BTreeSet<String>,
     pub(crate) updates_available: BTreeSet<String>,
     pub(crate) approved_permissions: BTreeMap<String, BTreeSet<PluginPermission>>,
     pub(crate) artifact_hashes: BTreeMap<String, String>,

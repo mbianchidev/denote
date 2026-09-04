@@ -21,10 +21,9 @@ use super::{
     PluginManager,
     settings::validate_storage_key,
     types::{
-        CredentialLedger, InstalledPlugin, KEYCHAIN_SERVICE_PREFIX, MAX_PLUGIN_STORAGE_BYTES,
-        MAX_PLUGIN_STORAGE_KEYS, MAX_PLUGIN_STORAGE_VALUE_BYTES, PluginCatalogEntry,
-        PluginNetworkRequest, PluginNetworkResponse, PluginPermission, PluginProcessRequest,
-        PluginProcessResult,
+        CredentialLedger, InstalledPlugin, MAX_PLUGIN_STORAGE_BYTES, MAX_PLUGIN_STORAGE_KEYS,
+        MAX_PLUGIN_STORAGE_VALUE_BYTES, PluginCatalogEntry, PluginNetworkRequest,
+        PluginNetworkResponse, PluginPermission, PluginProcessRequest, PluginProcessResult,
     },
 };
 
@@ -32,7 +31,7 @@ impl PluginManager {
     pub(crate) fn secret_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<String>> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
         validate_storage_key(key)?;
-        let entry = keychain_entry(plugin_id, key)?;
+        let entry = keychain_entry(&self.inner.keychain_service, plugin_id, key)?;
         match entry.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
@@ -60,7 +59,7 @@ impl PluginManager {
                 Ok(())
             })?;
         }
-        keychain_entry(plugin_id, key)?
+        keychain_entry(&self.inner.keychain_service, plugin_id, key)?
             .set_password(value)
             .map_err(|error| {
                 AppError::Plugin(format!(
@@ -86,7 +85,7 @@ impl PluginManager {
     pub(crate) fn secret_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
         validate_storage_key(key)?;
-        delete_keychain_entry(plugin_id, key)?;
+        delete_keychain_entry(&self.inner.keychain_service, plugin_id, key)?;
         self.update_credential_state(|state| {
             if let Some(keys) = state.credential_keys.get_mut(plugin_id) {
                 keys.remove(key);
@@ -114,7 +113,7 @@ impl PluginManager {
         );
         drop(state);
         for key in &keys {
-            delete_keychain_entry(plugin_id, key)?;
+            delete_keychain_entry(&self.inner.keychain_service, plugin_id, key)?;
         }
         self.update_credential_state(|state| {
             state.credential_keys.remove(plugin_id);
@@ -531,21 +530,21 @@ pub(crate) fn enforce_storage_quota(
     Ok(())
 }
 
-pub(crate) fn keychain_entry(plugin_id: &str, key: &str) -> AppResult<Entry> {
+pub(crate) fn keychain_entry(service: &str, plugin_id: &str, key: &str) -> AppResult<Entry> {
     let mut identifier = Sha256::new();
     identifier.update(plugin_id.as_bytes());
     identifier.update([0]);
     identifier.update(key.as_bytes());
     let account = hex::encode(identifier.finalize());
-    Entry::new(KEYCHAIN_SERVICE_PREFIX, &account).map_err(|error| {
+    Entry::new(service, &account).map_err(|error| {
         AppError::Plugin(format!(
             "Unable to access the operating-system keychain for {plugin_id}: {error}"
         ))
     })
 }
 
-pub(crate) fn delete_keychain_entry(plugin_id: &str, key: &str) -> AppResult<()> {
-    match keychain_entry(plugin_id, key)?.delete_credential() {
+pub(crate) fn delete_keychain_entry(service: &str, plugin_id: &str, key: &str) -> AppResult<()> {
+    match keychain_entry(service, plugin_id, key)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(error) => Err(AppError::Plugin(format!(
             "Unable to delete keychain entry for {plugin_id}: {error}"

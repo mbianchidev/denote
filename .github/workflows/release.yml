@@ -120,6 +120,9 @@ jobs:
       - name: Frontend tests
         run: npm test
 
+      - name: Plugin contract and release artifacts
+        run: npm run check:plugins
+
       - name: Frontend build
         run: npm run build
 
@@ -296,6 +299,7 @@ jobs:
           test -n "$integrity"
           root="$(dirname "$integrity")"
           test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          test -z "$(find "${RUNNER_TEMP}/denote-deb" -name '*.tgz' -print -quit)"
           archive_root="src-tauri/target/bundled-tools/${{ matrix.target }}"
           extracted="${RUNNER_TEMP}/denote-tools"
           mkdir "$extracted"
@@ -316,6 +320,7 @@ jobs:
           root="$(find "$mount" -path "*/Contents/Resources/tools/${{ matrix.target }}" -type d -print -quit)"
           test -n "$root"
           test -z "$(find "$root" -maxdepth 1 -name '*.tar.gz' -print -quit)"
+          test -z "$(find "$mount" -name '*.tgz' -print -quit)"
           archive_root="src-tauri/target/bundled-tools/${{ matrix.target }}"
           extracted="${RUNNER_TEMP}/denote-tools"
           mkdir "$extracted"
@@ -342,6 +347,9 @@ jobs:
           $root = $integrity.Directory.FullName
           if (Get-ChildItem $root -Filter *.tar.gz) {
             throw "Bundled tool archives must not be installed before the user selects Bundled mode."
+          }
+          if (Get-ChildItem $destination -Recurse -Filter *.tgz) {
+            throw "Plugin archives must not be bundled in the installer."
           }
           $archiveRoot = "src-tauri/target/bundled-tools/${{ matrix.target }}"
           $tools = Join-Path $env:RUNNER_TEMP "denote-tools"
@@ -505,6 +513,33 @@ jobs:
           echo "8673501946204c38ebfed09603c1f3a041ed8d12b31f0aa06a474d41e359e254  release-assets/git-2.55.0.tar.sign" |
             shasum -a 256 --check
           cp bundled-tools.lock.json docs/legal/bundled-tools/* release-assets/
+
+      - name: Stage plugin release assets
+        shell: bash
+        run: |
+          while IFS=$'\t' read -r plugin_id plugin_version expected_sha expected_size artifact_url; do
+            artifact_name="${plugin_id}-${plugin_version}.tgz"
+            artifact_path="plugin-artifacts/${artifact_name}"
+            expected_url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${artifact_name}"
+            if [[ "$artifact_url" != "$expected_url" ]]; then
+             echo "::error::${plugin_id} catalog URL does not target ${RELEASE_TAG}."
+             exit 1
+            fi
+            if [[ ! -f "$artifact_path" ]]; then
+             echo "::error::Missing plugin release asset ${artifact_path}."
+             exit 1
+            fi
+            actual_sha="$(shasum -a 256 "$artifact_path" | awk '{print $1}')"
+            actual_size="$(stat -c '%s' "$artifact_path")"
+            if [[ "$actual_sha" != "$expected_sha" || "$actual_size" != "$expected_size" ]]; then
+             echo "::error::Plugin release asset metadata is stale for ${plugin_id}."
+             exit 1
+            fi
+            cp -- "$artifact_path" "release-assets/${artifact_name}"
+          done < <(
+            jq -r '.[] | [.manifest.id, .manifest.version, .artifact.sha256, .artifact.sizeBytes, .artifact.url] | @tsv' \
+             packages/plugins/catalog.json
+          )
 
       - name: Create release with all bundles
         env:

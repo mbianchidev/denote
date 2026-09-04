@@ -43,6 +43,13 @@ describe("release version script", () => {
     expect(readFileSync(join(root, "src-tauri", "Cargo.toml"), "utf8")).toContain(
       'description = "Synthetic desktop fixture"',
     );
+    expect(
+      JSON.parse(
+        readFileSync(join(root, "packages", "plugins", "catalog.json"), "utf8"),
+      )[0].artifact.url,
+    ).toBe(
+      "https://github.com/mbianchidev/denote/releases/download/v1.4.0/synthetic.plugin-2.3.4.tgz",
+    );
   });
 
   it("checks a tag without changing files", () => {
@@ -77,15 +84,25 @@ describe("release version script", () => {
       "must contain an unprefixed semantic version",
     );
   });
+
+  it("rejects catalog URLs for a different release tag", () => {
+    const root = createFixture({ catalogReleaseVersion: "0.0.9" });
+
+    expect(() =>
+      setDenoteVersion(root, "v0.1.0", { checkOnly: true }),
+    ).toThrow("Plugin catalog URLs do not match release tag v0.1.0");
+  });
 });
 
 function createFixture({
   cargoVersion = "0.1.0",
   packageVersion = "0.1.0",
+  catalogReleaseVersion = "0.1.0",
 } = {}) {
   const root = mkdtempSync(join(tmpdir(), "denote-release-"));
   temporaryRoots.push(root);
   mkdirSync(join(root, "src-tauri"));
+  mkdirSync(join(root, "packages", "plugins"), { recursive: true });
 
   writeJson(join(root, "package.json"), {
     name: "synthetic-denote",
@@ -114,6 +131,19 @@ function createFixture({
     productName: "Synthetic Denote",
     version: "0.1.0",
   });
+  writeJson(join(root, "packages", "plugins", "catalog.json"), [
+    {
+      manifest: {
+        id: "synthetic.plugin",
+        version: "2.3.4",
+      },
+      artifact: {
+        url: `https://github.com/mbianchidev/denote/releases/download/v${catalogReleaseVersion}/synthetic.plugin-2.3.4.tgz`,
+        sha256: "0".repeat(64),
+        sizeBytes: 1,
+      },
+    },
+  ]);
 
   return root;
 }

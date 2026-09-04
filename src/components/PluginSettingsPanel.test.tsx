@@ -68,6 +68,52 @@ describe("PluginSettingsPanel", () => {
     ).toBeInTheDocument();
   });
 
+  it("loads local archives only when development support is available", async () => {
+    const user = userEvent.setup();
+    const onLoadDevelopment = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PluginSettingsPanel
+        {...props({
+          developmentSupported: true,
+          onLoadDevelopment,
+        })}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Load local plugin archive" }),
+    );
+
+    expect(onLoadDevelopment).toHaveBeenCalledOnce();
+  });
+
+  it("labels local development archives as untrusted session code", () => {
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              development: true,
+              catalog: {
+                ...catalog,
+                provenance: {
+                  publisherId: "development",
+                  sourceCommit: "0".repeat(64),
+                  trusted: false,
+                },
+              },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Local development archive")).toBeInTheDocument();
+    expect(
+      screen.getByText(/trusted only for this development session/i),
+    ).toBeInTheDocument();
+  });
+
   it("requires permission approval before enabling", async () => {
     const user = userEvent.setup();
     const onEnable = vi.fn().mockResolvedValue(undefined);

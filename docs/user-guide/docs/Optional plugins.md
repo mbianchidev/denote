@@ -15,10 +15,10 @@ your notes. Actions that change vault content require both your explicit action
 and write permission.
 
 Turning a plugin off stops its isolated worker, removes its commands and views,
-and deletes its
-downloaded executable package. It never deletes notes or other user-authored
-content. Plugin settings, generated data, and saved credentials have separate,
-clearly described cleanup controls.
+and deletes its downloaded executable package, cached archive, staging content,
+and removal backups. Only its catalog listing remains for a later reinstall. It
+never deletes notes or other user-authored content. Plugin settings, generated
+data, and saved credentials have separate, clearly described cleanup controls.
 
 If a plugin is behaving badly, use **Disable all plugins** in the same settings
 section. The editor remains usable while plugin workers start, and a crashing
@@ -197,6 +197,12 @@ Plugin icons in the activity rail can be reordered by dragging. **Organize
 plugins** also provides keyboard move controls, optional group names, group
 collapse/expand controls, and a **Hidden plugins** section for restoring hidden
 entries. These preferences affect only the local sidebar.
+
+Development builds have a **Load local plugin archive** action in this section.
+It accepts a locally built `.tgz`, labels it as a local development archive, and
+still requires permission approval before enablement. Disable it before loading
+a rebuilt archive with the same ID. Installed releases do not expose this
+action.
 
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and

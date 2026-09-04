@@ -524,6 +524,12 @@ an active project. Its Git, Terminal, Language server, Linter, Compiler, and Cod
 navigation rows use the existing status treatment for unavailable, disabled, or
 enabled states and never imply automatic installation.
 
+Only the isolated development build adds **Load local plugin archive** to the
+Plugins header. A loaded local package uses the ordinary plugin card, labels
+trust as **Local development archive**, and shows a persistent informational
+notice that it must be disabled before a rebuilt archive with the same ID is
+loaded. Release builds expose no local-package control.
+
 When an otherwise unmarked vault root safely contains a `.git` file or
 directory, a non-modal suggestion appears in the workspace chrome. It offers
 **Mark as project** and **No thanks**, never marks automatically, and disappears

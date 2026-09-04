@@ -1,83 +1,31 @@
-import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { basename, dirname, join, sep } from "node:path";
-import { fileURLToPath } from "node:url";
-import { build, type Plugin } from "vite";
-import {
-  parsePluginManifest,
-  type PluginManifest,
-} from "@denote/plugin-sdk";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import { buildPlugin, pluginDirectories } from "./plugin-build";
 
-const root = fileURLToPath(new URL("..", import.meta.url));
-const pluginsRoot = join(root, "packages", "plugins");
-const sdkRoot = realpathSync(join(root, "packages", "plugin-sdk"));
-const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => join(pluginsRoot, entry.name))
-  .sort();
-
-for (const pluginDirectory of pluginDirectories) {
-  const manifest = parseManifest(pluginDirectory);
-  const outputPath = join(pluginDirectory, manifest.entrypoint);
-  const sourcePath = join(
-    pluginDirectory,
-    manifest.entrypoint.replace(/^dist\//, "src/").replace(/\.js$/, ".ts"),
+export async function runBuildPlugins(argv: string[]): Promise<void> {
+  const pluginIndex = argv.indexOf("--plugin");
+  const pluginId = pluginIndex >= 0 ? argv[pluginIndex + 1] : undefined;
+  if (pluginIndex >= 0 && !pluginId) {
+    throw new Error("Usage: build-plugins.ts [--plugin <plugin-id>]");
+  }
+  const consumed = new Set(
+    pluginIndex >= 0 ? [pluginIndex, pluginIndex + 1] : [],
   );
-  await build({
-    configFile: false,
-    logLevel: "error",
-    plugins: [pluginBoundary(pluginDirectory, sdkRoot)],
-    build: {
-      emptyOutDir: true,
-      minify: false,
-      sourcemap: false,
-      outDir: dirname(outputPath),
-      lib: {
-        entry: sourcePath,
-        formats: ["es"],
-        fileName: () => basename(outputPath),
-      },
-      rolldownOptions: {
-        output: {
-          codeSplitting: false,
-        },
-      },
-    },
+  const remaining = argv.filter((_, index) => !consumed.has(index));
+  if (remaining.length > 0) {
+    throw new Error(`Unknown build plugin arguments: ${remaining.join(" ")}`);
+  }
+  for (const pluginDirectory of pluginDirectories(pluginId)) {
+    await buildPlugin(pluginDirectory);
+  }
+}
+
+if (
+  process.argv[1] &&
+  pathToFileURL(resolve(process.argv[1])).href === import.meta.url
+) {
+  runBuildPlugins(process.argv.slice(2)).catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
   });
-  console.log(`Built ${manifest.id}@${manifest.version}.`);
-}
-
-function parseManifest(pluginDirectory: string): PluginManifest {
-  const manifestValue: unknown = JSON.parse(
-    readFileSync(join(pluginDirectory, "plugin.json"), "utf8"),
-  );
-  return parsePluginManifest(manifestValue);
-}
-
-function pluginBoundary(pluginDirectory: string, canonicalSdkRoot: string): Plugin {
-  const canonicalRoot = realpathSync(pluginDirectory);
-  return {
-    name: "denote-plugin-boundary",
-    moduleParsed(moduleInfo) {
-      const modulePath = moduleInfo.id.split("?")[0];
-      if (
-        modulePath.startsWith("\0") ||
-        !existsSync(modulePath)
-      ) {
-        return;
-      }
-      const canonicalPath = realpathSync(modulePath);
-      if (
-        canonicalPath === canonicalRoot ||
-        canonicalPath.startsWith(`${canonicalRoot}${sep}`) ||
-        canonicalPath === canonicalSdkRoot ||
-        canonicalPath.startsWith(`${canonicalSdkRoot}${sep}`) ||
-        canonicalPath.includes(`${sep}node_modules${sep}`)
-      ) {
-        return;
-      }
-      this.error(
-        `Plugin module resolves outside its package: ${canonicalPath}.`,
-      );
-    },
-  };
 }

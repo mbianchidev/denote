@@ -16,6 +16,7 @@ const VERSION_FILES = {
   cargoToml: join("src-tauri", "Cargo.toml"),
   cargoLock: join("src-tauri", "Cargo.lock"),
   tauriConfig: join("src-tauri", "tauri.conf.json"),
+  pluginCatalog: join("packages", "plugins", "catalog.json"),
 };
 
 export function normalizeVersion(value) {
@@ -74,10 +75,17 @@ export function setDenoteVersion(
   }
 
   const currentVersion = currentVersions.values().next().value;
+  const pluginCatalog = readPluginCatalog(projectRoot);
+  const releaseCatalog = pluginCatalogForRelease(pluginCatalog, `v${version}`);
   if (checkOnly) {
     if (currentVersion !== version) {
       throw new Error(
         `Tag version ${version} does not match Denote version ${currentVersion}.`,
+      );
+    }
+    if (JSON.stringify(pluginCatalog) !== JSON.stringify(releaseCatalog)) {
+      throw new Error(
+        `Plugin catalog URLs do not match release tag v${version}. Run npm run release -- ${version}.`,
       );
     }
     return { changed: false, currentVersion, version };
@@ -88,6 +96,7 @@ export function setDenoteVersion(
   const cargoTomlPath = resolve(projectRoot, VERSION_FILES.cargoToml);
   const cargoLockPath = resolve(projectRoot, VERSION_FILES.cargoLock);
   const tauriConfigPath = resolve(projectRoot, VERSION_FILES.tauriConfig);
+  const pluginCatalogPath = resolve(projectRoot, VERSION_FILES.pluginCatalog);
 
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
   const packageLock = JSON.parse(readFileSync(packageLockPath, "utf8"));
@@ -120,10 +129,43 @@ export function setDenoteVersion(
       ),
     ],
     [tauriConfigPath, formatJson(tauriConfig)],
+    [pluginCatalogPath, formatJson(releaseCatalog)],
   ]);
   const changed = writeChangedFiles(updates);
 
   return { changed, currentVersion, version };
+}
+
+function readPluginCatalog(projectRoot) {
+  const catalog = readJson(projectRoot, VERSION_FILES.pluginCatalog);
+  if (!Array.isArray(catalog)) {
+    throw new Error("packages/plugins/catalog.json must contain an array.");
+  }
+  return catalog;
+}
+
+function pluginCatalogForRelease(catalog, releaseTag) {
+  return catalog.map((entry, index) => {
+    const id = entry?.manifest?.id;
+    const version = entry?.manifest?.version;
+    if (
+      typeof id !== "string" ||
+      typeof version !== "string" ||
+      typeof entry?.artifact?.url !== "string"
+    ) {
+      throw new Error(
+        `packages/plugins/catalog.json entry ${index} is missing manifest or artifact metadata.`,
+      );
+    }
+    const artifactName = `${id}-${version}.tgz`;
+    return {
+      ...entry,
+      artifact: {
+        ...entry.artifact,
+        url: `https://github.com/mbianchidev/denote/releases/download/${releaseTag}/${artifactName}`,
+      },
+    };
+  });
 }
 
 function readJson(projectRoot, relativePath) {

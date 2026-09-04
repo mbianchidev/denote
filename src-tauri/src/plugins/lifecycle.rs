@@ -14,9 +14,9 @@ use super::{
     PluginManager, PreparedPluginTransaction,
     catalog::{catalog_fingerprint, compatibility_error},
     package::{
-        download_artifact, ensure_managed_directory, extract_archive, metadata_is_link,
-        read_packaged_manifest, reject_symlink, remove_directory_atomically, sha256_file,
-        validate_extracted_package, validate_installed_package, verify_artifact,
+        download_artifact, ensure_managed_directory, extract_archive, is_removal_backup_name,
+        metadata_is_link, read_packaged_manifest, reject_symlink, remove_directory_atomically,
+        sha256_file, validate_extracted_package, validate_installed_package, verify_artifact,
     },
     settings::{default_settings, migrate_settings, settings_schema_version},
     types::{
@@ -35,12 +35,11 @@ impl PluginManager {
         }
         let state = self.state()?.clone();
         let pending = self.pending_transactions()?.clone();
-        self.inner
-            .catalog
-            .iter()
+        self.catalog_entries()?
+            .into_iter()
             .map(|catalog| {
                 let plugin_id = &catalog.manifest.id;
-                let compatibility_error = compatibility_error(catalog);
+                let compatibility_error = compatibility_error(&catalog);
                 let enabled = state.enabled.contains(plugin_id);
                 let prepared_permissions = pending
                     .values()
@@ -73,6 +72,7 @@ impl PluginManager {
                     "not-installed"
                 };
                 Ok(PluginView {
+                    development: self.is_development_plugin(plugin_id)?,
                     catalog: catalog.clone(),
                     runtime_manifest: runtime_manifest.clone(),
                     status: status.to_string(),
@@ -128,7 +128,7 @@ impl PluginManager {
     ) -> AppResult<InstalledPlugin> {
         let _preparation = self.preparation_lock()?;
         let mut operation = self.begin_operation(plugin_id)?;
-        let catalog = self.catalog_entry(plugin_id)?.clone();
+        let catalog = self.catalog_entry(plugin_id)?;
         if let Some(error) = compatibility_error(&catalog) {
             return Err(AppError::Plugin(error));
         }
@@ -205,7 +205,7 @@ impl PluginManager {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
         })?;
         let plugin_id = transaction.plugin_id;
-        let catalog = self.catalog_entry(&plugin_id)?.clone();
+        let catalog = self.catalog_entry(&plugin_id)?;
         self.installed_plugin(&catalog, transaction_id.to_string())?;
         let saved_settings = self.state()?.settings.get(&plugin_id).cloned();
         let saved_version = self.state()?.settings_versions.get(&plugin_id).copied();
@@ -235,6 +235,11 @@ impl PluginManager {
             state
                 .installed_manifests
                 .insert(plugin_id.clone(), catalog.manifest.clone());
+            if self.is_development_plugin(&plugin_id)? {
+                state.development_plugin_ids.insert(plugin_id.clone());
+            } else {
+                state.development_plugin_ids.remove(&plugin_id);
+            }
             state.settings.insert(plugin_id.clone(), settings.clone());
             state
                 .settings_versions
@@ -261,7 +266,7 @@ impl PluginManager {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
         })?;
         let plugin_id = transaction.plugin_id;
-        let catalog = self.catalog_entry(&plugin_id)?.clone();
+        let catalog = self.catalog_entry(&plugin_id)?;
         self.cancel_git_operations(&plugin_id);
         self.remove_installation(&catalog.manifest)?;
         self.update_state(|state| {
@@ -309,6 +314,7 @@ impl PluginManager {
             state.updates_available.remove(plugin_id);
             state.entrypoint_hashes.remove(plugin_id);
             state.installed_manifests.remove(plugin_id);
+            state.development_plugin_ids.remove(plugin_id);
             state.errors.remove(plugin_id);
             if clear_data {
                 state.settings.remove(plugin_id);
@@ -410,35 +416,79 @@ impl PluginManager {
     }
 
     pub(crate) fn download_to_cache(&self, catalog: &PluginCatalogEntry) -> AppResult<Vec<u8>> {
-        let bytes = download_artifact(catalog)?;
-        let cache_dir = self.inner.app_cache_dir.join("plugin-downloads");
+        let bytes = match self.development_artifact_bytes(&catalog.manifest.id)? {
+            Some(bytes) => bytes,
+            None => download_artifact(catalog)?,
+        };
+        let cache_root = self.inner.app_cache_dir.join("plugin-downloads");
+        ensure_managed_directory(&cache_root)?;
+        let cache_dir = cache_root.join(&catalog.manifest.id);
+        reject_symlink(&cache_dir)?;
         fs::create_dir_all(&cache_dir)?;
         let cache_path = cache_dir.join(format!(
-            "{}-{}-{}.tgz",
-            catalog.manifest.id,
+            "{}-{}.tgz",
             catalog.manifest.version,
             Uuid::new_v4()
         ));
-        let mut file = AtomicWriteFile::options().open(&cache_path)?;
-        file.write_all(&bytes)?;
-        file.commit()?;
-        let cached = fs::read(&cache_path)?;
-        if let Err(error) = fs::remove_file(&cache_path) {
-            eprintln!(
-                "Unable to remove plugin download cache {}: {error}",
-                cache_path.display()
-            );
+        let result = (|| {
+            let mut file = AtomicWriteFile::options().open(&cache_path)?;
+            file.write_all(&bytes)?;
+            file.commit()?;
+            Ok(fs::read(&cache_path)?)
+        })();
+        let cleanup = remove_managed_path(&cache_dir);
+        match (result, cleanup) {
+            (Ok(cached), Ok(())) => Ok(cached),
+            (Err(error), Ok(())) => Err(error),
+            (Ok(_), Err(cleanup_error)) => Err(AppError::Plugin(format!(
+                "Unable to remove plugin download cache: {cleanup_error}"
+            ))),
+            (Err(error), Err(cleanup_error)) => Err(AppError::Plugin(format!(
+                "{error}; additionally failed to remove the plugin download cache: {cleanup_error}"
+            ))),
         }
-        Ok(cached)
     }
 
     pub(crate) fn remove_package(&self, plugin_id: &str) -> AppResult<()> {
         let plugin_root = self.plugin_root(plugin_id);
-        if !plugin_root.exists() {
-            return Ok(());
+        let removal_error = if path_entry_exists(&plugin_root)? {
+            reject_symlink(&plugin_root)
+                .and_then(|_| remove_directory_atomically(&plugin_root))
+                .err()
+        } else {
+            None
+        };
+        self.remove_plugin_transient_paths(plugin_id)?;
+        if path_entry_exists(&plugin_root)? {
+            return Err(removal_error.unwrap_or_else(|| {
+                AppError::Plugin(format!(
+                    "Unable to remove plugin package {}",
+                    plugin_root.display()
+                ))
+            }));
         }
-        reject_symlink(&plugin_root)?;
-        remove_directory_atomically(&plugin_root)
+        Ok(())
+    }
+
+    fn remove_plugin_transient_paths(&self, plugin_id: &str) -> AppResult<()> {
+        let cache_root = self.inner.app_cache_dir.join("plugin-downloads");
+        ensure_managed_directory(&cache_root)?;
+        remove_managed_path(&cache_root.join(plugin_id))?;
+
+        let packages_dir = self.inner.app_data_dir.join("plugins").join("packages");
+        ensure_managed_directory(&packages_dir)?;
+        let removal_prefix = format!(".{plugin_id}.removing-");
+        for entry in fs::read_dir(packages_dir)? {
+            let entry = entry?;
+            if entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&removal_prefix)
+            {
+                remove_managed_path(&entry.path())?;
+            }
+        }
+        Ok(())
     }
 
     fn remove_installation(&self, manifest: &super::types::PluginManifest) -> AppResult<()> {
@@ -540,18 +590,17 @@ impl PluginManager {
     }
 
     pub(crate) fn reconcile_packages(&self) -> AppResult<()> {
+        self.remove_persisted_development_plugins()?;
         self.prune_transient_paths()?;
         let enabled = self.state()?.enabled.clone();
-        for catalog in &self.inner.catalog {
+        let catalog_entries = self.catalog_entries()?;
+        for catalog in &catalog_entries {
             let plugin_id = &catalog.manifest.id;
             let plugin_root = self.plugin_root(plugin_id);
             let requested_permissions: BTreeSet<PluginPermission> =
                 catalog.manifest.permissions.iter().cloned().collect();
             let approved_permissions = self.state()?.approved_permissions.get(plugin_id).cloned();
             let artifact_hash = self.state()?.artifact_hashes.get(plugin_id).cloned();
-            let stored_catalog_fingerprint =
-                self.state()?.catalog_fingerprints.get(plugin_id).cloned();
-            let expected_catalog_fingerprint = catalog_fingerprint(catalog)?;
             let entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
             if enabled.contains(plugin_id) {
                 let active_manifest = self.recover_installed_manifest(plugin_id)?;
@@ -599,9 +648,7 @@ impl PluginManager {
                 }
                 let active_manifest = active_manifest.expect("validated installed manifest");
                 let update_available = compatibility_error(catalog).is_none()
-                    && (stored_catalog_fingerprint.as_deref()
-                        != Some(expected_catalog_fingerprint.as_str())
-                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
+                    && (artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
                         || approved_permissions.as_ref() != Some(&requested_permissions));
                 self.update_state(|state| {
                     if update_available {
@@ -619,9 +666,7 @@ impl PluginManager {
                 }
                 let update_available = compatibility_error(catalog).is_none()
                     && (approved_permissions.as_ref() != Some(&requested_permissions)
-                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
-                        || stored_catalog_fingerprint.as_deref()
-                            != Some(expected_catalog_fingerprint.as_str()));
+                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str()));
                 self.update_state(|state| {
                     if update_available {
                         state.updates_available.insert(plugin_id.clone());
@@ -636,15 +681,14 @@ impl PluginManager {
                 self.remove_package(plugin_id)?;
             }
         }
-        let known_ids: BTreeSet<String> = self
-            .inner
-            .catalog
+        let known_ids: BTreeSet<String> = catalog_entries
             .iter()
             .map(|entry| entry.manifest.id.clone())
             .collect();
         let state_snapshot = self.state()?.clone();
         let mut orphaned_ids = BTreeSet::new();
         orphaned_ids.extend(state_snapshot.enabled.iter().cloned());
+        orphaned_ids.extend(state_snapshot.development_plugin_ids.iter().cloned());
         orphaned_ids.extend(state_snapshot.updates_available.iter().cloned());
         orphaned_ids.extend(state_snapshot.approved_permissions.keys().cloned());
         orphaned_ids.extend(state_snapshot.artifact_hashes.keys().cloned());
@@ -661,6 +705,7 @@ impl PluginManager {
             self.clear_credentials(&plugin_id)?;
             self.update_state(|state| {
                 state.enabled.remove(&plugin_id);
+                state.development_plugin_ids.remove(&plugin_id);
                 state.updates_available.remove(&plugin_id);
                 state.approved_permissions.remove(&plugin_id);
                 state.artifact_hashes.remove(&plugin_id);
@@ -699,9 +744,8 @@ impl PluginManager {
         }
         let packages_dir = self.inner.app_data_dir.join("plugins").join("packages");
         ensure_managed_directory(&packages_dir)?;
-        let known: BTreeSet<&str> = self
-            .inner
-            .catalog
+        let catalog_entries = self.catalog_entries()?;
+        let known: BTreeSet<&str> = catalog_entries
             .iter()
             .map(|entry| entry.manifest.id.as_str())
             .collect();
@@ -733,7 +777,10 @@ impl PluginManager {
                     let metadata = fs::symlink_metadata(&child_path)?;
                     let child_name = child.file_name();
                     let child_name = child_name.to_string_lossy();
-                    if child_name.starts_with(".staging-") || child_name.starts_with(".removing-") {
+                    if child_name.starts_with(".staging-")
+                        || child_name.starts_with(".removing-")
+                        || is_removal_backup_name(&child_name)
+                    {
                         if metadata_is_link(&metadata) || metadata.is_file() {
                             fs::remove_file(child_path)?;
                         } else if metadata.is_dir() {
@@ -749,5 +796,56 @@ impl PluginManager {
             }
         }
         Ok(())
+    }
+
+    fn remove_persisted_development_plugins(&self) -> AppResult<()> {
+        let plugin_ids = self.state()?.development_plugin_ids.clone();
+        for plugin_id in &plugin_ids {
+            self.remove_package(plugin_id)?;
+        }
+        if plugin_ids.is_empty() {
+            return Ok(());
+        }
+        self.update_state(|state| {
+            for plugin_id in &plugin_ids {
+                state.enabled.remove(plugin_id);
+                state.development_plugin_ids.remove(plugin_id);
+                state.updates_available.remove(plugin_id);
+                state.approved_permissions.remove(plugin_id);
+                state.artifact_hashes.remove(plugin_id);
+                state.catalog_fingerprints.remove(plugin_id);
+                state.entrypoint_hashes.remove(plugin_id);
+                state.installed_manifests.remove(plugin_id);
+                state.errors.remove(plugin_id);
+            }
+            Ok(())
+        })
+    }
+}
+
+fn remove_managed_path(path: &std::path::Path) -> AppResult<()> {
+    let metadata = match fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error.into()),
+    };
+    if metadata_is_link(&metadata) || metadata.is_file() {
+        fs::remove_file(path)?;
+    } else if metadata.is_dir() {
+        fs::remove_dir_all(path)?;
+    } else {
+        return Err(AppError::Plugin(format!(
+            "Unsupported plugin cleanup entry: {}",
+            path.display()
+        )));
+    }
+    Ok(())
+}
+
+fn path_entry_exists(path: &std::path::Path) -> AppResult<bool> {
+    match fs::symlink_metadata(path) {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
     }
 }

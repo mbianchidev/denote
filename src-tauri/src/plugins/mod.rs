@@ -3,6 +3,8 @@ mod auto_commit;
 mod catalog;
 mod clone;
 mod commands;
+#[cfg(debug_assertions)]
+mod development;
 mod git;
 mod github;
 mod lifecycle;
@@ -41,6 +43,7 @@ use std::{
 
 use atomic_write_file::AtomicWriteFile;
 use fs2::FileExt;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
@@ -49,7 +52,10 @@ struct PluginManagerInner {
     app_data_dir: PathBuf,
     app_cache_dir: PathBuf,
     resource_dir: PathBuf,
+    keychain_service: String,
     catalog: Vec<PluginCatalogEntry>,
+    #[cfg(debug_assertions)]
+    development_plugins: Mutex<BTreeMap<String, DevelopmentPluginPackage>>,
     bundles: Vec<PluginBundle>,
     bundle_error: Option<String>,
     state: Mutex<PersistentPluginState>,
@@ -61,6 +67,13 @@ struct PluginManagerInner {
     /// Destinations of clones that failed, addressable only by opaque token.
     clone_cleanups: CloneCleanupRegistry,
     _process_lock: Option<fs::File>,
+}
+
+#[cfg(debug_assertions)]
+#[derive(Clone)]
+struct DevelopmentPluginPackage {
+    catalog: PluginCatalogEntry,
+    bytes: Vec<u8>,
 }
 
 impl Drop for PluginManagerInner {
@@ -96,18 +109,26 @@ impl Drop for PluginOperation {
 impl PluginManager {
     #[cfg(test)]
     pub fn new(app_data_dir: PathBuf, app_cache_dir: PathBuf) -> Self {
-        Self::with_resource_dir(app_data_dir, app_cache_dir, PathBuf::new())
+        Self::with_resource_dir(
+            app_data_dir,
+            app_cache_dir,
+            PathBuf::new(),
+            "dev.mbianchi.denote.test".to_string(),
+        )
     }
 
     pub fn with_resource_dir(
         app_data_dir: PathBuf,
         app_cache_dir: PathBuf,
         resource_dir: PathBuf,
+        application_identifier: String,
     ) -> Self {
+        let keychain_service = Self::keychain_service_for_identifier(&application_identifier);
         let (manager, initialized) = match Self::try_new(
             app_data_dir.clone(),
             app_cache_dir.clone(),
             resource_dir.clone(),
+            keychain_service.clone(),
         ) {
             Ok(manager) => (manager, true),
             Err(error) => {
@@ -118,7 +139,10 @@ impl PluginManager {
                                 app_data_dir,
                                 app_cache_dir,
                                 resource_dir,
+                                keychain_service,
                                 catalog: vec![],
+                                #[cfg(debug_assertions)]
+                                development_plugins: Mutex::new(BTreeMap::new()),
                                 bundles: vec![],
                                 bundle_error: Some(
                                     "Plugin bundle metadata is unavailable because the plugin manager failed to initialize."
@@ -156,6 +180,7 @@ impl PluginManager {
         app_data_dir: PathBuf,
         app_cache_dir: PathBuf,
         resource_dir: PathBuf,
+        keychain_service: String,
     ) -> AppResult<Self> {
         let catalog: Vec<PluginCatalogEntry> = serde_json::from_str(CATALOG_JSON)
             .map_err(|error| AppError::Plugin(format!("Invalid embedded catalog: {error}")))?;
@@ -240,7 +265,10 @@ impl PluginManager {
                 app_data_dir,
                 app_cache_dir,
                 resource_dir,
+                keychain_service,
                 catalog,
+                #[cfg(debug_assertions)]
+                development_plugins: Mutex::new(BTreeMap::new()),
                 bundles,
                 bundle_error,
                 state: Mutex::new(state),
@@ -256,6 +284,17 @@ impl PluginManager {
         let state_snapshot = manager.state()?.clone();
         manager.save_credential_ledger(&state_snapshot)?;
         Ok(manager)
+    }
+
+    fn keychain_service_for_identifier(application_identifier: &str) -> String {
+        if application_identifier == "dev.mbianchi.denote" {
+            return "dev.denote.plugin".to_string();
+        }
+        if application_identifier == "dev.mbianchi.denote.development" {
+            return "dev.denote.plugin.development".to_string();
+        }
+        let digest = hex::encode(Sha256::digest(application_identifier.as_bytes()));
+        format!("dev.denote.plugin.{}", &digest[..16])
     }
 
     fn clear_error(&self, plugin_id: &str) -> AppResult<()> {
@@ -288,12 +327,63 @@ impl PluginManager {
         Ok(())
     }
 
-    fn catalog_entry(&self, plugin_id: &str) -> AppResult<&PluginCatalogEntry> {
+    fn catalog_entries(&self) -> AppResult<Vec<PluginCatalogEntry>> {
+        #[cfg(debug_assertions)]
+        let mut entries = self.inner.catalog.clone();
+        #[cfg(not(debug_assertions))]
+        let entries = self.inner.catalog.clone();
+        #[cfg(debug_assertions)]
+        for development in self.development_plugins()?.values() {
+            if let Some(index) = entries
+                .iter()
+                .position(|entry| entry.manifest.id == development.catalog.manifest.id)
+            {
+                entries[index] = development.catalog.clone();
+            } else {
+                entries.push(development.catalog.clone());
+            }
+        }
+        Ok(entries)
+    }
+
+    fn catalog_entry(&self, plugin_id: &str) -> AppResult<PluginCatalogEntry> {
+        #[cfg(debug_assertions)]
+        if let Some(development) = self.development_plugins()?.get(plugin_id) {
+            return Ok(development.catalog.clone());
+        }
         self.inner
             .catalog
             .iter()
             .find(|entry| entry.manifest.id == plugin_id)
+            .cloned()
             .ok_or_else(|| AppError::NotFound(format!("Plugin {plugin_id}")))
+    }
+
+    fn is_development_plugin(&self, plugin_id: &str) -> AppResult<bool> {
+        #[cfg(debug_assertions)]
+        {
+            return Ok(self.development_plugins()?.contains_key(plugin_id));
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = plugin_id;
+            Ok(false)
+        }
+    }
+
+    fn development_artifact_bytes(&self, plugin_id: &str) -> AppResult<Option<Vec<u8>>> {
+        #[cfg(debug_assertions)]
+        {
+            return Ok(self
+                .development_plugins()?
+                .get(plugin_id)
+                .map(|plugin| plugin.bytes.clone()));
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            let _ = plugin_id;
+            Ok(None)
+        }
     }
 
     fn runtime_manifest(&self, plugin_id: &str) -> AppResult<PluginManifest> {
@@ -302,12 +392,12 @@ impl PluginManager {
             .values()
             .any(|transaction| transaction.plugin_id == plugin_id);
         if preparing {
-            return Ok(self.catalog_entry(plugin_id)?.manifest.clone());
+            return Ok(self.catalog_entry(plugin_id)?.manifest);
         }
         if let Some(manifest) = self.state()?.installed_manifests.get(plugin_id).cloned() {
             return Ok(manifest);
         }
-        Ok(self.catalog_entry(plugin_id)?.manifest.clone())
+        Ok(self.catalog_entry(plugin_id)?.manifest)
     }
 
     fn plugin_root(&self, plugin_id: &str) -> PathBuf {
@@ -390,6 +480,16 @@ impl PluginManager {
             .state
             .lock()
             .map_err(|_| AppError::State("Plugin state lock is poisoned".to_string()))
+    }
+
+    #[cfg(debug_assertions)]
+    fn development_plugins(
+        &self,
+    ) -> AppResult<MutexGuard<'_, BTreeMap<String, DevelopmentPluginPackage>>> {
+        self.inner
+            .development_plugins
+            .lock()
+            .map_err(|_| AppError::State("Development plugin lock is poisoned".to_string()))
     }
 
     fn pending_transactions(

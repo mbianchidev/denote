@@ -219,6 +219,8 @@ export const api = {
   listPlugins: () => invoke<PluginView[]>("list_plugins"),
   listPluginBundles: () =>
     invoke<PluginBundleMetadata[]>("list_plugin_bundles"),
+  chooseDevelopmentPluginArchive: () =>
+    invoke<string | null>("choose_development_plugin_archive"),
   preparePluginEnable: (
     pluginId: string,
     approvedPermissions: PluginPermissionRequest[],

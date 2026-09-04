@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 
 use super::{
     catalog::{catalog_fingerprint, compatibility_error, validate_bundles, validate_catalog},
+    package::validate_plugin_download_url,
     sandbox::{current_platform, enforce_storage_quota, host_matches},
     settings::{migrate_settings, validate_settings},
     *,
@@ -22,6 +23,94 @@ pub(super) fn catalog() -> PluginCatalogEntry {
         .remove(0)
 }
 
+#[test]
+fn development_archive_is_listed_installed_and_removed_without_network() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let catalog = catalog();
+    let manager = manager(catalog.clone(), &data, &cache);
+    let mut development = catalog;
+    development.manifest.id = "denote.synthetic".to_string();
+    development.manifest.name = "Synthetic development plugin".to_string();
+    let bytes = package_bytes(&development);
+    let archive = data.path().join("denote.synthetic.tgz");
+    fs::write(&archive, bytes).expect("development archive");
+
+    let plugin_id = manager
+        .load_development_archive(&archive)
+        .expect("load development archive");
+    let view = manager
+        .list()
+        .expect("list")
+        .into_iter()
+        .find(|plugin| plugin.catalog.manifest.id == plugin_id)
+        .expect("development plugin");
+    assert!(view.development);
+    assert!(!view.catalog.provenance.trusted);
+
+    let installed = manager
+        .prepare(&plugin_id, view.catalog.manifest.permissions.clone())
+        .expect("prepare");
+    manager
+        .commit_enable(&installed.transaction_id)
+        .expect("commit");
+    assert!(manager.read_entrypoint(&plugin_id).is_ok());
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .development_plugin_ids
+            .contains(&plugin_id)
+    );
+    let error = manager
+        .load_development_archive(&archive)
+        .expect_err("enabled development plugin replacement");
+    assert!(error.to_string().contains("Disable"));
+
+    manager.disable(&plugin_id, false, false).expect("disable");
+    assert!(!manager.plugin_root(&plugin_id).exists());
+}
+
+#[test]
+fn persisted_development_plugin_is_removed_before_startup_restore() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut development = catalog();
+    development.manifest.id = "denote.synthetic".to_string();
+    let bytes = package_bytes(&development);
+    let archive = data.path().join("denote.synthetic.tgz");
+    fs::write(&archive, bytes).expect("development archive");
+    {
+        let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+        let plugin_id = manager
+            .load_development_archive(&archive)
+            .expect("load development archive");
+        let permissions = manager
+            .catalog_entry(&plugin_id)
+            .expect("development catalog")
+            .manifest
+            .permissions;
+        let installed = manager
+            .prepare(&plugin_id, permissions)
+            .expect("prepare development plugin");
+        manager
+            .commit_enable(&installed.transaction_id)
+            .expect("commit development plugin");
+        assert!(manager.plugin_root(&plugin_id).is_dir());
+    }
+
+    let manager = PluginManager::new(data.path().to_path_buf(), cache.path().to_path_buf());
+
+    assert!(!manager.plugin_root("denote.synthetic").exists());
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .development_plugin_ids
+            .is_empty()
+    );
+}
+
 fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
@@ -32,6 +121,13 @@ fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
         &catalog.manifest.entrypoint,
         b"export default {};",
     );
+    append(
+        &mut builder,
+        &catalog.manifest.documentation,
+        b"# Synthetic plugin",
+    );
+    append(&mut builder, &catalog.manifest.icon, b"<svg></svg>");
+    append(&mut builder, "package.json", br#"{"private":true}"#);
     builder
         .into_inner()
         .expect("archive")
@@ -61,7 +157,9 @@ pub(super) fn manager(
             app_data_dir: data.path().to_path_buf(),
             app_cache_dir: cache.path().to_path_buf(),
             resource_dir: PathBuf::new(),
+            keychain_service: "dev.denote.plugin.test".to_string(),
             catalog: vec![catalog],
+            development_plugins: Mutex::new(BTreeMap::new()),
             bundles: vec![],
             bundle_error: None,
             state: Mutex::new(PersistentPluginState::default()),
@@ -74,6 +172,22 @@ pub(super) fn manager(
             _process_lock: None,
         }),
     }
+}
+
+#[test]
+fn keychain_services_follow_application_identity_without_changing_production() {
+    assert_eq!(
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote"),
+        "dev.denote.plugin"
+    );
+    assert_eq!(
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote.development"),
+        "dev.denote.plugin.development"
+    );
+    assert_ne!(
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote.preview"),
+        PluginManager::keychain_service_for_identifier("dev.mbianchi.denote")
+    );
 }
 
 #[test]
@@ -131,6 +245,26 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
     catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
     let manager = manager(catalog.clone(), &data, &cache);
     manager.install_package(&catalog, &bytes).expect("install");
+    let plugin_cache = cache
+        .path()
+        .join("plugin-downloads")
+        .join(&catalog.manifest.id);
+    fs::create_dir(&plugin_cache).expect("plugin cache");
+    fs::write(plugin_cache.join("cached.tgz"), b"cached").expect("cached archive");
+    let unrelated_cache = cache.path().join("plugin-downloads").join("denote.other");
+    fs::create_dir(&unrelated_cache).expect("unrelated cache");
+    fs::write(unrelated_cache.join("cached.tgz"), b"unrelated").expect("unrelated archive");
+    let staging = manager
+        .plugin_root(&catalog.manifest.id)
+        .join(".staging-test");
+    fs::create_dir(&staging).expect("staging");
+    let removal_backup = data
+        .path()
+        .join("plugins")
+        .join("packages")
+        .join(format!(".{}.removing-test", catalog.manifest.id));
+    fs::create_dir(&removal_backup).expect("removal backup");
+    fs::write(removal_backup.join("old.js"), b"old").expect("backup content");
     {
         let mut state = manager.state().expect("state");
         state.enabled.insert(catalog.manifest.id.clone());
@@ -150,6 +284,9 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
         .expect("disable");
 
     assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+    assert!(!plugin_cache.exists());
+    assert!(!removal_backup.exists());
+    assert!(unrelated_cache.join("cached.tgz").is_file());
     assert_eq!(
         manager
             .state()
@@ -563,6 +700,64 @@ fn changed_catalog_metadata_keeps_installed_code_until_update() {
 }
 
 #[test]
+fn release_url_change_does_not_mark_unchanged_plugin_for_update() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut installed_catalog = catalog();
+    let bytes = package_bytes(&installed_catalog);
+    installed_catalog.artifact.size_bytes = bytes.len() as u64;
+    installed_catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+    let mut release_catalog = installed_catalog.clone();
+    release_catalog.artifact.url = format!(
+        "https://github.com/mbianchidev/denote/releases/download/v0.2.0/{}-{}.tgz",
+        release_catalog.manifest.id, release_catalog.manifest.version
+    );
+    let manager = manager(release_catalog, &data, &cache);
+    let hash = manager
+        .install_package(&installed_catalog, &bytes)
+        .expect("install");
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(installed_catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            installed_catalog.manifest.id.clone(),
+            installed_catalog
+                .manifest
+                .permissions
+                .iter()
+                .cloned()
+                .collect(),
+        );
+        state.artifact_hashes.insert(
+            installed_catalog.manifest.id.clone(),
+            installed_catalog.artifact.sha256.clone(),
+        );
+        state.catalog_fingerprints.insert(
+            installed_catalog.manifest.id.clone(),
+            catalog_fingerprint(&installed_catalog).expect("fingerprint"),
+        );
+        state
+            .entrypoint_hashes
+            .insert(installed_catalog.manifest.id.clone(), hash);
+        state.installed_manifests.insert(
+            installed_catalog.manifest.id.clone(),
+            installed_catalog.manifest.clone(),
+        );
+    }
+
+    manager.reconcile_packages().expect("reconcile");
+
+    assert!(
+        !manager
+            .state()
+            .expect("state")
+            .updates_available
+            .contains(&installed_catalog.manifest.id)
+    );
+    assert!(manager.install_dir(&installed_catalog).is_dir());
+}
+
+#[test]
 fn invalid_transaction_cannot_delete_arbitrary_paths() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
@@ -683,6 +878,53 @@ fn catalog_rejects_mismatched_provenance() {
     catalog.provenance.source_commit = "0".repeat(40);
 
     assert!(validate_catalog(&[catalog]).is_err());
+}
+
+#[test]
+fn catalog_accepts_versioned_release_asset_url() {
+    let mut catalog = catalog();
+    catalog.artifact.url = format!(
+        "https://github.com/mbianchidev/denote/releases/download/v0.2.0/{}-{}.tgz",
+        catalog.manifest.id, catalog.manifest.version
+    );
+
+    assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
+fn catalog_rejects_release_asset_for_another_plugin_version() {
+    let mut catalog = catalog();
+    catalog.artifact.url =
+        "https://github.com/mbianchidev/denote/releases/download/v0.2.0/denote.reference-9.9.9.tgz"
+            .to_string();
+
+    assert!(validate_catalog(&[catalog]).is_err());
+}
+
+#[test]
+fn plugin_download_redirects_accept_only_approved_github_https_hosts() {
+    for url in [
+        "https://github.com/mbianchidev/denote/releases/download/v0.2.0/plugin.tgz",
+        "https://raw.githubusercontent.com/mbianchidev/denote/commit/plugin.tgz",
+        "https://objects.githubusercontent.com/plugin.tgz",
+        "https://release-assets.githubusercontent.com/plugin.tgz",
+    ] {
+        assert!(
+            validate_plugin_download_url(&reqwest::Url::parse(url).expect("URL")).is_ok(),
+            "{url}"
+        );
+    }
+    for url in [
+        "http://github.com/plugin.tgz",
+        "https://example.invalid/plugin.tgz",
+        "https://user@github.com/plugin.tgz",
+        "https://github.com:444/plugin.tgz",
+    ] {
+        assert!(
+            validate_plugin_download_url(&reqwest::Url::parse(url).expect("URL")).is_err(),
+            "{url}"
+        );
+    }
 }
 
 #[test]
