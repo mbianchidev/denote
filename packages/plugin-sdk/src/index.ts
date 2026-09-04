@@ -4,3 +4,4 @@
 // This file only re-exports the public symbols so the import surface of @denote/plugin-sdk is preserved.
 export * from "./contracts";
 export * from "./validation";
+export * from "./emoji";

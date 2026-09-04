@@ -1,0 +1,16 @@
+{
+  "name": "@denote/plugin-emoji-picker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "plugin.json",
+    "guide.md",
+    "icon.svg"
+  ],
+  "dependencies": {
+    "@denote/plugin-sdk": "0.1.0"
+  }
+}
