@@ -285,8 +285,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - **Update all** appears only when previously approved plugins have available
   updates. One confirmation lists the affected plugins and re-accepts each
   latest complete permission payload. Each plugin then updates through its own
-  transaction and runtime; unrelated, never-approved, current, or incompatible
-  plugins are untouched.
+  transaction and runtime. The installed version remains active and stored
+  until the replacement has downloaded, verified, activated, and committed;
+  a failed or cancelled update restores that installed version. Unrelated,
+  never-approved, current, or incompatible plugins are untouched.
 - The optional **Git vault versioning** plugin is the first production catalog
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,
@@ -300,7 +302,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   configured include and exclude prefixes, never adds untracked files, never
   contacts a remote, skips the run when work is already staged or a merge is
   unfinished, and leaves the index exactly as it was whenever a run does not
-  finish.
+  finish. Its default message is `Denote automatic commit {timestamp}`, where
+  the placeholder resolves in the current timezone as `yyyy-mm-dd hh:mm`.
 - Remote work is explicit and confirmed. The same view adds remotes, changes a
   remote URL, removes a remote, fetches, pulls, and pushes, and clones a
   repository into a new vault. Denote never fetches, pulls, or pushes on its own
@@ -338,6 +341,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Automatic commits remain unsigned and unattended.
 - The manual commit form offers Commit and Commit and push. Its per-commit
   signing control defaults on and can explicitly request an unsigned commit.
+  Leaving the message empty uses `Denote manual commit {timestamp}`, with the
+  placeholder resolved in the current timezone as `yyyy-mm-dd hh:mm`.
   The password-style **Signing passphrase** appears only while signing is
   requested, is used once for encrypted SSH signing keys, is cleared
   immediately, and never enters the plugin worker. OpenPGP and X.509 continue

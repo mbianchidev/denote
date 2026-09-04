@@ -153,9 +153,7 @@ pub(crate) fn validate_extracted_package(
     catalog: &PluginCatalogEntry,
     staging: &Path,
 ) -> AppResult<()> {
-    let manifest_path = staging.join("plugin.json");
-    let manifest: PluginManifest = serde_json::from_slice(&fs::read(&manifest_path)?)
-        .map_err(|error| AppError::Plugin(format!("Invalid packaged plugin manifest: {error}")))?;
+    let manifest = read_packaged_manifest(staging)?;
     if manifest.id != catalog.manifest.id
         || manifest.version != catalog.manifest.version
         || manifest.compatibility.api_version != catalog.manifest.compatibility.api_version
@@ -175,6 +173,43 @@ pub(crate) fn validate_extracted_package(
         )));
     }
     Ok(())
+}
+
+pub(crate) fn validate_installed_package(
+    expected: &PluginManifest,
+    package_dir: &Path,
+) -> AppResult<()> {
+    let manifest = read_packaged_manifest(package_dir)?;
+    let actual = serde_json::to_value(&manifest).map_err(|error| {
+        AppError::Plugin(format!(
+            "Unable to compare packaged plugin manifest: {error}"
+        ))
+    })?;
+    let expected = serde_json::to_value(expected).map_err(|error| {
+        AppError::Plugin(format!(
+            "Unable to compare installed plugin manifest: {error}"
+        ))
+    })?;
+    if actual != expected {
+        return Err(AppError::Plugin(format!(
+            "Installed manifest does not match recorded metadata for {}",
+            manifest.id
+        )));
+    }
+    let entrypoint = package_dir.join(&manifest.entrypoint);
+    let metadata = fs::symlink_metadata(&entrypoint)?;
+    if !metadata.is_file() || metadata.len() > MAX_PLUGIN_ENTRYPOINT_BYTES {
+        return Err(AppError::Plugin(format!(
+            "Plugin {} has an invalid entrypoint",
+            manifest.id
+        )));
+    }
+    Ok(())
+}
+
+pub(crate) fn read_packaged_manifest(package_dir: &Path) -> AppResult<PluginManifest> {
+    serde_json::from_slice(&fs::read(package_dir.join("plugin.json"))?)
+        .map_err(|error| AppError::Plugin(format!("Invalid packaged plugin manifest: {error}")))
 }
 
 pub(crate) fn remove_directory_atomically(path: &Path) -> AppResult<()> {

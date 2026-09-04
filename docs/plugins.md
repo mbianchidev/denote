@@ -74,7 +74,10 @@ does not grant runtime access. It exists so an explicit **Update all** can selec
 only previously approved plugins, show one confirmation, and re-accept each
 latest complete permission payload. Every selected plugin still uses its own
 prepare, verified activation, commit, rollback, busy state, and error path.
-Updating one plugin never prepares, downloads, starts, or changes another.
+The valid installed version remains available until the replacement commits, and
+rollback removes only the staged replacement before restarting the installed
+runtime. Updating one plugin never prepares, downloads, starts, or changes
+another.
 When the focused file has an active explicit or implicit project, Settings also
 shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
 server, Linter, Compiler, and Code navigation roles report unavailable,
@@ -88,10 +91,10 @@ worker crash automatically terminates that runtime and removes its package.
 Renderer reload, shutdown, and disable-all recover or cancel native preparation
 transactions before another plugin can start.
 
-Catalog version changes never execute an old package under new metadata. On the
-next Denote start, the old package is removed and the plugin is disabled with an
-actionable message. Re-enabling downloads the new artifact and requires approval
-of its complete permission payload.
+Catalog version changes never execute an old package under new metadata. Denote
+keeps the installed manifest and approved permissions bound to the old package,
+marks the latest catalog entry update-available, and substitutes the new package
+only after explicit approval and successful activation.
 
 The native state records both the catalog artifact digest and the exact
 entrypoint digest. Startup and execution recheck those values, so changing
@@ -574,18 +577,20 @@ A vulnerable or compromised artifact is removed from its hosting ref when
 possible, recorded in the plugin issue, and marked with a catalog revocation
 reason and timestamp. Revoked versions are disabled and removed before code
 execution.
-Already installed packages with missing, changed, or incompatible catalog
-metadata are disabled and deleted at startup. Third-party publishers remain out
-of scope until publisher signing and a remotely enforceable revocation channel
-are designed and reviewed.
+Installed packages with missing recorded metadata, failed integrity checks,
+incompatible installed manifests, or revocations for that installed version are
+disabled and deleted at startup. Third-party publishers remain out of scope
+until publisher signing and a remotely enforceable revocation channel are
+designed and reviewed.
 
 The version 1 catalog is embedded in each Denote release. New listings,
 available-version metadata, and revocations therefore arrive with an application
-update. A changed catalog fingerprint disables and removes the previous package
-instead of executing stale code; re-enablement downloads the new artifact and
-repeats permission approval. **Update all** is an explicit foreground action,
-not an automatic background update. Executable-version rollback remains
-unavailable in version 1.
+update. A changed catalog fingerprint leaves a valid installed package running
+under its recorded manifest and marks the replacement available. **Review and
+update** or **Update all** downloads the new artifact, repeats permission
+approval, and keeps the installed package as the rollback target until the new
+runtime commits. Updates remain explicit foreground actions, never automatic
+background replacements.
 
 `scripts/package-plugins.ts` treats every plugin version independently. When a
 source manifest version matches the catalog, the script verifies that the

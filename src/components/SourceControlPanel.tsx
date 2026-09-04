@@ -35,6 +35,7 @@ import type {
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
+import { resolveCommitMessage } from "../plugins/commitMessages";
 
 interface SourceControlPanelProps {
   title: string;
@@ -64,6 +65,7 @@ const tabs = [
 ] as const;
 
 type SourceControlTab = (typeof tabs)[number]["id"];
+const DEFAULT_MANUAL_COMMIT_MESSAGE = "Denote manual commit {timestamp}";
 
 const authModeLabels: Record<PluginSourceControlAuthMode, string> = {
   system: "System Git credentials",
@@ -1810,10 +1812,10 @@ function SourceControlPanelComponent({
   const remoteBranch = selectedBranch || repository.branch || "";
   const canReachRemote = activeRemote.length > 0 && !repository.busy;
   const submitCommit = (push: boolean) => {
-    const message = commitMessage.trim();
-    if (!message) {
-      return;
-    }
+    const message = resolveCommitMessage(
+      commitMessage,
+      DEFAULT_MANUAL_COMMIT_MESSAGE,
+    );
     const values: Record<string, string | boolean> = {
       message,
       sign: signCommit,
@@ -1996,15 +1998,14 @@ function SourceControlPanelComponent({
             </p>
           ) : null}
           {repository.busy ? (
-            <p className="source-control__status" role="status">
-              {repository.busyMessage ?? "Source control operation in progress"}
-            </p>
-          ) : null}
-          {repository.busy && cancellableOperationId ? (
-            <div className="source-control__actions">
+            <div className="source-control__operation-status">
+              <p className="source-control__status" role="status">
+                {repository.busyMessage ?? "Source control operation in progress"}
+              </p>
+              {cancellableOperationId ? (
               <button
                 type="button"
-                className="secondary-button"
+                className="source-control__cancel-operation"
                 aria-label="Cancel operation"
                 title="Cancel operation"
                 onClick={() =>
@@ -2015,8 +2016,10 @@ function SourceControlPanelComponent({
                   )
                 }
               >
-                Cancel operation
+                <X aria-hidden="true" size={14} />
+                <span>Cancel</span>
               </button>
+              ) : null}
             </div>
           ) : null}
         </section>
@@ -2087,6 +2090,7 @@ function SourceControlPanelComponent({
                       <span>Commit message</span>
                       <input
                         value={commitMessage}
+                        placeholder={DEFAULT_MANUAL_COMMIT_MESSAGE}
                         disabled={repository.busy}
                         onChange={(event) =>
                           setCommitMessage(event.currentTarget.value)
@@ -2133,8 +2137,7 @@ function SourceControlPanelComponent({
                         className="primary-button"
                         disabled={
                           repository.busy ||
-                          stagedChanges === 0 ||
-                          commitMessage.trim().length === 0
+                          stagedChanges === 0
                         }
                       >
                         Commit
@@ -2145,7 +2148,6 @@ function SourceControlPanelComponent({
                         disabled={
                           repository.busy ||
                           stagedChanges === 0 ||
-                          commitMessage.trim().length === 0 ||
                           !canReachRemote ||
                           remoteBranch.length === 0
                         }

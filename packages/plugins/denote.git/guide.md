@@ -77,6 +77,9 @@ Open the Git view from the activity rail, select a repository under
   commits at a time; selecting a commit shows its details and its exact diff.
 - **Commit** records only what is staged. **Commit and push** records the same
   commit and then performs an ordinary push to the selected remote. The
+  message may be left blank; Denote then uses
+  `Denote manual commit {timestamp}` and resolves the placeholder to local
+  `yyyy-mm-dd hh:mm` time. The
   per-commit **Sign commit** control is enabled by default and can be turned off.
   Its password field is shown only while signing is requested, applies only to
   encrypted SSH signing keys, is consumed once, and is never stored or sent to
@@ -193,7 +196,9 @@ none is marked.
 Before it commits, Denote saves your open notes and settles pending writes, so
 the commit matches what you see. It then commits **only tracked files that
 changed** and match your include and exclude prefixes, using your configured
-message and author identity. It never adds an untracked file, never touches a
+message and author identity. The default is
+`Denote automatic commit {timestamp}`; `{timestamp}` becomes the current local
+time in `yyyy-mm-dd hh:mm` format when the commit runs. It never adds an untracked file, never touches a
 remote, and never switches, merges, or rewrites anything.
 
 A run is skipped, and simply waits for the next interval, when there is no
@@ -443,6 +448,8 @@ than done quietly; **Discard result** puts the merge Denote derived back.
   local commits. It defaults to `0`, which disables them entirely, and no timer
   exists while it is zero.
 - **Automatic commit message** is the message used for each automatic commit.
+  Its default ends in `{timestamp}`, which Denote resolves to the current local
+  time as `yyyy-mm-dd hh:mm`.
 - **Include patterns** and **Exclude patterns** are comma-separated relative
   path prefixes for automatic commits. An empty include list means the whole
   scope; excludes always win. Prefixes match whole path segments, so `notes`

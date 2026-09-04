@@ -169,39 +169,169 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
 }
 
 #[test]
-fn catalog_version_change_disables_plugin_and_removes_old_code() {
+fn catalog_version_change_keeps_the_enabled_plugin_until_update() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
     let catalog = catalog();
     let manager = manager(catalog.clone(), &data, &cache);
-    let old_package = manager
-        .plugin_root(&catalog.manifest.id)
-        .join("0.0.9")
-        .join("dist");
-    fs::create_dir_all(&old_package).expect("old package");
-    fs::write(old_package.join("index.js"), "old code").expect("old code");
-    manager
-        .state()
-        .expect("state")
-        .enabled
-        .insert(catalog.manifest.id.clone());
-    manager.state().expect("state").approved_permissions.insert(
-        catalog.manifest.id.clone(),
-        catalog.manifest.permissions.iter().cloned().collect(),
-    );
+    let mut installed_catalog = catalog.clone();
+    installed_catalog.manifest.version = "0.0.9".to_string();
+    let bytes = package_bytes(&installed_catalog);
+    installed_catalog.artifact.size_bytes = bytes.len() as u64;
+    installed_catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+    let entrypoint_hash = manager
+        .install_package(&installed_catalog, &bytes)
+        .expect("old package");
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            installed_catalog
+                .manifest
+                .permissions
+                .iter()
+                .cloned()
+                .collect(),
+        );
+        state.artifact_hashes.insert(
+            catalog.manifest.id.clone(),
+            installed_catalog.artifact.sha256.clone(),
+        );
+        state.catalog_fingerprints.insert(
+            catalog.manifest.id.clone(),
+            catalog_fingerprint(&installed_catalog).expect("fingerprint"),
+        );
+        state
+            .entrypoint_hashes
+            .insert(catalog.manifest.id.clone(), entrypoint_hash);
+        state.installed_manifests.insert(
+            catalog.manifest.id.clone(),
+            installed_catalog.manifest.clone(),
+        );
+    }
 
     manager.reconcile_packages().expect("reconcile");
 
     let state = manager.state().expect("state");
-    assert!(!state.enabled.contains(&catalog.manifest.id));
+    assert!(state.enabled.contains(&catalog.manifest.id));
     assert!(
         state
             .approved_permissions
             .contains_key(&catalog.manifest.id)
     );
     assert!(state.updates_available.contains(&catalog.manifest.id));
-    assert!(state.errors.contains_key(&catalog.manifest.id));
-    assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+    assert!(!state.errors.contains_key(&catalog.manifest.id));
+    assert!(manager.install_dir(&installed_catalog).exists());
+    assert!(!manager.install_dir(&catalog).exists());
+    drop(state);
+
+    let view = manager
+        .list()
+        .expect("plugins")
+        .into_iter()
+        .find(|plugin| plugin.catalog.manifest.id == catalog.manifest.id)
+        .expect("plugin");
+    assert_eq!(view.status, "update-available");
+    assert!(view.enabled);
+    assert_eq!(
+        view.runtime_manifest
+            .as_ref()
+            .map(|manifest| manifest.version.as_str()),
+        Some("0.0.9")
+    );
+    assert_eq!(
+        manager
+            .read_entrypoint(&catalog.manifest.id)
+            .expect("entrypoint"),
+        "export default {};"
+    );
+}
+
+#[test]
+fn failed_update_removes_only_the_new_package() {
+    let data = TempDir::new().expect("data");
+    let cache = TempDir::new().expect("cache");
+    let mut catalog = catalog();
+    let latest_bytes = package_bytes(&catalog);
+    catalog.artifact.size_bytes = latest_bytes.len() as u64;
+    catalog.artifact.sha256 = hex::encode(Sha256::digest(&latest_bytes));
+    let manager = manager(catalog.clone(), &data, &cache);
+    let mut installed_catalog = catalog.clone();
+    installed_catalog.manifest.version = "0.0.9".to_string();
+    let installed_bytes = package_bytes(&installed_catalog);
+    installed_catalog.artifact.size_bytes = installed_bytes.len() as u64;
+    installed_catalog.artifact.sha256 = hex::encode(Sha256::digest(&installed_bytes));
+    let installed_hash = manager
+        .install_package(&installed_catalog, &installed_bytes)
+        .expect("installed package");
+    let prepared_hash = manager
+        .install_package(&catalog, &latest_bytes)
+        .expect("prepared package");
+    let transaction_id = "synthetic-update".to_string();
+    {
+        let mut state = manager.state().expect("state");
+        state.enabled.insert(catalog.manifest.id.clone());
+        state.updates_available.insert(catalog.manifest.id.clone());
+        state.approved_permissions.insert(
+            catalog.manifest.id.clone(),
+            installed_catalog
+                .manifest
+                .permissions
+                .iter()
+                .cloned()
+                .collect(),
+        );
+        state.artifact_hashes.insert(
+            catalog.manifest.id.clone(),
+            installed_catalog.artifact.sha256.clone(),
+        );
+        state.catalog_fingerprints.insert(
+            catalog.manifest.id.clone(),
+            catalog_fingerprint(&installed_catalog).expect("fingerprint"),
+        );
+        state
+            .entrypoint_hashes
+            .insert(catalog.manifest.id.clone(), installed_hash);
+        state.installed_manifests.insert(
+            catalog.manifest.id.clone(),
+            installed_catalog.manifest.clone(),
+        );
+    }
+    manager
+        .pending_transactions()
+        .expect("transactions")
+        .insert(
+            transaction_id.clone(),
+            PreparedPluginTransaction {
+                plugin_id: catalog.manifest.id.clone(),
+                permissions: catalog.manifest.permissions.iter().cloned().collect(),
+                artifact_sha256: catalog.artifact.sha256.clone(),
+                catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
+                entrypoint_sha256: Some(prepared_hash),
+                previously_enabled: true,
+            },
+        );
+
+    manager
+        .rollback_enable(
+            &transaction_id,
+            Some("Synthetic update failure".to_string()),
+        )
+        .expect("rollback");
+
+    let state = manager.state().expect("state");
+    assert!(state.enabled.contains(&catalog.manifest.id));
+    assert!(state.updates_available.contains(&catalog.manifest.id));
+    assert_eq!(
+        state
+            .installed_manifests
+            .get(&catalog.manifest.id)
+            .map(|manifest| manifest.version.as_str()),
+        Some("0.0.9")
+    );
+    assert!(manager.install_dir(&installed_catalog).exists());
+    assert!(!manager.install_dir(&catalog).exists());
 }
 
 #[test]
@@ -278,7 +408,7 @@ fn rejects_link_entries_in_plugin_archives() {
 }
 
 #[test]
-fn permission_changes_disable_and_remove_installed_code() {
+fn mismatched_approved_permissions_disable_and_remove_installed_code() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
     let mut catalog = catalog();
@@ -321,7 +451,7 @@ fn permission_changes_disable_and_remove_installed_code() {
         state
             .errors
             .get(&catalog.manifest.id)
-            .is_some_and(|error| error.contains("permissions changed"))
+            .is_some_and(|error| error.contains("failed its integrity check"))
     );
 }
 
@@ -389,7 +519,7 @@ fn tampered_entrypoint_is_removed_during_startup_recovery() {
 }
 
 #[test]
-fn changed_artifact_digest_requires_reenable_even_when_version_is_unchanged() {
+fn changed_catalog_metadata_keeps_installed_code_until_update() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
     let mut catalog = catalog();
@@ -415,12 +545,19 @@ fn changed_artifact_digest_requires_reenable_even_when_version_is_unchanged() {
 
     manager.reconcile_packages().expect("reconcile");
 
-    assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+    assert!(manager.plugin_root(&catalog.manifest.id).exists());
     assert!(
-        !manager
+        manager
             .state()
             .expect("state")
             .enabled
+            .contains(&catalog.manifest.id)
+    );
+    assert!(
+        manager
+            .state()
+            .expect("state")
+            .updates_available
             .contains(&catalog.manifest.id)
     );
 }
@@ -464,6 +601,7 @@ fn prepared_transaction_blocks_disable_until_rollback() {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
                 entrypoint_sha256: Some(entrypoint_sha256),
+                previously_enabled: false,
             },
         );
 
@@ -502,6 +640,7 @@ fn read_entrypoint_rejects_changes_after_preparation() {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
                 entrypoint_sha256: Some(entrypoint_sha256),
+                previously_enabled: false,
             },
         );
     fs::write(

@@ -382,13 +382,14 @@ export function PluginSettingsPanel({
               <div className="plugin-settings__list">
                 {entries.map((plugin) => {
                   const manifest = plugin.catalog.manifest;
+                  const runtimeManifest = plugin.runtimeManifest ?? manifest;
                   const pluginId = manifest.id;
                   const busy = busyPluginIds.has(pluginId);
                   const permissions = manifest.permissions.map(
                     (permission) => permission.capability,
                   );
                   const settingDefinitions =
-                    manifest.settings?.properties ?? {};
+                    runtimeManifest.settings?.properties ?? {};
                   const draft = drafts[pluginId] ?? plugin.settings;
                   const confirmEnable = pendingEnable === pluginId;
                   return (
@@ -407,7 +408,11 @@ export function PluginSettingsPanel({
                       <dl className="plugin-card__metadata">
                         <div>
                           <dt>Version</dt>
-                          <dd>{manifest.version}</dd>
+                          <dd>
+                            {runtimeManifest.version !== manifest.version
+                              ? `${runtimeManifest.version} installed · ${manifest.version} available`
+                              : manifest.version}
+                          </dd>
                         </div>
                         <div>
                           <dt>Publisher</dt>
@@ -577,7 +582,7 @@ export function PluginSettingsPanel({
                                 JSON.stringify(
                                   {
                                     schemaVersion:
-                                      manifest.settings?.version ?? 0,
+                                      runtimeManifest.settings?.version ?? 0,
                                     settings: draft,
                                   },
                                   null,
@@ -646,11 +651,14 @@ export function PluginSettingsPanel({
                         >
                           <h6 id={`${pluginId}-permission-title`}>
                             <ShieldCheck aria-hidden="true" size={14} />
-                            Approve permissions?
+                            {plugin.status === "update-available"
+                              ? "Approve update permissions?"
+                              : "Approve permissions?"}
                           </h6>
                           <p>
                             Denote will download and verify the package, then run
-                            it in an isolated worker.
+                            it in an isolated worker. An installed version remains
+                            available unless the update completes successfully.
                           </p>
                           {pluginId === "denote.git" ? (
                             <div className="notice-block notice-block--info">
@@ -685,12 +693,37 @@ export function PluginSettingsPanel({
                                   .catch(onError)
                               }
                             >
-                              {busy ? "Enabling…" : "Approve and enable"}
+                              {busy
+                                ? plugin.status === "update-available"
+                                  ? "Updating…"
+                                  : "Enabling…"
+                                : plugin.status === "update-available"
+                                  ? "Approve and update"
+                                  : "Approve and enable"}
                             </button>
                           </div>
                         </section>
                       ) : (
                         <div className="plugin-card__actions">
+                          {plugin.status === "update-available" ? (
+                            <button
+                              type="button"
+                              className="primary-button"
+                              disabled={busy}
+                              onClick={() => setPendingEnable(pluginId)}
+                            >
+                              Review and update
+                            </button>
+                          ) : !plugin.enabled ? (
+                            <button
+                              type="button"
+                              className="primary-button"
+                              disabled={busy || plugin.status === "incompatible"}
+                              onClick={() => setPendingEnable(pluginId)}
+                            >
+                              Enable
+                            </button>
+                          ) : null}
                           {plugin.enabled ? (
                             <button
                               type="button"
@@ -702,18 +735,7 @@ export function PluginSettingsPanel({
                             >
                               {busy ? "Disabling…" : "Disable and remove code"}
                             </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="primary-button"
-                              disabled={busy || plugin.status === "incompatible"}
-                              onClick={() => setPendingEnable(pluginId)}
-                            >
-                              {plugin.status === "update-available"
-                                ? "Review and update"
-                                : "Enable"}
-                            </button>
-                          )}
+                          ) : null}
                           {!plugin.enabled ? (
                             <>
                               <button
@@ -1170,6 +1192,9 @@ function permissionScope(permission: PluginPermissionRequest): string | null {
 }
 
 function statusLabel(plugin: PluginView): string {
+  if (plugin.status === "update-available") {
+    return "Update available";
+  }
   if (plugin.enabled) {
     return "Enabled";
   }
@@ -1182,8 +1207,6 @@ function statusLabel(plugin: PluginView): string {
       return "Installing";
     case "disabling":
       return "Disabling";
-    case "update-available":
-      return "Update available";
     case "incompatible":
       return "Incompatible";
     case "failed":

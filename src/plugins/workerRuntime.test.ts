@@ -434,6 +434,22 @@ describe("PluginWorkerRuntime", () => {
     );
   });
 
+  it("starts an installed version under its recorded manifest", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    const installed = plugin();
+    installed.runtimeManifest = {
+      ...installed.catalog.manifest,
+      version: "0.0.9",
+    };
+
+    await runtime.start(installed);
+
+    expect(FakeWorker.instances[0].connectMessage).toMatchObject({
+      pluginId: "denote.reference",
+      expectedVersion: "0.0.9",
+    });
+  });
+
   it("stages, updates, dispatches, and removes source control contributions", async () => {
     FakeWorker.sourceControlModelOnActivate = sourceControlModel;
     const onSourceControlChanged = vi.fn();

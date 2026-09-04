@@ -247,6 +247,7 @@ describe("usePlugins", () => {
     const git = makePlugin({
       catalog: gitCatalog,
       status: "update-available",
+      enabled: true,
       previouslyApproved: true,
     });
     const reference = makePlugin({
@@ -254,14 +255,19 @@ describe("usePlugins", () => {
       previouslyApproved: true,
     });
     const { result } = await mountReady([git, reference]);
-    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
-      pluginId: "denote.git",
-      version: "0.4.0",
-      entrypoint: "dist/index.js",
-      transactionId: "tx-git",
+    vi.mocked(api.preparePluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("prepare");
+      return {
+        pluginId: "denote.git",
+        version: "0.4.0",
+        entrypoint: "dist/index.js",
+        transactionId: "tx-git",
+      };
     });
     queueListPlugins([git, reference]);
-    vi.mocked(api.commitPluginEnable).mockResolvedValueOnce(undefined);
+    vi.mocked(api.commitPluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("commit");
+    });
     queueListPlugins([
       { ...git, status: "enabled", enabled: true },
       reference,
@@ -271,6 +277,14 @@ describe("usePlugins", () => {
       await result.current.updateAll();
     });
 
+    expect(callOrder).toEqual([
+      "stop",
+      "prepare",
+      "listPlugins",
+      "start",
+      "commit",
+      "listPlugins",
+    ]);
     expect(api.preparePluginEnable).toHaveBeenCalledTimes(1);
     expect(api.preparePluginEnable).toHaveBeenCalledWith(
       "denote.git",
@@ -278,6 +292,52 @@ describe("usePlugins", () => {
     );
     expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-git");
     expect(runtimeInstances[0].start).toHaveBeenCalledWith(git);
+  });
+
+  it("restarts the installed version when an explicit update fails", async () => {
+    const current = makePlugin({
+      status: "update-available",
+      enabled: true,
+      previouslyApproved: true,
+    });
+    const { result } = await mountReady([current]);
+    vi.mocked(api.preparePluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("prepare");
+      return {
+        pluginId,
+        version: "2.0.0",
+        entrypoint: "dist/index.js",
+        transactionId: "tx-update",
+      };
+    });
+    queueListPlugins([current]);
+    runtimeInstances[0].start.mockRejectedValueOnce(
+      new Error("Synthetic update activation failed"),
+    );
+    vi.mocked(api.rollbackPluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("rollback");
+    });
+    queueListPlugins([current]);
+
+    await act(async () => {
+      await expect(
+        result.current.enable(pluginId, current.catalog.manifest.permissions),
+      ).rejects.toThrow("Synthetic update activation failed");
+    });
+
+    expect(callOrder).toEqual([
+      "stop",
+      "prepare",
+      "listPlugins",
+      "rollback",
+      "listPlugins",
+      "start",
+    ]);
+    expect(api.rollbackPluginEnable).toHaveBeenCalledWith(
+      "tx-update",
+      "Synthetic update activation failed",
+    );
+    expect(runtimeInstances[0].start).toHaveBeenLastCalledWith(current);
   });
 
   it("stops the runtime and rolls back without committing when the runtime fails to start", async () => {

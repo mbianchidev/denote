@@ -1,4 +1,4 @@
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 use semver::Version;
 use sha2::{Digest, Sha256};
@@ -9,10 +9,7 @@ use super::{
     package::validate_relative_path,
     sandbox::{current_platform, platform_executable_is_absolute, valid_host_pattern},
     settings::{default_settings, validate_settings},
-    types::{
-        MAX_PLUGIN_PACKAGE_BYTES, PLUGIN_API_VERSION, PluginBundle, PluginCatalogEntry,
-        PluginPermission,
-    },
+    types::{MAX_PLUGIN_PACKAGE_BYTES, PLUGIN_API_VERSION, PluginBundle, PluginCatalogEntry},
 };
 
 const PLUGIN_CATEGORIES: &[&str] = &[
@@ -245,22 +242,6 @@ pub(crate) fn catalog_fingerprint(catalog: &PluginCatalogEntry) -> AppResult<Str
         ))
     })?;
     Ok(hex::encode(Sha256::digest(value)))
-}
-
-pub(crate) fn has_permission(
-    catalog: &PluginCatalogEntry,
-    approved: &BTreeSet<PluginPermission>,
-    capability: &str,
-) -> bool {
-    let Some(permission) = catalog
-        .manifest
-        .permissions
-        .iter()
-        .find(|permission| permission.capability == capability)
-    else {
-        return false;
-    };
-    approved.contains(permission)
 }
 
 pub(crate) fn compatibility_error(catalog: &PluginCatalogEntry) -> Option<String> {

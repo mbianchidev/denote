@@ -15,7 +15,9 @@ describe("readGitSettings", () => {
     ).toEqual(DEFAULT_SETTINGS);
     expect(DEFAULT_SETTINGS.defaultBranch).toBe("main");
     expect(DEFAULT_SETTINGS.autoCommitIntervalMinutes).toBe(0);
-    expect(DEFAULT_SETTINGS.autoCommitMessage).toBe("Denote automatic commit");
+    expect(DEFAULT_SETTINGS.autoCommitMessage).toBe(
+      "Denote automatic commit {timestamp}",
+    );
     expect(DEFAULT_SETTINGS.useSystemGitSettings).toBe(true);
     expect(DEFAULT_SETTINGS.authMode).toBe("system");
     expect(DEFAULT_SETTINGS.signingMode).toBe("system");

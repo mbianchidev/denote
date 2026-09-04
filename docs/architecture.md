@@ -633,16 +633,23 @@ Approved permission records and the artifact/catalog identities last accepted
 by the user remain as inert metadata after code is disabled or removed. They are
 consulted only to mark an independently changed catalog entry update-available
 and to qualify it for the explicit **Update all** flow; runtime authorization
-still requires the plugin to be enabled. Bulk update captures the eligible list,
-then invokes the ordinary per-plugin prepare/start/commit transaction
-sequentially with that plugin's latest full manifest permissions. Failure of one
-is reported without selecting or mutating another.
+still requires the plugin to be enabled. For enabled plugins, native state also
+records the installed manifest. Startup validates that manifest, its approved
+permissions, and the recorded entrypoint digest against the versioned package,
+then continues running it under those installed permissions when a newer catalog
+entry appears. Bulk update captures the eligible list, stops one old runtime,
+stages the new version beside it, starts the new runtime under the latest full
+manifest permissions, and commits the replacement before pruning superseded
+code. Rollback removes only the staged version and restarts the installed
+runtime. Failure of one is reported without selecting or mutating another.
 
 The catalog is compiled into the desktop release. Catalog additions, update
 metadata, and revocations therefore require an application update in API version
-1. When catalog integrity or permissions change, Denote removes the old package
-and requires a fresh download and approval rather than retaining executable
-rollback copies.
+1. A changed catalog entry marks the plugin update-available but does not disable
+or delete a valid installed version. The latest package substitutes for it only
+after **Review and update** or **Update all** completes. Disabled packages,
+tampered packages, incompatible installed versions, and explicitly revoked
+installed versions are still removed during recovery.
 The packaging tool also enforces catalog independence: an unchanged version is
 extracted and compared with its source, then retained byte-for-byte with its
 existing immutable URL and provenance. Only a plugin whose own version changed

@@ -19,7 +19,6 @@ use crate::error::{AppError, AppResult};
 
 use super::{
     PluginManager,
-    catalog::has_permission,
     settings::validate_storage_key,
     types::{
         CredentialLedger, InstalledPlugin, KEYCHAIN_SERVICE_PREFIX, MAX_PLUGIN_STORAGE_BYTES,
@@ -154,7 +153,9 @@ impl PluginManager {
             )));
         };
         if let Some(permission) = permission
-            && !has_permission(self.catalog_entry(plugin_id)?, &permissions, permission)
+            && !permissions
+                .iter()
+                .any(|approved| approved.capability == permission)
         {
             return Err(AppError::Plugin(format!(
                 "Plugin {plugin_id} lacks {permission} permission"
@@ -168,10 +169,31 @@ impl PluginManager {
         plugin_id: &str,
         capability: &str,
     ) -> AppResult<PluginPermission> {
-        let catalog = self.catalog_entry(plugin_id)?;
-        let permission = catalog
-            .manifest
-            .permissions
+        let pending = self.pending_transactions()?;
+        let prepared_permissions = pending
+            .values()
+            .find(|transaction| transaction.plugin_id == plugin_id)
+            .map(|transaction| transaction.permissions.clone());
+        drop(pending);
+        let state = self.state()?;
+        let permissions = if let Some(permissions) = prepared_permissions {
+            permissions
+        } else if state.enabled.contains(plugin_id) {
+            state
+                .approved_permissions
+                .get(plugin_id)
+                .cloned()
+                .ok_or_else(|| {
+                    AppError::Plugin(format!(
+                        "Plugin {plugin_id} has no approved permission record"
+                    ))
+                })?
+        } else {
+            return Err(AppError::Plugin(format!(
+                "Plugin {plugin_id} is not enabled"
+            )));
+        };
+        permissions
             .iter()
             .find(|permission| permission.capability == capability)
             .cloned()
@@ -179,19 +201,7 @@ impl PluginManager {
                 AppError::Plugin(format!(
                     "Plugin {plugin_id} did not declare {capability} permission"
                 ))
-            })?;
-        let state = self.state()?;
-        if !state.enabled.contains(plugin_id)
-            || !state
-                .approved_permissions
-                .get(plugin_id)
-                .is_some_and(|permissions| permissions.contains(&permission))
-        {
-            return Err(AppError::Plugin(format!(
-                "Plugin {plugin_id} is not enabled with {capability} permission"
-            )));
-        }
-        Ok(permission)
+            })
     }
 
     pub(crate) fn network_request(
