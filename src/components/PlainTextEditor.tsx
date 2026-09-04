@@ -27,6 +27,8 @@ import type {
 } from "../lib/sourceOutline";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
+import type { EmojiEditorBinding } from "../lib/emojiHost";
+import { createEmojiSourceExtension } from "../lib/emojiSource";
 
 interface PlainTextEditorProps {
   value: string;
@@ -45,6 +47,7 @@ interface PlainTextEditorProps {
   searchNavigation?: EditorSearchNavigation;
   sourceNavigation?: SourceEditorNavigation;
   pluginDecorations?: PluginEditorDecoration[];
+  emoji?: EmojiEditorBinding;
   onChange: (value: string) => void;
   onViewportChange?: (viewport: SourceViewport) => void;
   onError?: (error: unknown) => void;
@@ -67,6 +70,7 @@ export function PlainTextEditor({
   searchNavigation,
   sourceNavigation,
   pluginDecorations = [],
+  emoji,
   onChange,
   onViewportChange,
   onError,
@@ -83,9 +87,12 @@ export function PlainTextEditor({
   const readOnlyCompartment = useRef(new Compartment()).current;
   const languageCompartment = useRef(new Compartment()).current;
   const pluginDecorationCompartment = useRef(new Compartment()).current;
+  const emojiCompartment = useRef(new Compartment()).current;
   const languageRequest = useRef(0);
   const handledErrorNavigationRequest = useRef(0);
   const handledSourceNavigationRequest = useRef(0);
+  const emojiRef = useRef(emoji);
+  emojiRef.current = !binary && /\.(md|markdown)$/i.test(filePath ?? "") ? emoji : undefined;
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -120,6 +127,8 @@ export function PlainTextEditor({
         doc: value,
         extensions: [
           ...createCodeMirrorBehaviorExtensions(),
+          ...(value.includes("\r") ? [EditorState.lineSeparator.of(value.includes("\r\n") ? "\r\n" : "\r")] : []),
+          emojiCompartment.of(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
           denoteCodeMirrorTheme,
           ...(markdownSource
             ? [markdownLinkKeymap, ...createEditorDiagnosticExtensions()]
@@ -144,7 +153,7 @@ export function PlainTextEditor({
           ),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !syncingValue.current) {
-              const nextValue = update.state.doc.toString();
+              const nextValue = update.state.sliceDoc();
               currentValueRef.current = nextValue;
               onChangeRef.current(nextValue);
             }
@@ -174,11 +183,18 @@ export function PlainTextEditor({
   }, [
     attributesCompartment,
     displayCompartment,
+    emojiCompartment,
     languageCompartment,
     markdownSource,
     pluginDecorationCompartment,
     readOnlyCompartment,
   ]);
+
+  useEffect(() => {
+    editorRef.current?.dispatch({
+      effects: emojiCompartment.reconfigure(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
+    });
+  }, [emoji?.host, emoji?.scope, emojiCompartment, binary, filePath]);
 
   useEffect(() => {
     editorRef.current?.dispatch({

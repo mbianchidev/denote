@@ -40,13 +40,16 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useReducer,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
 } from "react";
 import type {
+  PluginEmojiPreferences,
   PluginProjectRepositoryContext,
   PluginSourceControlAction,
   PluginSourceControlDiffFile,
@@ -79,6 +82,10 @@ import {
   type MarkdownEditorDiagnostic,
 } from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
+import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
+import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
+import type { EmojiContribution } from "./lib/emoji";
+import { readEmojiPreferences } from "./plugins/emojiPickers";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
@@ -1447,6 +1454,46 @@ function App() {
     (snapshot) => clonedVaultHandler.current(snapshot),
     pluginProjectRepositories,
   );
+  const [emojiHost] = useState(() => new EmojiHost());
+  const emojiState = useSyncExternalStore(emojiHost.subscribe, emojiHost.getSnapshot);
+  const contributedEmojiPickers = useMemo(() => pluginController.emojiPickers.filter((picker) =>
+    !pluginController.busyPluginIds.has(picker.pluginId) &&
+    pluginController.plugins.some((plugin) => plugin.catalog.manifest.id === picker.pluginId && plugin.enabled)),
+  [pluginController.emojiPickers, pluginController.busyPluginIds, pluginController.plugins]);
+  const [emojiPreferences, setEmojiPreferences] = useState(new Map<EmojiContribution, PluginEmojiPreferences>());
+  const emojiPickers = useMemo(() => contributedEmojiPickers.filter((picker) => emojiPreferences.has(picker)),
+    [contributedEmojiPickers, emojiPreferences]);
+  useEffect(() => {
+    if (!workspace) return;
+    const preferences = new Map<EmojiContribution, PluginEmojiPreferences>();
+    for (const picker of contributedEmojiPickers) {
+      try {
+        preferences.set(picker, readEmojiPreferences(picker,
+          pluginController.plugins.find((plugin) => plugin.catalog.manifest.id === picker.pluginId)?.settings ?? {}));
+      } catch (error) {
+        showError(error);
+      }
+    }
+    setEmojiPreferences(preferences);
+  }, [contributedEmojiPickers, pluginController.plugins, showError, workspace?.vaultPath]);
+  const emojiScope = (paneId: string, path: string) =>
+    `${workspace?.vaultPath ?? ""}\u0000${vaultGeneration.current}\u0000${paneId}\u0000${path}`;
+  emojiHost.configure({
+    pickers: emojiPickers,
+    allowed: (scope) => {
+      const currentPane = focusedPaneOf(paneStateRef.current);
+      const tab = currentPane.tabs.find((item) => item.path === currentPane.activePath);
+      return !!workspace && (!workspace.encryption.enabled || workspace.encryption.unlocked) &&
+        !workspaceLockedRef.current && !closingWindow.current && !!tab &&
+        !tab.readOnly && !tab.placeholder && !tab.transient && tab.encoding === "utf8" &&
+        /\.(md|markdown)$/i.test(tab.path) && scope === emojiScope(currentPane.id, tab.path);
+    },
+    preferences: (picker) => emojiPreferences.get(picker) ?? { recents: [], favorites: [], tone: 0 },
+    save: (picker, preferences) =>
+      pluginController.saveEmojiPreferences(picker.pluginId, picker.id, preferences),
+    error: showError,
+  });
+  useLayoutEffect(() => { emojiHost.reconcile(); });
   const pluginDecorationKey = pluginController.decorations
     .map(
       (decoration) =>
@@ -6734,6 +6781,7 @@ function App() {
   }, [activePath, headingNavigation, revealHeading, showLinkError]);
 
   const modalOpen =
+    emojiState.picker !== null ||
     replaceOpen ||
     encryptionOpen ||
     editorSettingsOpen ||
@@ -6790,6 +6838,12 @@ function App() {
         workspaceLockedRef.current ||
         modalOpen
       ) {
+        return;
+      }
+      if (isEmojiPickerShortcut(event, navigator.platform) && emojiPickers.length > 0) {
+        event.preventDefault();
+        event.stopPropagation();
+        emojiHost.open(emojiPickers[0]);
         return;
       }
       const modifier = event.metaKey || event.ctrlKey;
@@ -6894,6 +6948,8 @@ function App() {
     stepFocusedPane,
     createEntry,
     editorDisplaySettings.fontSize,
+    emojiHost,
+    emojiPickers,
     focusVaultSearch,
     modalOpen,
     saveTab,
@@ -7568,6 +7624,16 @@ function App() {
     },
   ];
   commandPaletteCommands.push(
+    ...emojiPickers.map((picker) => ({
+      id: `host.emoji.${picker.pluginId}.${picker.id}`,
+      title: picker.title,
+      description: "Insert Unicode emoji in the focused Markdown editor.",
+      category: "Editor",
+      shortcut: macOS ? "⇧⌘E" : "Ctrl+Shift+E",
+      keywords: ["emoji", "picker", "insert"],
+      disabled: !activePath || !emojiHost.allowed(emojiScope(focusedPaneId, activePath)),
+      run: () => emojiHost.open(picker),
+    })),
     ...pluginController.commands.map((command) => ({
       id: command.id,
       title: command.title,
@@ -7892,6 +7958,9 @@ function App() {
         : null;
     return (
       <>
+        {paneTab.encoding === "utf8" && /\.(md|markdown)$/i.test(paneTab.path) && !paneTab.transient ? (
+          <EmojiToolbar host={emojiHost} pickers={emojiPickers} disabled={paneReadOnly} scope={emojiScope(pane.id, paneTab.path)} />
+        ) : null}
         {paneTab.kind === "image" && !paneTab.rawEditing ? (
           <figure className="image-viewer">
             <img src={paneTab.imageDataUrl} alt={paneTab.title} />
@@ -7905,6 +7974,7 @@ function App() {
             lineEnding={paneTab.lineEnding}
             displaySettings={paneDisplaySettings}
             pluginDecorations={pluginController.decorations}
+            emoji={emojiPickers.length ? { host: emojiHost, scope: emojiScope(pane.id, paneTab.path) } : undefined}
             preferredViewMode={markdownViewMode}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
@@ -7958,6 +8028,7 @@ function App() {
               languageOverride={paneTab.languageOverride}
               projectMode={paneCodeContext}
               markdownSource={paneUsesProjectMarkdownSource}
+              emoji={emojiPickers.length ? { host: emojiHost, scope: emojiScope(pane.id, paneTab.path) } : undefined}
               errorLocation={
                 paneUsesProjectMarkdownSource
                   ? paneMarkdownError?.location
@@ -8883,6 +8954,7 @@ function App() {
       />
       {vaultSwitcherDialog}
       {commandPalette}
+      <EmojiHostSurface host={emojiHost} />
       {aboutDialog}
       <EncryptionDialog
         open={encryptionOpen}
