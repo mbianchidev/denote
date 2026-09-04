@@ -1021,7 +1021,7 @@ dependencies = [
 
 [[package]]
 name = "denote"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "argon2",
  "atomic-write-file",

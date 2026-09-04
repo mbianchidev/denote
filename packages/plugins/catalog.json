@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://raw.githubusercontent.com/mbianchidev/denote/8dee55f0757fbf0ee272f526ebb7e16356697bcc/plugin-artifacts/denote.reference-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.1.3/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
@@ -290,7 +290,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://raw.githubusercontent.com/mbianchidev/denote/1a549b0d84b1bba35752b8e759bc4e77a71e5672/plugin-artifacts/denote.git-0.6.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.1.3/denote.git-0.6.0.tgz",
       "sha256": "08457843e15c2d605986b84fe3417d6e4a7ea60513bddcbfad59ea1cb0299e49",
       "sizeBytes": 67629
     },
