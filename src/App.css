@@ -2399,6 +2399,49 @@ button.tag-chip:active,
   margin-top: 9px;
 }
 
+.source-control__operation-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 9px;
+}
+
+.source-control__operation-status .source-control__status {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+}
+
+.source-control__cancel-operation {
+  display: inline-flex;
+  min-height: 30px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  color: var(--danger);
+  font-size: 11px;
+  font-weight: 650;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 38%, var(--border));
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.source-control__cancel-operation:hover:not(:disabled) {
+  background: var(--danger-muted);
+  border-color: var(--danger);
+}
+
+.source-control__cancel-operation:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.source-control__cancel-operation:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
 .source-control__branch-trigger {
   display: flex;
   width: 100%;

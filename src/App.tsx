@@ -248,6 +248,7 @@ import {
 import { applyTheme, getTheme, type Theme } from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
 import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
+import { resolveCommitMessage } from "./plugins/commitMessages";
 import type { PluginAutomaticLocalCommitContribution } from "./plugins/workerRuntime";
 import { getOutlineWidth, saveOutlineWidth } from "./lib/outlineWidth";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
@@ -4875,7 +4876,7 @@ function App() {
           schedule.pluginId,
           {
             scheduleId: schedule.id,
-            message: schedule.message,
+            message: resolveCommitMessage(schedule.message, schedule.message),
             includePatterns: schedule.includePatterns,
             excludePatterns: schedule.excludePatterns,
             authorName: schedule.authorName,

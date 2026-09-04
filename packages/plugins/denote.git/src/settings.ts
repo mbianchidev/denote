@@ -39,7 +39,7 @@ const PULL_STRATEGIES: GitPullStrategy[] = [
 ];
 
 const DEFAULT_BRANCH = "main";
-const DEFAULT_AUTO_COMMIT_MESSAGE = "Denote automatic commit";
+const DEFAULT_AUTO_COMMIT_MESSAGE = "Denote automatic commit {timestamp}";
 const MAX_IDENTITY_LENGTH = 255;
 const MAX_MINUTES = 1440;
 

@@ -115,6 +115,7 @@ pub struct PluginBundle {
 #[serde(rename_all = "camelCase")]
 pub struct PluginView {
     pub catalog: PluginCatalogEntry,
+    pub runtime_manifest: Option<PluginManifest>,
     pub status: String,
     pub enabled: bool,
     pub error: Option<String>,
@@ -181,6 +182,7 @@ pub(crate) struct PersistentPluginState {
     pub(crate) artifact_hashes: BTreeMap<String, String>,
     pub(crate) catalog_fingerprints: BTreeMap<String, String>,
     pub(crate) entrypoint_hashes: BTreeMap<String, String>,
+    pub(crate) installed_manifests: BTreeMap<String, PluginManifest>,
     pub(crate) settings: BTreeMap<String, Value>,
     pub(crate) settings_versions: BTreeMap<String, u32>,
     pub(crate) storage: BTreeMap<String, BTreeMap<String, Value>>,
@@ -203,4 +205,5 @@ pub(crate) struct PreparedPluginTransaction {
     pub(crate) artifact_sha256: String,
     pub(crate) catalog_fingerprint: String,
     pub(crate) entrypoint_sha256: Option<String>,
+    pub(crate) previously_enabled: bool,
 }

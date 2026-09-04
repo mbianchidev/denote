@@ -410,7 +410,8 @@ export class PluginWorkerRuntime {
     plugin: PluginView,
     generation: number,
   ): Promise<void> {
-    const pluginId = plugin.catalog.manifest.id;
+    const manifest = plugin.runtimeManifest ?? plugin.catalog.manifest;
+    const pluginId = manifest.id;
     const code = await api.readPluginEntrypoint(pluginId);
     this.assertCurrent(pluginId, generation);
 
@@ -472,7 +473,7 @@ export class PluginWorkerRuntime {
         type: "connect",
         moduleUrl,
         pluginId,
-        expectedVersion: plugin.catalog.manifest.version,
+        expectedVersion: manifest.version,
         permissions: plugin.approvedPermissions.map(
           (permission) => permission.capability,
         ),

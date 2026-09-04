@@ -41,15 +41,21 @@ pub(crate) struct GitSettingsPolicy {
 
 impl PluginManager {
     pub(crate) fn settings(&self, plugin_id: &str) -> AppResult<Value> {
-        let catalog = self.catalog_entry(plugin_id)?;
+        let manifest = self.runtime_manifest(plugin_id)?;
+        let preparing = self
+            .pending_transactions()?
+            .values()
+            .any(|transaction| transaction.plugin_id == plugin_id);
         let saved = self.state()?.settings.get(plugin_id).cloned();
         let saved_version = self.state()?.settings_versions.get(plugin_id).copied();
         let normalized = match saved.clone() {
-            Some(settings) => migrate_settings(&catalog.manifest, settings, saved_version)?,
-            None => validate_settings(&catalog.manifest, default_settings(&catalog.manifest))?,
+            Some(settings) => migrate_settings(&manifest, settings, saved_version)?,
+            None => validate_settings(&manifest, default_settings(&manifest))?,
         };
-        let target_version = settings_schema_version(&catalog.manifest);
-        if saved.as_ref() != Some(&normalized) || saved_version != Some(target_version) {
+        let target_version = settings_schema_version(&manifest);
+        if !preparing
+            && (saved.as_ref() != Some(&normalized) || saved_version != Some(target_version))
+        {
             self.update_state(|state| {
                 state
                     .settings
@@ -64,10 +70,10 @@ impl PluginManager {
     }
 
     pub(crate) fn set_settings(&self, plugin_id: &str, settings: Value) -> AppResult<Value> {
-        let catalog = self.catalog_entry(plugin_id)?;
+        let manifest = self.runtime_manifest(plugin_id)?;
         let settings = validate_settings(
-            &catalog.manifest,
-            normalize_legacy_executable_settings(&catalog.manifest, settings)?,
+            &manifest,
+            normalize_legacy_executable_settings(&manifest, settings)?,
         )?;
         self.validate_executable_settings(plugin_id, &settings)?;
         if serde_json::to_vec(&settings)
@@ -83,10 +89,9 @@ impl PluginManager {
             state
                 .settings
                 .insert(plugin_id.to_string(), settings.clone());
-            state.settings_versions.insert(
-                plugin_id.to_string(),
-                settings_schema_version(&catalog.manifest),
-            );
+            state
+                .settings_versions
+                .insert(plugin_id.to_string(), settings_schema_version(&manifest));
             Ok(())
         })?;
         Ok(settings)
@@ -98,8 +103,8 @@ impl PluginManager {
         source_version: u32,
         settings: Value,
     ) -> AppResult<Value> {
-        let catalog = self.catalog_entry(plugin_id)?;
-        let settings = migrate_settings(&catalog.manifest, settings, Some(source_version))?;
+        let manifest = self.runtime_manifest(plugin_id)?;
+        let settings = migrate_settings(&manifest, settings, Some(source_version))?;
         self.validate_executable_settings(plugin_id, &settings)?;
         if serde_json::to_vec(&settings)
             .map_err(|error| AppError::Plugin(format!("Unable to size settings: {error}")))?
@@ -110,7 +115,7 @@ impl PluginManager {
                 "Settings for {plugin_id} exceed the size limit"
             )));
         }
-        let target_version = settings_schema_version(&catalog.manifest);
+        let target_version = settings_schema_version(&manifest);
         self.update_state(|state| {
             state
                 .settings

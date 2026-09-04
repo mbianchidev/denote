@@ -296,6 +296,20 @@ impl PluginManager {
             .ok_or_else(|| AppError::NotFound(format!("Plugin {plugin_id}")))
     }
 
+    fn runtime_manifest(&self, plugin_id: &str) -> AppResult<PluginManifest> {
+        let preparing = self
+            .pending_transactions()?
+            .values()
+            .any(|transaction| transaction.plugin_id == plugin_id);
+        if preparing {
+            return Ok(self.catalog_entry(plugin_id)?.manifest.clone());
+        }
+        if let Some(manifest) = self.state()?.installed_manifests.get(plugin_id).cloned() {
+            return Ok(manifest);
+        }
+        Ok(self.catalog_entry(plugin_id)?.manifest.clone())
+    }
+
     fn plugin_root(&self, plugin_id: &str) -> PathBuf {
         self.inner
             .app_data_dir
@@ -305,8 +319,11 @@ impl PluginManager {
     }
 
     fn install_dir(&self, catalog: &PluginCatalogEntry) -> PathBuf {
-        self.plugin_root(&catalog.manifest.id)
-            .join(&catalog.manifest.version)
+        self.install_dir_for_manifest(&catalog.manifest)
+    }
+
+    fn install_dir_for_manifest(&self, manifest: &PluginManifest) -> PathBuf {
+        self.plugin_root(&manifest.id).join(&manifest.version)
     }
 
     fn state_path(&self) -> PathBuf {

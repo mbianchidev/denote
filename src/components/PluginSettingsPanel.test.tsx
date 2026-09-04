@@ -414,6 +414,7 @@ describe("PluginSettingsPanel", () => {
           plugins: [
             plugin({
               status: "update-available",
+              enabled: true,
             }),
           ],
         })}
@@ -422,6 +423,10 @@ describe("PluginSettingsPanel", () => {
 
     expect(
       screen.getByRole("button", { name: "Review and update" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Update available")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Disable and remove code" }),
     ).toBeInTheDocument();
   });
 

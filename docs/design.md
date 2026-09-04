@@ -286,7 +286,8 @@ repository list for every detected vault or project repository, then uses visibl
 branch, create-branch, sync, and commit fields, native controls, semantic lists and headings, keyboard
 operable tabs, structured diffs, and polite status regions for progress,
 recovery, and limitations. A busy provider that reports the operation it is
-running also shows a cancel control beside that status. Remote work uses the
+running also shows a compact, danger-tinted icon-and-label cancel control beside
+that status. Remote work uses the
 same vocabulary: labelled URL and name fields for adding, editing, and removing
 a remote, the configured authentication mode shown read-only beside a line
 directing the user to Settings. Clone onboarding appears in the Switch vault
@@ -314,7 +315,9 @@ The plugin manager groups **Update all** with the global recovery controls only
 when approved updates exist. Its first activation opens an inline confirmation
 that lists exact plugin names and explains that the latest full permission sets
 will be accepted; it never hides this security consequence behind a progress
-button.
+button. An enabled plugin with an update keeps its installed-version settings
+and runtime until the user chooses **Review and update** or **Update all**; the
+card shows both installed and available versions when they differ.
 Git executable settings use one compact status block per tool: selected source,
 resolved path, locked or detected version, validation state, and prerequisite
 guidance. Bundled mode shows **not downloaded** until an action first needs it;
@@ -324,7 +327,8 @@ The source-control commit form places an enabled-by-default **Sign commit**
 control after the commit message. Its native password input exists only while
 signing is selected, explains that it is one-shot and SSH-signing-only, and
 clears after submission or repository change. Commit and Commit and push are
-adjacent primary actions.
+adjacent primary actions. The message may be blank; its placeholder previews the
+timestamped manual default.
 Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions
 use the shared Lucide icon-button vocabulary, while `aria-label` and `title`
 retain the full action and target. Loaded patches leave the narrow sidebar and

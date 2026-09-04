@@ -15,10 +15,10 @@ use super::{
     catalog::{catalog_fingerprint, compatibility_error},
     package::{
         download_artifact, ensure_managed_directory, extract_archive, metadata_is_link,
-        reject_symlink, remove_directory_atomically, sha256_file, validate_extracted_package,
-        verify_artifact,
+        read_packaged_manifest, reject_symlink, remove_directory_atomically, sha256_file,
+        validate_extracted_package, validate_installed_package, verify_artifact,
     },
-    settings::{default_settings, migrate_settings},
+    settings::{default_settings, migrate_settings, settings_schema_version},
     types::{
         InstalledPlugin, MAX_PLUGIN_ENTRYPOINT_BYTES, PluginCatalogEntry, PluginPermission,
         PluginView,
@@ -42,19 +42,27 @@ impl PluginManager {
                 let plugin_id = &catalog.manifest.id;
                 let compatibility_error = compatibility_error(catalog);
                 let enabled = state.enabled.contains(plugin_id);
-                let installed = self.install_dir(catalog).is_dir();
                 let prepared_permissions = pending
                     .values()
                     .find(|transaction| transaction.plugin_id == *plugin_id)
                     .map(|transaction| transaction.permissions.clone());
+                let runtime_manifest = prepared_permissions
+                    .as_ref()
+                    .map(|_| catalog.manifest.clone())
+                    .or_else(|| state.installed_manifests.get(plugin_id).cloned());
+                let installed = runtime_manifest
+                    .as_ref()
+                    .is_some_and(|manifest| self.install_dir_for_manifest(manifest).is_dir());
                 let status = if initialization_error.is_some() {
                     "failed"
-                } else if compatibility_error.is_some() {
-                    "incompatible"
                 } else if prepared_permissions.is_some() {
                     "installing"
+                } else if enabled && installed && state.updates_available.contains(plugin_id) {
+                    "update-available"
                 } else if enabled && installed {
                     "enabled"
+                } else if compatibility_error.is_some() {
+                    "incompatible"
                 } else if state.updates_available.contains(plugin_id) {
                     "update-available"
                 } else if enabled {
@@ -66,11 +74,18 @@ impl PluginManager {
                 };
                 Ok(PluginView {
                     catalog: catalog.clone(),
+                    runtime_manifest: runtime_manifest.clone(),
                     status: status.to_string(),
                     enabled,
                     error: initialization_error
                         .clone()
-                        .or(compatibility_error)
+                        .or_else(|| {
+                            if enabled && installed {
+                                None
+                            } else {
+                                compatibility_error
+                            }
+                        })
                         .or_else(|| state.errors.get(plugin_id).cloned()),
                     approved_permissions: prepared_permissions
                         .or_else(|| state.approved_permissions.get(plugin_id).cloned())
@@ -84,13 +99,15 @@ impl PluginManager {
                         .cloned()
                         .and_then(|settings| {
                             migrate_settings(
-                                &catalog.manifest,
+                                runtime_manifest.as_ref().unwrap_or(&catalog.manifest),
                                 settings,
                                 state.settings_versions.get(plugin_id).copied(),
                             )
                             .ok()
                         })
-                        .unwrap_or_else(|| default_settings(&catalog.manifest)),
+                        .unwrap_or_else(|| {
+                            default_settings(runtime_manifest.as_ref().unwrap_or(&catalog.manifest))
+                        }),
                     has_credentials: state
                         .credential_keys
                         .get(plugin_id)
@@ -123,11 +140,24 @@ impl PluginManager {
                 "Approved permissions do not match the current manifest for {plugin_id}"
             )));
         }
-        if self.state()?.enabled.contains(plugin_id) {
+        let state = self.state()?;
+        let previously_enabled = state.enabled.contains(plugin_id);
+        if previously_enabled && !state.updates_available.contains(plugin_id) {
             return Err(AppError::Plugin(format!(
                 "Plugin {plugin_id} is already enabled"
             )));
         }
+        if previously_enabled
+            && state
+                .installed_manifests
+                .get(plugin_id)
+                .is_some_and(|manifest| manifest.version == catalog.manifest.version)
+        {
+            return Err(AppError::Plugin(format!(
+                "Plugin {plugin_id} cannot replace an installed version without a version change"
+            )));
+        }
+        drop(state);
         let transaction_id = Uuid::new_v4().to_string();
         self.pending_transactions()?.insert(
             transaction_id.clone(),
@@ -137,6 +167,7 @@ impl PluginManager {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog)?,
                 entrypoint_sha256: None,
+                previously_enabled,
             },
         );
         operation.retained = true;
@@ -156,7 +187,7 @@ impl PluginManager {
             Ok(installed) => Ok(installed),
             Err(error) => {
                 self.pending_transactions()?.remove(&transaction_id);
-                if let Err(cleanup_error) = self.remove_package(plugin_id) {
+                if let Err(cleanup_error) = self.remove_installation(&catalog.manifest) {
                     self.finish_operation(plugin_id)?;
                     return Err(AppError::Plugin(format!(
                         "{error}; additionally failed to remove the incomplete package: {cleanup_error}"
@@ -174,8 +205,15 @@ impl PluginManager {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
         })?;
         let plugin_id = transaction.plugin_id;
-        let catalog = self.catalog_entry(&plugin_id)?;
-        self.installed_plugin(catalog, transaction_id.to_string())?;
+        let catalog = self.catalog_entry(&plugin_id)?.clone();
+        self.installed_plugin(&catalog, transaction_id.to_string())?;
+        let saved_settings = self.state()?.settings.get(&plugin_id).cloned();
+        let saved_version = self.state()?.settings_versions.get(&plugin_id).copied();
+        let settings = match saved_settings {
+            Some(settings) => migrate_settings(&catalog.manifest, settings, saved_version)?,
+            None => default_settings(&catalog.manifest),
+        };
+        let settings_version = settings_schema_version(&catalog.manifest);
         self.update_state(|state| {
             state.enabled.insert(plugin_id.clone());
             state.updates_available.remove(&plugin_id);
@@ -194,12 +232,23 @@ impl PluginManager {
                     AppError::Plugin("Plugin preparation is incomplete".to_string())
                 })?,
             );
+            state
+                .installed_manifests
+                .insert(plugin_id.clone(), catalog.manifest.clone());
+            state.settings.insert(plugin_id.clone(), settings.clone());
+            state
+                .settings_versions
+                .insert(plugin_id.clone(), settings_version);
             state.errors.remove(&plugin_id);
             Ok(())
         })?;
         transactions.remove(transaction_id);
         drop(transactions);
-        self.finish_operation(&plugin_id)
+        self.finish_operation(&plugin_id)?;
+        if let Err(error) = self.prune_plugin_versions(&catalog.manifest) {
+            eprintln!("Unable to remove superseded plugin packages for {plugin_id}: {error}");
+        }
+        Ok(())
     }
 
     pub(crate) fn rollback_enable(
@@ -212,11 +261,14 @@ impl PluginManager {
             AppError::Plugin("Plugin enablement transaction is invalid or expired".to_string())
         })?;
         let plugin_id = transaction.plugin_id;
-        self.catalog_entry(&plugin_id)?;
+        let catalog = self.catalog_entry(&plugin_id)?.clone();
         self.cancel_git_operations(&plugin_id);
-        self.remove_package(&plugin_id)?;
+        self.remove_installation(&catalog.manifest)?;
         self.update_state(|state| {
-            state.enabled.remove(&plugin_id);
+            if !transaction.previously_enabled {
+                state.enabled.remove(&plugin_id);
+                state.installed_manifests.remove(&plugin_id);
+            }
             if let Some(error) = error {
                 state.errors.insert(plugin_id.clone(), error);
             }
@@ -256,6 +308,7 @@ impl PluginManager {
             state.enabled.remove(plugin_id);
             state.updates_available.remove(plugin_id);
             state.entrypoint_hashes.remove(plugin_id);
+            state.installed_manifests.remove(plugin_id);
             state.errors.remove(plugin_id);
             if clear_data {
                 state.settings.remove(plugin_id);
@@ -268,9 +321,10 @@ impl PluginManager {
 
     pub(crate) fn read_entrypoint(&self, plugin_id: &str) -> AppResult<String> {
         self.authorize_runtime(plugin_id, None)?;
-        let catalog = self.catalog_entry(plugin_id)?;
-        let entrypoint = self.install_dir(catalog).join(&catalog.manifest.entrypoint);
-        let canonical_root = fs::canonicalize(self.install_dir(catalog))?;
+        let manifest = self.runtime_manifest(plugin_id)?;
+        let install_dir = self.install_dir_for_manifest(&manifest);
+        let entrypoint = install_dir.join(&manifest.entrypoint);
+        let canonical_root = fs::canonicalize(&install_dir)?;
         let canonical_entrypoint = fs::canonicalize(&entrypoint)?;
         if !canonical_entrypoint.starts_with(&canonical_root) {
             return Err(AppError::Plugin(format!(
@@ -387,6 +441,104 @@ impl PluginManager {
         remove_directory_atomically(&plugin_root)
     }
 
+    fn remove_installation(&self, manifest: &super::types::PluginManifest) -> AppResult<()> {
+        let install_dir = self.install_dir_for_manifest(manifest);
+        if !install_dir.exists() {
+            return Ok(());
+        }
+        reject_symlink(&install_dir)?;
+        remove_directory_atomically(&install_dir)?;
+        let plugin_root = self.plugin_root(&manifest.id);
+        if plugin_root.is_dir() && fs::read_dir(&plugin_root)?.next().is_none() {
+            fs::remove_dir(plugin_root)?;
+        }
+        Ok(())
+    }
+
+    fn prune_plugin_versions(&self, active: &super::types::PluginManifest) -> AppResult<()> {
+        let plugin_root = self.plugin_root(&active.id);
+        if !plugin_root.exists() {
+            return Ok(());
+        }
+        reject_symlink(&plugin_root)?;
+        for entry in fs::read_dir(&plugin_root)? {
+            let path = entry?.path();
+            if path == self.install_dir_for_manifest(active) {
+                continue;
+            }
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata_is_link(&metadata) || !metadata.is_dir() {
+                return Err(AppError::Plugin(format!(
+                    "Unsupported plugin package entry: {}",
+                    path.display()
+                )));
+            }
+            remove_directory_atomically(&path)?;
+        }
+        Ok(())
+    }
+
+    fn recover_installed_manifest(
+        &self,
+        plugin_id: &str,
+    ) -> AppResult<Option<super::types::PluginManifest>> {
+        if let Some(manifest) = self.state()?.installed_manifests.get(plugin_id).cloned() {
+            return Ok(Some(manifest));
+        }
+        let approved = self
+            .state()?
+            .approved_permissions
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or_default();
+        let expected_entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
+        let plugin_root = self.plugin_root(plugin_id);
+        if !plugin_root.exists() {
+            return Ok(None);
+        }
+        reject_symlink(&plugin_root)?;
+        let mut candidates = Vec::new();
+        for entry in fs::read_dir(&plugin_root)? {
+            let path = entry?.path();
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata_is_link(&metadata) || !metadata.is_dir() {
+                continue;
+            }
+            let Ok(manifest) = read_packaged_manifest(&path) else {
+                continue;
+            };
+            if manifest.id != plugin_id
+                || path.file_name().and_then(|name| name.to_str())
+                    != Some(manifest.version.as_str())
+                || manifest
+                    .permissions
+                    .iter()
+                    .cloned()
+                    .collect::<BTreeSet<_>>()
+                    != approved
+                || validate_installed_package(&manifest, &path).is_err()
+            {
+                continue;
+            }
+            let entrypoint_hash = sha256_file(&path.join(&manifest.entrypoint)).ok();
+            if entrypoint_hash != expected_entrypoint_hash {
+                continue;
+            }
+            candidates.push(manifest);
+        }
+        if candidates.len() != 1 {
+            return Ok(None);
+        }
+        let manifest = candidates.remove(0);
+        self.update_state(|state| {
+            state
+                .installed_manifests
+                .insert(plugin_id.to_string(), manifest.clone());
+            Ok(())
+        })?;
+        Ok(Some(manifest))
+    }
+
     pub(crate) fn reconcile_packages(&self) -> AppResult<()> {
         self.prune_transient_paths()?;
         let enabled = self.state()?.enabled.clone();
@@ -401,50 +553,32 @@ impl PluginManager {
                 self.state()?.catalog_fingerprints.get(plugin_id).cloned();
             let expected_catalog_fingerprint = catalog_fingerprint(catalog)?;
             let entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
-            if let Some(error) = compatibility_error(catalog) {
-                if plugin_root.exists() {
-                    self.remove_package(plugin_id)?;
-                }
-                self.update_state(|state| {
-                    state.enabled.remove(plugin_id);
-                    state.updates_available.remove(plugin_id);
-                    state.entrypoint_hashes.remove(plugin_id);
-                    state.errors.insert(plugin_id.clone(), error);
-                    Ok(())
-                })?;
-            } else if enabled.contains(plugin_id)
-                && approved_permissions.as_ref() != Some(&requested_permissions)
-            {
-                if plugin_root.exists() {
-                    self.remove_package(plugin_id)?;
-                }
-                self.update_state(|state| {
-                    state.enabled.remove(plugin_id);
-                    state.updates_available.insert(plugin_id.clone());
-                    state.entrypoint_hashes.remove(plugin_id);
-                    state.errors.insert(
-                        plugin_id.clone(),
-                        "Plugin permissions changed. Review and approve them before enabling again."
-                            .to_string(),
-                    );
-                    Ok(())
-                })?;
-            } else if enabled.contains(plugin_id) {
-                let installed_entrypoint =
-                    self.install_dir(catalog).join(&catalog.manifest.entrypoint);
-                let entrypoint_matches = match (
-                    entrypoint_hash.as_deref(),
-                    sha256_file(&installed_entrypoint),
-                ) {
-                    (Some(expected), Ok(actual)) => actual == expected,
-                    _ => false,
-                };
-                let installed_valid = self.install_dir(catalog).is_dir()
-                    && validate_extracted_package(catalog, &self.install_dir(catalog)).is_ok()
-                    && artifact_hash.as_deref() == Some(catalog.artifact.sha256.as_str())
-                    && stored_catalog_fingerprint.as_deref()
-                        == Some(expected_catalog_fingerprint.as_str())
-                    && entrypoint_matches;
+            if enabled.contains(plugin_id) {
+                let active_manifest = self.recover_installed_manifest(plugin_id)?;
+                let installed_valid = active_manifest.as_ref().is_some_and(|manifest| {
+                    let install_dir = self.install_dir_for_manifest(manifest);
+                    let entrypoint_matches = match (
+                        entrypoint_hash.as_deref(),
+                        sha256_file(&install_dir.join(&manifest.entrypoint)),
+                    ) {
+                        (Some(expected), Ok(actual)) => actual == expected,
+                        _ => false,
+                    };
+                    let approved_matches = approved_permissions.as_ref()
+                        == Some(&manifest.permissions.iter().cloned().collect());
+                    let mut installed_catalog = catalog.clone();
+                    installed_catalog.manifest = manifest.clone();
+                    installed_catalog.revoked = None;
+                    let compatible = compatibility_error(&installed_catalog).is_none();
+                    let explicitly_revoked =
+                        catalog.revoked.is_some() && manifest.version == catalog.manifest.version;
+                    install_dir.is_dir()
+                        && validate_installed_package(manifest, &install_dir).is_ok()
+                        && entrypoint_matches
+                        && approved_matches
+                        && compatible
+                        && !explicitly_revoked
+                });
                 if !installed_valid {
                     if plugin_root.exists() {
                         self.remove_package(plugin_id)?;
@@ -453,23 +587,41 @@ impl PluginManager {
                         state.enabled.remove(plugin_id);
                         state.updates_available.insert(plugin_id.clone());
                         state.entrypoint_hashes.remove(plugin_id);
+                        state.installed_manifests.remove(plugin_id);
                         state.errors.insert(
                             plugin_id.clone(),
-                            "The catalog artifact changed or the package is missing. Review permissions and enable the plugin again."
+                            "The installed plugin package is missing, incompatible, revoked, or failed its integrity check."
                                 .to_string(),
                         );
                         Ok(())
                     })?;
+                    continue;
                 }
+                let active_manifest = active_manifest.expect("validated installed manifest");
+                let update_available = compatibility_error(catalog).is_none()
+                    && (stored_catalog_fingerprint.as_deref()
+                        != Some(expected_catalog_fingerprint.as_str())
+                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
+                        || approved_permissions.as_ref() != Some(&requested_permissions));
+                self.update_state(|state| {
+                    if update_available {
+                        state.updates_available.insert(plugin_id.clone());
+                    } else {
+                        state.updates_available.remove(plugin_id);
+                    }
+                    state.errors.remove(plugin_id);
+                    Ok(())
+                })?;
+                self.prune_plugin_versions(&active_manifest)?;
             } else if approved_permissions.is_some() {
                 if plugin_root.exists() {
                     self.remove_package(plugin_id)?;
                 }
-                let update_available = approved_permissions.as_ref()
-                    != Some(&requested_permissions)
-                    || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
-                    || stored_catalog_fingerprint.as_deref()
-                        != Some(expected_catalog_fingerprint.as_str());
+                let update_available = compatibility_error(catalog).is_none()
+                    && (approved_permissions.as_ref() != Some(&requested_permissions)
+                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str())
+                        || stored_catalog_fingerprint.as_deref()
+                            != Some(expected_catalog_fingerprint.as_str()));
                 self.update_state(|state| {
                     if update_available {
                         state.updates_available.insert(plugin_id.clone());
@@ -477,6 +629,7 @@ impl PluginManager {
                         state.updates_available.remove(plugin_id);
                     }
                     state.entrypoint_hashes.remove(plugin_id);
+                    state.installed_manifests.remove(plugin_id);
                     Ok(())
                 })?;
             } else if plugin_root.exists() {
@@ -497,6 +650,7 @@ impl PluginManager {
         orphaned_ids.extend(state_snapshot.artifact_hashes.keys().cloned());
         orphaned_ids.extend(state_snapshot.catalog_fingerprints.keys().cloned());
         orphaned_ids.extend(state_snapshot.entrypoint_hashes.keys().cloned());
+        orphaned_ids.extend(state_snapshot.installed_manifests.keys().cloned());
         orphaned_ids.extend(state_snapshot.settings.keys().cloned());
         orphaned_ids.extend(state_snapshot.settings_versions.keys().cloned());
         orphaned_ids.extend(state_snapshot.storage.keys().cloned());
@@ -512,6 +666,7 @@ impl PluginManager {
                 state.artifact_hashes.remove(&plugin_id);
                 state.catalog_fingerprints.remove(&plugin_id);
                 state.entrypoint_hashes.remove(&plugin_id);
+                state.installed_manifests.remove(&plugin_id);
                 state.settings.remove(&plugin_id);
                 state.settings_versions.remove(&plugin_id);
                 state.storage.remove(&plugin_id);

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.git",
   "name": "Git vault versioning",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
   "publisher": {
     "name": "Denote",
@@ -212,8 +212,8 @@
       "autoCommitMessage": {
         "type": "string",
         "title": "Automatic commit message",
-        "description": "Message recorded on each automatic local commit.",
-        "default": "Denote automatic commit"
+        "description": "Message recorded on each automatic local commit. Use {timestamp} for the current local time as yyyy-mm-dd hh:mm.",
+        "default": "Denote automatic commit {timestamp}"
       },
       "includePatterns": {
         "type": "string",

@@ -255,10 +255,24 @@ export function usePlugins(
         if (!current) {
           throw new Error(`Plugin ${pluginId} is not in the catalog.`);
         }
+        const updating =
+          current.enabled && current.status === "update-available";
+        if (current.enabled && !updating) {
+          throw new Error(`Plugin ${pluginId} is already enabled.`);
+        }
+        let previousRuntimeStopped = false;
         let runtimeStarted = false;
         let transactionId: string | null = null;
         let committed = false;
         try {
+          if (updating) {
+            const runtime = runtimeRef.current;
+            if (!runtime) {
+              throw new Error("Plugin runtime is unavailable.");
+            }
+            await runtime.stop(pluginId);
+            previousRuntimeStopped = true;
+          }
           const installation = await api.preparePluginEnable(
             pluginId,
             approvedPermissions,
@@ -282,6 +296,7 @@ export function usePlugins(
           committed = true;
           pendingTransactionsRef.current.delete(pluginId);
         } catch (error) {
+          let rollbackError: unknown = null;
           if (runtimeStarted) {
             await runtimeRef.current?.stop(pluginId).catch(reportError);
           }
@@ -295,11 +310,36 @@ export function usePlugins(
                 errorMessage(error),
               );
               pendingTransactionsRef.current.delete(pluginId);
-            } catch (rollbackError) {
-              reportError(rollbackError);
+            } catch (caughtRollbackError) {
+              reportError(caughtRollbackError);
+              rollbackError = caughtRollbackError;
             }
           }
-          await refresh().catch(reportError);
+          if (previousRuntimeStopped && rollbackError === null) {
+            try {
+              const available = await api.listPlugins();
+              setPlugins(available);
+              const previous = available.find(
+                (plugin) =>
+                  plugin.catalog.manifest.id === pluginId && plugin.enabled,
+              );
+              if (previous) {
+                await runtimeRef.current?.start(previous);
+              }
+            } catch (restartError) {
+              reportError(restartError);
+              throw new Error(
+                `${errorMessage(error)} The previous plugin version could not be restarted: ${errorMessage(restartError)}`,
+              );
+            }
+          } else {
+            await refresh().catch(reportError);
+          }
+          if (rollbackError) {
+            throw new Error(
+              `${errorMessage(error)} The plugin update could not be rolled back: ${errorMessage(rollbackError)}`,
+            );
+          }
           throw error;
         }
         if (committed) {

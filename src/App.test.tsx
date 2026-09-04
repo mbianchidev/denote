@@ -1689,6 +1689,7 @@ describe("App initial file-tree expansion", () => {
   it("saves open notes before an automatic commit and refreshes after it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
+      vi.setSystemTime(new Date(2026, 8, 4, 9, 7));
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
       mockPluginController.automaticLocalCommits = [automaticCommitSchedule()];
@@ -1729,7 +1730,7 @@ describe("App initial file-tree expansion", () => {
           "denote.synthetic",
           {
             scheduleId: "denote.synthetic.nightly",
-            message: "Synthetic automatic commit",
+            message: "Synthetic automatic commit 2026-09-04 09:08",
             includePatterns: [],
             excludePatterns: [],
             authorName: null,
@@ -2097,7 +2098,7 @@ function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
     pluginId: "denote.synthetic",
     id: "denote.synthetic.nightly",
     intervalMinutes: 1,
-    message: "Synthetic automatic commit",
+    message: "Synthetic automatic commit {timestamp}",
     includePatterns: [],
     excludePatterns: [],
     authorName: null,

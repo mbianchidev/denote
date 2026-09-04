@@ -7,6 +7,7 @@ import type {
   PluginSourceControlDiffSource,
   PluginGitCloneVaultResult,
   PluginLifecycleState,
+  PluginManifest,
   PluginPermissionRequest,
 } from "@denote/plugin-sdk";
 
@@ -252,6 +253,7 @@ export interface LinkRewriteBatch extends DocumentBatch {
 
 export interface PluginView {
   catalog: PluginCatalogEntry;
+  runtimeManifest?: PluginManifest | null;
   status: PluginLifecycleState;
   enabled: boolean;
   error: string | null;

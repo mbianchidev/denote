@@ -29,7 +29,9 @@ plugin manager. It first lists the exact plugins and explains that their complet
 latest permission sets will be accepted again. Confirming updates only those
 listed plugins, one independently verified transaction at a time. Current,
 never-approved, incompatible, and unrelated plugins are not downloaded or
-changed.
+changed. An enabled plugin keeps running its installed version until its update
+has downloaded, verified, started, and completed. If that fails, Denote removes
+the attempted replacement and starts the installed version again.
 
 Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
@@ -98,7 +100,9 @@ automatic commit is one full interval later. If a run cannot finish, whatever
 you had staged is left exactly as it was, and if another Git tool changed your
 index in the meantime Denote leaves that index untouched and tells you so.
 Changing any plugin setting reloads the plugin so the new interval, message, or
-prefixes apply straight away.
+prefixes apply straight away. The default message is
+`Denote automatic commit {timestamp}`. `{timestamp}` becomes the current local
+time in `yyyy-mm-dd hh:mm` format when the commit runs.
 
 You can also work with remotes. The Repository tab adds a remote, changes a
 remote's URL, and removes one, and the repository section fetches, pulls, and
@@ -181,7 +185,9 @@ stores. Automatic commits remain unsigned.
 
 The manual commit form provides **Sign commit**, enabled by default for each
 submission, plus **Commit** and **Commit and push**. Turn signing off for an
-unsigned commit. For an encrypted SSH signing key, enter its passphrase in the
+unsigned commit. If you leave the message blank, Denote uses
+`Denote manual commit {timestamp}` and resolves the placeholder to the current
+local time in `yyyy-mm-dd hh:mm` format. For an encrypted SSH signing key, enter its passphrase in the
 password-style field that appears while signing is selected. Denote uses it for
 that commit only and clears it immediately; the plugin never receives it. Leave
 it empty when your SSH agent already has the key, or when OpenPGP/X.509 signing

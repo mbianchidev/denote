@@ -305,9 +305,10 @@ describe("SourceControlPanel", () => {
     );
 
     expect(screen.getByRole("status")).toHaveTextContent("Refreshing");
-    await user.click(
-      screen.getByRole("button", { name: "Cancel operation" }),
-    );
+    const cancel = screen.getByRole("button", { name: "Cancel operation" });
+    expect(cancel).toHaveClass("source-control__cancel-operation");
+    expect(cancel.querySelector("svg")).not.toBeNull();
+    await user.click(cancel);
     expect(onAction).toHaveBeenCalledWith({
       id: "cancel-operation",
       values: { operationId: "11111111-2222-4333-8444-555555555555" },
@@ -335,6 +336,34 @@ describe("SourceControlPanel", () => {
       screen.queryByRole("button", { name: "Cancel operation" }),
     ).not.toBeInTheDocument();
   });
+
+  it("uses a timestamped default when a manual commit message is blank", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    render(
+      <SourceControlPanel
+        title="Git"
+        model={changesModel()}
+        onAction={onAction}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Commit" }));
+
+    expect(onAction).toHaveBeenCalledWith(
+      {
+        id: "commit",
+        values: {
+          message: expect.stringMatching(
+            /^Denote manual commit \d{4}-\d{2}-\d{2} \d{2}:\d{2}$/,
+          ),
+          sign: true,
+        },
+      },
+      undefined,
+    );
+  });
+
   it("manages remotes with labelled controls and exact action payloads", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();
