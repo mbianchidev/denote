@@ -642,13 +642,14 @@ result into a digest-addressed cache. System, Custom, and Disabled never enter
 the downloader. An interrupted or corrupted cache is reported explicitly and
 never causes fallback.
 
-Release jobs prepare the target assets and metadata before Tauri packaging, require Apple
-signing/notarization and Windows Authenticode credentials, smoke-test tools from
-the installed Debian package, mounted DMG, or administrative MSI image, publish
-checksums, notices, SPDX SBOMs, the exact Git corresponding-source archive and
-signature, the on-demand target tool archives, and GitHub build-provenance and
-SBOM attestations. Installed-package smoke tests assert that tool archives are
-absent from the installer.
+Release jobs prepare the target assets and metadata before Tauri packaging.
+macOS and Windows packages are currently unsigned, with Apple
+signing/notarization and Windows Authenticode disabled. The jobs still smoke-test
+tools from the installed Debian package, mounted DMG, or administrative MSI
+image, publish checksums, notices, SPDX SBOMs, the exact Git corresponding-source
+archive and signature, the on-demand target tool archives, and GitHub
+build-provenance and SBOM attestations. Installed-package smoke tests assert that
+tool archives are absent from the installer.
 
 Downloaded entrypoints are read only for transaction-prepared or enabled
 plugins and passed to a Vite-emitted module worker as a data-URL module. The typed
