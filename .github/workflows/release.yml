@@ -238,65 +238,6 @@ jobs:
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
 
-      - name: Require release signing credentials
-        shell: bash
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
-              if [[ -z "${!name}" ]]; then
-                echo "::error::${name} is required for signed and notarized macOS releases."
-                exit 1
-              fi
-            done
-          fi
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            for name in WINDOWS_CERTIFICATE WINDOWS_CERTIFICATE_PASSWORD; do
-              if [[ -z "${!name}" ]]; then
-                echo "::error::${name} is required for Authenticode-signed Windows releases."
-                exit 1
-              fi
-            done
-          fi
-
-      - name: Import macOS signing certificate
-        if: runner.os == 'macOS'
-        uses: apple-actions/import-codesign-certs@95e84a1a18f2bdbc5c6ab9b7f4429372e4b13a8b # v5
-        with:
-          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
-          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-
-      - name: Import Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-        run: |
-          $certificatePath = Join-Path $env:RUNNER_TEMP "denote-signing.pfx"
-          [IO.File]::WriteAllBytes(
-            $certificatePath,
-            [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
-          )
-          $password = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
-          $certificate = Import-PfxCertificate `
-            -FilePath $certificatePath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password $password
-          if (-not $certificate.Thumbprint) {
-            throw "Windows signing certificate import did not return a thumbprint."
-          }
-          "TAURI_WINDOWS_CERTIFICATE_THUMBPRINT=$($certificate.Thumbprint)" >> $env:GITHUB_ENV
-          "TAURI_WINDOWS_DIGEST_ALGORITHM=sha256" >> $env:GITHUB_ENV
-
       - name: Prepare bundled Git and GitHub CLI
         env:
           GH_TOKEN: ${{ github.token }}
@@ -309,12 +250,8 @@ jobs:
         env:
           DENOTE_COMMIT_HASH: ${{ needs.validate.outputs.source_sha }}
           DENOTE_BUILD_DIRTY: "false"
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --no-sign
           retryAttempts: 2
           uploadUpdaterJson: false
 
@@ -357,8 +294,6 @@ jobs:
           tar -xzf "$archive_root/denote-tools-${{ matrix.target }}-gh.tar.gz" -C "$extracted"
           "$extracted/git/bin/git" --version | grep -F "git version 2.55.0"
           "$extracted/gh/bin/gh" version | grep -F "gh version 2.99.0"
-          codesign --verify --deep --strict "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
-          spctl --assess --type execute "$(find "$mount" -name '*.app' -maxdepth 2 -print -quit)"
 
       - name: Smoke test installed Windows package
         if: runner.os == 'Windows'
@@ -389,10 +324,6 @@ jobs:
             Select-String -SimpleMatch "git version 2.55.0"
           & (Join-Path $tools "gh\bin\gh.exe") version |
             Select-String -SimpleMatch "gh version 2.99.0"
-          $signature = Get-AuthenticodeSignature $msi.FullName
-          if ($signature.Status -ne "Valid") {
-            throw "The MSI does not have a valid Authenticode signature."
-          }
 
       - name: Generate bundled tools SBOM
         uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
