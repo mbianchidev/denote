@@ -1,0 +1,13 @@
+{
+  "upstream": "emojibase-data@17.0.0",
+  "unicodeVersion": "17.0",
+  "baseEntries": 1914,
+  "variants": 2218,
+  "toneVariants": 1650,
+  "otherVariants": 568,
+  "maximumVariantsPerEntry": 27,
+  "fullyQualifiedSequences": 3944,
+  "sequenceSetSha256": "5062c59856c60933db48bbc669994d4f0c81dddc1f197d501c8e38e1c80dcb5e",
+  "datasetSizeBytes": 573882,
+  "datasetSha256": "ace70c1c7ca18a0e1de679942567aba136f0a7562c96982f4a668596126d48be"
+}

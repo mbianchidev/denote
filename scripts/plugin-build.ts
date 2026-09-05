@@ -1,9 +1,13 @@
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
+import { pluginSdkModulePath, pluginSdkSourceCommit } from "./plugin-sdk-provenance";
 import { build, type Plugin } from "vite";
 import {
   parsePluginManifest,
+  assertValidPluginCatalogEntry,
+  type PluginCatalogEntry,
   type PluginManifest,
 } from "@denote/plugin-sdk";
 
@@ -37,6 +41,15 @@ export function readPluginManifest(pluginDirectory: string): PluginManifest {
 
 export async function buildPlugin(pluginDirectory: string): Promise<PluginManifest> {
   const manifest = readPluginManifest(pluginDirectory);
+  const catalog: unknown = JSON.parse(readFileSync(join(pluginsRoot, "catalog.json"), "utf8"));
+  if (!Array.isArray(catalog)) {
+    throw new Error("Plugin catalog must be an array.");
+  }
+  const entries: PluginCatalogEntry[] = catalog.map((entry: unknown) => {
+    assertValidPluginCatalogEntry(entry);
+    return entry;
+  });
+  const sourceCommit = pluginSdkSourceCommit(manifest, entries);
   const outputPath = join(pluginDirectory, manifest.entrypoint);
   const sourcePath = join(
     pluginDirectory,
@@ -45,7 +58,11 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
   await build({
     configFile: false,
     logLevel: "error",
-    plugins: [pluginBoundary(pluginDirectory, sdkRoot), stableSourceLabels(manifest)],
+    plugins: [
+      ...(sourceCommit ? [pinnedPluginSdk(sourceCommit)] : []),
+      pluginBoundary(pluginDirectory, sdkRoot),
+      stableSourceLabels(manifest),
+    ],
     build: {
       emptyOutDir: true,
       minify: false,
@@ -76,6 +93,30 @@ function stableSourceLabels(manifest: PluginManifest): Plugin {
         /^\/\/#region plugins\/[^/]+\//gm,
         `//#region packages/plugins/${manifest.id}/`,
       );
+    },
+  };
+}
+
+function pinnedPluginSdk(sourceCommit: string): Plugin {
+  if (!/^[a-f0-9]{40}$/.test(sourceCommit)) {
+    throw new Error("Plugin SDK provenance must be a complete source commit.");
+  }
+  return {
+    name: "denote-pinned-plugin-sdk",
+    enforce: "pre",
+    load(id) {
+      const path = pluginSdkModulePath(sdkRoot, id);
+      if (!path) {
+        return;
+      }
+      // Keep canonical module IDs (and bundle bytes), but rebuild an immutable
+      // plugin against the SDK that produced it, not a later host capability.
+      return execFileSync("git", ["show", `${sourceCommit}:${path}`], {
+        cwd: projectRoot,
+        encoding: "utf8",
+        maxBuffer: 2 * 1024 * 1024,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
     },
   };
 }

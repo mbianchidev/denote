@@ -3,6 +3,7 @@ import { api, errorMessage } from "../lib/api";
 import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
   PluginNoteEvent,
+  PluginEmojiPreferences,
   PluginPermissionRequest,
   PluginProjectContext,
   PluginProjectRepositoryContext,
@@ -18,8 +19,10 @@ import {
   type PluginSidebarContribution,
   type PluginStatusContribution,
   type PluginDecorationContribution,
+  type PluginEmojiPickerContribution,
   type PluginSourceControlContribution,
 } from "./workerRuntime";
+import { emojiPreferenceSettings } from "./emojiPickers";
 
 const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 
@@ -30,6 +33,12 @@ export interface PluginController {
   sidebarViews: PluginSidebarContribution[];
   statusItems: PluginStatusContribution[];
   decorations: PluginDecorationContribution[];
+  emojiPickers: PluginEmojiPickerContribution[];
+  saveEmojiPreferences: (
+    pluginId: string,
+    pickerId: string,
+    preferences: PluginEmojiPreferences,
+  ) => Promise<void>;
   sourceControlProviders: PluginSourceControlContribution[];
   automaticLocalCommits: PluginAutomaticLocalCommitContribution[];
   developmentSupported: boolean;
@@ -99,6 +108,7 @@ export function usePlugins(
   const [decorations, setDecorations] = useState<
     PluginDecorationContribution[]
   >([]);
+  const [emojiPickers, setEmojiPickers] = useState<PluginEmojiPickerContribution[]>([]);
   const [sourceControlProviders, setSourceControlProviders] = useState<
     PluginSourceControlContribution[]
   >([]);
@@ -113,6 +123,11 @@ export function usePlugins(
   vaultClonedRef.current = onVaultCloned;
   const pendingTransactionsRef = useRef(new Map<string, string>());
   const startsAllowedRef = useRef(true);
+  const emojiWritesRef = useRef(new Map<string, Promise<void>>());
+  const pluginOperationsRef = useRef(new Map<string, Promise<void>>());
+  const emojiWriteGenerations = useRef(new Map<string, number>());
+  const workspaceIdentityRef = useRef(workspaceIdentity);
+  workspaceIdentityRef.current = workspaceIdentity;
 
   const refresh = useCallback(async () => {
     setPlugins(await api.listPlugins());
@@ -150,6 +165,7 @@ export function usePlugins(
       setSourceControlProviders,
       setAutomaticLocalCommits,
       (snapshot) => vaultClonedRef.current(snapshot),
+      setEmojiPickers,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -222,15 +238,29 @@ export function usePlugins(
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
+      emojiWriteGenerations.current.set(
+        pluginId,
+        (emojiWriteGenerations.current.get(pluginId) ?? 0) + 1,
+      );
       setBusyPluginIds((current) => new Set(current).add(pluginId));
-      try {
+      const perform = async () => {
+        await Promise.allSettled([emojiWritesRef.current.get(pluginId)]);
         await operation();
+      };
+      const previous = pluginOperationsRef.current.get(pluginId) ?? Promise.resolve();
+      const currentOperation = previous.then(perform, perform);
+      pluginOperationsRef.current.set(pluginId, currentOperation);
+      try {
+        await currentOperation;
       } finally {
-        setBusyPluginIds((current) => {
-          const next = new Set(current);
-          next.delete(pluginId);
-          return next;
-        });
+        if (pluginOperationsRef.current.get(pluginId) === currentOperation) {
+          pluginOperationsRef.current.delete(pluginId);
+          setBusyPluginIds((current) => {
+            const next = new Set(current);
+            next.delete(pluginId);
+            return next;
+          });
+        }
       }
     },
     [],
@@ -423,6 +453,7 @@ export function usePlugins(
 
   const disableAll = useCallback(async () => {
     startsAllowedRef.current = false;
+    await Promise.allSettled([...emojiWritesRef.current.values()]);
     const runtime = runtimeRef.current;
     if (runtime) {
       await runtime.stopAll().catch(reportError);
@@ -447,43 +478,84 @@ export function usePlugins(
     [refresh, withBusy],
   );
 
+  const reloadSettings = useCallback(async (pluginId: string) => {
+    const available = await api.listPlugins();
+    setPlugins(available);
+    const plugin = available.find((entry) => entry.catalog.manifest.id === pluginId);
+    const runtime = runtimeRef.current;
+    // Explicit settings saves and imports reactivate without reinstalling code.
+    if (!plugin?.enabled || !runtime?.isRunning(pluginId) || !startsAllowedRef.current) {
+      return;
+    }
+    await runtime.stop(pluginId);
+    if (!startsAllowedRef.current) {
+      return;
+    }
+    try {
+      await runtime.start(plugin);
+    } catch (error) {
+      await api.disablePlugin(pluginId);
+      await refresh().catch(reportError);
+      throw error;
+    }
+    await refresh();
+  }, [refresh, reportError]);
+
   const updateSettings = useCallback(
     async (pluginId: string, settings: Record<string, unknown>) => {
       await withBusy(pluginId, async () => {
         await api.setPluginSettings(pluginId, settings);
-        const available = await api.listPlugins();
-        setPlugins(available);
-        const plugin = available.find(
-          (entry) => entry.catalog.manifest.id === pluginId,
-        );
-        const runtime = runtimeRef.current;
-        // Settings are read during activation, so a running plugin only sees a
-        // change after its runtime is reloaded. Nothing is reinstalled: the
-        // package, the approved permissions, and the enablement record all
-        // stay exactly as they are.
-        if (
-          !plugin?.enabled ||
-          !runtime ||
-          !runtime.isRunning(pluginId) ||
-          !startsAllowedRef.current
-        ) {
-          return;
-        }
-        await runtime.stop(pluginId);
-        if (!startsAllowedRef.current) {
-          return;
-        }
-        try {
-          await runtime.start(plugin);
-        } catch (error) {
-          await api.disablePlugin(pluginId);
-          await refresh().catch(reportError);
-          throw error;
-        }
-        await refresh();
+        await reloadSettings(pluginId);
       });
     },
-    [refresh, reportError, withBusy],
+    [reloadSettings, withBusy],
+  );
+
+  const saveEmojiPreferences = useCallback(
+    async (pluginId: string, pickerId: string, preferences: PluginEmojiPreferences) => {
+      const runtime = runtimeRef.current;
+      if (!runtime || !startsAllowedRef.current || pluginOperationsRef.current.has(pluginId)) {
+        throw new Error("The emoji picker is no longer available.");
+      }
+      const picker = runtime.getEmojiPicker(pluginId, pickerId);
+      const patch = emojiPreferenceSettings(picker, preferences);
+      const generation = emojiWriteGenerations.current.get(pluginId) ?? 0;
+      const workspace = workspaceIdentityRef.current;
+      const assertCurrent = () => {
+        if (
+          pluginOperationsRef.current.has(pluginId) ||
+          runtimeRef.current !== runtime ||
+          workspaceIdentityRef.current !== workspace ||
+          (emojiWriteGenerations.current.get(pluginId) ?? 0) !== generation ||
+          runtime.getEmojiPicker(pluginId, pickerId) !== picker
+        ) {
+          throw new Error("The emoji picker changed before its preferences could be saved.");
+        }
+      };
+      const persist = async () => {
+        assertCurrent();
+        const current = await api.getPluginSettings(pluginId);
+        assertCurrent();
+        const settings = await api.setPluginSettings(pluginId, { ...current, ...patch });
+        assertCurrent();
+        setPlugins((available) =>
+          available.map((plugin) =>
+            plugin.catalog.manifest.id === pluginId ? { ...plugin, settings } : plugin,
+          ),
+        );
+      };
+      const previous = emojiWritesRef.current.get(pluginId) ?? Promise.resolve();
+      const write = previous.then(persist, persist);
+      emojiWritesRef.current.set(pluginId, write);
+      const finished = () => {
+        if (emojiWritesRef.current.get(pluginId) === write) {
+          emojiWritesRef.current.delete(pluginId);
+        }
+      };
+      void write.then(finished, finished);
+      return write;
+    },
+    [],
   );
 
   const runCommand = useCallback(
@@ -567,14 +639,15 @@ export function usePlugins(
     ) => {
       await withBusy(pluginId, async () => {
         await api.importPluginSettings(pluginId, sourceVersion, settings);
-        await refresh();
+        await reloadSettings(pluginId);
       });
     },
-    [refresh, withBusy],
+    [reloadSettings, withBusy],
   );
 
   const shutdown = useCallback(async () => {
     startsAllowedRef.current = false;
+    await Promise.allSettled([...emojiWritesRef.current.values()]);
     await runtimeRef.current?.stopAll().catch(reportError);
     await api.recoverPluginTransactions().catch(reportError);
     pendingTransactionsRef.current.clear();
@@ -595,6 +668,8 @@ export function usePlugins(
     sidebarViews,
     statusItems,
     decorations,
+    emojiPickers,
+    saveEmojiPreferences,
     sourceControlProviders,
     automaticLocalCommits,
     developmentSupported: import.meta.env.DEV,

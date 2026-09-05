@@ -1,0 +1,49 @@
+{
+  "package": "emojibase-data",
+  "version": "17.0.0",
+  "repository": "https://github.com/milesj/emojibase",
+  "packageUrl": "https://www.npmjs.com/package/emojibase-data/v/17.0.0",
+  "unicodeVersion": "17.0",
+  "locale": "en",
+  "sources": {
+    "emoji": {
+      "url": "https://unpkg.com/emojibase-data@17.0.0/en/data.json",
+      "sha256": "ed014f1049bd370c5794f815850156196ac382850f51c3e9f6a9e83553fb3f01",
+      "sizeBytes": 775157
+    },
+    "messages": {
+      "url": "https://unpkg.com/emojibase-data@17.0.0/en/messages.json",
+      "sha256": "6bffab078a0d90c4cca03bd3ff1045fdba33a77d31b1408b1cf1c414d7f1ab3c",
+      "sizeBytes": 6499
+    },
+    "githubShortcodes": {
+      "url": "https://unpkg.com/emojibase-data@17.0.0/en/shortcodes/github.json",
+      "sha256": "d6bb7101e7bab1e52b30f4b3562da2319b484a6266352a1119f0d1ba52db23db",
+      "sizeBytes": 45309
+    },
+    "emojibaseShortcodes": {
+      "url": "https://unpkg.com/emojibase-data@17.0.0/en/shortcodes/emojibase.json",
+      "sha256": "db3d41edf2f190bcb81bf171a51b1f889af774eed5dc24d21ad8dfcb998b40d3",
+      "sizeBytes": 170452
+    },
+    "unicode": {
+      "url": "https://www.unicode.org/Public/17.0.0/emoji/emoji-test.txt",
+      "sha256": "1d8a944f88d7952f7ef7c5167fef3c67995bcae24543949710231b03a201acda",
+      "sizeBytes": 669326
+    }
+  },
+  "licenses": [
+    {
+      "spdx": "MIT",
+      "url": "https://unpkg.com/emojibase-data@17.0.0/LICENSE",
+      "sha256": "5c4e1582dcae9429a5d00ec0a64185c3a711f9757b2308fdf275d90b120f6149",
+      "path": "legal/emojibase-MIT.txt"
+    },
+    {
+      "spdx": "Unicode-3.0",
+      "url": "https://www.unicode.org/license.txt",
+      "sha256": "e7a93b009565cfce55919a381437ac4db883e9da2126fa28b91d12732bc53d96",
+      "path": "legal/unicode-LICENSE.txt"
+    }
+  ]
+}

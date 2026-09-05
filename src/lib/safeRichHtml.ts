@@ -86,6 +86,7 @@ export function parseSafeRichHtml(raw: string): SafeRichHtmlModel | null {
 }
 
 export function safeRichHtmlRanges(markdown: string): SafeRichHtmlRange[] {
+  if (!markdown.includes("<")) return [];
   let root: MarkdownNode;
   try {
     root = fromMarkdown(markdown) as MarkdownNode;

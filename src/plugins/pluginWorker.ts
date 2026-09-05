@@ -31,6 +31,7 @@ import {
 } from "./runtimeMessages";
 import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
+import { isPluginEmojiPicker, emojiPickerMatchesManifest } from "@denote/plugin-sdk";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -53,6 +54,7 @@ const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
 const automaticCommitSchedules = new Set<string>();
+const emojiPickers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
 >();
@@ -294,6 +296,31 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("emoji-picker")) {
+    capabilities.emojiPicker = {
+      register(picker) {
+        if (
+          cleaned ||
+          !isPluginEmojiPicker(picker) ||
+          !plugin ||
+          !emojiPickerMatchesManifest(picker, plugin.manifest) ||
+          emojiPickers.size > 0
+        ) {
+          throw new Error("Invalid or duplicate emoji picker registration.");
+        }
+        emojiPickers.add(picker.id);
+        send({ type: "register-emoji-picker", picker });
+        let disposed = false;
+        return disposable(() => {
+          if (!disposed) {
+            disposed = true;
+            emojiPickers.delete(picker.id);
+            send({ type: "unregister-emoji-picker", id: picker.id });
+          }
+        });
+      },
+    };
+  }
   if (permissions.has("note-events")) {
     capabilities.noteEvents = {
       subscribe(listener) {
@@ -532,6 +559,7 @@ async function cleanup(): Promise<unknown[]> {
   commandHandlers.clear();
   sourceControlHandlers.clear();
   automaticCommitSchedules.clear();
+  emojiPickers.clear();
   return failures;
 }
 

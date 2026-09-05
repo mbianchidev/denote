@@ -664,6 +664,54 @@ staged until activation succeeds, and disappear when the worker terminates.
 Source-control model updates use the original registration handle and do not
 re-register the provider.
 
+The additive API version 1 `emoji-picker` capability accepts one bounded
+declarative picker per plugin. The SDK and runtime both validate field shapes,
+IDs, labels, Unicode graphemes, variants, settings-key references, entry counts,
+and total bytes. Registration is staged until activation succeeds and is
+withdrawn immediately when deactivation or failure starts. Delayed messages from
+a replaced worker cannot register contributions in its successor.
+
+The host owns emoji indexing, search, shortcode context, toolbar/palette
+commands, keyboard handling, and editor transactions. The plugin receives no
+query, surrounding text, selection, file identity, editor object, or insertion
+callback. The permission grants no native workspace, network, filesystem, or
+encryption-key access. Rich Lexical and source CodeMirror adapters capture
+selection and document identity and insert complete Unicode sequences only on
+explicit acceptance, using ordinary undo history. Code and composition contexts
+suppress automatic suggestions.
+
+Emoji suggestions publish only to their own surface; the workspace subscribes
+to the picker-open boolean, not individual matches or keyboard highlights. The
+local prefix index is prepared when a contribution becomes available, and common
+words stop adding postings after their first eight matches. Picker filtering is
+independent of favorites, tone, and keyboard selection; only the visible page
+resolves variants. Dataset-membership validation is cached by installed entries,
+so preference writes never rescan the full catalog.
+
+Ordinary editor changes perform only selection bookkeeping and a bounded
+shortcode-prefix check. Until a candidate or emoji surface exists, they skip
+emoji host calls, focus/DOM inspection, permission checks, lookup, and settings
+work. Focus events establish the active editor rather than rediscovering it on
+each character. Dismissal and insertion return to this idle path. Exact-source
+history indexes snapshot lengths first, avoiding full-note string hashing for
+ordinary appends; editor line-ending detection and history allocation run once
+per editor rather than once per render.
+
+Rich emoji insertion reuses the reference analysis tree only when its source
+matches exactly. Translated or masked content still parses independently.
+Selection mapping reuses that tree, repeated entities decode once per projection,
+and the resulting document is still parsed to confirm the intended visible-text
+change. An exact-source insertion bypasses the normal serialization repair pass
+while refreshing TOC and thematic-break snapshots for later edits and undo/redo.
+
+Recent/favorite Unicode strings and the chosen skin tone use three declared
+plugin setting keys. Preference writes validate dataset membership, serialize
+per plugin, merge the current settings, and guard runtime/workspace identity.
+Settings mutations invalidate queued writes and wait for issued writes before
+reset, disablement, or cleanup. These host-owned preference updates do not
+restart the worker. Explicit settings changes still use the ordinary restart
+flow. No emoji implementation or dataset is imported into the desktop bundle.
+
 Plugin state lives in `plugins/state.json` under application data. Package code
 lives under `plugins/packages/<plugin-id>/<version>/`; transient downloads use
 application cache. Startup removes orphaned downloads and packages for disabled,
@@ -915,6 +963,20 @@ Successful replacement clears the stale preview, keeps the dialog open, and
 announces the number of replaced instances.
 
 ## Editing
+
+Core Markdown feature checks first look for the syntax they need. Notes without
+reference brackets, HTML angles, disclosure tags, TOC markers, or thematic-break
+delimiters do not get parsed merely to prove those features absent. The ordinary
+prose typing path performs no host-side full-document Markdown parses; matching
+syntax still uses the complete parser and existing safety rules.
+
+Rich/source eligibility is memoized by content, and stable callback bridges keep
+MDXEditor plugin configuration from being rebuilt when only parent callback
+identities change. Starting debounced outline analysis does not publish an
+unchanged cache entry or force a second workspace render per keystroke.
+Unmount cancels deferred autosave, tab-session, and indexing timers and
+invalidates stale background requests; normal window closing still flushes
+through the existing safe-exit barrier.
 
 Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.

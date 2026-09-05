@@ -1,0 +1,26 @@
+.emoji-toolbar { display: flex; gap: 4px; padding: 3px 8px; border-bottom: 1px solid var(--border); }
+.emoji-toolbar button { display: inline-flex; align-items: center; gap: 6px; }
+.emoji-picker { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.emoji-picker header, .emoji-picker footer, .emoji-picker__selection { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.emoji-picker header { justify-content: space-between; }
+.emoji-picker header h2 { margin: 0; }
+.emoji-picker > input { width: 100%; margin: 6px 0 12px; }
+.emoji-picker__filters { display: flex; gap: 8px; flex-wrap: wrap; }
+.emoji-picker label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.emoji-picker select { max-width: 220px; }
+.emoji-picker__results { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; padding: 0; list-style: none; }
+.emoji-picker__results button { width: 100%; min-height: 44px; font-size: 24px; padding: 4px; background: transparent; border: 1px solid transparent; }
+.emoji-picker__selection { min-height: 70px; padding: 8px 0; }
+.emoji-picker__selection > span { flex: 1 1 100%; }
+.emoji-picker footer { justify-content: flex-end; margin-top: 12px; }
+.emoji-picker button:focus-visible, .emoji-picker input:focus-visible, .emoji-picker select:focus-visible,
+.emoji-suggestions button:focus-visible, .emoji-toolbar button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.emoji-suggestions { position: fixed; z-index: 60; width: 290px; max-height: 350px; overflow: auto; padding: 8px; background: var(--panel-bg); color: var(--text-primary); border: 1px solid var(--border); border-radius: 5px; }
+.emoji-suggestions p { font-size: 12px; margin: 0 0 6px; }
+.emoji-suggestions ul { list-style: none; padding: 0; margin: 0; }
+.emoji-suggestions button { display: flex; gap: 8px; align-items: center; width: 100%; min-height: 44px; font-size: 13px; text-align: left; background: transparent; }
+.emoji-suggestion__glyph { flex-shrink: 0; font-size: 22px; }
+.emoji-suggestion__text { display: flex; flex-direction: column; min-width: 0; overflow-wrap: anywhere; }
+.emoji-suggestion__name { font-size: 12px; }
+.emoji-suggestions .emoji-suggestion--active { outline: 2px solid var(--accent); outline-offset: -2px; }
+@media (max-width: 500px) { .emoji-picker__results { grid-template-columns: repeat(6, minmax(0, 1fr)); } }

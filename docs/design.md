@@ -494,6 +494,22 @@ Binary files use the plain monospace editor with a persistent warning strip
 that names Base64 as the reversible representation and explains save
 validation.
 
+### Optional emoji picker
+
+The emoji plugin contributes data, never markup. Denote renders a compact local
+picker with a labelled search input, named emoji options, recent/favorite
+filters, variant and skin-tone controls, and a polite result status. Results
+are bounded rather than creating thousands of focusable controls. Arrow keys,
+Home/End, Enter, and Escape keep selection predictable; focus remains visible
+in both themes. Closing or inserting restores the originating editor selection
+without jumping to a different pane.
+
+Shortcode suggestions leave focus in the editor. A plain colon is not a command:
+only a boundary followed by a shortcode candidate opens the bounded list, and
+Escape dismisses that candidate without modifying text. Composition is never
+intercepted. Read-only, binary, locked, and unavailable editors expose no
+insertion action.
+
 ### Editor Settings
 
 Editor text size uses a compact 12–24 px range with minus/plus controls and a

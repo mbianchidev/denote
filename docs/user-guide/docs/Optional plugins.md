@@ -78,6 +78,41 @@ Diff highlighting and interactive diff presentation are intentionally not core
 language entries; the optional Git plugin provides them through its
 host-rendered source-control view.
 
+## Emoji picker
+
+Enable **Emoji picker** under **Editor and writing** to find and insert standard
+Unicode emoji. It is independently installable and off by default. Open it from
+the editor toolbar, find **Emoji picker** in the command palette, or press
+`Command-Shift-E` on macOS / `Ctrl-Shift-E` on Windows and Linux.
+
+Search by name, keyword, category, or shortcode. Choose recent or favorite
+emoji, use the favorite control to save a choice, and choose a skin tone or
+another standardized variant. Arrow keys navigate results; Enter inserts;
+Escape cancels and restores the editor selection. No result changes a note
+until you choose it.
+
+While writing Markdown, typing just `:sm` shows matching Unicode emoji such as
+`:smile:` 😄. You do not need to finish the word or type a closing colon.
+Choosing it replaces `:sm` with the actual Unicode character `😄`, not an image
+or custom Markdown. Accept one explicitly or press Escape to keep the literal text.
+An ordinary colon, code span, fenced code block, or IME composition does not
+trigger suggestions. Turn **Shortcode suggestions** off in plugin settings
+to keep only the picker.
+
+The plugin works in editable Rich and Source modes, including project Markdown,
+and uses normal undo/redo. It is unavailable while a vault is locked, while
+Denote is changing vault content, and in read mode. Inserted sequences are
+ordinary Unicode, including joined emoji and skin tones, not custom Markdown.
+They stay unchanged when the plugin is disabled or removed.
+
+The dataset, searches, recent choices, and favorites stay entirely local. Recent
+and favorite lists plus your tone choice live in plugin settings, not notes.
+Settings reset clears the lists; disabling alone retains them for reinstall.
+The plugin has no direct filesystem, encryption-key, or network access. It
+does not replace the operating system's emoji picker.
+
+## Other optional features
+
 These capabilities are planned as separately enabled plugins:
 
 - graph view;

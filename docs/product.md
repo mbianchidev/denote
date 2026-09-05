@@ -299,6 +299,16 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   content, and removal backups. Catalog metadata remains available for a later
   reinstall; plugin settings and generated data follow their separate cleanup
   controls.
+- The independently installable **Emoji picker** plugin is disabled by default.
+  Its toolbar action, command-palette entry, and Command/Control-Shift-E open a
+  local searchable Unicode picker in editable Markdown Rich and Source modes.
+  Names, keywords, categories, and shortcodes find emoji, including standardized
+  variants and skin tones. Recent and favorite choices stay in plugin settings
+  outside notes. Conservative `:shortcode:` suggestions require an explicit
+  selection, dismiss with Escape, and never appear in inline or fenced code.
+  Locking a vault or disabling the plugin removes its editor UI; previously
+  inserted Unicode remains ordinary portable text. No search, typing, note
+  content, or preferences are sent to a network service.
 - Development builds use a separate application identity and can explicitly
   load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
   untrusted, pass the ordinary package/runtime safety checks, and are

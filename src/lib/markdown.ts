@@ -9,6 +9,7 @@ import type { MarkdownViewMode } from "./markdownView";
 const CALLOUT_TYPES = "warning|info|danger|note|tip|caution";
 
 export function calloutsToDirectives(markdown: string): string {
+  if (!markdown.includes(">")) return markdown;
   const lines = markdown.split("\n");
   const output: string[] = [];
   let fence: Fence | null = null;
@@ -98,6 +99,7 @@ export function restoreThematicBreaks(
 function thematicBreakRanges(
   markdown: string,
 ): Array<{ start: number; end: number; delimiter: string }> {
+  if (!/[-*_][ \t]*[-*_][ \t]*[-*_]/.test(markdown)) return [];
   const root = markdownRoot(markdown);
   if (!root) {
     return [];
@@ -124,6 +126,7 @@ function thematicBreakRanges(
 }
 
 export function directivesToCallouts(markdown: string): string {
+  if (!markdown.includes(":::")) return markdown;
   const lines = markdown.split("\n");
   const output: string[] = [];
   let fence: Fence | null = null;
@@ -183,6 +186,7 @@ export function directivesToCallouts(markdown: string): string {
 }
 
 export function extractTags(markdown: string): string[] {
+  if (!markdown.includes("#")) return [];
   const tags = new Set<string>();
   let fence: Fence | null = null;
   let inlineCodeTicks = 0;
@@ -195,6 +199,7 @@ export function extractTags(markdown: string): string[] {
     if (inlineCodeTicks === 0 && isIndentedCode(line)) {
       continue;
     }
+    if (!line.includes("#") && !line.includes("`")) continue;
     const characters = [...line];
     for (let index = 0; index < characters.length; index += 1) {
       if (characters[index] === "`") {
@@ -822,6 +827,7 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
 }
 
 function containsUnsupportedReferenceImages(markdown: string): boolean {
+  if (!markdown.includes("![")) return false;
   const root = markdownRoot(markdown);
   if (!root) {
     return false;
@@ -913,6 +919,7 @@ interface RichDetailsBlock {
 }
 
 function richDetailsBlocks(markdown: string): RichDetailsBlock[] {
+  if (!markdown.includes("<details")) return [];
   const blocks: RichDetailsBlock[] = [];
   const codeRanges: Array<[number, number]> = [];
   const root = markdownRoot(markdown);
@@ -1050,6 +1057,7 @@ interface RootMarkdownList {
 }
 
 function validTocBlocks(markdown: string): TocBlock[] {
+  if (!markdown.includes("<!-- toc -->")) return [];
   const root = markdownRoot(markdown);
   if (!root) {
     return [];
@@ -1375,6 +1383,7 @@ interface MarkdownAstNode {
 }
 
 function containsUnsafeAngleSyntax(markdown: string): boolean {
+  if (!markdown.includes("<")) return false;
   const matches = [
     ...markdown.matchAll(/<\/?[a-z][^<>]*>/gi),
     ...markdown.matchAll(/<![a-z][^<>]*>/gi),
@@ -1384,9 +1393,6 @@ function containsUnsafeAngleSyntax(markdown: string): boolean {
     ...markdown.matchAll(/<[a-z][^<>\n]*(?=\n|$)/gi),
     ...markdown.matchAll(/<(?!\!--)[^<>\n]+>/g),
   ];
-  if (!markdown.includes("<")) {
-    return false;
-  }
   try {
     const allowedRanges = new Set<string>();
     const literalRanges: Array<[number, number]> = [];

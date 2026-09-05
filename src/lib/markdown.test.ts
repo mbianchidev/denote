@@ -1,6 +1,10 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { fromMarkdown } from "mdast-util-from-markdown";
+import { hasIncompleteStandardMarkdownAngle, restoreStandardMarkdownAngles } from "./mdxCompatibility";
+import { maskReferenceDefinitions } from "./referenceMarkdown";
+import { maskSafeRichHtml } from "./safeRichHtml";
 import {
   applyTocMarkerViewChange,
   calloutsToDirectives,
@@ -13,6 +17,7 @@ import {
   findMarkdownHeadingLine,
   findMarkdownTagMatch,
   hasUnsupportedRichMarkdown,
+  hasSupportedDetailsMarkdown,
   markdownEditorSource,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
@@ -25,7 +30,26 @@ import {
   slugifyHeading,
 } from "./markdown";
 
+vi.mock("mdast-util-from-markdown", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
+  return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
+});
+
 describe("markdown utilities", () => {
+  it("does not parse a whole note to check markup that is absent", () => {
+    const source = "# Synthetic heading\n\n**Ordinary prose** with Unicode 😄.\n\n".repeat(1000);
+    vi.mocked(fromMarkdown).mockClear();
+    expect(hasUnsupportedRichMarkdown(source)).toBe(false);
+    expect(hasSupportedDetailsMarkdown(source)).toBe(false);
+    expect(hasIncompleteStandardMarkdownAngle(source)).toBe(false);
+    expect(maskReferenceDefinitions(source)).toBe(source);
+    expect(maskSafeRichHtml(source)).toBe(source);
+    expect(captureTocMarkers(source).blocks).toEqual([]);
+    expect(captureThematicBreaks(source).delimiters).toEqual([]);
+    expect(restoreStandardMarkdownAngles(source, source)).toBe(source);
+    expect(fromMarkdown).not.toHaveBeenCalled();
+  });
+
   it("round-trips Denote warning callouts through editor directives", () => {
     const source = ">![warning]\n> Back up the vault.\n>\n> Then continue.";
     const directive = calloutsToDirectives(source);
