@@ -333,30 +333,43 @@ jobs:
           output-file: bundled-tools-${{ matrix.artifact }}.spdx.json
           upload-artifact: false
 
+      - name: Check out release workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow-tools
+          persist-credentials: false
+          sparse-checkout: scripts/release-checksums.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Write release checksums
         shell: bash
-        run: |
-          find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f -print0 |
-            sort -z |
-            xargs -0 shasum -a 256 > "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
-          shasum -a 256 "bundled-tools-${{ matrix.artifact }}.spdx.json" \
-            >> "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
-          shasum -a 256 src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz \
-            >> "denote-${{ matrix.artifact }}-SHA256SUMS.txt"
+        env:
+          RELEASE_REPOSITORY_ID: ${{ github.repository_id }}
+          RELEASE_REPOSITORY_OWNER_ID: ${{ github.repository_owner_id }}
+          RELEASE_RUNNER_ENVIRONMENT: ${{ runner.environment }}
+          RELEASE_SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+          RELEASE_WORKFLOW_REF: ${{ github.workflow_ref }}
+          RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+        run: >-
+          node .release-workflow-tools/scripts/release-checksums.mjs
+          "$GITHUB_WORKSPACE"
+          "$RUNNER_OS"
+          "${{ matrix.target }}"
+          "${{ matrix.artifact }}"
+          "${{ runner.temp }}"
 
       - name: Attest release bundles
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          subject-path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
-            src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+          subject-checksums: ${{ runner.temp }}/denote-${{ matrix.artifact }}-ATTESTATION-SUBJECTS.txt
+          predicate-type: https://slsa.dev/provenance/v1
+          predicate-path: ${{ runner.temp }}/denote-${{ matrix.artifact }}-PROVENANCE.json
 
       - name: Attest release SBOM
-        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
-            src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+          subject-checksums: ${{ runner.temp }}/denote-${{ matrix.artifact }}-ATTESTATION-SUBJECTS.txt
           sbom-path: bundled-tools-${{ matrix.artifact }}.spdx.json
 
       - name: Stage supply-chain metadata

@@ -648,8 +648,16 @@ signing/notarization and Windows Authenticode signing are disabled. The jobs
 still smoke-test tools from the installed Debian package, mounted DMG, or
 administrative MSI image, publish checksums, notices, SPDX SBOMs, the exact Git
 corresponding-source archive and signature, the on-demand target tool archives,
-and GitHub build-provenance and SBOM attestations. Installed-package smoke tests
-assert that tool archives are absent from the installer.
+and GitHub build-provenance and SBOM attestations. Release checksums enumerate
+only the package files that publication uploads. The public checksum file uses
+their release-asset filenames, while the attestation input keeps one subject per
+SHA-256 digest because GitHub rejects repeated digests in a single statement. Installed-package
+smoke tests assert that tool archives are absent from the installer. The build
+checks out this release helper from the workflow commit separately from the
+immutable release source, so a manual retry can repair release infrastructure
+without moving an existing tag. Its explicit SLSA predicate records both the
+workflow ref and commit that performed the retry and the immutable release tag
+and source commit that produced the artifacts.
 
 Downloaded entrypoints are read only for transaction-prepared or enabled
 plugins and passed to a Vite-emitted module worker as a data-URL module. The typed

@@ -314,7 +314,15 @@ No Apple Developer ID signing/notarization or Windows Authenticode signing is
 performed. The jobs still prepare and verify on-demand tool assets for each
 target, assert installed packages contain metadata but no tool or plugin
 archive, generate checksums and SPDX SBOMs, attest bundles and tool assets, and
-publish Git's corresponding source archive and signature.
+publish Git's corresponding source archive and signature. Checksum generation
+selects only the package formats uploaded for that platform. It keeps every
+release-asset filename in the published `SHA256SUMS` file and deduplicates
+attestation subjects by SHA-256 digest to satisfy GitHub's
+one-subject-per-digest requirement. Build
+jobs obtain the checksum helper from the workflow commit while compiling the
+requested release tag, so workflow-only fixes can retry an existing immutable
+tag. The provenance records the workflow revision and the separately resolved
+release tag commit.
 
 ## Extend core syntax highlighting
 
@@ -376,10 +384,10 @@ AppImage, Debian, and RPM packages, macOS Apple Silicon and Intel disk images,
 Windows MSI and NSIS installers, and generated release notes. Installer smoke
 checks continue to reject embedded plugin `.tgz` files.
 
-If a release run fails, run the **Release** workflow manually and provide the
-existing tag. Incomplete draft releases are replaced automatically after every
-platform bundle succeeds, including duplicates left by older failed runs.
-Restore a deleted tag at its original release commit before retrying.
+If a release run fails, run the current **Release** workflow from `main` and
+provide the existing tag. Incomplete draft releases are replaced automatically
+after every platform bundle succeeds, including duplicates left by older failed
+runs. Restore a deleted tag at its original release commit before retrying.
 
 An HTTP 404 for every plugin can mean the release has not been published, even
 when the source archives and their hashes are correct. Check the Release run's
