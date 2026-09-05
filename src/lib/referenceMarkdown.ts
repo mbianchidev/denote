@@ -36,16 +36,12 @@ export interface ReferenceMarkdownSnapshot {
 export function captureReferenceMarkdown(
   markdown: string,
 ): ReferenceMarkdownSnapshot {
+  if (!markdown.includes("[")) return emptyReferenceSnapshot(markdown);
   let root: Root;
   try {
     root = fromMarkdown(markdown);
   } catch {
-    return {
-      source: markdown,
-      definitions: [],
-      definitionGroups: [],
-      firstDefinitions: new Map(),
-    };
+    return emptyReferenceSnapshot(markdown);
   }
 
   const definitions: ReferenceDefinitionSnapshot[] = [];
@@ -90,6 +86,10 @@ export function captureReferenceMarkdown(
   };
 }
 
+function emptyReferenceSnapshot(source: string): ReferenceMarkdownSnapshot {
+  return { source, definitions: [], definitionGroups: [], firstDefinitions: new Map() };
+}
+
 export function referenceDefinitionFor(
   snapshot: ReferenceMarkdownSnapshot,
   reference: Pick<LinkReference, "identifier">,
@@ -131,6 +131,7 @@ export function rawDefinitionGroupSource(
 }
 
 export function maskReferenceDefinitions(markdown: string): string {
+  if (!markdown.includes("[")) return markdown;
   const snapshot = captureReferenceMarkdown(markdown);
   if (snapshot.definitions.length === 0) {
     return markdown;

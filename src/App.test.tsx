@@ -342,6 +342,46 @@ describe("App initial file-tree expansion", () => {
     expect(trackAppRender).not.toHaveBeenCalled();
   });
 
+  it("renders once per ordinary edit without publishing an unchanged outline", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+    const { unmount } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    const root = await screen.findByRole("textbox", { name: "editable markdown" });
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    const type = (text: string) => editor.update(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) selection.insertText(text);
+    }, { discrete: true });
+    await act(async () => {
+      root.focus();
+      editor.update(() => $getRoot().getAllTextNodes()[0].selectEnd(), { discrete: true });
+      type("a");
+    });
+    trackAppRender.mockClear();
+    act(() => type("b"));
+    expect(trackAppRender).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("cancels deferred save and index work when the app is unmounted", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.txt", "text")]));
+    const { unmount } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.txt" }));
+    const change = await screen.findByRole("button", { name: "Change Edit synthetic.txt" });
+    vi.useFakeTimers();
+    try {
+      await act(async () => fireEvent.click(change));
+      unmount();
+      mockApi.saveNote.mockClear();
+      mockApi.listSearchDocuments.mockClear();
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      expect(mockApi.saveNote).not.toHaveBeenCalled();
+      expect(mockApi.listSearchDocuments).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("opens emoji with the host shortcut and removes surfaces when disabled", async () => {
       mockPluginController.emojiPickers = [syntheticEmojiPicker()];
       mockPluginController.plugins = [syntheticEmojiPluginView()];

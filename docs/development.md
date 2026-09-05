@@ -281,6 +281,11 @@ these work counts, use
 `DENOTE_PROFILE_EMOJI=1 npx vitest run src/components/EmojiPicker.editors.test.tsx -t "keeps ordinary typing off"`.
 Those jsdom timings include the editor and test environment; they are not
 end-to-end desktop latency guarantees.
+Core regressions additionally require zero full-note parses for ordinary prose,
+including with the emoji plugin disabled, one workspace render per settled edit,
+and cancellation of deferred work when the app unmounts. Delimiter fast paths
+are covered alongside the full Markdown, HTML, reference, TOC, and code tests;
+never replace those safety parsers with a permissive fallback.
 
 Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
 build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`

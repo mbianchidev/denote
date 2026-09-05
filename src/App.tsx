@@ -881,6 +881,7 @@ function App() {
   /** True once a source-control action has already swapped the workspace. */
   const clonedDuringAction = useRef(false);
   const indexTimer = useRef<number | null>(null);
+  const appMounted = useRef(false);
   const pendingWelcomePage = useRef<string | null>(null);
   const pendingWorkspaceFile = useRef<{
     vaultPath: string;
@@ -918,6 +919,19 @@ function App() {
     null,
   );
   const actionDialogReturnFocus = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    appMounted.current = true;
+    return () => {
+      appMounted.current = false;
+      vaultGeneration.current += 1;
+      rebuildRequest.current += 1;
+      if (indexTimer.current !== null) window.clearTimeout(indexTimer.current);
+      if (tabSessionTimer.current !== null) window.clearTimeout(tabSessionTimer.current);
+      for (const timer of saveTimers.current.values()) window.clearTimeout(timer);
+      saveTimers.current.clear();
+    };
+  }, []);
 
   const commitPaneState = useCallback(
     (updater: (current: PaneWorkspaceState) => PaneWorkspaceState) => {
@@ -1231,11 +1245,9 @@ function App() {
     const generation = (outlineGeneration.current.get(activeOutlineKey) ?? 0) + 1;
     outlineGeneration.current.set(activeOutlineKey, generation);
     const currentEntry = outlineCache.current.get(activeOutlineKey);
-    outlineCache.current.set(activeOutlineKey, {
-      ready: currentEntry?.ready ?? false,
-      snapshot: currentEntry?.snapshot ?? null,
-    });
-    setOutlineRevision((current) => current + 1);
+    if (!currentEntry) {
+      outlineCache.current.set(activeOutlineKey, { ready: false, snapshot: null });
+    }
 
     let worker: Worker | null = null;
     let settleTimer: number | null = null;
@@ -1827,6 +1839,7 @@ function App() {
 
   const rebuildSearchIndex = useCallback(
     async (generation = vaultGeneration.current) => {
+      if (!appMounted.current || generation !== vaultGeneration.current) return;
       const request = ++rebuildRequest.current;
       searchIndexReady.current = false;
       setIndexing(true);
@@ -3084,7 +3097,7 @@ function App() {
   }, [applyEncryptionSnapshot, setWorkspaceLock, showError]);
 
   const scheduleIndexRebuild = useCallback(() => {
-    if (!workspace) {
+    if (!workspace || !appMounted.current) {
       return;
     }
     if (indexTimer.current) {
@@ -3092,6 +3105,7 @@ function App() {
     }
     const generation = vaultGeneration.current;
     indexTimer.current = window.setTimeout(() => {
+      indexTimer.current = null;
       void rebuildSearchIndex(generation);
     }, 900);
   }, [rebuildSearchIndex, workspace]);

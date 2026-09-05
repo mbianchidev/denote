@@ -347,8 +347,8 @@ export const MarkdownEditor = forwardRef<
   );
   const referenceSnapshotRef = useRef(referenceSnapshot);
   referenceSnapshotRef.current = referenceSnapshot;
-  const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
-  const renderDetails = hasSupportedDetailsMarkdown(markdown);
+  const detectedSourceOnly = useMemo(() => hasUnsupportedRichMarkdown(markdown), [markdown]);
+  const renderDetails = useMemo(() => hasSupportedDetailsMarkdown(markdown), [markdown]);
   const shellRef = useRef<HTMLDivElement>(null);
   const emojiRef = useRef(emoji);
   const emojiSourceRef = useRef(markdown);
@@ -381,6 +381,8 @@ export const MarkdownEditor = forwardRef<
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
   onLinkOpenRef.current = onLinkOpen;
+  const callbacksRef = useRef({ onError, onImageUpload, onViewModeChange, onMarkdownErrorCleared });
+  callbacksRef.current = { onError, onImageUpload, onViewModeChange, onMarkdownErrorCleared };
   const displayGuidesForceSource =
     hasEditorDisplayGuides(displaySettings);
   const initialSourceOnly = useRef(detectedSourceOnly).current;
@@ -485,9 +487,7 @@ export const MarkdownEditor = forwardRef<
     () => createPluginDecorationExtensions(pluginDecorations),
     [pluginDecorations],
   );
-  const boundaryWhitespace = useRef(
-    captureMarkdownBoundaryWhitespace(markdown),
-  ).current;
+  const [boundaryWhitespace] = useState(() => captureMarkdownBoundaryWhitespace(markdown));
   const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(
     null,
   );
@@ -520,7 +520,7 @@ export const MarkdownEditor = forwardRef<
         },
       }),
       imagePlugin({
-        imageUploadHandler: (file) => onImageUpload(notePath, file),
+        imageUploadHandler: (file) => callbacksRef.current.onImageUpload(notePath, file),
         imagePreviewHandler: async (source) => {
           if (
             source.startsWith("data:") ||
@@ -532,7 +532,7 @@ export const MarkdownEditor = forwardRef<
           try {
             return await api.readImageDataUrl(source, notePath);
           } catch (caught) {
-            onError(errorMessage(caught));
+            callbacksRef.current.onError(errorMessage(caught));
             throw caught;
           }
         },
@@ -568,8 +568,8 @@ export const MarkdownEditor = forwardRef<
         suppressPersistence: () =>
           searchForcedSourceRef.current ||
           transientViewModeChangeRef.current,
-        onChange: onViewModeChange,
-        onErrorCleared: onMarkdownErrorCleared,
+        onChange: (mode) => callbacksRef.current.onViewModeChange(mode),
+        onErrorCleared: () => callbacksRef.current.onMarkdownErrorCleared?.(),
         onModeChange: (mode) => {
           activeViewModeRef.current = mode;
           setActiveViewMode(mode);
@@ -657,10 +657,6 @@ export const MarkdownEditor = forwardRef<
       initialViewMode,
       realmInitialViewMode,
       notePath,
-      onError,
-      onImageUpload,
-      onMarkdownErrorCleared,
-      onViewModeChange,
       pluginDecorationExtensions,
       emojiSourceExtensions,
       emojiSerialization,

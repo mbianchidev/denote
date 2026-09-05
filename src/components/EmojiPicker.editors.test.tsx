@@ -129,6 +129,7 @@ describe.each(["plain", "source", "rich"] as const)("two-character emoji prefixe
       if (enabled) expect(hostCalls).toEqual(Object.fromEntries(methods.map((method) => [method, 0])));
     }
     expect(counts[1]).toBe(counts[0]);
+    expect(counts[0]).toBe(0);
   });
 
   it("returns to the idle typing path after inserting an emoji", async () => {
@@ -335,7 +336,7 @@ describe("rich emoji transactions", () => {
   it("reuses existing analysis instead of reparsing the original note for emoji insertion", async () => {
     const original = Array.from({ length: 100 }, (_, index) =>
       `## Synthetic ${index}\n\nSample text ${index}.\n\n`,
-    ).join("") + "Insert here";
+    ).join("") + "[Guide][topic]\n\n[topic]: /guide\n\nInsert here";
     const fixture = harness("rich", original);
     const editor = await richEditor(fixture.container, "Insert here", 7, 11);
     vi.mocked(fromMarkdown).mockClear();

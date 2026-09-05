@@ -964,6 +964,20 @@ announces the number of replaced instances.
 
 ## Editing
 
+Core Markdown feature checks first look for the syntax they need. Notes without
+reference brackets, HTML angles, disclosure tags, TOC markers, or thematic-break
+delimiters do not get parsed merely to prove those features absent. The ordinary
+prose typing path performs no host-side full-document Markdown parses; matching
+syntax still uses the complete parser and existing safety rules.
+
+Rich/source eligibility is memoized by content, and stable callback bridges keep
+MDXEditor plugin configuration from being rebuilt when only parent callback
+identities change. Starting debounced outline analysis does not publish an
+unchanged cache entry or force a second workspace render per keystroke.
+Unmount cancels deferred autosave, tab-session, and indexing timers and
+invalidates stale background requests; normal window closing still flushes
+through the existing safe-exit barrier.
+
 Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
 Denote translates its compact callout syntax to Markdown directives while the

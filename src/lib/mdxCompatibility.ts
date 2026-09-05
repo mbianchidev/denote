@@ -37,6 +37,7 @@ export function isRichSafeStandardMarkdownAngle(value: string): boolean {
 export function hasIncompleteStandardMarkdownAngle(
   markdown: string,
 ): boolean {
+  if (!markdown.includes("<")) return false;
   const protectedIndex = createRangeIndex(markdownCodeRanges(markdown));
   for (const match of markdown.matchAll(
     /<\/?[A-Za-z][^<>\n]*(?=\r?$)/gm,
@@ -94,6 +95,7 @@ interface MarkdownAngleOccurrence {
 }
 
 function markdownAngleOccurrences(markdown: string): MarkdownAngleOccurrence[] {
+  if (!markdown.includes("<")) return [];
   const protectedRanges = markdownCodeRanges(markdown);
   const protectedRangeIndex = createRangeIndex(protectedRanges);
   const occurrences: MarkdownAngleOccurrence[] = [];
