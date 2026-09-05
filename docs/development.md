@@ -145,6 +145,12 @@ metadata commit.
 The source commit must be an ancestor of `HEAD`, so pushing the branch also
 publishes the source needed for reproduction. Archive text uses LF endings and
 fixed file modes regardless of checkout line endings or the author's umask.
+Archive compression uses the exact build-only `pako@2.1.0` implementation with
+fixed gzip parameters and a portable header, not the Node runtime's native
+zlib. Different native zlib builds can compress identical tar input differently.
+The pinned compressor preserves existing source-archive bytes; upgrading it is
+an archive-format change, not a routine dependency refresh. Golden-digest tests
+and all existing release pins must pass before changing compression.
 
 Pinning uses `.plugin-artifacts/pin.lock`, an exclusive cross-process lock
 containing the pin process's PID. If the process crashes, the lock remains and

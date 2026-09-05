@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,7 +8,7 @@ import { pathToFileURL } from "node:url";
 import { create } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginManifest } from "@denote/plugin-sdk";
-import { writePluginArchive } from "./plugin-archive";
+import { gzipPluginArchive, writePluginArchive } from "./plugin-archive";
 import {
   acquirePinLock, artifactName, catalogEntry, downloadArtifact, readReleases, releaseUrl, stageRelease,
   verifyArchiveContents, verifyBytes, verifySourceCommit, type PluginRelease,
@@ -66,6 +67,41 @@ function fixture() {
 }
 
 describe("release-only plugin packages", () => {
+  it("retains canonical gzip bytes across Node and native zlib implementations", () => {
+    const data = Buffer.from(Array.from({ length: 2048 }, (_, id) => JSON.stringify({
+      id,
+      text: `Synthetic paragraph ${id % 73}`,
+      unicode: ["😄", "👋🏽", "🧑‍💻"][id % 3],
+    })).join("\n"));
+    const bytes = gzipPluginArchive(data);
+    expect([...bytes.subarray(0, 10)]).toEqual([31, 139, 8, 0, 0, 0, 0, 0, 0, 255]);
+    expect(bytes.length).toBe(10504);
+    expect(createHash("sha256").update(bytes).digest("hex"))
+      .toBe("297528e97723f846da2f8dbcb3c3fae880c1e2f3b249b19ee95a4e36f0ec4652");
+    expect(gunzipSync(bytes)).toEqual(data);
+  });
+
+  it("keeps the tar output separate from plugin files with the same basename", async () => {
+    const { root, directory, manifest } = fixture();
+    manifest.icon = "package.tar";
+    writeFileSync(join(directory, manifest.icon), "synthetic binary icon");
+    writeFileSync(join(directory, "plugin.json"), JSON.stringify(manifest));
+    const path = join(root, "archive.tgz");
+    await writePluginArchive(directory, manifest, path);
+    await expect(verifyArchiveContents(path, directory, manifest)).resolves.toBeUndefined();
+  });
+
+  it("bounds total expanded input before compressing or replacing output", async () => {
+    const { root, directory, manifest } = fixture();
+    const output = join(root, "existing.tgz");
+    writeFileSync(output, "synthetic existing output");
+    const content = Buffer.alloc(13 * 1024 * 1024, "a");
+    writeFileSync(join(directory, "dist/index.js"), content);
+    writeFileSync(join(directory, "guide.md"), content);
+    await expect(writePluginArchive(directory, manifest, output)).rejects.toThrow("expanded package limit");
+    expect(readFileSync(output, "utf8")).toBe("synthetic existing output");
+  });
+
   it("serializes catalog pins and surfaces interrupted lock recovery", () => {
     const { root } = fixture();
     const unlock = acquirePinLock(root);

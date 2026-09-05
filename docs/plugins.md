@@ -617,6 +617,12 @@ reinstalling the plugin.
 
 ## Publication and governance
 
+Source-built archives use normalized tar metadata and a pinned JavaScript gzip
+implementation. They must reproduce the same complete bytes across Node runtimes
+and operating systems; matching only the extracted contents is insufficient.
+Compression changes must not replace a pinned version's digest or size. This
+build-time compressor is not included in the application or plugin runtime.
+
 The initial catalog is first-party only. A plugin artifact is publishable when:
 
 - its source is contained in one `plugins/<name>/` directory;
