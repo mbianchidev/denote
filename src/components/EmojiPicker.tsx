@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Smile, Star, X } from "lucide-react";
 import { EMOJI_MAX_FAVORITES, type PluginEmojiPreferences } from "@denote/plugin-sdk";
 import { emojiForTone, emojiIndex, type EmojiContribution, type EmojiMatch } from "../lib/emoji";
@@ -29,7 +29,7 @@ export function EmojiToolbar({ host, pickers, disabled = false, scope }: {
   </div>;
 }
 
-export function EmojiHostSurface({ host }: { host: EmojiHost }) {
+export const EmojiHostSurface = memo(function EmojiHostSurface({ host }: { host: EmojiHost }) {
   const state = useSyncExternalStore(host.subscribe, host.getSnapshot);
   if (state.picker) return <EmojiPicker key={`${state.picker.pluginId}:${state.picker.id}`} host={host} picker={state.picker} />;
   if (!state.suggestion) return null;
@@ -65,7 +65,7 @@ export function EmojiHostSurface({ host }: { host: EmojiHost }) {
       </li>)}
     </ul>
   </div>;
-}
+});
 
 function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribution }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -80,20 +80,26 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
   const [page, setPage] = useState(0);
   const [active, setActive] = useState(0);
   const [selected, setSelected] = useState<EmojiMatch | null>(null);
-  const results = useMemo(() => {
+  const filteredEntries = useMemo(() => index.search(query, category), [category, index, query]);
+  const collectionResults = useMemo(() => {
     if (collection !== "all") {
       const values = collection === "recent" ? preferences.recents : preferences.favorites;
-      const permitted = new Set(index.search(query, category));
+      const permitted = new Set(filteredEntries);
       return values.flatMap((value) => {
         const match = index.byUnicode.get(value);
         return match && permitted.has(match.entry) ? [match] : [];
       });
     }
-    return index.search(query, category).map((entry) => emojiForTone(entry, preferences.tone));
-  }, [category, collection, index, preferences, query]);
-  const pages = Math.max(1, Math.ceil(results.length / PAGE_SIZE));
+    return null;
+  }, [collection, filteredEntries, index, preferences.recents, preferences.favorites]);
+  const resultCount = collectionResults?.length ?? filteredEntries.length;
+  const pages = Math.max(1, Math.ceil(resultCount / PAGE_SIZE));
   const actualPage = Math.min(page, pages - 1);
-  const visible = results.slice(actualPage * PAGE_SIZE, (actualPage + 1) * PAGE_SIZE);
+  const visible = useMemo(() => collectionResults
+    ? collectionResults.slice(actualPage * PAGE_SIZE, (actualPage + 1) * PAGE_SIZE)
+    : filteredEntries.slice(actualPage * PAGE_SIZE, (actualPage + 1) * PAGE_SIZE)
+      .map((entry) => emojiForTone(entry, preferences.tone)),
+  [actualPage, collectionResults, filteredEntries, preferences.tone]);
   const current = selected ?? visible[Math.min(active, visible.length - 1)] ?? null;
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -149,7 +155,7 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
         {["Default", "Light", "Medium-light", "Medium", "Medium-dark", "Dark"].map((name, value) => <option key={value} value={value}>{name}</option>)}
       </select></label>
     </div>
-    <p role="status">{results.length ? `${results.length} emoji. Page ${actualPage + 1} of ${pages}.` : "No emoji found. Try another search or category."}</p>
+    <p role="status">{resultCount ? `${resultCount} emoji. Page ${actualPage + 1} of ${pages}.` : "No emoji found. Try another search or category."}</p>
     <ul ref={resultsRef} className="emoji-picker__results" aria-label="Emoji results"
       onKeyDown={(event) => { if (move(event.key, true)) event.preventDefault(); }}
     >

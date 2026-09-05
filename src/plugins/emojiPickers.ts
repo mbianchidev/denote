@@ -8,6 +8,8 @@ export interface PluginEmojiPickerContribution extends PluginEmojiPicker {
   pluginId: string;
 }
 
+const knownEmoji = new WeakMap<PluginEmojiPicker["entries"], Set<string>>();
+
 export function readEmojiPreferences(
   picker: PluginEmojiPicker,
   settings: Record<string, unknown>,
@@ -57,12 +59,14 @@ function assertKnownEmoji(
   picker: PluginEmojiPicker,
   preferences: PluginEmojiPreferences,
 ): void {
-  const known = new Set(
-    picker.entries.flatMap((entry) => [
+  let known = knownEmoji.get(picker.entries);
+  if (!known) {
+    known = new Set(picker.entries.flatMap((entry) => [
       entry.unicode,
       ...entry.variants.map((variant) => variant.unicode),
-    ]),
-  );
+    ]));
+    knownEmoji.set(picker.entries, known);
+  }
   if ([...preferences.recents, ...preferences.favorites].some((value) => !known.has(value))) {
     throw new Error("Emoji preferences contain an unavailable emoji. Reset this plugin's settings.");
   }

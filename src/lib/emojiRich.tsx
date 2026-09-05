@@ -1,6 +1,5 @@
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { addComposerChild$, addNestedEditorChild$, addTableCellEditorChild$, createRootEditorSubscription$, realmPlugin } from "@mdxeditor/editor";
-import { fromMarkdown } from "mdast-util-from-markdown";
 import {
   $createRangeSelection, $getRoot, $getSelection, $isElementNode, $isRangeSelection, $isTextNode, $setSelection,
   COMMAND_PRIORITY_CRITICAL, HISTORY_PUSH_TAG, KEY_DOWN_COMMAND, PASTE_COMMAND,
@@ -8,11 +7,12 @@ import {
   type RangeSelection,
 } from "lexical";
 import { createContext, useContext, useEffect } from "react";
-import { emojiCandidate, emojiSelectionPatch, emojiSourceProjection, type EmojiCandidate } from "./emoji";
+import { emojiCandidate, emojiSelectionPatch, emojiSourceProjection, type EmojiCandidate, type EmojiSourceSnapshot } from "./emoji";
 import type { EmojiBookmark, EmojiEditorAdapter, EmojiEditorBinding } from "./emojiHost";
 
 export interface EmojiRichBinding extends EmojiEditorBinding {
   source(): string;
+  sourceSnapshot?(): EmojiSourceSnapshot;
   prepare(source: string): void;
 }
 export const EmojiRichContext = createContext<EmojiRichBinding | undefined>(undefined);
@@ -78,7 +78,7 @@ function EmojiRichBridge() {
               range.anchor.offset = candidate.from;
               range.focus.offset = candidate.to;
             }
-            const patch = sourcePatch(source, range, unicode);
+            const patch = sourcePatch(source, range, unicode, binding.sourceSnapshot?.());
             if (patch === null) return;
             binding.prepare(patch);
             $setSelection(range);
@@ -167,8 +167,8 @@ function EmojiRichBridge() {
   return null;
 }
 
-function sourcePatch(source: string, selection: RangeSelection, unicode: string): string | null {
-  const projection = emojiSourceProjection(source);
+function sourcePatch(source: string, selection: RangeSelection, unicode: string, snapshot?: EmojiSourceSnapshot): string | null {
+  const projection = emojiSourceProjection(source, snapshot);
   const positions = new Map<string, { start: number; length: number }>();
   const nodes = $getRoot().getAllTextNodes().filter((node) => node.getTextContent() !== "");
   let cursor = 0;
@@ -194,7 +194,7 @@ function sourcePatch(source: string, selection: RangeSelection, unicode: string)
     const root = $getRoot();
     if (paragraph.getType() === "paragraph" && paragraph.getTextContent() === "" &&
         paragraph.getParent()?.is(root)) {
-      const blocks = fromMarkdown(source).children;
+      const blocks = projection.root.children;
       if (blocks.length === 0) return source + unicode;
       const firstBlockStart = blocks[0].position?.start.offset;
       const lastBlockEnd = blocks[blocks.length - 1].position?.end.offset;
@@ -263,7 +263,7 @@ function sourcePatch(source: string, selection: RangeSelection, unicode: string)
   if (anchor === null || focus === null) return null;
   const from = Math.min(anchor, focus);
   const to = Math.max(anchor, focus);
-  const patched = emojiSelectionPatch(source, from, to, unicode);
+  const patched = emojiSelectionPatch(source, from, to, unicode, projection.root);
   const projectedPoint = (point: RangeSelection["anchor"]) =>
     point.type === "text" ? (positions.get(point.key)?.start ?? 0) + point.offset : 0;
   const projectedAnchor = projectedPoint(selection.anchor);

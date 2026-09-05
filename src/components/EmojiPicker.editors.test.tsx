@@ -7,11 +7,17 @@ import { redo, undo } from "@codemirror/commands";
 import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, REDO_COMMAND, UNDO_COMMAND, type LexicalEditor } from "lexical";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { syntheticEmojiHost } from "../lib/emoji.testFixtures";
 import { EmojiHostSurface, EmojiToolbar } from "./EmojiPicker";
 import { PlainTextEditor } from "./PlainTextEditor";
 import { MarkdownEditor } from "./MarkdownEditor";
+
+vi.mock("mdast-util-from-markdown", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
+  return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
+});
 
 function harness(mode: "plain" | "source" | "rich", initial: string, options: { readOnly?: boolean; path?: string; shortcodes?: string[]; unicode?: string } = {}) {
   const fixture = syntheticEmojiHost();
@@ -243,6 +249,21 @@ describe.each(["plain", "source"] as const)("emoji transactions in %s Markdown",
 });
 
 describe("rich emoji transactions", () => {
+  it("reuses existing analysis instead of reparsing the original note for emoji insertion", async () => {
+    const original = Array.from({ length: 100 }, (_, index) =>
+      `## Synthetic ${index}\n\nSample text ${index}.\n\n`,
+    ).join("") + "Insert here";
+    const fixture = harness("rich", original);
+    const editor = await richEditor(fixture.container, "Insert here", 7, 11);
+    vi.mocked(fromMarkdown).mockClear();
+    act(() => fixture.host.open(fixture.picker));
+    fireEvent.click(screen.getByRole("button", { name: "Insert Smiling face" }));
+    await waitFor(() => expect(fixture.changed).toHaveBeenLastCalledWith(original.replace("Insert here", "Insert 😀")));
+    expect(vi.mocked(fromMarkdown).mock.calls.filter(([source]) => source === original)).toHaveLength(0);
+    act(() => { editor.dispatchCommand(UNDO_COMMAND, undefined); });
+    await waitFor(() => expect(fixture.changed).toHaveBeenLastCalledWith(original));
+  });
+
   it("never replaces an explicit Source rewrite with an earlier emoji serialization", async () => {
     const fixture = harness("rich", "__bold__\n");
     await richEditor(fixture.container, "bold");

@@ -15,7 +15,7 @@ import type {
   PluginSourceControlContribution,
 } from "./plugins/workerRuntime";
 import type { FileNode, PluginView, WorkspaceSnapshot } from "./types";
-import { $getRoot, type LexicalEditor } from "lexical";
+import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type LexicalEditor } from "lexical";
 import { syntheticEmojiPicker, syntheticEmojiPluginView } from "./lib/emoji.testFixtures";
 
 const mockApi = vi.hoisted(() => ({
@@ -84,6 +84,7 @@ const mockOpener = vi.hoisted(() => ({
   openPath: vi.fn(),
   revealItemInDir: vi.fn(),
 }));
+const trackAppRender = vi.hoisted(() => vi.fn());
 
 vi.mock("@tauri-apps/plugin-opener", () => mockOpener);
 vi.mock("./plugins/usePlugins", () => ({
@@ -93,6 +94,7 @@ vi.mock("./plugins/usePlugins", () => ({
     _workspaceIdentity: unknown,
     onVaultCloned: (snapshot: unknown) => void | Promise<void>,
   ) => {
+    trackAppRender();
     // The host's clone callback is captured so a test can drive the exact
     // renderer signal a cloned vault produces.
     mockPluginController.openClonedVault = onVaultCloned;
@@ -309,6 +311,36 @@ describe("App initial file-tree expansion", () => {
         recents: ["😀"], favorites: [], tone: 0,
       });
     });
+
+  it("navigates emoji suggestions without rerendering the workspace", async () => {
+    const picker = syntheticEmojiPicker();
+    picker.entries[1].shortcodes = ["smirk"];
+    mockPluginController.emojiPickers = [picker];
+    mockPluginController.plugins = [syntheticEmojiPluginView()];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    const root = await screen.findByRole("textbox", { name: "editable markdown" });
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    await act(async () => {
+      root.focus();
+      editor.update(() => $getRoot().getAllTextNodes()[0].selectEnd(), { discrete: true });
+      editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "m" }));
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(" :sm");
+      }, { discrete: true });
+    });
+    expect(screen.getByLabelText("Emoji suggestions")).toBeVisible();
+    trackAppRender.mockClear();
+    for (let index = 0; index < 5; index++) {
+      fireEvent.keyDown(root, { key: "ArrowDown" });
+      fireEvent.keyDown(root, { key: "ArrowUp" });
+    }
+    fireEvent.keyDown(root, { key: "Escape" });
+    expect(screen.queryByLabelText("Emoji suggestions")).not.toBeInTheDocument();
+    expect(trackAppRender).not.toHaveBeenCalled();
+  });
 
   it("opens emoji with the host shortcut and removes surfaces when disabled", async () => {
       mockPluginController.emojiPickers = [syntheticEmojiPicker()];

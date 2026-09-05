@@ -60,6 +60,7 @@ export class EmojiHost {
   };
   private state: EmojiHostState = { picker: null, bookmark: null, suggestion: null };
   getSnapshot = () => this.state;
+  isPickerOpen = () => this.state.picker !== null;
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
     return () => { this.listeners.delete(listener); };
@@ -149,6 +150,7 @@ export class EmojiHost {
   }
   close(restore = true) {
     const bookmark = this.state.bookmark ?? this.state.suggestion?.bookmark;
+    if (!this.state.picker && !this.state.suggestion && !bookmark) return;
     this.set({ picker: null, bookmark: null, suggestion: null });
     if (restore && bookmark?.valid()) queueMicrotask(() => { if (bookmark.valid()) bookmark.restore(); });
   }

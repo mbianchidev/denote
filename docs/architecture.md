@@ -680,6 +680,21 @@ selection and document identity and insert complete Unicode sequences only on
 explicit acceptance, using ordinary undo history. Code and composition contexts
 suppress automatic suggestions.
 
+Emoji suggestions publish only to their own surface; the workspace subscribes
+to the picker-open boolean, not individual matches or keyboard highlights. The
+local prefix index is prepared when a contribution becomes available, and common
+words stop adding postings after their first eight matches. Picker filtering is
+independent of favorites, tone, and keyboard selection; only the visible page
+resolves variants. Dataset-membership validation is cached by installed entries,
+so preference writes never rescan the full catalog.
+
+Rich emoji insertion reuses the reference analysis tree only when its source
+matches exactly. Translated or masked content still parses independently.
+Selection mapping reuses that tree, repeated entities decode once per projection,
+and the resulting document is still parsed to confirm the intended visible-text
+change. An exact-source insertion bypasses the normal serialization repair pass
+while refreshing TOC and thematic-break snapshots for later edits and undo/redo.
+
 Recent/favorite Unicode strings and the chosen skin tone use three declared
 plugin setting keys. Preference writes validate dataset membership, serialize
 per plugin, merge the current settings, and guard runtime/workspace identity.

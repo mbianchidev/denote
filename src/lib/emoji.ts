@@ -3,7 +3,7 @@ import type {
   PluginEmojiPicker,
 } from "@denote/plugin-sdk";
 import { fromMarkdown } from "mdast-util-from-markdown";
-import type { Nodes } from "mdast";
+import type { Nodes, Root } from "mdast";
 
 export const MAX_EMOJI_SHORTCODE_LENGTH = 80;
 
@@ -22,6 +22,7 @@ export class EmojiIndex {
 
   constructor(readonly entries: PluginEmojiEntry[]) {
     this.categories = [...new Set(entries.map((entry) => entry.category))];
+    const indexedWords = new Map<string, number>();
     this.searchRows = entries.map((entry) => {
       this.byUnicode.set(entry.unicode, { entry, unicode: entry.unicode, name: entry.name });
       for (const variant of entry.variants) {
@@ -30,6 +31,9 @@ export class EmojiIndex {
       const words = [entry.name, entry.category, ...entry.keywords, ...entry.shortcodes]
         .join(" ").toLowerCase().split(/[^a-z0-9_+-]+/).filter(Boolean);
       for (const word of new Set(words)) {
+        const count = indexedWords.get(word) ?? 0;
+        if (count === 8) continue;
+        indexedWords.set(word, count + 1);
         for (let size = 2; size <= Math.min(word.length, MAX_EMOJI_SHORTCODE_LENGTH); size++) {
           const key = word.slice(0, size);
           const values = this.prefixes.get(key) ?? [];
@@ -70,6 +74,7 @@ export function emojiForTone(entry: PluginEmojiEntry, tone: number): EmojiMatch 
 }
 
 export interface EmojiCandidate { from: number; to: number; query: string }
+export interface EmojiSourceSnapshot { source: string; root?: Root }
 
 export function emojiCandidate(text: string, head: number): EmojiCandidate | null {
   const start = Math.max(0, head - MAX_EMOJI_SHORTCODE_LENGTH - 2);
@@ -81,10 +86,11 @@ export function emojiCandidate(text: string, head: number): EmojiCandidate | nul
 }
 
 /** Source offsets for visible text, used only at an explicit rich insertion. */
-export function emojiSourceProjection(source: string): { text: string; offsets: number[]; ends: number[] } {
+export function emojiSourceProjection(source: string, snapshot?: EmojiSourceSnapshot): { text: string; offsets: number[]; ends: number[]; root: Root } {
   let text = "";
   const offsets: number[] = [];
   const ends: number[] = [];
+  const entities = new Map<string, string>();
   const visit = (node: Nodes) => {
     if (node.type === "text" || node.type === "inlineCode") {
       const start = node.position?.start.offset;
@@ -97,9 +103,13 @@ export function emojiSourceProjection(source: string): { text: string; offsets: 
         const entity = node.type === "text" && raw[rawOffset] === "&"
           ? /^&(?:#[0-9]{1,7}|#x[0-9a-f]{1,6}|[a-z][a-z0-9]{1,31});/i.exec(raw.slice(rawOffset))?.[0] : undefined;
         if (entity) {
-          const paragraph = fromMarkdown(entity).children[0];
-          const child = paragraph && "children" in paragraph ? paragraph.children[0] : undefined;
-          const decoded = child?.type === "text" ? child.value : entity;
+          let decoded = entities.get(entity);
+          if (decoded === undefined) {
+            const paragraph = fromMarkdown(entity).children[0];
+            const child = paragraph && "children" in paragraph ? paragraph.children[0] : undefined;
+            decoded = child?.type === "text" ? child.value : entity;
+            entities.set(entity, decoded);
+          }
           if (decoded !== entity && node.value.slice(i, i + decoded.length) === decoded) {
             text += decoded;
             for (let unit = 0; unit < decoded.length; unit++) {
@@ -130,11 +140,12 @@ export function emojiSourceProjection(source: string): { text: string; offsets: 
   const prose = source
     .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, (value) => value.replace(/[^\r\n]/g, " "))
     .replace(/^ {0,3}>[ \t]*(?:!\[[a-z-]+\]|\[![a-z-]+\])[ \t]*$/gim, (value) => value.replace(/[^\r\n]/g, " "));
-  visit(fromMarkdown(prose));
-  return { text, offsets, ends };
+  const root = snapshot?.source === prose && snapshot.root ? snapshot.root : fromMarkdown(prose);
+  visit(root);
+  return { text, offsets, ends, root };
 }
 
-export function emojiSelectionPatch(source: string, from: number, to: number, unicode: string): string {
+export function emojiSelectionPatch(source: string, from: number, to: number, unicode: string, root?: Root): string {
   if (from === to) return source.slice(0, from) + unicode + source.slice(to);
   const start: Nodes[] = [];
   const end: Nodes[] = [];
@@ -148,7 +159,7 @@ export function emojiSelectionPatch(source: string, from: number, to: number, un
     }
     if ("children" in node) node.children.forEach(visit);
   };
-  visit(fromMarkdown(source));
+  visit(root ?? fromMarkdown(source));
   const closing = start.filter((node) => !end.includes(node)).reverse().map((node) =>
     "children" in node ? source.slice(node.children[node.children.length - 1]?.position?.end.offset, node.position?.end.offset)
       : node.type === "inlineCode" ? /`+$/.exec(source.slice(node.position?.start.offset, node.position?.end.offset))?.[0] ?? "" : "",

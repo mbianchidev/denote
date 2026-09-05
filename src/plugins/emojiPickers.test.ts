@@ -95,6 +95,19 @@ describe("emoji contribution boundary", () => {
 });
 
 describe("emoji settings", () => {
+  it("indexes dataset membership once per installed dataset, not per preference save", () => {
+    let reads = 0;
+    const entries = [{ ...picker.entries[0], get variants() { reads++; return picker.entries[0].variants; } }];
+    const contribution = { ...picker, entries };
+    for (let index = 0; index < 100; index++) {
+      readEmojiPreferences(contribution, {});
+      emojiPreferenceSettings(contribution, { recents: [wave], favorites: [], tone: 0 });
+    }
+    expect(reads).toBe(1);
+    readEmojiPreferences({ ...contribution, entries: [...entries] }, {});
+    expect(reads).toBe(2);
+  });
+
   it("round trips full sequences without changing unrelated settings", () => {
     const preferences = { recents: [tonedWave, wave], favorites: [tonedWave], tone: 3 };
     const settings = { autocomplete: true, ...emojiPreferenceSettings(picker, preferences) };

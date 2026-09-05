@@ -371,6 +371,7 @@ export const MarkdownEditor = forwardRef<
     host: emoji.host,
     scope: emoji.scope,
     source: () => emojiSourceRef.current,
+    sourceSnapshot: () => referenceSnapshotRef.current,
     prepare: (source) => { emojiSerialization.current.prepare(source); },
   }) : undefined, [emoji?.host, emoji?.scope]);
   const emojiSourceExtensions = useMemo(() => [
@@ -905,6 +906,17 @@ export const MarkdownEditor = forwardRef<
               if (initialNormalize) serialization.record(value, emojiSourceRef.current);
               if (!initialNormalize) {
                 const exactSource = serialization.restore(value);
+                if (exactSource !== undefined) {
+                  const output = sourceLineBreak !== "\n" && activeViewModeRef.current === "source"
+                    ? exactSource.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak)
+                    : exactSource;
+                  tocMarkersRef.current = captureTocMarkers(output);
+                  thematicBreaksRef.current = captureThematicBreaks(output);
+                  serialization.record(value, output);
+                  emojiSourceRef.current = output;
+                  onChange(output);
+                  return;
+                }
                 let restoredMarkdown = restoreRichTextTagSyntax(
                   directivesToCallouts(value),
                 );
@@ -927,15 +939,11 @@ export const MarkdownEditor = forwardRef<
                 tocMarkersRef.current = markerUpdate.snapshot;
                 thematicBreaksRef.current =
                   captureThematicBreaks(markerUpdate.markdown);
-                let output = exactSource ?? (activeViewModeRef.current === "source" ? markerUpdate.markdown : restoreMarkdownBoundaryWhitespace(
+                let output = activeViewModeRef.current === "source" ? markerUpdate.markdown : restoreMarkdownBoundaryWhitespace(
                     markerUpdate.markdown,
                     boundaryWhitespace,
-                  ));
+                  );
                 if (sourceLineBreak !== "\n" && activeViewModeRef.current === "source") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
-                if (exactSource !== undefined) {
-                  tocMarkersRef.current = captureTocMarkers(output);
-                  thematicBreaksRef.current = captureThematicBreaks(output);
-                }
                 serialization.record(value, output);
                 emojiSourceRef.current = output;
                 onChange(output);

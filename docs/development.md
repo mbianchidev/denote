@@ -268,6 +268,12 @@ editor/component tests, package tests under
 `plugins::emoji_tests`. Keep all note text and paths synthetic. Exercise Rich
 and both source-editor paths, composition, code exclusion, Unicode variants,
 undo/redo, focus restoration, and runtime/locked-vault changes.
+Performance regressions assert that suggestion navigation does not rerender the
+workspace, only 48 visible results resolve variants, repeated preference writes
+reuse dataset membership, and rich insertions reuse current Markdown analysis.
+These are deterministic work-count checks rather than machine-dependent timing
+limits. Keep the `:sm` path synchronous; do not hide expensive work behind a
+typing debounce.
 
 Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
 build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`

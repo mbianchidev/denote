@@ -27,6 +27,7 @@ export interface ReferenceDefinitionGroupSnapshot {
 
 export interface ReferenceMarkdownSnapshot {
   source: string;
+  root?: Root;
   definitions: ReferenceDefinitionSnapshot[];
   definitionGroups: ReferenceDefinitionGroupSnapshot[];
   firstDefinitions: Map<string, ReferenceDefinitionSnapshot>;
@@ -82,6 +83,7 @@ export function captureReferenceMarkdown(
   }
   return {
     source: markdown,
+    root,
     definitions,
     definitionGroups: groupReferenceDefinitions(markdown, definitions),
     firstDefinitions,

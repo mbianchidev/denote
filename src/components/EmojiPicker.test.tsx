@@ -4,6 +4,7 @@ import { EMOJI_MAX_FAVORITES, EMOJI_MAX_RECENTS } from "@denote/plugin-sdk";
 import { describe, expect, it, vi } from "vitest";
 import { EmojiHostSurface } from "./EmojiPicker";
 import { syntheticEmojiHost } from "../lib/emoji.testFixtures";
+import { emojiIndex } from "../lib/emoji";
 
 function openPicker(fixture = syntheticEmojiHost()) {
   const insert = vi.fn(() => true);
@@ -21,6 +22,28 @@ function openPicker(fixture = syntheticEmojiHost()) {
 }
 
 describe("host emoji picker", () => {
+  it("resolves variants only for the visible page and avoids searching again for favorites or tone", () => {
+    const fixture = syntheticEmojiHost();
+    let variantReads = 0;
+    fixture.picker.entries = Array.from({ length: 5000 }, (_, index) => ({
+      ...fixture.picker.entries[0], id: `synthetic-${index}`, name: `Synthetic face ${index}`,
+      unicode: String.fromCodePoint(0x1f600 + index),
+      get variants() { variantReads++; return []; },
+    }));
+    const index = emojiIndex(fixture.picker);
+    const search = vi.spyOn(index, "search");
+    variantReads = 0;
+    openPicker(fixture);
+    expect(search).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText("Skin tone"), { target: { value: "1" } });
+    expect(variantReads).toBeLessThan(60);
+    fireEvent.click(screen.getByRole("button", { name: "Add Synthetic face 0 to favorites" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(variantReads).toBeLessThan(120);
+    expect(within(screen.getByRole("list", { name: "Emoji results" })).getAllByRole("button")).toHaveLength(48);
+  });
+
   it.each(["recents", "favorites"] as const)("retains the SDK %s limit without applying a smaller UI quota", (collection) => {
     const fixture = syntheticEmojiHost();
     const limit = collection === "recents" ? EMOJI_MAX_RECENTS : EMOJI_MAX_FAVORITES;

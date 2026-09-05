@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { fromMarkdown } from "mdast-util-from-markdown";
 import { EditorState } from "@codemirror/state";
 import { EmojiIndex, emojiCandidate, emojiIndex, emojiSelectionPatch, emojiSourcePatch, emojiSourceProjection } from "./emoji";
 import { syntheticEmojiPicker } from "./emoji.testFixtures";
@@ -6,6 +7,12 @@ import { sourceAllowsEmojiCandidate } from "./emojiSource";
 import { loadSyntaxLanguage } from "./syntaxLanguages";
 import { readEmojiPreferences } from "../plugins/emojiPickers";
 import { isEmojiPickerShortcut } from "./emojiHost";
+import { captureReferenceMarkdown } from "./referenceMarkdown";
+
+vi.mock("mdast-util-from-markdown", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
+  return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
+});
 
 it("uses only the platform primary modifier without intercepting macOS Control-Shift-E", () => {
   const event = { key: "E", code: "KeyE", ctrlKey: false, metaKey: true, altKey: false, shiftKey: true, isComposing: false };
@@ -32,6 +39,15 @@ describe("local emoji lookup", () => {
       ...syntheticEmojiPicker().entries[0], id: `synthetic-${index}`, name: `Synthetic face ${index}`,
     }));
     expect(new EmojiIndex(entries).suggest("sy")).toHaveLength(8);
+  });
+  it("retains display-order prefix matches when common words are already saturated", () => {
+    const entries = Array.from({ length: 5000 }, (_, index) => ({
+      ...syntheticEmojiPicker().entries[0], id: `synthetic-${index}`,
+      name: `Synthetic face ${index}`, shortcodes: [index === 4999 ? "smirk" : "smile"],
+    }));
+    const index = new EmojiIndex(entries);
+    expect(index.suggest("sm")).toEqual(entries.slice(0, 8));
+    expect(index.suggest("smir")).toEqual([entries[4999]]);
   });
   it("indexes numeric-leading aliases and full-length 80-character aliases", () => {
     const entry = { ...syntheticEmojiPicker().entries[0], shortcodes: ["100", "1234", "longalias_".repeat(8)] };
@@ -97,6 +113,35 @@ describe("conservative shortcode candidate", () => {
     expect(projection.text).toBe("A & B :sm");
     expect(projection.offsets[6]).toBe(source.indexOf("\\"));
     expect(emojiSourceProjection(">![info]\n> info").text).toBe("info");
+  });
+  it("parses repeated entities once and reuses the source tree when patching selection", () => {
+    const source = "**Synthetic &amp; &#x1f604; text**\r\n\r\n".repeat(1000);
+    vi.mocked(fromMarkdown).mockClear();
+    const projection = emojiSourceProjection(source);
+    expect(fromMarkdown).toHaveBeenCalledTimes(3);
+    const from = source.indexOf("Synthetic");
+    expect(emojiSelectionPatch(source, from, from + 9, "😀", projection.root))
+      .toBe(source.slice(0, from) + "😀" + source.slice(from + 9));
+    expect(fromMarkdown).toHaveBeenCalledTimes(3);
+    const face = projection.text.indexOf("😄");
+    expect(source.slice(projection.offsets[face], projection.ends[face])).toBe("&#x1f604;");
+    expect(projection.offsets[face + 1]).toBe(projection.offsets[face]);
+  });
+  it("reuses only the parse tree for the exact current source, including masked-source guards", () => {
+    const source = "**Synthetic**\r\n\r\n[Guide][topic]\r\n\r\n[topic]: /guide";
+    const snapshot = captureReferenceMarkdown(source);
+    vi.mocked(fromMarkdown).mockClear();
+    const projection = emojiSourceProjection(source, snapshot);
+    expect(projection.root).toBe(snapshot.root);
+    expect(fromMarkdown).not.toHaveBeenCalled();
+    const changed = `${source}\r\n\r\nNew paragraph`;
+    expect(emojiSourceProjection(changed, snapshot).text).toContain("New paragraph");
+    expect(fromMarkdown).toHaveBeenCalledTimes(1);
+    const frontmatter = "---\ntitle: Synthetic\n---\n\nProse";
+    const frontmatterSnapshot = captureReferenceMarkdown(frontmatter);
+    vi.mocked(fromMarkdown).mockClear();
+    expect(emojiSourceProjection(frontmatter, frontmatterSnapshot).text).toBe("Prose");
+    expect(fromMarkdown).toHaveBeenCalledTimes(1);
   });
   it("preserves partial inline formatting when replacing a cross-node selection", () => {
     expect(emojiSelectionPatch("**Bold** plain", 4, 14, "😀")).toBe("**Bo😀**");

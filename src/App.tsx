@@ -84,7 +84,7 @@ import {
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
-import type { EmojiContribution } from "./lib/emoji";
+import { emojiIndex, type EmojiContribution } from "./lib/emoji";
 import { readEmojiPreferences } from "./plugins/emojiPickers";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
@@ -1455,7 +1455,7 @@ function App() {
     pluginProjectRepositories,
   );
   const [emojiHost] = useState(() => new EmojiHost());
-  const emojiState = useSyncExternalStore(emojiHost.subscribe, emojiHost.getSnapshot);
+  const emojiPickerOpen = useSyncExternalStore(emojiHost.subscribe, emojiHost.isPickerOpen);
   const contributedEmojiPickers = useMemo(() => pluginController.emojiPickers.filter((picker) =>
     !pluginController.busyPluginIds.has(picker.pluginId) &&
     pluginController.plugins.some((plugin) => plugin.catalog.manifest.id === picker.pluginId && plugin.enabled)),
@@ -1470,6 +1470,7 @@ function App() {
       try {
         preferences.set(picker, readEmojiPreferences(picker,
           pluginController.plugins.find((plugin) => plugin.catalog.manifest.id === picker.pluginId)?.settings ?? {}));
+        emojiIndex(picker);
       } catch (error) {
         showError(error);
       }
@@ -6781,7 +6782,7 @@ function App() {
   }, [activePath, headingNavigation, revealHeading, showLinkError]);
 
   const modalOpen =
-    emojiState.picker !== null ||
+    emojiPickerOpen ||
     replaceOpen ||
     encryptionOpen ||
     editorSettingsOpen ||
@@ -6930,7 +6931,7 @@ function App() {
         const index = tabs.findIndex((tab) => tab.path === activePath);
         const direction = event.shiftKey ? -1 : 1;
         activateTab(tabs[(index + direction + tabs.length) % tabs.length].path);
-      } else if (event.key === "Escape" && showOutline) {
+      } else if (event.key === "Escape" && showOutline && !emojiHost.getSnapshot().suggestion) {
         setShowOutline(false);
       }
     };
