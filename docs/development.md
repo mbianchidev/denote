@@ -130,7 +130,8 @@ intended **Denote** release tag (not the plugin version):
 npm run pin:plugin -- denote.example --ref "$(git rev-parse HEAD)" --release v0.1.1
 ```
 
-Pinning verifies committed plugin source, SDK, build tooling, and lockfile inputs
+Pinning verifies committed plugin source, SDK, build tooling, compiler
+configurations (including inherited configurations), and lockfile inputs
 before building and again after packaging. It checks a reproducible archive and
 its contents, then atomically writes that plugin's
 `releases.json` ledger before atomically replacing its catalog entry. An
@@ -141,6 +142,10 @@ verified bytes locally but does not create a tag, upload an asset, or publish a
 release. Commit only the catalog and selected ledger changes in a separate
 metadata commit.
 
+The source commit must be an ancestor of `HEAD`, so pushing the branch also
+publishes the source needed for reproduction. Archive text uses LF endings and
+fixed file modes regardless of checkout line endings or the author's umask.
+
 Pinning uses `.plugin-artifacts/pin.lock`, an exclusive cross-process lock
 containing the pin process's PID. If the process crashes, the lock remains and
 later pins refuse to run rather than stealing it. Inspect the recorded PID with
@@ -149,6 +154,7 @@ Only then remove the exact `.plugin-artifacts/pin.lock` file and retry the same
 pin command. Do not remove the staging directory or alter the immutable ledger.
 If the ledger write completed before the interruption, the identical retry
 finishes the catalog update without replacing the prepared version.
+Interrupted metadata temporary files are ignored and are not compiler inputs.
 
 Every ledger entry records an immutable plugin version, source commit, archive
 origin URL, byte count, and SHA-256 digest. Existing historical versions retain
@@ -201,6 +207,9 @@ comparison also requires every existing ledger entry to remain unchanged and
 rejects a changed catalog digest, size, or source SHA for the same plugin
 version. New ledger versions may be appended; unchanged versions may be
 rehosted through a catalog URL change only.
+Ledgers are matched by stable plugin ID, so moving a self-contained plugin
+directory preserves its recorded history. Merge-resolution-only archive
+additions are checked too, even if a later commit deletes them.
 
 Resolve a base ref to its full commit SHA as shown above. CI runs the guard
 before dependency installation with full history, using the pull request base

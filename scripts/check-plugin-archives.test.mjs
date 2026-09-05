@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
@@ -50,6 +50,7 @@ it("rejects an archive introduced then removed within proposed commits", () => {
 it("keeps previously recorded plugin versions append-only", () => {
   const { root, git } = fixture();
   mkdirSync(join(root, "plugins/synthetic"), { recursive: true });
+  writeFileSync(join(root, "plugins/synthetic/plugin.json"), '{"id":"synthetic.plugin"}');
   const path = join(root, "plugins/synthetic/releases.json");
   const entry = { version: "1.0.0", sourceCommit: "a".repeat(40), artifact: { sha256: "b".repeat(64) } };
   writeFileSync(path, JSON.stringify([entry]));
@@ -60,4 +61,31 @@ it("keeps previously recorded plugin versions append-only", () => {
   expect(() => checkPluginArchives(root, base)).not.toThrow();
   writeFileSync(path, JSON.stringify([{ ...entry, sourceCommit: "c".repeat(40) }]));
   expect(() => checkPluginArchives(root, base)).toThrow("Immutable release ledger changed");
+});
+
+it("matches immutable ledgers by plugin ID after a directory move", () => {
+  const { root, git } = fixture();
+  mkdirSync(join(root, "plugins/synthetic"), { recursive: true });
+  writeFileSync(join(root, "plugins/synthetic/plugin.json"), '{"id":"synthetic.plugin"}');
+  writeFileSync(join(root, "plugins/synthetic/releases.json"), '[{"version":"1.0.0","sourcePath":"plugins/synthetic"}]');
+  git("add", "plugins");
+  git("commit", "--no-gpg-sign", "-qm", "Record synthetic ledger");
+  const base = git("rev-parse", "HEAD");
+  renameSync(join(root, "plugins/synthetic"), join(root, "plugins/renamed"));
+  expect(() => checkPluginArchives(root, base)).not.toThrow();
+});
+
+it("rejects archives introduced only by a merge resolution and then deleted", () => {
+  const { root, git, base } = fixture();
+  git("switch", "-c", "synthetic-work");
+  git("switch", "-c", "synthetic-side");
+  git("commit", "--no-gpg-sign", "--allow-empty", "-qm", "Synthetic side");
+  git("switch", "synthetic-work");
+  git("merge", "--no-ff", "--no-commit", "synthetic-side");
+  writeFileSync(join(root, "resolution.tgz"), "mock archive");
+  git("add", "resolution.tgz");
+  git("commit", "--no-gpg-sign", "-qm", "Synthetic merge resolution");
+  git("rm", "resolution.tgz");
+  git("commit", "--no-gpg-sign", "-qm", "Remove synthetic archive");
+  expect(() => checkPluginArchives(root, base)).toThrow("even if later deleted");
 });

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, posix, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 export function checkPluginArchives(root, base) {
@@ -18,7 +18,7 @@ export function checkPluginArchives(root, base) {
     }
     git(["cat-file", "-e", `${base}^{commit}`]);
     const introduced = archives(git([
-      "log", "--format=", "--name-only", "-z", "--no-renames",
+      "log", "--format=", "--name-only", "-z", "--no-renames", "--diff-merges=first-parent",
       "--diff-filter=AM", `${base}..HEAD`,
     ]));
     if (introduced.length) {
@@ -27,10 +27,24 @@ export function checkPluginArchives(root, base) {
       );
     }
     const tree = git(["ls-tree", "-r", "--name-only", base]).trim().split("\n");
+    const currentLedgers = new Map();
+    if (existsSync(join(root, "plugins"))) {
+      for (const directory of readdirSync(join(root, "plugins"), { withFileTypes: true })) {
+        if (!directory.isDirectory()) continue;
+        const directoryPath = join(root, "plugins", directory.name);
+        const manifest = JSON.parse(readFileSync(join(directoryPath, "plugin.json"), "utf8"));
+        if (typeof manifest.id !== "string" || currentLedgers.has(manifest.id)) {
+          throw new Error("Plugin directories must have unique stable manifest IDs.");
+        }
+        currentLedgers.set(manifest.id, join(directoryPath, "releases.json"));
+      }
+    }
     for (const path of tree.filter((path) => /^plugins\/[^/]+\/releases\.json$/.test(path))) {
+      const manifest = JSON.parse(git(["show", `${base}:${posix.dirname(path)}/plugin.json`]));
       const prior = JSON.parse(git(["show", `${base}:${path}`]));
-      if (!existsSync(join(root, path))) throw new Error(`Immutable release ledger removed: ${path}`);
-      const current = JSON.parse(readFileSync(join(root, path), "utf8"));
+      const currentPath = currentLedgers.get(manifest.id);
+      if (!currentPath || !existsSync(currentPath)) throw new Error(`Immutable release ledger removed: ${path}`);
+      const current = JSON.parse(readFileSync(currentPath, "utf8"));
       for (const entry of prior) {
         const retained = current.find((candidate) => candidate.version === entry.version);
         if (JSON.stringify(retained) !== JSON.stringify(entry)) {

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  chmodSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -50,6 +51,7 @@ export async function writePluginArchive(
       mkdirSync(dirname(target), { recursive: true });
       const text = path !== manifest.icon || path.endsWith(".svg");
       writeFileSync(target, text ? bytes.toString("utf8").replace(/\r\n/g, "\n") : bytes, { mode: 0o644 });
+      chmodSync(target, 0o644);
     }
     await create(
       {

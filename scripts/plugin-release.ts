@@ -5,8 +5,9 @@ import {
   readdirSync, renameSync, rmSync, writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { list } from "tar";
+import { API } from "typescript/unstable/sync";
 import {
   assertValidPluginCatalogEntry, type PluginCatalogEntry, type PluginManifest,
 } from "@denote/plugin-sdk";
@@ -130,10 +131,22 @@ export function verifySourceCommit(
     cwd: root, maxBuffer: MAX_BYTES, stdio: ["ignore", "pipe", "pipe"],
   });
   git(["cat-file", "-e", `${sourceCommit}^{commit}`]);
+  try {
+    git(["merge-base", "--is-ancestor", sourceCommit, "HEAD"]);
+  } catch (error) {
+    if (error instanceof Error && "status" in error && error.status === 1) {
+      throw new Error("Source commit must be reachable from HEAD so it travels with the pushed branch.");
+    }
+    throw error;
+  }
   const inputs = sourceFiles(directory).filter((path) => !relative(directory, path).startsWith(`tests${sep}`));
   if (tooling) {
     inputs.push(...sourceFiles(join(root, "packages/plugin-sdk")));
-    inputs.push(join(root, "package-lock.json"), join(root, "scripts/plugin-build.ts"), join(root, "scripts/plugin-archive.ts"));
+    inputs.push(...[
+      "package.json", "package-lock.json", "tsconfig.json", "tsconfig.node.json",
+      "plugins/tsconfig.json", "scripts/plugin-build.ts", "scripts/plugin-archive.ts",
+    ].map((path) => join(root, path)));
+    inputs.push(...compilerConfigurationInputs(root, inputs));
   }
   for (const path of inputs) {
     const relativePath = path.startsWith(`${directory}${sep}`)
@@ -149,22 +162,73 @@ export function verifySourceCommit(
     }
   }
   // Deleted source is just as significant as an edited or untracked source file.
-  const committedFiles = git(["ls-tree", "-r", "--name-only", sourceCommit, "--", sourcePath])
-    .toString("utf8").trim().split("\n");
-  for (const path of committedFiles) {
-    if (!path || /\/(?:releases\.json|tests\/)/.test(path)) continue;
-    if (!existsSync(join(directory, path.slice(sourcePath.length + 1)))) {
-      throw new Error(`Source ${path} from ${sourceCommit} is missing.`);
+  const trees = [{ path: sourcePath, directory }];
+  if (tooling) trees.push({ path: "packages/plugin-sdk", directory: join(root, "packages/plugin-sdk") });
+  for (const tree of trees) {
+    const committedFiles = git(["ls-tree", "-r", "--name-only", sourceCommit, "--", tree.path])
+      .toString("utf8").trim().split("\n");
+    for (const path of committedFiles) {
+      const child = path.slice(tree.path.length + 1);
+      if (!path || child === "releases.json" || child.startsWith("tests/")) continue;
+      if (!existsSync(join(tree.directory, child))) {
+        throw new Error(`Source ${path} from ${sourceCommit} is missing.`);
+      }
     }
   }
 }
 
-function sourceFiles(directory: string): string[] {
+function compilerConfigurationInputs(root: string, inputs: string[]): string[] {
+  const configurations = new Set<string>();
+  const consumed = new Set<string>();
+  const inside = (path: string) => {
+    const child = relative(root, path);
+    return !isAbsolute(child) && !child.startsWith(`..${sep}`) && child !== "..";
+  };
+  for (const input of inputs) {
+    let directory = dirname(input);
+    while (inside(directory)) {
+      const path = join(directory, "tsconfig.json");
+      if (existsSync(path)) {
+        configurations.add(path);
+        break;
+      }
+      const parent = dirname(directory);
+      if (parent === directory) break;
+      directory = parent;
+    }
+    if (/[/\\]tsconfig(?:\.[^/\\]+)?\.json$/.test(input)) configurations.add(input);
+  }
+  const outside = new Set<string>();
+  const compiler = new API({
+    cwd: root,
+    fs: {
+      readFile(path) {
+        if (!inside(path)) {
+          outside.add(path);
+          return null;
+        }
+        if (!path.replaceAll("\\", "/").includes("/node_modules/") && existsSync(path)) consumed.add(path);
+        return undefined;
+      },
+    },
+  });
+  try {
+    for (const path of configurations) compiler.parseConfigFile(path);
+  } finally {
+    compiler.close();
+  }
+  if (outside.size) throw new Error(`Compiler configuration is outside the repository: ${[...outside].join(", ")}`);
+  return [...consumed];
+}
+
+function sourceFiles(directory: string, packageRoot = directory): string[] {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
-    if (["dist", "node_modules", "releases.json"].includes(entry.name)) return [];
+    const metadata = entry.name === "releases.json" ||
+      /^releases\.json\.[0-9a-f-]{36}\.tmp$/.test(entry.name);
+    if (entry.name === "node_modules" || (directory === packageRoot && (entry.name === "dist" || metadata))) return [];
     const path = join(directory, entry.name);
     if (entry.isSymbolicLink()) throw new Error(`Plugin build inputs cannot be symbolic links: ${path}`);
-    return entry.isDirectory() ? sourceFiles(path) : [path];
+    return entry.isDirectory() ? sourceFiles(path, packageRoot) : [path];
   });
 }
 

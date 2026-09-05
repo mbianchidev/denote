@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { create } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PluginManifest } from "@denote/plugin-sdk";
@@ -37,6 +38,18 @@ function fixture() {
   writeFileSync(join(directory, "package.json"), '{"private":true,"version":"1.0.0"}');
   writeFileSync(join(directory, "guide.md"), "# Synthetic guide\n");
   writeFileSync(join(directory, "icon.svg"), "<svg/>");
+  mkdirSync(join(root, "packages/plugin-sdk/src"), { recursive: true });
+  mkdirSync(join(root, "scripts"));
+  mkdirSync(join(root, "config"));
+  writeFileSync(join(root, "packages/plugin-sdk/src/index.ts"), "export {};\n");
+  writeFileSync(join(root, "scripts/plugin-build.ts"), "export {};\n");
+  writeFileSync(join(root, "scripts/plugin-archive.ts"), "export {};\n");
+  writeFileSync(join(root, "package.json"), '{"private":true}');
+  writeFileSync(join(root, "package-lock.json"), '{"lockfileVersion":3}');
+  writeFileSync(join(root, "tsconfig.json"), '{"extends":"./config/compiler-base.json"}');
+  writeFileSync(join(root, "tsconfig.node.json"), '{"compilerOptions":{}}');
+  writeFileSync(join(root, "plugins/tsconfig.json"), '{"extends":"../tsconfig.json"}');
+  writeFileSync(join(root, "config/compiler-base.json"), '{"compilerOptions":{"target":"ES2022"}}');
   const git = (...args: string[]) => execFileSync("git", args, {
     cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
   }).trim();
@@ -82,6 +95,52 @@ describe("release-only plugin packages", () => {
     writeFileSync(join(directory, "dist/index.js"), "export default {};\r\n");
     const second = await writePluginArchive(directory, manifest, join(root, "crlf.tgz"));
     expect(second.bytes).toEqual(first.bytes);
+  });
+
+  it("normalizes archive file modes independently of the caller's umask", async () => {
+    const { root, directory, manifest } = fixture();
+    const first = await writePluginArchive(directory, manifest, join(root, "normal.tgz"));
+    const restricted = join(root, "restricted.tgz");
+    execFileSync(process.execPath, [
+      "--import", "tsx", "--input-type=module", "-e",
+      `import { readFileSync } from "node:fs";
+       import { writePluginArchive } from ${JSON.stringify(pathToFileURL(resolve("scripts/plugin-archive.ts")).href)};
+       process.umask(0o077);
+       await writePluginArchive(process.argv[1], JSON.parse(readFileSync(process.argv[1] + "/plugin.json", "utf8")), process.argv[2]);`,
+      directory, restricted,
+    ]);
+    expect(readFileSync(restricted)).toEqual(first.bytes);
+  });
+
+  it.each(["tsconfig.json", "plugins/tsconfig.json", "config/compiler-base.json"])(
+    "binds compiler configuration %s to the source commit",
+    (path) => {
+      const { root, directory, sourceCommit } = fixture();
+      expect(() => verifySourceCommit(root, directory, sourceCommit, true)).not.toThrow();
+      writeFileSync(join(root, path), '{"compilerOptions":{"useDefineForClassFields":false}}');
+      expect(() => verifySourceCommit(root, directory, sourceCommit, true)).toThrow("differs");
+    },
+  );
+
+  it("rejects removed compiler configurations instead of pinning default compiler behavior", () => {
+    const { root, directory, sourceCommit } = fixture();
+    rmSync(join(root, "tsconfig.json"));
+    rmSync(join(root, "plugins/tsconfig.json"));
+    expect(() => verifySourceCommit(root, directory, sourceCommit, true)).toThrow();
+  });
+
+  it("requires source commits to travel with the branch rather than exist only locally", () => {
+    const { root, directory, git } = fixture();
+    const sourceCommit = git("commit-tree", "--no-gpg-sign", git("write-tree"), "-m", "Synthetic detached source");
+    expect(() => verifySourceCommit(root, directory, sourceCommit)).toThrow("reachable from HEAD");
+  });
+
+  it("ignores interrupted metadata staging, but verifies similarly named source data", () => {
+    const { root, directory, sourceCommit } = fixture();
+    writeFileSync(join(directory, "releases.json.00000000-0000-4000-8000-000000000000.tmp"), "partial metadata");
+    expect(() => verifySourceCommit(root, directory, sourceCommit)).not.toThrow();
+    writeFileSync(join(directory, "src/releases.json"), '{"synthetic":true}');
+    expect(() => verifySourceCommit(root, directory, sourceCommit)).toThrow();
   });
 
   it("rejects modified, extra, or missing committed source before provenance pinning", () => {
