@@ -497,12 +497,15 @@ validation.
 ### Optional emoji picker
 
 The emoji plugin contributes data, never markup. Denote renders a compact local
-picker with a labelled search input, named emoji options, recent/favorite
-filters, variant and skin-tone controls, and a polite result status. Results
-are bounded rather than creating thousands of focusable controls. Arrow keys,
-Home/End, Enter, and Escape keep selection predictable; focus remains visible
-in both themes. Closing or inserting restores the originating editor selection
-without jumping to a different pane.
+picker as a quiet workbench: one search row, three compact filters, a bordered
+emoji grid, one selected-emoji detail strip, and a low-emphasis pager. The
+current option uses the normal moss selection treatment rather than a decorative
+card or oversized typography. Named emoji options, recent/favorite filters,
+variant and skin-tone controls, and a polite result status remain visible and
+compact. Results are bounded rather than creating thousands of focusable
+controls. Arrow keys, Home/End, Enter, and Escape keep selection predictable;
+focus remains visible in both themes. Closing or inserting restores the
+originating editor selection without jumping to a different pane.
 
 Shortcode suggestions leave focus in the editor. A plain colon is not a command:
 only a boundary followed by a shortcode candidate opens the bounded list, and

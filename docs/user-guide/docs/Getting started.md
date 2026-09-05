@@ -23,6 +23,20 @@ Non-current user vaults have a remove action. Removing from the list leaves the
 folder untouched. The optional checkbox moves the folder and all contents to the
 operating system Trash. The current vault and built-in guide cannot be removed.
 
+## Opening an unsigned macOS build
+
+If you downloaded an unsigned Denote build, macOS may report that the app is
+damaged. First verify the download against the release's `SHA256SUMS`, copy
+`Denote.app` to Applications, then run:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Denote.app"
+```
+
+This removes quarantine only from that app bundle. Do not use it for a download
+whose origin or checksum you have not verified. A Developer ID-signed and
+notarized build opens without this workaround.
+
 ## First steps
 
 - Create a file or folder from the file-tree toolbar.

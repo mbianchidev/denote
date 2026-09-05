@@ -363,6 +363,64 @@ describe("App initial file-tree expansion", () => {
     unmount();
   });
 
+  it("keeps note-event bookkeeping off ordinary edits when no enabled plugin requests it", async () => {
+    const user = userEvent.setup();
+    mockPluginController.plugins = [syntheticEmojiPluginView()];
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("synthetic.txt", "text")]),
+    );
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open synthetic.txt" }),
+    );
+    const change = await screen.findByRole("button", {
+      name: "Change Edit synthetic.txt",
+    });
+    mockPluginController.emitNoteEvent.mockClear();
+
+    await user.click(change);
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText("Content of Edit synthetic.txt"),
+      ).toHaveTextContent("changed"),
+    );
+
+    expect(mockPluginController.emitNoteEvent).not.toHaveBeenCalled();
+  });
+
+  it("publishes note changes when an enabled plugin requests note events", async () => {
+    const user = userEvent.setup();
+    const plugin = syntheticEmojiPluginView();
+    plugin.catalog.manifest.permissions = [{ capability: "note-events" }];
+    plugin.approvedPermissions = [{ capability: "note-events" }];
+    mockPluginController.plugins = [plugin];
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("synthetic.txt", "text")]),
+    );
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open synthetic.txt" }),
+    );
+    await waitFor(() =>
+      expect(mockPluginController.emitNoteEvent).toHaveBeenCalledWith({
+        path: "synthetic.txt",
+        kind: "opened",
+      }),
+    );
+    mockPluginController.emitNoteEvent.mockClear();
+
+    await user.click(
+      screen.getByRole("button", { name: "Change Edit synthetic.txt" }),
+    );
+
+    await waitFor(() =>
+      expect(mockPluginController.emitNoteEvent).toHaveBeenCalledWith({
+        path: "synthetic.txt",
+        kind: "changed",
+      }),
+    );
+  });
+
   it("cancels deferred save and index work when the app is unmounted", async () => {
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.txt", "text")]));
     const { unmount } = render(<App />);
@@ -739,6 +797,58 @@ describe("App initial file-tree expansion", () => {
         [""],
       );
     });
+  });
+
+  it("defers the initial source control refresh until its view opens", async () => {
+    const user = userEvent.setup();
+    const contribution: PluginSourceControlContribution = {
+      pluginId: "denote.synthetic",
+      id: "git",
+      title: "Synthetic Git",
+      model: appSourceControlModel("Synthetic repository refresh required"),
+    };
+    mockPluginController.sourceControlProviders = [contribution];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+
+    const { rerender } = render(<App />);
+    let sourceControl = await screen.findByRole("button", {
+      name: "Source control: Synthetic Git",
+    });
+    expect(
+      mockPluginController.runSourceControlAction,
+    ).not.toHaveBeenCalled();
+
+    await user.click(sourceControl);
+
+    await waitFor(() =>
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "refresh" },
+        "/synthetic-vault",
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    mockPluginController.sourceControlProviders = [];
+    rerender(<App />);
+    mockPluginController.sourceControlProviders = [contribution];
+    rerender(<App />);
+    mockPluginController.runSourceControlAction.mockClear();
+    sourceControl = await screen.findByRole("button", {
+      name: "Source control: Synthetic Git",
+    });
+
+    await user.click(sourceControl);
+
+    await waitFor(() =>
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "refresh" },
+        "/synthetic-vault",
+      ),
+    );
   });
 
   it("runs source control actions, keeps provider models live, and cleans up removed providers", async () => {
