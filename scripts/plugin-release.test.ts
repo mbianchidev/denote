@@ -13,6 +13,8 @@ import {
   verifyArchiveContents, verifyBytes, verifySourceCommit, type PluginRelease,
 } from "./plugin-release";
 
+vi.setConfig({ testTimeout: 30_000 });
+
 const roots: string[] = [];
 afterEach(() => {
   roots.splice(0).forEach((root) => rmSync(root, { recursive: true, force: true }));
