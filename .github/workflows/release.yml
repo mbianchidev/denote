@@ -251,7 +251,7 @@ jobs:
           DENOTE_COMMIT_HASH: ${{ needs.validate.outputs.source_sha }}
           DENOTE_BUILD_DIRTY: "false"
         with:
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} --no-sign
           retryAttempts: 2
           uploadUpdaterJson: false
 

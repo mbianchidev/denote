@@ -309,9 +309,9 @@ npm run tauri build
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
 
-Release builds currently produce unsigned macOS and Windows packages. Apple
-code signing/notarization and Windows Authenticode are disabled in the release
-workflow. The jobs still prepare and verify on-demand tool assets for each
+Release packaging currently passes Tauri's `--no-sign` option on every target.
+No Apple Developer ID signing/notarization or Windows Authenticode signing is
+performed. The jobs still prepare and verify on-demand tool assets for each
 target, assert installed packages contain metadata but no tool or plugin
 archive, generate checksums and SPDX SBOMs, attest bundles and tool assets, and
 publish Git's corresponding source archive and signature.
