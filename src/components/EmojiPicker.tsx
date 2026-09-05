@@ -174,7 +174,8 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
         }}
       />
     </div>
-    <div className="emoji-picker__filters" aria-label="Emoji filters">
+    <fieldset className="emoji-picker__filters">
+      <legend className="sr-only">Emoji filters</legend>
       <label className="emoji-picker__field" htmlFor={`${id}-collection`}>
         <span>Show</span>
         <select
@@ -213,7 +214,7 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
           ))}
         </select>
       </label>
-    </div>
+    </fieldset>
     <section className="emoji-picker__browser" aria-label="Emoji browser">
       <div className="emoji-picker__results-header">
         <p id={`${id}-status`} role="status">{resultStatus}</p>

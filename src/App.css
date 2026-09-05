@@ -1145,6 +1145,11 @@ button:disabled {
   overflow-y: hidden;
 }
 
+.denote-editor-root .mdxeditor-contenteditable-wrapper {
+  display: block;
+  min-height: 100%;
+}
+
 .editor-toolbar-button {
   display: grid;
   width: 28px;

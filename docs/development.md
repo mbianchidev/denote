@@ -378,7 +378,8 @@ certificate and notarization rather than asking users to bypass quarantine.
      "src-tauri/target/release/bundle/macos/Denote.app"
    spctl --assess --type execute --verbose=4 \
      "src-tauri/target/release/bundle/macos/Denote.app"
-   xcrun stapler validate "src-tauri/target/release/bundle/dmg/Denote_*.dmg"
+   dmg="$(find src-tauri/target/release/bundle/dmg -name '*.dmg' -print -quit)"
+   xcrun stapler validate "$dmg"
    ```
 
 For GitHub Actions, export the certificate as a password-protected `.p12`,
