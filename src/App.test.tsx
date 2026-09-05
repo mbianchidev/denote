@@ -801,23 +801,43 @@ describe("App initial file-tree expansion", () => {
 
   it("defers the initial source control refresh until its view opens", async () => {
     const user = userEvent.setup();
-    mockPluginController.sourceControlProviders = [
-      {
-        pluginId: "denote.synthetic",
-        id: "git",
-        title: "Synthetic Git",
-        model: appSourceControlModel("Synthetic repository refresh required"),
-      },
-    ];
+    const contribution: PluginSourceControlContribution = {
+      pluginId: "denote.synthetic",
+      id: "git",
+      title: "Synthetic Git",
+      model: appSourceControlModel("Synthetic repository refresh required"),
+    };
+    mockPluginController.sourceControlProviders = [contribution];
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
 
-    render(<App />);
-    const sourceControl = await screen.findByRole("button", {
+    const { rerender } = render(<App />);
+    let sourceControl = await screen.findByRole("button", {
       name: "Source control: Synthetic Git",
     });
     expect(
       mockPluginController.runSourceControlAction,
     ).not.toHaveBeenCalled();
+
+    await user.click(sourceControl);
+
+    await waitFor(() =>
+      expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+        "denote.synthetic",
+        "git",
+        { id: "refresh" },
+        "/synthetic-vault",
+      ),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Files" }));
+    mockPluginController.sourceControlProviders = [];
+    rerender(<App />);
+    mockPluginController.sourceControlProviders = [contribution];
+    rerender(<App />);
+    mockPluginController.runSourceControlAction.mockClear();
+    sourceControl = await screen.findByRole("button", {
+      name: "Source control: Synthetic Git",
+    });
 
     await user.click(sourceControl);
 

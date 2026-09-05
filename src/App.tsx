@@ -1556,7 +1556,7 @@ function App() {
     pluginController.runSourceControlAction;
   const initiallyRefreshedProviders = useRef(new Set<string>());
   useEffect(() => {
-    if (!workspace || !activeSourceControlProvider) {
+    if (!workspace) {
       return;
     }
     const availableKeys = new Set(
@@ -1569,6 +1569,9 @@ function App() {
       if (key.startsWith(`${workspace.vaultPath}\u0000`) && !availableKeys.has(key)) {
         initiallyRefreshedProviders.current.delete(key);
       }
+    }
+    if (!activeSourceControlProvider) {
+      return;
     }
     const provider = pluginController.sourceControlProviders.find(
       (candidate) =>
