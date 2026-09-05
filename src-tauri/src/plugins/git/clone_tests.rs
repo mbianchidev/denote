@@ -21,19 +21,21 @@ use super::{
         signing_askpass_answer,
     },
     clone::{
-        CloneAttempt, PluginGitCloneVaultRequest, clone_arguments, is_github_https_url,
-        validate_empty_destination,
+        CloneAttempt, PluginGitCloneVaultRequest, is_github_https_url, validate_empty_destination,
     },
     git_tests::{GitFixture, fixture, identify, new_operation_id},
-    github::{
-        MAX_REPOSITORY_LIMIT, list_repositories, parse_repository_list, resolve_gh_executable,
-    },
+    github::{parse_repository_list, resolve_gh_executable},
     transport::{
-        GitExecution, GitOperationToken, GitPlanStep, GitRequestTarget, GitTransportPolicy,
-        PluginGitAuthMode, PluginGitPullStrategy, PluginGitRequest, PluginGitScope,
-        RemoteDirection, apply_environment, git_cli_path, git_cli_path_string, plan_git_request,
-        read_remote_urls, resolve_git_executable,
+        GitExecution, GitPlanStep, GitRequestTarget, GitTransportPolicy, PluginGitAuthMode,
+        PluginGitPullStrategy, PluginGitRequest, PluginGitScope, apply_environment, git_cli_path,
+        git_cli_path_string, plan_git_request, resolve_git_executable,
     },
+};
+#[cfg(unix)]
+use super::{
+    clone::clone_arguments,
+    github::{MAX_REPOSITORY_LIMIT, list_repositories},
+    transport::{GitOperationToken, RemoteDirection, read_remote_urls},
 };
 
 const PLUGIN_ID: &str = "denote.reference";

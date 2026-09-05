@@ -30,6 +30,21 @@ they are not bundled in the desktop installers or committed to the repository.
 Plugin source and immutable release metadata live under `plugins/`; generated
 archives are staged only in ignored `.plugin-artifacts/`.
 
+### Opening an unsigned macOS build
+
+The current release workflow produces unsigned macOS disk images. After
+verifying the downloaded file against the release's `SHA256SUMS`, copy
+`Denote.app` to Applications. If Gatekeeper reports that the app is damaged,
+remove only that verified app's quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Denote.app"
+```
+
+Do not use that command for an app whose origin or checksum you have not
+verified. Maintainers can remove the warning properly by following the
+[macOS signing and notarization instructions](docs/development.md#sign-and-notarize-a-macos-build).
+
 ## Documentation
 
 Read the [project documentation](docs/index.md) or start with the

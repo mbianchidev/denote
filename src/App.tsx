@@ -1472,22 +1472,55 @@ function App() {
     !pluginController.busyPluginIds.has(picker.pluginId) &&
     pluginController.plugins.some((plugin) => plugin.catalog.manifest.id === picker.pluginId && plugin.enabled)),
   [pluginController.emojiPickers, pluginController.busyPluginIds, pluginController.plugins]);
+  const pluginNoteEventsEnabled = useMemo(
+    () =>
+      pluginController.plugins.some(
+        (plugin) =>
+          plugin.enabled &&
+          plugin.approvedPermissions.some(
+            (permission) => permission.capability === "note-events",
+          ),
+      ),
+    [pluginController.plugins],
+  );
   const [emojiPreferences, setEmojiPreferences] = useState(new Map<EmojiContribution, PluginEmojiPreferences>());
   const emojiPickers = useMemo(() => contributedEmojiPickers.filter((picker) => emojiPreferences.has(picker)),
     [contributedEmojiPickers, emojiPreferences]);
   useEffect(() => {
     if (!workspace) return;
     const preferences = new Map<EmojiContribution, PluginEmojiPreferences>();
+    const validPickers: EmojiContribution[] = [];
     for (const picker of contributedEmojiPickers) {
       try {
         preferences.set(picker, readEmojiPreferences(picker,
           pluginController.plugins.find((plugin) => plugin.catalog.manifest.id === picker.pluginId)?.settings ?? {}));
-        emojiIndex(picker);
+        validPickers.push(picker);
       } catch (error) {
         showError(error);
       }
     }
     setEmojiPreferences(preferences);
+    if (validPickers.length === 0) return;
+    const warmIndexes = () => {
+      for (const picker of validPickers) {
+        emojiIndex(picker);
+      }
+    };
+    const idleWindow = window as typeof window & {
+      requestIdleCallback?: (
+        callback: () => void,
+        options?: { timeout: number },
+      ) => number;
+      cancelIdleCallback?: (handle: number) => void;
+    };
+    if (typeof idleWindow.requestIdleCallback === "function") {
+      const handle = idleWindow.requestIdleCallback(warmIndexes, {
+        timeout: 1_500,
+      });
+      return () => idleWindow.cancelIdleCallback?.(handle);
+    }
+    const timer = window.setTimeout(warmIndexes, 500);
+    return () => window.clearTimeout(timer);
   }, [contributedEmojiPickers, pluginController.plugins, showError, workspace?.vaultPath]);
   const emojiScope = (paneId: string, path: string) =>
     `${workspace?.vaultPath ?? ""}\u0000${vaultGeneration.current}\u0000${paneId}\u0000${path}`;
@@ -1523,7 +1556,7 @@ function App() {
     pluginController.runSourceControlAction;
   const initiallyRefreshedProviders = useRef(new Set<string>());
   useEffect(() => {
-    if (!workspace) {
+    if (!workspace || !activeSourceControlProvider) {
       return;
     }
     const availableKeys = new Set(
@@ -1537,27 +1570,34 @@ function App() {
         initiallyRefreshedProviders.current.delete(key);
       }
     }
-    for (const provider of pluginController.sourceControlProviders) {
-      if (!provider.model.repository.label.endsWith("refresh required")) {
-        continue;
-      }
-      const key = `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`;
-      if (initiallyRefreshedProviders.current.has(key)) {
-        continue;
-      }
-      initiallyRefreshedProviders.current.add(key);
-      void runPluginSourceControlAction(
-        provider.pluginId,
-        provider.id,
-        { id: "refresh" },
-        workspace.vaultPath,
-      ).catch(showError);
+    const provider = pluginController.sourceControlProviders.find(
+      (candidate) =>
+        candidate.pluginId === activeSourceControlProvider.pluginId &&
+        candidate.id === activeSourceControlProvider.providerId,
+    );
+    if (
+      !provider ||
+      !provider.model.repository.label.endsWith("refresh required")
+    ) {
+      return;
     }
+    const key = `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`;
+    if (initiallyRefreshedProviders.current.has(key)) {
+      return;
+    }
+    initiallyRefreshedProviders.current.add(key);
+    void runPluginSourceControlAction(
+      provider.pluginId,
+      provider.id,
+      { id: "refresh" },
+      workspace.vaultPath,
+    ).catch(showError);
   }, [
+    activeSourceControlProvider,
     pluginController.sourceControlProviders,
     runPluginSourceControlAction,
     showError,
-    workspace,
+    workspace?.vaultPath,
   ]);
   useEffect(() => {
     invalidatePluginActions();
@@ -1572,6 +1612,10 @@ function App() {
     >(),
   );
   useEffect(() => {
+    if (!pluginNoteEventsEnabled) {
+      previousPluginNotes.current.clear();
+      return;
+    }
     const previous = previousPluginNotes.current;
     const current = new Map<
       string,
@@ -1610,7 +1654,7 @@ function App() {
       }
     }
     previousPluginNotes.current = current;
-  }, [emitPluginNoteEvent, panes]);
+  }, [emitPluginNoteEvent, panes, pluginNoteEventsEnabled]);
 
   const showLinkError = useCallback((value: unknown) => {
     const message = errorMessage(value);

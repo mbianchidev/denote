@@ -1,5 +1,5 @@
 import { memo, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Smile, Star, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Search, Smile, Star, X } from "lucide-react";
 import { EMOJI_MAX_FAVORITES, type PluginEmojiPreferences } from "@denote/plugin-sdk";
 import { emojiForTone, emojiIndex, type EmojiContribution, type EmojiMatch } from "../lib/emoji";
 import type { EmojiHost } from "../lib/emojiHost";
@@ -101,6 +101,12 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
       .map((entry) => emojiForTone(entry, preferences.tone)),
   [actualPage, collectionResults, filteredEntries, preferences.tone]);
   const current = selected ?? visible[Math.min(active, visible.length - 1)] ?? null;
+  const currentIsFavorite = current
+    ? preferences.favorites.includes(current.unicode)
+    : false;
+  const resultStatus = resultCount
+    ? `${resultCount} emoji. Page ${actualPage + 1} of ${pages}.`
+    : "No emoji found. Try another search or category.";
   useEffect(() => {
     const dialog = dialogRef.current;
     dialog?.showModal();
@@ -113,13 +119,13 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
   };
   const reset = () => { setPage(0); setActive(0); setSelected(null); };
   const move = (key: string, focus: boolean) => {
+    if (!visible.length) return false;
     let next = active;
     if (key === "ArrowRight" || key === "ArrowDown") next = (active + 1) % visible.length;
     else if (key === "ArrowLeft" || key === "ArrowUp") next = (active + visible.length - 1) % visible.length;
     else if (key === "Home") next = 0;
     else if (key === "End") next = visible.length - 1;
     else return false;
-    if (!visible.length) return false;
     setActive(next); setSelected(null);
     if (focus) resultsRef.current?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
     return true;
@@ -134,55 +140,217 @@ function EmojiPicker({ host, picker }: { host: EmojiHost; picker: EmojiContribut
       if (event.key === "Escape") { event.preventDefault(); host.close(); }
     }}
   >
-    <header><h2 id={`${id}-title`}>{picker.title}</h2><button type="button" className="icon-button" aria-label="Close emoji picker" onClick={() => host.close()}><X size={18} aria-hidden="true" /></button></header>
-    <label htmlFor={`${id}-search`}>Search emoji</label>
-    <input id={`${id}-search`} ref={inputRef} value={query} maxLength={100} autoComplete="off"
-      onChange={(event) => { setQuery(event.target.value); reset(); }}
-      onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.keyCode === 229) return;
-        if (["ArrowDown", "ArrowUp"].includes(event.key) && move(event.key, true)) event.preventDefault();
-        if (event.key === "Enter" && current) { event.preventDefault(); host.choose(current); }
-      }}
-    />
-    <div className="emoji-picker__filters">
-      <label>Show<select value={collection} onChange={(event) => { setCollection(event.target.value); reset(); }}>
-        <option value="all">All emoji</option><option value="recent">Recents</option><option value="favorites">Favorites</option>
-      </select></label>
-      <label>Category<select value={category} onChange={(event) => { setCategory(event.target.value); reset(); }}>
-        <option value="">All categories</option>{index.categories.map((name) => <option key={name}>{name}</option>)}
-      </select></label>
-      <label>Skin tone<select value={preferences.tone} onChange={(event) => { save({ ...preferences, tone: Number(event.target.value) }); setSelected(null); }}>
-        {["Default", "Light", "Medium-light", "Medium", "Medium-dark", "Dark"].map((name, value) => <option key={value} value={value}>{name}</option>)}
-      </select></label>
+    <header className="emoji-picker__header">
+      <div>
+        <span className="emoji-picker__eyebrow">Insert symbol</span>
+        <h2 id={`${id}-title`}>{picker.title}</h2>
+      </div>
+      <button
+        type="button"
+        className="icon-button"
+        aria-label="Close emoji picker"
+        onClick={() => host.close()}
+      >
+        <X size={18} aria-hidden="true" />
+      </button>
+    </header>
+    <div className="emoji-picker__search">
+      <Search size={16} aria-hidden="true" />
+      <label className="sr-only" htmlFor={`${id}-search`}>
+        Search emoji
+      </label>
+      <input
+        id={`${id}-search`}
+        ref={inputRef}
+        value={query}
+        maxLength={100}
+        autoComplete="off"
+        placeholder="Search names, keywords, or :shortcodes:"
+        onChange={(event) => { setQuery(event.target.value); reset(); }}
+        onKeyDown={(event) => {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
+          if (["ArrowDown", "ArrowUp"].includes(event.key) && move(event.key, true)) event.preventDefault();
+          if (event.key === "Enter" && current) { event.preventDefault(); host.choose(current); }
+        }}
+      />
     </div>
-    <p role="status">{resultCount ? `${resultCount} emoji. Page ${actualPage + 1} of ${pages}.` : "No emoji found. Try another search or category."}</p>
-    <ul ref={resultsRef} className="emoji-picker__results" aria-label="Emoji results"
-      onKeyDown={(event) => { if (move(event.key, true)) event.preventDefault(); }}
-    >
-      {visible.map((match, position) => <li key={match.unicode}><button
-        type="button" title={match.name} aria-label={`Insert ${match.name}`} tabIndex={position === active ? 0 : -1}
-        onFocus={() => { setActive(position); setSelected(null); }}
-        onClick={() => host.choose(match)}
-      ><span aria-hidden="true">{match.unicode}</span></button></li>)}
-    </ul>
-    {current && <div className="emoji-picker__selection">
-      <span>{current.name}</span>
-      <button type="button" aria-pressed={preferences.favorites.includes(current.unicode)}
-        aria-label={`${preferences.favorites.includes(current.unicode) ? "Remove" : "Add"} ${current.name} ${preferences.favorites.includes(current.unicode) ? "from" : "to"} favorites`}
-        onClick={() => save({ ...preferences, favorites: preferences.favorites.includes(current.unicode)
-          ? preferences.favorites.filter((value) => value !== current.unicode)
-          : [...preferences.favorites, current.unicode].slice(-EMOJI_MAX_FAVORITES) })}
-      ><Star size={16} aria-hidden="true" />Favorite</button>
-      {current.entry.variants.length > 0 && <label>Variant<select value={current.unicode} onChange={(event) => setSelected(index.byUnicode.get(event.target.value) ?? null)}>
-        <option value={current.entry.unicode}>{current.entry.name}</option>
-        {current.entry.variants.map((variant) => <option key={variant.unicode} value={variant.unicode}>{variant.name}</option>)}
-      </select></label>}
-      <button type="button" onClick={() => host.choose(current)}>Insert emoji</button>
-    </div>}
-    <footer>
-      <button type="button" disabled={actualPage === 0} onClick={() => { setPage(actualPage - 1); setActive(0); setSelected(null); }}>Previous page</button>
-      <button type="button" disabled={actualPage + 1 === pages} onClick={() => { setPage(actualPage + 1); setActive(0); setSelected(null); }}>Next page</button>
-      <button type="button" onClick={() => host.close()}>Cancel</button>
+    <div className="emoji-picker__filters" aria-label="Emoji filters">
+      <label className="emoji-picker__field" htmlFor={`${id}-collection`}>
+        <span>Show</span>
+        <select
+          id={`${id}-collection`}
+          value={collection}
+          onChange={(event) => { setCollection(event.target.value); reset(); }}
+        >
+          <option value="all">All emoji</option>
+          <option value="recent">Recents</option>
+          <option value="favorites">Favorites</option>
+        </select>
+      </label>
+      <label className="emoji-picker__field" htmlFor={`${id}-category`}>
+        <span>Category</span>
+        <select
+          id={`${id}-category`}
+          value={category}
+          onChange={(event) => { setCategory(event.target.value); reset(); }}
+        >
+          <option value="">All categories</option>
+          {index.categories.map((name) => <option key={name}>{name}</option>)}
+        </select>
+      </label>
+      <label className="emoji-picker__field" htmlFor={`${id}-tone`}>
+        <span>Skin tone</span>
+        <select
+          id={`${id}-tone`}
+          value={preferences.tone}
+          onChange={(event) => {
+            save({ ...preferences, tone: Number(event.target.value) });
+            setSelected(null);
+          }}
+        >
+          {["Default", "Light", "Medium-light", "Medium", "Medium-dark", "Dark"].map((name, value) => (
+            <option key={value} value={value}>{name}</option>
+          ))}
+        </select>
+      </label>
+    </div>
+    <section className="emoji-picker__browser" aria-label="Emoji browser">
+      <div className="emoji-picker__results-header">
+        <p id={`${id}-status`} role="status">{resultStatus}</p>
+        <span id={`${id}-navigation-hint`}>
+          Arrow keys move. Enter inserts.
+        </span>
+      </div>
+      <ul
+        ref={resultsRef}
+        className="emoji-picker__results"
+        aria-label="Emoji results"
+        aria-describedby={`${id}-status ${id}-navigation-hint`}
+        onKeyDown={(event) => { if (move(event.key, true)) event.preventDefault(); }}
+      >
+        {visible.map((match, position) => (
+          <li key={match.unicode}>
+            <button
+              type="button"
+              className="emoji-picker__emoji"
+              data-active={position === active}
+              title={match.name}
+              aria-label={`Insert ${match.name}`}
+              tabIndex={position === active ? 0 : -1}
+              onMouseEnter={() => {
+                setActive(position);
+                setSelected(null);
+              }}
+              onFocus={() => {
+                setActive(position);
+                setSelected(null);
+              }}
+              onClick={() => host.choose(match)}
+            >
+              <span aria-hidden="true">{match.unicode}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
+    {current ? (
+      <section className="emoji-picker__selection" aria-label="Selected emoji">
+        <span className="emoji-picker__selection-glyph" aria-hidden="true">
+          {current.unicode}
+        </span>
+        <div className="emoji-picker__selection-copy">
+          <strong>{current.name}</strong>
+          <span>{current.entry.category}</span>
+        </div>
+        <button
+          type="button"
+          className="secondary-button emoji-picker__favorite"
+          aria-pressed={currentIsFavorite}
+          aria-label={`${currentIsFavorite ? "Remove" : "Add"} ${current.name} ${currentIsFavorite ? "from" : "to"} favorites`}
+          onClick={() => save({
+            ...preferences,
+            favorites: currentIsFavorite
+              ? preferences.favorites.filter((value) => value !== current.unicode)
+              : [...preferences.favorites, current.unicode].slice(-EMOJI_MAX_FAVORITES),
+          })}
+        >
+          <Star
+            size={15}
+            fill={currentIsFavorite ? "currentColor" : "none"}
+            aria-hidden="true"
+          />
+          {currentIsFavorite ? "Favorited" : "Favorite"}
+        </button>
+        {current.entry.variants.length > 0 ? (
+          <label
+            className="emoji-picker__field emoji-picker__variant"
+            htmlFor={`${id}-variant`}
+          >
+            <span>Variant</span>
+            <select
+              id={`${id}-variant`}
+              value={current.unicode}
+              onChange={(event) =>
+                setSelected(index.byUnicode.get(event.target.value) ?? null)
+              }
+            >
+              <option value={current.entry.unicode}>{current.entry.name}</option>
+              {current.entry.variants.map((variant) => (
+                <option key={variant.unicode} value={variant.unicode}>
+                  {variant.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <button
+          type="button"
+          className="primary-button emoji-picker__insert"
+          onClick={() => host.choose(current)}
+        >
+          Insert emoji
+        </button>
+      </section>
+    ) : null}
+    <footer className="emoji-picker__footer">
+      <span>
+        Page {actualPage + 1} of {pages}
+      </span>
+      <div>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={actualPage === 0}
+          onClick={() => {
+            setPage(actualPage - 1);
+            setActive(0);
+            setSelected(null);
+          }}
+        >
+          <ChevronLeft size={15} aria-hidden="true" />
+          Previous page
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={actualPage + 1 === pages}
+          onClick={() => {
+            setPage(actualPage + 1);
+            setActive(0);
+            setSelected(null);
+          }}
+        >
+          Next page
+          <ChevronRight size={15} aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={() => host.close()}
+        >
+          Cancel
+        </button>
+      </div>
     </footer>
   </dialog>;
 }

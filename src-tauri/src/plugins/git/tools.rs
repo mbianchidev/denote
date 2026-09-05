@@ -922,8 +922,10 @@ fn verify_locked_file(path: &Path, record: &IntegrityFile) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use flate2::{Compression, write::GzEncoder};
     use std::io::Write;
+    #[cfg(unix)]
     use tar::{Builder, Header};
     use tempfile::tempdir;
 

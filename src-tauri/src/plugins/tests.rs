@@ -1,13 +1,16 @@
 use std::collections::BTreeSet;
+#[cfg(unix)]
 use std::{sync::mpsc, thread, time::Duration};
 
 use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
+#[cfg(unix)]
+use super::sandbox::current_platform;
 use super::{
     catalog::{catalog_fingerprint, compatibility_error, validate_bundles, validate_catalog},
     package::validate_plugin_download_url,
-    sandbox::{current_platform, enforce_storage_quota, host_matches},
+    sandbox::{enforce_storage_quota, host_matches},
     settings::{migrate_settings, validate_settings},
     *,
 };

@@ -292,6 +292,9 @@ including with the emoji plugin disabled, one workspace render per settled edit,
 and cancellation of deferred work when the app unmounts. Delimiter fast paths
 are covered alongside the full Markdown, HTML, reference, TOC, and code tests;
 never replace those safety parsers with a permissive fallback.
+App-level regressions also require note-event bookkeeping to remain completely
+off the edit path when no enabled plugin requests `note-events`, and the first
+Git refresh to wait until its source-control view is opened.
 
 Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
 build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`
@@ -323,6 +326,72 @@ jobs obtain the checksum helper from the workflow commit while compiling the
 requested release tag, so workflow-only fixes can retry an existing immutable
 tag. The provenance records the workflow revision and the separately resolved
 release tag commit.
+
+### Sign and notarize a macOS build
+
+Unsigned downloads can make Gatekeeper report that `Denote.app` is damaged.
+Public macOS distribution should use an Apple **Developer ID Application**
+certificate and notarization rather than asking users to bypass quarantine.
+
+1. Create a **Developer ID Application** certificate in Apple Developer
+   Certificates, IDs & Profiles, install it in the login keychain, and confirm
+   its exact identity:
+
+   ```bash
+   security find-identity -v -p codesigning
+   ```
+
+2. Export the identity for the build:
+
+   ```bash
+   export APPLE_SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)"
+   ```
+
+3. Configure one notarization credential method. App Store Connect API keys are
+   preferred:
+
+   ```bash
+   export APPLE_API_ISSUER="issuer-uuid"
+   export APPLE_API_KEY="KEYID"
+   export APPLE_API_KEY_PATH="/absolute/path/to/AuthKey_KEYID.p8"
+   ```
+
+   Apple ID notarization is also supported with `APPLE_ID`,
+   `APPLE_PASSWORD` set to an app-specific password, and `APPLE_TEAM_ID`.
+   Certificates, private keys, and passwords must remain outside the repository.
+
+4. Build without `--no-sign`:
+
+   ```bash
+   CI=true npm run tauri build -- --bundles dmg
+   ```
+
+   Tauri signs the app and submits it for notarization when the signing identity
+   and notarization variables are available. The current release workflow
+   explicitly passes `--no-sign`; configure repository secrets and remove that
+   argument before expecting CI artifacts to be signed.
+
+5. Verify the resulting app and disk image:
+
+   ```bash
+   codesign --verify --deep --strict --verbose=2 \
+     "src-tauri/target/release/bundle/macos/Denote.app"
+   spctl --assess --type execute --verbose=4 \
+     "src-tauri/target/release/bundle/macos/Denote.app"
+   xcrun stapler validate "src-tauri/target/release/bundle/dmg/Denote_*.dmg"
+   ```
+
+For GitHub Actions, export the certificate as a password-protected `.p12`,
+store its base64 contents as `APPLE_CERTIFICATE`, store its password as
+`APPLE_CERTIFICATE_PASSWORD`, import it into a temporary keychain protected by
+`KEYCHAIN_PASSWORD`, and set `APPLE_SIGNING_IDENTITY` to the imported identity
+before the Tauri build. Store the App Store Connect values as encrypted secrets
+too. An ad-hoc local build can use `APPLE_SIGNING_IDENTITY="-"`, but it is not
+notarized and is not suitable for public downloads.
+
+See the official
+[Tauri macOS code-signing guide](https://v2.tauri.app/distribute/sign/macos/)
+for certificate creation and credential setup.
 
 ## Extend core syntax highlighting
 

@@ -44,6 +44,23 @@ and the real `dist/` entrypoint produced for each package. The reference package
 at `plugins/reference/` exercises this contract without adding a
 production feature.
 
+## What self-contained means
+
+A plugin's downloadable implementation, assets, manifest, guide, tests, package
+metadata, and release ledger are self-contained in `plugins/<name>/`. Shared
+typed contracts stay in `packages/plugin-sdk`.
+
+Host capability adapters are intentionally not plugin implementation. Generic
+renderer surfaces such as the emoji picker and source-control panel remain in
+`src/`, while privileged Git execution remains in
+`src-tauri/src/plugins/git/`. Moving those files into a downloadable plugin
+would either bundle disabled plugin code into the app or grant plugin workers
+DOM/native access that API version 1 deliberately forbids. A future executable
+UI or native-extension model would require a new API major, an explicit trust
+and signing model, separate build outputs for trusted host code and downloaded
+worker code, and equivalent lifecycle, accessibility, rollback, and security
+coverage.
+
 ## Host lifecycle
 
 The renderer's `usePlugins` hook stores catalog entries in state rather than

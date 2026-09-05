@@ -253,6 +253,9 @@ update that belongs to the workspace the user just left. Provider updates
 replace the displayed model
 live, while unregistering or disabling the provider clears its selection and
 returns the sidebar to Files.
+The host does not run the provider's initial refresh during vault activation.
+It waits until the user opens that source-control view, keeping Git status work
+off the vault scan, tab restore, and search-index critical path.
 
 Source-control actions that can mutate the vault take the workspace lock, which
 flushes every open note and the tab session before the provider runs, and
@@ -691,20 +694,23 @@ suppress automatic suggestions.
 
 Emoji suggestions publish only to their own surface; the workspace subscribes
 to the picker-open boolean, not individual matches or keyboard highlights. The
-local prefix index is prepared when a contribution becomes available, and common
-words stop adding postings after their first eight matches. Picker filtering is
-independent of favorites, tone, and keyboard selection; only the visible page
-resolves variants. Dataset-membership validation is cached by installed entries,
-so preference writes never rescan the full catalog.
+local prefix index is prepared during browser idle time after a contribution
+becomes available, or synchronously on first use if the picker is opened sooner.
+Common words stop adding postings after their first eight matches. Picker
+filtering is independent of favorites, tone, and keyboard selection; only the
+visible page resolves variants. Dataset-membership validation is cached by
+installed entries, so preference writes never rescan the full catalog.
 
 Ordinary editor changes perform only selection bookkeeping and a bounded
 shortcode-prefix check. Until a candidate or emoji surface exists, they skip
 emoji host calls, focus/DOM inspection, permission checks, lookup, and settings
-work. Focus events establish the active editor rather than rediscovering it on
-each character. Dismissal and insertion return to this idle path. Exact-source
-history indexes snapshot lengths first, avoiding full-note string hashing for
-ordinary appends; editor line-ending detection and history allocation run once
-per editor rather than once per render.
+work. When no enabled plugin has the `note-events` permission, the workspace also
+skips building tab snapshots and broadcasting note events entirely. Focus events
+establish the active editor rather than rediscovering it on each character.
+Dismissal and insertion return to this idle path. Exact-source history indexes
+snapshot lengths first, avoiding full-note string hashing for ordinary appends;
+editor line-ending detection and history allocation run once per editor rather
+than once per render.
 
 Rich emoji insertion reuses the reference analysis tree only when its source
 matches exactly. Translated or masked content still parses independently.

@@ -19,6 +19,19 @@ vi.mock("mdast-util-from-markdown", async (importOriginal) => {
   return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
 });
 
+vi.mock("../lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../lib/api")>();
+  return {
+    ...actual,
+    api: {
+      ...actual.api,
+      readImageDataUrl: vi.fn().mockResolvedValue(
+        "data:image/svg+xml;base64,PHN2Zy8+",
+      ),
+    },
+  };
+});
+
 function harness(mode: "plain" | "source" | "rich", initial: string, options: { enabled?: boolean; readOnly?: boolean; path?: string; shortcodes?: string[]; unicode?: string } = {}) {
   const fixture = syntheticEmojiHost();
   if (options.shortcodes) fixture.picker.entries[0].shortcodes = options.shortcodes;
