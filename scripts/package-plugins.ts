@@ -22,6 +22,7 @@ import {
   pluginPackagePaths,
   writePluginArchive,
 } from "./plugin-archive";
+import { verifyRemoteArtifact } from "./plugin-downloads.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "packages", "plugins");
@@ -229,78 +230,6 @@ try {
 
 function normalizeText(value: string): string {
   return value.replace(/\r\n/g, "\n");
-}
-
-async function verifyRemoteArtifact(
-  initialUrl: string,
-  pluginId: string,
-  expectedSize: number,
-  expectedSha256: string,
-): Promise<void> {
-  const allowedHosts = new Set([
-    "github.com",
-    "raw.githubusercontent.com",
-    "objects.githubusercontent.com",
-    "release-assets.githubusercontent.com",
-  ]);
-  let url = initialUrl;
-  for (let redirects = 0; redirects <= 4; redirects += 1) {
-    const parsed = new URL(url);
-    if (
-      parsed.protocol !== "https:" ||
-      parsed.username !== "" ||
-      parsed.password !== "" ||
-      parsed.port !== "" ||
-      !allowedHosts.has(parsed.hostname)
-    ) {
-      throw new Error(`Pinned artifact host is not allowed for ${pluginId}.`);
-    }
-    const response = await fetch(url, {
-      redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location || redirects === 4) {
-        throw new Error(`Pinned artifact redirect limit exceeded for ${pluginId}.`);
-      }
-      url = new URL(location, url).toString();
-      continue;
-    }
-    if (!response.ok) {
-      throw new Error(
-        `Pinned artifact is unavailable for ${pluginId}: HTTP ${response.status}.`,
-      );
-    }
-    const reader = response.body?.getReader();
-    if (!reader) {
-      throw new Error(`Pinned artifact has no response body for ${pluginId}.`);
-    }
-    const remoteHash = createHash("sha256");
-    let remoteBytes = 0;
-    while (true) {
-      const chunk = await reader.read();
-      if (chunk.done) {
-        break;
-      }
-      remoteBytes += chunk.value.byteLength;
-      if (remoteBytes > expectedSize) {
-        await reader.cancel();
-        throw new Error(`Pinned artifact is larger than catalog metadata for ${pluginId}.`);
-      }
-      remoteHash.update(chunk.value);
-    }
-    if (
-      remoteBytes !== expectedSize ||
-      remoteHash.digest("hex") !== expectedSha256
-    ) {
-      throw new Error(
-        `Pinned artifact bytes do not match catalog metadata for ${pluginId}.`,
-      );
-    }
-    return;
-  }
-  throw new Error(`Pinned artifact redirect limit exceeded for ${pluginId}.`);
 }
 
 function retainedArtifactUrl(

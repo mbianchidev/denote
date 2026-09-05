@@ -620,6 +620,11 @@ Release preparation rewrites every current catalog URL to
 The release workflow verifies the committed archive against its catalog digest
 and size, uploads it beside the desktop installers, and rejects installers that
 contain any plugin `.tgz`.
+Before building, it also downloads and verifies each source-commit archive;
+after publication it checks the exact public catalog URLs, including on retries
+of an already-published release. A failed release is not a reason to change
+existing plugin versions, checksums, or source pins. There is no downloader
+fallback to a branch, a different package, or an unverified archive.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor

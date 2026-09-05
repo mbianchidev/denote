@@ -111,7 +111,7 @@ fn persisted_development_plugin_is_removed_before_startup_restore() {
     );
 }
 
-fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
+pub(super) fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
     let manifest = serde_json::to_vec(&catalog.manifest).expect("manifest");
@@ -873,9 +873,15 @@ fn revoked_catalog_version_is_incompatible_before_install() {
 }
 
 #[test]
-fn catalog_rejects_mismatched_provenance() {
+fn catalog_rejects_raw_artifact_with_mismatched_provenance() {
     let mut catalog = catalog();
-    catalog.provenance.source_commit = "0".repeat(40);
+    catalog.provenance.source_commit = "a".repeat(40);
+    catalog.artifact.url = format!(
+        "https://raw.githubusercontent.com/mbianchidev/denote/{}/plugin-artifacts/{}-{}.tgz",
+        catalog.provenance.source_commit, catalog.manifest.id, catalog.manifest.version
+    );
+    assert!(validate_catalog(&[catalog.clone()]).is_ok());
+    catalog.provenance.source_commit = "b".repeat(40);
 
     assert!(validate_catalog(&[catalog]).is_err());
 }
@@ -883,12 +889,33 @@ fn catalog_rejects_mismatched_provenance() {
 #[test]
 fn catalog_accepts_versioned_release_asset_url() {
     let mut catalog = catalog();
+    // Release tags and source commits are independent pins.
+    catalog.provenance.source_commit = "a".repeat(40);
     catalog.artifact.url = format!(
         "https://github.com/mbianchidev/denote/releases/download/v0.2.0/{}-{}.tgz",
         catalog.manifest.id, catalog.manifest.version
     );
 
     assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
+fn release_catalog_still_requires_valid_trusted_provenance() {
+    let mut catalog = catalog();
+    catalog.artifact.url = format!(
+        "https://github.com/mbianchidev/denote/releases/download/v1.2.3/{}-{}.tgz",
+        catalog.manifest.id, catalog.manifest.version
+    );
+    for invalid_commit in ["main".to_string(), "a".repeat(39), "g".repeat(40)] {
+        catalog.provenance.source_commit = invalid_commit;
+        assert!(validate_catalog(&[catalog.clone()]).is_err());
+    }
+    catalog.provenance.source_commit = "a".repeat(40);
+    catalog.provenance.trusted = false;
+    assert!(validate_catalog(&[catalog.clone()]).is_err());
+    catalog.provenance.trusted = true;
+    catalog.provenance.publisher_id = "synthetic-untrusted".to_string();
+    assert!(validate_catalog(&[catalog]).is_err());
 }
 
 #[test]

@@ -28,6 +28,7 @@
     "test": "vitest run && npm run test:bundled-tools",
     "test:watch": "vitest",
     "check:plugins": "tsx scripts/validate-plugins.ts && tsc --noEmit -p packages/plugins/tsconfig.json && npm run build:plugins && tsx scripts/validate-plugins.ts --artifacts && tsx scripts/package-plugins.ts --check",
+    "check:plugin-downloads": "node scripts/plugin-downloads.mjs",
     "check": "npm run test && npm run check:plugins && npm run build && cargo test --manifest-path src-tauri/Cargo.toml",
     "release": "node scripts/release.mjs",
     "tauri": "tauri"
