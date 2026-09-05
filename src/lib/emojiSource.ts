@@ -45,7 +45,10 @@ export function createEmojiSourceHistoryExtension(beforeChange: (history: boolea
 export function createEmojiSourceExtension(binding: () => EmojiEditorBinding | undefined): Extension {
   return [
     Prec.highest(EditorView.domEventHandlers({
-      keydown(event) { return binding()?.host.key(event) ?? false; },
+      keydown(event) {
+        const host = binding()?.host;
+        return host?.getSnapshot().suggestion ? host.key(event) : false;
+      },
       compositionstart() { binding()?.host.close(false); },
       paste() { binding()?.host.close(false); },
       blur() {
@@ -56,6 +59,7 @@ export function createEmojiSourceExtension(binding: () => EmojiEditorBinding | u
     ViewPlugin.fromClass(class {
       private unregister: (() => void) | undefined;
       private live = true;
+      private candidateActive = false;
       readonly adapter: EmojiEditorAdapter;
 
       constructor(readonly view: EditorView) {
@@ -65,6 +69,7 @@ export function createEmojiSourceExtension(binding: () => EmojiEditorBinding | u
           capture: (candidate) => this.capture(candidate),
         };
         this.unregister = binding()?.host.register(this.adapter);
+        if (view.hasFocus) binding()?.host.activate(this.adapter);
       }
       private capture(candidate?: EmojiCandidate): EmojiBookmark | null {
         const current = binding();
@@ -95,16 +100,21 @@ export function createEmojiSourceExtension(binding: () => EmojiEditorBinding | u
         };
       }
       update(update: ViewUpdate) {
+        if (!update.docChanged && !update.selectionSet) return;
         const current = binding();
         if (!current) return;
-        if (update.view.hasFocus) current.host.activate(this.adapter);
-        current.host.reconcile();
-        if (!update.docChanged && !update.selectionSet) return;
-        if (!current.host.allowed(current.scope)) return;
+        const state = current.host.getSnapshot();
+        if (state.picker || state.suggestion) current.host.reconcile();
+        const clearCandidate = () => {
+          if (this.candidateActive || current.host.getSnapshot().suggestion?.adapter === this.adapter) {
+            this.candidateActive = false;
+            current.host.suggest(this.adapter, null);
+          }
+        };
         const typed = update.transactions.some((transaction) => transaction.isUserEvent("input.type") &&
           !transaction.isUserEvent("input.type.compose"));
-        if (!update.view.hasFocus || update.view.composing || !typed || !update.state.selection.main.empty) {
-          current.host.suggest(this.adapter, null);
+        if (update.view.composing || !typed || !update.state.selection.main.empty) {
+          clearCandidate();
           return;
         }
         const head = update.state.selection.main.head;
@@ -116,7 +126,12 @@ export function createEmojiSourceExtension(binding: () => EmojiEditorBinding | u
           from: start + localCandidate.from,
           to: head,
         } : null;
-        current.host.suggest(this.adapter, candidate && sourceAllowsEmojiCandidate(update.state, candidate) ? candidate : null);
+        if (!candidate || !update.view.hasFocus || !current.host.allowed(current.scope) || !sourceAllowsEmojiCandidate(update.state, candidate)) {
+          clearCandidate();
+          return;
+        }
+        this.candidateActive = true;
+        current.host.suggest(this.adapter, candidate);
       }
       destroy() {
         this.live = false;

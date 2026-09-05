@@ -28,15 +28,17 @@ function EmojiRichBridge() {
     let suppressInput = false;
     let composing = false;
     let typedInput = false;
-    let selectionIdentity = "";
+    let focused = false;
+    let candidateActive = false;
     const host = binding.host;
     const rememberSelection = () => {
       const next = $getSelection();
       if ($isRangeSelection(next)) {
-        const identity = `${next.anchor.key}:${next.anchor.offset}:${next.focus.key}:${next.focus.offset}`;
-        if (selectionIdentity && selectionIdentity !== identity) revision++;
-        selectionIdentity = identity;
-        selection = next.clone();
+        if (selection && (
+          selection.anchor.key !== next.anchor.key || selection.anchor.offset !== next.anchor.offset ||
+          selection.focus.key !== next.focus.key || selection.focus.offset !== next.focus.offset
+        )) revision++;
+        selection = next;
       }
     };
     const capture = (candidate?: EmojiCandidate): EmojiBookmark | null => {
@@ -85,47 +87,74 @@ function EmojiRichBridge() {
             range.insertText(unicode);
             inserted = true;
           }, { discrete: true, tag: HISTORY_PUSH_TAG });
-          if (inserted) queueMicrotask(() => { if (live && host.allowed(binding.scope)) editor.getRootElement()?.focus(); });
+          if (inserted) {
+            const insertedSource = binding.source();
+            const insertedSelection = editor.getEditorState().read(() => {
+              const next = $getSelection();
+              return $isRangeSelection(next) ? next.clone() : null;
+            });
+            queueMicrotask(() => {
+              if (!live || !host.allowed(binding.scope) || binding.source() !== insertedSource) return;
+              const root = editor.getRootElement();
+              if (!root?.isConnected || !editor.isEditable() || editor.isComposing() ||
+                  root.closest<HTMLElement>(".mdxeditor-rich-text-editor")?.style.display === "none") return;
+              root.focus();
+              if (insertedSelection) {
+                editor.update(() => { $setSelection(insertedSelection.clone()); }, { discrete: true, tag: "emoji-restore" });
+              }
+            });
+          }
           return inserted;
         },
       };
     };
     const adapter: EmojiEditorAdapter = { scope: binding.scope, element: () => editor.getRootElement(), capture };
     const unregister = host.register(adapter);
+    const clearCandidate = () => {
+      if (candidateActive || host.getSnapshot().suggestion?.adapter === adapter) {
+        candidateActive = false;
+        host.suggest(adapter, null);
+      }
+    };
     const removeUpdate = editor.registerUpdateListener(({ editorState, dirtyElements, dirtyLeaves, tags }) => {
-      const focused = editor.getRootElement()?.contains(document.activeElement);
       const changed = dirtyElements.size > 0 || dirtyLeaves.size > 0;
       const typed = typedInput;
       typedInput = false;
       if (changed) revision++;
       editorState.read(() => {
         rememberSelection();
-        if (focused) {
-          host.activate(adapter);
-        }
-        host.reconcile();
-        if (!host.allowed(binding.scope) || !focused || !changed || !typed || tags.has(HISTORY_PUSH_TAG) || tags.has("historic") ||
+        const state = host.getSnapshot();
+        if (state.picker || state.suggestion) host.reconcile();
+        if (!focused || !changed || !typed || tags.has(HISTORY_PUSH_TAG) || tags.has("historic") ||
             suppressInput || composing || editor.isComposing()) {
-          if (changed) host.suggest(adapter, null);
+          if (changed || !focused) clearCandidate();
           suppressInput = false;
           return;
         }
         const range = $getSelection();
         if (!$isRangeSelection(range) || !range.isCollapsed() || range.anchor.type !== "text") {
-          host.suggest(adapter, null);
+          clearCandidate();
           return;
         }
         const node = range.anchor.getNode();
-        const previous = node.getPreviousSibling();
-        const previousText = previous?.getTextContent() ?? "";
         const candidate = $isTextNode(node) && !node.hasFormat("code")
           ? emojiCandidate(node.getTextContent(), range.anchor.offset) : null;
-        host.suggest(adapter, candidate && !(candidate.from === 0 && previousText && !/[\s([{]$/.test(previousText)) ? candidate : null);
+        if (!candidate) {
+          clearCandidate();
+          return;
+        }
+        const previousText = candidate.from === 0 ? node.getPreviousSibling()?.getTextContent() ?? "" : "";
+        if ((previousText && !/[\s([{]$/.test(previousText)) || !host.allowed(binding.scope)) {
+          clearCandidate();
+          return;
+        }
+        candidateActive = true;
+        host.suggest(adapter, candidate);
       });
     });
     const removeKeys = editor.registerCommand(KEY_DOWN_COMMAND, (event) => {
       typedInput = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey && !event.isComposing;
-      return host.key(event);
+      return host.getSnapshot().suggestion ? host.key(event) : false;
     }, COMMAND_PRIORITY_CRITICAL);
     const removePaste = editor.registerCommand(PASTE_COMMAND, () => {
       suppressInput = true;
@@ -133,12 +162,18 @@ function EmojiRichBridge() {
       return false;
     }, COMMAND_PRIORITY_CRITICAL);
     const focus = () => {
-      editor.getEditorState().read(rememberSelection);
-      host.activate(adapter);
+      if (!focused) {
+        focused = true;
+        editor.getEditorState().read(rememberSelection);
+        host.activate(adapter);
+      }
     };
     const compositionStart = () => { composing = true; typedInput = false; host.close(false); };
     const compositionEnd = () => { composing = false; suppressInput = true; };
-    const blur = () => { if (host.getSnapshot().suggestion) host.close(false); };
+    const blur = () => {
+      focused = false;
+      if (host.getSnapshot().suggestion) host.close(false);
+    };
     const beforeInput = (event: InputEvent) => { typedInput = event.inputType === "insertText" && !event.isComposing; };
     const rootCleanup = editor.registerRootListener((root, previous) => {
       previous?.removeEventListener("focus", focus);
@@ -151,6 +186,8 @@ function EmojiRichBridge() {
       root?.addEventListener("compositionend", compositionEnd);
       root?.addEventListener("blur", blur);
       root?.addEventListener("beforeinput", beforeInput);
+      focused = false;
+      if (root === document.activeElement) focus();
     });
     return () => {
       live = false;

@@ -19,7 +19,7 @@ vi.mock("mdast-util-from-markdown", async (importOriginal) => {
   return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
 });
 
-function harness(mode: "plain" | "source" | "rich", initial: string, options: { readOnly?: boolean; path?: string; shortcodes?: string[]; unicode?: string } = {}) {
+function harness(mode: "plain" | "source" | "rich", initial: string, options: { enabled?: boolean; readOnly?: boolean; path?: string; shortcodes?: string[]; unicode?: string } = {}) {
   const fixture = syntheticEmojiHost();
   if (options.shortcodes) fixture.picker.entries[0].shortcodes = options.shortcodes;
   if (options.unicode) fixture.picker.entries[0].unicode = options.unicode;
@@ -27,7 +27,7 @@ function harness(mode: "plain" | "source" | "rich", initial: string, options: { 
   let setEnabled = (_enabled: boolean) => {};
   function Harness() {
     const [value, setValue] = useState(initial);
-    const [enabled, updateEnabled] = useState(true);
+    const [enabled, updateEnabled] = useState(options.enabled ?? true);
     setEnabled = updateEnabled;
     const change = (value: string) => { changed(value); setValue(value); };
     return <>
@@ -83,6 +83,89 @@ async function richEditor(container: HTMLElement, text?: string, from?: number, 
 }
 
 describe.each(["plain", "source", "rich"] as const)("two-character emoji prefixes in %s Markdown", (mode) => {
+  it("keeps ordinary typing off the emoji host and lookup path", async () => {
+    const counts: number[] = [];
+    for (const enabled of [false, true]) {
+      const initial = "Synthetic paragraph " + "ordinary prose ".repeat(50);
+      const fixture = harness(mode, initial, { enabled });
+      const editor = mode === "rich" ? await richEditor(fixture.container) : null;
+      const view = mode === "rich" ? null : await sourceView(fixture.container);
+      if (view) act(() => { view.focus(); view.dispatch({ selection: { anchor: view.state.doc.length } }); });
+      const methods = ["allowed", "activate", "reconcile", "suggest", "preferences", "save", "key"] as const;
+      const calls = methods.map((method) => vi.spyOn(fixture.host, method));
+      vi.mocked(fromMarkdown).mockClear();
+      const timings: number[] = [];
+      for (const character of "everyday words") {
+        const start = performance.now();
+        await act(async () => {
+          if (editor) {
+            editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: character }));
+            editor.update(() => {
+              const selection = $getSelection();
+              if ($isRangeSelection(selection)) selection.insertText(character);
+            }, { discrete: true });
+          } else if (view) {
+            const from = view.state.selection.main.head;
+            view.dispatch({
+              changes: { from, insert: character }, selection: { anchor: from + 1 },
+              annotations: Transaction.userEvent.of("input.type"),
+            });
+          }
+        });
+        timings.push(performance.now() - start);
+      }
+      counts.push(vi.mocked(fromMarkdown).mock.calls.length);
+      const hostCalls = Object.fromEntries(methods.map((method, index) => [method, calls[index].mock.calls.length]));
+      if (process.env.DENOTE_PROFILE_EMOJI) {
+        timings.sort((a, b) => a - b);
+        console.info(JSON.stringify({
+          mode, enabled, medianMs: timings[Math.floor(timings.length / 2)],
+          parses: counts[counts.length - 1], hostCalls,
+        }));
+      }
+      expect(fixture.changed.mock.lastCall?.[0]).toContain("everyday words");
+      expect(screen.queryByLabelText("Emoji suggestions")).not.toBeInTheDocument();
+      fixture.unmount();
+      if (enabled) expect(hostCalls).toEqual(Object.fromEntries(methods.map((method) => [method, 0])));
+    }
+    expect(counts[1]).toBe(counts[0]);
+  });
+
+  it("returns to the idle typing path after inserting an emoji", async () => {
+    const fixture = harness(mode, "Synthetic");
+    const editor = mode === "rich" ? await richEditor(fixture.container) : null;
+    const view = mode === "rich" ? null : await sourceView(fixture.container);
+    if (view) act(() => { view.focus(); view.dispatch({ selection: { anchor: view.state.doc.length } }); });
+    act(() => fixture.host.open(fixture.picker));
+    fireEvent.click(screen.getByRole("button", { name: "Insert Smiling face" }));
+    await waitFor(() => expect(fixture.changed).toHaveBeenLastCalledWith("Synthetic😀"));
+    if (editor) editor.getEditorState().read(() => {
+      const selection = $getSelection();
+      expect($isRangeSelection(selection) && selection.anchor.offset).toBe("Synthetic😀".length);
+    });
+    const methods = ["allowed", "activate", "reconcile", "suggest", "preferences", "save", "key"] as const;
+    const calls = methods.map((method) => vi.spyOn(fixture.host, method));
+    for (const character of " ordinary") {
+      await act(async () => {
+        if (editor) {
+          editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: character }));
+          editor.update(() => {
+            const selection = $getSelection();
+            if ($isRangeSelection(selection)) selection.insertText(character);
+          }, { discrete: true });
+        } else if (view) {
+          const from = view.state.selection.main.head;
+          view.dispatch({
+            changes: { from, insert: character }, selection: { anchor: from + 1 },
+            annotations: Transaction.userEvent.of("input.type"),
+          });
+        }
+      });
+    }
+    expect(fixture.changed.mock.lastCall?.[0]).toBe("Synthetic😀 ordinary");
+    for (const call of calls) expect(call).not.toHaveBeenCalled();
+  });
+
   it.each(["keyboard", "pointer"] as const)("immediately shows :smile: 😄 after typing exactly :sm and inserts Unicode by %s", async (accept) => {
     const fixture = harness(mode, "Before  after", { unicode: "😄" });
     const editor = mode === "rich" ? await richEditor(fixture.container, "Before  after", 7) : null;

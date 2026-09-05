@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { EditorState } from "@codemirror/state";
-import { EmojiIndex, emojiCandidate, emojiIndex, emojiSelectionPatch, emojiSourcePatch, emojiSourceProjection } from "./emoji";
+import { EmojiIndex, EmojiSourceHistory, emojiCandidate, emojiIndex, emojiSelectionPatch, emojiSourcePatch, emojiSourceProjection } from "./emoji";
 import { syntheticEmojiPicker } from "./emoji.testFixtures";
 import { sourceAllowsEmojiCandidate } from "./emojiSource";
 import { loadSyntaxLanguage } from "./syntaxLanguages";
@@ -63,6 +63,50 @@ describe("local emoji lookup", () => {
       recents: ["👋🏻"], favorites: [], tone: 1,
     });
     expect(() => readEmojiPreferences(picker, { favorite: "{", tone: 9 })).toThrow("Reset");
+  });
+});
+
+describe("emoji history typing cost", () => {
+  it("does not hash the complete note on ordinary appends after an emoji insertion", () => {
+    const history = new EmojiSourceHistory();
+    const before = "Synthetic prose ".repeat(5000);
+    history.record(before, before);
+    history.prepare(`${before}😄`);
+    history.restore(`${before}😄`);
+    const lookup = vi.spyOn(Map.prototype, "get");
+    try {
+      let text = `${before}😄`;
+      for (const character of " ordinary typing") {
+        text += character;
+        history.beforeChange(false);
+        expect(history.restore(text)).toBeUndefined();
+        expect(lookup).not.toHaveBeenCalledWith(text);
+      }
+    } finally {
+      lookup.mockRestore();
+    }
+    history.beforeChange(true);
+    expect(history.restore(before)).toBe(before);
+  });
+
+  it("still invalidates exact Source rewrites and evicts bounded history entries", () => {
+    const history = new EmojiSourceHistory();
+    history.record("**a**", "__a__");
+    history.prepare("__a😄__");
+    expect(history.restore("**a😄**")).toBe("__a😄__");
+    history.beforeChange(false);
+    expect(history.restore("**a😄**")).toBeUndefined();
+    history.beforeChange(true);
+    expect(history.restore("**a😄**")).toBeUndefined();
+    for (let index = 0; index < 20; index++) {
+      history.record(`Before ${index}`, `Before ${index}`);
+      history.prepare(`After ${index}`);
+      expect(history.restore(`Serialized ${index}`)).toBe(`After ${index}`);
+    }
+    history.beforeChange(true);
+    expect(history.restore("Serialized 0")).toBeUndefined();
+    history.beforeChange(true);
+    expect(history.restore("Serialized 19")).toBe("After 19");
   });
 });
 

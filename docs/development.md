@@ -274,6 +274,13 @@ reuse dataset membership, and rich insertions reuse current Markdown analysis.
 These are deterministic work-count checks rather than machine-dependent timing
 limits. Keep the `:sm` path synchronous; do not hide expensive work behind a
 typing debounce.
+Ordinary-typing regressions compare enabled and disabled plugins in Rich and
+both Source paths, require identical parser counts and no emoji host calls, and
+repeat after an insertion. To print synthetic timing diagnostics alongside
+these work counts, use
+`DENOTE_PROFILE_EMOJI=1 npx vitest run src/components/EmojiPicker.editors.test.tsx -t "keeps ordinary typing off"`.
+Those jsdom timings include the editor and test environment; they are not
+end-to-end desktop latency guarantees.
 
 Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
 build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`

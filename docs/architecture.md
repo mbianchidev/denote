@@ -688,6 +688,15 @@ independent of favorites, tone, and keyboard selection; only the visible page
 resolves variants. Dataset-membership validation is cached by installed entries,
 so preference writes never rescan the full catalog.
 
+Ordinary editor changes perform only selection bookkeeping and a bounded
+shortcode-prefix check. Until a candidate or emoji surface exists, they skip
+emoji host calls, focus/DOM inspection, permission checks, lookup, and settings
+work. Focus events establish the active editor rather than rediscovering it on
+each character. Dismissal and insertion return to this idle path. Exact-source
+history indexes snapshot lengths first, avoiding full-note string hashing for
+ordinary appends; editor line-ending detection and history allocation run once
+per editor rather than once per render.
+
 Rich emoji insertion reuses the reference analysis tree only when its source
 matches exactly. Translated or masked content still parses independently.
 Selection mapping reuses that tree, repeated entities decode once per projection,

@@ -1494,7 +1494,10 @@ function App() {
       pluginController.saveEmojiPreferences(picker.pluginId, picker.id, preferences),
     error: showError,
   });
-  useLayoutEffect(() => { emojiHost.reconcile(); });
+  useLayoutEffect(() => {
+    const state = emojiHost.getSnapshot();
+    if (state.picker || state.suggestion) emojiHost.reconcile();
+  });
   const pluginDecorationKey = pluginController.decorations
     .map(
       (decoration) =>

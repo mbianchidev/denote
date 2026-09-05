@@ -209,6 +209,7 @@ export function emojiSourcePatch(source: string, displayed: string, from: number
 export class EmojiSourceHistory {
   private baseline: { serialized: string; source: string } | null = null;
   private snapshots = new Map<string, string>();
+  private snapshotLengths = new Map<number, number>();
   private characters = 0;
   private pending: string | null = null;
   private historyChange = false;
@@ -228,20 +229,26 @@ export class EmojiSourceHistory {
     return source;
   }
   private forget(serialized: string) {
+    // Hashing a new serialized note can flatten/scan it. Ordinary typing usually
+    // changes its length, so reject impossible matches without touching the text.
+    if (!this.snapshotLengths.has(serialized.length)) return;
     const previous = this.snapshots.get(serialized);
     if (previous !== undefined) {
       this.characters -= serialized.length + previous.length;
       this.snapshots.delete(serialized);
+      const count = this.snapshotLengths.get(serialized.length)!;
+      if (count === 1) this.snapshotLengths.delete(serialized.length);
+      else this.snapshotLengths.set(serialized.length, count - 1);
     }
   }
   private remember(serialized: string, source: string) {
     this.forget(serialized);
     this.snapshots.set(serialized, source);
+    this.snapshotLengths.set(serialized.length, (this.snapshotLengths.get(serialized.length) ?? 0) + 1);
     this.characters += serialized.length + source.length;
     while (this.snapshots.size > 2 && (this.snapshots.size > 16 || this.characters > 4_000_000)) {
       const oldest = this.snapshots.entries().next().value!;
-      this.characters -= oldest[0].length + oldest[1].length;
-      this.snapshots.delete(oldest[0]);
+      this.forget(oldest[0]);
     }
   }
 }

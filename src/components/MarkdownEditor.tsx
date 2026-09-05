@@ -352,9 +352,9 @@ export const MarkdownEditor = forwardRef<
   const shellRef = useRef<HTMLDivElement>(null);
   const emojiRef = useRef(emoji);
   const emojiSourceRef = useRef(markdown);
-  const sourceLineBreak = useRef(markdown.includes("\r\n") ? "\r\n" : markdown.includes("\r") ? "\r" : "\n").current;
+  const [sourceLineBreak] = useState(() => markdown.includes("\r\n") ? "\r\n" : markdown.includes("\r") ? "\r" : "\n");
   emojiSourceRef.current = markdown;
-  const emojiSerialization = useRef(new EmojiSourceHistory());
+  const [emojiSerialization] = useState(() => new EmojiSourceHistory());
   const emojiCompartment = useRef(new Compartment()).current;
   const configuredEmojiSource = useRef<{ view: EditorView; binding: EmojiEditorBinding | undefined } | null>(null);
   emojiRef.current = emoji && /\.(md|markdown)$/i.test(notePath) ? {
@@ -362,8 +362,8 @@ export const MarkdownEditor = forwardRef<
     prepareSource: (document, from, to, unicode) => {
       const patch = emojiSourcePatch(emojiSourceRef.current, document, from, to, unicode);
       if (patch === null) return false;
-      emojiSerialization.current.record(document, emojiSourceRef.current);
-      emojiSerialization.current.prepare(patch);
+      emojiSerialization.record(document, emojiSourceRef.current);
+      emojiSerialization.prepare(patch);
       return true;
     },
   } : undefined;
@@ -372,12 +372,12 @@ export const MarkdownEditor = forwardRef<
     scope: emoji.scope,
     source: () => emojiSourceRef.current,
     sourceSnapshot: () => referenceSnapshotRef.current,
-    prepare: (source) => { emojiSerialization.current.prepare(source); },
-  }) : undefined, [emoji?.host, emoji?.scope]);
+    prepare: (source) => { emojiSerialization.prepare(source); },
+  }) : undefined, [emoji?.host, emoji?.scope, emojiSerialization]);
   const emojiSourceExtensions = useMemo(() => [
-    createEmojiSourceHistoryExtension((history) => emojiSerialization.current.beforeChange(history)),
+    createEmojiSourceHistoryExtension((history) => emojiSerialization.beforeChange(history)),
     emojiCompartment.of(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
-  ], [emojiCompartment]);
+  ], [emojiCompartment, emojiSerialization]);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
   onLinkOpenRef.current = onLinkOpen;
@@ -507,7 +507,7 @@ export const MarkdownEditor = forwardRef<
       quotePlugin(),
       thematicBreakPlugin(),
       denoteHashtagPlugin(),
-      emojiRichPlugin({ beforeChange: (history) => emojiSerialization.current.beforeChange(history) }),
+      emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
       linkDialogPlugin({
@@ -663,6 +663,7 @@ export const MarkdownEditor = forwardRef<
       onViewModeChange,
       pluginDecorationExtensions,
       emojiSourceExtensions,
+      emojiSerialization,
       preferredViewMode,
       projectSourceMode,
       restorePreferredViewMode,
@@ -902,7 +903,7 @@ export const MarkdownEditor = forwardRef<
             trim={false}
             spellCheck
             onChange={(value, initialNormalize) => {
-              const serialization = emojiSerialization.current;
+              const serialization = emojiSerialization;
               if (initialNormalize) serialization.record(value, emojiSourceRef.current);
               if (!initialNormalize) {
                 const exactSource = serialization.restore(value);
