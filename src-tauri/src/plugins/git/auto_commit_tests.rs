@@ -12,8 +12,8 @@ use super::{
         AutomaticCommitStatus, AutomaticCommitTarget, ValidatedAutomaticCommit,
         automatic_commit_argument_templates, is_eligible, validate_automatic_commit,
     },
-    git::{git_cli_path, resolve_git_executable},
     git_tests::{GitFixture, encrypt_fixture, fixture, identify, new_operation_id},
+    transport::{git_cli_path, resolve_git_executable},
 };
 
 const PLUGIN_ID: &str = "denote.reference";
@@ -33,7 +33,7 @@ fn run(
     fixture: &GitFixture,
     request: AutomaticCommitRequest,
 ) -> crate::error::AppResult<AutomaticCommitOutcome> {
-    super::commands::automatic_commit_with_app_state(
+    crate::plugins::commands::automatic_commit_with_app_state(
         &fixture.manager,
         &fixture.app_state,
         PLUGIN_ID,

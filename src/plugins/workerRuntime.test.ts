@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import catalogJson from "../../packages/plugins/catalog.json";
+import catalogJson from "../../plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
   type PluginGitResult,

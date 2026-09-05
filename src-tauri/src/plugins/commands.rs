@@ -22,16 +22,16 @@ use crate::{
 
 use super::{
     PluginManager,
-    auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
-    clone::{
-        CloneAttempt, PluginGitCloneCleanupOutcome, PluginGitCloneVaultOutcome,
-        PluginGitCloneVaultRequest,
-    },
     git::{
         GitRequestTarget, GitTransportPolicy, PluginGitRequest, PluginGitResult, PluginGitScope,
+        auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
+        clone::{
+            CloneAttempt, PluginGitCloneCleanupOutcome, PluginGitCloneVaultOutcome,
+            PluginGitCloneVaultRequest,
+        },
+        github::GitHubRepository,
+        tools::{ExecutableMode, ToolKind},
     },
-    github::GitHubRepository,
-    tools::{ExecutableMode, ToolKind},
     types::{
         InstalledPlugin, PluginBundle, PluginNetworkRequest, PluginNetworkResponse,
         PluginPermission, PluginProcessRequest, PluginProcessResult, PluginTextDocument,
@@ -224,7 +224,7 @@ pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Optio
         .into_path()
         .map_err(|error| AppError::InvalidPath(error.to_string()))?;
     let value = path.to_string_lossy().into_owned();
-    let status = super::tools::inspect(
+    let status = super::git::tools::inspect(
         std::path::Path::new(""),
         std::path::Path::new(""),
         kind,

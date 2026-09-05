@@ -8,7 +8,7 @@ import {
 } from "@denote/plugin-sdk";
 
 export const projectRoot = fileURLToPath(new URL("..", import.meta.url));
-export const pluginsRoot = join(projectRoot, "packages", "plugins");
+export const pluginsRoot = join(projectRoot, "plugins");
 const sdkRoot = realpathSync(join(projectRoot, "packages", "plugin-sdk"));
 
 export function pluginDirectories(pluginId?: string): string[] {
@@ -45,7 +45,7 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
   await build({
     configFile: false,
     logLevel: "error",
-    plugins: [pluginBoundary(pluginDirectory, sdkRoot)],
+    plugins: [pluginBoundary(pluginDirectory, sdkRoot), stableSourceLabels(manifest)],
     build: {
       emptyOutDir: true,
       minify: false,
@@ -65,6 +65,19 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
   });
   console.log(`Built ${manifest.id}@${manifest.version}.`);
   return manifest;
+}
+
+function stableSourceLabels(manifest: PluginManifest): Plugin {
+  return {
+    name: "denote-stable-plugin-source-labels",
+    renderChunk(code) {
+      // Keep historical debug labels stable when a package moves on disk.
+      return code.replace(
+        /^\/\/#region plugins\/[^/]+\//gm,
+        `//#region packages/plugins/${manifest.id}/`,
+      );
+    },
+  };
 }
 
 function pluginBoundary(pluginDirectory: string, canonicalSdkRoot: string): Plugin {

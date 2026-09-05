@@ -1,0 +1,12 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "8dee55f0757fbf0ee272f526ebb7e16356697bcc",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/8dee55f0757fbf0ee272f526ebb7e16356697bcc/plugin-artifacts/denote.reference-0.1.0.tgz",
+      "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
+      "sizeBytes": 15687
+    }
+  }
+]

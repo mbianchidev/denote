@@ -141,7 +141,7 @@ function workerSafeMarkdownEntities() {
 
 function editorPluginBoundary() {
   const pluginsRoot = realpathSync(
-    fileURLToPath(new URL("./packages/plugins", import.meta.url)),
+    fileURLToPath(new URL("./plugins", import.meta.url)),
   );
   return {
     name: "denote-editor-plugin-boundary",

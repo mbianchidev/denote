@@ -1,35 +1,23 @@
-pub(crate) mod askpass;
-mod auto_commit;
 mod catalog;
-mod clone;
 mod commands;
 #[cfg(debug_assertions)]
 mod development;
-mod git;
-mod github;
+pub(crate) mod git;
 mod lifecycle;
 mod package;
 mod sandbox;
 mod settings;
-mod tools;
 mod types;
 
-#[cfg(test)]
-mod auto_commit_tests;
-#[cfg(test)]
-mod clone_tests;
-#[cfg(test)]
-mod git_tests;
 #[cfg(test)]
 mod tests;
 
 pub use commands::*;
-pub use tools::ToolStatus;
+pub use git::tools::ToolStatus;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};
-use clone::CloneCleanupRegistry;
-use git::GitOperationRegistry;
+use git::{GitOperationRegistry, clone::CloneCleanupRegistry};
 use package::ensure_managed_directory;
 use sandbox::load_credential_ledger;
 
@@ -219,7 +207,7 @@ impl PluginManager {
         // manager lock, and never while Denote is running: a second manager
         // that loses the lock must not delete the secret a live instance is
         // currently authenticating with.
-        askpass::remove_stale_material(&plugins_dir.join("git"));
+        git::askpass::remove_stale_material(&plugins_dir.join("git"));
         let state_path = plugins_dir.join("state.json");
         let mut state = if state_path.exists() {
             match serde_json::from_slice(&fs::read(&state_path)?) {

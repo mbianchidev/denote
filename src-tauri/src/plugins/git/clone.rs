@@ -18,11 +18,11 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+use crate::plugins::PluginManager;
 
 use super::{
-    PluginManager,
     askpass::AskpassMaterial,
-    git::{
+    transport::{
         GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken, GitOutputMode,
         GitPlanStep, GitTransportPolicy, PluginGitAuthMode, PluginGitRequest, PluginGitScope,
         SystemGitSettings, apply_system_git_settings, assert_repository_config_is_safe, first_line,

@@ -21,11 +21,9 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::error::{AppError, AppResult};
+use crate::plugins::PluginManager;
 
-use super::{
-    PluginManager,
-    git::{GitOperationToken, first_line},
-};
+use super::transport::{GitOperationToken, first_line};
 
 /// Ceiling for one adapter invocation. A listing is a small metadata read and
 /// a token read is smaller still, so this is far below the Git limit.
@@ -149,8 +147,8 @@ fn bounded_repository(entry: GhRepository) -> Option<GitHubRepository> {
     }
     let https_url = bounded_field(&entry.url?)?;
     let ssh_url = bounded_field(&entry.ssh_url?)?;
-    if super::git::validate_remote_url(&https_url).is_err()
-        || super::git::validate_remote_url(&ssh_url).is_err()
+    if super::transport::validate_remote_url(&https_url).is_err()
+        || super::transport::validate_remote_url(&ssh_url).is_err()
     {
         return None;
     }
@@ -158,7 +156,7 @@ fn bounded_repository(entry: GhRepository) -> Option<GitHubRepository> {
         .default_branch_ref
         .and_then(|branch| branch.name)
         .and_then(|name| bounded_field(&name))
-        .filter(|name| super::git::validate_branch_name(name).is_ok());
+        .filter(|name| super::transport::validate_branch_name(name).is_ok());
     Some(GitHubRepository {
         name_with_owner,
         https_url,

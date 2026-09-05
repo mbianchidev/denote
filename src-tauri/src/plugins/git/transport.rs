@@ -32,7 +32,7 @@ use super::askpass::{
     ASKPASS_CONTEXT_ENV, ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial,
     apply_askpass_environment,
 };
-use super::settings::{GitCommitSigningMode, GitSettingsPolicy};
+use crate::plugins::settings::{GitCommitSigningMode, GitSettingsPolicy};
 
 /// Hard ceiling for one Git operation, matching the extended source-control
 /// action lease in the renderer.
@@ -3464,7 +3464,7 @@ fn truncate_diagnostic(line: &str) -> String {
 // Manager integration
 // ---------------------------------------------------------------------------
 
-use super::PluginManager;
+use crate::plugins::PluginManager;
 
 /// One already resolved and revalidated repository a typed request runs
 /// against. The caller owns vault scope, project identity, and the encryption

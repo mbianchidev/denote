@@ -3,8 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub(crate) const CATALOG_JSON: &str = include_str!("../../../packages/plugins/catalog.json");
-pub(crate) const BUNDLES_JSON: &str = include_str!("../../../packages/plugins/bundles.json");
+pub(crate) const CATALOG_JSON: &str = include_str!("../../../plugins/catalog.json");
+pub(crate) const BUNDLES_JSON: &str = include_str!("../../../plugins/bundles.json");
 pub(crate) const MAX_PLUGIN_PACKAGE_BYTES: usize = 25 * 1024 * 1024;
 pub(crate) const MAX_PLUGIN_ENTRYPOINT_BYTES: u64 = 5 * 1024 * 1024;
 pub(crate) const MAX_PLUGIN_SETTINGS_BYTES: usize = 256 * 1024;

@@ -26,15 +26,14 @@ use sha2::{Digest, Sha256};
 
 use crate::error::{AppError, AppResult};
 
-use super::{
-    PluginManager,
-    git::{
-        CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken,
-        GitTransportPolicy, assert_repository_config_is_safe, detect_operation_state,
-        ensure_encrypted_repository_metadata, redact, resolve_git_directory, run_git_command,
-        validate_author_email, validate_author_name, validate_commit_message,
-        validate_operation_id, validated_path,
-    },
+use crate::plugins::PluginManager;
+
+use super::transport::{
+    CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken,
+    GitTransportPolicy, assert_repository_config_is_safe, detect_operation_state,
+    ensure_encrypted_repository_metadata, redact, resolve_git_directory, run_git_command,
+    validate_author_email, validate_author_name, validate_commit_message, validate_operation_id,
+    validated_path,
 };
 
 /// Ceiling for every read of the index: the snapshot taken before staging
@@ -939,7 +938,7 @@ impl PluginManager {
         }
         let git_directory = repository_root.join(".git");
         assert_repository_config_is_safe(&git_directory)?;
-        super::git::ensure_repository_excludes(&git_directory)?;
+        super::transport::ensure_repository_excludes(&git_directory)?;
         if encrypted {
             ensure_encrypted_repository_metadata(&git_directory)?;
         }

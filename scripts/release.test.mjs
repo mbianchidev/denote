@@ -45,7 +45,7 @@ describe("release version script", () => {
     );
     expect(
       JSON.parse(
-        readFileSync(join(root, "packages", "plugins", "catalog.json"), "utf8"),
+        readFileSync(join(root, "plugins", "catalog.json"), "utf8"),
       )[0].artifact.url,
     ).toBe(
       "https://github.com/mbianchidev/denote/releases/download/v1.4.0/synthetic.plugin-2.3.4.tgz",
@@ -102,7 +102,7 @@ function createFixture({
   const root = mkdtempSync(join(tmpdir(), "denote-release-"));
   temporaryRoots.push(root);
   mkdirSync(join(root, "src-tauri"));
-  mkdirSync(join(root, "packages", "plugins"), { recursive: true });
+  mkdirSync(join(root, "plugins"), { recursive: true });
 
   writeJson(join(root, "package.json"), {
     name: "synthetic-denote",
@@ -131,7 +131,7 @@ function createFixture({
     productName: "Synthetic Denote",
     version: "0.1.0",
   });
-  writeJson(join(root, "packages", "plugins", "catalog.json"), [
+  writeJson(join(root, "plugins", "catalog.json"), [
     {
       manifest: {
         id: "synthetic.plugin",

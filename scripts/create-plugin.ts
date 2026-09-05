@@ -35,7 +35,7 @@ const packageSuffix = pluginId.split(".").at(-1);
 if (!packageSuffix) {
   throw new Error("Plugin ID does not contain a package name.");
 }
-const pluginDirectory = join(root, "packages", "plugins", pluginId);
+const pluginDirectory = join(root, "plugins", packageSuffix);
 if (existsSync(pluginDirectory)) {
   throw new Error(`Plugin directory already exists: ${pluginDirectory}`);
 }

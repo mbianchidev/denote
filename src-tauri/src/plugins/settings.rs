@@ -4,8 +4,8 @@ use crate::error::{AppError, AppResult};
 
 use super::{
     PluginManager,
+    git::tools::{self, ExecutableMode, ToolKind, ToolStatus},
     sandbox::enforce_storage_quota,
-    tools::{self, ExecutableMode, ToolKind, ToolStatus},
     types::{MAX_PLUGIN_SETTINGS_BYTES, PluginManifest},
 };
 
@@ -615,10 +615,8 @@ mod tests {
     use super::*;
 
     fn git_manifest() -> PluginManifest {
-        serde_json::from_str(include_str!(
-            "../../../packages/plugins/denote.git/plugin.json"
-        ))
-        .expect("Git plugin manifest")
+        serde_json::from_str(include_str!("../../../plugins/git/plugin.json"))
+            .expect("Git plugin manifest")
     }
 
     #[test]

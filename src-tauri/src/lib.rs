@@ -223,7 +223,7 @@ fn configure_macos_menu<R: tauri::Runtime>(app: &tauri::App<R>) -> tauri::Result
 /// else starts, so an askpass invocation never opens a window, never touches
 /// the database, and never becomes a second Denote instance.
 pub fn run_askpass_if_requested() -> bool {
-    plugins::askpass::run_askpass_if_requested()
+    plugins::git::askpass::run_askpass_if_requested()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
