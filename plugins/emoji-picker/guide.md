@@ -119,9 +119,9 @@ entrypoint; only data and the small SDK registration module ship as code.
 From the repository root, using its supported Node.js version:
 
 ```bash
-node packages/plugins/denote.emoji-picker/scripts/import-emoji.mjs
-node packages/plugins/denote.emoji-picker/scripts/import-emoji.mjs --check
-npx vitest run packages/plugins/denote.emoji-picker/tests
+node plugins/emoji-picker/scripts/import-emoji.mjs
+node plugins/emoji-picker/scripts/import-emoji.mjs --check
+npx vitest run plugins/emoji-picker/tests
 npm run build:plugin -- denote.emoji-picker
 ```
 

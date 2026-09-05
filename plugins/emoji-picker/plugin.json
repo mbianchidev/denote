@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.emoji-picker",
   "name": "Emoji picker",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Insert standard Unicode emoji with local search, variants, favorites, and optional shortcode suggestions.",
   "publisher": {
     "name": "Denote",

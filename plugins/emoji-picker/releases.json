@@ -1,0 +1,12 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "12e9d26ff8879b6498efb12274e70ea6cf8e6730",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/12e9d26ff8879b6498efb12274e70ea6cf8e6730/plugin-artifacts/denote.emoji-picker-0.1.0.tgz",
+      "sha256": "c4b4a466ebaa4e06e7dfcc023258272909229cebb68f53e849cefdd4e27f86bd",
+      "sizeBytes": 105317
+    }
+  }
+]
