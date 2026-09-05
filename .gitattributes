@@ -3,3 +3,6 @@ docs/legal/bundled-tools/*.json text eol=lf
 docs/legal/bundled-tools/*.md text eol=lf
 docs/legal/bundled-tools/*.asc text eol=lf
 scripts/*.mjs text eol=lf
+scripts/*.ts text eol=lf
+plugins/** text=auto eol=lf
+packages/plugin-sdk/** text=auto eol=lf

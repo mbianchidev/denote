@@ -151,7 +151,7 @@ fn prompt_targets_github_https(prompt: &str) -> bool {
     // The same validation every remote URL Denote accepts has already passed,
     // so a control character, an option-like value, an embedded password, or
     // an oversized target is refused here exactly as it is there.
-    if super::git::validate_remote_url(target).is_err() {
+    if super::transport::validate_remote_url(target).is_err() {
         return false;
     }
     let Some(rest) = target.strip_prefix("https://") else {

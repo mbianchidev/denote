@@ -11,9 +11,16 @@ use std::{
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tempfile::TempDir;
 
-use super::{
+use crate::plugins::{
     PluginManager,
-    git::{
+    settings::{GitCommitSigningMode, GitSettingsPolicy},
+    tests::{catalog, manager},
+    types::PluginPermission,
+};
+
+use super::{
+    tools,
+    transport::{
         GitDirectoryState, GitExecution, GitInspection, GitOutputMode, GitPlanStep,
         GitTransportPolicy, GitWriteSource, PluginGitAuthMode, PluginGitConflictResolution,
         PluginGitConflictStage, PluginGitDiffTarget, PluginGitHunk, PluginGitHunkLine,
@@ -25,10 +32,6 @@ use super::{
         validate_branch_name, validate_operation_id, validate_remote_name, validate_remote_url,
         validate_revision, validated_path,
     },
-    settings::{GitCommitSigningMode, GitSettingsPolicy},
-    tests::{catalog, manager},
-    tools,
-    types::PluginPermission,
 };
 
 use crate::{crypto, db, vault};
@@ -39,15 +42,15 @@ const PLUGIN_ID: &str = "denote.reference";
 #[test]
 fn git_cli_paths_remove_only_windows_verbatim_prefixes() {
     assert_eq!(
-        super::git::git_cli_path(Path::new(r"\\?\C:\Temp\vault")),
+        super::transport::git_cli_path(Path::new(r"\\?\C:\Temp\vault")),
         PathBuf::from(r"C:\Temp\vault")
     );
     assert_eq!(
-        super::git::git_cli_path(Path::new(r"\\?\UNC\server\share\vault")),
+        super::transport::git_cli_path(Path::new(r"\\?\UNC\server\share\vault")),
         PathBuf::from(r"\\server\share\vault")
     );
     assert_eq!(
-        super::git::git_cli_path_string(Path::new(r"C:\Temp\vault")),
+        super::transport::git_cli_path_string(Path::new(r"C:\Temp\vault")),
         r"C:\Temp\vault"
     );
 }
@@ -473,7 +476,7 @@ fn prepared_bundled_git_runs_repository_commands_from_the_extracted_cache() {
         encrypted: false,
         transport: GitTransportPolicy::RemoteOnly,
     };
-    let token = super::git::GitOperationToken::detached();
+    let token = super::transport::GitOperationToken::detached();
     let deadline = Instant::now() + Duration::from_secs(30);
     for (arguments, mutating) in [
         (
@@ -1801,7 +1804,7 @@ fn accepts_a_valid_absolute_custom_git_executable() {
 fn set_git_executable_setting(fixture: &GitFixture, path: &str) {
     let mut settings = serde_json::Map::new();
     settings.insert(
-        super::settings::GIT_EXECUTABLE_SETTING.to_string(),
+        crate::plugins::settings::GIT_EXECUTABLE_SETTING.to_string(),
         serde_json::Value::String(path.to_string()),
     );
     fixture
@@ -2009,12 +2012,12 @@ pub(super) fn git_manager(data: &TempDir, cache: &TempDir) -> PluginManager {
     // Denote Git plugin will.
     catalog.manifest.settings = Some(serde_json::json!({
         "properties": {
-            (super::settings::GIT_EXECUTABLE_SETTING): {
+            (crate::plugins::settings::GIT_EXECUTABLE_SETTING): {
                 "type": "string",
                 "title": "Git executable",
                 "default": "",
             },
-            (super::settings::GITHUB_EXECUTABLE_SETTING): {
+            (crate::plugins::settings::GITHUB_EXECUTABLE_SETTING): {
                 "type": "string",
                 "title": "GitHub CLI executable",
                 "default": "",
@@ -2061,7 +2064,7 @@ fn run(
     fixture: &GitFixture,
     request: PluginGitRequest,
     project_id: Option<&str>,
-) -> crate::error::AppResult<super::git::PluginGitResult> {
+) -> crate::error::AppResult<super::transport::PluginGitResult> {
     run_as(fixture, request, project_id, &new_operation_id())
 }
 
@@ -2070,8 +2073,8 @@ fn run_as(
     request: PluginGitRequest,
     project_id: Option<&str>,
     operation_id: &str,
-) -> crate::error::AppResult<super::git::PluginGitResult> {
-    super::commands::git_request_with_app_state(
+) -> crate::error::AppResult<super::transport::PluginGitResult> {
+    crate::plugins::commands::git_request_with_app_state(
         &fixture.manager,
         &fixture.app_state,
         PLUGIN_ID,
@@ -3059,7 +3062,7 @@ fn encrypted_conflict_resolution_refuses_plaintext_content() {
 #[cfg(unix)]
 #[test]
 fn cancels_a_running_read_only_operation_and_leaves_no_child() {
-    use super::git::{GitExecution, GitOperationRegistry, GitPlanStep, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, GitPlanStep, run_git_plan};
 
     let directory = TempDir::new().expect("temp");
     let repository = directory.path().join("repository");
@@ -3122,7 +3125,7 @@ fn cancels_a_running_read_only_operation_and_leaves_no_child() {
 #[cfg(unix)]
 #[test]
 fn plugin_cancellation_is_scoped_and_lifecycle_cancellation_is_forced() {
-    use super::git::GitOperationRegistry;
+    use super::transport::GitOperationRegistry;
 
     let registry = GitOperationRegistry::default();
     let token = registry
@@ -3161,7 +3164,7 @@ fn plugin_cancellation_is_scoped_and_lifecycle_cancellation_is_forced() {
 #[cfg(unix)]
 #[test]
 fn a_mutating_command_reaches_its_boundary_before_cancellation_stops_the_plan() {
-    use super::git::{GitExecution, GitOperationRegistry, GitPlanStep, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, GitPlanStep, run_git_plan};
 
     let directory = TempDir::new().expect("temp");
     let repository = directory.path().join("repository");
@@ -3440,8 +3443,8 @@ fn a_conflicted_path_replaced_by_a_symbolic_link_is_still_refused() {
 fn oversized_output_plan(
     directory: &TempDir,
     steps: Vec<GitPlanStep>,
-) -> crate::error::AppResult<super::git::PluginGitResult> {
-    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+) -> crate::error::AppResult<super::transport::PluginGitResult> {
+    use super::transport::{GitExecution, GitOperationRegistry, run_git_plan};
 
     let repository = directory.path().join("repository");
     fs::create_dir_all(repository.join(".git")).expect("repository");
@@ -3533,7 +3536,7 @@ fn oversized_conflict_stage_output_is_never_written_to_the_worktree() {
 
 #[test]
 fn validates_operation_ids_and_refuses_duplicate_live_ones() {
-    use super::git::GitOperationRegistry;
+    use super::transport::GitOperationRegistry;
 
     for invalid in [
         "",
@@ -3877,7 +3880,7 @@ fn resolves_an_actual_conflict_with_content_and_with_a_side() {
 #[cfg(unix)]
 #[test]
 fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktree() {
-    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, run_git_plan};
 
     let Some(fixture) = conflicted_fixture() else {
         return;
@@ -4033,7 +4036,7 @@ fn cancelling_the_final_conflict_staging_never_splits_the_index_from_the_worktre
 #[cfg(unix)]
 #[test]
 fn restores_the_original_file_when_staging_a_resolution_fails() {
-    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, run_git_plan};
 
     let directory = TempDir::new().expect("temp");
     let repository = directory.path().join("repository");
@@ -4256,7 +4259,7 @@ fn refuses_command_bearing_configuration_hidden_behind_a_commented_continuation(
 #[cfg(unix)]
 #[test]
 fn pinned_configuration_beats_repository_configuration_when_git_actually_runs() {
-    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, run_git_plan};
 
     let Ok(executable) = resolve_git_executable(None) else {
         eprintln!("Skipping Git hardening fixture: no Git executable is available.");
@@ -5068,7 +5071,7 @@ fn refuses_a_checkout_that_would_overwrite_uncommitted_work() {
 
 #[test]
 fn a_cancelled_hunk_application_never_reaches_the_index() {
-    use super::git::{GitOperationRegistry, run_git_plan};
+    use super::transport::{GitOperationRegistry, run_git_plan};
 
     let Some(fixture) = fixture() else {
         return;
@@ -5445,7 +5448,7 @@ fn a_non_utf8_text_diff_is_refused_before_hunk_staging_can_change_bytes() {
 #[cfg(unix)]
 #[test]
 fn exact_output_is_limited_to_diff_stdout_and_never_reaches_stderr() {
-    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, run_git_plan};
 
     let directory = TempDir::new().expect("temp");
     let repository = directory.path().join("repository");
@@ -7297,7 +7300,7 @@ fn encrypted_conflicts_are_whole_file_and_never_carry_markers() {
 /// Nothing may be left half applied, and nothing may run on its own afterwards.
 #[test]
 fn cancelling_an_abort_leaves_the_repository_recoverable() {
-    use super::git::{GitExecution, GitOperationRegistry, run_git_plan};
+    use super::transport::{GitExecution, GitOperationRegistry, run_git_plan};
 
     let Some(fixture) = conflicted_fixture() else {
         return;

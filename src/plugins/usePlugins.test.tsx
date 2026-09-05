@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import catalogJson from "../../packages/plugins/catalog.json";
+import catalogJson from "../../plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
   type PluginProjectContext,

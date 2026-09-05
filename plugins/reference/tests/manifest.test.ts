@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import referenceManifestJson from "../../packages/plugins/denote.reference/plugin.json";
+import referenceManifestJson from "../plugin.json";
 import {
   checkPluginCompatibility,
   parsePluginManifest,

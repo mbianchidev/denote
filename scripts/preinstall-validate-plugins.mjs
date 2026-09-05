@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const pluginsRoot = join(root, "packages", "plugins");
+const pluginsRoot = join(root, "plugins");
 const failures = [];
 
 for (const entry of readdirSync(pluginsRoot, { withFileTypes: true })) {

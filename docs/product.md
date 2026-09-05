@@ -271,6 +271,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - The core application stays minimal. It embeds only plugin catalog metadata;
   executable plugin archives are separate, checksum-pinned GitHub Release
   assets downloaded only after explicit installation.
+- The repository distributes plugin source and immutable release metadata, not
+  plugin archives. Each plugin owns its source, manifest, guide, tests, and
+  release ledger. Generated `.tgz` files remain ignored staging output and
+  never enter new commits, Tauri resources, or installers; historical versions
+  keep their verified immutable origins and byte identities.
 - Approved plugins may request the additive API version 1 `project-context`
   capability. It exposes only a stable opaque project ID, a vault-relative root,
   and context-change events, never an absolute path or editor implementation.

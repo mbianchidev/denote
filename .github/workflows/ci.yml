@@ -12,8 +12,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  plugin-archive-guard:
+    name: No plugin archives in Git
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.15.0
+
+      - name: Reject indexed and newly committed plugin archives
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if [[ -n "$BASE_SHA" && ! "$BASE_SHA" =~ ^0+$ ]]; then
+            npm run check:plugin-archives -- --base "$BASE_SHA"
+          else
+            npm run check:plugin-archives
+          fi
+
   security-audit:
     name: Security audit
+    needs: plugin-archive-guard
     runs-on: ubuntu-latest
     permissions:
       checks: write
@@ -59,6 +87,7 @@ jobs:
 
   test:
     name: ${{ matrix.os }}
+    needs: plugin-archive-guard
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -141,7 +170,7 @@ jobs:
       - name: Plugin contract and boundaries
         run: npm run check:plugins
 
-      - name: Published plugin source pins
+      - name: Immutable plugin source recipes
         if: runner.os == 'Linux'
         run: npm run check:plugin-downloads -- --source
 

@@ -13,6 +13,11 @@ dist-ssr
 *.local
 .impeccable/hook.cache.json
 .plugin-dev/
+.plugin-artifacts/
+plugins/*/releases.json.*.tmp
+plugins/catalog.json.*.tmp
+release-assets/
+*.[tT][gG][zZ]
 src-tauri/resources/tools/
 !src-tauri/resources/tools/
 src-tauri/resources/tools/*

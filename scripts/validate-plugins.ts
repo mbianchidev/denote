@@ -17,7 +17,7 @@ import {
 } from "@denote/plugin-sdk";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const pluginsRoot = join(root, "packages", "plugins");
+const pluginsRoot = join(root, "plugins");
 const requireArtifacts = process.argv.includes("--artifacts");
 const errors: string[] = [];
 const RELEASE_TAG_PATTERN =
@@ -36,7 +36,7 @@ for (const pluginDirectory of pluginDirectories) {
 for (const entry of catalog) {
   if (!validatedPluginIds.has(entry.manifest.id)) {
     errors.push(
-      `Catalog plugin ${entry.manifest.id} has no matching packages/plugins/<plugin-id>/ source directory.`,
+      `Catalog plugin ${entry.manifest.id} has no matching plugins/<name>/ source directory.`,
     );
   }
 }
@@ -74,14 +74,15 @@ function validatePlugin(pluginDirectory: string): void {
     errors.push(`${label}: ${errorMessage(error)}`);
     return;
   }
-  if (!validatedPluginIds.add(manifest.id)) {
+  if (validatedPluginIds.has(manifest.id)) {
     errors.push(`Duplicate plugin source ID: ${manifest.id}.`);
   }
+  validatedPluginIds.add(manifest.id);
   const catalogEntry = catalog.find(
     (entry) => entry.manifest.id === manifest.id,
   );
   if (!catalogEntry) {
-    errors.push(`${label} is missing from packages/plugins/catalog.json.`);
+    errors.push(`${label} is missing from plugins/catalog.json.`);
   } else if (
     stableStringify(catalogEntry.manifest) !== stableStringify(manifest)
   ) {
@@ -266,7 +267,8 @@ function validateEditorImports(sourceRoot: string): void {
     const source = readFileSync(path, "utf8");
     for (const specifier of importSpecifiers(source)) {
       if (
-        specifier.includes("packages/plugins/") ||
+        (specifier.startsWith(".") && isInside(pluginsRoot, resolve(dirname(path), specifier)) &&
+          !["catalog.json", "bundles.json"].includes(relative(pluginsRoot, resolve(dirname(path), specifier)))) ||
         (specifier.startsWith("@denote/plugin-") &&
           specifier !== "@denote/plugin-sdk")
       ) {
@@ -336,9 +338,9 @@ function dependencyNames(value: unknown): string[] {
 
 function readCatalog(): PluginCatalogEntry[] {
   const path = join(pluginsRoot, "catalog.json");
-  const value = readJson(path, "packages/plugins/catalog.json");
+  const value = readJson(path, "plugins/catalog.json");
   if (!Array.isArray(value)) {
-    errors.push("packages/plugins/catalog.json must be an array.");
+    errors.push("plugins/catalog.json must be an array.");
     return [];
   }
 
@@ -379,9 +381,10 @@ function readCatalog(): PluginCatalogEntry[] {
           "The initial catalog accepts only the trusted Denote publisher.",
         );
       }
-      if (!ids.add(entry.manifest.id)) {
+      if (ids.has(entry.manifest.id)) {
         throw new Error(`Duplicate catalog plugin ID: ${entry.manifest.id}.`);
       }
+      ids.add(entry.manifest.id);
       entries.push(entry);
     } catch (error) {
       errors.push(`catalog[${index}]: ${errorMessage(error)}`);
@@ -393,7 +396,7 @@ function readCatalog(): PluginCatalogEntry[] {
 function validateBundles(catalog: PluginCatalogEntry[]): void {
   const value = readJson(
     join(pluginsRoot, "bundles.json"),
-    "packages/plugins/bundles.json",
+    "plugins/bundles.json",
   );
   if (value === null) {
     return;
@@ -404,7 +407,7 @@ function validateBundles(catalog: PluginCatalogEntry[]): void {
       new Set(catalog.map((entry) => entry.manifest.id)),
     );
   } catch (error) {
-    errors.push(`packages/plugins/bundles.json: ${errorMessage(error)}`);
+    errors.push(`plugins/bundles.json: ${errorMessage(error)}`);
   }
 }
 

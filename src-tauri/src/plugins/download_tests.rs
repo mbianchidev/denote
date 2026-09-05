@@ -24,10 +24,43 @@ fn check_download_lifecycle(source: bool) {
         serde_json::from_str(CATALOG_JSON).expect("embedded catalog");
     for entry in &mut entries {
         if source {
-            entry.artifact.url = format!(
-                "https://raw.githubusercontent.com/mbianchidev/denote/{}/plugin-artifacts/{}-{}.tgz",
-                entry.provenance.source_commit, entry.manifest.id, entry.manifest.version
-            );
+            entry.artifact.url = ledger_origin(entry);
+        }
+
+        fn ledger_origin(entry: &PluginCatalogEntry) -> String {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("repository root")
+                .join("plugins");
+            for directory in std::fs::read_dir(root).expect("plugin sources") {
+                let directory = directory.expect("plugin directory").path();
+                if !directory.is_dir() {
+                    continue;
+                }
+                let manifest: serde_json::Value = serde_json::from_slice(
+                    &std::fs::read(directory.join("plugin.json")).expect("source manifest"),
+                )
+                .expect("manifest JSON");
+                if manifest["id"] != entry.manifest.id {
+                    continue;
+                }
+                let releases: Vec<serde_json::Value> = serde_json::from_slice(
+                    &std::fs::read(directory.join("releases.json")).expect("release ledger"),
+                )
+                .expect("ledger JSON");
+                let release = releases
+                    .iter()
+                    .find(|release| release["version"] == entry.manifest.version)
+                    .expect("current immutable release");
+                assert_eq!(release["sourceCommit"], entry.provenance.source_commit);
+                assert_eq!(release["artifact"]["sha256"], entry.artifact.sha256);
+                assert_eq!(release["artifact"]["sizeBytes"], entry.artifact.size_bytes);
+                return release["artifact"]["url"]
+                    .as_str()
+                    .expect("immutable origin URL")
+                    .to_string();
+            }
+            panic!("Missing source ledger for {}", entry.manifest.id);
         }
     }
     validate_catalog(&entries).expect("trusted catalog");

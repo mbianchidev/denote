@@ -12,10 +12,10 @@ use sha2::{Digest, Sha256};
 use tar::{Archive, EntryType};
 use uuid::Uuid;
 
-use super::package::ensure_managed_directory;
 use crate::error::{AppError, AppResult};
+use crate::plugins::package::ensure_managed_directory;
 
-const LOCK_JSON: &str = include_str!("../../../bundled-tools.lock.json");
+const LOCK_JSON: &str = include_str!("../../../../bundled-tools.lock.json");
 const MAX_INTEGRITY_BYTES: u64 = 16 * 1024 * 1024;
 
 #[cfg(target_os = "macos")]

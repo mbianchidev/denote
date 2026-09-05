@@ -1,0 +1,62 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "9362883d8565a2afa2ff499e2bcd418e369f2c79",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/9362883d8565a2afa2ff499e2bcd418e369f2c79/plugin-artifacts/denote.git-0.1.0.tgz",
+      "sha256": "17ad0c39d1654a110ccfb18b0c773b72def502cbe640ca795e97f89f93a803a2",
+      "sizeBytes": 63073
+    }
+  },
+  {
+    "version": "0.2.0",
+    "sourceCommit": "8dee55f0757fbf0ee272f526ebb7e16356697bcc",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/8dee55f0757fbf0ee272f526ebb7e16356697bcc/plugin-artifacts/denote.git-0.2.0.tgz",
+      "sha256": "4f06b03b9c6a19a081388b1ca1b74c16f4ba623a1da9c084da216fe92abbfdc9",
+      "sizeBytes": 65866
+    }
+  },
+  {
+    "version": "0.3.0",
+    "sourceCommit": "60c06ad7f2bf58f34ce87181db78ee7403ac213b",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/60c06ad7f2bf58f34ce87181db78ee7403ac213b/plugin-artifacts/denote.git-0.3.0.tgz",
+      "sha256": "680b87644a6209a5f44d46dc711130de2a01be3b9280672d23fb3b1715a82548",
+      "sizeBytes": 65988
+    }
+  },
+  {
+    "version": "0.4.0",
+    "sourceCommit": "a7658120924379866c0ef52424d1eb30e0748790",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/a7658120924379866c0ef52424d1eb30e0748790/plugin-artifacts/denote.git-0.4.0.tgz",
+      "sha256": "42d59781d883e754e1ae073f51f5bf371211ecf10cafa53deb6294456eb5502b",
+      "sizeBytes": 66093
+    }
+  },
+  {
+    "version": "0.5.2",
+    "sourceCommit": "498380c1b64bdbe17c5e17bbb1cee1acbab20c48",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/498380c1b64bdbe17c5e17bbb1cee1acbab20c48/plugin-artifacts/denote.git-0.5.2.tgz",
+      "sha256": "a746b38ce41c9cbc82fa24ed6446d33f115921ea8b1341013bc77e4df8b06190",
+      "sizeBytes": 67427
+    }
+  },
+  {
+    "version": "0.6.0",
+    "sourceCommit": "1a549b0d84b1bba35752b8e759bc4e77a71e5672",
+    "kind": "historical",
+    "artifact": {
+      "url": "https://raw.githubusercontent.com/mbianchidev/denote/1a549b0d84b1bba35752b8e759bc4e77a71e5672/plugin-artifacts/denote.git-0.6.0.tgz",
+      "sha256": "08457843e15c2d605986b84fe3417d6e4a7ea60513bddcbfad59ea1cb0299e49",
+      "sizeBytes": 67629
+    }
+  }
+]

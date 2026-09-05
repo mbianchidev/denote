@@ -1,110 +1,57 @@
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import {
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  statSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import type { PluginCatalogEntry } from "@denote/plugin-sdk";
+import { join, relative, sep } from "node:path";
+import { buildPlugin, pluginDirectories, projectRoot } from "./plugin-build";
+import { writePluginArchive } from "./plugin-archive";
 import {
-  pluginDirectories,
-  projectRoot,
-  readPluginManifest,
-} from "./plugin-build";
-import {
-  readPluginGuide,
-  writePluginArchive,
-} from "./plugin-archive";
+  acquirePinLock, artifactName, catalogEntry, readCatalog, readReleases, releaseUrl,
+  verifyArchiveContents, verifySourceCommit, writeAtomic, type PluginRelease,
+} from "./plugin-release";
 
-const args = process.argv.slice(2);
-const pluginId = args[0];
-const refIndex = args.indexOf("--ref");
-const sourceCommit = refIndex >= 0 ? args[refIndex + 1] : undefined;
-const remaining = args.filter(
-  (_, index) =>
-    index !== 0 &&
-    index !== refIndex &&
-    index !== refIndex + 1,
-);
-if (
-  !pluginId ||
-  !sourceCommit ||
-  remaining.length > 0 ||
-  !/^[0-9a-f]{40}$/.test(sourceCommit)
-) {
-  throw new Error(
-    "Usage: npm run pin:plugin -- <plugin-id> --ref <40-character-commit>",
-  );
+const [pluginId, refFlag, sourceCommit, releaseFlag, tag, ...remaining] = process.argv.slice(2);
+if (!pluginId || refFlag !== "--ref" || !sourceCommit || releaseFlag !== "--release" || !tag || remaining.length) {
+  throw new Error("Usage: npm run pin:plugin -- <plugin-id> --ref <source-commit> --release <vSEMVER>");
 }
-
-const [pluginDirectory] = pluginDirectories(pluginId);
-const manifest = readPluginManifest(pluginDirectory);
-const artifactName = `${manifest.id}-${manifest.version}.tgz`;
-const artifactPath = join(projectRoot, "plugin-artifacts", artifactName);
-const bytes = readFileSync(artifactPath);
+const [directory] = pluginDirectories(pluginId);
+verifySourceCommit(projectRoot, directory, sourceCommit, true);
+const manifest = await buildPlugin(directory);
+const url = releaseUrl(manifest, tag);
 const temporaryRoot = mkdtempSync(join(tmpdir(), "denote-plugin-pin-"));
+let unlock: (() => void) | undefined;
 try {
-  const current = await writePluginArchive(
-    pluginDirectory,
-    manifest,
-    join(temporaryRoot, artifactName),
-  );
-  if (!bytes.equals(current.bytes)) {
-    throw new Error(
-      `${artifactName} is stale. Run npm run package:plugin -- ${pluginId}.`,
-    );
+  unlock = acquirePinLock(projectRoot);
+  const releases = readReleases(directory, manifest);
+  const previous = releases.find((item) => item.version === manifest.version);
+  const catalog = readCatalog(projectRoot);
+  const index = catalog.findIndex((entry) => entry.manifest.id === manifest.id);
+  const path = join(temporaryRoot, artifactName(manifest));
+  const archive = await writePluginArchive(directory, manifest, path);
+  await verifyArchiveContents(path, directory, manifest);
+  verifySourceCommit(projectRoot, directory, sourceCommit, true);
+  const release: PluginRelease = {
+    version: manifest.version, sourceCommit, kind: "source",
+    sourcePath: relative(projectRoot, directory).split(sep).join("/"),
+    artifact: { url, sha256: archive.sha256, sizeBytes: archive.sizeBytes },
+  };
+  if (previous && JSON.stringify(previous) !== JSON.stringify(release)) {
+    throw new Error(`${manifest.id}@${manifest.version} is immutable. Bump the version instead of replacing its bytes or provenance.`);
   }
+  if (index >= 0 && catalog[index].manifest.version === manifest.version &&
+      catalog[index].artifact.sha256 !== archive.sha256) {
+    throw new Error(`${manifest.id}@${manifest.version} already pins different bytes.`);
+  }
+  if (!previous) releases.push(release);
+  const pinned = catalogEntry(directory, manifest, release);
+  if (index < 0) catalog.push(pinned); else catalog[index] = pinned;
+  writeAtomic(join(projectRoot, ".plugin-artifacts", artifactName(manifest)), archive.bytes);
+  // Record the immutable version first. An interrupted catalog update is safely retryable.
+  writeAtomic(join(directory, "releases.json"), `${JSON.stringify(releases, null, 2)}\n`);
+  writeAtomic(join(projectRoot, "plugins/catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`);
+  console.log(`Pinned ${manifest.id}@${manifest.version} from source ${sourceCommit} for ${tag}. No release was published.`);
 } finally {
-  rmSync(temporaryRoot, { recursive: true, force: true });
-}
-const committed = execFileSync(
-  "git",
-  ["show", `${sourceCommit}:plugin-artifacts/${artifactName}`],
-  { cwd: projectRoot, maxBuffer: 25 * 1024 * 1024 + 1 },
-);
-if (!bytes.equals(committed)) {
-  throw new Error(
-    `${artifactName} does not match plugin-artifacts/${artifactName} in ${sourceCommit}.`,
-  );
-}
-
-const catalogPath = join(projectRoot, "packages", "plugins", "catalog.json");
-const catalog = JSON.parse(
-  readFileSync(catalogPath, "utf8"),
-) as PluginCatalogEntry[];
-const pinned: PluginCatalogEntry = {
-  manifest,
-  artifact: {
-    url: `https://raw.githubusercontent.com/mbianchidev/denote/${sourceCommit}/plugin-artifacts/${artifactName}`,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-    sizeBytes: statSync(artifactPath).size,
-  },
-  provenance: {
-    publisherId: "denote",
-    sourceCommit,
-    trusted: true,
-  },
-  guide: readPluginGuide(pluginDirectory, manifest),
-};
-const index = catalog.findIndex(
-  (candidate) => candidate.manifest.id === pluginId,
-);
-if (index >= 0) {
-  if (
-    catalog[index].manifest.version === manifest.version &&
-    catalog[index].artifact.sha256 !== pinned.artifact.sha256
-  ) {
-    throw new Error(
-      `${pluginId}@${manifest.version} already pins different artifact bytes. Bump the plugin version.`,
-    );
+  try {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  } finally {
+    unlock?.();
   }
-  catalog[index] = pinned;
-} else {
-  catalog.push(pinned);
 }
-writeFileSync(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
-console.log(`Pinned ${manifest.id}@${manifest.version} to ${sourceCommit}.`);

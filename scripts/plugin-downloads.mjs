@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const allowedHosts = new Set([
   "github.com",
@@ -15,6 +16,7 @@ export async function verifyRemoteArtifact(
   pluginId,
   expectedSize,
   expectedSha256,
+  fetcher = fetch,
 ) {
   if (
     !Number.isSafeInteger(expectedSize) ||
@@ -25,6 +27,7 @@ export async function verifyRemoteArtifact(
     throw new Error(`Invalid pinned artifact integrity metadata for ${pluginId}.`);
   }
   let url = initialUrl;
+  const signal = AbortSignal.timeout(30_000);
   for (let redirects = 0; redirects <= 4; redirects += 1) {
     const parsed = new URL(url);
     if (
@@ -36,9 +39,9 @@ export async function verifyRemoteArtifact(
     ) {
       throw new Error(`Pinned artifact host is not allowed for ${pluginId}.`);
     }
-    const response = await fetch(url, {
+    const response = await fetcher(url, {
       redirect: "manual",
-      signal: AbortSignal.timeout(30_000),
+      signal,
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
@@ -60,6 +63,7 @@ export async function verifyRemoteArtifact(
       throw new Error(`Pinned artifact has no response body for ${pluginId}.`);
     }
     const remoteHash = createHash("sha256");
+    const chunks = [];
     let remoteBytes = 0;
     try {
       while (true) {
@@ -73,6 +77,7 @@ export async function verifyRemoteArtifact(
           throw new Error(`Pinned artifact is larger than catalog metadata for ${pluginId}.`);
         }
         remoteHash.update(chunk.value);
+        chunks.push(chunk.value);
       }
     } finally {
       reader.releaseLock();
@@ -85,23 +90,20 @@ export async function verifyRemoteArtifact(
         `Pinned artifact bytes do not match catalog metadata for ${pluginId}.`,
       );
     }
-    return;
+    return Buffer.concat(chunks);
   }
   throw new Error(`Pinned artifact redirect limit exceeded for ${pluginId}.`);
 }
 
-export async function verifyPluginDownloads(catalog, { source = false } = {}) {
+export async function verifyPluginDownloads(catalog) {
   const failures = [];
   for (const entry of catalog) {
     const { manifest, artifact, provenance } = entry;
     try {
-      if (source && !/^[0-9a-f]{40}$/.test(provenance.sourceCommit)) {
+      if (!/^[0-9a-f]{40}$/.test(provenance.sourceCommit)) {
         throw new Error(`${manifest.id} requires a 40-character source commit.`);
       }
-      const url = source
-        ? `https://raw.githubusercontent.com/mbianchidev/denote/${provenance.sourceCommit}/plugin-artifacts/${manifest.id}-${manifest.version}.tgz`
-        : artifact.url;
-      await verifyRemoteArtifact(url, manifest.id, artifact.sizeBytes, artifact.sha256);
+      await verifyRemoteArtifact(artifact.url, manifest.id, artifact.sizeBytes, artifact.sha256);
     } catch (error) {
       failures.push(`${manifest.id}: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -120,11 +122,21 @@ if (
     if (args.length > 1 || (args.length === 1 && args[0] !== "--source")) {
       throw new Error("Usage: npm run check:plugin-downloads -- [--source]");
     }
-    const catalog = JSON.parse(
-      readFileSync(new URL("../packages/plugins/catalog.json", import.meta.url), "utf8"),
-    );
-    await verifyPluginDownloads(catalog, { source: args.includes("--source") });
-    console.log(`Verified ${catalog.length} published plugin archive(s).`);
+    const root = fileURLToPath(new URL("..", import.meta.url));
+    if (args.includes("--source")) {
+      for (const script of ["build-plugins.ts", "package-plugins.ts"]) {
+        execFileSync(process.execPath, ["--import", "tsx", join(root, "scripts", script)], {
+          cwd: root, stdio: "inherit",
+        });
+      }
+      console.log("Verified immutable plugin source recipes and historical origins.");
+    } else {
+      const catalog = JSON.parse(
+        readFileSync(new URL("../plugins/catalog.json", import.meta.url), "utf8"),
+      );
+      await verifyPluginDownloads(catalog);
+      console.log(`Verified ${catalog.length} published plugin archive(s).`);
+    }
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     process.exitCode = 1;

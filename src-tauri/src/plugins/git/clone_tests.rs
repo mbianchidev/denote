@@ -13,8 +13,9 @@ use std::{
 
 use tempfile::TempDir;
 
+use crate::plugins::PluginManager;
+
 use super::{
-    PluginManager,
     askpass::{
         ASKPASS_CONTEXT_ENV, ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial, askpass_answer,
         signing_askpass_answer,
@@ -23,15 +24,15 @@ use super::{
         CloneAttempt, PluginGitCloneVaultRequest, clone_arguments, is_github_https_url,
         validate_empty_destination,
     },
-    git::{
+    git_tests::{GitFixture, fixture, identify, new_operation_id},
+    github::{
+        MAX_REPOSITORY_LIMIT, list_repositories, parse_repository_list, resolve_gh_executable,
+    },
+    transport::{
         GitExecution, GitOperationToken, GitPlanStep, GitRequestTarget, GitTransportPolicy,
         PluginGitAuthMode, PluginGitPullStrategy, PluginGitRequest, PluginGitScope,
         RemoteDirection, apply_environment, git_cli_path, git_cli_path_string, plan_git_request,
         read_remote_urls, resolve_git_executable,
-    },
-    git_tests::{GitFixture, fixture, identify, new_operation_id},
-    github::{
-        MAX_REPOSITORY_LIMIT, list_repositories, parse_repository_list, resolve_gh_executable,
     },
 };
 
@@ -134,7 +135,7 @@ fn empty_global_config(path: &Path) -> PathBuf {
 fn run_local(
     fixture: &GitFixture,
     request: PluginGitRequest,
-) -> crate::error::AppResult<super::git::PluginGitResult> {
+) -> crate::error::AppResult<super::transport::PluginGitResult> {
     fixture.manager.git_request_with_transport(
         PLUGIN_ID,
         request,
@@ -244,7 +245,7 @@ fn askpass_directories(fixture: &GitFixture) -> Vec<PathBuf> {
 #[cfg(unix)]
 fn configure_github_executable(manager: &PluginManager, path: &Path) {
     let settings = serde_json::json!({
-        super::settings::GITHUB_EXECUTABLE_SETTING: path.to_string_lossy(),
+        crate::plugins::settings::GITHUB_EXECUTABLE_SETTING: path.to_string_lossy(),
     });
     manager
         .set_settings(PLUGIN_ID, settings)
@@ -1679,10 +1680,10 @@ fn a_long_multibyte_diagnostic_is_cut_on_a_character_boundary() {
     // Every character here is three bytes, so a 200 byte cut lands inside one
     // of them and a byte slice would panic.
     let line = "\u{3053}".repeat(300);
-    let reduced = super::git::first_line(&format!("\n  {line}\nsecond line\n"));
+    let reduced = super::transport::first_line(&format!("\n  {line}\nsecond line\n"));
 
     assert!(reduced.ends_with('…'));
-    assert!(reduced.len() <= super::git::MAX_DIAGNOSTIC_BYTES + '…'.len_utf8());
+    assert!(reduced.len() <= super::transport::MAX_DIAGNOSTIC_BYTES + '…'.len_utf8());
     assert!(
         reduced
             .trim_end_matches('…')
@@ -1691,10 +1692,10 @@ fn a_long_multibyte_diagnostic_is_cut_on_a_character_boundary() {
     );
     // A short multi-byte line is reported whole.
     assert_eq!(
-        super::git::first_line("\u{3053}\u{3054}"),
+        super::transport::first_line("\u{3053}\u{3054}"),
         "\u{3053}\u{3054}"
     );
-    assert_eq!(super::git::first_line("   \n\n"), "");
+    assert_eq!(super::transport::first_line("   \n\n"), "");
 }
 
 #[test]
@@ -1984,8 +1985,8 @@ fn git_invocations(tools: &Path) -> Vec<String> {
 #[cfg(unix)]
 fn configure_git_executable(manager: &PluginManager, git: &Path, gh: &Path) {
     let settings = serde_json::json!({
-        super::settings::GIT_EXECUTABLE_SETTING: git.to_string_lossy(),
-        super::settings::GITHUB_EXECUTABLE_SETTING: gh.to_string_lossy(),
+        crate::plugins::settings::GIT_EXECUTABLE_SETTING: git.to_string_lossy(),
+        crate::plugins::settings::GITHUB_EXECUTABLE_SETTING: gh.to_string_lossy(),
     });
     manager
         .set_settings(PLUGIN_ID, settings)

@@ -16,7 +16,7 @@ const VERSION_FILES = {
   cargoToml: join("src-tauri", "Cargo.toml"),
   cargoLock: join("src-tauri", "Cargo.lock"),
   tauriConfig: join("src-tauri", "tauri.conf.json"),
-  pluginCatalog: join("packages", "plugins", "catalog.json"),
+  pluginCatalog: join("plugins", "catalog.json"),
 };
 
 export function normalizeVersion(value) {
@@ -139,7 +139,7 @@ export function setDenoteVersion(
 function readPluginCatalog(projectRoot) {
   const catalog = readJson(projectRoot, VERSION_FILES.pluginCatalog);
   if (!Array.isArray(catalog)) {
-    throw new Error("packages/plugins/catalog.json must contain an array.");
+    throw new Error("plugins/catalog.json must contain an array.");
   }
   return catalog;
 }
@@ -154,7 +154,7 @@ function pluginCatalogForRelease(catalog, releaseTag) {
       typeof entry?.artifact?.url !== "string"
     ) {
       throw new Error(
-        `packages/plugins/catalog.json entry ${index} is missing manifest or artifact metadata.`,
+        `plugins/catalog.json entry ${index} is missing manifest or artifact metadata.`,
       );
     }
     const artifactName = `${id}-${version}.tgz`;

@@ -35,13 +35,15 @@ describe("published plugin downloads", () => {
     ]);
   });
 
-  it("checks the exact source pin before a release exists without changing the catalog", async () => {
+  it("checks an explicitly selected historical origin without changing its metadata", async () => {
     const catalog = [entry()];
+    catalog[0].artifact.url =
+      `https://raw.githubusercontent.com/mbianchidev/denote/${sourceCommit}/plugin-artifacts/denote.synthetic-1.0.0.tgz`;
     const before = JSON.stringify(catalog);
     const fetch = vi.fn().mockResolvedValue(new Response(bytes));
     vi.stubGlobal("fetch", fetch);
 
-    await verifyPluginDownloads(catalog, { source: true });
+    await verifyPluginDownloads(catalog);
 
     expect(fetch).toHaveBeenCalledWith(
       `https://raw.githubusercontent.com/mbianchidev/denote/${sourceCommit}/plugin-artifacts/denote.synthetic-1.0.0.tgz`,
@@ -112,7 +114,7 @@ describe("published plugin downloads", () => {
     const fetch = vi.fn();
     vi.stubGlobal("fetch", fetch);
 
-    await expect(verifyPluginDownloads(catalog, { source: true }))
+    await expect(verifyPluginDownloads(catalog))
       .rejects.toThrow("40-character source commit");
     expect(fetch).not.toHaveBeenCalled();
   });

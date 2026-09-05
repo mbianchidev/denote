@@ -8,7 +8,8 @@ for your operating system, Node.js 24.15 or newer, and stable Rust.
 ## Run Denote
 
 ```bash
-npm ci
+node scripts/preinstall-validate-plugins.mjs
+npm ci --ignore-scripts
 npm run prepare:bundled-tools
 npm run verify:bundled-tools
 npm run dev:desktop
@@ -21,6 +22,7 @@ keychain entries cannot collide with an installed Denote release.
 ## Validate changes
 
 ```bash
+npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
 npm test
 npm run verify:bundled-tools
 npm run build
@@ -53,16 +55,23 @@ material. The target tree contains the Git and gh release archives. Denote
 downloads the matching published archive only for Bundled mode, then extracts it
 atomically into application data on first required use.
 
-Plugin source belongs under `packages/plugins/<plugin-id>/` and may import
+Plugin source belongs under `plugins/<name>/` and may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must
 not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
-`packages/plugins/denote.reference/` as the contract example; it is not bundled into
+`plugins/reference/` as the contract example; it is not bundled into
 the Denote application.
 
-Plugin unit tests belong in `packages/plugins/<plugin-id>/tests/`, outside
+Each plugin owns its manifest, guide, icon, package metadata, source, tests, and
+repository-only `releases.json` ledger. Shared catalog and bundle metadata live
+in `plugins/catalog.json` and `plugins/bundles.json`. The public contract remains
+in `packages/plugin-sdk`; native Git transport, automatic commits, clone,
+authentication, and executable resolution belong to the trusted host under
+`src-tauri/src/plugins/git/`, never to a downloadable package.
+
+Plugin unit tests belong in `plugins/<name>/tests/`, outside
 `src/`, so the packaged source keeps its strict import boundary while the tests
 still type check with `npm run check:plugins` and run with `npm test`. Use
-`packages/plugins/denote.git/tests/` as the example.
+`plugins/git/tests/` as the example.
 
 Create a complete package skeleton with:
 
@@ -70,9 +79,10 @@ Create a complete package skeleton with:
 npm run create:plugin -- denote.example "Example plugin" productivity
 ```
 
-The scaffold includes the manifest, required guide sections, icon, package
-metadata, and SDK entrypoint. It does not add an invalid unpublished entry to
-the production catalog.
+The scaffold creates `plugins/example/` with the manifest, required guide
+sections, icon, package metadata, and SDK entrypoint. Commands select a plugin
+by its manifest ID (`denote.example`), not by its directory name. The scaffold
+does not add an invalid unpublished entry to the production catalog.
 
 Build one plugin continuously while editing:
 
@@ -99,29 +109,112 @@ entries. CI checks this before dependency installation, installs with lifecycle
 scripts disabled, audits JavaScript and Rust dependencies, and rejects new
 high-severity dependency vulnerabilities.
 
-Build one independently downloadable plugin artifact with:
+### Prepare an immutable plugin version
+
+Build and stage one independently downloadable plugin artifact with:
 
 ```bash
 npm run package:plugin -- denote.example
 ```
 
-Commit the plugin source and resulting archive under `plugin-artifacts/`, then
-pin the catalog entry to that commit:
+The command writes only
+`.plugin-artifacts/denote.example-<plugin-version>.tgz`. That directory is
+ignored: never commit the archive, force-add it, or copy it into Tauri resources
+or an installer.
+
+Commit the plugin source first, together with any relevant SDK, lockfile, and
+build-tool changes. Then pin that full, 40-character source commit for the
+intended **Denote** release tag (not the plugin version):
 
 ```bash
-npm run pin:plugin -- denote.example --ref "$(git rev-parse HEAD)"
+npm run pin:plugin -- denote.example --ref "$(git rev-parse HEAD)" --release v0.1.1
 ```
 
-Both commands finish successfully and affect only the selected plugin.
-`package:plugin` refuses to replace different bytes at an existing version.
-Commit the catalog-only pin separately. Repository-wide
-`npm run package:plugins` and `npm run check:plugins` remain the release/CI
-aggregation commands. CI rebuilds every plugin, validates the real entrypoint,
-checks the committed archive against its 40-character source commit, checks safe
-archive paths/types/sizes, and verifies catalog size and SHA-256 digest on all
-supported platforms. Set
-`DENOTE_VERIFY_REMOTE_PLUGIN_ARTIFACTS=1` to additionally verify already
-published catalog URLs.
+Pinning verifies committed plugin source, SDK, build tooling, compiler
+configurations (including inherited configurations), and lockfile inputs
+before building and again after packaging. It checks a reproducible archive and
+its contents, then atomically writes that plugin's
+`releases.json` ledger before atomically replacing its catalog entry. An
+interruption between writes leaves the immutable version prepared in the ledger;
+retry the exact same pin to finish the catalog update. Do not edit or remove
+the prepared entry to replace its bytes or provenance. Pinning stages the
+verified bytes locally but does not create a tag, upload an asset, or publish a
+release. Commit only the catalog and selected ledger changes in a separate
+metadata commit.
+
+The source commit must be an ancestor of `HEAD`, so pushing the branch also
+publishes the source needed for reproduction. Archive text uses LF endings and
+fixed file modes regardless of checkout line endings or the author's umask.
+
+Pinning uses `.plugin-artifacts/pin.lock`, an exclusive cross-process lock
+containing the pin process's PID. If the process crashes, the lock remains and
+later pins refuse to run rather than stealing it. Inspect the recorded PID with
+your operating system's process tools and confirm no pin process is running.
+Only then remove the exact `.plugin-artifacts/pin.lock` file and retry the same
+pin command. Do not remove the staging directory or alter the immutable ledger.
+If the ledger write completed before the interruption, the identical retry
+finishes the catalog update without replacing the prepared version.
+Interrupted metadata temporary files are ignored and are not compiler inputs.
+
+Every ledger entry records an immutable plugin version, source commit, archive
+origin URL, byte count, and SHA-256 digest. Existing historical versions retain
+their verified commit-addressed raw URLs and exact byte identities. A historical
+download uses only that exact ledger URL and fails if unavailable or invalid;
+it never falls back to a current catalog URL or another source. New versions
+are deterministically built from source rather than recovered from archive blobs
+in Git. The ledger is repository-only, not executable package or app metadata.
+Release preparation may rehost an unchanged artifact under a newer Denote tag
+by changing the current catalog URL; it must not change its ledger origin,
+source commit, size, or digest.
+
+`provenance.sourceCommit` in the catalog and `sourceCommit` in the ledger mean
+source provenance: they identify the committed source and build inputs, not a
+commit containing a `.tgz`. Pinning never requires a binary archive Git object.
+New source entries also record `sourcePath`, such as `plugins/example`, naming
+the plugin directory at the pinned commit. Verification uses that recorded path
+even if the current package later moves; do not rewrite existing ledger entries
+to follow a directory rename.
+
+Both targeted commands affect only the selected plugin and refuse to replace
+different bytes at an existing version. Neither command bumps versions. When
+one plugin changes, explicitly bump only its own manifest/package version.
+Unchanged plugins retain their bytes, guide, provenance, and metadata.
+
+Run the repository-wide checks and staging command before a release:
+
+```bash
+npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
+npm run check:plugins
+npm run package:plugins
+```
+
+`check:plugins` validates manifests, guides, real built entrypoints, types,
+import boundaries, safe archive paths/types/sizes, exact package content, and
+pinned sizes and SHA-256 digests. Historical entries use verified immutable
+downloads; new entries use deterministic source rebuilds. No tracked `.tgz`
+blob is required. `package:plugins` applies the same archive verification and
+stages every current catalog artifact as
+`.plugin-artifacts/<plugin-id>-<plugin-version>.tgz` without editing metadata.
+Set `DENOTE_VERIFY_REMOTE_PLUGIN_ARTIFACTS=1` to additionally verify already
+published current catalog URLs; do not use it for a release whose assets have
+not been published yet.
+
+`check:plugin-archives` needs no installed dependencies. It rejects archive files
+in the Git index, including force-added ignored output. `--base <full-sha>`
+also checks additions across all proposed commits, including an archive added
+and then deleted before the tip; old immutable history is permitted. The base
+comparison also requires every existing ledger entry to remain unchanged and
+rejects a changed catalog digest, size, or source SHA for the same plugin
+version. New ledger versions may be appended; unchanged versions may be
+rehosted through a catalog URL change only.
+Ledgers are matched by stable plugin ID, so moving a self-contained plugin
+directory preserves its recorded history. Merge-resolution-only archive
+additions are checked too, even if a later commit deletes them.
+
+Resolve a base ref to its full commit SHA as shown above. CI runs the guard
+before dependency installation with full history, using the pull request base
+or push's previous commit. Manual runs and all-zero bases omit `--base`, so they
+check the index without a historical metadata comparison.
 
 Check published downloads independently of packaging:
 
@@ -130,11 +223,13 @@ npm run check:plugin-downloads -- --source
 npm run check:plugin-downloads
 ```
 
-The first command checks each immutable source-commit archive before a release
-exists. The second checks the exact URLs embedded in the application, reports
-every unavailable plugin, and verifies the bounded download's size and SHA-256.
-CI checks source pins; release publication checks the public release URLs after
-publishing, including when retrying an already-published release.
+The first command rebuilds plugins and verifies their ledger-backed source
+recipes or historical origins before a release exists. It never assumes an
+archive exists in a source commit. The second checks the exact URLs embedded in
+the application, reports every unavailable plugin, and verifies the bounded
+download's size and SHA-256. CI checks source recipes; release publication checks
+the public release URLs after publishing, including when retrying an
+already-published release.
 
 Native download/install, enablement commit, disable/reinstall, and update rollback
 smoke checks use temporary application data and a synthetic previous version:
@@ -147,10 +242,10 @@ cargo test --manifest-path src-tauri/Cargo.toml plugins::download_tests::publish
 These opt-in checks require network access. They exercise the production native
 downloader and integrity boundaries, not renderer worker activation.
 
-Packaging is per plugin. An unchanged manifest version must match its committed
-archive and is retained without changing its artifact bytes, URL, digest, size,
-guide, or provenance. If one plugin changes, bump only that plugin's version;
-`npm run package:plugins` must leave every unrelated plugin untouched.
+The source-pinned native smoke test uses each ledger's exact origin URL. It can
+exercise historical raw pins before a new Denote release, but a newly pinned
+source-built version needs its origin release published before that network
+smoke test can pass. Use `check:plugins` for offline pending-source validation.
 
 ## Build a desktop bundle
 
@@ -212,10 +307,20 @@ source commit, checksum, and size.
 
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
-platform before it creates a GitHub Release. It stages Linux AppImage, Debian,
-and RPM packages, macOS Apple Silicon and Intel disk images, and Windows MSI and
-NSIS installers, validates the current catalog archives, then publishes the
-installers and plugin archives together with generated release notes.
+platform before it creates a GitHub Release. Every release dependency install is
+preceded by `node scripts/preinstall-validate-plugins.mjs` and uses
+`npm ci --ignore-scripts`.
+
+The validation job runs `check:plugins`, then `package:plugins`, and transfers
+the verified `.plugin-artifacts/*.tgz` files as the dedicated
+`plugin-release-assets` workflow artifact. Platform builds never take those
+archives as installer inputs. The publish job downloads them into ignored
+staging, rechecks the exact filenames, sizes, SHA-256 digests, and catalog URLs
+against the release tag, and copies those exact bytes into the upload set
+without rebuilding them. It publishes the plugin assets together with Linux
+AppImage, Debian, and RPM packages, macOS Apple Silicon and Intel disk images,
+Windows MSI and NSIS installers, and generated release notes. Installer smoke
+checks continue to reject embedded plugin `.tgz` files.
 
 If a release run fails, run the **Release** workflow manually and provide the
 existing tag. Incomplete draft releases are replaced automatically after every

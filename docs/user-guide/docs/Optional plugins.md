@@ -5,6 +5,10 @@ run by default. Open **Settings → Plugins** to browse the catalog. You can sea
 category or enabled state, inspect permissions, and read each guide before
 enabling anything.
 
+Plugin code comes from separately verified GitHub Release assets, not from the
+desktop installer. Denote checks each package's pinned size and checksum before
+installing it.
+
 Plugin settings can be saved, reset, and imported or exported as versioned JSON.
 Older settings exports run the plugin's declared migrations before current
 validation.

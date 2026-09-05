@@ -68,6 +68,7 @@ if (watchMode) {
     if (
       path === "dist" ||
       path.startsWith("dist/") ||
+      path === "releases.json" ||
       path === "node_modules" ||
       path.startsWith("node_modules/")
     ) {
