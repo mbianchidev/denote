@@ -27,6 +27,7 @@ export interface ReferenceDefinitionGroupSnapshot {
 
 export interface ReferenceMarkdownSnapshot {
   source: string;
+  root?: Root;
   definitions: ReferenceDefinitionSnapshot[];
   definitionGroups: ReferenceDefinitionGroupSnapshot[];
   firstDefinitions: Map<string, ReferenceDefinitionSnapshot>;
@@ -35,16 +36,12 @@ export interface ReferenceMarkdownSnapshot {
 export function captureReferenceMarkdown(
   markdown: string,
 ): ReferenceMarkdownSnapshot {
+  if (!markdown.includes("[")) return emptyReferenceSnapshot(markdown);
   let root: Root;
   try {
     root = fromMarkdown(markdown);
   } catch {
-    return {
-      source: markdown,
-      definitions: [],
-      definitionGroups: [],
-      firstDefinitions: new Map(),
-    };
+    return emptyReferenceSnapshot(markdown);
   }
 
   const definitions: ReferenceDefinitionSnapshot[] = [];
@@ -82,10 +79,15 @@ export function captureReferenceMarkdown(
   }
   return {
     source: markdown,
+    root,
     definitions,
     definitionGroups: groupReferenceDefinitions(markdown, definitions),
     firstDefinitions,
   };
+}
+
+function emptyReferenceSnapshot(source: string): ReferenceMarkdownSnapshot {
+  return { source, definitions: [], definitionGroups: [], firstDefinitions: new Map() };
 }
 
 export function referenceDefinitionFor(
@@ -129,6 +131,7 @@ export function rawDefinitionGroupSource(
 }
 
 export function maskReferenceDefinitions(markdown: string): string {
+  if (!markdown.includes("[")) return markdown;
   const snapshot = captureReferenceMarkdown(markdown);
   if (snapshot.definitions.length === 0) {
     return markdown;

@@ -10,13 +10,17 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import type {
+  PluginEmojiPickerContribution,
   PluginAutomaticLocalCommitContribution,
   PluginSourceControlContribution,
 } from "./plugins/workerRuntime";
-import type { FileNode, WorkspaceSnapshot } from "./types";
+import type { FileNode, PluginView, WorkspaceSnapshot } from "./types";
+import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type LexicalEditor } from "lexical";
+import { syntheticEmojiPicker, syntheticEmojiPluginView } from "./lib/emoji.testFixtures";
 
 const mockApi = vi.hoisted(() => ({
   getLastVault: vi.fn(),
+  listKnownVaultFiles: vi.fn(),
   listSearchDocuments: vi.fn(),
   markProjectRoot: vi.fn(),
   refreshVault: vi.fn(),
@@ -32,7 +36,7 @@ const mockApi = vi.hoisted(() => ({
 }));
 
 const mockPluginController = vi.hoisted(() => ({
-  plugins: [],
+  plugins: [] as PluginView[],
   bundles: [],
   commands: [],
   sidebarViews: [],
@@ -40,6 +44,8 @@ const mockPluginController = vi.hoisted(() => ({
   decorations: [],
   sourceControlProviders: [] as PluginSourceControlContribution[],
   automaticLocalCommits: [] as PluginAutomaticLocalCommitContribution[],
+  emojiPickers: [] as PluginEmojiPickerContribution[],
+  saveEmojiPreferences: vi.fn().mockResolvedValue(undefined),
   loading: false,
   busyPluginIds: new Set<string>(),
   refresh: vi.fn(),
@@ -78,6 +84,7 @@ const mockOpener = vi.hoisted(() => ({
   openPath: vi.fn(),
   revealItemInDir: vi.fn(),
 }));
+const trackAppRender = vi.hoisted(() => vi.fn());
 
 vi.mock("@tauri-apps/plugin-opener", () => mockOpener);
 vi.mock("./plugins/usePlugins", () => ({
@@ -87,6 +94,7 @@ vi.mock("./plugins/usePlugins", () => ({
     _workspaceIdentity: unknown,
     onVaultCloned: (snapshot: unknown) => void | Promise<void>,
   ) => {
+    trackAppRender();
     // The host's clone callback is captured so a test can drive the exact
     // renderer signal a cloned vault produces.
     mockPluginController.openClonedVault = onVaultCloned;
@@ -235,6 +243,10 @@ describe("App initial file-tree expansion", () => {
     mockApi.restoreTrashItem.mockResolvedValue(fileNode(".gitignore"));
     mockPluginController.sourceControlProviders = [];
     mockPluginController.automaticLocalCommits = [];
+    mockPluginController.emojiPickers = [];
+    mockPluginController.plugins = [];
+    mockPluginController.busyPluginIds = new Set();
+    mockApi.listKnownVaultFiles.mockResolvedValue({ files: [], truncated: false });
     mockPluginController.runSourceControlAction.mockResolvedValue(undefined);
     mockApi.pluginAutomaticCommit.mockResolvedValue({
       status: "committed",
@@ -267,12 +279,166 @@ describe("App initial file-tree expansion", () => {
           .join(","),
       );
     });
+
     expect(screen.getByTestId("file-tree-expanded")).not.toHaveTextContent(
       /\.GIT|Node_Modules/,
     );
     expect(screen.getByTestId("file-tree-dotfiles")).toHaveTextContent("true");
   });
 
+  it("generates an editor-only emoji command and preserves selection through the command palette", async () => {
+      const picker = syntheticEmojiPicker();
+      mockPluginController.emojiPickers = [picker];
+      mockPluginController.plugins = [syntheticEmojiPluginView()];
+      mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+      const { container } = render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+      const root = await screen.findByRole("textbox", { name: "editable markdown" });
+      const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+      await act(async () => {
+        root.focus();
+        editor.update(() => $getRoot().getAllTextNodes()[0].select(0, 9), { discrete: true });
+      });
+      fireEvent.keyDown(window, { key: "p", code: "KeyP", ctrlKey: true });
+      const dialog = await screen.findByRole("dialog", { name: "Command palette" });
+      fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "Emoji picker" } });
+      fireEvent.keyDown(within(dialog).getByRole("combobox"), { key: "Enter" });
+      await screen.findByRole("dialog", { name: "Emoji picker" });
+      fireEvent.click(screen.getByRole("button", { name: "Insert Smiling face" }));
+      await waitFor(() => expect(container.querySelector(".denote-editor-content")).toHaveTextContent("😀.md content"));
+      expect(mockPluginController.runCommand).not.toHaveBeenCalled();
+      expect(mockPluginController.saveEmojiPreferences).toHaveBeenCalledWith("test.emoji", "picker", {
+        recents: ["😀"], favorites: [], tone: 0,
+      });
+    });
+
+  it("navigates emoji suggestions without rerendering the workspace", async () => {
+    const picker = syntheticEmojiPicker();
+    picker.entries[1].shortcodes = ["smirk"];
+    mockPluginController.emojiPickers = [picker];
+    mockPluginController.plugins = [syntheticEmojiPluginView()];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    const root = await screen.findByRole("textbox", { name: "editable markdown" });
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    await act(async () => {
+      root.focus();
+      editor.update(() => $getRoot().getAllTextNodes()[0].selectEnd(), { discrete: true });
+      editor.dispatchCommand(KEY_DOWN_COMMAND, new KeyboardEvent("keydown", { key: "m" }));
+      editor.update(() => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) selection.insertText(" :sm");
+      }, { discrete: true });
+    });
+    expect(screen.getByLabelText("Emoji suggestions")).toBeVisible();
+    trackAppRender.mockClear();
+    for (let index = 0; index < 5; index++) {
+      fireEvent.keyDown(root, { key: "ArrowDown" });
+      fireEvent.keyDown(root, { key: "ArrowUp" });
+    }
+    fireEvent.keyDown(root, { key: "Escape" });
+    expect(screen.queryByLabelText("Emoji suggestions")).not.toBeInTheDocument();
+    expect(trackAppRender).not.toHaveBeenCalled();
+  });
+
+  it("renders once per ordinary edit without publishing an unchanged outline", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+    const { unmount } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    const root = await screen.findByRole("textbox", { name: "editable markdown" });
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    const type = (text: string) => editor.update(() => {
+      const selection = $getSelection();
+      if ($isRangeSelection(selection)) selection.insertText(text);
+    }, { discrete: true });
+    await act(async () => {
+      root.focus();
+      editor.update(() => $getRoot().getAllTextNodes()[0].selectEnd(), { discrete: true });
+      type("a");
+    });
+    trackAppRender.mockClear();
+    act(() => type("b"));
+    expect(trackAppRender).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("cancels deferred save and index work when the app is unmounted", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.txt", "text")]));
+    const { unmount } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.txt" }));
+    const change = await screen.findByRole("button", { name: "Change Edit synthetic.txt" });
+    vi.useFakeTimers();
+    try {
+      await act(async () => fireEvent.click(change));
+      unmount();
+      mockApi.saveNote.mockClear();
+      mockApi.listSearchDocuments.mockClear();
+      await act(async () => { await vi.runOnlyPendingTimersAsync(); });
+      expect(mockApi.saveNote).not.toHaveBeenCalled();
+      expect(mockApi.listSearchDocuments).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens emoji with the host shortcut and removes surfaces when disabled", async () => {
+      mockPluginController.emojiPickers = [syntheticEmojiPicker()];
+      mockPluginController.plugins = [syntheticEmojiPluginView()];
+      mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+      const { rerender } = render(<App />);
+      fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+      const root = await screen.findByRole("textbox", { name: "editable markdown" });
+      const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+      await act(async () => { root.focus(); editor.update(() => $getRoot().getAllTextNodes()[0].selectEnd(), { discrete: true }); });
+      fireEvent.keyDown(window, { key: "E", ctrlKey: true, shiftKey: true });
+      expect(screen.getByRole("dialog", { name: "Emoji picker" })).toBeInTheDocument();
+      mockPluginController.emojiPickers = [];
+      rerender(<App />);
+      expect(screen.queryByRole("dialog", { name: "Emoji picker" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Emoji picker" })).not.toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "E", ctrlKey: true, shiftKey: true });
+      expect(screen.queryByRole("dialog", { name: "Emoji picker" })).not.toBeInTheDocument();
+    });
+  it("reports malformed persisted emoji preferences outside render without crashing", async () => {
+    const plugin = syntheticEmojiPluginView();
+    plugin.settings.favorite = "{";
+    mockPluginController.emojiPickers = [syntheticEmojiPicker()];
+    mockPluginController.plugins = [plugin];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+    render(<App />);
+    expect(await screen.findByText("Invalid emoji preferences. Reset this plugin's settings.")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open synthetic.md" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Emoji picker" })).not.toBeInTheDocument();
+  });
+
+  it("withholds pre-commit emoji contributions and immediately removes busy or disabled pickers", async () => {
+    const plugin = syntheticEmojiPluginView();
+    mockPluginController.emojiPickers = [syntheticEmojiPicker()];
+    mockPluginController.plugins = [{ ...plugin, enabled: false, status: "installing" }];
+    mockPluginController.busyPluginIds = new Set(["test.emoji"]);
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("synthetic.md")]));
+    const { rerender } = render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    await screen.findByRole("textbox", { name: "editable markdown" });
+    expect(screen.queryByRole("button", { name: "Emoji picker" })).not.toBeInTheDocument();
+    mockPluginController.plugins = [{ ...plugin, status: "update-available" }];
+    rerender(<App />);
+    expect(screen.queryByRole("button", { name: "Emoji picker" })).not.toBeInTheDocument();
+    mockPluginController.busyPluginIds = new Set();
+    rerender(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Emoji picker" }));
+    expect(screen.getByRole("dialog", { name: "Emoji picker" })).toBeInTheDocument();
+    mockPluginController.busyPluginIds = new Set(["test.emoji"]);
+    rerender(<App />);
+    expect(screen.queryByRole("dialog", { name: "Emoji picker" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Emoji picker" })).not.toBeInTheDocument();
+    mockPluginController.busyPluginIds = new Set();
+    mockPluginController.plugins = [{ ...plugin, enabled: false, status: "disabled" }];
+    rerender(<App />);
+    expect(screen.queryByRole("button", { name: "Emoji picker" })).not.toBeInTheDocument();
+    expect(mockPluginController.saveEmojiPreferences).not.toHaveBeenCalled();
+  });
   it("loads and persists the dotfile preference without reloading the vault", async () => {
     localStorage.setItem("denote-show-dotfiles", "false");
     mockApi.getLastVault.mockResolvedValue(

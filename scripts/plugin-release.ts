@@ -83,10 +83,17 @@ export function readReleases(directory: string, manifest: PluginManifest): Plugi
 }
 
 export function verifyBytes(bytes: Uint8Array, artifact: PluginCatalogEntry["artifact"]): void {
+  if (bytes.byteLength > MAX_BYTES) {
+    throw new Error("Plugin artifact bytes do not match the pinned size and SHA-256: package size limit exceeded.");
+  }
+  const digest = createHash("sha256").update(bytes).digest("hex");
   if (
-    bytes.byteLength !== artifact.sizeBytes || bytes.byteLength > MAX_BYTES ||
-    createHash("sha256").update(bytes).digest("hex") !== artifact.sha256
-  ) throw new Error("Plugin artifact bytes do not match the pinned size and SHA-256.");
+    bytes.byteLength !== artifact.sizeBytes ||
+    digest !== artifact.sha256
+  ) throw new Error(
+    `Plugin artifact bytes do not match the pinned size and SHA-256. ` +
+    `Expected ${artifact.sizeBytes} bytes / ${artifact.sha256}; got ${bytes.byteLength} bytes / ${digest}.`,
+  );
 }
 
 export async function downloadArtifact(

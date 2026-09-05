@@ -221,6 +221,47 @@ files. A Git plugin therefore stages ciphertext only, tracks
 `.denote/encryption.json` as binary, and passes the host encryption preflight
 before committing.
 
+### Local emoji picker
+
+The additive API version 1 `emoji-picker` permission exposes only
+`context.capabilities.emojiPicker.register(picker)`. It returns a disposable
+handle and accepts one picker per plugin: a namespaced ID, title, local entries,
+an autocomplete boolean, and three declared settings-key references. Entries
+contain a stable ID, accessible name, category, search keywords, ASCII
+shortcodes without colons, a complete Unicode emoji grapheme, and standardized
+variants with optional skin-tone numbers 1 through 5.
+
+The worker and host reject malformed fields, duplicate IDs, undeclared or
+incorrectly typed settings, non-emoji insertion values, more than 5,000 entries,
+more than 30 variants per entry, and serialized data above 2 MiB. Each emoji
+sequence is limited to 64 UTF-16 units and one grapheme; each keyword/shortcode
+list has at most 32 values. There is no HTML, script, renderer component,
+arbitrary shortcut, document read/write function, or plugin action callback.
+
+The host supplies the toolbar action, command entry, Command/Control-Shift-E,
+search, bounded results, selection/focus management, code-aware shortcode
+suggestions, and undoable insertion in editable Markdown Rich and Source modes.
+Suggestions require explicit acceptance and do not trigger during composition
+or in code. Locking a vault, entering maintenance/read mode, switching the
+editor, or unregistering the contribution invalidates its insertion target.
+Typed text, searches, and note content never cross into the worker.
+
+The `settingsKeys.recents` and `settingsKeys.favorites` properties must name
+string settings whose defaults are `"[]"`; `settingsKeys.tone` names a numeric
+setting with bounds 0 through 5. The host stores bounded JSON arrays of Unicode
+strings (32 recents, 128 favorites) and a skin-tone number there, outside
+Markdown. Only entries in the installed dataset can be selected. Invalid
+imported preferences report reset guidance. Preference writes are serialized
+and coordinated with settings/reset/disable operations, without restarting the
+worker on every insertion. Explicit settings changes retain the normal
+reactivation flow.
+
+`denote.emoji-picker` is independently installed, disabled by default, and asks
+only for this permission. Its dataset and license notices ship in its verified
+archive, never in application resources. Disabling it removes hooks, UI, and
+code without changing notes; retained settings have the usual explicit cleanup
+controls.
+
 ### Git transport
 
 Trusted native Git transport and its automatic-commit, clone, GitHub
@@ -575,6 +616,12 @@ record are untouched, so a schedule or a setting takes effect without
 reinstalling the plugin.
 
 ## Publication and governance
+
+Source-built archives use normalized tar metadata and a pinned JavaScript gzip
+implementation. They must reproduce the same complete bytes across Node runtimes
+and operating systems; matching only the extracted contents is insufficient.
+Compression changes must not replace a pinned version's digest or size. This
+build-time compressor is not included in the application or plugin runtime.
 
 The initial catalog is first-party only. A plugin artifact is publishable when:
 

@@ -15,6 +15,7 @@
 | Find and replace | `Command-H` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
 | Create or edit link | `Command-K` | `Ctrl-K` |
+| Insert emoji (optional Emoji picker plugin) | `Command-Shift-E` | `Ctrl-Shift-E` |
 | Close tab | `Command-W` | `Ctrl-W` |
 | Increase editor text | `Command-+` | `Ctrl-+` |
 | Decrease editor text | `Command--` | `Ctrl--` |

@@ -14,6 +14,7 @@ on your device.
 - Native files, folders, tabs, links, images, and multiple vaults
 - Autosave, revision history, Denote Trash, and conflict-safe writes
 - Optional vault encryption with one-time recovery codes
+- Optional local emoji picker with Unicode insertion and shortcode suggestions
 - macOS, Windows, and Linux support through Tauri
 
 Your vault remains a normal folder. Denote does not require an account, cloud

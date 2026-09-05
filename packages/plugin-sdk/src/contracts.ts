@@ -20,6 +20,7 @@ export const PLUGIN_CAPABILITIES = [
   "sidebar",
   "status",
   "editor-decoration",
+  "emoji-picker",
   "note-events",
   "project-context",
   "source-control",
@@ -219,6 +220,48 @@ export interface PluginStorage {
 
 export interface PluginSettings {
   getAll: () => Promise<Record<string, unknown>>;
+}
+
+export interface PluginEmojiVariant {
+  name: string;
+  unicode: string;
+  tone?: number;
+}
+
+export interface PluginEmojiEntry {
+  id: string;
+  name: string;
+  unicode: string;
+  category: string;
+  keywords: string[];
+  shortcodes: string[];
+  variants: PluginEmojiVariant[];
+}
+
+export interface PluginEmojiPreferences {
+  recents: string[];
+  favorites: string[];
+  tone: number;
+}
+
+/**
+ * A local dataset, not executable UI. The host owns search, shortcode matching,
+ * selection, insertion and preference writes; no editor content is returned.
+ */
+export interface PluginEmojiPicker {
+  id: string;
+  title: string;
+  entries: PluginEmojiEntry[];
+  shortcodes: boolean;
+  settingsKeys: {
+    recents: string;
+    favorites: string;
+    tone: string;
+  };
+}
+
+export interface PluginEmojiPickerCapability {
+  register: (picker: PluginEmojiPicker) => PluginDisposable;
 }
 
 export interface PluginSecureStorage {
@@ -1383,6 +1426,7 @@ export interface PluginCapabilities {
   sidebar?: PluginSidebarCapability;
   status?: PluginStatusCapability;
   editorDecoration?: PluginEditorDecorationCapability;
+  emojiPicker?: PluginEmojiPickerCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
   sourceControl?: PluginSourceControlCapability;

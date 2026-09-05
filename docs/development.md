@@ -145,6 +145,12 @@ metadata commit.
 The source commit must be an ancestor of `HEAD`, so pushing the branch also
 publishes the source needed for reproduction. Archive text uses LF endings and
 fixed file modes regardless of checkout line endings or the author's umask.
+Archive compression uses the exact build-only `pako@2.1.0` implementation with
+fixed gzip parameters and a portable header, not the Node runtime's native
+zlib. Different native zlib builds can compress identical tar input differently.
+The pinned compressor preserves existing source-archive bytes; upgrading it is
+an archive-format change, not a routine dependency refresh. Golden-digest tests
+and all existing release pins must pass before changing compression.
 
 Pinning uses `.plugin-artifacts/pin.lock`, an exclusive cross-process lock
 containing the pin process's PID. If the process crashes, the lock remains and
@@ -246,6 +252,53 @@ The source-pinned native smoke test uses each ledger's exact origin URL. It can
 exercise historical raw pins before a new Denote release, but a newly pinned
 source-built version needs its origin release published before that network
 smoke test can pass. Use `check:plugins` for offline pending-source validation.
+
+An already-pinned plugin builds against the SDK source at its catalog
+`sourceCommit`, keeping later additive host capabilities out of its immutable
+archive. A new or bumped plugin version builds against the current SDK.
+Keep full Git history available when rebuilding pinned artifacts. A plugin that
+needs a newly added SDK function must bump its own version before building.
+
+### Emoji plugin development
+
+Use `npm run dev:plugin -- denote.emoji-picker` with the isolated development
+app to load the local archive. The plugin owns the bundled dataset and manifest;
+the SDK's `emoji-picker` contract and host editor adapters own validation and
+interaction. Do not import its dataset into `src/` or grant workspace/network
+permissions to implement insertion.
+
+Targeted coverage includes `src/plugins/emojiPickers.test.ts`,
+`src/plugins/workerRuntime.test.ts`, `src/plugins/usePlugins.test.tsx`, emoji
+editor/component tests, package tests under
+`plugins/emoji-picker/tests/`, and native
+`plugins::emoji_tests`. Keep all note text and paths synthetic. Exercise Rich
+and both source-editor paths, composition, code exclusion, Unicode variants,
+undo/redo, focus restoration, and runtime/locked-vault changes.
+Performance regressions assert that suggestion navigation does not rerender the
+workspace, only 48 visible results resolve variants, repeated preference writes
+reuse dataset membership, and rich insertions reuse current Markdown analysis.
+These are deterministic work-count checks rather than machine-dependent timing
+limits. Keep the `:sm` path synchronous; do not hide expensive work behind a
+typing debounce.
+Ordinary-typing regressions compare enabled and disabled plugins in Rich and
+both Source paths, require identical parser counts and no emoji host calls, and
+repeat after an insertion. To print synthetic timing diagnostics alongside
+these work counts, use
+`DENOTE_PROFILE_EMOJI=1 npx vitest run src/components/EmojiPicker.editors.test.tsx -t "keeps ordinary typing off"`.
+Those jsdom timings include the editor and test environment; they are not
+end-to-end desktop latency guarantees.
+Core regressions additionally require zero full-note parses for ordinary prose,
+including with the emoji plugin disabled, one workspace render per settled edit,
+and cancellation of deferred work when the app unmounts. Delimiter fast paths
+are covered alongside the full Markdown, HTML, reference, TOC, and code tests;
+never replace those safety parsers with a permissive fallback.
+
+Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
+build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`
+using `--ref` and `--release` for the intended Denote release. Commit only the
+catalog and release ledger separately, never the archive. The package guide documents dataset
+provenance and regeneration; license notices must be included in the archive's
+guide, not just an unpackaged source file.
 
 ## Build a desktop bundle
 

@@ -44,7 +44,7 @@ import {
   viewMode$,
 } from "@mdxeditor/editor";
 import { usePublisher } from "@mdxeditor/gurx";
-import { Transaction } from "@codemirror/state";
+import { Compartment, Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import {
   $createParagraphNode,
@@ -125,6 +125,10 @@ import {
   type TagColorMap,
 } from "../lib/tagColors";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
+import type { EmojiEditorBinding } from "../lib/emojiHost";
+import { EmojiSourceHistory, emojiSourcePatch } from "../lib/emoji";
+import { createEmojiSourceExtension, createEmojiSourceHistoryExtension } from "../lib/emojiSource";
+import { EmojiRichContext, emojiRichPlugin, type EmojiRichBinding } from "../lib/emojiRich";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
@@ -281,6 +285,7 @@ interface MarkdownEditorProps {
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
   pluginDecorations?: PluginEditorDecoration[];
+  emoji?: EmojiEditorBinding;
   preferredViewMode: MarkdownViewMode;
   projectSourceMode?: boolean;
   readOnly: boolean;
@@ -313,6 +318,7 @@ export const MarkdownEditor = forwardRef<
     lineEnding,
     displaySettings,
     pluginDecorations = [],
+    emoji,
     preferredViewMode,
     projectSourceMode = false,
     readOnly,
@@ -341,12 +347,42 @@ export const MarkdownEditor = forwardRef<
   );
   const referenceSnapshotRef = useRef(referenceSnapshot);
   referenceSnapshotRef.current = referenceSnapshot;
-  const detectedSourceOnly = hasUnsupportedRichMarkdown(markdown);
-  const renderDetails = hasSupportedDetailsMarkdown(markdown);
+  const detectedSourceOnly = useMemo(() => hasUnsupportedRichMarkdown(markdown), [markdown]);
+  const renderDetails = useMemo(() => hasSupportedDetailsMarkdown(markdown), [markdown]);
   const shellRef = useRef<HTMLDivElement>(null);
+  const emojiRef = useRef(emoji);
+  const emojiSourceRef = useRef(markdown);
+  const [sourceLineBreak] = useState(() => markdown.includes("\r\n") ? "\r\n" : markdown.includes("\r") ? "\r" : "\n");
+  emojiSourceRef.current = markdown;
+  const [emojiSerialization] = useState(() => new EmojiSourceHistory());
+  const emojiCompartment = useRef(new Compartment()).current;
+  const configuredEmojiSource = useRef<{ view: EditorView; binding: EmojiEditorBinding | undefined } | null>(null);
+  emojiRef.current = emoji && /\.(md|markdown)$/i.test(notePath) ? {
+    ...emoji,
+    prepareSource: (document, from, to, unicode) => {
+      const patch = emojiSourcePatch(emojiSourceRef.current, document, from, to, unicode);
+      if (patch === null) return false;
+      emojiSerialization.record(document, emojiSourceRef.current);
+      emojiSerialization.prepare(patch);
+      return true;
+    },
+  } : undefined;
+  const emojiRichBinding = useMemo<EmojiRichBinding | undefined>(() => emoji ? ({
+    host: emoji.host,
+    scope: emoji.scope,
+    source: () => emojiSourceRef.current,
+    sourceSnapshot: () => referenceSnapshotRef.current,
+    prepare: (source) => { emojiSerialization.prepare(source); },
+  }) : undefined, [emoji?.host, emoji?.scope, emojiSerialization]);
+  const emojiSourceExtensions = useMemo(() => [
+    createEmojiSourceHistoryExtension((history) => emojiSerialization.beforeChange(history)),
+    emojiCompartment.of(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
+  ], [emojiCompartment, emojiSerialization]);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
   const onLinkOpenRef = useRef(onLinkOpen);
   onLinkOpenRef.current = onLinkOpen;
+  const callbacksRef = useRef({ onError, onImageUpload, onViewModeChange, onMarkdownErrorCleared });
+  callbacksRef.current = { onError, onImageUpload, onViewModeChange, onMarkdownErrorCleared };
   const displayGuidesForceSource =
     hasEditorDisplayGuides(displaySettings);
   const initialSourceOnly = useRef(detectedSourceOnly).current;
@@ -451,9 +487,7 @@ export const MarkdownEditor = forwardRef<
     () => createPluginDecorationExtensions(pluginDecorations),
     [pluginDecorations],
   );
-  const boundaryWhitespace = useRef(
-    captureMarkdownBoundaryWhitespace(markdown),
-  ).current;
+  const [boundaryWhitespace] = useState(() => captureMarkdownBoundaryWhitespace(markdown));
   const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(
     null,
   );
@@ -473,6 +507,7 @@ export const MarkdownEditor = forwardRef<
       quotePlugin(),
       thematicBreakPlugin(),
       denoteHashtagPlugin(),
+      emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
       linkDialogPlugin({
@@ -485,7 +520,7 @@ export const MarkdownEditor = forwardRef<
         },
       }),
       imagePlugin({
-        imageUploadHandler: (file) => onImageUpload(notePath, file),
+        imageUploadHandler: (file) => callbacksRef.current.onImageUpload(notePath, file),
         imagePreviewHandler: async (source) => {
           if (
             source.startsWith("data:") ||
@@ -497,7 +532,7 @@ export const MarkdownEditor = forwardRef<
           try {
             return await api.readImageDataUrl(source, notePath);
           } catch (caught) {
-            onError(errorMessage(caught));
+            callbacksRef.current.onError(errorMessage(caught));
             throw caught;
           }
         },
@@ -521,6 +556,7 @@ export const MarkdownEditor = forwardRef<
           markdownLinkKeymap,
           ...displayExtensions,
           ...pluginDecorationExtensions,
+          emojiSourceExtensions,
         ],
       }),
       safeRichHtmlPlugin(),
@@ -532,8 +568,8 @@ export const MarkdownEditor = forwardRef<
         suppressPersistence: () =>
           searchForcedSourceRef.current ||
           transientViewModeChangeRef.current,
-        onChange: onViewModeChange,
-        onErrorCleared: onMarkdownErrorCleared,
+        onChange: (mode) => callbacksRef.current.onViewModeChange(mode),
+        onErrorCleared: () => callbacksRef.current.onMarkdownErrorCleared?.(),
         onModeChange: (mode) => {
           activeViewModeRef.current = mode;
           setActiveViewMode(mode);
@@ -621,11 +657,9 @@ export const MarkdownEditor = forwardRef<
       initialViewMode,
       realmInitialViewMode,
       notePath,
-      onError,
-      onImageUpload,
-      onMarkdownErrorCleared,
-      onViewModeChange,
       pluginDecorationExtensions,
+      emojiSourceExtensions,
+      emojiSerialization,
       preferredViewMode,
       projectSourceMode,
       restorePreferredViewMode,
@@ -653,7 +687,14 @@ export const MarkdownEditor = forwardRef<
         return;
       }
       const source = editorSource;
-      if (view.state.doc.toString() !== source) {
+      const previous = configuredEmojiSource.current;
+      if (previous?.view !== view || previous.binding?.host !== emojiRef.current?.host || previous.binding?.scope !== emojiRef.current?.scope) {
+        configuredEmojiSource.current = { view, binding: emojiRef.current };
+        view.dispatch({
+          effects: emojiCompartment.reconfigure(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
+        });
+      }
+      if (view.state.doc.toString() !== source.replace(/\r\n?/g, "\n")) {
         const anchor = Math.min(view.state.selection.main.head, source.length);
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: source },
@@ -664,7 +705,7 @@ export const MarkdownEditor = forwardRef<
     };
     timer = window.setTimeout(sync, 0);
     return () => window.clearTimeout(timer);
-  }, [activeViewMode, editorSource, notePath]);
+  }, [activeViewMode, emoji?.host, emoji?.scope, emojiCompartment, editorSource, notePath]);
 
   useEffect(() => {
     const shell = shellRef.current;
@@ -838,6 +879,7 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
     >
+      <EmojiRichContext.Provider value={emojiRichBinding}>
       <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
         <DenoteCodeBlockEditorSettingsProvider
           readOnly={readOnly}
@@ -857,7 +899,21 @@ export const MarkdownEditor = forwardRef<
             trim={false}
             spellCheck
             onChange={(value, initialNormalize) => {
+              const serialization = emojiSerialization;
+              if (initialNormalize) serialization.record(value, emojiSourceRef.current);
               if (!initialNormalize) {
+                const exactSource = serialization.restore(value);
+                if (exactSource !== undefined) {
+                  const output = sourceLineBreak !== "\n" && activeViewModeRef.current === "source"
+                    ? exactSource.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak)
+                    : exactSource;
+                  tocMarkersRef.current = captureTocMarkers(output);
+                  thematicBreaksRef.current = captureThematicBreaks(output);
+                  serialization.record(value, output);
+                  emojiSourceRef.current = output;
+                  onChange(output);
+                  return;
+                }
                 let restoredMarkdown = restoreRichTextTagSyntax(
                   directivesToCallouts(value),
                 );
@@ -880,12 +936,14 @@ export const MarkdownEditor = forwardRef<
                 tocMarkersRef.current = markerUpdate.snapshot;
                 thematicBreaksRef.current =
                   captureThematicBreaks(markerUpdate.markdown);
-                onChange(
-                  restoreMarkdownBoundaryWhitespace(
+                let output = activeViewModeRef.current === "source" ? markerUpdate.markdown : restoreMarkdownBoundaryWhitespace(
                     markerUpdate.markdown,
                     boundaryWhitespace,
-                  ),
-                );
+                  );
+                if (sourceLineBreak !== "\n" && activeViewModeRef.current === "source") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
+                serialization.record(value, output);
+                emojiSourceRef.current = output;
+                onChange(output);
               }
             }}
             onError={({ error, source }) => {
@@ -903,6 +961,7 @@ export const MarkdownEditor = forwardRef<
           />
         </DenoteCodeBlockEditorSettingsProvider>
       </SafeRichHtmlRenderProvider>
+      </EmojiRichContext.Provider>
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
   );
