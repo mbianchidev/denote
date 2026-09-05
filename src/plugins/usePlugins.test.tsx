@@ -340,6 +340,33 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].start).toHaveBeenLastCalledWith(current);
   });
 
+  it("restarts the installed version when the update download returns 404 before preparation", async () => {
+    const current = makePlugin({
+      status: "update-available",
+      enabled: true,
+      previouslyApproved: true,
+    });
+    const { result } = await mountReady([current]);
+    vi.mocked(api.preparePluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("prepare");
+      throw new Error("Synthetic plugin download returned HTTP 404 Not Found");
+    });
+    queueListPlugins([current]);
+
+    await act(async () => {
+      await expect(
+        result.current.enable(pluginId, current.catalog.manifest.permissions),
+      ).rejects.toThrow("HTTP 404 Not Found");
+    });
+
+    expect(callOrder).toEqual(["stop", "prepare", "listPlugins", "start"]);
+    expect(api.commitPluginEnable).not.toHaveBeenCalled();
+    expect(api.rollbackPluginEnable).not.toHaveBeenCalled();
+    expect(api.disablePlugin).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).toHaveBeenLastCalledWith(current);
+    expect(result.current.busyPluginIds.size).toBe(0);
+  });
+
   it("stops the runtime and rolls back without committing when the runtime fails to start", async () => {
     const notEnabled = makePlugin({ enabled: false });
     const { result } = await mountReady([notEnabled]);

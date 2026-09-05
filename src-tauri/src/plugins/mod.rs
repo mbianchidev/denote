@@ -19,6 +19,8 @@ mod auto_commit_tests;
 #[cfg(test)]
 mod clone_tests;
 #[cfg(test)]
+mod download_tests;
+#[cfg(test)]
 mod git_tests;
 #[cfg(test)]
 mod tests;

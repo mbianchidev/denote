@@ -123,6 +123,30 @@ supported platforms. Set
 `DENOTE_VERIFY_REMOTE_PLUGIN_ARTIFACTS=1` to additionally verify already
 published catalog URLs.
 
+Check published downloads independently of packaging:
+
+```bash
+npm run check:plugin-downloads -- --source
+npm run check:plugin-downloads
+```
+
+The first command checks each immutable source-commit archive before a release
+exists. The second checks the exact URLs embedded in the application, reports
+every unavailable plugin, and verifies the bounded download's size and SHA-256.
+CI checks source pins; release publication checks the public release URLs after
+publishing, including when retrying an already-published release.
+
+Native download/install, enablement commit, disable/reinstall, and update rollback
+smoke checks use temporary application data and a synthetic previous version:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml plugins::download_tests::source_pinned_downloads_complete_native_lifecycle -- --ignored --exact
+cargo test --manifest-path src-tauri/Cargo.toml plugins::download_tests::published_catalog_downloads_complete_native_lifecycle -- --ignored --exact
+```
+
+These opt-in checks require network access. They exercise the production native
+downloader and integrity boundaries, not renderer worker activation.
+
 Packaging is per plugin. An unchanged manifest version must match its committed
 archive and is retained without changing its artifact bytes, URL, digest, size,
 guide, or provenance. If one plugin changes, bump only that plugin's version;
@@ -197,6 +221,13 @@ If a release run fails, run the **Release** workflow manually and provide the
 existing tag. Incomplete draft releases are replaced automatically after every
 platform bundle succeeds, including duplicates left by older failed runs.
 Restore a deleted tag at its original release commit before retrying.
+
+An HTTP 404 for every plugin can mean the release has not been published, even
+when the source archives and their hashes are correct. Check the Release run's
+validation job before changing catalog pins. A retry of the same tag uses the
+same source commit: a code or test fix must land on `main` and be included in a
+new release tag. Do not move an existing tag, replace plugin bytes, or publish
+an incomplete release just to make its plugin URLs resolve.
 
 To abandon a failed release, revert the tagged release commit, push the revert,
 then remove the tag locally and remotely:
