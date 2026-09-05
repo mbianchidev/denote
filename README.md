@@ -25,7 +25,9 @@ Tagged versions are published on
 [GitHub Releases](https://github.com/mbianchidev/denote/releases) with desktop
 bundles for Linux, Windows, and both Apple Silicon and Intel Macs. Optional
 plugin archives are separate release assets downloaded only when installed;
-they are not bundled in the desktop installers.
+they are not bundled in the desktop installers or committed to the repository.
+Plugin source and immutable release metadata live under `plugins/`; generated
+archives are staged only in ignored `.plugin-artifacts/`.
 
 ## Documentation
 
@@ -33,4 +35,6 @@ Read the [project documentation](docs/index.md) or start with the
 [development guide](docs/development.md).
 
 Plugin authors can use the targeted local workflow documented under
-[plugin development](docs/development.md).
+[plugin development](docs/development.md). Each plugin owns its source, manifest,
+guide, tests, and release ledger; the shared contract remains in
+[`packages/plugin-sdk`](packages/plugin-sdk).

@@ -93,9 +93,12 @@ path metadata.
 
 ## Plugin boundary
 
-Plugin implementations live under `packages/plugins/<plugin-id>/`, separate
-from the editor source and from every other plugin. The public, versioned
-contract lives in `packages/plugin-sdk`. `src/plugins/usePlugins.ts` is the
+Plugin implementations live under `plugins/<name>/`, including `plugins/git/`
+and `plugins/reference/`, separate from the editor and from every other plugin.
+Each package owns its implementation, manifest, guide, tests, and repository-only
+release ledger. Shared discovery metadata lives in `plugins/catalog.json` and
+`plugins/bundles.json`. The public, versioned contract lives in
+`packages/plugin-sdk`. `src/plugins/usePlugins.ts` is the
 renderer-side orchestrator that drives the lifecycle against that contract;
 `src/plugins/workerRuntime.ts` (`PluginWorkerRuntime`) and
 `src/plugins/pluginWorker.ts` provide the typed, isolated runtime each enabled
@@ -111,6 +114,22 @@ rewrites each current catalog URL to the matching versioned GitHub Release asset
 while the source commit, byte count, and SHA-256 digest remain independently
 pinned. The downloader follows only bounded HTTPS redirects across approved
 GitHub asset hosts. Installers contain the catalog but no plugin archive.
+
+Plugin archives are never tracked in the current repository tree. Each
+`plugins/<name>/releases.json` ledger records immutable versions, source commits,
+origin URLs, sizes, and SHA-256 digests; it is not embedded in the application.
+Historical entries keep verified commit-addressed archive URLs, so existing
+bytes remain available without copying old Git blobs into new commits. Downloads
+use only the exact ledger origin and fail closed if it is unavailable or invalid,
+without a fallback to another source. New entries use deterministic builds of
+committed source and verified build inputs.
+Packaging writes only ignored `.plugin-artifacts/` staging output.
+Release validation verifies archive content against source as well as safe
+entries, size, and digest, then transfers those bytes in a dedicated workflow
+artifact. Publishing rechecks the complete filename set, catalog release URLs,
+sizes, and hashes before uploading the same bytes beside the desktop installers.
+It neither rebuilds nor reads archives from Git. Rehosting changes only current
+catalog URLs, not ledger origins or archive provenance.
 
 Debug builds have a separate local-development adapter, compiled out of release
 builds. It is available only when Tauri runs with the
@@ -264,11 +283,15 @@ source-control action lease is extended to a bounded ten minutes so it can span
 one native Git operation; ordinary commands keep the 30 second lease.
 
 `PluginGitRequest` is a typed discriminated union. Each operation carries exact
-structured fields, and `src-tauri/src/plugins/git.rs` maps it to a fixed
+structured fields, and `src-tauri/src/plugins/git/transport.rs` maps it to a fixed
 argument template. Plugins never supply argument arrays, option flags, or shell
 input, and option-like values, control characters, path traversal, absolute or
 `.git` paths, pathspec magic, revision syntax in branch names, unsupported URL
 schemes, and embedded passwords are all rejected before a process starts.
+The trusted transport, automatic commits, clone, GitHub authentication, askpass,
+and executable resolution share the native `src-tauri/src/plugins/git/`
+namespace. They remain host-owned permission and filesystem boundaries, not
+code shipped in the downloadable `plugins/git/` package.
 `restore-from-upstream` maps to one fixed `git restore --source=@{upstream}
 --staged --worktree -- <paths>` template. The plugin supplies only bounded
 repository-relative tracked paths. The host confirmation names the selected
@@ -577,8 +600,8 @@ future specialized grammar contribution would require a separately approved,
 typed, bundled host contract with deterministic disposal and fallback; API
 version 1 does not expose editor grammars or runtime grammar downloads.
 
-The native plugin manager embeds only `packages/plugins/catalog.json`. Plugin
-artifacts remain separate repository files and are downloaded over HTTPS after
+The native plugin manager embeds only `plugins/catalog.json`. Plugin
+artifacts remain separate GitHub Release assets and are downloaded over HTTPS after
 approval. The native core verifies the catalog size and SHA-256 digest before
 extracting a gzip-compressed tar archive. Extraction rejects absolute paths,
 parent traversal, symlinks, hard links, and special files. The packaged manifest
@@ -673,10 +696,31 @@ or delete a valid installed version. The latest package substitutes for it only
 after **Review and update** or **Update all** completes. Disabled packages,
 tampered packages, incompatible installed versions, and explicitly revoked
 installed versions are still removed during recovery.
-The packaging tool also enforces catalog independence: an unchanged version is
-extracted and compared with its source, then retained byte-for-byte with its
-existing immutable URL and provenance. Only a plugin whose own version changed
-is rebuilt and repinned.
+The packaging tool also enforces catalog independence: historical artifacts are
+downloaded from their immutable ledger origins and compared with current package
+content; new versions are deterministically rebuilt and compared with their
+committed source and build inputs. Both paths verify exact package content and
+retain the recorded byte identity and provenance. Packaging never bumps versions
+or edits metadata. A targeted pin changes only one plugin's catalog entry and
+release ledger, rejects replacement of an existing version, and publishes
+nothing. It verifies committed plugin source, SDK, build tooling, and lockfile
+inputs before building and again after packaging. Catalog
+`provenance.sourceCommit` and ledger `sourceCommit` identify source provenance,
+not an archive-bearing commit, so no binary Git object is required.
+New source entries record `sourcePath`, the plugin directory at that commit.
+Source verification uses this immutable path independently of the package's
+current location, preserving provenance through later directory moves.
+Pinning atomically writes the ledger before atomically replacing the
+catalog; an interrupted catalog write leaves a prepared immutable version that
+an exact retry can finish. Its exclusive cross-process PID lock lives at
+`.plugin-artifacts/pin.lock`. A crashed pin leaves the lock behind and later pins
+refuse rather than stealing it; recovery requires confirming no pin process is
+running, removing only that exact lock file, and retrying the same pin.
+CI rejects archive files in the Git index and archive
+additions anywhere in the proposed commit range while permitting their immutable
+history. Against a full-SHA base, it also requires existing ledger entries to
+remain unchanged and same-version catalog size, digest, and source SHA to stay
+fixed; only new ledger versions or rehosted catalog URLs may be added.
 
 Deleted entries move to `.denote/trash` inside the vault. The sidebar restore
 action returns them to their original path, choosing a non-conflicting restored

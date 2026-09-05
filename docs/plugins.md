@@ -1,7 +1,7 @@
 # Plugin ecosystem
 
 Denote keeps optional capabilities outside the core application. Plugin source
-lives in the monorepo under `packages/plugins/<plugin-id>/`, but the desktop
+lives in the monorepo under `plugins/<name>/`, but the desktop
 application must not bundle or execute those implementations. It can load
 catalog metadata before enablement; executable packages are downloaded,
 verified, installed, and loaded only after explicit user approval.
@@ -14,7 +14,10 @@ enabled plugin in an isolated worker (`src/plugins/pluginWorker.ts`) and speaks
 only typed messages to it. The native `PluginManager` in `src-tauri` is the
 security boundary: it owns installation, verification, state persistence, and
 transaction recovery. Plugins must not import editor internals or another
-plugin.
+plugin. The Git package is `plugins/git/` and the contract example is
+`plugins/reference/`. Shared discovery metadata lives in `plugins/catalog.json`
+and `plugins/bundles.json`; each plugin owns its manifest, guide, tests, and
+release ledger.
 
 ## Package contract
 
@@ -27,12 +30,18 @@ Every plugin contains:
   troubleshooting sections available to the catalog before code execution;
 - `icon.svg` or another package-relative icon;
 - an implementation under `src/` that imports only the plugin SDK and its own
-  declared third-party dependencies.
+  declared third-party dependencies;
+- synthetic tests under `tests/`, separate from packaged source;
+- a repository-only `releases.json` ledger once a version is pinned, recording
+  immutable versions, source commits, origin URLs, sizes, and SHA-256 digests.
+  New source entries also record `sourcePath`, the plugin directory at the
+  pinned commit, independently of its current directory.
+  The ledger is not included in executable archives or embedded in Denote.
 
 Run `npm run check:plugins` to validate manifests, required documentation,
 package layout, declared runtime dependencies, type safety, import boundaries,
 and the real `dist/` entrypoint produced for each package. The reference package
-at `packages/plugins/denote.reference/` exercises this contract without adding a
+at `plugins/reference/` exercises this contract without adding a
 production feature.
 
 ## Host lifecycle
@@ -213,6 +222,11 @@ files. A Git plugin therefore stages ciphertext only, tracks
 before committing.
 
 ### Git transport
+
+Trusted native Git transport and its automatic-commit, clone, GitHub
+authentication, askpass, and executable-resolution helpers live together in
+`src-tauri/src/plugins/git/`. This is host-owned security code, not part of the
+downloadable `plugins/git/` package.
 
 The approved `git` permission adds a `git` capability to the user-action
 context. It is privileged, so it exists only inside an explicit command or
@@ -524,8 +538,8 @@ cancellation registry as typed requests, so disabling the plugin or closing
 Denote stops them.
 
 The repository reference plugin is the end-to-end fixture. Its independently
-downloadable artifact is stored under `plugin-artifacts/`, while only catalog
-metadata enters the desktop bundle.
+downloadable archive is a separate GitHub Release asset, staged locally only in
+ignored `.plugin-artifacts/`; only catalog metadata enters the desktop bundle.
 
 `denote.git`, the Git vault versioning plugin, is the first production catalog
 entry and the `git` role candidate in the Code tooling bundle. It requests
@@ -564,12 +578,14 @@ reinstalling the plugin.
 
 The initial catalog is first-party only. A plugin artifact is publishable when:
 
-- its source is contained in one `packages/plugins/<plugin-id>/` directory;
+- its source is contained in one `plugins/<name>/` directory;
 - manifest, guide, package, type, import-boundary, and artifact checks pass;
 - frontend and native tests pass on macOS, Windows, and Linux;
 - automated JavaScript and Rust audits report no unresolved high-severity
   vulnerability;
-- the committed archive exactly matches built source;
+- its verified archive exactly matches package content and its pinned source;
+- its immutable release ledger records the version, source commit, origin URL,
+  size, and SHA-256, with no archive added to the Git index or proposed commits;
 - its catalog entry pins an immutable repository source commit, byte size, and
   SHA-256 digest;
 - its release URL names the exact plugin archive under the matching versioned
@@ -602,24 +618,70 @@ permission approval, and keeps the installed package as the rollback target
 until the new runtime commits. Updates remain explicit foreground actions,
 never automatic background replacements.
 
-`scripts/package-plugins.ts` treats every plugin version independently. When a
-source manifest version matches the catalog, the script verifies that the
-committed archive still matches its source and retains the archive bytes, URL,
-digest, size, guide, and provenance unchanged. A changed package must bump only
-its own version. Packaging or pinning `denote.git` therefore cannot rewrite the
-`denote.reference` artifact or any other plugin.
+Plugin archives must not be committed. Generated release packages live only in
+ignored `.plugin-artifacts/`, and CI's dependency-free
+`check:plugin-archives -- --base <full-sha>` guard rejects archives in the Git
+index and additions anywhere in the proposed commits, even if later deleted.
+The base must be a full commit SHA. It also requires existing release-ledger
+entries to remain unchanged and rejects same-version catalog changes to the
+digest, size, or source SHA. New versions may be appended, and current catalog
+URLs may rehost unchanged bytes. Existing immutable history is allowed; it is
+not rewritten.
 
-For authoring, `package:plugin -- <id>` creates one immutable archive without
-requiring a commit that does not exist yet. After that source/archive commit,
-`pin:plugin -- <id> --ref <sha>` verifies the committed bytes and creates or
-updates only that catalog entry. The repository-wide commands remain the final
-CI and release checks.
+Each `releases.json` ledger retains the identity and origin of every pinned
+version. Historical versions use verified immutable commit-addressed raw URLs,
+preserving their size, digest, and source SHA without requiring those archive
+blobs in the current tree. Historical downloads use the single exact ledger URL
+and fail if unavailable or invalid, with no fallback to a catalog URL or another
+source. New versions are deterministically built from
+committed source and verified build inputs. Existing versions never receive
+replacement bytes or provenance. Neither packaging nor pinning bumps a version;
+authors explicitly bump only the plugin that changed.
+
+For authoring, `package:plugin -- <id>` builds one archive into ignored staging
+without requiring an uncreated source commit. Commit the source and relevant
+SDK, lockfile, and build inputs first. Then
+`pin:plugin -- <id> --ref <sha> --release <vSEMVER>` verifies committed plugin
+source, SDK, build tooling, and lockfile inputs before building and again after
+packaging, checks the reproducible package and immutable-version constraints, and
+atomically writes the selected release ledger before atomically replacing that
+plugin's catalog entry. An interruption between those writes leaves a prepared
+immutable ledger entry; retrying the exact same pin completes the catalog
+update. Never edit or remove that entry to allow replacement bytes. The release
+argument is the intended Denote release tag. Commit the metadata separately.
+Pinning never uploads an asset or publishes a release.
+Packaging or pinning `denote.git` cannot rewrite `denote.reference` or another
+plugin.
+
+`.plugin-artifacts/pin.lock` is an exclusive cross-process PID lock. A crashed
+pin leaves the lock in place, and another invocation refuses rather than stealing
+it. Confirm no pin process is running before removing only the exact lock file,
+then retry the same pin command; retain any prepared ledger entry so that retry
+can finish the catalog update. Catalog `provenance.sourceCommit` and ledger
+`sourceCommit` mean source provenance, never the identity of an archive-bearing
+commit. Pinning requires committed source/build inputs, not a binary Git object.
+New source releases retain their original `sourcePath` (for example,
+`plugins/git`) so verification can still find the pinned source after a later
+package-directory move. Renaming a package does not rewrite its release ledger.
+
+`check:plugins` and `package:plugins` are the repository-wide CI/release
+commands. Both verify historical immutable downloads or deterministically
+rebuild new versions, check safe archive entries and exact package content, and
+match the pinned size and SHA-256 without depending on tracked archive blobs.
+`package:plugins` stages every current artifact under
+`.plugin-artifacts/<plugin-id>-<plugin-version>.tgz` without changing catalog
+metadata, ledger records, guides, or provenance.
 
 Release preparation rewrites every current catalog URL to
 `https://github.com/mbianchidev/denote/releases/download/<tag>/<plugin-id>-<plugin-version>.tgz`.
-The release workflow verifies the committed archive against its catalog digest
-and size, uploads it beside the desktop installers, and rejects installers that
-contain any plugin `.tgz`.
+Only current catalog URLs change; source commits, digests, sizes, and ledger
+origins remain fixed. The release validation job runs `check:plugins`, then
+`package:plugins`, and uploads the verified archives as `plugin-release-assets`.
+The publish job downloads this dedicated workflow artifact into ignored staging,
+rechecks its exact filename set, hashes, sizes, and release URLs, then uploads
+those exact bytes beside the desktop installers without rebuilding. Platform
+jobs never consume plugin archives, and installer smoke checks reject any
+embedded plugin `.tgz`.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor
@@ -628,8 +690,9 @@ until the user opts in.
 
 Plugin proposals use `.github/ISSUE_TEMPLATE/plugin.yml`. The host API, SDK,
 catalog, and native installer require maintainer review; each plugin owns its
-manifest, guide, tests, artifact, migrations, and support lifecycle.
+manifest, guide, tests, immutable release ledger, migrations, and support
+lifecycle.
 
-Curated bundles live in `packages/plugins/bundles.json`. They can reference
+Curated bundles live in `plugins/bundles.json`. They can reference
 stable categories and explicit plugin IDs for discovery, but never trigger
 download or enablement.
