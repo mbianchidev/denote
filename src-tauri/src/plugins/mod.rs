@@ -10,6 +10,8 @@ mod settings;
 mod types;
 
 #[cfg(test)]
+mod download_tests;
+#[cfg(test)]
 mod tests;
 
 pub use commands::*;

@@ -11,6 +11,7 @@ import {
   assertValidPluginCatalogEntry, type PluginCatalogEntry, type PluginManifest,
 } from "@denote/plugin-sdk";
 import { pluginPackagePaths, readPluginGuide, writePluginArchive } from "./plugin-archive";
+import { verifyRemoteArtifact } from "./plugin-downloads.mjs";
 
 const REPOSITORY = "https://github.com/mbianchidev/denote";
 const MAX_BYTES = 25 * 1024 * 1024;
@@ -91,52 +92,7 @@ export async function downloadArtifact(
   artifact: PluginCatalogEntry["artifact"],
   fetcher: typeof fetch = fetch,
 ): Promise<Buffer> {
-  const hosts = new Set([
-    "github.com", "raw.githubusercontent.com",
-    "objects.githubusercontent.com", "release-assets.githubusercontent.com",
-  ]);
-  const signal = AbortSignal.timeout(30_000);
-  let url = artifact.url;
-  for (let redirects = 0; redirects <= 4; redirects++) {
-    const parsed = new URL(url);
-    if (
-      parsed.protocol !== "https:" || parsed.username || parsed.password ||
-      parsed.port || !hosts.has(parsed.hostname)
-    ) throw new Error("Plugin artifact download host is not allowed.");
-    const response = await fetcher(url, { redirect: "manual", signal });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      await response.body?.cancel();
-      if (!location || redirects === 4) throw new Error("Plugin artifact redirect limit exceeded.");
-      url = new URL(location, url).toString();
-      continue;
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      throw new Error(`Pinned plugin artifact unavailable: HTTP ${response.status} (${artifact.url}).`);
-    }
-    const reader = response.body?.getReader();
-    if (!reader) throw new Error("Plugin artifact response has no body.");
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    try {
-      while (true) {
-        const chunk = await reader.read();
-        if (chunk.done) break;
-        size += chunk.value.byteLength;
-        if (size > artifact.sizeBytes || size > MAX_BYTES) {
-          throw new Error("Plugin artifact exceeds its pinned size.");
-        }
-        chunks.push(chunk.value);
-      }
-    } finally {
-      await reader.cancel();
-    }
-    const bytes = Buffer.concat(chunks);
-    verifyBytes(bytes, artifact);
-    return bytes;
-  }
-  throw new Error("Plugin artifact redirect limit exceeded.");
+  return verifyRemoteArtifact(artifact.url, "plugin", artifact.sizeBytes, artifact.sha256, fetcher);
 }
 
 export function writeAtomic(path: string, bytes: string | Buffer): void {

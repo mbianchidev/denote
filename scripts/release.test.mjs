@@ -31,6 +31,9 @@ describe("release version script", () => {
 
   it("updates every Denote version source", () => {
     const root = createFixture();
+    const catalogBefore = JSON.parse(
+      readFileSync(join(root, "plugins", "catalog.json"), "utf8"),
+    )[0];
 
     expect(setDenoteVersion(root, "v1.4.0")).toEqual({
       changed: true,
@@ -50,6 +53,13 @@ describe("release version script", () => {
     ).toBe(
       "https://github.com/mbianchidev/denote/releases/download/v1.4.0/synthetic.plugin-2.3.4.tgz",
     );
+    const catalogAfter = JSON.parse(
+      readFileSync(join(root, "plugins", "catalog.json"), "utf8"),
+    )[0];
+    expect(catalogAfter).toEqual({
+      ...catalogBefore,
+      artifact: { ...catalogBefore.artifact, url: catalogAfter.artifact.url },
+    });
   });
 
   it("checks a tag without changing files", () => {
@@ -141,6 +151,11 @@ function createFixture({
         url: `https://github.com/mbianchidev/denote/releases/download/v${catalogReleaseVersion}/synthetic.plugin-2.3.4.tgz`,
         sha256: "0".repeat(64),
         sizeBytes: 1,
+      },
+      provenance: {
+        publisherId: "denote",
+        sourceCommit: "a".repeat(40),
+        trusted: true,
       },
     },
   ]);

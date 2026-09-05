@@ -682,6 +682,10 @@ rechecks its exact filename set, hashes, sizes, and release URLs, then uploads
 those exact bytes beside the desktop installers without rebuilding. Platform
 jobs never consume plugin archives, and installer smoke checks reject any
 embedded plugin `.tgz`.
+After publication it checks the exact public catalog URLs, including on retries
+of an already-published release. A failed release is not a reason to change
+existing plugin versions, checksums, or source pins. There is no downloader
+fallback to a branch, a different package, or an unverified archive.
 
 Plugins do not receive telemetry APIs by default. Any future telemetry
 capability must be separately permissioned, disclosed in the guide, honor

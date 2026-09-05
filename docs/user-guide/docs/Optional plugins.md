@@ -28,6 +28,13 @@ If a plugin is behaving badly, use **Disable all plugins** in the same settings
 section. The editor remains usable while plugin workers start, and a crashing
 plugin is stopped and removed automatically.
 
+If installation reports **HTTP 404 Not Found**, the package named by your
+Denote build is not published at its download URL. Check for a completed Denote
+release and install that application version; retrying an unpublished release
+cannot fix the missing package. Keep the plugin ID, version, and download URL
+from the error when reporting it. A failed update preserves the installed
+version; do not disable it just to retry the download.
+
 When previously approved plugins have updates, **Update all** appears in the
 plugin manager. It first lists the exact plugins and explains that their complete
 latest permission sets will be accepted again. Confirming updates only those

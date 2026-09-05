@@ -166,7 +166,7 @@ describe("bounded integrity-checked downloads", () => {
   it("rejects corrupt or oversized responses", async () => {
     expect(() => verifyBytes(Buffer.from("wrong"), artifact)).toThrow("pinned");
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("too many bytes in this response"));
-    await expect(downloadArtifact(artifact, fetcher)).rejects.toThrow("exceeds");
+    await expect(downloadArtifact(artifact, fetcher)).rejects.toThrow("larger than catalog metadata");
   });
 
   it("does not fallback on missing releases", async () => {

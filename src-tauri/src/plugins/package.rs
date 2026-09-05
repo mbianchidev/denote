@@ -66,9 +66,11 @@ pub(crate) fn download_artifact(catalog: &PluginCatalogEntry) -> AppResult<Vec<u
         }
         if !response.status().is_success() {
             return Err(AppError::Plugin(format!(
-                "Plugin download returned HTTP {} for {}",
+                "Plugin download returned HTTP {} for {}@{} at {}. The published archive must be available before installation",
                 response.status(),
-                catalog.manifest.id
+                catalog.manifest.id,
+                catalog.manifest.version,
+                catalog.artifact.url
             )));
         }
         if let Some(length) = response.content_length()

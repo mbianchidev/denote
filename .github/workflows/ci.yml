@@ -170,6 +170,10 @@ jobs:
       - name: Plugin contract and boundaries
         run: npm run check:plugins
 
+      - name: Immutable plugin source recipes
+        if: runner.os == 'Linux'
+        run: npm run check:plugin-downloads -- --source
+
       - name: Frontend build
         run: npm run build
 
