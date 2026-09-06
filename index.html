@@ -6,8 +6,21 @@
     <meta name="theme-color" content="#121315" />
     <script>
       (() => {
-        const theme = localStorage.getItem("denote-theme") === "light" ? "light" : "dark";
+        const stored = localStorage.getItem("denote-theme");
+        const preference =
+          stored === "light" || stored === "dark" || stored === "system"
+            ? stored
+            : "dark";
+        const theme =
+          preference === "system"
+            ? matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
         document.documentElement.dataset.theme = theme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", theme === "dark" ? "#121315" : "#e9e6df");
       })();
     </script>
     <title>Denote</title>

@@ -1,0 +1,105 @@
+{
+  "schemaVersion": 1,
+  "repository": "mbianchidev/denote",
+  "downloads": [
+    {
+      "id": "macos-aarch64",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "packageType": "dmg",
+      "label": "macOS Apple Silicon",
+      "fileName": "Denote_{version}_aarch64.dmg"
+    },
+    {
+      "id": "macos-x64",
+      "platform": "macos",
+      "architecture": "x86_64",
+      "packageType": "dmg",
+      "label": "macOS Intel",
+      "fileName": "Denote_{version}_x64.dmg"
+    },
+    {
+      "id": "windows-x64",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "packageType": "nsis",
+      "label": "Windows",
+      "fileName": "Denote_{version}_x64-setup.exe"
+    },
+    {
+      "id": "linux-appimage-x64",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "packageType": "appimage",
+      "label": "Linux AppImage",
+      "fileName": "Denote_{version}_amd64.AppImage"
+    },
+    {
+      "id": "linux-deb-x64",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "packageType": "deb",
+      "label": "Linux Debian / Ubuntu",
+      "fileName": "Denote_{version}_amd64.deb"
+    },
+    {
+      "id": "linux-rpm-x64",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "packageType": "rpm",
+      "label": "Linux Fedora / RPM",
+      "fileName": "Denote-{version}-1.x86_64.rpm"
+    }
+  ],
+  "updaterTargets": [
+    {
+      "target": "darwin-aarch64-app",
+      "platform": "macos",
+      "architecture": "aarch64",
+      "bundleType": "app",
+      "releaseFileName": "Denote_{version}_aarch64.app.tar.gz"
+    },
+    {
+      "target": "darwin-x86_64-app",
+      "platform": "macos",
+      "architecture": "x86_64",
+      "bundleType": "app",
+      "releaseFileName": "Denote_{version}_x64.app.tar.gz"
+    },
+    {
+      "target": "windows-x86_64-nsis",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "bundleType": "nsis",
+      "releaseFileName": "Denote_{version}_x64-setup.exe"
+    },
+    {
+      "target": "windows-x86_64-msi",
+      "platform": "windows",
+      "architecture": "x86_64",
+      "bundleType": "msi",
+      "releaseFileName": "Denote_{version}_x64_en-US.msi"
+    },
+    {
+      "target": "linux-x86_64-appimage",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "bundleType": "appimage",
+      "releaseFileName": "Denote_{version}_amd64.AppImage"
+    },
+    {
+      "target": "linux-x86_64-deb",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "bundleType": "deb",
+      "releaseFileName": "Denote_{version}_amd64.deb"
+    },
+    {
+      "target": "linux-x86_64-rpm",
+      "platform": "linux",
+      "architecture": "x86_64",
+      "bundleType": "rpm",
+      "releaseFileName": "Denote-{version}-1.x86_64.rpm"
+    }
+  ]
+}

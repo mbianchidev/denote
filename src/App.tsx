@@ -252,7 +252,17 @@ import {
   type ReplacePreview,
   type ReplaceRequest,
 } from "./lib/replace";
-import { applyTheme, getTheme, type Theme } from "./lib/theme";
+import {
+  applyTheme,
+  getThemePreference,
+  observeSystemTheme,
+  observeThemePreference,
+  resolveTheme,
+  saveThemePreference,
+  systemTheme,
+  type Theme,
+  type ThemePreference,
+} from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
 import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
 import { resolveCommitMessage } from "./plugins/commitMessages";
@@ -740,7 +750,13 @@ function sourceControlConfirmation(
 }
 
 function App() {
-  const [theme, setTheme] = useState<Theme>(() => getTheme());
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    getThemePreference(),
+  );
+  const [currentSystemTheme, setCurrentSystemTheme] = useState<Theme>(() =>
+    systemTheme(),
+  );
+  const theme = resolveTheme(themePreference, currentSystemTheme);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
@@ -1393,6 +1409,20 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
+  const updateThemePreference = useCallback(
+    (preference: ThemePreference) => {
+      try {
+        saveThemePreference(preference);
+        setThemePreference(preference);
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+  const toggleTheme = useCallback(() => {
+    updateThemePreference(theme === "dark" ? "light" : "dark");
+  }, [theme, updateThemePreference]);
   const toggleDotfileVisibility = useCallback(() => {
     const next = !showDotfilesRef.current;
     try {
@@ -2733,6 +2763,10 @@ function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  useEffect(() => observeSystemTheme(setCurrentSystemTheme), []);
+
+  useEffect(() => observeThemePreference(setThemePreference), []);
 
   useEffect(() => {
     activePathRef.current = activePath;
@@ -7684,8 +7718,7 @@ function App() {
       title: `Switch to ${theme === "dark" ? "light" : "dark"} mode`,
       description: "Change the application color theme.",
       category: "Appearance",
-      run: () =>
-        setTheme((current) => (current === "dark" ? "light" : "dark")),
+      run: toggleTheme,
     },
   ];
   commandPaletteCommands.push(
@@ -7911,9 +7944,7 @@ function App() {
         <VaultUnlockScreen
           vaultName={workspace.vaultName}
           theme={theme}
-          onThemeToggle={() =>
-            setTheme((current) => (current === "dark" ? "light" : "dark"))
-          }
+          onThemeToggle={toggleTheme}
           onShowVaults={() => setVaultSwitcherOpen(true)}
           onUnlockWithPassword={(password) =>
             unlockEncryptedVault(password, false)
@@ -8213,9 +8244,7 @@ function App() {
           setActiveSourceControlProvider({ pluginId, providerId });
         }}
         onAbout={() => setAboutOpen(true)}
-        onThemeToggle={() =>
-          setTheme((current) => (current === "dark" ? "light" : "dark"))
-        }
+        onThemeToggle={toggleTheme}
       />
       <aside className="workspace-sidebar" aria-label="Vault sidebar">
         <header className="sidebar-header">
@@ -8981,6 +9010,7 @@ function App() {
         open={editorSettingsOpen}
         disabled={workspaceLocked}
         settings={editorDisplaySettings}
+        themePreference={themePreference}
         restoreTabs={workspace.restoreTabs}
         externalDomains={externalDomainPolicy.domains}
         allowAllExternalDomains={externalDomainPolicy.allowAll}
@@ -8991,6 +9021,7 @@ function App() {
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}
         onChange={updateEditorDisplaySettings}
+        onThemePreferenceChange={updateThemePreference}
         onRestoreTabsChange={updateRestoreTabs}
         onRemoveExternalDomain={removeExternalDomain}
         onClearExternalDomains={clearExternalDomains}
