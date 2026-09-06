@@ -8,6 +8,18 @@ const workflow = readFileSync(
 ).replace(/\r\n?/g, "\n");
 
 describe("release workflow", () => {
+  it("allows updater signing only when updater releases are enabled", () => {
+    expect(workflow).toContain(
+      "${{ needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}",
+    );
+    expect(workflow).toContain(
+      "${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.release.conf.json' || '' }}",
+    );
+    expect(workflow).not.toContain(
+      "--target ${{ matrix.target }} --no-sign",
+    );
+  });
+
   it.each([
     ["LF", "\n"],
     ["CRLF", "\r\n"],
