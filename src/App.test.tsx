@@ -19,6 +19,11 @@ import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type Lexi
 import { syntheticEmojiPicker, syntheticEmojiPluginView } from "./lib/emoji.testFixtures";
 
 const mockApi = vi.hoisted(() => ({
+  getRuntimeInfo: vi.fn(),
+  checkForUpdate: vi.fn(),
+  downloadUpdate: vi.fn(),
+  discardPreparedUpdate: vi.fn(),
+  installPreparedUpdate: vi.fn(),
   getLastVault: vi.fn(),
   listKnownVaultFiles: vi.fn(),
   listSearchDocuments: vi.fn(),
@@ -199,6 +204,13 @@ describe("App initial file-tree expansion", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    mockApi.getRuntimeInfo.mockResolvedValue({
+      operatingSystem: "macos",
+      architecture: "aarch64",
+      bundleType: "app",
+      updateChannel: "stable",
+      updaterConfigured: false,
+    });
     mockApi.listSearchDocuments.mockResolvedValue({
       documents: [],
       skippedCount: 0,

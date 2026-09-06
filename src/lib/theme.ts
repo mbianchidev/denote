@@ -29,11 +29,14 @@ export function saveThemePreference(
 }
 
 export function systemTheme(
-  mediaQuery: Pick<MediaQueryList, "matches"> = window.matchMedia(
-    "(prefers-color-scheme: dark)",
-  ),
+  mediaQuery?: Pick<MediaQueryList, "matches">,
 ): Theme {
-  return mediaQuery.matches ? "dark" : "light";
+  const query =
+    mediaQuery ??
+    (typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-color-scheme: dark)")
+      : null);
+  return query?.matches === false ? "light" : "dark";
 }
 
 export function resolveTheme(
@@ -46,6 +49,9 @@ export function resolveTheme(
 export function observeSystemTheme(
   onChange: (theme: Theme) => void,
 ): () => void {
+  if (typeof window.matchMedia !== "function") {
+    return () => {};
+  }
   const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
   const listener = (event: MediaQueryListEvent) =>
     onChange(event.matches ? "dark" : "light");

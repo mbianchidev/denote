@@ -82,6 +82,21 @@ typography:
     fontSize: "22px"
     fontWeight: 650
     lineHeight: 1.3
+  site-hero:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
+    fontSize: "clamp(3rem, 8vw, 6rem)"
+    fontWeight: 760
+    lineHeight: 0.9
+  site-lede:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
+    fontSize: "clamp(1rem, 2vw, 1.25rem)"
+    fontWeight: 400
+    lineHeight: 1.65
+  site-section:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
+    fontSize: "clamp(2.125rem, 5vw, 4rem)"
+    fontWeight: 680
+    lineHeight: 1
   welcome-title:
     fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
     fontSize: "34px"

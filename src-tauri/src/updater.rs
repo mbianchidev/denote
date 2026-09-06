@@ -1,13 +1,17 @@
-use std::{
-    path::{Component, Path, PathBuf},
-    sync::Mutex,
-    time::Duration,
-};
+use std::{sync::Mutex, time::Duration};
+
+#[cfg(any(test, target_os = "macos"))]
+use std::path::{Component, Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::process::Command;
 
 use reqwest::{Url, redirect::Policy};
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 use tauri::{AppHandle, Runtime, ipc::Channel, utils::platform::bundle_type};
 use tauri_plugin_updater::{Update, UpdaterExt};
+#[cfg(target_os = "macos")]
 use walkdir::WalkDir;
 
 use crate::error::{AppError, AppResult};
@@ -183,13 +187,23 @@ pub fn install_prepared_update<R: Runtime>(
             "The prepared update no longer matches the reviewed version".to_string(),
         ));
     }
+    #[cfg(target_os = "macos")]
+    let recovery = prepare_macos_recovery(&app)?;
     if let Err(error) = prepared.update.install(&prepared.bytes) {
         restore_prepared(&manager, prepared)?;
         return Err(update_error(error));
     }
 
     #[cfg(target_os = "macos")]
-    remove_installed_app_quarantine(&app)?;
+    if let Err(error) = remove_installed_app_quarantine(&app) {
+        let rollback = restore_macos_recovery(&recovery);
+        return match rollback {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(AppError::Update(format!(
+                "{error}. The previous Denote installation could not be restored: {rollback_error}"
+            ))),
+        };
+    }
 
     app.restart();
 }
@@ -398,6 +412,79 @@ fn remove_installed_app_quarantine<R: Runtime>(app: &AppHandle<R>) -> AppResult<
                 ))
             })?;
         }
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+struct MacUpdateRecovery {
+    _directory: tempfile::TempDir,
+    backup_bundle: PathBuf,
+    installed_bundle: PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_macos_recovery<R: Runtime>(app: &AppHandle<R>) -> AppResult<MacUpdateRecovery> {
+    let executable = std::env::current_exe()
+        .map_err(|error| AppError::Update(format!("Unable to locate Denote: {error}")))?;
+    let installed_bundle = app_bundle_from_executable(&executable, &app.package_info().name)?;
+    let cache = app.path().app_cache_dir().map_err(|error| {
+        AppError::Update(format!("Unable to locate update recovery storage: {error}"))
+    })?;
+    std::fs::create_dir_all(&cache).map_err(|error| {
+        AppError::Update(format!(
+            "Unable to prepare update recovery storage: {error}"
+        ))
+    })?;
+    let directory = tempfile::Builder::new()
+        .prefix("denote-update-recovery-")
+        .tempdir_in(cache)
+        .map_err(|error| {
+            AppError::Update(format!("Unable to create update recovery storage: {error}"))
+        })?;
+    let backup_bundle = directory.path().join("Denote.app");
+    run_ditto(
+        &installed_bundle,
+        &backup_bundle,
+        "back up the current Denote app",
+    )?;
+    Ok(MacUpdateRecovery {
+        _directory: directory,
+        backup_bundle,
+        installed_bundle,
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn restore_macos_recovery(recovery: &MacUpdateRecovery) -> AppResult<()> {
+    if recovery.installed_bundle.exists() {
+        std::fs::remove_dir_all(&recovery.installed_bundle).map_err(|error| {
+            AppError::Update(format!(
+                "Unable to remove the failed Denote replacement: {error}"
+            ))
+        })?;
+    }
+    run_ditto(
+        &recovery.backup_bundle,
+        &recovery.installed_bundle,
+        "restore the previous Denote app",
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn run_ditto(source: &Path, destination: &Path, action: &str) -> AppResult<()> {
+    let status = Command::new("/usr/bin/ditto")
+        .arg("--rsrc")
+        .arg("--extattr")
+        .arg("--acl")
+        .arg(source)
+        .arg(destination)
+        .status()
+        .map_err(|error| AppError::Update(format!("Unable to {action}: {error}")))?;
+    if !status.success() {
+        return Err(AppError::Update(format!(
+            "Unable to {action}; ditto exited with {status}"
+        )));
     }
     Ok(())
 }

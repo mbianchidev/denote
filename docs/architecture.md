@@ -42,9 +42,10 @@ writes, and note saves through the workspace-operation barrier, then seals an
 unlocked encrypted vault. Windows uses the matching passive NSIS/MSI updater;
 AppImage uses Tauri's replacement and rollback path; supported DEB/RPM packages
 use the matching system package flow. macOS derives `Denote.app` only from the
-running executable and removes `com.apple.quarantine` only inside that exact
-verified replacement before relaunch. No update accepts a caller path, arbitrary
-host, checksum-only integrity, or downgrade.
+running executable, copies the current bundle into private recovery storage,
+and removes `com.apple.quarantine` only inside the exact verified replacement
+before relaunch. A finalization failure restores the recovery copy. No update
+accepts a caller path, arbitrary host, checksum-only integrity, or downgrade.
 
 `release-assets.json` is the shared desktop download and updater naming
 contract. Release scripts stage architecture-qualified updater assets, require
