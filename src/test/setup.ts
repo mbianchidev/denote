@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
 
 afterEach(cleanup);
 
@@ -27,3 +27,14 @@ class ResizeObserverStub implements ResizeObserver {
 }
 
 globalThis.ResizeObserver = ResizeObserverStub;
+
+class WorkerStub extends EventTarget {
+  onerror: ((event: ErrorEvent) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onmessageerror: ((event: MessageEvent) => void) | null = null;
+
+  postMessage() {}
+  terminate() {}
+}
+
+vi.stubGlobal("Worker", WorkerStub);

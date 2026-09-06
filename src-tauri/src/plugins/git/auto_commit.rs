@@ -320,14 +320,14 @@ struct FileIdentity {
     file: u64,
 }
 
-fn file_identity(file: &fs::File, metadata: &fs::Metadata) -> Option<FileIdentity> {
+fn file_identity(file: &fs::File, _metadata: &fs::Metadata) -> Option<FileIdentity> {
     #[cfg(unix)]
     let identity = {
         use std::os::unix::fs::MetadataExt;
         let _ = file;
         Some(FileIdentity {
-            volume: metadata.dev(),
-            file: metadata.ino(),
+            volume: _metadata.dev(),
+            file: _metadata.ino(),
         })
     };
     #[cfg(windows)]

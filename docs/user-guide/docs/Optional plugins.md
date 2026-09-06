@@ -126,9 +126,10 @@ These capabilities are planned as separately enabled plugins:
 
 **Git vault versioning** is now in the catalog. Enable it to get one Git view in
 the activity rail that lists the vault root and every configured project root
-with a safe `.git` marker. Select one repository. Denote performs one read-only refresh when the provider
-first appears, so repository status is available immediately; you can still
-refresh or initialize it with your configured
+with a safe `.git` marker. Select one repository. Denote performs one read-only
+refresh when you first open the Git view in a vault, so Git does not compete
+with vault loading while you are writing; you can still refresh or initialize
+it with your configured
 default branch, stage and unstage a file, commit staged changes with an optional
 configured author identity, and cancel a running operation. Enabling it does not
 run Git or change your vault, and it asks for no network, process, or

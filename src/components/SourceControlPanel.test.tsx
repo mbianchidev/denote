@@ -1115,22 +1115,23 @@ describe("SourceControlPanel", () => {
     const user = userEvent.setup();
     const onOpenFile = vi.fn();
     const model = diffModel();
-    model.resourceGroups = [
-      ...model.resourceGroups,
-      {
-        kind: "unstaged",
-        label: "Changes",
-        resources: [
-          {
-            path: "removed.md",
-            status: "deleted",
-            additions: 0,
-            deletions: 4,
-            binary: false,
-          },
-        ],
-      },
-    ];
+    model.resourceGroups = model.resourceGroups.map((group) =>
+      group.kind === "unstaged"
+        ? {
+            ...group,
+            resources: [
+              ...group.resources,
+              {
+                path: "removed.md",
+                status: "deleted",
+                additions: 0,
+                deletions: 4,
+                binary: false,
+              },
+            ],
+          }
+        : group,
+    );
     render(
       <SourceControlPanel
         title="Git"

@@ -3,10 +3,11 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Command,
-    sync::{Arc, mpsc},
-    thread,
+    sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+use std::{sync::mpsc, thread};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tempfile::TempDir;

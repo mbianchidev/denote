@@ -126,9 +126,14 @@ import {
 } from "../lib/tagColors";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
 import type { EmojiEditorBinding } from "../lib/emojiHost";
-import { EmojiSourceHistory, emojiSourcePatch } from "../lib/emoji";
+import {
+  EmojiSourceHistory,
+  emojiSourcePatch,
+  type EmojiContribution,
+} from "../lib/emoji";
 import { createEmojiSourceExtension, createEmojiSourceHistoryExtension } from "../lib/emojiSource";
 import { EmojiRichContext, emojiRichPlugin, type EmojiRichBinding } from "../lib/emojiRich";
+import { EmojiToolbarActions } from "./EmojiPicker";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
@@ -286,6 +291,7 @@ interface MarkdownEditorProps {
   displaySettings: EditorDisplaySettings;
   pluginDecorations?: PluginEditorDecoration[];
   emoji?: EmojiEditorBinding;
+  emojiPickers?: EmojiContribution[];
   preferredViewMode: MarkdownViewMode;
   projectSourceMode?: boolean;
   readOnly: boolean;
@@ -319,6 +325,7 @@ export const MarkdownEditor = forwardRef<
     displaySettings,
     pluginDecorations = [],
     emoji,
+    emojiPickers = [],
     preferredViewMode,
     projectSourceMode = false,
     readOnly,
@@ -597,6 +604,17 @@ export const MarkdownEditor = forwardRef<
               <span className="editor-source-mode-label">
                 {sourceLock.status}
               </span>
+              {emoji && emojiPickers.length > 0 ? (
+                <>
+                  <Separator />
+                  <EmojiToolbarActions
+                    host={emoji.host}
+                    pickers={emojiPickers}
+                    disabled={readOnly}
+                    scope={emoji.scope}
+                  />
+                </>
+              ) : null}
             </>
           ) : (
             <>
@@ -609,7 +627,22 @@ export const MarkdownEditor = forwardRef<
               ) : null}
               <DiffSourceToggleWrapper
                 options={["rich-text", "source"]}
-                SourceToolbar={<UndoRedo />}
+                SourceToolbar={
+                  <>
+                    <UndoRedo />
+                    {emoji && emojiPickers.length > 0 ? (
+                      <>
+                        <Separator />
+                        <EmojiToolbarActions
+                          host={emoji.host}
+                          pickers={emojiPickers}
+                          disabled={readOnly}
+                          scope={emoji.scope}
+                        />
+                      </>
+                    ) : null}
+                  </>
+                }
               >
                 <UndoRedo />
                 <Separator />
@@ -644,6 +677,17 @@ export const MarkdownEditor = forwardRef<
                 <InsertThematicBreak />
                 <InsertAdmonition />
                 <InsertFrontmatter />
+                {emoji && emojiPickers.length > 0 ? (
+                  <>
+                    <Separator />
+                    <EmojiToolbarActions
+                      host={emoji.host}
+                      pickers={emojiPickers}
+                      disabled={readOnly}
+                      scope={emoji.scope}
+                    />
+                  </>
+                ) : null}
               </DiffSourceToggleWrapper>
             </>
           ),
@@ -658,10 +702,14 @@ export const MarkdownEditor = forwardRef<
       realmInitialViewMode,
       notePath,
       pluginDecorationExtensions,
+      emoji?.host,
+      emoji?.scope,
+      emojiPickers,
       emojiSourceExtensions,
       emojiSerialization,
       preferredViewMode,
       projectSourceMode,
+      readOnly,
       restorePreferredViewMode,
       sourceOnly,
     ],
