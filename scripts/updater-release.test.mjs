@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createLatestJson,
@@ -56,7 +56,7 @@ describe("updater release", () => {
       version: "1.2.3",
       destination,
     });
-    expect(staged.map((path) => path.split("/").at(-1))).toEqual([
+    expect(staged.map((path) => basename(path))).toEqual([
       "Denote_1.2.3_aarch64.app.tar.gz",
       "Denote_1.2.3_aarch64.app.tar.gz.sig",
     ]);
