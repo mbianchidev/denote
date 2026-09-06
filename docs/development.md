@@ -334,8 +334,9 @@ Linux.
 
 Application updater signatures are independent from Apple Developer ID
 signing/notarization and Windows Authenticode. The checked-in
-`src-tauri/updater.json` remains disabled with a `null` public key until a
-maintainer deliberately provisions a durable Tauri updater keypair.
+`src-tauri/updater.json` remains disabled until a maintainer has committed the
+durable Tauri updater public key and separately provisioned its matching private
+key and password in GitHub Actions.
 
 1. Generate the key outside the repository on a secured maintainer system:
 

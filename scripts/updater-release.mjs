@@ -32,6 +32,20 @@ export function readUpdaterConfiguration(path = UPDATER_CONFIG_PATH) {
       "Updater release generation is enabled without a committed public key.",
     );
   }
+  if (config.publicKey !== null) {
+    let decoded;
+    try {
+      decoded = Buffer.from(config.publicKey, "base64").toString("utf8");
+    } catch (error) {
+      throw new Error(`Invalid updater public key encoding: ${error}`);
+    }
+    if (
+      !decoded.startsWith("untrusted comment: minisign public key:") ||
+      !decoded.split(/\r?\n/)[1]?.startsWith("RW")
+    ) {
+      throw new Error("Invalid Minisign updater public key.");
+    }
+  }
   return config;
 }
 

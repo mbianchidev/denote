@@ -23,12 +23,13 @@ afterEach(() => {
 });
 
 describe("updater release", () => {
-  it("keeps the checked-in channel explicitly disabled without a public key", () => {
-    expect(readUpdaterConfiguration()).toMatchObject({
+  it("keeps the checked-in channel disabled until signing secrets are provisioned", () => {
+    const config = readUpdaterConfiguration();
+    expect(config).toMatchObject({
       enabled: false,
-      publicKey: null,
       channel: "stable",
     });
+    expect(config.publicKey).toMatch(/^[A-Za-z0-9+/]+=*$/);
   });
 
   it("provides an inert Tauri plugin config so unprovisioned builds can start", () => {
