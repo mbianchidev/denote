@@ -15,18 +15,36 @@ export function EmojiToolbar({ host, pickers, disabled = false, scope }: {
 }) {
   if (!pickers.length) return null;
   return <div className="emoji-toolbar">
-    {pickers.map((picker) => <button
+    <EmojiToolbarActions
+      host={host}
+      pickers={pickers}
+      disabled={disabled}
+      scope={scope}
+    />
+  </div>;
+}
+
+export function EmojiToolbarActions({ host, pickers, disabled = false, scope }: {
+  host: EmojiHost;
+  pickers: EmojiContribution[];
+  disabled?: boolean;
+  scope?: string;
+}) {
+  return pickers.map((picker) => (
+    <button
       key={`${picker.pluginId}:${picker.id}`}
       type="button"
-      className="editor-toolbar-button"
+      className="editor-toolbar-button emoji-toolbar__button"
       aria-label={picker.title}
       title={`${picker.title} (Command-Shift-E / Ctrl-Shift-E)`}
       aria-haspopup="dialog"
       disabled={disabled}
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => host.open(picker, scope)}
-    ><Smile size={16} aria-hidden="true" /><span>{picker.title}</span></button>)}
-  </div>;
+    >
+      <Smile size={16} aria-hidden="true" />
+    </button>
+  ));
 }
 
 export const EmojiHostSurface = memo(function EmojiHostSurface({ host }: { host: EmojiHost }) {

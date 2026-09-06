@@ -1,14 +1,14 @@
 .emoji-toolbar {
   display: flex;
+  min-height: 35px;
+  align-items: center;
   gap: 4px;
   padding: 3px 8px;
   border-bottom: 1px solid var(--border);
 }
 
-.emoji-toolbar button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+.emoji-toolbar__button {
+  flex: 0 0 auto;
 }
 
 .emoji-picker {
