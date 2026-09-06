@@ -44,18 +44,21 @@ function harness(mode: "plain" | "source" | "rich", initial: string, options: { 
     setEnabled = updateEnabled;
     const change = (value: string) => { changed(value); setValue(value); };
     return <>
-      <EmojiToolbar host={fixture.host} pickers={[fixture.picker]} />
-      {mode === "plain" ? <PlainTextEditor
-        ariaLabel="Synthetic source" value={value} readOnly={options.readOnly ?? false}
-        spellCheck={false} binary={false} filePath={options.path ?? "synthetic.md"}
-        markdownSource displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} lineEnding="lf"
-        onChange={change} emoji={enabled ? fixture.binding : undefined}
-      /> : <MarkdownEditor
+      {mode === "plain" ? <>
+        <EmojiToolbar host={fixture.host} pickers={[fixture.picker]} />
+        <PlainTextEditor
+          ariaLabel="Synthetic source" value={value} readOnly={options.readOnly ?? false}
+          spellCheck={false} binary={false} filePath={options.path ?? "synthetic.md"}
+          markdownSource displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} lineEnding="lf"
+          onChange={change} emoji={enabled ? fixture.binding : undefined}
+        />
+      </> : <MarkdownEditor
         notePath={options.path ?? "synthetic.md"} markdown={value} readOnly={options.readOnly ?? false}
         preferredViewMode={mode === "source" ? "source" : "rich-text"}
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} lineEnding={initial.includes("\r\n") ? "crlf" : "lf"}
         onChange={change} onError={vi.fn()} onViewModeChange={vi.fn()} onLinkOpen={vi.fn()} onImageUpload={vi.fn()}
         emoji={enabled ? fixture.binding : undefined}
+        emojiPickers={enabled ? [fixture.picker] : []}
       />}
       <EmojiHostSurface host={fixture.host} />
     </>;
@@ -415,7 +418,9 @@ describe("rich emoji transactions", () => {
   it("opens from the toolbar before the document has been focused", async () => {
     const fixture = harness("rich", "Synthetic");
     await screen.findByText("Synthetic");
-    fireEvent.click(screen.getByRole("button", { name: "Emoji picker" }));
+    const trigger = screen.getByRole("button", { name: "Emoji picker" });
+    expect(trigger).toHaveTextContent("");
+    fireEvent.click(trigger);
     fireEvent.click(await screen.findByRole("button", { name: "Insert Smiling face" }));
     await waitFor(() => expect(fixture.changed).toHaveBeenLastCalledWith("😀Synthetic"));
   });

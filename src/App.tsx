@@ -8023,7 +8023,10 @@ function App() {
         : null;
     return (
       <>
-        {paneTab.encoding === "utf8" && /\.(md|markdown)$/i.test(paneTab.path) && !paneTab.transient ? (
+        {paneTab.encoding === "utf8" &&
+        /\.(md|markdown)$/i.test(paneTab.path) &&
+        !paneTab.transient &&
+        !paneUsesRichMarkdown ? (
           <EmojiToolbar host={emojiHost} pickers={emojiPickers} disabled={paneReadOnly} scope={emojiScope(pane.id, paneTab.path)} />
         ) : null}
         {paneTab.kind === "image" && !paneTab.rawEditing ? (
@@ -8040,6 +8043,7 @@ function App() {
             displaySettings={paneDisplaySettings}
             pluginDecorations={pluginController.decorations}
             emoji={emojiPickers.length ? { host: emojiHost, scope: emojiScope(pane.id, paneTab.path) } : undefined}
+            emojiPickers={emojiPickers}
             preferredViewMode={markdownViewMode}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
