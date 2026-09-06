@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AvailableUpdate,
   HistoryRevision,
   FileEncoding,
   FileNode,
@@ -28,6 +29,8 @@ import type {
   TrashItem,
   WelcomePagePreference,
   WorkspaceSnapshot,
+  RuntimeInfo,
+  UpdateProgress,
 } from "../types";
 import type { MarkdownViewMode } from "./markdownView";
 import type {
@@ -45,6 +48,22 @@ import type {
 } from "@denote/plugin-sdk";
 
 export const api = {
+  getRuntimeInfo: () => invoke<RuntimeInfo>("get_runtime_info"),
+  checkForUpdate: () => invoke<AvailableUpdate | null>("check_for_update"),
+  downloadUpdate: (
+    expectedVersion: string,
+    onProgress: (progress: UpdateProgress) => void,
+  ) => {
+    const progress = new Channel<UpdateProgress>();
+    progress.onmessage = onProgress;
+    return invoke<AvailableUpdate>("download_update", {
+      expectedVersion,
+      progress,
+    });
+  },
+  discardPreparedUpdate: () => invoke<void>("discard_prepared_update"),
+  installPreparedUpdate: (expectedVersion: string) =>
+    invoke<void>("install_prepared_update", { expectedVersion }),
   getLastVault: () => invoke<WorkspaceSnapshot | null>("get_last_vault"),
   listKnownVaults: () => invoke<KnownVault[]>("list_known_vaults"),
   listKnownVaultFiles: () =>

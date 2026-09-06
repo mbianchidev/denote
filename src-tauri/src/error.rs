@@ -29,6 +29,8 @@ pub enum AppError {
     Trash(String),
     #[error("Plugin operation failed: {0}")]
     Plugin(String),
+    #[error("Update operation failed: {0}")]
+    Update(String),
 }
 
 impl Serialize for AppError {

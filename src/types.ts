@@ -93,6 +93,24 @@ export interface TagColor {
   color: string;
 }
 
+export interface RuntimeInfo {
+  operatingSystem: string;
+  architecture: string;
+  bundleType: string;
+  updateChannel: string;
+  updaterConfigured: boolean;
+}
+
+export interface AvailableUpdate {
+  version: string;
+  notes: string | null;
+}
+
+export type UpdateProgress =
+  | { event: "started"; data: { contentLength: number | null } }
+  | { event: "progress"; data: { downloaded: number } }
+  | { event: "finished" };
+
 export interface TabGroup {
   id: string;
   name: string;

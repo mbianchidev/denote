@@ -7,6 +7,7 @@ interface ErrorBannerProps {
   message: string | null;
   onDismiss: () => void;
   onNavigate?: () => void;
+  onReport?: () => void;
   transient?: boolean;
 }
 
@@ -14,6 +15,7 @@ export function ErrorBanner({
   message,
   onDismiss,
   onNavigate,
+  onReport,
   transient = false,
 }: ErrorBannerProps) {
   useEffect(() => {
@@ -41,6 +43,15 @@ export function ErrorBanner({
             onClick={onNavigate}
           >
             Navigate to error
+          </button>
+        ) : null}
+        {onReport ? (
+          <button
+            type="button"
+            className="error-banner__navigate"
+            onClick={onReport}
+          >
+            Report a bug
           </button>
         ) : null}
         <button

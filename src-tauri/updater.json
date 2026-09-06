@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "enabled": false,
+  "channel": "stable",
+  "endpoint": "https://github.com/mbianchidev/denote/releases/latest/download/latest.json",
+  "publicKey": null
+}
