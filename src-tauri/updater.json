@@ -3,5 +3,5 @@
   "enabled": false,
   "channel": "stable",
   "endpoint": "https://github.com/mbianchidev/denote/releases/latest/download/latest.json",
-  "publicKey": null
+  "publicKey": dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFNEZBNzY5QkNEQTMyOTMKUldTVE10cThhYWRQL25Bck01TmRuRmVtN0JxcWVQKzNNVHM3Zkh5bzlDZjZUemt3QXd5Z0d6dWUK
 }
