@@ -31,6 +31,15 @@ describe("updater release", () => {
     });
   });
 
+  it("provides an inert Tauri plugin config so unprovisioned builds can start", () => {
+    const tauri = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
+    expect(tauri.plugins.updater).toEqual({
+      endpoints: [],
+      pubkey: "",
+      windows: { installMode: "passive" },
+    });
+  });
+
   it("stages architecture-qualified macOS updater bytes and signatures", () => {
     const root = fixtureRoot();
     write(

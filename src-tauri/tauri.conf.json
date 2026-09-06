@@ -37,5 +37,14 @@
     "resources": {
       "resources/tools": "tools"
     }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [],
+      "pubkey": "",
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }
