@@ -15,6 +15,12 @@ npm run verify:bundled-tools
 npm run dev:desktop
 ```
 
+The root `package.json` also records npm's dependency lifecycle policy:
+`esbuild@0.28.2` is pin-approved for its platform-binary postinstall check, while
+the optional `fsevents` native rebuild is denied. Review any new warning with
+`npm install-scripts ls`; do not approve a new package or version without
+inspecting its published script and lockfile provenance.
+
 `dev:desktop` uses the separate `dev.mbianchi.denote.development` application
 identity, so development vault state, plugin packages, process locks, and
 keychain entries cannot collide with an installed Denote release.
