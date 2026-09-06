@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Denote is a local-first Markdown workspace for macOS, Windows, and Linux."
+    />
+    <meta name="theme-color" content="#121315" />
+    <script>
+      (() => {
+        const stored = localStorage.getItem("denote-site-theme");
+        const preference =
+          stored === "light" || stored === "dark" || stored === "system"
+            ? stored
+            : "dark";
+        const theme =
+          preference === "system"
+            ? matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light"
+            : preference;
+        document.documentElement.dataset.theme = theme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", theme === "dark" ? "#121315" : "#e9e6df");
+      })();
+    </script>
+    <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>Denote — Your notes stay files</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <a class="brand" href="#top" aria-label="Denote home">
+        <span class="brand__mark" aria-hidden="true">D</span>
+        <span>Denote</span>
+      </a>
+      <nav aria-label="Primary navigation">
+        <a href="#workflows">Workflows</a>
+        <a href="#plugins">Plugins</a>
+        <a href="#download">Download</a>
+        <a href="https://github.com/mbianchidev/denote">GitHub</a>
+      </nav>
+      <fieldset class="theme-choice" aria-label="Appearance">
+        <legend class="sr-only">Appearance</legend>
+        <button type="button" data-theme-choice="light">Light</button>
+        <button type="button" data-theme-choice="dark">Dark</button>
+        <button type="button" data-theme-choice="system">System</button>
+      </fieldset>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top" aria-labelledby="hero-title">
+        <div class="hero__copy">
+          <h1 id="hero-title">Your notes.<br />Still files.</h1>
+          <p class="hero__lede">
+            Open a folder and write. Denote gives ordinary Markdown files a
+            focused rich editor, local search, panes, history, and optional
+            encryption without moving them into a hosted service or proprietary
+            format.
+          </p>
+          <div class="hero__actions">
+            <a class="button button--primary" href="#download">Download Denote</a>
+            <a
+              class="button button--secondary"
+              href="https://github.com/mbianchidev/denote/tree/main/docs/user-guide"
+            >
+              Read the guide
+            </a>
+          </div>
+          <p class="hero__privacy">
+            No account. No telemetry. No required cloud storage.
+          </p>
+        </div>
+
+        <div class="workbench" aria-label="Denote application preview">
+          <div class="workbench__path" aria-hidden="true">
+            <span>~/notes</span><span>projects</span><strong>release.md</strong>
+          </div>
+          <figure>
+            <img
+              src="https://github.com/user-attachments/assets/82c52973-0f60-4345-8dda-309ed0d6d9d4"
+              alt="Denote showing a Markdown vault, file tree, tabs, and focused editor"
+              width="1707"
+              height="1094"
+            />
+            <figcaption>
+              A quiet workbench around files you already own.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="principle-band" aria-label="Denote principles">
+        <p><strong>Files first.</strong> The selected folder stays the source of truth.</p>
+        <p><strong>Writing central.</strong> Rich Markdown and exact source are one shortcut apart.</p>
+        <p><strong>Recovery routine.</strong> Autosave, revisions, Trash, and conflict checks are built in.</p>
+      </section>
+
+      <section class="section workflows" id="workflows" aria-labelledby="workflows-title">
+        <div class="section__heading">
+          <h2 id="workflows-title">A folder becomes a focused workspace.</h2>
+        </div>
+        <div class="workflow-list">
+          <article>
+            <code>write/</code>
+            <div>
+              <h3>Rich when you want it. Source when you need it.</h3>
+              <p>
+                Edit Markdown visually, inspect exact syntax, open regular text
+                and code files, and keep up to four independent panes.
+              </p>
+            </div>
+          </article>
+          <article>
+            <code>find/</code>
+            <div>
+              <h3>Search the vault without sending it away.</h3>
+              <p>
+                Find note contents, filenames, paths, tags, bookmarks, and recent
+                work locally. Follow relative links without giving up portable files.
+              </p>
+            </div>
+          </article>
+          <article>
+            <code>recover/</code>
+            <div>
+              <h3>Change files without treating mistakes as permanent.</h3>
+              <p>
+                Denote keeps recent revisions, moves deletions to Denote Trash,
+                and refuses to overwrite an edit made by another application.
+              </p>
+            </div>
+          </article>
+          <article>
+            <code>protect/</code>
+            <div>
+              <h3>Encrypt a vault only when you choose.</h3>
+              <p>
+                Optional vault encryption protects file and revision contents
+                with a password and one-time recovery codes. Paths remain visible.
+              </p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="section plugins" id="plugins" aria-labelledby="plugins-title">
+        <div class="section__heading">
+          <h2 id="plugins-title">Add tools without making the editor depend on them.</h2>
+          <p>
+            Plugins are disabled by default, installed only after review, and
+            removed from disk when disabled. Denote never executes plugin archives
+            from this website.
+          </p>
+        </div>
+        <div class="plugin-ledger">
+          <article>
+            <span class="plugin-ledger__icon" aria-hidden="true">⌘</span>
+            <div>
+              <h3>Git vault versioning</h3>
+              <p>
+                Review changes, stage, commit, work with branches and remotes,
+                and recover interrupted operations through a host-controlled Git boundary.
+              </p>
+            </div>
+            <span>Optional</span>
+          </article>
+          <article>
+            <span class="plugin-ledger__icon" aria-hidden="true">☺</span>
+            <div>
+              <h3>Emoji picker</h3>
+              <p>
+                Search Unicode locally, insert from the Markdown toolbar, and use
+                explicit shortcode suggestions without sending typing to a service.
+              </p>
+            </div>
+            <span>Optional</span>
+          </article>
+        </div>
+      </section>
+
+      <section class="section downloads" id="download" aria-labelledby="download-title">
+        <div class="section__heading">
+          <h2 id="download-title">Choose the package for your computer.</h2>
+          <p id="download-status" role="status" aria-live="polite">
+            Loading verified release choices…
+          </p>
+        </div>
+        <div class="download-grid" aria-describedby="download-status">
+          <article data-download-card="macos-aarch64">
+            <span>macOS</span>
+            <h3>Apple Silicon</h3>
+            <p>M-series Macs · disk image</p>
+            <a data-download-id="macos-aarch64" href="https://github.com/mbianchidev/denote/releases">
+              View Releases
+            </a>
+          </article>
+          <article data-download-card="macos-x64">
+            <span>macOS</span>
+            <h3>Intel</h3>
+            <p>Intel Macs · disk image</p>
+            <a data-download-id="macos-x64" href="https://github.com/mbianchidev/denote/releases">
+              View Releases
+            </a>
+          </article>
+          <article data-download-card="windows-x64">
+            <span>Windows</span>
+            <h3>Windows x64</h3>
+            <p>NSIS installer</p>
+            <a data-download-id="windows-x64" href="https://github.com/mbianchidev/denote/releases">
+              View Releases
+            </a>
+          </article>
+          <article data-download-card="linux-appimage-x64">
+            <span>Linux</span>
+            <h3>Linux x64</h3>
+            <p>AppImage, DEB, or RPM</p>
+            <div class="linux-downloads">
+              <a data-download-id="linux-appimage-x64" href="https://github.com/mbianchidev/denote/releases">AppImage</a>
+              <a data-download-id="linux-deb-x64" href="https://github.com/mbianchidev/denote/releases">DEB</a>
+              <a data-download-id="linux-rpm-x64" href="https://github.com/mbianchidev/denote/releases">RPM</a>
+            </div>
+          </article>
+        </div>
+        <aside class="unsigned-note">
+          <strong>Current macOS releases are unsigned.</strong>
+          Verify the disk image against its published SHA-256 checksum before
+          using the documented quarantine workaround. Developer ID signing and
+          notarization are not enabled yet.
+        </aside>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span class="brand__mark" aria-hidden="true">D</span>
+      <p>Denote keeps the document — and your ownership of it — in view.</p>
+      <nav aria-label="Footer navigation">
+        <a href="https://github.com/mbianchidev/denote/releases">Releases</a>
+        <a href="https://github.com/mbianchidev/denote/tree/main/docs">Documentation</a>
+        <a href="https://github.com/mbianchidev/denote/issues/new?template=bug_report.md">Report a bug</a>
+      </nav>
+    </footer>
+    <script type="module" src="./site.js"></script>
+  </body>
+</html>

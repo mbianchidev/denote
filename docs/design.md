@@ -82,6 +82,21 @@ typography:
     fontSize: "22px"
     fontWeight: 650
     lineHeight: 1.3
+  site-hero:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
+    fontSize: "clamp(3rem, 8vw, 6rem)"
+    fontWeight: 760
+    lineHeight: 0.9
+  site-lede:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
+    fontSize: "clamp(1rem, 2vw, 1.25rem)"
+    fontWeight: 400
+    lineHeight: 1.65
+  site-section:
+    fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
+    fontSize: "clamp(2.125rem, 5vw, 4rem)"
+    fontWeight: 680
+    lineHeight: 1
   welcome-title:
     fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
     fontSize: "34px"
@@ -154,6 +169,12 @@ The product is dark by default because it is designed for sustained focus, with
 a complete light counterpart rather than a partially inverted afterthought.
 The file tree and per-pane tabs stay compact; the document keeps generous
 measure and vertical breathing room.
+
+Settings exposes Light, Dark, and System as one radio group. The activity-rail
+and locked-vault theme actions change the same preference rather than keeping
+independent toggle state. System follows the operating system live; fresh state
+remains Dark. Both the desktop shell and public website apply the resolved theme
+before content paints.
 
 **Key Characteristics:**
 
@@ -408,6 +429,20 @@ or allow all external domains. Settings show exact trusted domains as removable
 rows, or one `*` row when wildcard trust is enabled. The editor toolbar exposes
 one compact open-all action only when the active file contains browser links;
 the same trust dialog pauses and resumes its ordered queue.
+
+About Denote remains the single build/support surface. Its definition list
+shows version, full source commit, platform, architecture, package, and update
+channel. **Report a bug** is secondary and states through the resulting GitHub
+draft that generated diagnostics must be reviewed. Update controls use explicit
+checking, current, available, downloading, installing, unconfigured, and failure
+states in a polite live region.
+
+The public website extends the Quiet Workbench rather than introducing a
+separate marketing system. A file-path spine leads into the real application
+preview; graphite/paper surfaces, moss actions, one-pixel rules, tight corners,
+and the asymmetric mark carry the desktop identity. Platform downloads remain
+visible together, with recommendation treated as supplementary text rather than
+hiding alternatives.
 
 Recoverable editor errors use the existing danger banner with a text-labeled
 **Navigate to error** action before the dismiss control. The source editor marks

@@ -1,16 +1,36 @@
-import { Info, X } from "lucide-react";
+import { Bug, Download, Info, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { shortCommitHash, type BuildInfo } from "../lib/buildInfo";
+import type { AvailableUpdate, RuntimeInfo } from "../types";
+
+export type UpdateUiState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "current" }
+  | { status: "available"; update: AvailableUpdate }
+  | { status: "downloading"; update: AvailableUpdate; downloaded: number; total: number | null }
+  | { status: "installing"; update: AvailableUpdate }
+  | { status: "error"; message: string };
 
 interface AboutDialogProps {
   open: boolean;
   buildInfo: BuildInfo;
+  runtimeInfo: RuntimeInfo | null;
+  updateState: UpdateUiState;
+  onCheckForUpdates: () => void;
+  onInstallUpdate: (update: AvailableUpdate) => void;
+  onReportBug: () => void;
   onClose: () => void;
 }
 
 export function AboutDialog({
   open,
   buildInfo,
+  runtimeInfo,
+  updateState,
+  onCheckForUpdates,
+  onInstallUpdate,
+  onReportBug,
   onClose,
 }: AboutDialogProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -90,17 +110,102 @@ export function AboutDialog({
             <dt>Build state</dt>
             <dd>{buildInfo.dirty ? "Uncommitted changes" : "Clean commit"}</dd>
           </div>
+          <div>
+            <dt>Platform</dt>
+            <dd>
+              {runtimeInfo
+                ? `${runtimeInfo.operatingSystem} · ${runtimeInfo.architecture}`
+                : "Loading…"}
+            </dd>
+          </div>
+          <div>
+            <dt>Package</dt>
+            <dd>{runtimeInfo?.bundleType ?? "Loading…"}</dd>
+          </div>
+          <div>
+            <dt>Update channel</dt>
+            <dd>{runtimeInfo?.updateChannel ?? "Loading…"}</dd>
+          </div>
         </dl>
         <p className="about-dialog__commit">
           Full commit: <code>{buildInfo.commitHash}</code>
           {buildInfo.dirty ? " (dirty build)" : ""}
         </p>
+        <div className="about-dialog__update" aria-live="polite">
+          <p>{updateStatusText(runtimeInfo, updateState)}</p>
+          {updateState.status === "downloading" ? (
+            <progress
+              aria-label="Update download progress"
+              value={updateState.downloaded}
+              max={updateState.total ?? undefined}
+            />
+          ) : null}
+        </div>
       </div>
       <footer className="about-dialog__actions">
+        <button type="button" className="secondary-button" onClick={onReportBug}>
+          <Bug aria-hidden="true" size={16} />
+          Report a bug
+        </button>
+        {updateState.status === "available" ? (
+          <button
+            type="button"
+            className="primary-button"
+            onClick={() => onInstallUpdate(updateState.update)}
+          >
+            <Download aria-hidden="true" size={16} />
+            Update Denote
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={
+              !runtimeInfo?.updaterConfigured ||
+              updateState.status === "checking" ||
+              updateState.status === "downloading" ||
+              updateState.status === "installing"
+            }
+            onClick={onCheckForUpdates}
+          >
+            <RefreshCw aria-hidden="true" size={16} />
+            Check for updates
+          </button>
+        )}
         <button type="button" className="primary-button" onClick={onClose}>
           Close
         </button>
       </footer>
     </dialog>
   );
+}
+
+function updateStatusText(
+  runtimeInfo: RuntimeInfo | null,
+  state: UpdateUiState,
+): string {
+  if (!runtimeInfo) {
+    return "Loading update channel information.";
+  }
+  if (!runtimeInfo.updaterConfigured) {
+    return runtimeInfo.updateChannel === "development"
+      ? "Updates are unavailable in Denote Development."
+      : "The stable update channel is not configured with a trusted public key.";
+  }
+  switch (state.status) {
+    case "idle":
+      return "Updates run only when you ask Denote to check.";
+    case "checking":
+      return "Checking the signed stable release metadata…";
+    case "current":
+      return "This is the latest stable Denote release.";
+    case "available":
+      return `Denote ${state.update.version} is available.`;
+    case "downloading":
+      return `Downloading and verifying Denote ${state.update.version}…`;
+    case "installing":
+      return `Installing Denote ${state.update.version}…`;
+    case "error":
+      return state.message;
+  }
 }

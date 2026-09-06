@@ -4036,9 +4036,38 @@ kbd {
 
 .about-dialog__actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 8px;
   padding: 12px 18px 18px;
   border-top: 1px solid var(--border);
+}
+
+.about-dialog__actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.about-dialog__update {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--text-secondary);
+  background: var(--editor-raised);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.about-dialog__update p {
+  margin: 0;
+}
+
+.about-dialog__update progress {
+  width: 100%;
+  accent-color: var(--accent);
 }
 
 .editor-settings-dialog__body {

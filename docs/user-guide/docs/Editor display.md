@@ -4,6 +4,16 @@ Open **Editor settings** from the editor toolbar, the macOS application menu,
 or with `Command-,` on macOS and `Ctrl-,` on Windows and Linux. Preferences
 persist across launches.
 
+## Appearance
+
+Choose **Light**, **Dark**, or **System**. A fixed Light or Dark choice overrides
+the operating-system appearance. System follows the current system preference
+and updates when it changes. A fresh or invalid preference starts in Dark.
+
+The sun/moon action in the activity rail and on the locked-vault screen uses the
+same setting. It switches to the opposite explicit theme; it does not keep a
+second theme value.
+
 ## Text size
 
 Choose an editor font size from 12 to 24 px. It applies immediately to rich

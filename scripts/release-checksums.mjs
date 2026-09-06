@@ -57,6 +57,7 @@ export async function writeReleaseChecksums({
   target,
   artifact,
   provenance,
+  includeUpdater = false,
 }) {
   requireSafeToken(target, "target");
   requireSafeToken(artifact, "artifact");
@@ -99,14 +100,22 @@ export async function writeReleaseChecksums({
 
   const sbomPath = join(root, `bundled-tools-${artifact}.spdx.json`);
   requireRegularFile(sbomPath, "bundled tools SBOM");
+  const updaterPaths = includeUpdater
+    ? regularFiles(
+        join(root, ".updater-artifacts", artifact),
+        "updater release artifacts",
+      )
+    : [];
 
   const bundleEntries = await checksumEntries(root, bundlePaths);
   const toolEntries = await checksumEntries(root, toolPaths);
+  const updaterEntries = await checksumEntries(root, updaterPaths);
   const sbomEntry = await checksumEntry(root, sbomPath);
   const releaseEntries = withReleaseNames([
     ...bundleEntries,
     sbomEntry,
     ...toolEntries,
+    ...updaterEntries,
   ]);
   const subjectEntries = releaseEntries.filter(
     ({ name }) => name !== basename(sbomEntry.name),
@@ -138,10 +147,23 @@ export async function writeReleaseChecksums({
     releaseChecksumsPath,
     attestationSubjectsPath,
     provenancePath,
-    releaseCount: bundleEntries.length + toolEntries.length + 1,
+    releaseCount:
+      bundleEntries.length + toolEntries.length + updaterEntries.length + 1,
     subjectCount: subjectEntries.length,
     uniqueSubjectCount: uniqueSubjectEntries.length,
   };
+}
+
+function regularFiles(directory, label) {
+  requireDirectory(directory, label);
+  const paths = readdirSync(directory, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && !entry.isSymbolicLink())
+    .map((entry) => join(directory, entry.name))
+    .sort();
+  if (paths.length === 0) {
+    throw new Error(`Expected ${label} in ${directory}.`);
+  }
+  return paths;
 }
 
 export function buildReleaseProvenance({
@@ -470,6 +492,7 @@ async function run(argv) {
       runId: requireEnvironment("GITHUB_RUN_ID"),
       runAttempt: requireEnvironment("GITHUB_RUN_ATTEMPT"),
     },
+    includeUpdater: process.env.DENOTE_UPDATER_ENABLED === "true",
   });
 
   console.log(

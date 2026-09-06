@@ -15,9 +15,25 @@ npm run verify:bundled-tools
 npm run dev:desktop
 ```
 
+The root `package.json` also records npm's dependency lifecycle policy:
+`esbuild@0.28.2` is pin-approved for its platform-binary postinstall check, while
+the optional `fsevents` native rebuild is denied. Review any new warning with
+`npm install-scripts ls`; do not approve a new package or version without
+inspecting its published script and lockfile provenance.
+
 `dev:desktop` uses the separate `dev.mbianchi.denote.development` application
 identity, so development vault state, plugin packages, process locks, and
 keychain entries cannot collide with an installed Denote release.
+
+Preview the dependency-free public website from the repository root:
+
+```bash
+npm run build:website
+python3 -m http.server 4173 --directory dist/website
+```
+
+GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
+and builds pull requests, then deploys only from `main` or manual dispatch.
 
 ## Validate changes
 
@@ -26,6 +42,8 @@ npm run check:plugin-archives -- --base "$(git rev-parse origin/main)"
 npm test
 npm run verify:bundled-tools
 npm run build
+npm run test:website
+npm run build:website
 cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
@@ -311,6 +329,45 @@ npm run tauri build
 
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
+
+### Provision signed application updates
+
+Application updater signatures are independent from Apple Developer ID
+signing/notarization and Windows Authenticode. The checked-in
+`src-tauri/updater.json` enables signed stable updates only after a maintainer
+has committed the durable Tauri updater public key and separately provisioned
+its matching private key and password in GitHub Actions.
+
+1. Generate the key outside the repository on a secured maintainer system:
+
+   ```bash
+   npm run tauri signer generate -- -w /secure/backup/denote-updater.key
+   ```
+
+2. Back up the private key and its password in durable maintainer-controlled
+   storage. Losing the private key prevents existing installations from trusting
+   later updates. Never put it in Git, project files, logs, or issue bodies.
+3. Copy only the generated public-key string into
+   `src-tauri/updater.json`, set `enabled` to `true`, and review the resulting
+   commit.
+4. Configure the repository Actions secrets
+   `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from the
+   backed-up values. Prefer the GitHub repository settings UI or an interactive
+   `gh secret set` invocation that does not place the password in shell history.
+5. Run:
+
+   ```bash
+   node scripts/updater-release.mjs status
+   npm test
+   cargo test --manifest-path src-tauri/Cargo.toml updater::tests
+   ```
+
+When disabled, ordinary local and release desktop bundles remain unsigned and
+usable exactly as before; no updater artifacts or `latest.json` are published.
+When enabled, release jobs fail before building if either signing secret is
+missing, then use `src-tauri/tauri.release.conf.json` to generate signed updater
+artifacts. Never rotate or replace the key without a separately designed
+in-application trust migration.
 
 Release packaging currently passes Tauri's `--no-sign` option on every target.
 No Apple Developer ID signing/notarization or Windows Authenticode signing is

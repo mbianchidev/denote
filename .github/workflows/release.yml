@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-22.04
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
+      updater_enabled: ${{ steps.updater.outputs.enabled }}
 
     steps:
       - name: Resolve release tag
@@ -130,6 +131,11 @@ jobs:
 
       - name: Verify release version
         run: npm run release -- --check "$RELEASE_TAG"
+
+      - name: Resolve updater release state
+        id: updater
+        shell: bash
+        run: echo "enabled=$(node scripts/updater-release.mjs status)" >> "$GITHUB_OUTPUT"
 
       - name: Frontend tests
         run: npm test
@@ -245,15 +251,44 @@ jobs:
           npm run prepare:bundled-tools -- --target "${{ matrix.target }}"
           npm run verify:bundled-tools -- --target "${{ matrix.target }}"
 
+      - name: Require updater signing secrets
+        if: needs.validate.outputs.updater_enabled == 'true'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        shell: bash
+        run: |
+          if [[ -z "$TAURI_SIGNING_PRIVATE_KEY" || -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]]; then
+            echo "::error::Updater releases require backed-up TAURI_SIGNING_PRIVATE_KEY and TAURI_SIGNING_PRIVATE_KEY_PASSWORD secrets."
+            exit 1
+          fi
+
       - name: Build bundles
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           DENOTE_COMMIT_HASH: ${{ needs.validate.outputs.source_sha }}
           DENOTE_BUILD_DIRTY: "false"
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          args: --target ${{ matrix.target }} --no-sign
+          args: >-
+            --target ${{ matrix.target }} --no-sign
+            ${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.release.conf.json' || '' }}
           retryAttempts: 2
           uploadUpdaterJson: false
+
+      - name: Stage signed updater artifacts
+        if: needs.validate.outputs.updater_enabled == 'true'
+        shell: bash
+        run: |
+          version="${RELEASE_TAG#v}"
+          node scripts/updater-release.mjs stage \
+            "$GITHUB_WORKSPACE" \
+            "$RUNNER_OS" \
+            "${{ matrix.target }}" \
+            "${{ matrix.artifact }}" \
+            "$version" \
+            "$GITHUB_WORKSPACE/.updater-artifacts/${{ matrix.artifact }}"
 
       - name: Smoke test installed Linux package
         if: runner.os == 'Linux'
@@ -351,6 +386,7 @@ jobs:
           RELEASE_SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
           RELEASE_WORKFLOW_REF: ${{ github.workflow_ref }}
           RELEASE_WORKFLOW_SHA: ${{ github.workflow_sha }}
+          DENOTE_UPDATER_ENABLED: ${{ needs.validate.outputs.updater_enabled }}
         run: >-
           node .release-workflow-tools/scripts/release-checksums.mjs
           "$GITHUB_WORKSPACE"
@@ -386,6 +422,15 @@ jobs:
         with:
           name: denote-${{ matrix.artifact }}-bundled-tools
           path: src-tauri/target/bundled-tools/${{ matrix.target }}/*.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Stage updater release assets
+        if: needs.validate.outputs.updater_enabled == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: denote-${{ matrix.artifact }}-updater
+          path: .updater-artifacts/${{ matrix.artifact }}/*
           if-no-files-found: error
           compression-level: 0
 
@@ -549,6 +594,15 @@ jobs:
           SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
         shell: bash
         run: |
+          if [[ "${{ needs.validate.outputs.updater_enabled }}" == "true" ]]; then
+            version="${RELEASE_TAG#v}"
+            node scripts/updater-release.mjs manifest \
+              release-assets \
+              "$version" \
+              "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+              release-assets/latest.json
+          fi
+
           mapfile -d '' assets < <(find release-assets -type f -print0 | sort -z)
           if (( ${#assets[@]} == 0 )); then
             echo "::error::No release bundles were downloaded."

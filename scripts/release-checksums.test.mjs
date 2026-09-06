@@ -197,6 +197,48 @@ describe("release checksums", () => {
     ).rejects.toThrow("Expected bundled tool archives");
   });
 
+  it("includes staged updater artifacts only when updater release generation is enabled", async () => {
+    const fixture = {
+      runnerOs: "macOS",
+      target: "aarch64-apple-darwin",
+      artifact: "macos-aarch64",
+    };
+    const { projectRoot, runnerTemp } = createFixture(fixture);
+    writeSynthetic(
+      join(
+        projectRoot,
+        ".updater-artifacts",
+        fixture.artifact,
+        "Denote_0.1.3_aarch64.app.tar.gz",
+      ),
+      "updater bytes",
+    );
+    writeSynthetic(
+      join(
+        projectRoot,
+        ".updater-artifacts",
+        fixture.artifact,
+        "Denote_0.1.3_aarch64.app.tar.gz.sig",
+      ),
+      "updater signature",
+    );
+
+    const result = await writeReleaseChecksums({
+      projectRoot,
+      runnerTemp,
+      ...fixture,
+      includeUpdater: true,
+      provenance: provenanceFixture(),
+    });
+
+    expect(readLines(result.releaseChecksumsPath).map(readName)).toEqual(
+      expect.arrayContaining([
+        "Denote_0.1.3_aarch64.app.tar.gz",
+        "Denote_0.1.3_aarch64.app.tar.gz.sig",
+      ]),
+    );
+  });
+
   it("runs against an explicit release checkout", () => {
     const fixture = {
       runnerOs: "macOS",

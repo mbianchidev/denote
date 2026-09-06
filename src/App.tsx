@@ -56,7 +56,10 @@ import type {
   PluginSourceControlDiffSource,
 } from "@denote/plugin-sdk";
 import { ActivityRail } from "./components/ActivityRail";
-import { AboutDialog } from "./components/AboutDialog";
+import {
+  AboutDialog,
+  type UpdateUiState,
+} from "./components/AboutDialog";
 import { ActionDialog } from "./components/ActionDialog";
 import {
   CommandPalette,
@@ -105,8 +108,14 @@ import {
   INITIAL_APP_ERRORS,
   markdownAppErrorForPath,
   visibleAppError,
+  type AppError,
 } from "./lib/appErrors";
 import { BUILD_INFO } from "./lib/buildInfo";
+import {
+  appendDiagnostic,
+  buildBugReportUrl,
+  type DiagnosticEvent,
+} from "./lib/bugReport";
 import {
   allowExternalDomain,
   DEFAULT_EXTERNAL_DOMAIN_POLICY,
@@ -252,7 +261,17 @@ import {
   type ReplacePreview,
   type ReplaceRequest,
 } from "./lib/replace";
-import { applyTheme, getTheme, type Theme } from "./lib/theme";
+import {
+  applyTheme,
+  getThemePreference,
+  observeSystemTheme,
+  observeThemePreference,
+  resolveTheme,
+  saveThemePreference,
+  systemTheme,
+  type Theme,
+  type ThemePreference,
+} from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
 import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
 import { resolveCommitMessage } from "./plugins/commitMessages";
@@ -301,6 +320,7 @@ import type {
   ProjectConfiguration,
   ProjectRoot,
   ProjectWorkspace,
+  RuntimeInfo,
   SearchResult,
   SidebarView,
   TabGroup,
@@ -308,6 +328,7 @@ import type {
   TagColor,
   WorkspacePane,
   WorkspaceSnapshot,
+  AvailableUpdate,
 } from "./types";
 
 const DESIGN_CONTRACT = `<!--
@@ -740,7 +761,13 @@ function sourceControlConfirmation(
 }
 
 function App() {
-  const [theme, setTheme] = useState<Theme>(() => getTheme());
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
+    getThemePreference(),
+  );
+  const [currentSystemTheme, setCurrentSystemTheme] = useState<Theme>(() =>
+    systemTheme(),
+  );
+  const theme = resolveTheme(themePreference, currentSystemTheme);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [initializing, setInitializing] = useState(true);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
@@ -794,6 +821,10 @@ function App() {
   const [vaultSwitcherOpen, setVaultSwitcherOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [runtimeInfo, setRuntimeInfo] = useState<RuntimeInfo | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateUiState>({
+    status: "idle",
+  });
   const [externalDomainPolicy, setExternalDomainPolicy] =
     useState<ExternalDomainPolicy>(() => getExternalDomainPolicy());
   const [pendingExternalLink, setPendingExternalLink] = useState<{
@@ -820,6 +851,7 @@ function App() {
   >(null);
   const sourceNavigationSequence = useRef(0);
   const errorSequence = useRef(0);
+  const recentDiagnostics = useRef<DiagnosticEvent[]>([]);
   const [headingNavigation, setHeadingNavigation] = useState<{
     path: string;
     anchor: string;
@@ -1383,6 +1415,10 @@ function App() {
 
   const showError = useCallback((value: unknown) => {
     const message = errorMessage(value);
+    recentDiagnostics.current = appendDiagnostic(recentDiagnostics.current, {
+      code: "APPLICATION_ERROR",
+      summary: message,
+    });
     dispatchErrors({
       type: "show-global",
       error: {
@@ -1393,6 +1429,20 @@ function App() {
     });
     setStatus("Action failed");
   }, []);
+  const updateThemePreference = useCallback(
+    (preference: ThemePreference) => {
+      try {
+        saveThemePreference(preference);
+        setThemePreference(preference);
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [showError],
+  );
+  const toggleTheme = useCallback(() => {
+    updateThemePreference(theme === "dark" ? "light" : "dark");
+  }, [theme, updateThemePreference]);
   const toggleDotfileVisibility = useCallback(() => {
     const next = !showDotfilesRef.current;
     try {
@@ -1661,6 +1711,10 @@ function App() {
 
   const showLinkError = useCallback((value: unknown) => {
     const message = errorMessage(value);
+    recentDiagnostics.current = appendDiagnostic(recentDiagnostics.current, {
+      code: "EXTERNAL_LINK_ERROR",
+      summary: message,
+    });
     dispatchErrors({
       type: "show-link",
       error: {
@@ -1678,6 +1732,12 @@ function App() {
         return;
       }
       const location = diagnostic.location ?? undefined;
+      recentDiagnostics.current = appendDiagnostic(recentDiagnostics.current, {
+        code: "MARKDOWN_PARSE_ERROR",
+        summary: location
+          ? `Line ${location.line}, column ${location.column}: ${diagnostic.message}`
+          : diagnostic.message,
+      });
       dispatchErrors({
         type: "show-markdown",
         error: {
@@ -2734,6 +2794,29 @@ function App() {
     applyTheme(theme);
   }, [theme]);
 
+  useEffect(() => observeSystemTheme(setCurrentSystemTheme), []);
+
+  useEffect(() => observeThemePreference(setThemePreference), []);
+
+  useEffect(() => {
+    let active = true;
+    void api
+      .getRuntimeInfo()
+      .then((info) => {
+        if (active) {
+          setRuntimeInfo(info);
+        }
+      })
+      .catch((caught) => {
+        if (active) {
+          showError(caught);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [showError]);
+
   useEffect(() => {
     activePathRef.current = activePath;
   }, [activePath]);
@@ -3368,6 +3451,91 @@ function App() {
     }
   }, [acquireWorkspaceLock, setWorkspaceLock, showError]);
   beginWorkspaceOperationRef.current = beginWorkspaceOperation;
+
+  const checkForUpdates = useCallback(async () => {
+    if (!runtimeInfo?.updaterConfigured) {
+      setUpdateState({
+        status: "error",
+        message:
+          runtimeInfo?.updateChannel === "development"
+            ? "Updates are unavailable in Denote Development."
+            : "The stable update channel is not configured with a trusted public key.",
+      });
+      return;
+    }
+    setUpdateState({ status: "checking" });
+    try {
+      const update = await api.checkForUpdate();
+      setUpdateState(
+        update ? { status: "available", update } : { status: "current" },
+      );
+    } catch (caught) {
+      const message = errorMessage(caught);
+      recentDiagnostics.current = appendDiagnostic(recentDiagnostics.current, {
+        code: "UPDATE_CHECK_ERROR",
+        summary: message,
+      });
+      setUpdateState({ status: "error", message });
+    }
+  }, [runtimeInfo]);
+
+  const installUpdate = useCallback(
+    async (update: AvailableUpdate) => {
+      setUpdateState({
+        status: "downloading",
+        update,
+        downloaded: 0,
+        total: null,
+      });
+      try {
+        const verified = await api.downloadUpdate(update.version, (progress) => {
+          if (progress.event === "started") {
+            setUpdateState({
+              status: "downloading",
+              update,
+              downloaded: 0,
+              total: progress.data.contentLength,
+            });
+          } else if (progress.event === "progress") {
+            setUpdateState((current) =>
+              current.status === "downloading"
+                ? {
+                    ...current,
+                    downloaded: progress.data.downloaded,
+                  }
+                : current,
+            );
+          }
+        });
+        if (!(await beginWorkspaceOperation())) {
+          await api.discardPreparedUpdate();
+          setUpdateState({
+            status: "error",
+            message: "Update cancelled because open work could not be saved.",
+          });
+          return;
+        }
+        await api.prepareExit();
+        setUpdateState({ status: "installing", update: verified });
+        await api.installPreparedUpdate(verified.version);
+      } catch (caught) {
+        const message = errorMessage(caught);
+        recentDiagnostics.current = appendDiagnostic(
+          recentDiagnostics.current,
+          {
+            code: "UPDATE_INSTALL_ERROR",
+            summary: message,
+          },
+        );
+        void api.discardPreparedUpdate().catch((discardError) => {
+          console.error("Unable to discard prepared update:", discardError);
+        });
+        setWorkspaceLock(false);
+        setUpdateState({ status: "error", message });
+      }
+    },
+    [beginWorkspaceOperation, setWorkspaceLock],
+  );
 
   const beginFileOpenOperation = useCallback(
     async (replacedPath: string | null): Promise<void> => {
@@ -6610,6 +6778,28 @@ function App() {
     ],
   );
 
+  const reportBug = useCallback(
+    (currentError: AppError | null) => {
+      try {
+        const url = buildBugReportUrl({
+          buildInfo: BUILD_INFO,
+          runtimeInfo,
+          currentError,
+          diagnostics: recentDiagnostics.current,
+        });
+        void openWebLinksWithPolicy([url], externalDomainPolicy);
+      } catch (caught) {
+        showError(caught);
+      }
+    },
+    [
+      externalDomainPolicy,
+      openWebLinksWithPolicy,
+      runtimeInfo,
+      showError,
+    ],
+  );
+
   const openLinkFromTab = useCallback(
     async (sourceTab: EditorTab | null, href: string, linkText = "") => {
       if (!sourceTab || !href) {
@@ -7621,9 +7811,28 @@ function App() {
     {
       id: "app.about",
       title: "About Denote",
-      description: "Show the artifact version and Git commit.",
+      description: "Show build, platform, support, and update information.",
       category: "Application",
       run: () => setAboutOpen(true),
+    },
+    {
+      id: "app.report-bug",
+      title: "Report a bug",
+      description: "Open a privacy-redacted draft issue on GitHub.",
+      category: "Application",
+      run: () => reportBug(visibleError),
+    },
+    {
+      id: "app.check-updates",
+      title: "Check for updates",
+      description: "Check the configured signed stable release channel.",
+      category: "Application",
+      disabled:
+        !runtimeInfo?.updaterConfigured ||
+        updateState.status === "checking" ||
+        updateState.status === "downloading" ||
+        updateState.status === "installing",
+      run: checkForUpdates,
     },
     {
       id: "editor.zoom-in",
@@ -7684,8 +7893,7 @@ function App() {
       title: `Switch to ${theme === "dark" ? "light" : "dark"} mode`,
       description: "Change the application color theme.",
       category: "Appearance",
-      run: () =>
-        setTheme((current) => (current === "dark" ? "light" : "dark")),
+      run: toggleTheme,
     },
   ];
   commandPaletteCommands.push(
@@ -7803,6 +8011,11 @@ function App() {
     <AboutDialog
       open={aboutOpen}
       buildInfo={BUILD_INFO}
+      runtimeInfo={runtimeInfo}
+      updateState={updateState}
+      onCheckForUpdates={() => void checkForUpdates()}
+      onInstallUpdate={(update) => void installUpdate(update)}
+      onReportBug={() => reportBug(null)}
       onClose={() => setAboutOpen(false)}
     />
   );
@@ -7812,6 +8025,9 @@ function App() {
       message={visibleError?.message ?? null}
       transient={visibleError?.kind === "link"}
       onDismiss={dismissVisibleError}
+      onReport={
+        visibleError?.kind === "link" ? undefined : () => reportBug(visibleError)
+      }
       onNavigate={
         visibleError?.kind === "markdown" &&
         visibleError.location &&
@@ -7911,9 +8127,7 @@ function App() {
         <VaultUnlockScreen
           vaultName={workspace.vaultName}
           theme={theme}
-          onThemeToggle={() =>
-            setTheme((current) => (current === "dark" ? "light" : "dark"))
-          }
+          onThemeToggle={toggleTheme}
           onShowVaults={() => setVaultSwitcherOpen(true)}
           onUnlockWithPassword={(password) =>
             unlockEncryptedVault(password, false)
@@ -8217,9 +8431,7 @@ function App() {
           setActiveSourceControlProvider({ pluginId, providerId });
         }}
         onAbout={() => setAboutOpen(true)}
-        onThemeToggle={() =>
-          setTheme((current) => (current === "dark" ? "light" : "dark"))
-        }
+        onThemeToggle={toggleTheme}
       />
       <aside className="workspace-sidebar" aria-label="Vault sidebar">
         <header className="sidebar-header">
@@ -8985,6 +9197,7 @@ function App() {
         open={editorSettingsOpen}
         disabled={workspaceLocked}
         settings={editorDisplaySettings}
+        themePreference={themePreference}
         restoreTabs={workspace.restoreTabs}
         externalDomains={externalDomainPolicy.domains}
         allowAllExternalDomains={externalDomainPolicy.allowAll}
@@ -8995,6 +9208,7 @@ function App() {
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}
         onChange={updateEditorDisplaySettings}
+        onThemePreferenceChange={updateThemePreference}
         onRestoreTabsChange={updateRestoreTabs}
         onRemoveExternalDomain={removeExternalDomain}
         onClearExternalDomains={clearExternalDomains}

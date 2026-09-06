@@ -15,11 +15,13 @@ import type {
 } from "../types";
 import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 import { PluginSettingsPanel } from "./PluginSettingsPanel";
+import type { ThemePreference } from "../lib/theme";
 
 interface EditorSettingsDialogProps {
   open: boolean;
   disabled: boolean;
   settings: EditorDisplaySettings;
+  themePreference: ThemePreference;
   restoreTabs: boolean;
   externalDomains: string[];
   allowAllExternalDomains: boolean;
@@ -30,6 +32,7 @@ interface EditorSettingsDialogProps {
   pluginsLoading: boolean;
   busyPluginIds: ReadonlySet<string>;
   onChange: (settings: EditorDisplaySettings) => void;
+  onThemePreferenceChange: (preference: ThemePreference) => void;
   onRestoreTabsChange: (enabled: boolean) => void;
   onRemoveExternalDomain: (domain: string) => void;
   onClearExternalDomains: () => void;
@@ -64,6 +67,7 @@ export function EditorSettingsDialog({
   open,
   disabled,
   settings,
+  themePreference,
   restoreTabs,
   externalDomains,
   allowAllExternalDomains,
@@ -74,6 +78,7 @@ export function EditorSettingsDialog({
   pluginsLoading,
   busyPluginIds,
   onChange,
+  onThemePreferenceChange,
   onRestoreTabsChange,
   onRemoveExternalDomain,
   onClearExternalDomains,
@@ -185,6 +190,26 @@ export function EditorSettingsDialog({
 
       {section === "editor" ? (
         <div className="editor-settings-dialog__body">
+          <fieldset className="editor-tab-setting" disabled={disabled}>
+            <legend>Appearance</legend>
+            <p>
+              Choose a fixed theme or follow the operating-system appearance.
+            </p>
+            <div>
+              {(["light", "dark", "system"] as const).map((preference) => (
+                <label key={preference}>
+                  <input
+                    type="radio"
+                    name="appearance-preference"
+                    value={preference}
+                    checked={themePreference === preference}
+                    onChange={() => onThemePreferenceChange(preference)}
+                  />
+                  {preference[0].toUpperCase() + preference.slice(1)}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <div className="editor-font-setting">
           <label htmlFor="editor-font-size">
             <strong>Editor font size</strong>

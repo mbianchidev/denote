@@ -262,7 +262,22 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Rich-mode fenced code blocks expose a copy action that reads the complete live
   code document rather than only visible lines.
 - About Denote exposes the packaged semantic version and immutable Git commit
-  hash from both the activity rail and command palette.
+  hash, operating system, architecture, package type, and update channel from
+  both the activity rail and command palette.
+- Settings exposes one persistent Light, Dark, or System appearance preference.
+  Light and Dark override the operating system. System follows
+  `prefers-color-scheme` and reacts to later changes. Fresh and invalid state
+  defaults to Dark, and the chosen theme is applied before first paint.
+- About Denote and persistent error banners can open an editable GitHub bug
+  draft through the existing external-domain approval flow. The draft includes
+  build/platform metadata, a stable error code, and a bounded redacted
+  diagnostic excerpt, never note contents, vault paths, credentials, tokens, or
+  arbitrary logs.
+- About Denote provides a user-initiated stable-channel update check. Update
+  downloads require Tauri updater signatures, official Denote GitHub Release
+  URLs, a newer semantic version, and the exact current platform/package. Builds
+  without a committed updater public key report that the channel is not
+  configured and perform no updater network request.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.

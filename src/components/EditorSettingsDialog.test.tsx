@@ -5,6 +5,8 @@ import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { EditorSettingsDialog } from "./EditorSettingsDialog";
 
 const pluginProps = {
+  themePreference: "dark" as const,
+  onThemePreferenceChange: vi.fn(),
   plugins: [],
   pluginBundles: [],
   activeProject: null,
@@ -22,6 +24,32 @@ const pluginProps = {
 };
 
 describe("EditorSettingsDialog", () => {
+  it("changes the persistent appearance preference with an accessible radio group", async () => {
+    const user = userEvent.setup();
+    const onThemePreferenceChange = vi.fn();
+    render(
+      <EditorSettingsDialog
+        {...pluginProps}
+        open
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
+        onChange={vi.fn()}
+        onThemePreferenceChange={onThemePreferenceChange}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const system = screen.getByRole("radio", { name: "System" });
+    await user.click(system);
+    expect(onThemePreferenceChange).toHaveBeenCalledWith("system");
+  });
+
   it("applies display settings immediately", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

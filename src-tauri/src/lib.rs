@@ -6,6 +6,7 @@ mod error;
 mod gitignore;
 mod models;
 mod plugins;
+mod updater;
 mod vault;
 
 use db::AppState;
@@ -246,6 +247,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             #[cfg(target_os = "macos")]
             configure_macos_menu(app)?;
@@ -258,6 +260,7 @@ pub fn run() {
             }
             app.manage(commands::FileClipboard::new());
             app.manage(commands::LinkRewriteLeases::new());
+            app.manage(updater::UpdateManager::default());
             app.manage(plugins::PluginManager::with_resource_dir(
                 app_data_dir.clone(),
                 app_cache_dir.clone(),
@@ -337,6 +340,11 @@ pub fn run() {
             commands::list_link_rewrite_documents,
             commands::read_image_data_url,
             commands::save_attachment,
+            updater::get_runtime_info,
+            updater::check_for_update,
+            updater::download_update,
+            updater::discard_prepared_update,
+            updater::install_prepared_update,
             plugins::list_plugins,
             plugins::list_plugin_bundles,
             plugins::choose_development_plugin_archive,
