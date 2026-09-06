@@ -51,8 +51,10 @@ accepts a caller path, arbitrary host, checksum-only integrity, or downgrade.
 contract. Release scripts stage architecture-qualified updater assets, require
 their `.sig` files, include them in checksums/attestations, and generate complete
 static `latest.json` metadata only when updater provisioning is enabled.
-Platform code signing remains separate: the current release matrix still uses
-`--no-sign` for Apple Developer ID and Windows Authenticode.
+Platform code signing remains separate: release builds omit `--no-sign` only
+when updater provisioning is enabled so Tauri can create Minisign signatures.
+The workflow does not provide Apple Developer ID or Windows Authenticode
+credentials.
 
 Bug reporting collects only recent user-visible error categories and sanitized
 summaries in a small in-memory ring. URL construction strips paths, usernames,
@@ -699,12 +701,14 @@ the downloader. An interrupted or corrupted cache is reported explicitly and
 never causes fallback.
 
 Release jobs prepare the target assets and metadata before Tauri packaging.
-Every matrix build passes Tauri's `--no-sign` option, so Apple Developer ID
-signing/notarization and Windows Authenticode signing are disabled. The jobs
-still smoke-test tools from the installed Debian package, mounted DMG, or
-administrative MSI image, publish checksums, notices, SPDX SBOMs, the exact Git
-corresponding-source archive and signature, the on-demand target tool archives,
-and GitHub build-provenance and SBOM attestations. Release checksums enumerate
+Matrix builds pass Tauri's `--no-sign` option only while updater provisioning is
+disabled. Enabled updater builds omit it so Tauri generates the required
+Minisign signatures; Apple Developer ID signing/notarization and Windows
+Authenticode remain unconfigured. The jobs still smoke-test tools from the
+installed Debian package, mounted DMG, or administrative MSI image, publish
+checksums, notices, SPDX SBOMs, the exact Git corresponding-source archive and
+signature, the on-demand target tool archives, and GitHub build-provenance and
+SBOM attestations. Release checksums enumerate
 only the package files that publication uploads. The public checksum file uses
 their release-asset filenames, while the attestation input keeps one subject per
 SHA-256 digest because GitHub rejects repeated digests in a single statement. Installed-package

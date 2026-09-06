@@ -369,12 +369,14 @@ missing, then use `src-tauri/tauri.release.conf.json` to generate signed updater
 artifacts. Never rotate or replace the key without a separately designed
 in-application trust migration.
 
-Release packaging currently passes Tauri's `--no-sign` option on every target.
-No Apple Developer ID signing/notarization or Windows Authenticode signing is
-performed. The jobs still prepare and verify on-demand tool assets for each
-target, assert installed packages contain metadata but no tool or plugin
-archive, generate checksums and SPDX SBOMs, attest bundles and tool assets, and
-publish Git's corresponding source archive and signature. Checksum generation
+Release packaging passes Tauri's `--no-sign` option when updater provisioning
+is disabled. When it is enabled, the workflow omits that option so Tauri can
+generate updater Minisign signatures. Apple Developer ID
+signing/notarization and Windows Authenticode remain unconfigured. The jobs
+still prepare and verify on-demand tool assets for each target, assert installed
+packages contain metadata but no tool or plugin archive, generate checksums and
+SPDX SBOMs, attest bundles and tool assets, and publish Git's corresponding
+source archive and signature. Checksum generation
 selects only the package formats uploaded for that platform. It keeps every
 release-asset filename in the published `SHA256SUMS` file and deduplicates
 attestation subjects by SHA-256 digest to satisfy GitHub's
@@ -424,9 +426,8 @@ certificate and notarization rather than asking users to bypass quarantine.
    ```
 
    Tauri signs the app and submits it for notarization when the signing identity
-   and notarization variables are available. The current release workflow
-   explicitly passes `--no-sign`; configure repository secrets and remove that
-   argument before expecting CI artifacts to be signed.
+   and notarization variables are available. The current release workflow does
+   not provide those credentials, so CI artifacts are not platform-signed.
 
 5. Verify the resulting app and disk image:
 
