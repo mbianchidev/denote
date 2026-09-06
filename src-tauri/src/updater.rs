@@ -518,10 +518,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn unconfigured_updater_fails_closed() {
+    fn configured_updater_has_a_trusted_public_key() {
         let config = configuration().expect("configuration");
-        assert!(!configuration_is_enabled(&config));
-        assert!(config.public_key.is_none());
+        assert!(configuration_is_enabled(&config));
+        assert!(config.public_key.is_some_and(|key| !key.trim().is_empty()));
     }
 
     #[test]

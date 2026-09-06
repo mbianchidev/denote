@@ -23,10 +23,10 @@ afterEach(() => {
 });
 
 describe("updater release", () => {
-  it("keeps the checked-in channel disabled until signing secrets are provisioned", () => {
+  it("enables the stable channel with the committed public key", () => {
     const config = readUpdaterConfiguration();
     expect(config).toMatchObject({
-      enabled: false,
+      enabled: true,
       channel: "stable",
     });
     expect(config.publicKey).toMatch(/^[A-Za-z0-9+/]+=*$/);
