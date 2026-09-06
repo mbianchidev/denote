@@ -1,56 +1,59 @@
 # Denote
 
-Denote is a local-first desktop workspace for people who want a focused rich
+Denote is a local-first desktop workspace for people who want a focused
 Markdown editor without giving up ownership of their files. Open any folder as a
-vault. Denote edits its contents in place and keeps optional workspace metadata
+vault: Denote edits its contents in place and keeps optional workspace metadata
 on your device.
 
-<img width="1707" height="1094" alt="image" src="https://github.com/user-attachments/assets/82c52973-0f60-4345-8dda-309ed0d6d9d4" />
+<img width="1707" height="1094" alt="Denote showing a Markdown vault, file tree, tabs, and focused editor" src="https://github.com/user-attachments/assets/82c52973-0f60-4345-8dda-309ed0d6d9d4" />
 
-## Main features
+## What you can do
 
-- Rich Markdown editing with a source mode when exact syntax matters
-- Fast local search across notes, file paths, tags, and metadata
-- Native files, folders, tabs, links, images, and multiple vaults
-- Autosave, revision history, Denote Trash, and conflict-safe writes
-- Optional vault encryption with one-time recovery codes
-- Optional local emoji picker with Unicode insertion and shortcode suggestions
-- macOS, Windows, and Linux support through Tauri
+- Write in rich Markdown or exact source mode.
+- Search local notes, filenames, paths, tags, bookmarks, and recent work.
+- Organize files, tabs, groups, and up to four editor panes.
+- Recover work with autosave, revision history, Denote Trash, and conflict-safe
+  writes.
+- Encrypt a vault with a password and one-time recovery codes.
+- Opt into isolated plugins for Git workflows and a local Unicode emoji picker.
+- Use persistent Light, Dark, or System appearance on macOS, Windows, and Linux.
 
 Your vault remains a normal folder. Denote does not require an account, cloud
 storage, telemetry, or a proprietary document format.
 
-## Downloads
+## Download
 
-Tagged versions are published on
-[GitHub Releases](https://github.com/mbianchidev/denote/releases) with desktop
-bundles for Linux, Windows, and both Apple Silicon and Intel Macs. Optional
-plugin archives are separate release assets downloaded only when installed;
-they are not bundled in the desktop installers or committed to the repository.
-Plugin source and immutable release metadata live under `plugins/`; generated
-archives are staged only in ignored `.plugin-artifacts/`.
+Visit the [Denote website](https://mbianchidev.github.io/denote/) for explicit
+macOS Apple Silicon, macOS Intel, Windows, and Linux downloads from the latest
+GitHub Release. Every release also publishes SHA-256 checksums, SBOMs, and build
+provenance.
 
-### Opening an unsigned macOS build
+Current macOS releases are unsigned. Verify the disk image against its published
+checksum before using the documented quarantine workaround in the
+[getting-started guide](docs/user-guide/docs/Getting%20started.md).
 
-The current release workflow produces unsigned macOS disk images. After
-verifying the downloaded file against the release's `SHA256SUMS`, copy
-`Denote.app` to Applications. If Gatekeeper reports that the app is damaged,
-remove only that verified app's quarantine attribute:
+## Start writing
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/Denote.app"
-```
+1. Install and open Denote.
+2. Choose any existing folder or create a new one.
+3. Select a Markdown file, or create one with `Command-N` / `Ctrl-N`.
+4. Open Settings with `Command-,` / `Ctrl-,` to choose appearance and editor
+   preferences.
 
-Do not use that command for an app whose origin or checksum you have not
-verified. Maintainers can remove the warning properly by following the
-[macOS signing and notarization instructions](docs/development.md#sign-and-notarize-a-macos-build).
+The included **Denote Welcome** vault is an editable offline guide. Denote seeds
+it once and never overwrites your changes.
 
-## Documentation
+## Privacy and safety
 
-Read the [project documentation](docs/index.md) or start with the
-[development guide](docs/development.md).
+Search, metadata, preferences, history, and optional encryption stay local.
+External links require domain approval. Bug reports open as editable GitHub
+drafts with bounded, redacted diagnostics; Denote never submits them
+automatically.
 
-Plugin authors can use the targeted local workflow documented under
-[plugin development](docs/development.md). Each plugin owns its source, manifest,
-guide, tests, and release ledger; the shared contract remains in
-[`packages/plugin-sdk`](packages/plugin-sdk).
+## Documentation and development
+
+- [Built-in user guide](docs/user-guide/Welcome.md)
+- [Product and design documentation](docs/index.md)
+- [Development setup and validation](docs/development.md)
+- [Optional plugin model](docs/plugins.md)
+- [GitHub Releases](https://github.com/mbianchidev/denote/releases)

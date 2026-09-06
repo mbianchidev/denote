@@ -42,7 +42,23 @@ notarized build opens without this workaround.
 - Create a file or folder from the file-tree toolbar.
 - Select a file to open it in a tab.
 - Edit normally; autosave runs after a short pause.
-- Use the sun/moon control to switch themes.
+- Open **Settings** to choose Light, Dark, or System appearance. Light and Dark
+  override the operating system; System follows it as it changes.
+
+## About, updates, and bug reports
+
+Open **About Denote** from the activity rail or command palette to inspect the
+installed version, full source commit, operating system, architecture, package,
+and update channel.
+
+**Check for updates** uses only the configured signed stable channel. If the
+build has no trusted updater public key, About says the channel is not configured
+and does not download anything.
+
+**Report a bug** opens an editable GitHub draft through Denote's normal external
+domain confirmation. The draft contains bounded redacted diagnostics and no note
+contents or vault paths. Review it before submitting and remove any information
+you do not want to share.
 
 [Next: Writing and formatting](<Writing and formatting.md>)
 

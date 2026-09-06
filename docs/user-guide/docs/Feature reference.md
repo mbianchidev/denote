@@ -208,12 +208,19 @@ more detail and examples.
 
 ## Appearance and accessibility
 
-- Use dark mode by default or persistent light mode.
+- Use persistent Light, Dark, or System appearance. Fresh state defaults to
+  Dark; System follows operating-system changes.
 - On macOS, use native menus for common file, vault, search, view, pane, and
   editor actions.
 - Open Settings with `Command-,` on macOS or `Ctrl-,` on Windows and Linux.
 - Open **About Denote** from the activity rail or command palette to inspect the
-  packaged version and full Git commit.
+  packaged version, full Git commit, operating system, architecture, package,
+  and update channel.
+- Check the configured signed stable update channel and install only a newer
+  artifact matching the current platform/package. Unconfigured builds make no
+  update request and say why.
+- Open a privacy-redacted editable bug draft from About or a persistent error
+  banner. Denote never submits it automatically.
 - Scale editor text without scaling application chrome.
 - Adapt code blocks and syntax colors to the active theme.
 - Preserve source and fenced editor instances, selection, undo history, and

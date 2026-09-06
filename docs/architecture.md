@@ -7,6 +7,58 @@ Vite injects the package version and full `git rev-parse HEAD` SHA as compile-ti
 constants. The About dialog therefore reports the exact desktop artifact build,
 not a later runtime checkout or mutable environment value.
 
+The root theme preference is one of `dark`, `light`, or `system`. An inline
+bootstrap reads that origin-local preference before first paint, defaults
+missing or invalid state to Dark, and resolves System through
+`prefers-color-scheme`. React owns the same preference after startup, listens
+for system and storage changes, and updates semantic CSS tokens without
+remounting editors. The development application identity does not special-case
+theme state; the earlier unexpected light development window came from the
+persisted `http://localhost:1420` browser origin, not the Tauri app-data
+identity.
+
+## Support and application updates
+
+`src-tauri/src/updater.rs` owns runtime platform metadata and the application
+update boundary. The renderer can ask for a check, receive bounded metadata and
+progress, and request installation of one prepared version; it never supplies a
+download URL, filesystem path, public key, or update bytes.
+
+Updater configuration is explicit in `src-tauri/updater.json`. Until a durable
+public key is committed and `enabled` is true, the native check fails before
+network access and About reports an unconfigured stable channel. Denote
+Development always rejects self-update so a development bundle cannot replace
+itself with production bytes.
+
+When enabled, the Rust wrapper uses Tauri v2's mandatory Minisign verification,
+default greater-version comparison, bounded timeouts, and a GitHub-only redirect
+policy. It validates the selected URL against the exact Denote repository,
+release version, package type, architecture, and `release-assets.json` contract.
+One verified update may be retained in memory. Starting a different download or
+discarding a failed flow removes it.
+
+Before installation the renderer drains uploads, preferences, tab-session
+writes, and note saves through the workspace-operation barrier, then seals an
+unlocked encrypted vault. Windows uses the matching passive NSIS/MSI updater;
+AppImage uses Tauri's replacement and rollback path; supported DEB/RPM packages
+use the matching system package flow. macOS derives `Denote.app` only from the
+running executable and removes `com.apple.quarantine` only inside that exact
+verified replacement before relaunch. No update accepts a caller path, arbitrary
+host, checksum-only integrity, or downgrade.
+
+`release-assets.json` is the shared desktop download and updater naming
+contract. Release scripts stage architecture-qualified updater assets, require
+their `.sig` files, include them in checksums/attestations, and generate complete
+static `latest.json` metadata only when updater provisioning is enabled.
+Platform code signing remains separate: the current release matrix still uses
+`--no-sign` for Apple Developer ID and Windows Authenticode.
+
+Bug reporting collects only recent user-visible error categories and sanitized
+summaries in a small in-memory ring. URL construction strips paths, usernames,
+remote URLs, credentials, token-shaped values, and excess text before opening
+the canonical GitHub bug template through the ordinary external-domain policy.
+The browser is the review/edit surface; Denote never submits an issue.
+
 ## Data boundaries
 
 The selected vault is the content boundary. Every regular file up to 25 MB can
