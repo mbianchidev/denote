@@ -52,8 +52,11 @@ contract. Release scripts stage architecture-qualified updater assets, require
 their `.sig` files, include them in checksums/attestations, and generate complete
 static `latest.json` metadata only when updater provisioning is enabled.
 `tauri.release.conf.json` supplies the same Base64 public-key value to Tauri's
-artifact signer, and release validation rejects a missing or mismatched copy
-before any platform build starts.
+artifact signer, and current-source validation rejects a missing or mismatched
+copy. The release workflow also derives an ephemeral config copy from the tagged
+updater policy using its own reviewed workflow-tool revision. This lets a
+workflow-only repair retry an immutable release tag without changing the
+source commit or updater trust key.
 Platform code signing remains separate: release builds omit `--no-sign` only
 when updater provisioning is enabled so Tauri can create Minisign signatures.
 The workflow does not provide Apple Developer ID or Windows Authenticode

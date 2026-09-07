@@ -22,6 +22,55 @@ export function readUpdaterConfiguration(
   path = UPDATER_CONFIG_PATH,
   tauriReleasePath = TAURI_RELEASE_CONFIG_PATH,
 ) {
+  const config = readUpdaterPolicy(path);
+  if (config.enabled) {
+    const tauriRelease = JSON.parse(readFileSync(tauriReleasePath, "utf8"));
+    if (tauriRelease?.bundle?.createUpdaterArtifacts !== true) {
+      throw new Error(
+        "Tauri release configuration must enable updater artifacts.",
+      );
+    }
+    if (tauriRelease?.plugins?.updater?.pubkey !== config.publicKey) {
+      throw new Error(
+        "Tauri release updater public key does not match src-tauri/updater.json.",
+      );
+    }
+  }
+  return config;
+}
+
+export function prepareTauriReleaseConfiguration({
+  updaterPath = UPDATER_CONFIG_PATH,
+  templatePath = TAURI_RELEASE_CONFIG_PATH,
+  outputPath,
+}) {
+  const config = readUpdaterPolicy(updaterPath);
+  if (!config.enabled) {
+    throw new Error(
+      "Cannot prepare updater signing configuration while updates are disabled.",
+    );
+  }
+  const tauriRelease = JSON.parse(readFileSync(templatePath, "utf8"));
+  if (tauriRelease?.bundle?.createUpdaterArtifacts !== true) {
+    throw new Error(
+      "Tauri release configuration must enable updater artifacts.",
+    );
+  }
+  const prepared = {
+    ...tauriRelease,
+    plugins: {
+      ...tauriRelease.plugins,
+      updater: {
+        ...tauriRelease.plugins?.updater,
+        pubkey: config.publicKey,
+      },
+    },
+  };
+  writeFileSync(outputPath, `${JSON.stringify(prepared, null, 2)}\n`, "utf8");
+  return prepared;
+}
+
+function readUpdaterPolicy(path) {
   const config = JSON.parse(readFileSync(path, "utf8"));
   if (
     config?.schemaVersion !== 1 ||
@@ -50,19 +99,6 @@ export function readUpdaterConfiguration(
       !decoded.split(/\r?\n/)[1]?.startsWith("RW")
     ) {
       throw new Error("Invalid Minisign updater public key.");
-    }
-    if (config.enabled) {
-      const tauriRelease = JSON.parse(readFileSync(tauriReleasePath, "utf8"));
-      if (tauriRelease?.bundle?.createUpdaterArtifacts !== true) {
-        throw new Error(
-          "Tauri release configuration must enable updater artifacts.",
-        );
-      }
-      if (tauriRelease?.plugins?.updater?.pubkey !== config.publicKey) {
-        throw new Error(
-          "Tauri release updater public key does not match src-tauri/updater.json.",
-        );
-      }
     }
   }
   return config;
@@ -217,7 +253,7 @@ function targetMatchesArchitecture(target, architecture) {
 
 function usage() {
   throw new Error(
-    "Usage: node scripts/updater-release.mjs status | stage <root> <runner-os> <target> <artifact> <version> <destination> | manifest <release-dir> <version> <published-at> <output>",
+    "Usage: node scripts/updater-release.mjs status | configure <updater-config> <tauri-template> <output> | stage <root> <runner-os> <target> <artifact> <version> <destination> | manifest <release-dir> <version> <published-at> <output>",
   );
 }
 
@@ -225,6 +261,12 @@ if (process.argv[1] && basename(process.argv[1]) === "updater-release.mjs") {
   const [command, ...args] = process.argv.slice(2);
   if (command === "status" && args.length === 0) {
     process.stdout.write(`${updaterReleaseEnabled()}\n`);
+  } else if (command === "configure" && args.length === 3) {
+    prepareTauriReleaseConfiguration({
+      updaterPath: resolve(args[0]),
+      templatePath: resolve(args[1]),
+      outputPath: resolve(args[2]),
+    });
   } else if (command === "stage" && args.length === 6) {
     stageUpdaterArtifacts({
       projectRoot: resolve(args[0]),

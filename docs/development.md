@@ -368,9 +368,14 @@ its matching private key and password in GitHub Actions.
 When disabled, ordinary local and release desktop bundles remain unsigned and
 usable exactly as before; no updater artifacts or `latest.json` are published.
 When enabled, release jobs fail before building if either signing secret is
-missing, then use `src-tauri/tauri.release.conf.json` to generate signed updater
-artifacts. Never rotate or replace the key without a separately designed
-in-application trust migration.
+missing, then use `src-tauri/tauri.release.conf.json` as the template for signed
+updater artifacts. Never rotate or replace the key without a separately
+designed in-application trust migration.
+The workflow checks out its release helpers from `github.workflow_sha` and
+derives `src-tauri/tauri.workflow.release.conf.json` from the tagged
+`updater.json` plus release template. The generated file is ephemeral. This
+keeps the updater key and application source tied to the immutable tag while a
+reviewed workflow-only fix can retry that tag.
 
 Release packaging passes Tauri's `--no-sign` option when updater provisioning
 is disabled. When it is enabled, the workflow omits that option so Tauri can
