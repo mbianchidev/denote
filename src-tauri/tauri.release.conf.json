@@ -5,7 +5,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "untrusted comment: minisign public key: FE4FA769BCDA3293\nRWSTMtq8aadP/nArM5NdnFem7BqqeP+3MTs7fHyo9Cf6TzkwAwygGzue\n"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFNEZBNzY5QkNEQTMyOTMKUldTVE10cThhYWRQL25Bck01TmRuRmVtN0JxcWVQKzNNVHM3Zkh5bzlDZjZUemt3QXd5Z0d6dWUK"
     }
   }
 }

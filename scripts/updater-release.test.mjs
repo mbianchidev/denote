@@ -38,9 +38,7 @@ describe("updater release", () => {
       readFileSync("src-tauri/tauri.release.conf.json", "utf8"),
     );
     expect(tauriRelease.bundle.createUpdaterArtifacts).toBe(true);
-    expect(tauriRelease.plugins.updater.pubkey).toBe(
-      Buffer.from(config.publicKey, "base64").toString("utf8"),
-    );
+    expect(tauriRelease.plugins.updater.pubkey).toBe(config.publicKey);
   });
 
   it("rejects a Tauri release key that drifts from the trusted key", () => {
@@ -58,7 +56,7 @@ describe("updater release", () => {
         plugins: {
           updater: {
             pubkey:
-              "untrusted comment: minisign public key: 0000000000000000\nRWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+              "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAwMDAwMDAwMDAwMDAwMDAKUldBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBCg==",
           },
         },
       }),

@@ -58,7 +58,7 @@ export function readUpdaterConfiguration(
           "Tauri release configuration must enable updater artifacts.",
         );
       }
-      if (tauriRelease?.plugins?.updater?.pubkey !== decoded) {
+      if (tauriRelease?.plugins?.updater?.pubkey !== config.publicKey) {
         throw new Error(
           "Tauri release updater public key does not match src-tauri/updater.json.",
         );
