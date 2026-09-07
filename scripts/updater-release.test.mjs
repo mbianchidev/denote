@@ -32,6 +32,45 @@ describe("updater release", () => {
     expect(config.publicKey).toMatch(/^[A-Za-z0-9+/]+=*$/);
   });
 
+  it("configures Tauri artifact signing with the same trusted public key", () => {
+    const config = readUpdaterConfiguration();
+    const tauriRelease = JSON.parse(
+      readFileSync("src-tauri/tauri.release.conf.json", "utf8"),
+    );
+    expect(tauriRelease.bundle.createUpdaterArtifacts).toBe(true);
+    expect(tauriRelease.plugins.updater.pubkey).toBe(
+      Buffer.from(config.publicKey, "base64").toString("utf8"),
+    );
+  });
+
+  it("rejects a Tauri release key that drifts from the trusted key", () => {
+    const root = fixtureRoot();
+    const updaterPath = join(root, "updater.json");
+    const tauriReleasePath = join(root, "tauri.release.conf.json");
+    write(
+      updaterPath,
+      readFileSync("src-tauri/updater.json", "utf8"),
+    );
+    write(
+      tauriReleasePath,
+      JSON.stringify({
+        bundle: { createUpdaterArtifacts: true },
+        plugins: {
+          updater: {
+            pubkey:
+              "untrusted comment: minisign public key: 0000000000000000\nRWAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n",
+          },
+        },
+      }),
+    );
+
+    expect(() =>
+      readUpdaterConfiguration(updaterPath, tauriReleasePath),
+    ).toThrow(
+      "Tauri release updater public key does not match src-tauri/updater.json.",
+    );
+  });
+
   it("provides an inert Tauri plugin config so unprovisioned builds can start", () => {
     const tauri = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8"));
     expect(tauri.plugins.updater).toEqual({

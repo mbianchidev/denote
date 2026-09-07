@@ -2,5 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
     "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "untrusted comment: minisign public key: FE4FA769BCDA3293\nRWSTMtq8aadP/nArM5NdnFem7BqqeP+3MTs7fHyo9Cf6TzkwAwygGzue\n"
+    }
   }
 }

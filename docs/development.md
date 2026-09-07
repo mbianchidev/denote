@@ -347,9 +347,12 @@ its matching private key and password in GitHub Actions.
 2. Back up the private key and its password in durable maintainer-controlled
    storage. Losing the private key prevents existing installations from trusting
    later updates. Never put it in Git, project files, logs, or issue bodies.
-3. Copy only the generated public-key string into
-   `src-tauri/updater.json`, set `enabled` to `true`, and review the resulting
-   commit.
+3. Base64-encode the complete generated public-key file, including its
+   `untrusted comment` line, into `src-tauri/updater.json`. Copy the original
+   complete public-key text into
+   `src-tauri/tauri.release.conf.json` at `plugins.updater.pubkey`, set
+   `enabled` to `true`, and review the resulting commit. Release validation
+   rejects missing or mismatched copies before platform builds start.
 4. Configure the repository Actions secrets
    `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from the
    backed-up values. Prefer the GitHub repository settings UI or an interactive

@@ -14,8 +14,14 @@ import {
 } from "./release-assets.mjs";
 
 const UPDATER_CONFIG_PATH = resolve("src-tauri/updater.json");
+const TAURI_RELEASE_CONFIG_PATH = resolve(
+  "src-tauri/tauri.release.conf.json",
+);
 
-export function readUpdaterConfiguration(path = UPDATER_CONFIG_PATH) {
+export function readUpdaterConfiguration(
+  path = UPDATER_CONFIG_PATH,
+  tauriReleasePath = TAURI_RELEASE_CONFIG_PATH,
+) {
   const config = JSON.parse(readFileSync(path, "utf8"));
   if (
     config?.schemaVersion !== 1 ||
@@ -44,6 +50,19 @@ export function readUpdaterConfiguration(path = UPDATER_CONFIG_PATH) {
       !decoded.split(/\r?\n/)[1]?.startsWith("RW")
     ) {
       throw new Error("Invalid Minisign updater public key.");
+    }
+    if (config.enabled) {
+      const tauriRelease = JSON.parse(readFileSync(tauriReleasePath, "utf8"));
+      if (tauriRelease?.bundle?.createUpdaterArtifacts !== true) {
+        throw new Error(
+          "Tauri release configuration must enable updater artifacts.",
+        );
+      }
+      if (tauriRelease?.plugins?.updater?.pubkey !== decoded) {
+        throw new Error(
+          "Tauri release updater public key does not match src-tauri/updater.json.",
+        );
+      }
     }
   }
   return config;
