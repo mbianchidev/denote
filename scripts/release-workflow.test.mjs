@@ -13,11 +13,35 @@ describe("release workflow", () => {
       "${{ needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}",
     );
     expect(workflow).toContain(
-      "${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.release.conf.json' || '' }}",
+      "${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.workflow.release.conf.json' || '' }}",
+    );
+    expect(workflow).toContain(
+      "node .release-workflow-tools/scripts/updater-release.mjs configure",
     );
     expect(workflow).not.toContain(
       "--target ${{ matrix.target }} --no-sign",
     );
+  });
+
+  it("prepares updater config with workflow tools before building tagged source", () => {
+    const buildStart = workflow.indexOf("\n  build:\n");
+    const publishStart = workflow.indexOf("\n  publish:\n");
+    const buildJob = workflow.slice(buildStart, publishStart);
+    const toolsCheckout = buildJob.indexOf(
+      "- name: Check out release workflow tools",
+    );
+    const prepareConfig = buildJob.indexOf(
+      "- name: Prepare updater signing configuration",
+    );
+    const buildBundles = buildJob.indexOf("- name: Build bundles");
+
+    expect(buildStart).toBeGreaterThan(-1);
+    expect(toolsCheckout).toBeGreaterThan(-1);
+    expect(prepareConfig).toBeGreaterThan(toolsCheckout);
+    expect(buildBundles).toBeGreaterThan(prepareConfig);
+    expect(
+      buildJob.match(/- name: Check out release workflow tools/g),
+    ).toHaveLength(1);
   });
 
   it.each([

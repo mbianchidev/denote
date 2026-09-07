@@ -244,6 +244,18 @@ jobs:
       - name: Install dependencies without lifecycle scripts
         run: npm ci --ignore-scripts
 
+      - name: Check out release workflow tools
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.workflow_sha }}
+          path: .release-workflow-tools
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/release-assets.mjs
+            scripts/release-checksums.mjs
+            scripts/updater-release.mjs
+          sparse-checkout-cone-mode: false
+
       - name: Prepare bundled Git and GitHub CLI
         env:
           GH_TOKEN: ${{ github.token }}
@@ -263,6 +275,15 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare updater signing configuration
+        if: needs.validate.outputs.updater_enabled == 'true'
+        shell: bash
+        run: |
+          node .release-workflow-tools/scripts/updater-release.mjs configure \
+            src-tauri/updater.json \
+            src-tauri/tauri.release.conf.json \
+            src-tauri/tauri.workflow.release.conf.json
+
       - name: Build bundles
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
@@ -274,7 +295,7 @@ jobs:
           args: >-
             --target ${{ matrix.target }}
             ${{ needs.validate.outputs.updater_enabled != 'true' && '--no-sign' || '' }}
-            ${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.release.conf.json' || '' }}
+            ${{ needs.validate.outputs.updater_enabled == 'true' && '--config src-tauri/tauri.workflow.release.conf.json' || '' }}
           retryAttempts: 2
           uploadUpdaterJson: false
 
@@ -368,15 +389,6 @@ jobs:
           format: spdx-json
           output-file: bundled-tools-${{ matrix.artifact }}.spdx.json
           upload-artifact: false
-
-      - name: Check out release workflow tools
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.workflow_sha }}
-          path: .release-workflow-tools
-          persist-credentials: false
-          sparse-checkout: scripts/release-checksums.mjs
-          sparse-checkout-cone-mode: false
 
       - name: Write release checksums
         shell: bash

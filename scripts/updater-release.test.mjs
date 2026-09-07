@@ -10,6 +10,7 @@ import { basename, dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createLatestJson,
+  prepareTauriReleaseConfiguration,
   readUpdaterConfiguration,
   stageUpdaterArtifacts,
 } from "./updater-release.mjs";
@@ -30,6 +31,72 @@ describe("updater release", () => {
       channel: "stable",
     });
     expect(config.publicKey).toMatch(/^[A-Za-z0-9+/]+=*$/);
+  });
+
+  it("configures Tauri artifact signing with the same trusted public key", () => {
+    const config = readUpdaterConfiguration();
+    const tauriRelease = JSON.parse(
+      readFileSync("src-tauri/tauri.release.conf.json", "utf8"),
+    );
+    expect(tauriRelease.bundle.createUpdaterArtifacts).toBe(true);
+    expect(tauriRelease.plugins.updater.pubkey).toBe(config.publicKey);
+  });
+
+  it("rejects a Tauri release key that drifts from the trusted key", () => {
+    const root = fixtureRoot();
+    const updaterPath = join(root, "updater.json");
+    const tauriReleasePath = join(root, "tauri.release.conf.json");
+    write(
+      updaterPath,
+      readFileSync("src-tauri/updater.json", "utf8"),
+    );
+    write(
+      tauriReleasePath,
+      JSON.stringify({
+        bundle: { createUpdaterArtifacts: true },
+        plugins: {
+          updater: {
+            pubkey:
+              "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDAwMDAwMDAwMDAwMDAwMDAKUldBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBCg==",
+          },
+        },
+      }),
+    );
+
+    expect(() =>
+      readUpdaterConfiguration(updaterPath, tauriReleasePath),
+    ).toThrow(
+      "Tauri release updater public key does not match src-tauri/updater.json.",
+    );
+  });
+
+  it("prepares signing config for an immutable release checkout", () => {
+    const root = fixtureRoot();
+    const updaterPath = join(root, "updater.json");
+    const templatePath = join(root, "tauri.release.conf.json");
+    const outputPath = join(root, "tauri.workflow.release.conf.json");
+    write(
+      updaterPath,
+      readFileSync("src-tauri/updater.json", "utf8"),
+    );
+    write(
+      templatePath,
+      JSON.stringify({
+        $schema: "https://schema.tauri.app/config/2",
+        bundle: { createUpdaterArtifacts: true },
+      }),
+    );
+
+    const prepared = prepareTauriReleaseConfiguration({
+      updaterPath,
+      templatePath,
+      outputPath,
+    });
+
+    expect(prepared.plugins.updater.pubkey).toBe(
+      readUpdaterConfiguration().publicKey,
+    );
+    expect(JSON.parse(readFileSync(outputPath, "utf8"))).toEqual(prepared);
   });
 
   it("provides an inert Tauri plugin config so unprovisioned builds can start", () => {

@@ -347,9 +347,12 @@ its matching private key and password in GitHub Actions.
 2. Back up the private key and its password in durable maintainer-controlled
    storage. Losing the private key prevents existing installations from trusting
    later updates. Never put it in Git, project files, logs, or issue bodies.
-3. Copy only the generated public-key string into
-   `src-tauri/updater.json`, set `enabled` to `true`, and review the resulting
-   commit.
+3. Base64-encode the complete generated public-key file, including its
+   `untrusted comment` line, into `src-tauri/updater.json`. Copy that same
+   generated Base64 value into `src-tauri/tauri.release.conf.json` at
+   `plugins.updater.pubkey`, set `enabled` to `true`, and review the resulting
+   commit. Release validation rejects missing or mismatched copies before
+   platform builds start.
 4. Configure the repository Actions secrets
    `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from the
    backed-up values. Prefer the GitHub repository settings UI or an interactive
@@ -365,9 +368,14 @@ its matching private key and password in GitHub Actions.
 When disabled, ordinary local and release desktop bundles remain unsigned and
 usable exactly as before; no updater artifacts or `latest.json` are published.
 When enabled, release jobs fail before building if either signing secret is
-missing, then use `src-tauri/tauri.release.conf.json` to generate signed updater
-artifacts. Never rotate or replace the key without a separately designed
-in-application trust migration.
+missing, then use `src-tauri/tauri.release.conf.json` as the template for signed
+updater artifacts. Never rotate or replace the key without a separately
+designed in-application trust migration.
+The workflow checks out its release helpers from `github.workflow_sha` and
+derives `src-tauri/tauri.workflow.release.conf.json` from the tagged
+`updater.json` plus release template. The generated file is ephemeral. This
+keeps the updater key and application source tied to the immutable tag while a
+reviewed workflow-only fix can retry that tag.
 
 Release packaging passes Tauri's `--no-sign` option when updater provisioning
 is disabled. When it is enabled, the workflow omits that option so Tauri can
