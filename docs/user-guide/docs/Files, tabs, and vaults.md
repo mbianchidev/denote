@@ -166,9 +166,11 @@ the file, and opens it. An encrypted target vault asks for its password or a
 recovery code before opening the pending file.
 
 If the file is not inside a known vault, the operating-system folder picker asks
-which containing folder to import as a vault. Choose the vault root, not the
-file. Denote opens it only when that folder contains the linked file. Cancelling
-keeps the current vault open. App links cannot contain queries or fragments.
+which containing folder to import as a vault. It starts in the linked file's
+folder; use the folder path controls to choose a higher vault root when needed.
+Choose the vault root, not the file. Denote opens it only when that folder
+contains the linked file. Cancelling keeps the current vault open. App links
+cannot contain queries or fragments.
 
 When the Git plugin is enabled, **Clone repo as vault** appears in this Switch
 vault dialog beside **Open another folder**. It clones into an empty folder chosen through the native

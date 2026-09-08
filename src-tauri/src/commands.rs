@@ -235,10 +235,14 @@ pub async fn import_app_link_vault(
     uri: String,
 ) -> AppResult<Option<ImportedAppLink>> {
     let target = app_links::linked_file(&uri)?;
+    let containing_folder = target.parent().ok_or_else(|| {
+        AppError::InvalidPath("The linked file has no containing folder".to_string())
+    })?;
     let selected = app
         .dialog()
         .file()
         .set_title("Choose the vault folder containing the linked file")
+        .set_directory(containing_folder)
         .blocking_pick_folder();
     let Some(selected) = selected else {
         return Ok(None);

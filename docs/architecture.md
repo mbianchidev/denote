@@ -948,8 +948,9 @@ local file, converts percent encoding natively, and matches the most-specific
 available known-vault root. The frontend receives only that trusted vault ID and
 vault-relative file path, then uses the ordinary save, switch, encryption, and
 pending-file flow. If no known root contains the file, Rust opens the native
-folder picker and requires the selected canonical folder to contain the target
-before registering and opening it; cancellation does not change vaults.
+folder picker at the target's parent and requires the selected canonical folder
+to contain the target before registering and opening it; cancellation does not
+change vaults.
 The built-in guide is always included in this list and labeled separately.
 User vaults can be removed from SQLite only, or moved to the operating system
 Trash before their metadata is deleted. The current vault, built-in guide,
