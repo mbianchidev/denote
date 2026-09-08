@@ -34,7 +34,8 @@ separator. In Rich mode, typing the third dash converts the line immediately
 and moves the caret to a new paragraph.
 
 Use `Command-Shift-V` on macOS or `Ctrl-Shift-V` on Windows and Linux to paste
-text without carrying clipboard formatting into the note.
+text without carrying clipboard formatting into the note. The Rich editor's
+context menu provides the same **Paste without formatting** action.
 
 Denote also renders a small README-style HTML subset as a locked Rich block:
 `p`, `h1` through `h6`, `a`, `strong`, and `img`. It supports safe alignment,

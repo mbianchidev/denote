@@ -77,4 +77,13 @@ describe("project configuration API", () => {
       ],
     ]);
   });
+
+  test("reads clipboard text through the native clipboard command", async () => {
+    invoke.mockResolvedValue("Synthetic clipboard text");
+
+    await expect(api.readClipboardText()).resolves.toBe(
+      "Synthetic clipboard text",
+    );
+    expect(invoke).toHaveBeenCalledWith("read_clipboard_text");
+  });
 });

@@ -428,6 +428,11 @@ Command-F / Control-F keeps the active file path as the scope and moves keyboard
 focus to the search-text field. Every matching content occurrence has its own
 result control, which opens the file and selects that exact term in the editor.
 
+The editable Rich document uses a native context menu for Undo, Redo, Cut, Copy,
+Paste, **Paste without formatting**, and Select All. The custom paste action
+shows Command/Control-Shift-V and returns focus to the preserved editor
+selection.
+
 External web navigation uses a compact confirmation dialog that states the exact
 domain and full destination. The primary choices are explicit: allow that domain
 or allow all external domains. Settings show exact trusted domains as removable

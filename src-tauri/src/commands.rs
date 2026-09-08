@@ -601,6 +601,23 @@ pub fn resolve_file_path(state: State<'_, AppState>, path: String) -> AppResult<
 }
 
 #[tauri::command]
+pub async fn read_clipboard_text(app: AppHandle) -> AppResult<String> {
+    run_blocking(move || {
+        let text = app
+            .clipboard()
+            .read_text()
+            .map_err(|error| AppError::Clipboard(error.to_string()))?;
+        if text.len() > 40 * 1024 * 1024 {
+            return Err(AppError::InvalidData(
+                "Clipboard text is larger than the paste limit".to_string(),
+            ));
+        }
+        Ok(text)
+    })
+    .await
+}
+
+#[tauri::command]
 pub fn copy_file_content(app: AppHandle, content: String) -> AppResult<()> {
     if content.len() > 40 * 1024 * 1024 {
         return Err(AppError::InvalidData(

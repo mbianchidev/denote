@@ -11,6 +11,63 @@ import { api } from "../lib/api";
 import { applyTheme } from "../lib/theme";
 import { MarkdownEditor } from "./MarkdownEditor";
 
+const nativeMenu = vi.hoisted(() => ({
+  close: vi.fn().mockResolvedValue(undefined),
+  popup: vi.fn().mockResolvedValue(undefined),
+  action: null as (() => void) | null,
+  items: [] as Array<{
+    action?: () => void;
+    id?: string;
+    item?: string;
+    text?: string;
+  }>,
+  record(
+    options: {
+      items?: Array<{
+        action?: () => void;
+        id?: string;
+        item?: string;
+        text?: string;
+      }>;
+    },
+  ) {
+    this.items = options.items ?? [];
+    this.action =
+      this.items.find(
+        (item) => item.text === "Paste without formatting",
+      )?.action ?? null;
+  },
+  reset() {
+    this.action = null;
+    this.items = [];
+    this.popup.mockClear();
+  },
+  runAction() {
+    this.action?.();
+  },
+}));
+
+vi.mock("@tauri-apps/api/menu", () => ({
+  Menu: {
+    new: vi.fn(
+      async (options: {
+        items?: Array<{
+          action?: () => void;
+          id?: string;
+          item?: string;
+          text?: string;
+        }>;
+      }) => {
+        nativeMenu.record(options);
+        return {
+          close: nativeMenu.close,
+          popup: nativeMenu.popup,
+        };
+      },
+    ),
+  },
+}));
+
 describe("MarkdownEditor links", () => {
   it("renders full, collapsed, and shortcut references without processing errors", async () => {
     const onMarkdownError = vi.fn();
@@ -1817,6 +1874,9 @@ describe("MarkdownEditor links", () => {
     { name: "Command", ctrlKey: false, metaKey: true },
   ])("pastes plain text with $name-Shift-V", async ({ ctrlKey, metaKey }) => {
     const onChange = vi.fn();
+    const readClipboard = vi
+      .spyOn(api, "readClipboardText")
+      .mockResolvedValue("Synthetic plain text");
     const { container } = render(
       <MarkdownEditor
         notePath="note.md"
@@ -1848,26 +1908,19 @@ describe("MarkdownEditor links", () => {
       metaKey,
       shiftKey: true,
     });
-    fireEvent.paste(content, {
-      clipboardData: {
-        getData: (type: string) =>
-          type === "text/plain"
-            ? "Synthetic plain text"
-            : type === "text/html"
-              ? "<strong>Synthetic plain text</strong>"
-              : "",
-        types: ["text/plain", "text/html"],
-        files: [],
-      },
-    });
 
     await waitFor(() =>
       expect(onChange).toHaveBeenLastCalledWith("Synthetic plain text"),
     );
+    expect(readClipboard).toHaveBeenCalledOnce();
+    readClipboard.mockRestore();
   });
 
   it("keeps pasted plain-text lines as separate rich paragraphs", async () => {
     const onChange = vi.fn();
+    const readClipboard = vi
+      .spyOn(api, "readClipboardText")
+      .mockResolvedValue("First line\nSecond line");
     const { container } = render(
       <MarkdownEditor
         notePath="note.md"
@@ -1898,14 +1951,6 @@ describe("MarkdownEditor links", () => {
       ctrlKey: true,
       shiftKey: true,
     });
-    fireEvent.paste(content, {
-      clipboardData: {
-        getData: (type: string) =>
-          type === "text/plain" ? "First line\nSecond line" : "",
-        types: ["text/plain"],
-        files: [],
-      },
-    });
 
     await waitFor(() =>
       expect(
@@ -1913,6 +1958,190 @@ describe("MarkdownEditor links", () => {
       ).toHaveLength(2),
     );
     expect(onChange).toHaveBeenLastCalledWith("First line\n\nSecond line");
+    readClipboard.mockRestore();
+  });
+
+  it("refuses a delayed paste after the editor state changes", async () => {
+    let resolveClipboard = (_text: string) => {};
+    const readClipboard = vi
+      .spyOn(api, "readClipboardText")
+      .mockImplementation(
+        () =>
+          new Promise<string>((resolve) => {
+            resolveClipboard = resolve;
+          }),
+      );
+    const onChange = vi.fn();
+    const onError = vi.fn();
+    try {
+      const { container } = render(
+        <MarkdownEditor
+          notePath="note.md"
+          markdown="Start"
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={onChange}
+          onError={onError}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+      const content = await waitFor(() => {
+        const element = container.querySelector<HTMLElement>(
+          '.denote-editor-content[contenteditable="true"]',
+        );
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      const paragraph = await screen.findByText("Start");
+      await userEvent.click(paragraph);
+      placeCaretAtEnd(paragraph);
+
+      fireEvent.keyDown(content, {
+        key: "v",
+        code: "KeyV",
+        metaKey: true,
+        shiftKey: true,
+      });
+      await userEvent.keyboard("!");
+      await waitFor(() => expect(onChange).toHaveBeenCalled());
+
+      resolveClipboard("Delayed text");
+
+      await waitFor(() =>
+        expect(onError).toHaveBeenCalledWith(
+          "Unable to paste because the editor changed while reading the clipboard.",
+        ),
+      );
+      expect(onChange.mock.calls.flat()).not.toContain("Delayed text");
+    } finally {
+      readClipboard.mockRestore();
+    }
+  });
+
+  it("offers paste without formatting in the native rich-text context menu", async () => {
+    nativeMenu.reset();
+    const onChange = vi.fn();
+    const readClipboard = vi
+      .spyOn(api, "readClipboardText")
+      .mockResolvedValue("Plain text");
+    Reflect.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    try {
+      const { container } = render(
+        <MarkdownEditor
+          notePath="note.md"
+          markdown="Start"
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={onChange}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+      const content = await waitFor(() => {
+        const element = container.querySelector<HTMLElement>(
+          '.denote-editor-content[contenteditable="true"]',
+        );
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      const paragraph = await screen.findByText("Start");
+      await userEvent.click(paragraph);
+      placeCaretAtEnd(paragraph);
+
+      fireEvent.contextMenu(content, { clientX: 24, clientY: 36 });
+
+      await waitFor(() =>
+        expect(nativeMenu.popup).toHaveBeenCalledWith(
+          expect.objectContaining({ x: 24, y: 36 }),
+        ),
+      );
+      expect(
+        nativeMenu.items.some(
+          (item) => item.text === "Paste without formatting",
+        ),
+      ).toBe(true);
+      expect(
+        nativeMenu.items.find(
+          (item) => item.text === "Paste without formatting",
+        )?.id,
+      ).toBeUndefined();
+      nativeMenu.runAction();
+      await waitFor(() => expect(onChange).toHaveBeenCalled());
+      const output = onChange.mock.lastCall?.[0] as string;
+      expect(output).toContain("Plain text");
+      expect(output).toContain("Start");
+      expect(readClipboard).toHaveBeenCalledOnce();
+    } finally {
+      readClipboard.mockRestore();
+      Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    }
+  });
+
+  it("uses editor-backed context actions on Linux", async () => {
+    nativeMenu.reset();
+    const userAgent = vi
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue("Mozilla/5.0 (X11; Linux x86_64)");
+    Reflect.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      value: {},
+    });
+    try {
+      const { container } = render(
+        <MarkdownEditor
+          notePath="note.md"
+          markdown="Start"
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="rich-text"
+          readOnly={false}
+          onChange={vi.fn()}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />,
+      );
+      const content = await waitFor(() => {
+        const element = container.querySelector<HTMLElement>(
+          '.denote-editor-content[contenteditable="true"]',
+        );
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      const paragraph = await screen.findByText("Start");
+      await userEvent.click(paragraph);
+      placeCaretAtEnd(paragraph);
+
+      fireEvent.contextMenu(content);
+
+      await waitFor(() => expect(nativeMenu.popup).toHaveBeenCalled());
+      const customItems = nativeMenu.items.filter((item) => item.text);
+      expect(customItems.map((item) => item.text)).toEqual([
+        "Undo",
+        "Redo",
+        "Cut",
+        "Copy",
+        "Paste",
+        "Paste without formatting",
+        "Select All",
+      ]);
+      expect(customItems.every((item) => item.action)).toBe(true);
+    } finally {
+      userAgent.mockRestore();
+      Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    }
   });
 
   it("renders safe README HTML with intercepted links, native images, and adjacent directives", async () => {

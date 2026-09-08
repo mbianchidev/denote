@@ -138,7 +138,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - In Rich mode, typing a third dash after `--` converts that paragraph to a
   thematic break and leaves the caret in a new paragraph.
 - Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
-  clipboard text without carrying rich formatting into the note.
+  clipboard text without carrying rich formatting into the note. The Rich
+  editor context menu exposes the same **Paste without formatting** action.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.
 - A tag-only final line renders its hashtags as colored pills in rich mode.

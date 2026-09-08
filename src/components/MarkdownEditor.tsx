@@ -517,7 +517,12 @@ export const MarkdownEditor = forwardRef<
       listsPlugin(),
       quotePlugin(),
       thematicBreakPlugin(),
-      denotePlainTextPastePlugin(),
+      denotePlainTextPastePlugin({
+        readClipboardText: api.readClipboardText,
+        writeClipboardText: api.copyFileContent,
+        onError: (caught) =>
+          callbacksRef.current.onError(errorMessage(caught)),
+      }),
       denoteThematicBreakShortcutPlugin({
         onInsert: (index) => {
           thematicBreaksRef.current?.delimiters.splice(index, 0, "---");

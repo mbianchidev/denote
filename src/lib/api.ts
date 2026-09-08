@@ -138,6 +138,7 @@ export const api = {
   copyFilePath: (path: string) => invoke<void>("copy_file_path", { path }),
   resolveFilePath: (path: string) =>
     invoke<string>("resolve_file_path", { path }),
+  readClipboardText: () => invoke<string>("read_clipboard_text"),
   copyFileContent: (content: string) =>
     invoke<void>("copy_file_content", { content }),
   openExternalUri: (uri: string) =>
