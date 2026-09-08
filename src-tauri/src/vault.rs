@@ -23,9 +23,9 @@ use crate::{
     models::{
         DocumentBatch, FileEncoding, FileKind, FileLineEnding, FileNode, GitignoreStatusUpdate,
         HistoryRevision, KnownVaultFile, KnownVaultFileBatch, LinkRewriteBatch, MAX_SESSION_PANES,
-        MarkdownViewMode, NoteDocument, ProjectConfiguration, ProjectRoot, ProjectWorkspace,
-        SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab, TagColor, TrashItem,
-        WelcomePagePreference, WorkspaceSnapshot,
+        MarkdownViewMode, NoteDocument, PdfDocument, ProjectConfiguration, ProjectRoot,
+        ProjectWorkspace, SaveOutcome, SearchDocument, TabGroup, TabSessionState, TabSessionTab,
+        TagColor, TrashItem, WelcomePagePreference, WorkspaceSnapshot,
     },
 };
 
@@ -523,6 +523,37 @@ pub fn read_note_without_recording(
     read_note_impl(db_path, vault_path, relative_path, vault_key, false)
 }
 
+pub fn read_pdf(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<PdfDocument> {
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, false)?;
+    let path = existing_entry(&root, relative_path)?;
+    if !path.is_file() || kind_for_path(&path) != FileKind::Pdf {
+        return Err(AppError::UnsupportedFile(format!(
+            "{relative_path} is not a PDF file"
+        )));
+    }
+    if file_plaintext_len(&path)? > MAX_EDIT_BYTES {
+        return Err(AppError::InvalidData(format!(
+            "{relative_path} is larger than 25 MB"
+        )));
+    }
+    let bytes = read_plain_file(&path, vault_key)?;
+    let connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    db::record_open(&connection, vault_id, relative_path)?;
+    Ok(PdfDocument {
+        path: relative_path.to_string(),
+        data_base64: STANDARD.encode(&bytes),
+        content_hash: hash_bytes(&bytes),
+        stats: db::get_stats(&connection, vault_id, relative_path)?,
+    })
+}
+
 fn read_note_impl(
     db_path: &Path,
     vault_path: &str,
@@ -533,6 +564,11 @@ fn read_note_impl(
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
+    if kind_for_path(&path) == FileKind::Pdf {
+        return Err(AppError::UnsupportedFile(
+            "PDF files are read-only in Denote".to_string(),
+        ));
+    }
     if !path.is_file() {
         return Err(AppError::UnsupportedFile(format!(
             "{relative_path} is not a regular file"
@@ -576,6 +612,11 @@ pub fn save_note(
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
+    if kind_for_path(&path) == FileKind::Pdf {
+        return Err(AppError::UnsupportedFile(
+            "PDF files are read-only in Denote".to_string(),
+        ));
+    }
     if !path.is_file() {
         return Err(AppError::UnsupportedFile(format!(
             "{relative_path} is not a regular file"
@@ -1383,7 +1424,12 @@ pub fn list_history(
 ) -> AppResult<Vec<HistoryRevision>> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
-    let _ = existing_entry(&root, relative_path)?;
+    let path = existing_entry(&root, relative_path)?;
+    if kind_for_path(&path) == FileKind::Pdf {
+        return Err(AppError::UnsupportedFile(
+            "PDF files do not have Denote revision history".to_string(),
+        ));
+    }
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
     db::list_history(&connection, vault_id, relative_path)?
@@ -1413,6 +1459,11 @@ pub fn restore_revision(
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
+    if kind_for_path(&path) == FileKind::Pdf {
+        return Err(AppError::UnsupportedFile(
+            "PDF files are read-only in Denote".to_string(),
+        ));
+    }
     if file_plaintext_len(&path)? > MAX_EDIT_BYTES {
         return Err(AppError::InvalidData(
             "File is larger than the 25 MB edit limit".to_string(),
@@ -1596,6 +1647,7 @@ pub fn list_search_documents(
         MAX_SEARCH_BYTES,
         MAX_SEARCH_AGGREGATE_BYTES,
         false,
+        true,
         vault_key,
     )
     .map(|(batch, _)| batch)
@@ -1612,6 +1664,7 @@ pub fn list_editable_documents(
         MAX_EDIT_BYTES,
         MAX_EDITABLE_AGGREGATE_BYTES,
         false,
+        true,
         vault_key,
     )
     .map(|(batch, _)| batch)
@@ -1628,6 +1681,7 @@ pub fn list_link_rewrite_documents(
         MAX_LINK_REWRITE_BYTES,
         MAX_LINK_REWRITE_AGGREGATE_BYTES,
         true,
+        false,
         vault_key,
     )?;
     Ok(LinkRewriteBatch {
@@ -1644,6 +1698,7 @@ fn list_documents(
     max_bytes: u64,
     max_aggregate_bytes: usize,
     markdown_only: bool,
+    skip_pdf: bool,
     vault_key: Option<&[u8; 32]>,
 ) -> AppResult<(DocumentBatch, Vec<String>)> {
     let root = canonical_vault(vault_path)?;
@@ -1704,6 +1759,9 @@ fn list_documents(
         }
         available_paths.push(relative.clone());
         let kind = kind_for_path(entry.path());
+        if skip_pdf && kind == FileKind::Pdf {
+            continue;
+        }
         if markdown_only
             && (kind != FileKind::Markdown
                 || entry
@@ -2593,6 +2651,7 @@ fn refresh_cached_tree_metadata(
             node.bookmarked = false;
             refresh_cached_tree_metadata(&mut node.children, stats, placements);
         } else {
+            node.kind = kind_for_path(Path::new(&node.path));
             node.bookmarked = stats
                 .get(&node.path)
                 .map(|value| value.bookmarked)
@@ -2792,6 +2851,7 @@ fn kind_for_path(path: &Path) -> FileKind {
         Some("md" | "markdown" | "mdx") => FileKind::Markdown,
         Some("txt") => FileKind::Text,
         Some("png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "svg" | "avif") => FileKind::Image,
+        Some("pdf") => FileKind::Pdf,
         _ => FileKind::File,
     }
 }
@@ -3794,6 +3854,10 @@ mod tests {
 
     fn read_note(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<NoteDocument> {
         super::read_note(db_path, vault_path, relative_path, None)
+    }
+
+    fn read_pdf(db_path: &Path, vault_path: &str, relative_path: &str) -> AppResult<PdfDocument> {
+        super::read_pdf(db_path, vault_path, relative_path, None)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -6188,6 +6252,193 @@ mod tests {
             fs::read(vault_path.join("archive.bin")).expect("restored binary"),
             original
         );
+    }
+
+    #[test]
+    fn reads_pdfs_byte_exactly_and_refuses_every_save_path() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        let original = b"%PDF-1.7\r\n% synthetic\r\n\x00\xff\r\n%%EOF\r\n";
+        let pdf_path = vault_path.join("Synthetic.PDF");
+        fs::write(&pdf_path, original).expect("PDF fixture");
+        fs::write(vault_path.join("note.txt"), "searchable").expect("text fixture");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        assert_eq!(kind_for_path(&pdf_path), FileKind::Pdf);
+        let document =
+            read_pdf(&db_path, vault_path.to_str().unwrap(), "Synthetic.PDF").expect("read PDF");
+        assert_eq!(
+            STANDARD.decode(document.data_base64).expect("decode PDF"),
+            original
+        );
+        assert_eq!(document.stats.open_count, 1);
+        assert!(matches!(
+            read_note(&db_path, vault_path.to_str().unwrap(), "Synthetic.PDF",),
+            Err(AppError::UnsupportedFile(_))
+        ));
+
+        let replacement = STANDARD.encode(b"different PDF bytes");
+        let error = save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "Synthetic.PDF",
+            &replacement,
+            FileEncoding::Base64,
+            FileLineEnding::Lf,
+            "forbidden PDF edit",
+            Some(&document.content_hash),
+        )
+        .expect_err("PDF save must fail");
+        assert!(matches!(error, AppError::UnsupportedFile(_)));
+        assert_eq!(fs::read(&pdf_path).expect("unchanged PDF"), original);
+
+        let search =
+            list_search_documents(&db_path, vault_path.to_str().unwrap()).expect("search batch");
+        let editable = list_editable_documents(&db_path, vault_path.to_str().unwrap())
+            .expect("editable batch");
+        assert_eq!(
+            search
+                .documents
+                .iter()
+                .map(|document| document.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["note.txt"]
+        );
+        assert_eq!(
+            editable
+                .documents
+                .iter()
+                .map(|document| document.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["note.txt"]
+        );
+
+        let (manifest, vault_key, _) =
+            crypto::create_manifest("synthetic password phrase").expect("manifest");
+        crypto::save_manifest(&vault_path, &manifest).expect("save manifest");
+        let key = vault_key.copy_bytes();
+        encrypt_vault_contents(&db_path, vault_path.to_str().unwrap(), &key)
+            .expect("encrypt vault");
+        assert!(matches!(
+            super::read_pdf(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "Synthetic.PDF",
+                None,
+            ),
+            Err(AppError::Locked)
+        ));
+        let unlocked = super::read_pdf(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "Synthetic.PDF",
+            Some(&key),
+        )
+        .expect("read unlocked PDF");
+        assert_eq!(
+            STANDARD
+                .decode(unlocked.data_base64)
+                .expect("decode unlocked PDF"),
+            original
+        );
+    }
+
+    #[test]
+    fn pdf_file_management_preserves_pdf_routing() {
+        let directory = tempdir().expect("temp directory");
+        let vault_path = directory.path().join("vault");
+        fs::create_dir(&vault_path).expect("vault directory");
+        fs::create_dir(vault_path.join("archive")).expect("archive folder");
+        fs::write(vault_path.join("draft.pdf"), b"%PDF-1.7\n%%EOF\n").expect("PDF fixture");
+        fs::write(vault_path.join("history.txt"), "first").expect("history fixture");
+        let db_path = directory.path().join("denote.sqlite3");
+        db::initialize(&db_path).expect("database initialized");
+
+        let mut cached = vec![FileNode {
+            path: "cached.PDF".to_string(),
+            name: "cached.PDF".to_string(),
+            kind: FileKind::File,
+            children: Vec::new(),
+            size: 12,
+            modified_at: None,
+            bookmarked: false,
+            pinned: false,
+            position: None,
+        }];
+        refresh_cached_tree_metadata(&mut cached, &HashMap::new(), &HashMap::new());
+        assert_eq!(cached[0].kind, FileKind::Pdf);
+
+        let history_document = read_note(&db_path, vault_path.to_str().unwrap(), "history.txt")
+            .expect("read history fixture");
+        save_note(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "history.txt",
+            "second",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
+            "synthetic edit",
+            Some(&history_document.content_hash),
+        )
+        .expect("save history fixture");
+        let revision_id = list_history(&db_path, vault_path.to_str().unwrap(), "history.txt")
+            .expect("history before rename")[0]
+            .id;
+        rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "history.txt",
+            "history.pdf",
+        )
+        .expect("rename history fixture to PDF");
+        let history_pdf_bytes =
+            fs::read(vault_path.join("history.pdf")).expect("renamed history PDF");
+        assert!(matches!(
+            list_history(&db_path, vault_path.to_str().unwrap(), "history.pdf",),
+            Err(AppError::UnsupportedFile(_))
+        ));
+        assert!(matches!(
+            restore_revision(
+                &db_path,
+                vault_path.to_str().unwrap(),
+                "history.pdf",
+                revision_id,
+            ),
+            Err(AppError::UnsupportedFile(_))
+        ));
+        assert_eq!(
+            fs::read(vault_path.join("history.pdf")).expect("unchanged history PDF"),
+            history_pdf_bytes
+        );
+
+        let renamed = rename_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "draft.pdf",
+            "reference.PDF",
+        )
+        .expect("rename PDF");
+        assert_eq!(renamed, "reference.PDF");
+        let moved = move_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "reference.PDF",
+            "archive",
+        )
+        .expect("move PDF");
+        assert_eq!(moved, "archive/reference.PDF");
+        let trashed = trash_entry(
+            &db_path,
+            vault_path.to_str().unwrap(),
+            "archive/reference.PDF",
+        )
+        .expect("trash PDF");
+        let restored = restore_trash_item(&db_path, vault_path.to_str().unwrap(), trashed.id)
+            .expect("restore PDF");
+        assert_eq!(restored.kind, FileKind::Pdf);
+        assert_eq!(restored.path, "archive/reference.PDF");
     }
 
     #[test]

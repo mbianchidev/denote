@@ -13,6 +13,27 @@ describe("project configuration API", () => {
     invoke.mockReset();
   });
 
+  describe("PDF API", () => {
+    beforeEach(() => {
+      invoke.mockReset();
+    });
+
+    test("reads a PDF through its byte-preserving native command", async () => {
+      invoke.mockResolvedValue({
+        path: "Synthetic.pdf",
+        dataBase64: "JVBERi0xLjcK",
+        contentHash: "synthetic-hash",
+        stats: {},
+      });
+
+      await api.readPdf("Synthetic.pdf");
+
+      expect(invoke).toHaveBeenCalledWith("read_pdf", {
+        path: "Synthetic.pdf",
+      });
+    });
+  });
+
   test("includes the originating vault path in every mutation", async () => {
     invoke.mockResolvedValue({});
     const vaultPath = "/synthetic/vault";

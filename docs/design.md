@@ -529,6 +529,32 @@ Binary files use the plain monospace editor with a persistent warning strip
 that names Base64 as the reversible representation and explains save
 validation.
 
+### PDF Reader
+
+PDFs use the full pane as a calm read-only document surface. One compact toolbar
+keeps controls in this focus order: previous page, page number, next page, zoom
+out, zoom value, zoom in, fit width, fit page, rotate, search field, previous
+result, next result, and clear search. Native buttons and inputs provide the
+semantics; fit controls expose `aria-pressed`, unavailable actions remain
+disabled, and the page canvas follows the toolbar in the tab order.
+
+The viewport uses the editor background around paper-white pages with the
+existing restrained shadow. Search highlights use the moss accent, selected
+text remains visible in both themes, and keyboard focus uses the standard
+two-pixel ring. The toolbar may scroll horizontally in narrow panes rather than
+collapsing controls into an unlabeled menu.
+
+Loading, page changes, zoom, rotation, search progress/results, limits, and
+errors use one polite atomic status region. Empty, unsupported, corrupt, and
+cancelled password states replace only the page viewport. Rendering,
+text-layer, and search failures appear as compact scoped notices without moving
+or disabling other panes.
+
+Password entry is an in-pane modal surface with a visible title, explanatory
+text, native password field, Cancel, and Unlock. Focus starts in the field,
+cycles within the prompt, Escape cancels, and retry text never repeats or
+reveals the entered password.
+
 ### Optional emoji picker
 
 The emoji plugin contributes data, never markup. Denote renders a compact local

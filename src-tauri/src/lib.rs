@@ -306,6 +306,7 @@ pub fn run() {
             commands::copy_file_for_attachment,
             commands::open_external_uri,
             commands::read_note,
+            commands::read_pdf,
             commands::save_note,
             commands::create_entry,
             commands::duplicate_file,

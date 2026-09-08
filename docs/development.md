@@ -10,6 +10,7 @@ for your operating system, Node.js 24.15 or newer, and stable Rust.
 ```bash
 node scripts/preinstall-validate-plugins.mjs
 npm ci --ignore-scripts
+npm run prepare:pdf-assets
 npm run prepare:bundled-tools
 npm run verify:bundled-tools
 npm run dev:desktop
@@ -20,6 +21,13 @@ The root `package.json` also records npm's dependency lifecycle policy:
 the optional `fsevents` native rebuild is denied. Review any new warning with
 `npm install-scripts ls`; do not approve a new package or version without
 inspecting its published script and lockfile provenance.
+
+`prepare:pdf-assets` verifies the installed Apache-2.0 `pdfjs-dist` package and
+copies its local CMaps, standard fonts, ICC profile, image-decoder WebAssembly,
+and license files into ignored `public/pdfjs-assets/`. It excludes QuickJS
+evaluation assets, rejects links and non-regular entries, and enforces an 8 MB
+aggregate ceiling. `npm run dev` and `npm run build` run it automatically.
+Never commit the generated directory or replace these URLs with a CDN.
 
 `dev:desktop` uses the separate `dev.mbianchi.denote.development` application
 identity, so development vault state, plugin packages, process locks, and
@@ -48,6 +56,26 @@ cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
+
+PDF-focused checks are:
+
+```bash
+npx vitest run \
+  src/lib/pdf.test.ts \
+  src/lib/pdfRenderer.node.test.ts \
+  src/components/PdfReader.test.tsx \
+  src/components/FileActionsMenu.test.tsx \
+  src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml \
+  reads_pdfs_byte_exactly_and_refuses_every_save_path
+```
+
+`src/test/pdfFixtures.ts` generates small deterministic synthetic PDFs for
+multi-page text, rotated pages, image-only pages, malformed data, password
+protection, and large lazy documents. Do not replace them with personal,
+customer, production, or downloaded documents. The Node renderer contract uses
+PDF.js's legacy Node build only to validate bytes and errors in tests; the
+desktop application bundles the modern browser build and module worker.
 
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:

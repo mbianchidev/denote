@@ -82,11 +82,13 @@ export function FileActionMenuItems({
         label="Copy path"
         onClick={() => run(handlers.onCopyPath)}
       />
-      <MenuButton
-        icon={<History aria-hidden="true" size={15} />}
-        label="Open version history"
-        onClick={() => run(handlers.onOpenHistory)}
-      />
+      {node.kind !== "pdf" ? (
+        <MenuButton
+          icon={<History aria-hidden="true" size={15} />}
+          label="Open version history"
+          onClick={() => run(handlers.onOpenHistory)}
+        />
+      ) : null}
       <MenuButton
         icon={<ExternalLink aria-hidden="true" size={15} />}
         label="Open in new tab"

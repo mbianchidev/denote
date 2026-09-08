@@ -19,8 +19,8 @@
 
 ## What is Denote
 
-Denote is a file-native workspace for Markdown, text, images, and any other
-regular file. Your files remain the source of truth.
+Denote is a file-native workspace for Markdown, text, images, PDFs, and any
+other regular file. Your files remain the source of truth.
 
 ## Try a little of everything
 

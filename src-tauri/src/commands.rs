@@ -22,8 +22,8 @@ use crate::{
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, GitignoreStatusUpdate,
         HistoryRevision, KnownVault, KnownVaultFileBatch, LinkRewriteBatch, MarkdownViewMode,
-        MoveEntryResult, NoteDocument, ProjectConfiguration, RecoveryCodesResult, SaveOutcome,
-        TabSessionState, TagColor, WelcomePagePreference, WorkspaceSnapshot,
+        MoveEntryResult, NoteDocument, PdfDocument, ProjectConfiguration, RecoveryCodesResult,
+        SaveOutcome, TabSessionState, TagColor, WelcomePagePreference, WorkspaceSnapshot,
     },
     vault,
 };
@@ -668,6 +668,19 @@ pub fn read_note(state: State<'_, AppState>, path: String) -> AppResult<NoteDocu
     let root = state.active_vault()?;
     let key = active_key(&state, &root)?;
     vault::read_note(
+        &state.db_path,
+        &root.to_string_lossy(),
+        &path,
+        key.as_deref(),
+    )
+}
+
+#[tauri::command]
+pub fn read_pdf(state: State<'_, AppState>, path: String) -> AppResult<PdfDocument> {
+    let _vault_access = state.read_vault_access()?;
+    let root = state.active_vault()?;
+    let key = active_key(&state, &root)?;
+    vault::read_pdf(
         &state.db_path,
         &root.to_string_lossy(),
         &path,

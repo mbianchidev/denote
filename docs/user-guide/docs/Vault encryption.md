@@ -18,6 +18,12 @@ Locking, switching vaults, and closing Denote flush pending work and seal the
 vault. A recovery code unlocks the vault once and is then removed. Replacing
 recovery codes invalidates every unused old code.
 
+A locked vault exposes no PDF page, text layer, or search result. Closing a PDF,
+locking or switching the vault, trashing the file, or closing Denote destroys
+its local renderer worker and clears decrypted PDF bytes, canvases, text,
+search indexes, object URLs, and caches. Unlocking restores the tab through the
+ordinary encrypted read boundary.
+
 ## Disable encryption
 
 Denote must decrypt every file and saved revision successfully before it removes

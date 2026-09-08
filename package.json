@@ -11,10 +11,11 @@
     "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
-    "dev": "vite",
+    "dev": "npm run prepare:pdf-assets && vite",
     "dev:desktop": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:plugin": "tsx scripts/dev-plugin.ts",
-    "build": "tsc --noEmit && vite build",
+    "build": "npm run prepare:pdf-assets && tsc --noEmit && vite build",
+    "prepare:pdf-assets": "node scripts/pdfjs-assets.mjs",
     "build:website": "node scripts/build-website.mjs",
     "build:plugins": "tsx scripts/build-plugins.ts",
     "build:plugin": "tsx scripts/build-plugins.ts --plugin",
@@ -56,6 +57,7 @@
     "mdast-util-from-markdown": "^2.0.3",
     "micromark-extension-mdx-jsx": "^3.0.2",
     "micromark-extension-mdx-md": "^2.0.0",
+    "pdfjs-dist": "5.4.296",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zbsearch": "^4.0.0"

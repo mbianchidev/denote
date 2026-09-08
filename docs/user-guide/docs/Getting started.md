@@ -41,6 +41,8 @@ notarized build opens without this workaround.
 
 - Create a file or folder from the file-tree toolbar.
 - Select a file to open it in a tab.
+- Select a PDF to read it locally with page, zoom, fit, rotate, selection, and
+  search controls.
 - Edit normally; autosave runs after a short pause.
 - Open **Settings** to choose Light, Dark, or System appearance. Light and Dark
   override the operating system; System follows it as it changes.

@@ -2,10 +2,36 @@
 
 ## Any regular file
 
-Files up to 25 MB can be edited regardless of extension. Valid UTF-8 opens as
+Files up to 25 MB can be opened regardless of extension. Valid UTF-8 opens as
 text. Invalid UTF-8 and mixed-line-ending files open as reversible Base64 so
 unchanged bytes round-trip exactly. Images provide both a visual preview and a
-raw Base64 editor.
+raw Base64 editor. PDFs open in a separate read-only local viewer.
+
+## Read PDFs
+
+- Open a `.pdf` from the tree, recent files, command palette, restored tabs, or
+  either pane.
+- Use the previous/next buttons or page-number field to navigate.
+- Zoom from 25% to 400%, or choose **Fit width** or **Fit page**.
+- Rotate every displayed page clockwise without changing the file.
+- Select and copy text when the PDF provides a text layer and permits copying.
+- Use the reader search field to highlight matches. Enter moves to the next
+  match; Shift-Enter moves to the previous one.
+- Press `Command-F` / `Ctrl-F` to focus PDF search. While a PDF is active,
+  Command/Control `+`, `-`, and `0` zoom or reset the PDF.
+
+PDF search is limited to 500 pages, while PDFs up to 5,000 pages remain readable
+with lazy page rendering. A page without a text layer cannot be selected or
+searched; Denote does not perform OCR.
+
+Password-protected PDFs show a local password prompt with retry and cancel.
+Denote never stores, logs, or transmits the password. Empty, unsupported,
+corrupt, rendering, and search failures stay inside the tab.
+
+PDF viewing never edits or autosaves the file. PDF annotations, signatures,
+forms, embedded attachments, OCR, conversion to Markdown, and external link
+activation are not supported. All renderer code, fonts, CMaps, and image
+decoders are bundled; no PDF is sent to a network service.
 
 ## Tabs
 
@@ -26,6 +52,9 @@ raw Base64 editor.
   default. Disable this per vault in **Editor display settings**.
 - Use the editor toolbar to copy content, an attachment-ready file, or the active
   absolute path. Encrypted vault attachments use a temporary plaintext cache.
+- PDF text is copied through ordinary selection. The toolbar content-copy and
+  version-history actions are unavailable because PDFs are read-only; attachment
+  and path copy remain available.
 - Use the book control to switch the focused file to read mode. The pencil
   control returns to the default write mode.
 
@@ -61,6 +90,9 @@ trash actions. File menus additionally duplicate, bookmark, copy the absolute
 path, open version history, open in a new tab, and reveal the file in Finder or
 the platform file manager. The focused file exposes the same actions from the
 three-dot menu. Switching files closes that menu.
+PDF files keep duplicate, rename, move, bookmark, attachment, path, reveal,
+trash, and restore actions. Version restoration is omitted because Denote never
+writes PDF revisions.
 
 Use the folder control beside New folder to expand every nested folder or
 collapse the complete tree. Expand all leaves folders named `.git` and

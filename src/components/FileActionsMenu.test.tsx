@@ -19,6 +19,10 @@ function file(path: string): FileNode {
   };
 }
 
+function pdf(path: string): FileNode {
+  return { ...file(path), kind: "pdf" };
+}
+
 function handlers(
   customPath: string | null = null,
   effectivePath: string | null = null,
@@ -118,6 +122,29 @@ describe("FileActionsDropdown", () => {
     expect(actions.onSetWelcomePage).toHaveBeenCalledWith(null);
     expect(
       screen.queryByRole("menuitem", { name: "Set as welcome page" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps PDF file management but omits version restoration", async () => {
+    render(
+      <FileActionsDropdown
+        node={pdf("Synthetic.pdf")}
+        disabled={false}
+        handlers={handlers()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More file actions" }));
+
+    expect(
+      await screen.findByRole("menuitem", { name: "Rename" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("menuitem", { name: "Move to folder…" }),
+    ).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Delete" })).toBeVisible();
+    expect(
+      screen.queryByRole("menuitem", { name: "Open version history" }),
     ).not.toBeInTheDocument();
   });
 });

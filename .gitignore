@@ -9,6 +9,7 @@ lerna-debug.log*
 
 node_modules
 dist
+public/pdfjs-assets/
 dist-ssr
 *.local
 .impeccable/hook.cache.json

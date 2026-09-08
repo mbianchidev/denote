@@ -30,8 +30,9 @@ of truth while optional workspace metadata is stored locally in SQLite.
 ## Operating Context
 
 Users work with existing or new folders containing arbitrary files. UTF-8
-content opens as text, while binary content opens as a reversible Base64
-representation. Notes may mix any Unicode languages and emoji in the same document.
+content opens as text, binary content opens as a reversible Base64
+representation, and PDFs open in a local read-only document viewer. Notes may
+mix any Unicode languages and emoji in the same document.
 Users commonly switch among several notes, browse folders, search by content
 or metadata, follow links, and recover earlier content after an unwanted edit.
 
@@ -77,9 +78,32 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   registration may perform the slower complete scan.
 - Non-current user vaults can be removed from the recent list, with a separate
   explicit option to move the folder and all contents to system Trash.
-- Every regular file up to 25 MB can be opened and edited.
+- Every regular file up to 25 MB can be opened. PDFs are read-only; other files
+  can be edited.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.
+- PDF files open in ordinary tabs and any pane. The bundled local reader
+  provides multi-page navigation, 25–400% zoom, fit-to-width, fit-to-page,
+  clockwise rotation, selectable text, copying, and in-document search when the
+  document exposes a permitted text layer.
+- Command-F / Control-F focuses PDF search while a PDF is active. Enter and
+  Shift-Enter move forward and backward through matches. Command/Control `+`,
+  `-`, and `0` zoom or reset the active PDF instead of changing editor text.
+- PDF rendering is lazy and bounded to 5,000 pages, 16-megapixel page canvases,
+  and four concurrently visible pane readers. Search is available for PDFs up
+  to 500 pages; larger PDFs remain readable and report the search limit.
+- Empty, unsupported-version, corrupted, password-protected, page-rendering,
+  unavailable-text, and search failures stay scoped to the PDF tab and keep the
+  rest of the workspace usable.
+- Password-protected PDFs use a local retry/cancel prompt. Passwords are never
+  stored, logged, transmitted, or reused after the active attempt.
+- PDFs are never autosaved, replaced, added to revision history, or included in
+  vault-wide replace. Opening, navigating, searching, zooming, rotating, and
+  closing a PDF cannot change its bytes.
+- PDF.js, its worker, CMaps, standard fonts, ICC data, and image-decoder
+  WebAssembly are bundled with Denote. Runtime CDN and external network fallback
+  are forbidden. PDF scripting, forms, annotations, signatures, embedded
+  attachments, automatic links, and external link activation are disabled.
 - Source-only programming and markup files use one filename-driven core
   CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
   TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
@@ -281,6 +305,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.
+- A locked encrypted vault exposes no PDF content. Decrypted PDF bytes,
+  renderer workers, page canvases, text layers, search state, and renderer
+  caches are released when the tab closes, the vault locks or switches, a file
+  is trashed, or Denote exits.
 - Disabling vault encryption requires every encrypted file and revision to be
   decrypted successfully first.
 - The core application stays minimal. It embeds only plugin catalog metadata;
