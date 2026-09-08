@@ -401,6 +401,10 @@ preserves a keyboard path. The sidebar divider is visually one pixel but keeps a
 larger pointer target and exposes arrow-key resizing.
 The vault switcher is a compact recent-folder list with clear current and
 unavailable states; adding a new folder remains a separate native-picker action.
+An app link opens its file without adding another dialog when a known vault owns
+the path. If no known vault owns it, the operating-system folder picker asks for
+the containing vault folder and starts at the linked file's parent; cancellation
+leaves the current workspace intact.
 Vault removal is a two-step inline confirmation. Removing only metadata is
 separate from the explicit, danger-styled option to move the folder to system
 Trash.

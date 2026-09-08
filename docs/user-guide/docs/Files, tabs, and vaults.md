@@ -151,6 +151,27 @@ Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
 
+### Open an app link
+
+Installed desktop builds accept `denote:///` links containing a URL-encoded
+absolute file path. For example:
+
+```text
+denote:///Users/example/Notes/projects/roadmap.md
+denote:///C:/Users/example/Notes/projects/roadmap.md
+```
+
+Denote saves pending work, switches to the most-specific known vault containing
+the file, and opens it. An encrypted target vault asks for its password or a
+recovery code before opening the pending file.
+
+If the file is not inside a known vault, the operating-system folder picker asks
+which containing folder to import as a vault. It starts in the linked file's
+folder; use the folder path controls to choose a higher vault root when needed.
+Choose the vault root, not the file. Denote opens it only when that folder
+contains the linked file. Cancelling keeps the current vault open. App links
+cannot contain queries or fragments.
+
 When the Git plugin is enabled, **Clone repo as vault** appears in this Switch
 vault dialog beside **Open another folder**. It clones into an empty folder chosen through the native
 folder picker. Denote registers and opens that folder only after Git finishes

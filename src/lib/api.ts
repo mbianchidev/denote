@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import type {
+  AppLinkResolution,
   AvailableUpdate,
   HistoryRevision,
   FileEncoding,
@@ -15,6 +16,7 @@ import type {
   NoteDocument,
   NoteStats,
   InstalledPlugin,
+  ImportedAppLink,
   PluginAutomaticCommitOutcome,
   PluginAutomaticCommitRequest,
   PluginCloneVaultResponse,
@@ -68,6 +70,10 @@ export const api = {
   listKnownVaults: () => invoke<KnownVault[]>("list_known_vaults"),
   listKnownVaultFiles: () =>
     invoke<KnownVaultFileBatch>("list_known_vault_files"),
+  resolveAppLink: (uri: string) =>
+    invoke<AppLinkResolution>("resolve_app_link", { uri }),
+  importAppLinkVault: (uri: string) =>
+    invoke<ImportedAppLink | null>("import_app_link_vault", { uri }),
   openKnownVault: (vaultId: number) =>
     invoke<WorkspaceSnapshot>("open_known_vault", { vaultId }),
   deleteKnownVault: (vaultId: number, trashFiles: boolean) =>

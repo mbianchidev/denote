@@ -25,6 +25,11 @@ inspecting its published script and lockfile provenance.
 identity, so development vault state, plugin packages, process locks, and
 keychain entries cannot collide with an installed Denote release.
 
+The `denote:///` app-link scheme belongs to installed desktop bundles. Use a
+URL-encoded absolute file path, such as
+`denote:///Users/example/Notes/linked%20note.md`; the Vite development server
+alone is not an operating-system scheme handler.
+
 Preview the dependency-free public website from the repository root:
 
 ```bash

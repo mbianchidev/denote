@@ -51,11 +51,12 @@ tar = "0.4.46"
 flate2 = "1.1.10"
 keyring = "4.2.0"
 semver = "1.0.27"
-tauri-plugin-single-instance = "2"
+tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-notification = "2"
 command-group = "5.0.1"
 tempfile = "3.27.0"
 tauri-plugin-updater = "2"
+tauri-plugin-deep-link = "2"
 
 [target."cfg(unix)".dependencies]
 rlimit = "0.11.0"

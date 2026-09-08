@@ -88,6 +88,22 @@ export interface KnownVaultFileBatch {
   truncated: boolean;
 }
 
+export type AppLinkResolution =
+  | {
+      status: "known";
+      vaultId: number;
+      vaultPath: string;
+      path: string;
+    }
+  | {
+      status: "importRequired";
+    };
+
+export interface ImportedAppLink {
+  snapshot: WorkspaceSnapshot;
+  path: string;
+}
+
 export interface TagColor {
   tag: string;
   color: string;
