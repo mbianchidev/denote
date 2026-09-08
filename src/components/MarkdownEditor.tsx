@@ -133,6 +133,10 @@ import {
 } from "../lib/emoji";
 import { createEmojiSourceExtension, createEmojiSourceHistoryExtension } from "../lib/emojiSource";
 import { EmojiRichContext, emojiRichPlugin, type EmojiRichBinding } from "../lib/emojiRich";
+import {
+  denotePlainTextPastePlugin,
+  denoteThematicBreakShortcutPlugin,
+} from "../lib/richTextInputPlugin";
 import { EmojiToolbarActions } from "./EmojiPicker";
 
 const viewModePreferencePlugin = realmPlugin<{
@@ -513,6 +517,17 @@ export const MarkdownEditor = forwardRef<
       listsPlugin(),
       quotePlugin(),
       thematicBreakPlugin(),
+      denotePlainTextPastePlugin({
+        readClipboardText: api.readClipboardText,
+        writeClipboardText: api.copyFileContent,
+        onError: (caught) =>
+          callbacksRef.current.onError(errorMessage(caught)),
+      }),
+      denoteThematicBreakShortcutPlugin({
+        onInsert: (index) => {
+          thematicBreaksRef.current?.delimiters.splice(index, 0, "---");
+        },
+      }),
       denoteHashtagPlugin(),
       emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),

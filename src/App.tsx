@@ -7400,6 +7400,15 @@ function App() {
     setSearchQueryFocusRequest((current) => current + 1);
   }, [activeFileTab?.path, showSidebarView]);
 
+  const findInFolder = useCallback(
+    (path: string) => {
+      setSearchLocation(`${path.replace(/\/+$/, "")}/`);
+      showSidebarView("search");
+      setSearchQueryFocusRequest((current) => current + 1);
+    },
+    [showSidebarView],
+  );
+
   const focusCurrentDocumentSearch = useCallback(() => {
     if (activeFileTab?.kind !== "pdf") {
       focusVaultSearch();
@@ -9140,6 +9149,7 @@ function App() {
                 void moveNode(node, targetParentPath)
               }
               onRequestMove={(node) => void requestMoveNode(node)}
+              onFindInFolder={findInFolder}
               fileActions={fileActionHandlers}
               projectRoots={workspace.projectRoots}
               projectWorkspaces={workspace.projectWorkspaces}

@@ -306,6 +306,7 @@ pub fn run() {
             commands::disable_vault_encryption,
             commands::copy_file_path,
             commands::resolve_file_path,
+            commands::read_clipboard_text,
             commands::copy_file_content,
             commands::copy_file_for_attachment,
             commands::open_external_uri,

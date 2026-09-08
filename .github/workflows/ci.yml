@@ -62,7 +62,7 @@ jobs:
         id: npm-ci
         env:
           npm_config_logs_dir: ${{ runner.temp }}/npm-logs
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Upload npm debug logs
         if: failure() && steps.npm-ci.outcome == 'failure'
@@ -137,7 +137,7 @@ jobs:
         id: npm-ci
         env:
           npm_config_logs_dir: ${{ runner.temp }}/npm-logs
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts --no-audit
 
       - name: Prepare bundled Git and GitHub CLI
         shell: bash

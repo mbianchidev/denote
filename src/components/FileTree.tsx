@@ -12,6 +12,7 @@ import {
   FolderX,
   Pencil,
   Pin,
+  Search,
   Trash2,
 } from "lucide-react";
 import {
@@ -60,6 +61,7 @@ interface FileTreeProps {
   onDelete: (node: FileNode) => void;
   onMove: (node: FileNode, targetParentPath: string) => void;
   onRequestMove: (node: FileNode) => void;
+  onFindInFolder?: (path: string) => void;
   fileActions?: FileActionHandlers;
   projectRoots?: ProjectRoot[];
   projectWorkspaces?: ProjectWorkspace[];
@@ -84,6 +86,7 @@ export function FileTree({
   onDelete,
   onMove,
   onRequestMove,
+  onFindInFolder,
   fileActions,
   projectRoots = [],
   projectWorkspaces = [],
@@ -702,23 +705,38 @@ export function FileTree({
                   ) : (
                    <>
                      {contextMenuNode?.kind === "folder" ? (
-                       <button
-                         type="button"
-                         role="menuitem"
-                         onClick={() => {
-                           closeContextMenu(true);
-                           onToggleFolder(contextMenuNode.path);
-                         }}
-                       >
-                         {expandedPaths.has(contextMenuNode.path) ? (
-                           <ChevronDown aria-hidden="true" size={15} />
-                         ) : (
-                           <ChevronRight aria-hidden="true" size={15} />
-                         )}
-                         {expandedPaths.has(contextMenuNode.path)
-                           ? "Collapse folder"
-                           : "Expand folder"}
-                       </button>
+                       <>
+                         {onFindInFolder ? (
+                           <button
+                             type="button"
+                             role="menuitem"
+                             onClick={() => {
+                               closeContextMenu(true);
+                               onFindInFolder(contextMenuNode.path);
+                             }}
+                           >
+                             <Search aria-hidden="true" size={15} />
+                             Find in folder
+                           </button>
+                         ) : null}
+                         <button
+                           type="button"
+                           role="menuitem"
+                           onClick={() => {
+                             closeContextMenu(true);
+                             onToggleFolder(contextMenuNode.path);
+                           }}
+                         >
+                           {expandedPaths.has(contextMenuNode.path) ? (
+                             <ChevronDown aria-hidden="true" size={15} />
+                           ) : (
+                             <ChevronRight aria-hidden="true" size={15} />
+                           )}
+                           {expandedPaths.has(contextMenuNode.path)
+                             ? "Collapse folder"
+                             : "Expand folder"}
+                         </button>
+                       </>
                      ) : null}
                      <button
                        type="button"

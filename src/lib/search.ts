@@ -291,12 +291,16 @@ export function matchesSearchLocation(path: string, rawLocation: string): boolea
   if (!location || location === "*") {
     return true;
   }
+  const normalizedPath = path.replace(/\\/g, "/");
+  if (location.endsWith("/")) {
+    return normalizedPath.startsWith(location);
+  }
   const hasWildcard = /[*?]/.test(location);
   if (!hasWildcard) {
-    return path.replace(/\\/g, "/") === location;
+    return normalizedPath === location;
   }
   const target = location.includes("/")
-    ? path.replace(/\\/g, "/")
+    ? normalizedPath
     : path.split(/[\\/]/).slice(-1)[0] ?? path;
   return globExpression(location).test(target);
 }

@@ -1092,6 +1092,12 @@ file-level results. Command-H on macOS and Control-H on Windows/Linux open
 replace; the macOS native application menu omits its conflicting default Hide
 item.
 
+The folder context menu scopes search with a vault-relative `<folder>/` prefix,
+switches the sidebar to Search, and focuses the search-text field. A trailing
+slash is matched as a literal path prefix before wildcard parsing, so valid
+folder names containing `*` or `?` cannot broaden the generated scope. The
+location remains user-editable.
+
 Command-P on macOS and Control-P on Windows/Linux opens a unified command
 palette. The frontend contributes contextual action descriptors with labels,
 categories, keywords, disabled state, and shortcut text. The same input also
@@ -1143,6 +1149,19 @@ Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
+The Rich editor handles Command/Control-Shift-V before WebKit's default paste,
+captures the Lexical selection, reads bounded text through the native clipboard
+command, and inserts only plain text after the IPC result returns. Its native
+context menu exposes the same action beside Undo, Redo, Cut, Copy, Paste, and
+Select All. macOS and Windows use the platform predefined edit actions; Linux
+uses explicit Lexical and native-clipboard handlers because its predefined
+menu actions are unavailable or ineffective under Wayland. Clipboard failures
+and stale selections use the ordinary editor error surface. Every custom menu
+item receives a runtime-generated ID so panes and nested editors cannot replace
+one another's handlers. A root paragraph containing `--` converts to a
+thematic-break node when the third dash is typed; the editor inserts and selects
+a following paragraph and records the new delimiter as `---` before
+serialization.
 For `.md`, MDXEditor's HTML/JSX processing remains suppressed so
 CommonMark/GFM owns autolinks, indented code, raw HTML, comparisons, hearts, and
 placeholders. A high-priority standard-HTML visitor imports HTML tokens as

@@ -10,6 +10,10 @@ places the active file in **Where to search**, and focuses **Search text**. Use:
 - a filename glob such as `*.html`;
 - a path glob such as `docs/*.md` or `docs/**/*.md`.
 
+Right-click a folder and choose **Find in folder** to open Search with that
+folder's `<folder>/` path scope selected. A trailing slash searches every file
+below that literal folder path.
+
 When a PDF is active, the same shortcut focuses the PDF reader's own local
 search field. PDF matches use the document text layer and stay in that tab.
 Enter moves forward and Shift-Enter moves backward. PDFs above 500 pages, pages

@@ -386,9 +386,10 @@ slightly reduced opacity plus explicit screen-reader text; hover, selection, and
 keyboard focus restore full legibility.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
-Folder entry menus begin their entry-specific actions with **Expand folder** or
-**Collapse folder**, reflecting the current disclosure state without affecting
-other branches.
+Folder entry menus begin their entry-specific actions with **Find in folder**
+and **Expand folder** or **Collapse folder**. Search opens with that folder's
+literal trailing-slash path scope selected, while disclosure changes only that
+branch.
 The root and folder menus expose independent **Mark as project** / **Unmark
 project** and **Mark as workspace** / **Unmark workspace** actions, so either or
 both roles can apply to one folder. Shift-F10 and the Context Menu key open the
@@ -426,6 +427,11 @@ scrollable form for tags, types, recency, bookmarks, filename, path, and content
 Command-F / Control-F keeps the active file path as the scope and moves keyboard
 focus to the search-text field. Every matching content occurrence has its own
 result control, which opens the file and selects that exact term in the editor.
+
+The editable Rich document uses a native context menu for Undo, Redo, Cut, Copy,
+Paste, **Paste without formatting**, and Select All. The custom paste action
+shows Command/Control-Shift-V and returns focus to the preserved editor
+selection.
 
 External web navigation uses a compact confirmation dialog that states the exact
 domain and full destination. The primary choices are explicit: allow that domain

@@ -209,6 +209,10 @@ describe("vault search", () => {
     expect(matchesSearchLocation("docs/README.md", "README.md")).toBe(false);
     expect(matchesSearchLocation("Readme.md", "README.md")).toBe(false);
     expect(matchesSearchLocation("site/index.html", "site/*.html")).toBe(true);
+    expect(matchesSearchLocation("site/index.html", "site/**")).toBe(true);
+    expect(matchesSearchLocation("site/nested/index.html", "site/**")).toBe(true);
+    expect(matchesSearchLocation("notes*/index.md", "notes*/")).toBe(true);
+    expect(matchesSearchLocation("notes-other/index.md", "notes*/")).toBe(false);
     expect(matchesSearchLocation("site/nested/index.html", "site/*.html")).toBe(
       false,
     );
