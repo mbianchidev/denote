@@ -10,6 +10,8 @@ on your device.
 ## What you can do
 
 - Write in rich Markdown or exact source mode.
+- Read multi-page PDFs locally with navigation, zoom, fitting, rotation,
+  selectable text, and in-document search.
 - Search local notes, filenames, paths, tags, bookmarks, and recent work.
 - Organize files, tabs, groups, and up to four editor panes.
 - Open `denote:///` app links that switch vaults and focus a linked file.
@@ -49,7 +51,9 @@ it once and never overwrites your changes.
 Search, metadata, preferences, history, and optional encryption stay local.
 External links require domain approval. Bug reports open as editable GitHub
 drafts with bounded, redacted diagnostics; Denote never submits them
-automatically.
+automatically. PDF rendering uses bundled assets, makes no external request,
+and disables document scripting, forms, annotations, attachments, and embedded
+link activation.
 
 ## Documentation and development
 

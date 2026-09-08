@@ -34,6 +34,7 @@ const mockApi = vi.hoisted(() => ({
   refreshVault: vi.fn(),
   refreshGitignoreStatus: vi.fn(),
   readNote: vi.fn(),
+  readPdf: vi.fn(),
   recordEdit: vi.fn(),
   saveNote: vi.fn(),
   saveTabSession: vi.fn(),
@@ -108,6 +109,7 @@ const mockOpener = vi.hoisted(() => ({
   revealItemInDir: vi.fn(),
 }));
 const trackAppRender = vi.hoisted(() => vi.fn());
+const observePdfData = vi.hoisted(() => vi.fn());
 
 vi.mock("@tauri-apps/plugin-opener", () => mockOpener);
 vi.mock("./plugins/usePlugins", () => ({
@@ -161,6 +163,27 @@ vi.mock("./components/PlainTextEditor", () => ({
       </button>
     </>
   ),
+}));
+vi.mock("./components/PdfReader", () => ({
+  PdfReader: ({
+    title,
+    data,
+    searchFocusRequest,
+  }: {
+    title: string;
+    data: Uint8Array;
+    searchFocusRequest: number;
+  }) => {
+    observePdfData(data);
+    return (
+      <section aria-label={`PDF reader for ${title}`}>
+        PDF bytes: {data.byteLength}
+        <output aria-label="PDF search focus request">
+          {searchFocusRequest}
+        </output>
+      </section>
+    );
+  },
 }));
 vi.mock("./components/FileTree", () => ({
   FileTree: ({
@@ -253,6 +276,12 @@ describe("App initial file-tree expansion", () => {
       contentHash: `${path}-hash`,
       encoding: "utf8",
       lineEnding: "lf",
+      stats: noteStats(),
+    }));
+    mockApi.readPdf.mockImplementation(async (path: string) => ({
+      path,
+      dataBase64: btoa("%PDF-1.7\nsynthetic"),
+      contentHash: `${path}-hash`,
       stats: noteStats(),
     }));
     mockApi.recordEdit.mockResolvedValue(noteStats());
@@ -390,6 +419,77 @@ describe("App initial file-tree expansion", () => {
       /\.GIT|Node_Modules/,
     );
     expect(screen.getByTestId("file-tree-dotfiles")).toHaveTextContent("true");
+  });
+
+  it("restores a PDF in a split pane without routing it through the text editor", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      splitPaneSnapshot([
+        fileNode("first.md"),
+        fileNode("second.md"),
+        fileNode("reference.pdf", "pdf"),
+      ]),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("region", {
+        name: "PDF reader for reference.pdf",
+      }),
+    ).toHaveTextContent("PDF bytes");
+    expect(mockApi.readPdf).toHaveBeenCalledWith("reference.pdf");
+    expect(mockApi.readNote).not.toHaveBeenCalledWith("reference.pdf");
+    expect(
+      screen.getByRole("group", {
+        name: "Pane 2 of 2: reference.pdf",
+      }),
+    ).toContainElement(
+      screen.getByRole("region", {
+        name: "PDF reader for reference.pdf",
+      }            ),
+    );
+    fireEvent.click(screen.getByRole("tab", { name: /reference\.pdf/i }));
+    expect(
+      screen.getByRole("button", { name: "Copy active file content" }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: "Copy active file for attachment" }),
+    ).toBeEnabled();
+    expect(
+      screen.getByRole("button", { name: "Reload active file from disk" }),
+    ).toBeEnabled();
+    const otherPanePrompt = document.createElement("div");
+    otherPanePrompt.className = "pdf-reader__password-dialog";
+    otherPanePrompt.append(document.createElement("input"));
+    document.body.append(otherPanePrompt);
+    fireEvent.keyDown(window, { key: "p", code: "KeyP", ctrlKey: true });
+    const palette = await screen.findByRole("dialog", {
+      name: "Command palette",
+    });
+    fireEvent.change(within(palette).getByRole("combobox"), {
+      target: { value: "Search current PDF" },
+    });
+    fireEvent.keyDown(within(palette).getByRole("combobox"), { key: "Enter" });
+    await waitFor(() =>
+      expect(
+        Number(screen.getByLabelText("PDF search focus request").textContent),
+      ).toBeGreaterThan(0),
+    );
+    otherPanePrompt.remove();
+    const pdfBytes = observePdfData.mock.calls[
+      observePdfData.mock.calls.length - 1
+    ]?.[0] as Uint8Array;
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close reference.pdf" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", {
+          name: "PDF reader for reference.pdf",
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(pdfBytes.every((value) => value === 0)).toBe(true);
   });
 
   it("generates an editor-only emoji command and preserves selection through the command palette", async () => {

@@ -9,6 +9,7 @@ pub enum FileKind {
     Markdown,
     Text,
     Image,
+    Pdf,
     File,
 }
 
@@ -121,6 +122,15 @@ pub struct NoteDocument {
     pub content_hash: String,
     pub encoding: FileEncoding,
     pub line_ending: FileLineEnding,
+    pub stats: NoteStats,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfDocument {
+    pub path: String,
+    pub data_base64: String,
+    pub content_hash: String,
     pub stats: NoteStats,
 }
 

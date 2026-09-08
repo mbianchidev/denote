@@ -14,6 +14,7 @@ import type {
   LinkRewriteBatch,
   MoveEntryResult,
   NoteDocument,
+  PdfDocument,
   NoteStats,
   InstalledPlugin,
   ImportedAppLink,
@@ -154,6 +155,7 @@ export const api = {
       lineEnding,
     }),
   readNote: (path: string) => invoke<NoteDocument>("read_note", { path }),
+  readPdf: (path: string) => invoke<PdfDocument>("read_pdf", { path }),
   saveNote: (
     path: string,
     content: string,

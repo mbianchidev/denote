@@ -1,4 +1,5 @@
 import type { MarkdownViewMode } from "./lib/markdownView";
+import type { PdfViewState } from "./lib/pdf";
 import type { SourceLanguageOverride } from "./lib/syntaxLanguages";
 import type {
   PluginBundle,
@@ -13,7 +14,13 @@ import type {
 
 export type PluginBundleMetadata = PluginBundle;
 
-export type FileKind = "folder" | "markdown" | "text" | "image" | "file";
+export type FileKind =
+  | "folder"
+  | "markdown"
+  | "text"
+  | "image"
+  | "pdf"
+  | "file";
 export type FileEncoding = "utf8" | "base64";
 export type FileLineEnding = "lf" | "crlf" | "cr";
 
@@ -45,6 +52,13 @@ export interface NoteDocument {
   contentHash: string;
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
+  stats: NoteStats;
+}
+
+export interface PdfDocument {
+  path: string;
+  dataBase64: string;
+  contentHash: string;
   stats: NoteStats;
 }
 
@@ -389,6 +403,8 @@ export interface EditorTab {
   navigationIndex?: number;
   stats?: NoteStats;
   imageDataUrl?: string;
+  pdfData?: Uint8Array;
+  pdfViewState?: PdfViewState;
   rawEditing: boolean;
   readOnly?: boolean;
   languageOverride?: SourceLanguageOverride;

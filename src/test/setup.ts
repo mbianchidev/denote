@@ -2,23 +2,31 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 
-afterEach(cleanup);
+afterEach(() => {
+  if (typeof document !== "undefined") {
+    cleanup();
+  }
+});
 
-HTMLDialogElement.prototype.showModal = function showModal() {
-  this.open = true;
-};
+if (typeof HTMLDialogElement !== "undefined") {
+  HTMLDialogElement.prototype.showModal = function showModal() {
+    this.open = true;
+  };
 
-HTMLDialogElement.prototype.close = function close() {
-  this.open = false;
-};
+  HTMLDialogElement.prototype.close = function close() {
+    this.open = false;
+  };
+}
 
-Range.prototype.getClientRects = function getClientRects() {
-  return [] as unknown as DOMRectList;
-};
+if (typeof Range !== "undefined") {
+  Range.prototype.getClientRects = function getClientRects() {
+    return [] as unknown as DOMRectList;
+  };
 
-Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
-  return new DOMRect();
-};
+  Range.prototype.getBoundingClientRect = function getBoundingClientRect() {
+    return new DOMRect();
+  };
+}
 
 class ResizeObserverStub implements ResizeObserver {
   observe() {}
@@ -26,7 +34,9 @@ class ResizeObserverStub implements ResizeObserver {
   disconnect() {}
 }
 
-globalThis.ResizeObserver = ResizeObserverStub;
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = ResizeObserverStub;
+}
 
 class WorkerStub extends EventTarget {
   onerror: ((event: ErrorEvent) => void) | null = null;
@@ -37,4 +47,6 @@ class WorkerStub extends EventTarget {
   terminate() {}
 }
 
-vi.stubGlobal("Worker", WorkerStub);
+if (typeof globalThis.Worker === "undefined") {
+  vi.stubGlobal("Worker", WorkerStub);
+}

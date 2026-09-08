@@ -85,6 +85,7 @@ import {
   type MarkdownEditorDiagnostic,
 } from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
+import { PdfReader } from "./components/PdfReader";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
@@ -298,6 +299,14 @@ import {
 import { listenForAppLinks } from "./lib/appLinks";
 import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
 import {
+  bytesToBase64,
+  decodeBase64Bytes,
+  defaultPdfViewState,
+  releasePdfBytes,
+  type PdfReaderCommand,
+  type PdfViewState,
+} from "./lib/pdf";
+import {
   sourceControlDiffPath,
   sourceControlDiffTitle,
   sourceControlPatch,
@@ -365,6 +374,10 @@ interface LinkRewriteSave {
 interface OutlineCacheEntry {
   ready: boolean;
   snapshot: StableOutlineSnapshot | null;
+}
+
+function releaseEditorTabPdf(tab: EditorTab | null | undefined): void {
+  releasePdfBytes(tab?.pdfData);
 }
 
 function outlineCacheKey(
@@ -852,6 +865,15 @@ function App() {
     (SourceEditorNavigation & { path: string }) | null
   >(null);
   const sourceNavigationSequence = useRef(0);
+  const [pdfSearchFocus, setPdfSearchFocus] = useState<{
+    path: string;
+    request: number;
+  } | null>(null);
+  const [pdfCommand, setPdfCommand] = useState<
+    (PdfReaderCommand & { path: string }) | null
+  >(null);
+  const pdfCommandSequence = useRef(0);
+  const pdfSearchSequence = useRef(0);
   const errorSequence = useRef(0);
   const recentDiagnostics = useRef<DiagnosticEvent[]>([]);
   const [headingNavigation, setHeadingNavigation] = useState<{
@@ -961,6 +983,9 @@ function App() {
     appMounted.current = true;
     return () => {
       appMounted.current = false;
+      for (const tab of tabsRef.current) {
+        releaseEditorTabPdf(tab);
+      }
       vaultGeneration.current += 1;
       rebuildRequest.current += 1;
       if (indexTimer.current !== null) window.clearTimeout(indexTimer.current);
@@ -1121,6 +1146,12 @@ function App() {
     setSourceNavigation((current) =>
       current?.path === activePath ? current : null,
     );
+    setPdfCommand((current) =>
+      current?.path === activePath ? current : null,
+    );
+    setPdfSearchFocus((current) =>
+      current?.path === activePath ? current : null,
+    );
   }, [activePath]);
   const activeTab = useMemo(
     () => tabs.find((tab) => tab.path === activePath) ?? null,
@@ -1147,7 +1178,8 @@ function App() {
     activeFileTab !== null &&
     activeFileTab.encoding === "utf8" &&
     activeFileTab.kind !== "markdown" &&
-    activeFileTab.kind !== "image";
+    activeFileTab.kind !== "image" &&
+    activeFileTab.kind !== "pdf";
   const activeSourceLanguageId = activeSourceOutlineAvailable
     ? (resolveSourceLanguage(
         activeFileTab.path,
@@ -2119,6 +2151,9 @@ function App() {
         ),
       );
       if (resetTabs || vaultLocked) {
+        for (const tab of tabsRef.current) {
+          releaseEditorTabPdf(tab);
+        }
         for (const timer of saveTimers.current.values()) {
           window.clearTimeout(timer);
         }
@@ -3749,7 +3784,30 @@ function App() {
               saveState: "saved" as const,
             }),
           )
-        : api.readNote(path).then((document) => ({
+        : kind === "pdf"
+          ? api.readPdf(path).then((document) => ({
+              path,
+              title,
+              kind: "pdf" as const,
+              content: "",
+              savedContent: "",
+              savedHash: document.contentHash,
+              encoding: "base64" as const,
+              lineEnding: "lf" as const,
+              placeholder: false,
+              groupId: null,
+              navigationHistory: [path],
+              navigationIndex: 0,
+              pdfData: decodeBase64Bytes(document.dataBase64),
+              pdfViewState: defaultPdfViewState(),
+              rawEditing: false,
+              readOnly: true,
+              editorRevision: 0,
+              stats: document.stats,
+              editRecorded: false,
+              saveState: "saved" as const,
+            }))
+          : api.readNote(path).then((document) => ({
             path,
             title,
             kind,
@@ -3768,7 +3826,7 @@ function App() {
             stats: document.stats,
             editRecorded: false,
             saveState: "saved" as const,
-          })),
+            })),
     [],
   );
 
@@ -3802,7 +3860,8 @@ function App() {
       }
       const replacePath = targetPane.activePath;
       const node = findNode(workspace.tree, path);
-      const kind = node?.kind ?? kindFromPath(path);
+      const pathKind = kindFromPath(path);
+      const kind = pathKind === "pdf" ? pathKind : (node?.kind ?? pathKind);
       const reportError = transientErrors ? showLinkError : showError;
       if (kind === "folder") {
         reportError(`Unable to find ${path}`);
@@ -3823,6 +3882,7 @@ function App() {
           generation !== vaultGeneration.current ||
           !openRequestCurrent(paneId, request)
         ) {
+          releaseEditorTabPdf(tab);
           return;
         }
         setHeadingNavigation(
@@ -3840,6 +3900,7 @@ function App() {
           placementAddsTab &&
           tabsRef.current.length >= MAX_TAB_SESSION_TABS
         ) {
+          releaseEditorTabPdf(tab);
           reportError(
             `Close a tab before opening ${title}; the ${MAX_TAB_SESSION_TABS}-tab limit is reached.`,
           );
@@ -3856,6 +3917,9 @@ function App() {
             activePath: path,
           })),
         }));
+        if (shouldCancelReplacedPath) {
+          releaseEditorTabPdf(replacedTab);
+        }
         dispatchErrors({
           type: "retain-markdown-paths",
           paths: tabReferencedPaths(tabsRef.current),
@@ -4007,7 +4071,9 @@ function App() {
           return;
         }
         const node = findNode(workspace.tree, target.path);
-        const kind = node?.kind ?? kindFromPath(target.path);
+        const pathKind = kindFromPath(target.path);
+        const kind =
+          pathKind === "pdf" ? pathKind : (node?.kind ?? pathKind);
         if (kind === "folder") {
           return;
         }
@@ -4039,15 +4105,20 @@ function App() {
           const existing = latestPane.tabs.find(
             (tab) => tab.path === target.path,
           );
+          const loaded =
+            existing ?? (await readEditorTab(target.path, kind, title));
           const opened = restoreTabHistoryTarget(
             latestCurrent,
-            existing ?? (await readEditorTab(target.path, kind, title)),
+            loaded,
             target.index,
           );
           if (
             generation !== vaultGeneration.current ||
             !openRequestCurrent(paneId, request)
           ) {
+            if (!existing) {
+              releaseEditorTabPdf(loaded);
+            }
             return;
           }
           const displaced = existing
@@ -4076,6 +4147,7 @@ function App() {
             })),
           }));
           if (!existing) {
+            releaseEditorTabPdf(latestCurrent);
             cancelPendingPath(current.path);
           }
           setSelectedPath(target.path);
@@ -4147,6 +4219,9 @@ function App() {
         const seen = new Set<string>();
         for (const saved of upgraded.panes.flatMap((pane) => pane.tabs)) {
           if (stale()) {
+            for (const tab of restored) {
+              releaseEditorTabPdf(tab);
+            }
             return;
           }
           if (seen.has(saved.path)) {
@@ -4154,7 +4229,9 @@ function App() {
           }
           seen.add(saved.path);
           const node = findNode(workspace.tree, saved.path);
-          const kind = node?.kind ?? kindFromPath(saved.path);
+          const pathKind = kindFromPath(saved.path);
+          const kind =
+            pathKind === "pdf" ? pathKind : (node?.kind ?? pathKind);
           if (kind === "folder") {
             continue;
           }
@@ -4167,6 +4244,9 @@ function App() {
           }
         }
         if (stale()) {
+          for (const tab of restored) {
+            releaseEditorTabPdf(tab);
+          }
           return;
         }
         const restoredState = applyPaneSessionState(restored, session);
@@ -4411,6 +4491,19 @@ function App() {
     [commitTabs],
   );
 
+  const updatePdfViewState = useCallback(
+    (path: string, pdfViewState: PdfViewState) => {
+      commitTabs((current) =>
+        current.map((tab) =>
+          tab.path === path && tab.kind === "pdf"
+            ? { ...tab, pdfViewState }
+            : tab,
+        ),
+      );
+    },
+    [commitTabs],
+  );
+
   const closeTabs = useCallback(
     async (paths: string[]) => {
       const closing = new Set(paths);
@@ -4422,6 +4515,9 @@ function App() {
         if (!(await beginWorkspaceOperation())) {
           return;
         }
+        const closingTabs = tabsRef.current.filter((tab) =>
+          closing.has(tab.path),
+        );
         const closedActivePath =
           activePathRef.current && closing.has(activePathRef.current)
             ? activePathRef.current
@@ -4434,6 +4530,9 @@ function App() {
             false,
           ).panes,
         }));
+        for (const tab of closingTabs) {
+          releaseEditorTabPdf(tab);
+        }
         dispatchErrors({
           type: "retain-markdown-paths",
           paths: tabReferencedPaths(tabsRef.current),
@@ -4863,7 +4962,17 @@ function App() {
       }
       const reloaded = new Map<
         string,
-        { document: NoteDocument; imageDataUrl?: string }
+        | {
+            kind: "pdf";
+            contentHash: string;
+            pdfData: Uint8Array;
+            stats: EditorTab["stats"];
+          }
+        | {
+            kind: "note";
+            document: NoteDocument;
+            imageDataUrl?: string;
+          }
       >();
       const disappeared = new Set<string>();
       for (const tab of open) {
@@ -4883,6 +4992,16 @@ function App() {
         }
         cancelPendingPath(tab.path);
         try {
+          if (tab.kind === "pdf") {
+            const document = await api.readPdf(tab.path);
+            reloaded.set(tab.path, {
+              kind: "pdf",
+              contentHash: document.contentHash,
+              pdfData: decodeBase64Bytes(document.dataBase64),
+              stats: document.stats,
+            });
+            continue;
+          }
           const document = await api.readNote(tab.path);
           const imageDataUrl =
             tab.kind === "image"
@@ -4891,14 +5010,19 @@ function App() {
           reloaded.set(
             tab.path,
             imageDataUrl === undefined
-              ? { document }
-              : { document, imageDataUrl },
+              ? { kind: "note", document }
+              : { kind: "note", document, imageDataUrl },
           );
         } catch {
           disappeared.add(tab.path);
         }
       }
       let removedPaths: string[] = [];
+      const releasedPdfTabs = open.filter(
+        (tab) =>
+          tab.pdfData &&
+          (disappeared.has(tab.path) || reloaded.has(tab.path)),
+      );
       commitPaneState((current) => {
         const removal = removePaneTabs(current.panes, (path) =>
           disappeared.has(path),
@@ -4913,6 +5037,23 @@ function App() {
               if (!update) {
                 return tab;
               }
+              if (update.kind === "pdf") {
+                return {
+                  ...tab,
+                  content: "",
+                  savedContent: "",
+                  savedHash: update.contentHash,
+                  encoding: "base64",
+                  lineEnding: "lf",
+                  stats: update.stats,
+                  pdfData: update.pdfData,
+                  pdfViewState: tab.pdfViewState ?? defaultPdfViewState(),
+                  readOnly: true,
+                  editorRevision: tab.editorRevision + 1,
+                  editRecorded: false,
+                  saveState: "saved" as const,
+                };
+              }
               const changed = update.document.content !== tab.savedContent;
               return {
                 ...tab,
@@ -4925,6 +5066,8 @@ function App() {
                 ...(update.imageDataUrl === undefined
                   ? {}
                   : { imageDataUrl: update.imageDataUrl }),
+                pdfData: undefined,
+                pdfViewState: undefined,
                 editorRevision: changed
                   ? tab.editorRevision + 1
                   : tab.editorRevision,
@@ -4935,6 +5078,9 @@ function App() {
           })),
         };
       });
+      for (const tab of releasedPdfTabs) {
+        releaseEditorTabPdf(tab);
+      }
       for (const path of removedPaths) {
         cancelPendingPath(path);
         dispatchErrors({ type: "remove-markdown-prefix", path });
@@ -5511,6 +5657,29 @@ function App() {
           showError(caught);
         }
       }
+      const loadedPdfs = new Map<
+        string,
+        {
+          data: Uint8Array;
+          contentHash: string;
+          stats: EditorTab["stats"];
+        }
+      >();
+      for (const tab of affectedTabs) {
+        const path = replacePrefix(tab.path);
+        if (tab.kind !== "pdf" && kindFromPath(path) === "pdf") {
+          try {
+            const document = await api.readPdf(path);
+            loadedPdfs.set(path, {
+              data: decodeBase64Bytes(document.dataBase64),
+              contentHash: document.contentHash,
+              stats: document.stats,
+            });
+          } catch (caught) {
+            showError(caught);
+          }
+        }
+      }
       commitTabs((current) =>
         current.map((tab) => {
           if (tab.placeholder) {
@@ -5519,31 +5688,75 @@ function App() {
           const path = replacePrefix(tab.path);
           const renamedKind = kindFromPath(path);
           const update = linkUpdates.get(path);
+          const loadedPdf = loadedPdfs.get(path);
           const moved = rekeyTabNavigation(tab, replacePrefix);
+          const changedFromPdf = tab.kind === "pdf" && renamedKind !== "pdf";
+          const changedToPdf = tab.kind !== "pdf" && renamedKind === "pdf";
+          const convertedPdfContent = changedFromPdf
+            ? bytesToBase64(tab.pdfData ?? new Uint8Array())
+            : null;
           return {
             ...moved,
             path,
             title: path.split("/").slice(-1)[0] ?? path,
             kind: renamedKind,
-            content: update?.content ?? moved.content,
-            savedContent: update?.content ?? moved.savedContent,
-            savedHash: update?.outcome.contentHash ?? moved.savedHash,
-            encoding: update?.encoding ?? moved.encoding,
-            lineEnding: update?.lineEnding ?? moved.lineEnding,
-            stats: update?.outcome.stats ?? moved.stats,
+            content:
+              renamedKind === "pdf"
+                ? ""
+                : (convertedPdfContent ?? update?.content ?? moved.content),
+            savedContent:
+              renamedKind === "pdf"
+                ? ""
+                : (convertedPdfContent ??
+                  update?.content ??
+                  moved.savedContent),
+            savedHash:
+              loadedPdf?.contentHash ??
+              update?.outcome.contentHash ??
+              moved.savedHash,
+            encoding:
+              renamedKind === "pdf" || changedFromPdf
+                ? "base64"
+                : (update?.encoding ?? moved.encoding),
+            lineEnding:
+              renamedKind === "pdf" || changedFromPdf
+                ? "lf"
+                : (update?.lineEnding ?? moved.lineEnding),
+            stats:
+              loadedPdf?.stats ?? update?.outcome.stats ?? moved.stats,
             editorRevision:
-              moved.editorRevision + (update ? 1 : 0),
+              moved.editorRevision +
+              (update || changedFromPdf || changedToPdf ? 1 : 0),
             editRecorded: update ? false : moved.editRecorded,
             saveState: update ? "saved" : moved.saveState,
+            readOnly:
+              renamedKind === "pdf"
+                ? true
+                : changedFromPdf
+                  ? false
+                  : moved.readOnly,
             rawEditing:
               renamedKind === "image" && tab.kind === "image"
                 ? tab.rawEditing
                 : false,
             imageDataUrl:
               renamedKind === "image" ? tab.imageDataUrl : undefined,
+            pdfData:
+              renamedKind === "pdf"
+                ? (loadedPdf?.data ?? moved.pdfData)
+                : undefined,
+            pdfViewState:
+              renamedKind === "pdf"
+                ? (moved.pdfViewState ?? defaultPdfViewState())
+                : undefined,
           };
         }),
       );
+      for (const tab of affectedTabs) {
+        if (tab.kind === "pdf" && kindFromPath(replacePrefix(tab.path)) !== "pdf") {
+          releaseEditorTabPdf(tab);
+        }
+      }
       dispatchErrors({
         type: "rekey-markdown-prefix",
         oldPath,
@@ -5834,11 +6047,20 @@ function App() {
       const activeWasAffected =
         activePathRef.current !== null && isAffected(activePathRef.current);
       let removedPaths: string[] = [];
+      const affectedOpenTabs = tabsRef.current.filter((tab) =>
+        isAffected(tab.path),
+      );
       commitPaneState((current) => {
         const removal = removePaneTabs(current.panes, isAffected);
         removedPaths = removal.removedPaths;
         return { ...current, panes: removal.panes };
       });
+      for (const tab of affectedOpenTabs) {
+        releaseEditorTabPdf(tab);
+      }
+      for (const tab of affectedOpenTabs) {
+        releaseEditorTabPdf(tab);
+      }
       dispatchErrors({
         type: "remove-markdown-prefix",
         path: node.path,
@@ -6257,7 +6479,7 @@ function App() {
   ]);
 
   const openHistoryForNode = useCallback(async (node: FileNode | null) => {
-    if (!workspace || !node || node.kind === "folder") {
+    if (!workspace || !node || node.kind === "folder" || node.kind === "pdf") {
       return;
     }
     if (workspaceLockedRef.current) {
@@ -6520,7 +6742,33 @@ function App() {
         await pendingSave;
       }
       cancelPendingPath(path);
-      if (activeFileTab.kind === "image") {
+      if (activeFileTab.kind === "pdf") {
+        const document = await api.readPdf(path);
+        const pdfData = decodeBase64Bytes(document.dataBase64);
+        const previousPdfData = activeFileTab.pdfData;
+        commitTabs((current) =>
+          current.map((tab) =>
+            tab.path === path
+              ? {
+                  ...tab,
+                  content: "",
+                  savedContent: "",
+                  savedHash: document.contentHash,
+                  encoding: "base64",
+                  lineEnding: "lf",
+                  pdfData,
+                  pdfViewState: tab.pdfViewState ?? defaultPdfViewState(),
+                  readOnly: true,
+                  editorRevision: tab.editorRevision + 1,
+                  editRecorded: false,
+                  saveState: "saved",
+                  stats: document.stats,
+                }
+              : tab,
+          ),
+        );
+        releasePdfBytes(previousPdfData);
+      } else if (activeFileTab.kind === "image") {
         const [document, imageDataUrl] = await Promise.all([
           api.readNote(path),
           api.readImageDataUrl(path),
@@ -6628,7 +6876,11 @@ function App() {
   );
 
   const copyActiveFileContent = useCallback(async () => {
-    if (!activeFileTab || workspaceLockedRef.current) {
+    if (
+      !activeFileTab ||
+      activeFileTab.kind === "pdf" ||
+      workspaceLockedRef.current
+    ) {
       return;
     }
     try {
@@ -6646,8 +6898,12 @@ function App() {
     try {
       await api.copyFileForAttachment(
         activeFileTab.path,
-        activeFileTab.content,
-        activeFileTab.encoding,
+        activeFileTab.kind === "pdf"
+          ? bytesToBase64(activeFileTab.pdfData ?? new Uint8Array())
+          : activeFileTab.content,
+        activeFileTab.kind === "pdf"
+          ? "base64"
+          : activeFileTab.encoding,
         activeFileTab.lineEnding,
       );
       setStatus(
@@ -6698,6 +6954,11 @@ function App() {
   const toggleReadMode = useCallback(() => {
     const path = activePathRef.current;
     if (!path) {
+      return;
+    }
+    const active = tabsRef.current.find((tab) => tab.path === path);
+    if (active?.kind === "pdf") {
+      setStatus("PDF files are always read-only");
       return;
     }
     commitTabs((current) =>
@@ -7085,6 +7346,23 @@ function App() {
     setSearchQueryFocusRequest((current) => current + 1);
   }, [activeFileTab?.path, showSidebarView]);
 
+  const focusCurrentDocumentSearch = useCallback(() => {
+    if (activeFileTab?.kind !== "pdf") {
+      focusVaultSearch();
+      return;
+    }
+    const request = ++pdfSearchSequence.current;
+    setPdfSearchFocus({
+      path: activeFileTab.path,
+      request,
+    });
+    window.setTimeout(() => {
+      setPdfSearchFocus((current) =>
+        current?.request === request ? null : current,
+      );
+    }, 0);
+  }, [activeFileTab?.kind, activeFileTab?.path, focusVaultSearch]);
+
   const navigateToEditorError = useCallback(() => {
     if (activePath) {
       dispatchErrors({ type: "navigate-markdown", path: activePath });
@@ -7137,6 +7415,12 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest(".pdf-reader__password-dialog")
+      ) {
+        return;
+      }
       const zoom = editorZoomShortcut(event, navigator.platform);
       const paletteShortcut = isCommandPaletteShortcut(
         event,
@@ -7146,13 +7430,32 @@ function App() {
       if (zoom) {
         event.preventDefault();
         event.stopPropagation();
-        updateEditorFontSize(
-          zoom === "in"
-            ? editorDisplaySettings.fontSize + 1
-            : zoom === "out"
-              ? editorDisplaySettings.fontSize - 1
-              : DEFAULT_EDITOR_FONT_SIZE,
-        );
+        if (activeFileTab?.kind === "pdf") {
+          const request = ++pdfCommandSequence.current;
+          setPdfCommand({
+            path: activeFileTab.path,
+            request,
+            action:
+              zoom === "in"
+                ? "zoom-in"
+                : zoom === "out"
+                  ? "zoom-out"
+                  : "zoom-reset",
+          });
+          window.setTimeout(() => {
+            setPdfCommand((current) =>
+              current?.request === request ? null : current,
+            );
+          }, 0);
+        } else {
+          updateEditorFontSize(
+            zoom === "in"
+              ? editorDisplaySettings.fontSize + 1
+              : zoom === "out"
+                ? editorDisplaySettings.fontSize - 1
+                : DEFAULT_EDITOR_FONT_SIZE,
+          );
+        }
         return;
       }
       if (paletteShortcut) {
@@ -7247,7 +7550,7 @@ function App() {
       } else if (isSearchShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
-        focusVaultSearch();
+        focusCurrentDocumentSearch();
       } else if (isReplaceShortcut(event, navigator.platform)) {
         event.preventDefault();
         event.stopPropagation();
@@ -7259,7 +7562,10 @@ function App() {
       ) {
         event.preventDefault();
         event.stopPropagation();
-        if (activeFileTab.kind !== "image" || activeFileTab.rawEditing) {
+        if (
+          activeFileTab.kind !== "pdf" &&
+          (activeFileTab.kind !== "image" || activeFileTab.rawEditing)
+        ) {
           void saveTab(activeFileTab.path, activeFileTab.content, "manual save");
         }
       } else if (modifier && event.key.toLocaleLowerCase() === "w" && activePath) {
@@ -7292,7 +7598,7 @@ function App() {
     editorDisplaySettings.fontSize,
     emojiHost,
     emojiPickers,
-    focusVaultSearch,
+    focusCurrentDocumentSearch,
     modalOpen,
     saveTab,
     showError,
@@ -7404,12 +7710,18 @@ function App() {
     },
     {
       id: "vault.search",
-      title: "Search current file",
-      description: "Open search with the active file selected as its location.",
+      title:
+        activeFileTab?.kind === "pdf"
+          ? "Search current PDF"
+          : "Search current file",
+      description:
+        activeFileTab?.kind === "pdf"
+          ? "Focus the active PDF's local text search."
+          : "Open search with the active file selected as its location.",
       category: "Navigation",
       shortcut: `${commandKey}F`,
       disabled: !workspaceReady,
-      run: focusVaultSearch,
+      run: focusCurrentDocumentSearch,
     },
     {
       id: "vault.switch",
@@ -7722,7 +8034,7 @@ function App() {
       title: "Open current file in a new tab",
       description: "Keep the current tab and open this file separately.",
       category: "File",
-      disabled: activeFileTab === null,
+      disabled: activeFileTab === null || activeFileTab.kind === "pdf",
       run: () =>
         activeFileTab ? openFileInNewTab(activeFileTab.path) : undefined,
     },
@@ -7813,7 +8125,7 @@ function App() {
       title: "Copy current file content",
       description: "Copy the in-memory content to the clipboard.",
       category: "Clipboard",
-      disabled: activeFileTab === null,
+      disabled: activeFileTab === null || activeFileTab.kind === "pdf",
       run: copyActiveFileContent,
     },
     {
@@ -7860,12 +8172,17 @@ function App() {
     },
     {
       id: "editor.read-mode",
-      title: activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode",
+      title:
+        activeFileTab?.kind === "pdf"
+          ? "PDF is read-only"
+          : activeFileTab?.readOnly
+            ? "Switch to write mode"
+            : "Switch to read mode",
       description: activeFileTab?.readOnly
         ? "Enable editing for the current file."
         : "Prevent edits in the current file.",
       category: "Editor",
-      disabled: activeFileTab === null,
+      disabled: activeFileTab === null || activeFileTab.kind === "pdf",
       run: toggleReadMode,
     },
     {
@@ -8314,7 +8631,8 @@ function App() {
       paneCodeContext &&
       paneTab.encoding === "utf8" &&
       paneTab.kind !== "markdown" &&
-      paneTab.kind !== "image";
+      paneTab.kind !== "image" &&
+      paneTab.kind !== "pdf";
     const paneSourceLanguage =
       paneTab.encoding === "utf8"
         ? resolveSourceLanguage(
@@ -8330,7 +8648,27 @@ function App() {
         !paneUsesRichMarkdown ? (
           <EmojiToolbar host={emojiHost} pickers={emojiPickers} disabled={paneReadOnly} scope={emojiScope(pane.id, paneTab.path)} />
         ) : null}
-        {paneTab.kind === "image" && !paneTab.rawEditing ? (
+        {paneTab.kind === "pdf" ? (
+          <PdfReader
+            title={paneTab.title}
+            data={paneTab.pdfData ?? new Uint8Array()}
+            viewState={paneTab.pdfViewState ?? defaultPdfViewState()}
+            searchFocusRequest={
+              pane.id === focusedPaneId &&
+              pdfSearchFocus?.path === paneTab.path
+                ? pdfSearchFocus.request
+                : 0
+            }
+            command={
+              pane.id === focusedPaneId && pdfCommand?.path === paneTab.path
+                ? pdfCommand
+                : undefined
+            }
+            onViewStateChange={(pdfViewState) =>
+              updatePdfViewState(paneTab.path, pdfViewState)
+            }
+          />
+        ) : paneTab.kind === "image" && !paneTab.rawEditing ? (
           <figure className="image-viewer">
             <img src={paneTab.imageDataUrl} alt={paneTab.title} />
             <figcaption>{paneTab.path}</figcaption>
@@ -8905,7 +9243,11 @@ function App() {
               className="icon-button"
               aria-label="Copy active file content"
               title="Copy active file content"
-              disabled={!activeFileTab || workspaceLocked}
+              disabled={
+                !activeFileTab ||
+                activeFileTab.kind === "pdf" ||
+                workspaceLocked
+              }
               onClick={() => void copyActiveFileContent()}
             >
               <ClipboardCopy aria-hidden="true" size={16} />
@@ -8919,7 +9261,9 @@ function App() {
                   ? "Copy file for attachment using a temporary plaintext copy"
                   : "Copy active file for attachment"
               }
-              disabled={!activeFileTab || workspaceLocked}
+              disabled={
+                !activeFileTab || workspaceLocked
+              }
               onClick={() => void copyActiveFileForAttachment()}
             >
               <Paperclip aria-hidden="true" size={16} />
@@ -8980,7 +9324,7 @@ function App() {
               className="icon-button"
               aria-label="Open note history"
               title="History"
-              disabled={!activeFileTab}
+              disabled={!activeFileTab || activeFileTab.kind === "pdf"}
               onClick={() => void openHistory()}
             >
               <History aria-hidden="true" size={16} />
@@ -8989,10 +9333,18 @@ function App() {
               type="button"
               className="icon-button"
               aria-label={
-                activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
+                activeFileTab?.kind === "pdf"
+                  ? "PDF is read-only"
+                  : activeFileTab?.readOnly
+                    ? "Switch to write mode"
+                    : "Switch to read mode"
               }
               title={
-                activeFileTab?.readOnly ? "Switch to write mode" : "Switch to read mode"
+                activeFileTab?.kind === "pdf"
+                  ? "PDF is read-only"
+                  : activeFileTab?.readOnly
+                    ? "Switch to write mode"
+                    : "Switch to read mode"
               }
               aria-pressed={activeFileTab?.readOnly ?? false}
               disabled={!activeFileTab || workspaceLocked}
@@ -9216,6 +9568,7 @@ function App() {
           {activeFileTab &&
           activeFileTab.encoding === "utf8" &&
           activeFileTab.kind !== "image" &&
+          activeFileTab.kind !== "pdf" &&
           !usesRichMarkdownEditor(activeFileTab, activeProject) ? (
             <SourceLanguageStatus
               path={activeFileTab.path}
@@ -9231,11 +9584,17 @@ function App() {
           {activeFileTab ? (
             <>
               <span>
-                {activeFileTab.encoding === "utf8"
-                  ? wordCountLabel(activeFileTab.content)
-                  : "Base64"}
+                {activeFileTab.kind === "pdf"
+                  ? "PDF"
+                  : activeFileTab.encoding === "utf8"
+                    ? wordCountLabel(activeFileTab.content)
+                    : "Base64"}
               </span>
-              <span>{activeFileTab.content.length} characters</span>
+              <span>
+                {activeFileTab.kind === "pdf"
+                  ? `${activeFileTab.pdfData?.byteLength ?? 0} bytes`
+                  : `${activeFileTab.content.length} characters`}
+              </span>
               <span>
                 {activeFileTab.stats
                   ? `${activeFileTab.stats.openCount} opens · ${activeFileTab.stats.editCount} edits · ${activeFileTab.stats.saveCount} saves`
@@ -9272,6 +9631,7 @@ function App() {
         open={replaceOpen}
         currentPath={
           activeFileTab &&
+          activeFileTab.kind !== "pdf" &&
           (activeFileTab.kind !== "image" || activeFileTab.rawEditing)
             ? activeFileTab.path
             : null
@@ -9549,6 +9909,9 @@ function kindFromPath(path: string): Exclude<FileNode["kind"], "folder"> {
     )
   ) {
     return "image";
+  }
+  if (extension === "pdf") {
+    return "pdf";
   }
   return "file";
 }

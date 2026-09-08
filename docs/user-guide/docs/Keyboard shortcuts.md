@@ -5,7 +5,7 @@
 | Open command palette | `Command-P` | `Ctrl-P` |
 | Open settings | `Command-,` | `Ctrl-,` |
 | Find file across vaults | Open the command palette and type a filename | Open the command palette and type a filename |
-| Search current file | `Command-F` | `Ctrl-F` |
+| Search current file or active PDF | `Command-F` | `Ctrl-F` |
 | Create file | `Command-N` | `Ctrl-N` |
 | Create blank tab | `Command-T` | `Ctrl-T` |
 | Add editor pane | `Command-\` | `Ctrl-\` |
@@ -17,9 +17,9 @@
 | Create or edit link | `Command-K` | `Ctrl-K` |
 | Insert emoji (optional Emoji picker plugin) | `Command-Shift-E` | `Ctrl-Shift-E` |
 | Close tab | `Command-W` | `Ctrl-W` |
-| Increase editor text | `Command-+` | `Ctrl-+` |
-| Decrease editor text | `Command--` | `Ctrl--` |
-| Reset editor text | `Command-0` | `Ctrl-0` |
+| Increase editor text / zoom active PDF | `Command-+` | `Ctrl-+` |
+| Decrease editor text / zoom active PDF | `Command--` | `Ctrl--` |
+| Reset editor text / active PDF zoom | `Command-0` | `Ctrl-0` |
 | Switch tabs | `Ctrl-Tab` | `Ctrl-Tab` |
 | Previous tab | `Ctrl-Shift-Tab` | `Ctrl-Shift-Tab` |
 | Move tab left/right | `Option-Shift-Left/Right` | `Alt-Shift-Left/Right` |
@@ -37,6 +37,12 @@ editor text size, and tab/window closing.
 The search shortcut keeps the active file in **Where to search** and focuses
 **Search text**. Type `*` in the location field to search the vault or a pattern
 such as `*.html` to limit file types.
+
+When a PDF is active, the search shortcut focuses **Search this PDF** instead.
+Enter moves to the next match, Shift-Enter moves to the previous match, and
+Escape clears the PDF query. Every PDF toolbar control is reachable in visual
+order with Tab and Shift-Tab. The password prompt traps focus until Unlock,
+Cancel, or Escape.
 
 `Escape` hides the document outline when it is open. Sidebar and pane dividers
 use arrow keys and Home. File-tree context menus use arrow keys and

@@ -75,6 +75,66 @@ be opened. Markdown (`.md`, `.markdown`) gets the rich/source editor, `.mdx`
 uses non-executing JSX-highlighted source editing, other valid UTF-8 files use
 the plain editor, and invalid UTF-8 uses a byte-preserving Base64
 representation. Images keep their visual preview and offer a raw-edit toggle.
+Case-insensitive `.pdf` paths use a separate read-only core route.
+
+The native `read_pdf` command resolves the file through the active canonical
+vault and encryption key, enforces the existing 25 MB file limit, records the
+ordinary open statistic, hashes the exact plaintext bytes, and returns those
+bytes as Base64 without UTF-8 or line-ending normalization. `read_note` and
+`save_note` reject PDF paths, so an accidental editor route cannot read a
+normalized representation or write one back. Search and editable-document
+scans skip PDFs before reading their contents; PDF text search belongs to the
+bounded in-document reader, and vault-wide replace cannot target a PDF.
+
+The renderer pins `pdfjs-dist` 5.4.296 exactly. This is the newest reviewed
+release that both avoids the arbitrary-JavaScript-execution advisory affecting
+5.6.83 through 5.7.x and remains compatible with Denote's supported Node 22
+build toolchain; PDF.js 6 requires newer typed-array behavior than that
+toolchain provides. The Apache-2.0 package is imported directly rather than
+through a React wrapper.
+
+`scripts/pdfjs-assets.mjs` copies only regular files from the installed PDF.js
+CMaps, standard fonts, ICC profile, and image-decoder WebAssembly directories
+into ignored `public/pdfjs-assets/` staging. It rejects links, unknown file
+types, a changed upstream license, or more than 8 MB of runtime assets. Vite
+emits the PDF worker as a same-origin module worker and copies that staging into
+the application bundle. QuickJS evaluation assets are deliberately excluded.
+The content security policy permits same-origin fetches for those bundled files
+and WebAssembly compilation for the pinned image decoders while continuing to
+deny external connections and string evaluation.
+
+`PdfReader` uses PDF.js's `PDFViewer` rendering queue and text layer. Each
+visible PDF pane owns one loading task and worker; at most four panes can be
+visible. Inactive tabs retain only the original bounded byte array and view
+state. PDFViewer lazily materializes page content near the viewport and is
+configured for a 16-megapixel canvas ceiling, a 16,384-pixel dimension ceiling,
+partial detail canvases, no right-click image extraction, and no pinch-driven
+state. Documents above 5,000 pages are refused as unsupported. Search uses
+PDF.js's cancellable find controller only for documents up to 500 pages.
+
+The document is loaded from a `Uint8Array`, never a URL. `docBaseUrl` is absent,
+external links are disabled, automatic URL linking is disabled, annotations
+and forms are not rendered, no scripting manager is created, XFA is disabled,
+and JavaScript evaluation is disabled. Embedded attachments have no extraction
+surface. CMaps, fonts, color profiles, image decoders, and worker code resolve
+only against the current Tauri or localhost development origin.
+
+PDF passwords flow only through PDF.js's active password callback. The in-pane
+prompt clears its native field before retry, retains no password in React state,
+and never persists, logs, or transmits it. Cancel destroys the loading task.
+Unsupported versions are rejected from the bounded header scan before worker
+startup; PDF.js exceptions distinguish corrupted and password failures, while
+page rendering and search errors stay scoped to the reader.
+
+Every PDF component copies the tab bytes for transfer to its worker. Unmount
+destroys the PDFViewer document, find controller, loading task, worker, canvases,
+text layers, fonts, renderer caches, and library-created object URLs, then
+zeroes any non-detached transfer copy. The tab-owned byte array is zeroed before
+tab close, clean-tab replacement, history navigation replacement, trash,
+cross-type rename, vault lock/switch, and application teardown. Reload replaces
+and zeroes the previous array. Locking an encrypted vault clears the pane state
+before the unlock surface is shown, so no decrypted PDF DOM or search state
+survives the native seal.
 
 Consistent LF, CRLF, and CR files are normalized in the editor and restored to
 their original line-ending style when saved. Mixed line endings use Base64 so
@@ -999,6 +1059,9 @@ Rust scans regular files up to 10 MB and returns normalized search documents.
 Binary content is indexed in its Base64 representation. Unreadable files are
 reported and skipped individually; the automatic index stops at a 64 MB
 aggregate content budget.
+PDFs are excluded from this generic content index and from editable-document
+replace batches. Filename discovery in the command palette still finds them,
+while the active PDF toolbar owns text-layer search.
 The frontend builds an in-memory ZBSearch index. ZBSearch provides ranked,
 typo-tolerant full-text retrieval; Denote applies metadata filters and a Unicode
 substring fallback so mixed-script queries still find local content.
@@ -1414,7 +1477,11 @@ schemes requiring one-time confirmation. `javascript`, `data`, `vbscript`,
 `blob`, `about`, and `file` are blocked from that generic URI command. The
 content security policy allows local application scripts, the bundled plugin
 worker plus verified data-URL plugin modules, and the image sources required for Markdown
-previews. Encrypted vaults must be unlocked before
+previews. It also permits same-origin access to bundled PDF.js CMaps, fonts,
+ICC data, WebAssembly decoders, and the emitted PDF worker. The narrow
+`wasm-unsafe-eval` source allows WebAssembly compilation without allowing string
+evaluation; no external PDF origin is permitted. Encrypted vaults must be
+unlocked before
 content commands receive a data key, and incomplete encryption state blocks
 ordinary content operations until the resumable transformation finishes.
 

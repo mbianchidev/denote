@@ -23,6 +23,17 @@ more detail and examples.
 - Edit invalid UTF-8 or mixed-line-ending files as reversible Base64.
 - Preserve LF, CRLF, or CR endings when saving.
 - Preview images or switch them to raw Base64 editing.
+- Read PDFs locally in ordinary tabs and panes with multi-page navigation,
+  25–400% zoom, fit width/page, rotation, text selection/copy, and
+  in-document search when a permitted text layer exists.
+- Unlock password-protected PDFs through a local retry/cancel prompt without
+  storing or transmitting the password.
+- Keep PDFs read-only and outside autosave, revision history, vault search
+  content indexing, and replace.
+- Bound PDF viewing to 5,000 pages and PDF search to 500 pages while lazily
+  rendering visible pages.
+- Disable PDF scripting, forms, annotations, signatures, embedded attachments,
+  OCR, conversion, automatic links, and external link activation.
 - Create files with `Command-N` / `Ctrl-N`.
 - Create files or folders from toolbar or context-menu actions.
 - Rename entries from toolbar or context menu.
@@ -180,6 +191,7 @@ more detail and examples.
 
 - Open search with `Command-F` / `Ctrl-F` and the active file selected as the
   location.
+- Focus the active PDF's local text-layer search instead when a PDF is open.
 - Use `*`, exact paths, `*.html`, or path globs to choose where to search.
 - Search content with ZBSearch plus Unicode substring fallback.
 - See every matching content occurrence as a separate result that opens its exact

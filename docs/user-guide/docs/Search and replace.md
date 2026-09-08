@@ -10,6 +10,13 @@ places the active file in **Where to search**, and focuses **Search text**. Use:
 - a filename glob such as `*.html`;
 - a path glob such as `docs/*.md` or `docs/**/*.md`.
 
+When a PDF is active, the same shortcut focuses the PDF reader's own local
+search field. PDF matches use the document text layer and stay in that tab.
+Enter moves forward and Shift-Enter moves backward. PDFs above 500 pages, pages
+without selectable text, and extraction failures report an explicit limitation.
+PDFs are excluded from the vault content index and from replace, but filename
+search in the command palette still finds them.
+
 Enter words in the separate search-text field. Open **Filters** to choose tags,
 file types, recency, bookmark state, filename, path, or content visually. The
 controls are fully keyboard operable. Every matching content occurrence appears
