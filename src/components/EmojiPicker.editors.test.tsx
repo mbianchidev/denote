@@ -101,12 +101,19 @@ async function richEditor(container: HTMLElement, text?: string, from?: number, 
 describe.each(["plain", "source", "rich"] as const)("two-character emoji prefixes in %s Markdown", (mode) => {
   it("keeps ordinary typing off the emoji host and lookup path", async () => {
     const counts: number[] = [];
+    const initial = "Synthetic paragraph " + "ordinary prose ".repeat(50);
+    const fixture = harness(mode, initial, { enabled: false });
+    const editor = mode === "rich" ? await richEditor(fixture.container) : null;
+    const view = mode === "rich" ? null : await sourceView(fixture.container);
+    if (view) act(() => { view.focus(); view.dispatch({ selection: { anchor: view.state.doc.length } }); });
     for (const enabled of [false, true]) {
-      const initial = "Synthetic paragraph " + "ordinary prose ".repeat(50);
-      const fixture = harness(mode, initial, { enabled });
-      const editor = mode === "rich" ? await richEditor(fixture.container) : null;
-      const view = mode === "rich" ? null : await sourceView(fixture.container);
-      if (view) act(() => { view.focus(); view.dispatch({ selection: { anchor: view.state.doc.length } }); });
+      if (enabled) {
+        fixture.setEnabled(true);
+        await act(async () => {
+          await new Promise((resolve) => window.setTimeout(resolve, 0));
+        });
+      }
+      fixture.changed.mockClear();
       const methods = ["allowed", "activate", "reconcile", "suggest", "preferences", "save", "key"] as const;
       const calls = methods.map((method) => vi.spyOn(fixture.host, method));
       vi.mocked(fromMarkdown).mockClear();
@@ -141,9 +148,10 @@ describe.each(["plain", "source", "rich"] as const)("two-character emoji prefixe
       }
       expect(fixture.changed.mock.lastCall?.[0]).toContain("everyday words");
       expect(screen.queryByLabelText("Emoji suggestions")).not.toBeInTheDocument();
-      fixture.unmount();
+      for (const call of calls) call.mockRestore();
       if (enabled) expect(hostCalls).toEqual(Object.fromEntries(methods.map((method) => [method, 0])));
     }
+    fixture.unmount();
     expect(counts[1]).toBe(counts[0]);
     expect(counts[0]).toBe(0);
   });

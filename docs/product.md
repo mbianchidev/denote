@@ -300,11 +300,16 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   build/platform metadata, a stable error code, and a bounded redacted
   diagnostic excerpt, never note contents, vault paths, credentials, tokens, or
   arbitrary logs.
-- About Denote provides a user-initiated stable-channel update check. Update
-  downloads require Tauri updater signatures, official Denote GitHub Release
-  URLs, a newer semantic version, and the exact current platform/package. Builds
-  without a committed updater public key report that the channel is not
-  configured and perform no updater network request.
+- After startup vault restoration, Denote automatically checks the stable update
+  channel once and downloads and verifies a newer release. Denote then prompts
+  the user to choose **Restart to update**; only that action safely saves open
+  work, installs the prepared release, and restarts. About Denote retains a
+  user-initiated check for retries. Update downloads require Tauri updater
+  signatures, official Denote GitHub Release URLs, a newer semantic version,
+  and the exact current platform/package. Builds without a committed updater
+  public key report that the channel is not configured and perform no updater
+  network request. macOS removes quarantine metadata only from the exact
+  verified replacement.
 - Vault encryption is optional and encrypts file contents plus saved revision
   contents while leaving paths visible. It uses a password, ten one-time
   recovery codes, and resumable full-vault encryption and decryption.
