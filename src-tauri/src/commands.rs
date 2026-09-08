@@ -16,6 +16,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::{
+    app_links::{self, AppLinkResolution, ImportedAppLink},
     crypto::{self, EncryptionPhase},
     db::{self, AppState},
     error::{AppError, AppResult},
@@ -219,6 +220,39 @@ pub async fn list_known_vault_files(state: State<'_, AppState>) -> AppResult<Kno
         (state.db_path.clone(), state.active_vault_optional()?)
     };
     run_blocking(move || vault::list_known_vault_files(&db_path, current.as_deref())).await
+}
+
+#[tauri::command]
+pub fn resolve_app_link(state: State<'_, AppState>, uri: String) -> AppResult<AppLinkResolution> {
+    let _vault_access = state.read_vault_access()?;
+    app_links::resolve(&state.db_path, &uri)
+}
+
+#[tauri::command]
+pub async fn import_app_link_vault(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    uri: String,
+) -> AppResult<Option<ImportedAppLink>> {
+    let target = app_links::linked_file(&uri)?;
+    let selected = app
+        .dialog()
+        .file()
+        .set_title("Choose the vault folder containing the linked file")
+        .blocking_pick_folder();
+    let Some(selected) = selected else {
+        return Ok(None);
+    };
+    let selected = selected
+        .into_path()
+        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
+    let (root, path) = app_links::vault_file_target(&selected, &target)?;
+    let _vault_access = state.write_vault_access()?;
+    seal_active_vault_before_switch(&state)?;
+    let mut snapshot = vault::open_vault(&state.db_path, &root.to_string_lossy())?;
+    state.set_active_vault(snapshot.vault_path.clone().into())?;
+    populate_encryption_status(&state, &mut snapshot)?;
+    Ok(Some(ImportedAppLink { snapshot, path }))
 }
 
 #[tauri::command]

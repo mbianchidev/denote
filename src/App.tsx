@@ -295,6 +295,7 @@ import {
   isLocalFileUrl,
   isWebLink,
 } from "./lib/links";
+import { listenForAppLinks } from "./lib/appLinks";
 import { markdownErrorSourceIdentity } from "./lib/markdownErrors";
 import {
   sourceControlDiffPath,
@@ -770,6 +771,7 @@ function App() {
   const theme = resolveTheme(themePreference, currentSystemTheme);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [appLinksReady, setAppLinksReady] = useState(false);
   const [sidebarView, setSidebarView] = useState<SidebarView>("files");
   const [activePluginSidebar, setActivePluginSidebar] = useState<string | null>(
     null,
@@ -901,6 +903,9 @@ function App() {
   const flushAllTabsRef = useRef<() => Promise<boolean>>(async () => true);
   const beginWorkspaceOperationRef = useRef<() => Promise<boolean>>(
     async () => true,
+  );
+  const appLinkHandlerRef = useRef<(uri: string) => Promise<void>>(
+    async () => {},
   );
   /**
    * Opens the vault a host clone produced. It is held in a ref because the
@@ -3020,6 +3025,7 @@ function App() {
       } finally {
         if (!cancelled) {
           setInitializing(false);
+          setAppLinksReady(true);
         }
       }
     })();
@@ -4209,6 +4215,87 @@ function App() {
     },
     [openFile, switchKnownVault, workspace],
   );
+
+  const openAppLink = useCallback(
+    async (uri: string) => {
+      const resolution = await api.resolveAppLink(uri);
+      if (resolution.status === "known") {
+        if (workspace?.vaultPath === resolution.vaultPath) {
+          if (
+            workspace.encryption.enabled &&
+            !workspace.encryption.unlocked
+          ) {
+            pendingWorkspaceFile.current = {
+              vaultPath: resolution.vaultPath,
+              path: resolution.path,
+            };
+            setStatus("Unlock this vault to open the linked file");
+            return;
+          }
+          await openFile(resolution.path);
+          return;
+        }
+        await switchKnownVault(resolution.vaultId, resolution.path);
+        return;
+      }
+
+      setInitializing(true);
+      try {
+        if (!(await beginWorkspaceOperationRef.current())) {
+          setStatus("App link cancelled because a note could not be saved");
+          return;
+        }
+        const imported = await api.importAppLinkVault(uri);
+        if (!imported) {
+          setStatus("App link cancelled; no vault folder was selected");
+          return;
+        }
+        const pendingFile = {
+          vaultPath: imported.snapshot.vaultPath,
+          path: imported.path,
+        };
+        pendingWorkspaceFile.current = pendingFile;
+        vaultGeneration.current += 1;
+        try {
+          await loadWorkspace(imported.snapshot, true);
+        } catch (caught) {
+          if (pendingWorkspaceFile.current === pendingFile) {
+            pendingWorkspaceFile.current = null;
+          }
+          throw caught;
+        }
+      } finally {
+        setInitializing(false);
+        setWorkspaceLock(false);
+      }
+    },
+    [loadWorkspace, openFile, setWorkspaceLock, switchKnownVault, workspace],
+  );
+  appLinkHandlerRef.current = openAppLink;
+
+  useEffect(() => {
+    if (!appLinksReady) {
+      return;
+    }
+    let disposed = false;
+    let stopListening: (() => void) | undefined;
+    void listenForAppLinks(
+      (uri) => appLinkHandlerRef.current(uri),
+      showError,
+    )
+      .then((stop) => {
+        if (disposed) {
+          stop();
+        } else {
+          stopListening = stop;
+        }
+      })
+      .catch(showError);
+    return () => {
+      disposed = true;
+      stopListening?.();
+    };
+  }, [appLinksReady, showError]);
 
   useEffect(() => {
     const pendingFile = pendingWorkspaceFile.current;

@@ -72,6 +72,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   highlighted source files.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
+- Installed desktop builds handle `denote:///absolute/path/to/file` app links.
+  Denote opens the most-specific known vault containing the file, or asks which
+  containing folder to import as a vault before opening it.
 - Previously opened vaults use a cached file tree for immediate switching, then
   refresh disk state and search content in the background. First-time vault
   registration may perform the slower complete scan.

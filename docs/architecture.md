@@ -938,6 +938,18 @@ save/attachment flush barrier as closing the application, clears the prior
 vault's tabs and search index, seals an unlocked encrypted source vault before
 discarding its key, and then either opens the target workspace or its password
 screen.
+Installed bundles register the `denote` custom scheme through Tauri's deep-link
+plugin. The single-instance plugin is registered first and forwards Windows and
+Linux launches into the running process; macOS delivers the same URL event.
+The renderer subscribes only after initial vault restoration, serializes
+startup and runtime links, and sends each complete URI to Rust. Rust accepts
+only a query-free, fragment-free `denote:///` URL containing an existing regular
+local file, converts percent encoding natively, and matches the most-specific
+available known-vault root. The frontend receives only that trusted vault ID and
+vault-relative file path, then uses the ordinary save, switch, encryption, and
+pending-file flow. If no known root contains the file, Rust opens the native
+folder picker and requires the selected canonical folder to contain the target
+before registering and opening it; cancellation does not change vaults.
 The built-in guide is always included in this list and labeled separately.
 User vaults can be removed from SQLite only, or moved to the operating system
 Trash before their metadata is deleted. The current vault, built-in guide,

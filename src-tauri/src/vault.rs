@@ -99,6 +99,18 @@ pub fn absolute_entry_path(vault_path: &str, relative_path: &str) -> AppResult<S
     Ok(path_to_string(&path))
 }
 
+pub(crate) fn app_link_file_path(root: &Path, target: &Path) -> AppResult<String> {
+    let relative = relative_string(root, target)?;
+    let resolved = existing_entry(root, &relative)?;
+    if resolved != target || !resolved.is_file() {
+        return Err(AppError::InvalidPath(format!(
+            "{} is not a regular file inside the selected vault",
+            target.display()
+        )));
+    }
+    Ok(relative)
+}
+
 pub fn stage_clipboard_file(
     vault_path: &str,
     relative_path: &str,

@@ -1,3 +1,4 @@
+mod app_links;
 mod commands;
 mod crypto;
 mod db;
@@ -243,6 +244,7 @@ pub fn run() {
                 }
             }
         }))
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_notification::init())
@@ -289,6 +291,8 @@ pub fn run() {
             commands::get_last_vault,
             commands::list_known_vaults,
             commands::list_known_vault_files,
+            commands::resolve_app_link,
+            commands::import_app_link_vault,
             commands::open_known_vault,
             commands::delete_known_vault,
             commands::choose_vault,

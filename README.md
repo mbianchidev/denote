@@ -12,6 +12,7 @@ on your device.
 - Write in rich Markdown or exact source mode.
 - Search local notes, filenames, paths, tags, bookmarks, and recent work.
 - Organize files, tabs, groups, and up to four editor panes.
+- Open `denote:///` app links that switch vaults and focus a linked file.
 - Recover work with autosave, revision history, Denote Trash, and conflict-safe
   writes.
 - Encrypt a vault with a password and one-time recovery codes.

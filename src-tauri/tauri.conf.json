@@ -39,6 +39,13 @@
     }
   },
   "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": [
+          "denote"
+        ]
+      }
+    },
     "updater": {
       "endpoints": [],
       "pubkey": "",

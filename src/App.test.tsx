@@ -25,6 +25,9 @@ const mockApi = vi.hoisted(() => ({
   discardPreparedUpdate: vi.fn(),
   installPreparedUpdate: vi.fn(),
   getLastVault: vi.fn(),
+  resolveAppLink: vi.fn(),
+  importAppLinkVault: vi.fn(),
+  openKnownVault: vi.fn(),
   listKnownVaultFiles: vi.fn(),
   listSearchDocuments: vi.fn(),
   markProjectRoot: vi.fn(),
@@ -71,6 +74,17 @@ const mockPluginController = vi.hoisted(() => ({
   ) => void | Promise<void>,
 }));
 
+const mockDeepLinks = vi.hoisted(() => ({
+  getCurrent: vi.fn<() => Promise<string[] | null>>(),
+  listener: null as ((uris: string[]) => void) | null,
+  onOpenUrl: vi.fn(
+    async (listener: (uris: string[]) => void): Promise<() => void> => {
+      mockDeepLinks.listener = listener;
+      return () => {};
+    },
+  ),
+}));
+
 vi.mock("./lib/api", () => ({
   api: mockApi,
   errorMessage: (value: unknown) =>
@@ -78,6 +92,10 @@ vi.mock("./lib/api", () => ({
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
+}));
+vi.mock("@tauri-apps/plugin-deep-link", () => ({
+  getCurrent: mockDeepLinks.getCurrent,
+  onOpenUrl: mockDeepLinks.onOpenUrl,
 }));
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
@@ -211,6 +229,8 @@ describe("App initial file-tree expansion", () => {
       updateChannel: "stable",
       updaterConfigured: false,
     });
+    mockDeepLinks.listener = null;
+    mockDeepLinks.getCurrent.mockResolvedValue(null);
     mockApi.listSearchDocuments.mockResolvedValue({
       documents: [],
       skippedCount: 0,
@@ -264,6 +284,80 @@ describe("App initial file-tree expansion", () => {
       status: "committed",
       message: "Committed the tracked changes.",
       commitId: "1111111111111111111111111111111111111111",
+    });
+  });
+
+  it("opens a startup app link after restoring its current vault", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("linked note.md", "markdown")]),
+    );
+    mockDeepLinks.getCurrent.mockResolvedValue([
+      "denote:///synthetic-vault/linked%20note.md",
+    ]);
+    mockApi.resolveAppLink.mockResolvedValue({
+      status: "known",
+      vaultId: 7,
+      vaultPath: "/synthetic-vault",
+      path: "linked note.md",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockApi.readNote).toHaveBeenCalledWith("linked note.md");
+    });
+    expect(mockApi.openKnownVault).not.toHaveBeenCalled();
+  });
+
+  it("switches to a known vault before opening an app-linked file", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    mockDeepLinks.getCurrent.mockResolvedValue([
+      "denote:///second-vault/folder/linked.md",
+    ]);
+    mockApi.resolveAppLink.mockResolvedValue({
+      status: "known",
+      vaultId: 8,
+      vaultPath: "/second-vault",
+      path: "folder/linked.md",
+    });
+    mockApi.openKnownVault.mockResolvedValue({
+      ...workspaceSnapshot([
+        folderNode("folder", [fileNode("folder/linked.md", "markdown")]),
+      ]),
+      vaultPath: "/second-vault",
+      vaultName: "Second vault",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockApi.openKnownVault).toHaveBeenCalledWith(8);
+      expect(mockApi.readNote).toHaveBeenCalledWith("folder/linked.md");
+    });
+  });
+
+  it("asks for the vault folder when an app-linked file is not known", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    mockDeepLinks.getCurrent.mockResolvedValue([
+      "denote:///imported-vault/linked.md",
+    ]);
+    mockApi.resolveAppLink.mockResolvedValue({ status: "importRequired" });
+    mockApi.importAppLinkVault.mockResolvedValue({
+      snapshot: {
+        ...workspaceSnapshot([fileNode("linked.md", "markdown")]),
+        vaultPath: "/imported-vault",
+        vaultName: "Imported vault",
+      },
+      path: "linked.md",
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockApi.importAppLinkVault).toHaveBeenCalledWith(
+        "denote:///imported-vault/linked.md",
+      );
+      expect(mockApi.readNote).toHaveBeenCalledWith("linked.md");
     });
   });
 
