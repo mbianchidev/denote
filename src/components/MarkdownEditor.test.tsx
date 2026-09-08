@@ -38,8 +38,6 @@ const nativeMenu = vi.hoisted(() => ({
       )?.action ?? null;
   },
   reset() {
-    this.action = null;
-    this.items = [];
     this.popup.mockClear();
   },
   runAction() {
@@ -2024,6 +2022,9 @@ describe("MarkdownEditor links", () => {
 
   it("offers paste without formatting in the native rich-text context menu", async () => {
     nativeMenu.reset();
+    const userAgent = vi
+      .spyOn(window.navigator, "userAgent", "get")
+      .mockReturnValue("Mozilla/5.0 (Macintosh; Intel Mac OS X)");
     const onChange = vi.fn();
     const readClipboard = vi
       .spyOn(api, "readClipboardText")
@@ -2083,6 +2084,7 @@ describe("MarkdownEditor links", () => {
       expect(output).toContain("Start");
       expect(readClipboard).toHaveBeenCalledOnce();
     } finally {
+      userAgent.mockRestore();
       readClipboard.mockRestore();
       Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
     }
@@ -2098,7 +2100,7 @@ describe("MarkdownEditor links", () => {
       value: {},
     });
     try {
-      const { container } = render(
+      const first = render(
         <MarkdownEditor
           notePath="note.md"
           markdown="Start"
@@ -2114,7 +2116,7 @@ describe("MarkdownEditor links", () => {
         />,
       );
       const content = await waitFor(() => {
-        const element = container.querySelector<HTMLElement>(
+        const element = first.container.querySelector<HTMLElement>(
           '.denote-editor-content[contenteditable="true"]',
         );
         expect(element).not.toBeNull();
@@ -2138,6 +2140,51 @@ describe("MarkdownEditor links", () => {
         "Select All",
       ]);
       expect(customItems.every((item) => item.action)).toBe(true);
+
+      first.unmount();
+      nativeMenu.popup.mockClear();
+      const readClipboard = vi
+        .spyOn(api, "readClipboardText")
+        .mockResolvedValue("Linux plain text");
+      const onChange = vi.fn();
+      try {
+        const second = render(
+          <MarkdownEditor
+            notePath="second.md"
+            markdown="Second"
+            lineEnding="lf"
+            displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+            preferredViewMode="rich-text"
+            readOnly={false}
+            onChange={onChange}
+            onError={vi.fn()}
+            onLinkOpen={vi.fn()}
+            onViewModeChange={vi.fn()}
+            onImageUpload={vi.fn()}
+          />,
+        );
+        const secondContent = await waitFor(() => {
+          const element = second.container.querySelector<HTMLElement>(
+            '.denote-editor-content[contenteditable="true"]',
+          );
+          expect(element).not.toBeNull();
+          return element!;
+        });
+        const secondParagraph = await screen.findByText("Second");
+        await userEvent.click(secondParagraph);
+        placeCaretAtEnd(secondParagraph);
+
+        fireEvent.contextMenu(secondContent);
+        await waitFor(() => expect(nativeMenu.popup).toHaveBeenCalled());
+        nativeMenu.runAction();
+
+        await waitFor(() => expect(onChange).toHaveBeenCalled());
+        const output = onChange.mock.lastCall?.[0] as string;
+        expect(output).toContain("Second");
+        expect(output).toContain("Linux plain text");
+      } finally {
+        readClipboard.mockRestore();
+      }
     } finally {
       userAgent.mockRestore();
       Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
