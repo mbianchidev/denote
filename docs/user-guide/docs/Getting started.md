@@ -55,11 +55,13 @@ and update channel.
 
 After restoring the startup vault, a configured production build checks the
 signed stable channel automatically. When a newer matching release exists,
-Denote downloads and verifies it, saves open work, installs it, and restarts.
-On macOS, Denote removes quarantine metadata only from that verified
-replacement. **Check for updates** remains available in About for a manual
-retry. If the build has no trusted updater public key, About says the channel is
-not configured and does not make an update request.
+Denote downloads and verifies it in the background, then opens About. Choose
+**Restart to update** when you are ready; Denote saves open work, installs the
+prepared release, and restarts. Closing About defers installation. On macOS,
+Denote removes quarantine metadata only from that verified replacement.
+**Check for updates** remains available in About for a manual retry. If the
+build has no trusted updater public key, About says the channel is not
+configured and does not make an update request.
 
 **Report a bug** opens an editable GitHub draft through Denote's normal external
 domain confirmation. The draft contains bounded redacted diagnostics and no note

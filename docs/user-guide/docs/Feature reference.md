@@ -229,9 +229,10 @@ more detail and examples.
   packaged version, full Git commit, operating system, architecture, package,
   and update channel.
 - Check the configured signed stable update channel automatically after startup
-  restoration, then download, verify, safely install, and restart for only a
-  newer artifact matching the current platform/package. Keep a manual retry in
-  About. Unconfigured builds make no update request and say why.
+  restoration, then download and verify only a newer artifact matching the
+  current platform/package. Prompt with **Restart to update** and install only
+  after that user action. Keep a manual retry in About. Unconfigured builds make
+  no update request and say why.
 - Open a privacy-redacted editable bug draft from About or a persistent error
   banner. Denote never submits it automatically.
 - Scale editor text without scaling application chrome.

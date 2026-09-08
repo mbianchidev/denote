@@ -318,7 +318,7 @@ describe("App initial file-tree expansion", () => {
     });
   });
 
-  it("automatically installs a signed update after startup", async () => {
+  it("downloads a signed update after startup and waits for the user to restart", async () => {
     const update = {
       version: "0.3.1",
       notes: "Synthetic release notes.",
@@ -353,17 +353,26 @@ describe("App initial file-tree expansion", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(mockApi.installPreparedUpdate).toHaveBeenCalledWith(update.version);
+      expect(mockApi.downloadUpdate).toHaveBeenCalledOnce();
     });
     expect(mockApi.checkForUpdate).toHaveBeenCalledOnce();
-    expect(mockApi.downloadUpdate).toHaveBeenCalledOnce();
-    expect(mockApi.prepareExit).toHaveBeenCalledOnce();
+    expect(mockApi.prepareExit).not.toHaveBeenCalled();
+    expect(mockApi.installPreparedUpdate).not.toHaveBeenCalled();
     expect(mockApi.getLastVault.mock.invocationCallOrder[0]).toBeLessThan(
       mockApi.checkForUpdate.mock.invocationCallOrder[0],
     );
     expect(mockApi.checkForUpdate.mock.invocationCallOrder[0]).toBeLessThan(
       mockApi.downloadUpdate.mock.invocationCallOrder[0],
     );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Restart to update" }),
+    );
+
+    await waitFor(() => {
+      expect(mockApi.installPreparedUpdate).toHaveBeenCalledWith(update.version);
+    });
+    expect(mockApi.prepareExit).toHaveBeenCalledOnce();
     expect(mockApi.downloadUpdate.mock.invocationCallOrder[0]).toBeLessThan(
       mockApi.installPreparedUpdate.mock.invocationCallOrder[0],
     );

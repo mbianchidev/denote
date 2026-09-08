@@ -24,7 +24,7 @@ describe("AboutDialog", () => {
         }}
         updateState={{ status: "idle" }}
         onCheckForUpdates={vi.fn()}
-        onInstallUpdate={vi.fn()}
+        onRestartUpdate={vi.fn()}
         onReportBug={vi.fn()}
         onClose={onClose}
       />,
@@ -43,7 +43,7 @@ describe("AboutDialog", () => {
     expect(screen.getByText("stable")).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Denote checks for signed stable updates automatically after startup.",
+        "Denote checks for and downloads signed stable updates automatically after startup.",
       ),
     ).toBeInTheDocument();
     await waitFor(() =>
@@ -56,9 +56,9 @@ describe("AboutDialog", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
-  it("offers report and signed update actions accessibly", async () => {
+  it("offers report and prepared update restart actions accessibly", async () => {
     const user = userEvent.setup();
-    const onInstallUpdate = vi.fn();
+    const onRestartUpdate = vi.fn();
     const onReportBug = vi.fn();
     render(
       <AboutDialog
@@ -76,11 +76,11 @@ describe("AboutDialog", () => {
           updaterConfigured: true,
         }}
         updateState={{
-          status: "available",
+          status: "ready",
           update: { version: "1.2.4", notes: "Synthetic release notes." },
         }}
         onCheckForUpdates={vi.fn()}
-        onInstallUpdate={onInstallUpdate}
+        onRestartUpdate={onRestartUpdate}
         onReportBug={onReportBug}
         onClose={vi.fn()}
       />,
@@ -88,8 +88,8 @@ describe("AboutDialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Report a bug" }));
     expect(onReportBug).toHaveBeenCalledOnce();
-    await user.click(screen.getByRole("button", { name: "Update Denote" }));
-    expect(onInstallUpdate).toHaveBeenCalledWith({
+    await user.click(screen.getByRole("button", { name: "Restart to update" }));
+    expect(onRestartUpdate).toHaveBeenCalledWith({
       version: "1.2.4",
       notes: "Synthetic release notes.",
     });
@@ -113,7 +113,7 @@ describe("AboutDialog", () => {
         }}
         updateState={{ status: "idle" }}
         onCheckForUpdates={vi.fn()}
-        onInstallUpdate={vi.fn()}
+        onRestartUpdate={vi.fn()}
         onReportBug={vi.fn()}
         onClose={vi.fn()}
       />,

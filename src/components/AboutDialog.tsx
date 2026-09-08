@@ -1,4 +1,4 @@
-import { Bug, Download, Info, RefreshCw, X } from "lucide-react";
+import { Bug, Info, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { shortCommitHash, type BuildInfo } from "../lib/buildInfo";
 import type { AvailableUpdate, RuntimeInfo } from "../types";
@@ -7,8 +7,8 @@ export type UpdateUiState =
   | { status: "idle" }
   | { status: "checking" }
   | { status: "current" }
-  | { status: "available"; update: AvailableUpdate }
   | { status: "downloading"; update: AvailableUpdate; downloaded: number; total: number | null }
+  | { status: "ready"; update: AvailableUpdate }
   | { status: "installing"; update: AvailableUpdate }
   | { status: "error"; message: string };
 
@@ -18,7 +18,7 @@ interface AboutDialogProps {
   runtimeInfo: RuntimeInfo | null;
   updateState: UpdateUiState;
   onCheckForUpdates: () => void;
-  onInstallUpdate: (update: AvailableUpdate) => void;
+  onRestartUpdate: (update: AvailableUpdate) => void;
   onReportBug: () => void;
   onClose: () => void;
 }
@@ -29,7 +29,7 @@ export function AboutDialog({
   runtimeInfo,
   updateState,
   onCheckForUpdates,
-  onInstallUpdate,
+  onRestartUpdate,
   onReportBug,
   onClose,
 }: AboutDialogProps) {
@@ -147,14 +147,14 @@ export function AboutDialog({
           <Bug aria-hidden="true" size={16} />
           Report a bug
         </button>
-        {updateState.status === "available" ? (
+        {updateState.status === "ready" ? (
           <button
             type="button"
             className="primary-button"
-            onClick={() => onInstallUpdate(updateState.update)}
+            onClick={() => onRestartUpdate(updateState.update)}
           >
-            <Download aria-hidden="true" size={16} />
-            Update Denote
+            <RefreshCw aria-hidden="true" size={16} />
+            Restart to update
           </button>
         ) : (
           <button
@@ -194,15 +194,15 @@ function updateStatusText(
   }
   switch (state.status) {
     case "idle":
-      return "Denote checks for signed stable updates automatically after startup.";
+      return "Denote checks for and downloads signed stable updates automatically after startup.";
     case "checking":
       return "Checking the signed stable release metadata…";
     case "current":
       return "This is the latest stable Denote release.";
-    case "available":
-      return `Denote ${state.update.version} is available.`;
     case "downloading":
       return `Downloading and verifying Denote ${state.update.version}…`;
+    case "ready":
+      return `Denote ${state.update.version} is ready. Restart when you choose to install it.`;
     case "installing":
       return `Installing Denote ${state.update.version}…`;
     case "error":

@@ -3509,9 +3509,9 @@ function App() {
       setUpdateState({ status: "checking" });
       try {
         const update = await api.checkForUpdate();
-        setUpdateState(
-          update ? { status: "available", update } : { status: "current" },
-        );
+        if (!update) {
+          setUpdateState({ status: "current" });
+        }
         return update;
       } catch (caught) {
         const message = errorMessage(caught);
@@ -3529,7 +3529,7 @@ function App() {
     [runtimeInfo],
   );
 
-  const installUpdate = useCallback(
+  const downloadUpdate = useCallback(
     async (update: AvailableUpdate) => {
       setUpdateState({
         status: "downloading",
@@ -3557,17 +3557,46 @@ function App() {
             );
           }
         });
+        setUpdateState({ status: "ready", update: verified });
+        setAboutOpen(true);
+      } catch (caught) {
+        const message = errorMessage(caught);
+        recentDiagnostics.current = appendDiagnostic(
+          recentDiagnostics.current,
+          {
+            code: "UPDATE_DOWNLOAD_ERROR",
+            summary: message,
+          },
+        );
+        void api.discardPreparedUpdate().catch((discardError) => {
+          console.error("Unable to discard prepared update:", discardError);
+        });
+        setUpdateState({ status: "error", message });
+      }
+    },
+    [],
+  );
+
+  const checkAndDownloadUpdate = useCallback(async () => {
+    const update = await checkForUpdates();
+    if (update && appMounted.current) {
+      await downloadUpdate(update);
+    }
+  }, [checkForUpdates, downloadUpdate]);
+
+  const restartWithUpdate = useCallback(
+    async (update: AvailableUpdate) => {
+      try {
         if (!(await beginWorkspaceOperation())) {
-          await api.discardPreparedUpdate();
-          setUpdateState({
-            status: "error",
-            message: "Update cancelled because open work could not be saved.",
-          });
+          setUpdateState({ status: "ready", update });
+          showError(
+            "The update is ready, but open work could not be saved. Resolve the save error and try restarting again.",
+          );
           return;
         }
         await api.prepareExit();
-        setUpdateState({ status: "installing", update: verified });
-        await api.installPreparedUpdate(verified.version);
+        setUpdateState({ status: "installing", update });
+        await api.installPreparedUpdate(update.version);
       } catch (caught) {
         const message = errorMessage(caught);
         recentDiagnostics.current = appendDiagnostic(
@@ -3584,7 +3613,7 @@ function App() {
         setUpdateState({ status: "error", message });
       }
     },
-    [beginWorkspaceOperation, setWorkspaceLock],
+    [beginWorkspaceOperation, setWorkspaceLock, showError],
   );
 
   useEffect(() => {
@@ -3596,15 +3625,10 @@ function App() {
       return;
     }
     automaticUpdateStarted.current = true;
-    void checkForUpdates().then((update) => {
-      if (update && appMounted.current) {
-        void installUpdate(update);
-      }
-    });
+    void checkAndDownloadUpdate();
   }, [
-    checkForUpdates,
+    checkAndDownloadUpdate,
     initializing,
-    installUpdate,
     runtimeInfo?.updaterConfigured,
   ]);
 
@@ -8266,7 +8290,7 @@ function App() {
         updateState.status === "checking" ||
         updateState.status === "downloading" ||
         updateState.status === "installing",
-      run: checkForUpdates,
+      run: checkAndDownloadUpdate,
     },
     {
       id: "editor.zoom-in",
@@ -8447,8 +8471,8 @@ function App() {
       buildInfo={BUILD_INFO}
       runtimeInfo={runtimeInfo}
       updateState={updateState}
-      onCheckForUpdates={() => void checkForUpdates()}
-      onInstallUpdate={(update) => void installUpdate(update)}
+      onCheckForUpdates={() => void checkAndDownloadUpdate()}
+      onRestartUpdate={(update) => void restartWithUpdate(update)}
       onReportBug={() => reportBug(null)}
       onClose={() => setAboutOpen(false)}
     />

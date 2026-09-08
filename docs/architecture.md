@@ -22,10 +22,12 @@ identity.
 `src-tauri/src/updater.rs` owns runtime platform metadata and the application
 update boundary. After the renderer finishes startup vault restoration, it
 automatically requests one check per application launch and drives a newer
-release through download and installation. The renderer can also ask for a
-manual retry, receive bounded metadata and progress, and request installation
-of one prepared version; it never supplies a download URL, filesystem path,
-public key, or update bytes.
+release through verified download. The prepared update remains in native memory
+while the user keeps working. The renderer opens About and waits for an explicit
+**Restart to update** action before installation. It can also ask for a manual
+retry, receive bounded metadata and progress, and request installation of one
+prepared version; it never supplies a download URL, filesystem path, public
+key, or update bytes.
 
 Updater configuration is explicit in `src-tauri/updater.json`. Until a durable
 public key is committed and `enabled` is true, the native check fails before
@@ -40,11 +42,12 @@ release version, package type, architecture, and `release-assets.json` contract.
 One verified update may be retained in memory. Starting a different download or
 discarding a failed flow removes it.
 
-Before automatic or manual installation the renderer drains uploads,
-preferences, tab-session writes, and note saves through the workspace-operation
-barrier, then seals an unlocked encrypted vault. Windows uses the matching
-passive NSIS/MSI updater; AppImage uses Tauri's replacement and rollback path;
-supported DEB/RPM packages use the matching system package flow. macOS derives
+When the user chooses restart, the renderer drains uploads, preferences,
+tab-session writes, and note saves through the workspace-operation barrier,
+then seals an unlocked encrypted vault. A save failure keeps the prepared
+update ready for another restart attempt. Windows uses the matching passive
+NSIS/MSI updater; AppImage uses Tauri's replacement and rollback path; supported
+DEB/RPM packages use the matching system package flow. macOS derives
 `Denote.app` only from the running executable, copies the current bundle into
 private recovery storage, and removes `com.apple.quarantine` only inside the
 exact verified replacement before relaunch. A finalization failure restores the
