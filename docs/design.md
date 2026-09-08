@@ -386,9 +386,10 @@ slightly reduced opacity plus explicit screen-reader text; hover, selection, and
 keyboard focus restore full legibility.
 Right-click creation uses a compact two-action native-style menu adjacent to the
 file-tree target. Entry menus extend that surface with rename, move, and trash.
-Folder entry menus begin their entry-specific actions with **Expand folder** or
-**Collapse folder**, reflecting the current disclosure state without affecting
-other branches.
+Folder entry menus begin their entry-specific actions with **Find in folder**
+and **Expand folder** or **Collapse folder**. Search opens with that folder's
+literal trailing-slash path scope selected, while disclosure changes only that
+branch.
 The root and folder menus expose independent **Mark as project** / **Unmark
 project** and **Mark as workspace** / **Unmark workspace** actions, so either or
 both roles can apply to one folder. Shift-F10 and the Context Menu key open the

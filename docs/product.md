@@ -135,6 +135,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   links, strong text, and local or HTTP(S) images renders as atomic Rich blocks
   while preserving its raw source exactly. Other raw HTML remains source-only.
 - Markdown thematic breaks render as consistent full-width document separators.
+- In Rich mode, typing a third dash after `--` converts that paragraph to a
+  thematic break and leaves the caret in a new paragraph.
+- Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
+  clipboard text without carrying rich formatting into the note.
 - Long rich-text and source documents scroll inside the editor without moving
   the caret to reveal later content.
 - A tag-only final line renders its hashtags as colored pills in rich mode.
@@ -210,8 +214,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   control and closes it when focus changes to another file.
 - One file-tree control expands every folder except `.git` and `node_modules`,
   which stay collapsed unless opened directly, or collapses the complete tree.
-- A folder's context menu exposes **Expand folder** or **Collapse folder** for
-  that single subtree, with the same keyboard-operable menu behavior.
+- A folder's context menu exposes **Find in folder** plus **Expand folder** or
+  **Collapse folder** for that single subtree, with the same keyboard-operable
+  menu behavior.
 - A persistent local file-tree control can hide entries whose basename starts
   with `.`, including complete dot-folder subtrees, without changing vault data,
   search results, project metadata, or open tabs.

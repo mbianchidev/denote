@@ -1465,6 +1465,137 @@ describe("MarkdownEditor links", () => {
     expect(onChange.mock.lastCall?.[0]).toContain("\n\n---\n\n");
   });
 
+  it("turns a typed triple dash into a separator and continues on a new line", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="--"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const paragraph = await screen.findByText("--");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("-");
+
+    const separator = await waitFor(() => {
+      const element = container.querySelector<HTMLHRElement>(
+        ".denote-editor-content hr",
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    expect(separator.nextElementSibling).toHaveProperty("tagName", "P");
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith("---"));
+  });
+
+  it("does not replace formatted triple-dash text with a separator", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown="**--**"
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const text = await screen.findByText("--");
+    await user.click(text);
+    placeCaretAtEnd(text);
+    await user.keyboard("-");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(
+      container.querySelector(".denote-editor-content hr"),
+    ).not.toBeInTheDocument();
+    expect(container.querySelector(".denote-editor-content strong")).toBeInTheDocument();
+  });
+
+  it("keeps preceding nested thematic-break delimiters unchanged", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"> ***\n\n--"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const paragraph = await screen.findByText("--");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("-");
+
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll(".denote-editor-content hr"),
+      ).toHaveLength(2),
+    );
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith("> ***\n\n---"),
+    );
+  });
+
+  it("keeps thematic-break delimiters inside preceding callouts unchanged", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={">![info]\n> ***\n\n--"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const paragraph = await screen.findByText("--");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("-");
+
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll(".denote-editor-content hr"),
+      ).toHaveLength(2),
+    );
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const output = onChange.mock.lastCall?.[0] as string;
+    expect(output.indexOf("***")).toBeLessThan(output.lastIndexOf("---"));
+    expect(output).toContain("> ***");
+  });
+
   it("keeps paired leading triple dashes as frontmatter", async () => {
     const { container } = render(
       <MarkdownEditor
@@ -1679,6 +1810,109 @@ describe("MarkdownEditor links", () => {
     await waitFor(() =>
       expect(onChange).toHaveBeenCalledWith("```\n```"),
     );
+  });
+
+  it.each([
+    { name: "Control", ctrlKey: true, metaKey: false },
+    { name: "Command", ctrlKey: false, metaKey: true },
+  ])("pastes plain text with $name-Shift-V", async ({ ctrlKey, metaKey }) => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown=""
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const content = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(
+        '.denote-editor-content[contenteditable="true"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    content.focus();
+
+    fireEvent.keyDown(content, {
+      key: "v",
+      code: "KeyV",
+      ctrlKey,
+      metaKey,
+      shiftKey: true,
+    });
+    fireEvent.paste(content, {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/plain"
+            ? "Synthetic plain text"
+            : type === "text/html"
+              ? "<strong>Synthetic plain text</strong>"
+              : "",
+        types: ["text/plain", "text/html"],
+        files: [],
+      },
+    });
+
+    await waitFor(() =>
+      expect(onChange).toHaveBeenLastCalledWith("Synthetic plain text"),
+    );
+  });
+
+  it("keeps pasted plain-text lines as separate rich paragraphs", async () => {
+    const onChange = vi.fn();
+    const { container } = render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown=""
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const content = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(
+        '.denote-editor-content[contenteditable="true"]',
+      );
+      expect(element).not.toBeNull();
+      return element!;
+    });
+    content.focus();
+
+    fireEvent.keyDown(content, {
+      key: "v",
+      code: "KeyV",
+      ctrlKey: true,
+      shiftKey: true,
+    });
+    fireEvent.paste(content, {
+      clipboardData: {
+        getData: (type: string) =>
+          type === "text/plain" ? "First line\nSecond line" : "",
+        types: ["text/plain"],
+        files: [],
+      },
+    });
+
+    await waitFor(() =>
+      expect(
+        container.querySelectorAll(".denote-editor-content > p"),
+      ).toHaveLength(2),
+    );
+    expect(onChange).toHaveBeenLastCalledWith("First line\n\nSecond line");
   });
 
   it("renders safe README HTML with intercepted links, native images, and adjacent directives", async () => {

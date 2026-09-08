@@ -14,6 +14,7 @@
 | Focus pane 1–4 | `Option-Command-1..4` | `Ctrl-Shift-1..4` |
 | Find and replace | `Command-H` | `Ctrl-H` |
 | Save now | `Command-S` | `Ctrl-S` |
+| Paste without formatting | `Command-Shift-V` | `Ctrl-Shift-V` |
 | Create or edit link | `Command-K` | `Ctrl-K` |
 | Insert emoji (optional Emoji picker plugin) | `Command-Shift-E` | `Ctrl-Shift-E` |
 | Close tab | `Command-W` | `Ctrl-W` |

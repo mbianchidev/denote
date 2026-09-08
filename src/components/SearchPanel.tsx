@@ -78,8 +78,9 @@ export function SearchPanel({
             onChange={(event) => onLocationChange(event.currentTarget.value)}
           />
           <small id="search-location-help">
-            Use <code>*</code> for the vault, an exact path for one file, or a
-            pattern such as <code>*.html</code>.
+            Use <code>*</code> for the vault, a folder path ending in
+            <code>/</code>, an exact file path, or a pattern such as
+            <code>*.html</code>.
           </small>
         </div>
         <label className="search-box">

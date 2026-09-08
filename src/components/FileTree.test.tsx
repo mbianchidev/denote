@@ -250,6 +250,44 @@ describe("FileTree", () => {
     expect(onCreate).toHaveBeenCalledWith("projects", true);
   });
 
+  it("opens search scoped to a folder from its context menu", async () => {
+    const user = userEvent.setup();
+    const onFindInFolder = vi.fn();
+    render(
+      <FileTree
+        nodes={[
+          {
+            path: "projects",
+            name: "projects",
+            kind: "folder",
+            children: [],
+            size: 0,
+            modifiedAt: null,
+            bookmarked: false,
+            pinned: false,
+          },
+        ]}
+        selectedPath={null}
+        expandedPaths={new Set()}
+        onSelect={vi.fn()}
+        onToggleFolder={vi.fn()}
+        onCreate={vi.fn()}
+        onRename={vi.fn()}
+        onDelete={vi.fn()}
+        onMove={vi.fn()}
+        onRequestMove={vi.fn()}
+        onFindInFolder={onFindInFolder}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByRole("button", { name: /projects/i }));
+    await user.click(
+      await screen.findByRole("menuitem", { name: "Find in folder" }),
+    );
+
+    expect(onFindInFolder).toHaveBeenCalledWith("projects");
+  });
+
   it("expands and collapses one folder from its context menu", async () => {
     const user = userEvent.setup();
     const onToggleFolder = vi.fn();

@@ -30,7 +30,11 @@ marker lines render as tables of contents in Rich mode. Every item must
 be a link; nested link-only lists are supported. Denote preserves those markers
 after Rich edits and when switching to Source. Other HTML comments remain
 locked to source mode. A line containing `---` renders as a full-width thematic
-separator.
+separator. In Rich mode, typing the third dash converts the line immediately
+and moves the caret to a new paragraph.
+
+Use `Command-Shift-V` on macOS or `Ctrl-Shift-V` on Windows and Linux to paste
+text without carrying clipboard formatting into the note.
 
 Denote also renders a small README-style HTML subset as a locked Rich block:
 `p`, `h1` through `h6`, `a`, `strong`, and `img`. It supports safe alignment,
