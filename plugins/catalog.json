@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.2.0/denote.reference-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.0/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
@@ -290,7 +290,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.2.0/denote.git-0.6.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.0/denote.git-0.6.0.tgz",
       "sha256": "08457843e15c2d605986b84fe3417d6e4a7ea60513bddcbfad59ea1cb0299e49",
       "sizeBytes": 67629
     },
@@ -360,7 +360,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.2.0/denote.emoji-picker-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.0/denote.emoji-picker-0.1.1.tgz",
       "sha256": "501acb6a911f2aa85fd47adc8709fd867d3482b495209dc490cd4b54aca0dbf6",
       "sizeBytes": 105317
     },
