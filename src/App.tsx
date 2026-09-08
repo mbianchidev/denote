@@ -941,6 +941,7 @@ function App() {
   const clonedDuringAction = useRef(false);
   const indexTimer = useRef<number | null>(null);
   const appMounted = useRef(false);
+  const automaticUpdateStarted = useRef(false);
   const pendingWelcomePage = useRef<string | null>(null);
   const pendingWorkspaceFile = useRef<{
     vaultPath: string;
@@ -3493,32 +3494,40 @@ function App() {
   }, [acquireWorkspaceLock, setWorkspaceLock, showError]);
   beginWorkspaceOperationRef.current = beginWorkspaceOperation;
 
-  const checkForUpdates = useCallback(async () => {
-    if (!runtimeInfo?.updaterConfigured) {
-      setUpdateState({
-        status: "error",
-        message:
-          runtimeInfo?.updateChannel === "development"
-            ? "Updates are unavailable in Denote Development."
-            : "The stable update channel is not configured with a trusted public key.",
-      });
-      return;
-    }
-    setUpdateState({ status: "checking" });
-    try {
-      const update = await api.checkForUpdate();
-      setUpdateState(
-        update ? { status: "available", update } : { status: "current" },
-      );
-    } catch (caught) {
-      const message = errorMessage(caught);
-      recentDiagnostics.current = appendDiagnostic(recentDiagnostics.current, {
-        code: "UPDATE_CHECK_ERROR",
-        summary: message,
-      });
-      setUpdateState({ status: "error", message });
-    }
-  }, [runtimeInfo]);
+  const checkForUpdates = useCallback(
+    async (): Promise<AvailableUpdate | null> => {
+      if (!runtimeInfo?.updaterConfigured) {
+        setUpdateState({
+          status: "error",
+          message:
+            runtimeInfo?.updateChannel === "development"
+              ? "Updates are unavailable in Denote Development."
+              : "The stable update channel is not configured with a trusted public key.",
+        });
+        return null;
+      }
+      setUpdateState({ status: "checking" });
+      try {
+        const update = await api.checkForUpdate();
+        setUpdateState(
+          update ? { status: "available", update } : { status: "current" },
+        );
+        return update;
+      } catch (caught) {
+        const message = errorMessage(caught);
+        recentDiagnostics.current = appendDiagnostic(
+          recentDiagnostics.current,
+          {
+            code: "UPDATE_CHECK_ERROR",
+            summary: message,
+          },
+        );
+        setUpdateState({ status: "error", message });
+        return null;
+      }
+    },
+    [runtimeInfo],
+  );
 
   const installUpdate = useCallback(
     async (update: AvailableUpdate) => {
@@ -3577,6 +3586,27 @@ function App() {
     },
     [beginWorkspaceOperation, setWorkspaceLock],
   );
+
+  useEffect(() => {
+    if (
+      initializing ||
+      !runtimeInfo?.updaterConfigured ||
+      automaticUpdateStarted.current
+    ) {
+      return;
+    }
+    automaticUpdateStarted.current = true;
+    void checkForUpdates().then((update) => {
+      if (update && appMounted.current) {
+        void installUpdate(update);
+      }
+    });
+  }, [
+    checkForUpdates,
+    initializing,
+    installUpdate,
+    runtimeInfo?.updaterConfigured,
+  ]);
 
   const beginFileOpenOperation = useCallback(
     async (replacedPath: string | null): Promise<void> => {

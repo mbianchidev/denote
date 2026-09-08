@@ -41,6 +41,11 @@ describe("AboutDialog", () => {
     expect(screen.getByText("Clean commit")).toBeInTheDocument();
     expect(screen.getByText("macos · aarch64")).toBeInTheDocument();
     expect(screen.getByText("stable")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Denote checks for signed stable updates automatically after startup.",
+      ),
+    ).toBeInTheDocument();
     await waitFor(() =>
       expect(
         screen.getByRole("button", { name: "Close About Denote" }),

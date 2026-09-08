@@ -194,7 +194,7 @@ function updateStatusText(
   }
   switch (state.status) {
     case "idle":
-      return "Updates run only when you ask Denote to check.";
+      return "Denote checks for signed stable updates automatically after startup.";
     case "checking":
       return "Checking the signed stable release metadata…";
     case "current":

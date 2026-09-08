@@ -53,9 +53,13 @@ Open **About Denote** from the activity rail or command palette to inspect the
 installed version, full source commit, operating system, architecture, package,
 and update channel.
 
-**Check for updates** uses only the configured signed stable channel. If the
-build has no trusted updater public key, About says the channel is not configured
-and does not download anything.
+After restoring the startup vault, a configured production build checks the
+signed stable channel automatically. When a newer matching release exists,
+Denote downloads and verifies it, saves open work, installs it, and restarts.
+On macOS, Denote removes quarantine metadata only from that verified
+replacement. **Check for updates** remains available in About for a manual
+retry. If the build has no trusted updater public key, About says the channel is
+not configured and does not make an update request.
 
 **Report a bug** opens an editable GitHub draft through Denote's normal external
 domain confirmation. The draft contains bounded redacted diagnostics and no note

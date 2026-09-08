@@ -437,9 +437,11 @@ the same trust dialog pauses and resumes its ordered queue.
 About Denote remains the single build/support surface. Its definition list
 shows version, full source commit, platform, architecture, package, and update
 channel. **Report a bug** is secondary and states through the resulting GitHub
-draft that generated diagnostics must be reviewed. Update controls use explicit
-checking, current, available, downloading, installing, unconfigured, and failure
-states in a polite live region.
+draft that generated diagnostics must be reviewed. A configured production
+build starts its signed update flow after startup restoration; the About
+controls remain available for status and manual retry. Update controls use
+explicit checking, current, available, downloading, installing, unconfigured,
+and failure states in a polite live region.
 
 The public website extends the Quiet Workbench rather than introducing a
 separate marketing system. A file-path spine leads into the real application

@@ -20,9 +20,12 @@ identity.
 ## Support and application updates
 
 `src-tauri/src/updater.rs` owns runtime platform metadata and the application
-update boundary. The renderer can ask for a check, receive bounded metadata and
-progress, and request installation of one prepared version; it never supplies a
-download URL, filesystem path, public key, or update bytes.
+update boundary. After the renderer finishes startup vault restoration, it
+automatically requests one check per application launch and drives a newer
+release through download and installation. The renderer can also ask for a
+manual retry, receive bounded metadata and progress, and request installation
+of one prepared version; it never supplies a download URL, filesystem path,
+public key, or update bytes.
 
 Updater configuration is explicit in `src-tauri/updater.json`. Until a durable
 public key is committed and `enabled` is true, the native check fails before
@@ -37,15 +40,16 @@ release version, package type, architecture, and `release-assets.json` contract.
 One verified update may be retained in memory. Starting a different download or
 discarding a failed flow removes it.
 
-Before installation the renderer drains uploads, preferences, tab-session
-writes, and note saves through the workspace-operation barrier, then seals an
-unlocked encrypted vault. Windows uses the matching passive NSIS/MSI updater;
-AppImage uses Tauri's replacement and rollback path; supported DEB/RPM packages
-use the matching system package flow. macOS derives `Denote.app` only from the
-running executable, copies the current bundle into private recovery storage,
-and removes `com.apple.quarantine` only inside the exact verified replacement
-before relaunch. A finalization failure restores the recovery copy. No update
-accepts a caller path, arbitrary host, checksum-only integrity, or downgrade.
+Before automatic or manual installation the renderer drains uploads,
+preferences, tab-session writes, and note saves through the workspace-operation
+barrier, then seals an unlocked encrypted vault. Windows uses the matching
+passive NSIS/MSI updater; AppImage uses Tauri's replacement and rollback path;
+supported DEB/RPM packages use the matching system package flow. macOS derives
+`Denote.app` only from the running executable, copies the current bundle into
+private recovery storage, and removes `com.apple.quarantine` only inside the
+exact verified replacement before relaunch. A finalization failure restores the
+recovery copy. No update accepts a caller path, arbitrary host, checksum-only
+integrity, or downgrade.
 
 `release-assets.json` is the shared desktop download and updater naming
 contract. Release scripts stage architecture-qualified updater assets, require

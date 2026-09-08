@@ -24,6 +24,7 @@ const mockApi = vi.hoisted(() => ({
   downloadUpdate: vi.fn(),
   discardPreparedUpdate: vi.fn(),
   installPreparedUpdate: vi.fn(),
+  prepareExit: vi.fn(),
   getLastVault: vi.fn(),
   resolveAppLink: vi.fn(),
   importAppLinkVault: vi.fn(),
@@ -294,6 +295,7 @@ describe("App initial file-tree expansion", () => {
       stats: noteStats(),
     });
     mockApi.saveTabSession.mockResolvedValue(undefined);
+    mockApi.prepareExit.mockResolvedValue(undefined);
     mockApi.createEntry.mockResolvedValue(fileNode(".gitignore"));
     mockApi.trashEntry.mockResolvedValue({
       id: 7,
@@ -314,6 +316,57 @@ describe("App initial file-tree expansion", () => {
       message: "Committed the tracked changes.",
       commitId: "1111111111111111111111111111111111111111",
     });
+  });
+
+  it("automatically installs a signed update after startup", async () => {
+    const update = {
+      version: "0.3.1",
+      notes: "Synthetic release notes.",
+    };
+    mockApi.getRuntimeInfo.mockResolvedValue({
+      operatingSystem: "macos",
+      architecture: "aarch64",
+      bundleType: "app",
+      updateChannel: "stable",
+      updaterConfigured: true,
+    });
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    mockApi.checkForUpdate.mockResolvedValue(update);
+    mockApi.downloadUpdate.mockImplementation(
+      async (
+        expectedVersion: string,
+        onProgress: (progress: {
+          event: "started";
+          data: { contentLength: number | null };
+        }) => void,
+      ) => {
+        expect(expectedVersion).toBe(update.version);
+        onProgress({
+          event: "started",
+          data: { contentLength: 1024 },
+        });
+        return update;
+      },
+    );
+    mockApi.installPreparedUpdate.mockResolvedValue(undefined);
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(mockApi.installPreparedUpdate).toHaveBeenCalledWith(update.version);
+    });
+    expect(mockApi.checkForUpdate).toHaveBeenCalledOnce();
+    expect(mockApi.downloadUpdate).toHaveBeenCalledOnce();
+    expect(mockApi.prepareExit).toHaveBeenCalledOnce();
+    expect(mockApi.getLastVault.mock.invocationCallOrder[0]).toBeLessThan(
+      mockApi.checkForUpdate.mock.invocationCallOrder[0],
+    );
+    expect(mockApi.checkForUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      mockApi.downloadUpdate.mock.invocationCallOrder[0],
+    );
+    expect(mockApi.downloadUpdate.mock.invocationCallOrder[0]).toBeLessThan(
+      mockApi.installPreparedUpdate.mock.invocationCallOrder[0],
+    );
   });
 
   it("opens a startup app link after restoring its current vault", async () => {
