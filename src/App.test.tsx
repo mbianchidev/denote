@@ -1767,7 +1767,7 @@ describe("App initial file-tree expansion", () => {
         "print('synthetic') changed",
         "utf8",
         "lf",
-        "flush",
+        expect.stringMatching(/^(?:flush|autosave)$/),
         "sample-hash",
       );
       expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(

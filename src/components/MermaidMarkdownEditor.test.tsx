@@ -90,7 +90,7 @@ describe("Mermaid rich Markdown blocks", () => {
     expect(screen.getByText("Line 2, column 8")).toBeInTheDocument();
     expect(screen.getByText("Before")).toBeInTheDocument();
     expect(screen.getByText("After")).toBeInTheDocument();
-    expect(screen.getByLabelText("Edit code block")).toHaveTextContent(
+    expect(await screen.findByLabelText("Edit code block")).toHaveTextContent(
       "Draft --> Done",
     );
   });
