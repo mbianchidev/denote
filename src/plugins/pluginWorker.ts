@@ -320,44 +320,6 @@ function runtimeContext(): PluginActivationContext {
         ) {
           throw new Error("Invalid or duplicate emoji picker registration.");
         }
-        if (permissions.has("structured-viewer")) {
-          capabilities.structuredViewer = {
-            register(viewer) {
-              const registration = {
-                id: viewer?.id,
-                title: viewer?.title,
-                extensions: viewer?.extensions,
-              };
-              if (
-                cleaned ||
-                !isPluginStructuredViewerRegistration(registration) ||
-                typeof viewer.parse !== "function" ||
-                structuredViewers.size > 0
-              ) {
-                throw new Error(
-                  "Invalid or duplicate structured viewer registration.",
-                );
-              }
-              validateContributionId(viewer.id, "structured viewer");
-              structuredViewers.add(viewer.id);
-              structuredViewerHandlers.set(viewer.id, viewer.parse);
-              send({
-                type: "register-structured-viewer",
-                ...registration,
-              });
-              let disposed = false;
-              return disposable(() => {
-                if (disposed) {
-                  return;
-                }
-                disposed = true;
-                structuredViewers.delete(viewer.id);
-                structuredViewerHandlers.delete(viewer.id);
-                send({ type: "unregister-structured-viewer", id: viewer.id });
-              });
-            },
-          };
-        }
         emojiPickers.add(picker.id);
         send({ type: "register-emoji-picker", picker });
         let disposed = false;
@@ -367,6 +329,44 @@ function runtimeContext(): PluginActivationContext {
             emojiPickers.delete(picker.id);
             send({ type: "unregister-emoji-picker", id: picker.id });
           }
+        });
+      },
+    };
+  }
+  if (permissions.has("structured-viewer")) {
+    capabilities.structuredViewer = {
+      register(viewer) {
+        const registration = {
+          id: viewer?.id,
+          title: viewer?.title,
+          extensions: viewer?.extensions,
+        };
+        if (
+          cleaned ||
+          !isPluginStructuredViewerRegistration(registration) ||
+          typeof viewer.parse !== "function" ||
+          structuredViewers.size > 0
+        ) {
+          throw new Error(
+            "Invalid or duplicate structured viewer registration.",
+          );
+        }
+        validateContributionId(viewer.id, "structured viewer");
+        structuredViewers.add(viewer.id);
+        structuredViewerHandlers.set(viewer.id, viewer.parse);
+        send({
+          type: "register-structured-viewer",
+          ...registration,
+        });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          structuredViewers.delete(viewer.id);
+          structuredViewerHandlers.delete(viewer.id);
+          send({ type: "unregister-structured-viewer", id: viewer.id });
         });
       },
     };

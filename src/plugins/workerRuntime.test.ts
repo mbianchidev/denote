@@ -549,6 +549,63 @@ describe("PluginWorkerRuntime", () => {
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 
+  it("registers and parses through the actual isolated structured-viewer capability", async () => {
+    await bridgeRealPluginWorker();
+    const source = pluginWithStructuredViewer();
+    const registration = {
+      id: "denote.reference.structured",
+      title: "Structured data",
+      extensions: ["json"],
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          const viewer = context.capabilities.structuredViewer;
+          if (!viewer) throw Error("Missing structured viewer");
+          context.subscriptions.add(viewer.register({
+            ...${JSON.stringify(registration)},
+            parse() {
+              return ${JSON.stringify(structuredViewModel)};
+            },
+          }));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(source);
+
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    await expect(
+      runtime.parseStructuredView(
+        "denote.reference",
+        registration.id,
+        {
+          path: "fixtures/data.json",
+          format: "json",
+          source: '{"value":1}',
+        },
+      ),
+    ).resolves.toEqual(structuredViewModel);
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
   it("terminates a structured viewer registration without permission", async () => {
     const onError = vi.fn();
     FakeWorker.structuredViewerOnActivate = {
