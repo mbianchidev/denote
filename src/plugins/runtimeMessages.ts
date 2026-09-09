@@ -7,8 +7,14 @@ import type {
   PluginProjectRepositoryContext,
   PluginSourceControlAction,
   PluginSourceControlViewModel,
+  PluginStructuredViewerParseRequest,
+  PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
-import { isPluginEmojiPicker } from "@denote/plugin-sdk";
+import {
+  isPluginEmojiPicker,
+  isPluginStructuredViewerRegistration,
+  isPluginStructuredViewModel,
+} from "@denote/plugin-sdk";
 export type { PluginEmojiPickerContribution } from "./emojiPickers";
 import {
   isPluginAutomaticLocalCommitPayload,
@@ -54,6 +60,13 @@ export interface PluginSourceControlContribution {
   model: PluginSourceControlViewModel;
 }
 
+export interface PluginStructuredViewerContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+  extensions: string[];
+}
+
 export interface PluginWorkerConnectMessage {
   type: "connect";
   moduleUrl: string;
@@ -73,6 +86,12 @@ export type PluginHostMessage =
       type: "run-source-control-action";
       providerId: string;
       action: PluginSourceControlAction;
+      requestId: string;
+    }
+  | {
+      type: "parse-structured-view";
+      viewerId: string;
+      request: PluginStructuredViewerParseRequest;
       requestId: string;
     }
   | { type: "note-event"; event: PluginNoteEvent }
@@ -111,6 +130,13 @@ export type PluginRuntimeMessage =
   | { type: "register-emoji-picker"; picker: PluginEmojiPicker }
   | { type: "unregister-emoji-picker"; id: string }
   | {
+      type: "register-structured-viewer";
+      id: string;
+      title: string;
+      extensions: string[];
+    }
+  | { type: "unregister-structured-viewer"; id: string }
+  | {
       type: "register-source-control";
       id: string;
       title: string;
@@ -148,6 +174,12 @@ export type PluginRuntimeMessage =
       error?: string;
     }
   | {
+      type: "structured-view-result";
+      requestId: string;
+      model?: PluginStructuredViewModel;
+      error?: string;
+    }
+  | {
       type: "log";
       level: "debug" | "info" | "warn" | "error";
       message: string;
@@ -173,6 +205,14 @@ export function isPluginRuntimeMessage(
       return (
         typeof value.requestId === "string" &&
         (value.error === undefined || typeof value.error === "string")
+      );
+    case "structured-view-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.model === undefined) ||
+          (value.error === undefined &&
+            isPluginStructuredViewModel(value.model)))
       );
     case "register-command":
       return typeof value.id === "string" && typeof value.title === "string";
@@ -202,6 +242,10 @@ export function isPluginRuntimeMessage(
     case "register-emoji-picker":
       return isPluginEmojiPicker(value.picker);
     case "unregister-emoji-picker":
+      return typeof value.id === "string";
+    case "register-structured-viewer":
+      return isPluginStructuredViewerRegistration(value);
+    case "unregister-structured-viewer":
       return typeof value.id === "string";
     case "register-source-control":
       return (
@@ -264,6 +308,12 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.requestId === "string" &&
         isPluginSourceControlAction(value.action)
       );
+    case "parse-structured-view":
+      return (
+        typeof value.viewerId === "string" &&
+        typeof value.requestId === "string" &&
+        isStructuredViewerParseRequest(value.request)
+      );
     case "note-event":
       return (
         isRecord(value.event) &&
@@ -291,6 +341,17 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
     default:
       return false;
   }
+}
+
+function isStructuredViewerParseRequest(
+  value: unknown,
+): value is PluginStructuredViewerParseRequest {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    (value.format === "json" || value.format === "yaml") &&
+    typeof value.source === "string"
+  );
 }
 
 export function isPluginSourceControlAction(

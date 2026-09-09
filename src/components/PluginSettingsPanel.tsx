@@ -40,6 +40,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   status: "Add status bar items",
   "editor-decoration": "Decorate editor content",
   "emoji-picker": "Offer local emoji insertion and save picker preferences",
+  "structured-viewer": "Render bounded structured views for matching source files",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",
   "source-control": "Provide source control status and actions",

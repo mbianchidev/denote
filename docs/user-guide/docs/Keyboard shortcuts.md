@@ -61,6 +61,13 @@ default width, and End for its maximum width.
 All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
 
+With the optional JSON and YAML viewer, Tab reaches the Structured/Raw group,
+Collapse all, Expand all, and the tree. Inside the tree, Up/Down move through
+visible entries; Left collapses or moves to the parent; Right expands or moves
+to the first child; Home/End move to the first/last visible entry; and
+Enter/Space toggles a container. Collapse restores focus to the nearest visible
+ancestor, and status changes are announced politely.
+
 [Next: Optional plugins](<Optional plugins.md>)
 
 #guide #shortcuts

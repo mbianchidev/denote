@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.json-yaml-viewer",
+  "name": "JSON and YAML viewer",
+  "version": "0.1.0",
+  "description": "View JSON and YAML as a safe, local, keyboard-accessible structured tree.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT AND ISC",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "code",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.3.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "structured-viewer"
+    }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

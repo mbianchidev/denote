@@ -86,10 +86,12 @@ import {
 } from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
+import { StructuredDataViewer } from "./components/StructuredDataViewer";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
 import { readEmojiPreferences } from "./plugins/emojiPickers";
+import { structuredViewerForPath } from "./plugins/structuredViewers";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
@@ -1553,6 +1555,8 @@ function App() {
     workspace?.vaultPath ?? null,
     (snapshot) => clonedVaultHandler.current(snapshot),
     pluginProjectRepositories,
+    workspace !== null &&
+      (!workspace.encryption.enabled || workspace.encryption.unlocked),
   );
   const [emojiHost] = useState(() => new EmojiHost());
   const emojiPickerOpen = useSyncExternalStore(emojiHost.subscribe, emojiHost.isPickerOpen);
@@ -1560,6 +1564,49 @@ function App() {
     !pluginController.busyPluginIds.has(picker.pluginId) &&
     pluginController.plugins.some((plugin) => plugin.catalog.manifest.id === picker.pluginId && plugin.enabled)),
   [pluginController.emojiPickers, pluginController.busyPluginIds, pluginController.plugins]);
+  const structuredViewers = useMemo(
+    () =>
+      pluginController.structuredViewers.filter(
+        (viewer) =>
+          !pluginController.busyPluginIds.has(viewer.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.catalog.manifest.id === viewer.pluginId && plugin.enabled,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.plugins,
+      pluginController.structuredViewers,
+    ],
+  );
+  const activeStructuredViewer =
+    activeFileTab?.encoding === "utf8"
+      ? structuredViewerForPath(structuredViewers, activeFileTab.path)
+      : null;
+  const effectiveOutlineAvailable =
+    outlineAvailable &&
+    (!activeStructuredViewer || (activeFileTab?.rawEditing ?? false));
+  const effectiveOutlineVisible = outlineVisible && effectiveOutlineAvailable;
+  const structuredViewerKey = structuredViewers
+    .map((viewer) => `${viewer.pluginId}\u0000${viewer.id}`)
+    .join("\u0001");
+  useEffect(() => {
+    const available = new Set(
+      structuredViewers.map(
+        (viewer) => `${viewer.pluginId}\u0000${viewer.id}`,
+      ),
+    );
+    commitTabs((current) =>
+      current.map((tab) => {
+        const state = tab.structuredViewState;
+        return state &&
+          !available.has(`${state.pluginId}\u0000${state.viewerId}`)
+          ? { ...tab, structuredViewState: undefined }
+          : tab;
+      }),
+    );
+  }, [commitTabs, structuredViewerKey]);
   const pluginNoteEventsEnabled = useMemo(
     () =>
       pluginController.plugins.some(
@@ -4558,6 +4605,31 @@ function App() {
     [commitTabs],
   );
 
+  const updateStructuredViewState = useCallback(
+    (
+      path: string,
+      pluginId: string,
+      viewerId: string,
+      expandedNodeIds: string[],
+    ) => {
+      commitTabs((current) =>
+        current.map((tab) =>
+          tab.path === path
+            ? {
+                ...tab,
+                structuredViewState: {
+                  pluginId,
+                  viewerId,
+                  expandedNodeIds,
+                },
+              }
+            : tab,
+        ),
+      );
+    },
+    [commitTabs],
+  );
+
   const closeTabs = useCallback(
     async (paths: string[]) => {
       const closing = new Set(paths);
@@ -6992,18 +7064,22 @@ function App() {
     [showError],
   );
 
-  const toggleRawEditing = useCallback(() => {
+  const setActiveRawEditing = useCallback((rawEditing: boolean) => {
     if (!activePathRef.current) {
       return;
     }
     commitTabs((current) =>
       current.map((tab) =>
-        tab.path === activePathRef.current && tab.kind === "image"
-          ? { ...tab, rawEditing: !tab.rawEditing }
+        tab.path === activePathRef.current &&
+        (tab.kind === "image" ||
+          (tab.encoding === "utf8" &&
+            structuredViewerForPath(structuredViewers, tab.path)))
+          ? { ...tab, rawEditing }
           : tab,
       ),
     );
-  }, [commitTabs]);
+    setStatus(rawEditing ? "Raw source view" : "Structured view");
+  }, [commitTabs, structuredViewers]);
 
   const toggleReadMode = useCallback(() => {
     const path = activePathRef.current;
@@ -8256,14 +8332,15 @@ function App() {
       description: "Switch between image preview and Base64 editing.",
       category: "Editor",
       disabled: activeFileTab?.kind !== "image",
-      run: toggleRawEditing,
+      run: () =>
+        setActiveRawEditing(!(activeFileTab?.rawEditing ?? false)),
     },
     {
       id: "editor.outline",
       title: showOutline ? "Hide document outline" : "Show document outline",
       description: "Toggle headings, source symbols, and document navigation.",
       category: "View",
-      disabled: !outlineAvailable,
+      disabled: !effectiveOutlineAvailable,
       run: () => setShowOutline((current) => !current),
     },
     {
@@ -8690,12 +8767,17 @@ function App() {
     const paneUsesProjectMarkdownSource =
       usesProjectMarkdownSourceEditor(paneTab, paneProject);
     const paneCodeContext = paneProject !== null || vaultIsWorkspace;
+    const paneStructuredViewer =
+      paneTab.encoding === "utf8" && !paneTab.transient
+        ? structuredViewerForPath(structuredViewers, paneTab.path)
+        : null;
     const paneSourceOutlineAvailable =
       paneCodeContext &&
       paneTab.encoding === "utf8" &&
       paneTab.kind !== "markdown" &&
       paneTab.kind !== "image" &&
-      paneTab.kind !== "pdf";
+      paneTab.kind !== "pdf" &&
+      (!paneStructuredViewer || paneTab.rawEditing);
     const paneSourceLanguage =
       paneTab.encoding === "utf8"
         ? resolveSourceLanguage(
@@ -8736,6 +8818,37 @@ function App() {
             <img src={paneTab.imageDataUrl} alt={paneTab.title} />
             <figcaption>{paneTab.path}</figcaption>
           </figure>
+        ) : paneStructuredViewer && !paneTab.rawEditing ? (
+          <StructuredDataViewer
+            key={`${paneStructuredViewer.viewer.pluginId}:${paneStructuredViewer.viewer.id}:${paneTab.path}`}
+            title={paneStructuredViewer.viewer.title}
+            path={paneTab.path}
+            format={paneStructuredViewer.format}
+            source={paneTab.content}
+            parse={(request) =>
+              pluginController.parseStructuredView(
+                paneStructuredViewer.viewer.pluginId,
+                paneStructuredViewer.viewer.id,
+                request,
+              )
+            }
+            expandedNodeIds={
+              paneTab.structuredViewState?.pluginId ===
+                paneStructuredViewer.viewer.pluginId &&
+              paneTab.structuredViewState.viewerId ===
+                paneStructuredViewer.viewer.id
+                ? paneTab.structuredViewState.expandedNodeIds
+                : undefined
+            }
+            onExpandedNodeIdsChange={(expandedNodeIds) =>
+              updateStructuredViewState(
+                paneTab.path,
+                paneStructuredViewer.viewer.pluginId,
+                paneStructuredViewer.viewer.id,
+                expandedNodeIds,
+              )
+            }
+          />
         ) : paneUsesRichMarkdown ? (
           <MarkdownEditor
             key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}:${pluginDecorationKey}`}
@@ -8827,7 +8940,7 @@ function App() {
               onViewportChange={
                 pane.id === focusedPaneId &&
                 paneSourceOutlineAvailable &&
-                outlineVisible
+                effectiveOutlineVisible
                   ? (viewport) => {
                       const key = sourceViewportCacheKey(
                         workspace.vaultPath,
@@ -9277,7 +9390,30 @@ function App() {
             >
               <ArrowRight aria-hidden="true" size={16} />
             </button>
-            {activeFileTab?.kind === "image" ? (
+            {activeStructuredViewer ? (
+              <div
+                className="structured-view-toggle"
+                role="group"
+                aria-label={`${activeStructuredViewer.viewer.title} view`}
+              >
+                <button
+                  type="button"
+                  aria-pressed={!(activeFileTab?.rawEditing ?? false)}
+                  disabled={workspaceLocked}
+                  onClick={() => setActiveRawEditing(false)}
+                >
+                  Structured
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={activeFileTab?.rawEditing ?? false}
+                  disabled={workspaceLocked}
+                  onClick={() => setActiveRawEditing(true)}
+                >
+                  Raw
+                </button>
+              </div>
+            ) : activeFileTab?.kind === "image" ? (
               <button
                 type="button"
                 className="icon-button"
@@ -9293,7 +9429,9 @@ function App() {
                 }
                 aria-pressed={activeFileTab.rawEditing}
                 disabled={workspaceLocked}
-                onClick={toggleRawEditing}
+                onClick={() =>
+                  setActiveRawEditing(!activeFileTab.rawEditing)
+                }
               >
                 {activeFileTab.rawEditing ? (
                   <ImageIcon aria-hidden="true" size={16} />
@@ -9435,10 +9573,10 @@ function App() {
             <button
               type="button"
               className="icon-button"
-              aria-label={`${outlineVisible ? "Hide" : "Show"} outline`}
-              title={`${outlineVisible ? "Hide" : "Show"} outline`}
-              aria-pressed={outlineVisible}
-              disabled={!outlineAvailable}
+              aria-label={`${effectiveOutlineVisible ? "Hide" : "Show"} outline`}
+              title={`${effectiveOutlineVisible ? "Hide" : "Show"} outline`}
+              aria-pressed={effectiveOutlineVisible}
+              disabled={!effectiveOutlineAvailable}
               onClick={() => setShowOutline((current) => !current)}
             >
               <ListTree aria-hidden="true" size={16} />
@@ -9578,7 +9716,7 @@ function App() {
               />
             ))}
           </div>
-          {outlineVisible ? (
+          {effectiveOutlineVisible ? (
             <OutlineResizer
               width={outlineWidth}
               disabled={workspaceLocked}
@@ -9586,13 +9724,13 @@ function App() {
               onCommit={commitOutlineWidth}
             />
           ) : null}
-          {outlineVisible && activeFileTab?.kind === "markdown" ? (
+          {effectiveOutlineVisible && activeFileTab?.kind === "markdown" ? (
             <TableOfContents
               headings={headings}
               loading={outlineLoading}
               onNavigate={navigateToHeading}
             />
-          ) : outlineVisible && activeSourceOutlineAvailable ? (
+          ) : effectiveOutlineVisible && activeSourceOutlineAvailable ? (
             <SourceOutline
               symbols={sourceSymbols}
               minimap={sourceMinimap}
@@ -9633,6 +9771,7 @@ function App() {
           activeFileTab.encoding === "utf8" &&
           activeFileTab.kind !== "image" &&
           activeFileTab.kind !== "pdf" &&
+          (!activeStructuredViewer || activeFileTab.rawEditing) &&
           !usesRichMarkdownEditor(activeFileTab, activeProject) ? (
             <SourceLanguageStatus
               path={activeFileTab.path}

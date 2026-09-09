@@ -354,6 +354,39 @@ catalog and release ledger separately, never the archive. The package guide docu
 provenance and regeneration; license notices must be included in the archive's
 guide, not just an unpackaged source file.
 
+### JSON and YAML viewer development
+
+Use `npm run dev:plugin -- denote.json-yaml-viewer` and load the ignored
+development archive from **Settings → Plugins**. The plugin requests only
+`structured-viewer`; parser code and `yaml` stay inside the plugin package,
+while `src/components/StructuredDataViewer.tsx` and the runtime protocol remain
+generic host-owned API-v1 surfaces.
+
+Run focused coverage with:
+
+```bash
+npx vitest run \
+  src/plugins/structuredViewers.test.ts \
+  src/plugins/structuredViewers.path.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/StructuredDataViewer.test.tsx \
+  plugins/json-yaml-viewer/tests
+```
+
+Fixtures must be minimal and synthetic. Cover JSON/YAML scalar and container
+types, empty values, duplicate keys, comments and line endings in Raw source,
+multi-document streams, anchors, aliases, recursive aliases, alias/depth/node
+limits, unsupported tags, malformed locations, stale requests, virtualization,
+keyboard focus, pane/tab isolation, lock/unlock, repeated lifecycle operations,
+and disable/re-enable cleanup.
+
+Stage the source-only archive with
+`npm run package:plugin -- denote.json-yaml-viewer`. Commit source, SDK, host,
+tests, docs, dependency manifests, and lockfile first; pin that full commit with
+`npm run pin:plugin -- denote.json-yaml-viewer --ref "$(git rev-parse HEAD)"
+--release <Denote-tag>`, then commit only its catalog and ledger metadata.
+
 ## Build a desktop bundle
 
 ```bash

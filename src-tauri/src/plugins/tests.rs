@@ -1049,6 +1049,18 @@ fn catalog_accepts_unconstrained_source_control_capabilities() {
 }
 
 #[test]
+fn catalog_accepts_unconstrained_structured_viewer_capability() {
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "structured-viewer".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::new(),
+    });
+
+    assert!(validate_catalog(&[catalog]).is_ok());
+}
+
+#[test]
 fn catalog_rejects_project_context_constraints() {
     let mut catalog = catalog();
     catalog.manifest.permissions.push(PluginPermission {

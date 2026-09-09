@@ -21,6 +21,7 @@ export const PLUGIN_CAPABILITIES = [
   "status",
   "editor-decoration",
   "emoji-picker",
+  "structured-viewer",
   "note-events",
   "project-context",
   "source-control",
@@ -262,6 +263,66 @@ export interface PluginEmojiPicker {
 
 export interface PluginEmojiPickerCapability {
   register: (picker: PluginEmojiPicker) => PluginDisposable;
+}
+
+export type PluginStructuredViewerFormat = "json" | "yaml";
+
+export type PluginStructuredNodeType =
+  | "object"
+  | "array"
+  | "mapping"
+  | "sequence"
+  | "stream"
+  | "string"
+  | "number"
+  | "boolean"
+  | "null"
+  | "scalar"
+  | "alias";
+
+export interface PluginStructuredNode {
+  id: string;
+  parentId: string | null;
+  label: string;
+  type: PluginStructuredNodeType;
+  value?: string;
+  anchor?: string;
+  depth: number;
+  childCount: number;
+}
+
+export interface PluginStructuredParseError {
+  message: string;
+  line?: number;
+  column?: number;
+  code?: string;
+}
+
+export interface PluginStructuredViewModel {
+  rootId: string | null;
+  nodes: PluginStructuredNode[];
+  error: PluginStructuredParseError | null;
+  notices: string[];
+  truncated: boolean;
+}
+
+export interface PluginStructuredViewerParseRequest {
+  path: string;
+  format: PluginStructuredViewerFormat;
+  source: string;
+}
+
+export interface PluginStructuredViewer {
+  id: string;
+  title: string;
+  extensions: string[];
+  parse: (
+    request: PluginStructuredViewerParseRequest,
+  ) => PluginStructuredViewModel | Promise<PluginStructuredViewModel>;
+}
+
+export interface PluginStructuredViewerCapability {
+  register: (viewer: PluginStructuredViewer) => PluginDisposable;
 }
 
 export interface PluginSecureStorage {
@@ -1427,6 +1488,7 @@ export interface PluginCapabilities {
   status?: PluginStatusCapability;
   editorDecoration?: PluginEditorDecorationCapability;
   emojiPicker?: PluginEmojiPickerCapability;
+  structuredViewer?: PluginStructuredViewerCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
   sourceControl?: PluginSourceControlCapability;

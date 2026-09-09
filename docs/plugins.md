@@ -279,6 +279,39 @@ archive, never in application resources. Disabling it removes hooks, UI, and
 code without changing notes; retained settings have the usual explicit cleanup
 controls.
 
+### Structured source viewer
+
+The additive API version 1 `structured-viewer` permission accepts one
+namespaced registration per plugin for `.json`, `.yaml`, and `.yml`. The
+registration declares only its ID, title, extensions, and a parser callback
+that runs inside the existing isolated plugin worker. The callback receives the
+matching tab's vault-relative path, fixed format, and current UTF-8 source. It
+cannot receive an editor object, render markup, call native APIs, or mutate the
+tab.
+
+The host caps source transfer at 4 MiB and accepts only a parent-first
+declarative tree with one root, at most 50,000 nodes and 8 MiB, fixed
+container/scalar types, unique bounded IDs, exact parent/depth/child counts, and
+bounded display-safe labels, previews, anchors, notices, or one parse error.
+Malformed registration or output is a runtime protocol violation. Active
+viewers cannot claim the same extension.
+
+Denote owns the Raw/Structured controls, tree and disclosure semantics,
+virtualization, bounded Expand all, Collapse all, roving keyboard focus,
+announcements, and per-tab transient expansion state. Raw is the ordinary
+source editor and remains complete for parse errors and limits. No structured
+action can save, reformat, or rewrite content. Viewer workers stop while an
+encrypted vault is locked and restart after unlock; tab close, navigation,
+disable, crash, update, removal, and teardown release host models and
+registrations.
+
+`denote.json-yaml-viewer` is the first implementation. It requests no workspace,
+network, process, clipboard, notification, or secure-storage permission. Its
+bundled `yaml` 2.9.0 parser uses strict YAML 1.2 core with merge keys, known YAML
+1.1 tags, and custom tags disabled. It traverses parser nodes iteratively and
+shows aliases as terminal references, with separate 100-document, 128-level,
+500-alias, and 50,000-node limits.
+
 ### Git transport
 
 Trusted native Git transport and its automatic-commit, clone, GitHub

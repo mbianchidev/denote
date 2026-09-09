@@ -119,6 +119,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "status"
             | "editor-decoration"
             | "emoji-picker"
+            | "structured-viewer"
             | "note-events"
             | "project-context"
             | "source-control"

@@ -5,6 +5,7 @@ import {
   type PluginGitResult,
   type PluginEmojiPicker,
   type PluginSourceControlViewModel,
+  type PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
@@ -93,6 +94,31 @@ const sourceControlModel: PluginSourceControlViewModel = {
     review: null,
   },
 };
+const structuredViewModel: PluginStructuredViewModel = {
+  rootId: "root",
+  nodes: [
+    {
+      id: "root",
+      parentId: null,
+      label: "Root",
+      type: "object",
+      depth: 0,
+      childCount: 1,
+    },
+    {
+      id: "root/value",
+      parentId: "root",
+      label: "value",
+      type: "number",
+      value: "1",
+      depth: 1,
+      childCount: 0,
+    },
+  ],
+  error: null,
+  notices: [],
+  truncated: false,
+};
 
 class FakePort extends EventTarget {
   peer: FakePort | null = null;
@@ -142,6 +168,12 @@ class FakeWorker extends EventTarget {
   static sourceControlProviderIdOnActivate = "denote.reference.git";
   static automaticCommitOnActivate: Record<string, unknown> | null = null;
   static emojiPickerOnActivate: PluginEmojiPicker | null = null;
+  static structuredViewerOnActivate: {
+    id: string;
+    title: string;
+    extensions: string[];
+  } | null = null;
+  static structuredViewModel: PluginStructuredViewModel = structuredViewModel;
   static sourceControlActionResultType:
     | "source-control-action-result"
     | "command-result" = "source-control-action-result";
@@ -195,6 +227,12 @@ class FakeWorker extends EventTarget {
         if (FakeWorker.emojiPickerOnActivate) {
           port.postMessage({ type: "register-emoji-picker", picker: FakeWorker.emojiPickerOnActivate });
         }
+        if (FakeWorker.structuredViewerOnActivate) {
+          port.postMessage({
+            type: "register-structured-viewer",
+            ...FakeWorker.structuredViewerOnActivate,
+          });
+        }
         if (FakeWorker.failActivationAfterSourceControl) {
           port.postMessage({
             type: "activation-error",
@@ -220,6 +258,15 @@ class FakeWorker extends EventTarget {
         port.postMessage({
           type: FakeWorker.sourceControlActionResultType,
           requestId: data.requestId,
+        });
+      } else if (
+        data.type === "parse-structured-view" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "structured-view-result",
+          requestId: data.requestId,
+          model: FakeWorker.structuredViewModel,
         });
       } else if (
         data.type === "deactivate" &&
@@ -383,6 +430,17 @@ function pluginWithEmojiPicker(): PluginView {
   };
 }
 
+function pluginWithStructuredViewer(): PluginView {
+  const source = plugin();
+  return {
+    ...source,
+    approvedPermissions: [
+      ...source.approvedPermissions,
+      { capability: "structured-viewer" },
+    ],
+  };
+}
+
 function pluginWithGit(): PluginView {
   return {
     ...plugin(),
@@ -418,6 +476,8 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.sourceControlProviderIdOnActivate = "denote.reference.git";
     FakeWorker.automaticCommitOnActivate = null;
     FakeWorker.emojiPickerOnActivate = null;
+    FakeWorker.structuredViewerOnActivate = null;
+    FakeWorker.structuredViewModel = structuredViewModel;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
@@ -430,6 +490,96 @@ describe("PluginWorkerRuntime", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("registers, runs, and removes a bounded structured viewer", async () => {
+    const changed = vi.fn();
+    FakeWorker.structuredViewerOnActivate = {
+      id: "denote.reference.structured",
+      title: "Structured data",
+      extensions: ["json"],
+    };
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(pluginWithStructuredViewer());
+
+    expect(changed).toHaveBeenLastCalledWith([
+      {
+        pluginId: "denote.reference",
+        id: "denote.reference.structured",
+        title: "Structured data",
+        extensions: ["json"],
+      },
+    ]);
+    await expect(
+      runtime.parseStructuredView(
+        "denote.reference",
+        "denote.reference.structured",
+        {
+          path: "fixtures/data.json",
+          format: "json",
+          source: '{"value":1}',
+        },
+      ),
+    ).resolves.toEqual(structuredViewModel);
+    expect(FakeWorker.instances[0].received).toContainEqual(
+      expect.objectContaining({
+        type: "parse-structured-view",
+        viewerId: "denote.reference.structured",
+        request: {
+          path: "fixtures/data.json",
+          format: "json",
+          source: '{"value":1}',
+        },
+      }),
+    );
+
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("terminates a structured viewer registration without permission", async () => {
+    const onError = vi.fn();
+    FakeWorker.structuredViewerOnActivate = {
+      id: "denote.reference.structured",
+      title: "Structured data",
+      extensions: ["json"],
+    };
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+
+    await runtime.start(plugin()).catch(() => {});
+
+    await vi.waitFor(() => {
+      expect(FakeWorker.instances[0].terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/structured viewer/i),
+        }),
+      );
+    });
   });
 
   it("registers emoji data transactionally and removes it immediately when stopping", async () => {
