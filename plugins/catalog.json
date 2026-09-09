@@ -410,5 +410,52 @@
       "trusted": true
     },
     "guide": "# JSON and YAML viewer\n\n## Purpose\n\nJSON and YAML viewer adds a read-only Structured view for `.json`, `.yaml`, and\n`.yml` files. It keeps Denote's ordinary source editor available as Raw view, so\ncomments, spacing, document separators, anchors, aliases, encoding, and line\nendings remain exactly under your control.\n\n## Enablement and permissions\n\nThe plugin is disabled by default and requests only **Structured viewer**. This\npermission lets its isolated worker receive the current UTF-8 source for a\nmatching open tab and return a bounded declarative tree. Denote owns the\nrenderer, controls, keyboard behavior, file routing, and Raw source editor.\n\nThe plugin requests no workspace read or write permission, no network access,\nno process execution, and no clipboard access. Its executable package is\ndownloaded only after you explicitly enable it.\n\n## Usage\n\nOpen a JSON or YAML file and use the **Structured** / **Raw** control in the\neditor toolbar. Structured view labels every row as an object, array, mapping,\nsequence, string, number, boolean, null, scalar, or alias; color is only\nsupplementary.\n\nThe root and its immediate children are visible initially. Select a non-empty\ncontainer row to expand or collapse it. **Collapse all** leaves the root and\nfirst-level rows visible. **Expand all** expands at most 5,000 containers in one\naction and announces when the bound is reached.\n\nInside the tree:\n\n- Up and Down move among visible rows.\n- Left collapses the current container or moves to its parent.\n- Right expands the current container or moves to its first child.\n- Home and End move to the first and last visible row.\n- Enter or Space toggles a non-empty container.\n\nParsing and source content stay local. YAML streams, anchors, and aliases are\nshown structurally; aliases are references and are never recursively expanded.\nInvalid or unsupported content reports a line and column when the parser\nprovides one. Switch to Raw at any time to inspect or fix the exact source.\n\n## Settings\n\nThe plugin has no settings. Expansion state is kept only in the open tab. It is\nnot written into the file, shared with another file, or restored after the tab\nis closed.\n\n## Disable behavior\n\nDisabling the plugin unregisters its viewer, terminates its worker, releases\nparsed models and per-tab expansion state, and returns matching tabs to Denote's\nordinary source editor. It does not edit, reformat, save, or delete any vault\nfile. Denote also removes the downloaded package, cached archive, staging\ncontent, and removal backups.\n\nClosing a tab, switching or locking a vault, a plugin crash, an update, or\napplication teardown releases the same derived tree data. Locked encrypted\nvaults never expose decrypted content to the plugin.\n\n## Troubleshooting\n\n- **Structured view unavailable**: read the reported location, switch to Raw,\n  and correct the source. Raw access remains available for every error.\n- **Size limit**: Structured parsing accepts up to 4 MiB of UTF-8 source, 100\n  YAML documents, 50,000 emitted nodes, 128 levels, and 500 aliases. Larger or\n  deeper files stay editable in Raw view.\n- **Bounded view**: the source parsed safely, but the 50,000-node presentation\n  limit omitted later rows. Raw view is complete.\n- **Unsupported YAML tag**: custom and YAML 1.1-specific constructors are not\n  executed. Use YAML 1.2 core scalars or inspect the original tag in Raw view.\n- **Duplicate YAML key**: mapping keys must be unique. JSON duplicate names use\n  the JavaScript parser's deterministic last-value result in Structured view;\n  Raw still shows every original token.\n- If the viewer stops responding, disable and re-enable the plugin. Denote\n  removes a crashed package automatically without changing open files.\n\nThe plugin bundles `yaml` 2.9.0 under the ISC license. It uses the YAML 1.2 core\nschema with merge keys, known YAML 1.1 tags, and custom tags disabled. No parser\ncomponent loads schemas, scripts, constructors, or content from the network.\n\n## Licenses and notices\n\nThe JSON and YAML viewer plugin is available under the MIT license. Its bundled\n`yaml` dependency is available under the following ISC license:\n\nCopyright Eemeli Aro <eemeli@gmail.com>\n\nPermission to use, copy, modify, and/or distribute this software for any purpose\nwith or without fee is hereby granted, provided that the above copyright notice\nand this permission notice appear in all copies.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH\nREGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND\nFITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,\nINDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS\nOF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER\nTORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF\nTHIS SOFTWARE.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.mermaid",
+      "name": "Mermaid diagrams",
+      "version": "0.1.0",
+      "description": "Render a safe local subset of Mermaid fenced blocks in Markdown rich view.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT AND (MPL-2.0 OR Apache-2.0)",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "diagrams-visualization",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.3.0"
+      },
+      "permissions": [
+        {
+          "capability": "diagram-renderer"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "diagramRenderer": {
+        "entrypoint": "dist/renderer.js"
+      },
+      "legal": [
+        "legal/THIRD_PARTY_NOTICES.md",
+        "legal/mermaid-MIT.txt",
+        "legal/dompurify-APACHE-2.0.txt"
+      ],
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0/denote.mermaid-0.1.0.tgz",
+      "sha256": "4113da8542598813f52bff7a98dc26ea3897e6a8eef6a86ec4b8444ed302bc77",
+      "sizeBytes": 1054007
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "1097f5e790ad81cd572e0f79e8c0b046d6204559",
+      "trusted": true
+    },
+    "guide": "# Mermaid diagrams\n\n## Purpose\n\nRender a safe, local subset of fenced `mermaid` blocks inside Markdown Rich\nview while keeping the exact portable fence source available for editing.\n\n## Enablement and permissions\n\nThis plugin is disabled by default. Enabling it asks only for **Diagram\nrenderer**. Denote downloads and verifies the executable package after approval,\nruns its renderer in an opaque no-network sandbox, and independently sanitizes\nthe returned SVG before display, copy, or export.\n\n## Usage\n\nCreate a fenced block whose language is `mermaid`. Flowcharts, sequence\ndiagrams, class diagrams, state diagrams, entity-relationship diagrams, and pie\ncharts are supported. Use **Show diagram source** to edit the exact fence,\n**Copy SVG** to copy sanitized SVG text, or **Export SVG** to choose a local\nfile.\n\nAn optional first line such as `%% denote:title: Build flow` supplies the\nbounded accessible figure name. Without it, Denote uses **Mermaid diagram**.\nInitializers, frontmatter configuration, HTML labels, links, callbacks, images,\nicons, external resources, and custom style directives are rejected.\n\nSource is limited to 32 KiB, 1,000 lines, 4 KiB per line, 500 statements, and\n300 edges. Sanitized SVG is limited to 10,000 elements and 2 MiB. Denote runs\none render at a time, queues at most 32, stops a render after five seconds,\ncaches at most 32 successful results or 16 MiB, and does not retry or cache\nfailures.\n\n## Settings\n\nThis plugin has no settings. Denote follows the live Light, Dark, high-contrast,\nand forced-colors environment automatically.\n\n## Disable behavior\n\nDisabling, removing, updating, or crashing the plugin restores ordinary fenced\ncode rendering. Denote unregisters the contribution, destroys render sandboxes,\nclears derived SVG and caches, and deletes downloaded package code without\nchanging Markdown.\n\n## Troubleshooting\n\nLocated parse errors appear beside only the affected block and keep its source\neditor available. Simplify diagrams that exceed the documented source,\nstatement, edge, time, element, or SVG limits. The plugin is unavailable while\nan encrypted vault is locked and resumes from verified package code after\nunlock.\n\n## Third-party licenses\n\nThe downloaded renderer bundles Mermaid 11.17.2 under the MIT License and\nDOMPurify 3.4.15 under its Apache License 2.0 option. Source notices and license\ntexts ship in the verified archive under `legal/`.\n"
   }
 ]
