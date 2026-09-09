@@ -192,8 +192,10 @@ crashing the plugin, and application teardown cancel stale work, destroy
 sandboxes, clear derived SVG, unregister the contribution, and restore ordinary
 fenced-code rendering. Markdown is never rewritten.
 
-Open [the Mermaid example](<../examples/Mermaid diagram.md>) in a newly created
-Denote Welcome vault. Existing Welcome vaults are not overwritten.
+Open [the Mermaid example](<../examples/Mermaid diagram.md>) in the Denote
+Welcome vault. Older copies receive only missing `examples` and `code` files on
+the next startup, or after unlock when the Welcome vault is encrypted. Existing
+matching paths are not overwritten.
 
 ## Other optional features
 
