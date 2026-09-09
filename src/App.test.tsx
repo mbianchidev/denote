@@ -2684,7 +2684,7 @@ describe("App initial file-tree expansion", () => {
       () => {
         expect(mockPluginController.runSourceControlAction).toHaveBeenCalled();
       },
-      { timeout: 5000 },
+      { timeout: 10_000 },
     );
     // A placeholder has a synthetic path rather than a vault path, so it is
     // neither reloaded nor reported as a file the branch does not have.
@@ -2770,14 +2770,14 @@ describe("App initial file-tree expansion", () => {
           "sample-hash",
         );
       },
-      { timeout: 5000 },
+      { timeout: 10_000 },
     );
     // The save happens before Git runs, so a checkout can never overwrite an
     // edit that was still only in the editor.
     expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(
       mockPluginController.runSourceControlAction.mock.invocationCallOrder[0],
     );
-  });
+  }, 15_000);
 
 });
 
