@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 import { createPdfFixture } from "../test/pdfFixtures";
 import {
@@ -12,10 +12,9 @@ const codeRoot = join(welcomeRoot, "code");
 
 describe("Welcome vault example inventory", () => {
   it("represents every distinct core syntax language with invented code", () => {
-    const files = readdirSync(codeRoot, { recursive: true, withFileTypes: true })
-      .filter((entry) => entry.isFile())
-      .map((entry) => join(entry.parentPath, entry.name))
-      .map((path) => path.slice(codeRoot.length + 1).replace(/\\/g, "/"));
+    const files = collectFiles(codeRoot).map((path) =>
+      relative(codeRoot, path).split(sep).join("/"),
+    );
     const detected = new Set(
       files
         .map((path) => detectSourceLanguage(path)?.id ?? null)
@@ -51,6 +50,13 @@ describe("Welcome vault example inventory", () => {
     );
     expect(detectSourceLanguage("hello.pp")).toBeNull();
   });
+
+  function collectFiles(directory: string): string[] {
+    return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+      const path = join(directory, entry.name);
+      return entry.isDirectory() ? collectFiles(path) : [path];
+    });
+  }
 
   it("keeps the checked-in PDF equal to the deterministic synthetic fixture", () => {
     const pdf = readFileSync(
