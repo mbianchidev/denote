@@ -33,4 +33,5 @@ src-tauri/resources/tools/*
 *.ntvs*
 *.njsproj
 *.sln
+!docs/user-guide/code/hello.sln
 *.sw?
