@@ -46,12 +46,14 @@ export function StructuredDataViewer({
     () => new Set(expandedNodeIds ?? []),
   );
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [announcement, setAnnouncement] = useState("");
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(
     FALLBACK_VIEWPORT_HEIGHT,
   );
   const request = useRef(0);
+  const focusTarget = useRef<string | null>(null);
   const parseRef = useRef(parse);
   const expandedNodeIdsRef = useRef(expandedNodeIds);
   const onExpandedNodeIdsChangeRef = useRef(onExpandedNodeIdsChange);
@@ -177,11 +179,17 @@ export function StructuredDataViewer({
   }, [focusedId, model?.rootId, nodeById, visibleNodes]);
 
   useLayoutEffect(() => {
-    if (!focusedId) {
+    if (!focusTarget.current) {
       return;
     }
-    rowRefs.current.get(focusedId)?.focus({ preventScroll: true });
-  }, [focusedId, visibleNodes]);
+    rowRefs.current.get(focusTarget.current)?.focus({ preventScroll: true });
+  }, [focusRequest]);
+
+  const requestRowFocus = (nodeId: string) => {
+    focusTarget.current = nodeId;
+    setFocusedId(nodeId);
+    setFocusRequest((current) => current + 1);
+  };
 
   const virtualized = visibleNodes.length > FULL_RENDER_THRESHOLD;
   const focusedIndex = focusedId
@@ -216,7 +224,7 @@ export function StructuredDataViewer({
 
   const toggleNode = (node: PluginStructuredNode) => {
     if (node.childCount === 0) {
-      setFocusedId(node.id);
+      requestRowFocus(node.id);
       return;
     }
     const next = new Set(expanded);
@@ -227,7 +235,7 @@ export function StructuredDataViewer({
       next.add(node.id);
       commitExpanded(next, `Expanded ${node.label}`);
     }
-    setFocusedId(node.id);
+    requestRowFocus(node.id);
   };
 
   const focusIndex = (index: number) => {
@@ -247,7 +255,7 @@ export function StructuredDataViewer({
       tree.scrollTop = nextTop;
       setScrollTop(nextTop);
     }
-    setFocusedId(node.id);
+    requestRowFocus(node.id);
   };
 
   const onTreeKeyDown = (
@@ -280,7 +288,7 @@ export function StructuredDataViewer({
         if (expanded.has(node.id) && node.childCount > 0) {
           toggleNode(node);
         } else if (node.parentId) {
-          setFocusedId(node.parentId);
+          requestRowFocus(node.parentId);
         }
         return;
       case "ArrowRight":
@@ -290,7 +298,7 @@ export function StructuredDataViewer({
         } else {
           const firstChild = childrenById.get(node.id)?.[0];
           if (firstChild) {
-            setFocusedId(firstChild.id);
+            requestRowFocus(firstChild.id);
           }
         }
         return;

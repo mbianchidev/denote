@@ -100,6 +100,36 @@ describe("StructuredDataViewer", () => {
     expect(screen.queryByText("Denote")).not.toBeInTheDocument();
   });
 
+  it("does not steal focus on parse or after toolbar actions", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Outside control</button>
+        <StructuredDataViewer
+          title="JSON and YAML viewer"
+          path="fixtures/data.json"
+          format="json"
+          source='{"project":{"name":"Denote"},"ready":true}'
+          parse={vi.fn(async () => model)}
+          expandedNodeIds={["root", "root/project"]}
+          onExpandedNodeIdsChange={vi.fn()}
+        />
+      </>,
+    );
+    const outside = screen.getByRole("button", { name: "Outside control" });
+    outside.focus();
+
+    await screen.findByRole("tree");
+    expect(outside).toHaveFocus();
+
+    const collapse = screen.getByRole("button", { name: "Collapse all" });
+    await user.click(collapse);
+    expect(collapse).toHaveFocus();
+    const expand = screen.getByRole("button", { name: "Expand all" });
+    await user.click(expand);
+    expect(expand).toHaveFocus();
+  });
+
   it("expands and collapses each non-empty container with an accessible disclosure button", async () => {
     const user = userEvent.setup();
     renderViewer();
