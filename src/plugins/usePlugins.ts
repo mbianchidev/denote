@@ -381,7 +381,10 @@ export function usePlugins(
           if (!runtime) {
             throw new Error("Plugin runtime is unavailable.");
           }
-          await runtime.start(prepared);
+          await runtime.start({
+            ...prepared,
+            approvedPermissions,
+          });
           runtimeStarted = true;
           if (!runtime.isRunning(pluginId)) {
             throw new Error(`Plugin ${pluginId} stopped before enablement completed.`);

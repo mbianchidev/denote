@@ -444,6 +444,38 @@ describe("usePlugins", () => {
     expect(result.current.plugins).toEqual([makePlugin({ enabled: true })]);
   });
 
+  it("starts a prepared runtime with the exact permissions native preparation accepted", async () => {
+    const notEnabled = makePlugin({ enabled: false, approvedPermissions: [] });
+    const approvedPermissions = [{ capability: "structured-viewer" }] as const;
+    const { result } = await mountReady([notEnabled]);
+    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
+      pluginId,
+      version: "1.0.0",
+      entrypoint: "dist/index.js",
+      transactionId: "tx-structured",
+    });
+    // A renderer refresh may lag the native pending transaction. Runtime
+    // startup must still use the exact payload preparePluginEnable accepted.
+    queueListPlugins([notEnabled]);
+    vi.mocked(api.commitPluginEnable).mockResolvedValueOnce(undefined);
+    queueListPlugins([
+      makePlugin({
+        enabled: true,
+        approvedPermissions: [...approvedPermissions],
+      }),
+    ]);
+
+    await act(async () => {
+      await result.current.enable(pluginId, [...approvedPermissions]);
+    });
+
+    expect(runtimeInstances[0].start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvedPermissions: [...approvedPermissions],
+      }),
+    );
+  });
+
   it("updates only previously approved plugins that actually have updates", async () => {
     const gitCatalog = {
       ...catalog,
