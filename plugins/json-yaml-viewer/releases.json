@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "fa8b7983abb33e72eeb371c5a08c89fabc08217c",
+    "kind": "source",
+    "sourcePath": "plugins/json-yaml-viewer",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0/denote.json-yaml-viewer-0.1.0.tgz",
+      "sha256": "e689562611625db190d4d34de51e60a641274dde059c9a63fe88fc04d0116bda",
+      "sizeBytes": 66134
+    }
+  }
+]

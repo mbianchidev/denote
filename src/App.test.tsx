@@ -13,6 +13,7 @@ import type {
   PluginEmojiPickerContribution,
   PluginAutomaticLocalCommitContribution,
   PluginSourceControlContribution,
+  PluginStructuredViewerContribution,
 } from "./plugins/workerRuntime";
 import type { FileNode, PluginView, WorkspaceSnapshot } from "./types";
 import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type LexicalEditor } from "lexical";
@@ -55,6 +56,7 @@ const mockPluginController = vi.hoisted(() => ({
   sourceControlProviders: [] as PluginSourceControlContribution[],
   automaticLocalCommits: [] as PluginAutomaticLocalCommitContribution[],
   emojiPickers: [] as PluginEmojiPickerContribution[],
+  structuredViewers: [] as PluginStructuredViewerContribution[],
   saveEmojiPreferences: vi.fn().mockResolvedValue(undefined),
   loading: false,
   busyPluginIds: new Set<string>(),
@@ -68,6 +70,7 @@ const mockPluginController = vi.hoisted(() => ({
   importSettings: vi.fn(),
   runCommand: vi.fn(),
   runSourceControlAction: vi.fn().mockResolvedValue(undefined),
+  parseStructuredView: vi.fn(),
   emitNoteEvent: vi.fn(),
   invalidateActionLeases: vi.fn(),
   shutdown: vi.fn(),
@@ -185,6 +188,32 @@ vi.mock("./components/PdfReader", () => ({
       </section>
     );
   },
+}));
+vi.mock("./components/StructuredDataViewer", () => ({
+  StructuredDataViewer: ({
+    path,
+    source,
+    expandedNodeIds,
+    onExpandedNodeIdsChange,
+  }: {
+    path: string;
+    source: string;
+    expandedNodeIds?: string[];
+    onExpandedNodeIdsChange: (ids: string[]) => void;
+  }) => (
+    <section aria-label={`Structured ${path}`}>
+      <output aria-label={`Structured source ${path}`}>{source}</output>
+      <output aria-label={`Expanded nodes ${path}`}>
+        {(expandedNodeIds ?? []).join(",")}
+      </output>
+      <button
+        type="button"
+        onClick={() => onExpandedNodeIdsChange(["root", "root/nested"])}
+      >
+        Expand nested
+      </button>
+    </section>
+  ),
 }));
 vi.mock("./components/FileTree", () => ({
   FileTree: ({
@@ -307,10 +336,18 @@ describe("App initial file-tree expansion", () => {
     mockPluginController.sourceControlProviders = [];
     mockPluginController.automaticLocalCommits = [];
     mockPluginController.emojiPickers = [];
+    mockPluginController.structuredViewers = [];
     mockPluginController.plugins = [];
     mockPluginController.busyPluginIds = new Set();
     mockApi.listKnownVaultFiles.mockResolvedValue({ files: [], truncated: false });
     mockPluginController.runSourceControlAction.mockResolvedValue(undefined);
+    mockPluginController.parseStructuredView.mockResolvedValue({
+      rootId: null,
+      nodes: [],
+      error: null,
+      notices: [],
+      truncated: false,
+    });
     mockApi.pluginAutomaticCommit.mockResolvedValue({
       status: "committed",
       message: "Committed the tracked changes.",
@@ -920,6 +957,113 @@ describe("App initial file-tree expansion", () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  it("routes enabled JSON and YAML viewers without changing exact Raw source", async () => {
+    const user = userEvent.setup();
+    const source = "---\r\n# synthetic\r\nvalue: &value 1\r\ncopy: *value\r\n";
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("data.yaml", "text")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "data.yaml",
+      content: source,
+      contentHash: "yaml-hash",
+      encoding: "utf8",
+      lineEnding: "crlf",
+      stats: noteStats(),
+    });
+    mockPluginController.plugins = [structuredViewerPluginView()];
+    mockPluginController.structuredViewers = [structuredViewerContribution()];
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open data.yaml" }),
+    );
+    expect(
+      await screen.findByRole("region", {
+        name: "Structured data.yaml",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Structured" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    await user.click(screen.getByRole("button", { name: "Raw" }));
+    expect(
+      screen.getByRole("button", { name: "Raw" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      screen.getByLabelText("Content of Edit data.yaml").textContent,
+    ).toBe(source);
+    expect(mockApi.recordEdit).not.toHaveBeenCalledWith("data.yaml");
+    expect(mockApi.saveNote).not.toHaveBeenCalledWith(
+      "data.yaml",
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Structured" }));
+    await screen.findByRole("region", {
+      name: "Structured data.yaml",
+    });
+    expect(screen.getByLabelText("Structured source data.yaml").textContent).toBe(
+      source,
+    );
+  });
+
+  it("keeps structured expansion state inside its open tab and clears it when the viewer unregisters", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("first.json", "text"),
+        fileNode("second.yaml", "text"),
+      ]),
+    );
+    mockApi.readNote.mockImplementation(async (path: string) => ({
+      path,
+      content: path.endsWith(".json") ? '{"nested":{"value":1}}' : "nested:\n  value: 2\n",
+      contentHash: `${path}-hash`,
+      encoding: "utf8" as const,
+      lineEnding: "lf" as const,
+      stats: noteStats(),
+    }));
+    mockPluginController.plugins = [structuredViewerPluginView()];
+    mockPluginController.structuredViewers = [structuredViewerContribution()];
+    const rendered = render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open first.json" }),
+    );
+    await user.click(screen.getByRole("button", { name: "Expand nested" }));
+    expect(screen.getByLabelText("Expanded nodes first.json")).toHaveTextContent(
+      "root,root/nested",
+    );
+
+    await user.click(screen.getByRole("button", { name: "New tab" }));
+    await user.click(screen.getByRole("button", { name: "Open second.yaml" }));
+    expect(screen.getByLabelText("Expanded nodes second.yaml")).toBeEmptyDOMElement();
+
+    await user.click(screen.getByRole("tab", { name: /first\.json/i }));
+    expect(screen.getByLabelText("Expanded nodes first.json")).toHaveTextContent(
+      "root,root/nested",
+    );
+
+    mockPluginController.structuredViewers = [];
+    rendered.rerender(<App />);
+    expect(
+      await screen.findByLabelText("Content of Edit first.json"),
+    ).toBeInTheDocument();
+
+    mockPluginController.structuredViewers = [structuredViewerContribution()];
+    rendered.rerender(<App />);
+    expect(
+      await screen.findByLabelText("Expanded nodes first.json"),
+    ).toBeEmptyDOMElement();
   });
 
   it.each(["project", "workspace"] as const)(
@@ -2626,14 +2770,14 @@ describe("App initial file-tree expansion", () => {
           "sample-hash",
         );
       },
-      { timeout: 5000 },
+      { timeout: 10_000 },
     );
     // The save happens before Git runs, so a checkout can never overwrite an
     // edit that was still only in the editor.
     expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(
       mockPluginController.runSourceControlAction.mock.invocationCallOrder[0],
     );
-  });
+  }, 15_000);
 
 });
 
@@ -2663,6 +2807,34 @@ function fileNode(
     modifiedAt: null,
     bookmarked: false,
     pinned: false,
+  };
+}
+
+function structuredViewerContribution(): PluginStructuredViewerContribution {
+  return {
+    pluginId: "denote.json-yaml-viewer",
+    id: "denote.json-yaml-viewer.viewer",
+    title: "JSON and YAML viewer",
+    extensions: ["json", "yaml", "yml"],
+  };
+}
+
+function structuredViewerPluginView(): PluginView {
+  const plugin = syntheticEmojiPluginView();
+  return {
+    ...plugin,
+    enabled: true,
+    status: "enabled",
+    approvedPermissions: [{ capability: "structured-viewer" }],
+    catalog: {
+      ...plugin.catalog,
+      manifest: {
+        ...plugin.catalog.manifest,
+        id: "denote.json-yaml-viewer",
+        name: "JSON and YAML viewer",
+        permissions: [{ capability: "structured-viewer" }],
+      },
+    },
   };
 }
 

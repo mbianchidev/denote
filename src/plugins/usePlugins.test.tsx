@@ -23,6 +23,7 @@ interface MockRuntimeInstance {
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
   runSourceControlAction: ReturnType<typeof vi.fn>;
+  parseStructuredView: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
   setWorkspaceIdentity: ReturnType<typeof vi.fn>;
@@ -55,18 +56,28 @@ vi.mock("../lib/api", () => ({
 
 vi.mock("./workerRuntime", () => {
   class MockPluginWorkerRuntime {
+    running = false;
     start = vi.fn(async () => {
+      this.running = true;
       callOrder.push("start");
     });
     stop = vi.fn(async () => {
+      this.running = false;
       callOrder.push("stop");
     });
     stopAll = vi.fn(async () => {
       callOrder.push("stopAll");
     });
-    isRunning = vi.fn(() => true);
+    isRunning = vi.fn(() => this.running);
     runCommand = vi.fn(async () => {});
     runSourceControlAction = vi.fn(async () => {});
+    parseStructuredView = vi.fn(async () => ({
+      rootId: null,
+      nodes: [],
+      error: null,
+      notices: [],
+      truncated: false,
+    }));
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
@@ -83,6 +94,7 @@ vi.mock("./workerRuntime", () => {
       public onAutomaticLocalCommitsChanged?: unknown,
       public onVaultCloned?: unknown,
       public onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void,
+      public onStructuredViewersChanged?: unknown,
     ) {
       runtimeInstances.push(this);
     }
@@ -149,6 +161,7 @@ async function mountReady(
   initialPlugins: PluginView[],
   projectContext: PluginProjectContext | null = null,
   workspaceIdentity: string | null = "/synthetic/vault-alpha",
+  contentAvailable = true,
 ) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
@@ -157,15 +170,25 @@ async function mountReady(
     ({
       currentProjectContext,
       currentWorkspaceIdentity,
+      currentContentAvailable,
     }: {
       currentProjectContext: PluginProjectContext | null;
       currentWorkspaceIdentity: string | null;
+      currentContentAvailable?: boolean;
     }) =>
-      usePlugins(reportError, currentProjectContext, currentWorkspaceIdentity),
+      usePlugins(
+        reportError,
+        currentProjectContext,
+        currentWorkspaceIdentity,
+        () => {},
+        [],
+        currentContentAvailable ?? true,
+      ),
     {
       initialProps: {
         currentProjectContext: projectContext,
         currentWorkspaceIdentity: workspaceIdentity,
+        currentContentAvailable: contentAvailable,
       },
     },
   );
@@ -188,6 +211,35 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("stops structured viewer workers while content is unavailable and restarts them after unlock", async () => {
+    const enabled = makePlugin({
+      enabled: true,
+      approvedPermissions: [{ capability: "structured-viewer" }],
+    });
+    const rendered = await mountReady(
+      [enabled],
+      null,
+      "/synthetic/encrypted-vault",
+      false,
+    );
+    const runtime = runtimeInstances[0];
+    expect(runtime.start).not.toHaveBeenCalled();
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/encrypted-vault",
+      currentContentAvailable: true,
+    });
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/encrypted-vault",
+      currentContentAvailable: false,
+    });
+    await waitFor(() => expect(runtime.stop).toHaveBeenCalledWith(pluginId));
+  });
+
   it("reactivates after settings import so shortcode enablement and lists take effect", async () => {
     const enabled = makePlugin({ enabled: true });
     const { result } = await mountReady([enabled]);
@@ -287,7 +339,11 @@ describe("usePlugins", () => {
       const write = result.current.saveEmojiPreferences(pluginId, emojiPicker.id, emojiPreferences);
       const rejected = expect(write).rejects.toThrow(/changed/);
       await Promise.resolve();
-      rerender({ currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta" });
+      rerender({
+        currentProjectContext: null,
+        currentWorkspaceIdentity: "/synthetic/vault-beta",
+        currentContentAvailable: true,
+      });
       runtimeInstances[0].getEmojiPicker.mockReturnValue({ ...emojiPicker });
       finishRead({});
       await rejected;
@@ -386,6 +442,38 @@ describe("usePlugins", () => {
     expect(runtimeInstances[0].start).toHaveBeenCalledTimes(1);
     expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-1");
     expect(result.current.plugins).toEqual([makePlugin({ enabled: true })]);
+  });
+
+  it("starts a prepared runtime with the exact permissions native preparation accepted", async () => {
+    const notEnabled = makePlugin({ enabled: false, approvedPermissions: [] });
+    const approvedPermissions = [{ capability: "structured-viewer" }] as const;
+    const { result } = await mountReady([notEnabled]);
+    vi.mocked(api.preparePluginEnable).mockResolvedValueOnce({
+      pluginId,
+      version: "1.0.0",
+      entrypoint: "dist/index.js",
+      transactionId: "tx-structured",
+    });
+    // A renderer refresh may lag the native pending transaction. Runtime
+    // startup must still use the exact payload preparePluginEnable accepted.
+    queueListPlugins([notEnabled]);
+    vi.mocked(api.commitPluginEnable).mockResolvedValueOnce(undefined);
+    queueListPlugins([
+      makePlugin({
+        enabled: true,
+        approvedPermissions: [...approvedPermissions],
+      }),
+    ]);
+
+    await act(async () => {
+      await result.current.enable(pluginId, [...approvedPermissions]);
+    });
+
+    expect(runtimeInstances[0].start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        approvedPermissions: [...approvedPermissions],
+      }),
+    );
   });
 
   it("updates only previously approved plugins that actually have updates", async () => {
@@ -673,6 +761,7 @@ describe("usePlugins", () => {
     rendered.rerender({
       currentProjectContext: next,
       currentWorkspaceIdentity: "/synthetic/vault-alpha",
+      currentContentAvailable: true,
     });
     await waitFor(() => {
       expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(
@@ -684,6 +773,7 @@ describe("usePlugins", () => {
     rendered.rerender({
       currentProjectContext: null,
       currentWorkspaceIdentity: "/synthetic/vault-alpha",
+      currentContentAvailable: true,
     });
     await waitFor(() => {
       expect(runtimeInstances[0].setProjectContext).toHaveBeenLastCalledWith(
@@ -702,6 +792,7 @@ describe("usePlugins", () => {
     rendered.rerender({
       currentProjectContext: null,
       currentWorkspaceIdentity: "/synthetic/vault-beta",
+      currentContentAvailable: true,
     });
 
     await waitFor(() => {
@@ -743,6 +834,7 @@ describe("usePlugins", () => {
     rendered.rerender({
       currentProjectContext: null,
       currentWorkspaceIdentity: "/synthetic/vault-alpha",
+      currentContentAvailable: true,
     });
     await act(async () => {
       await rendered.result.current.runCommand(

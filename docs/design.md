@@ -588,6 +588,31 @@ Escape dismisses that candidate without modifying text. Composition is never
 intercepted. Read-only, binary, locked, and unavailable editors expose no
 insertion action.
 
+### Optional JSON and YAML viewer
+
+The JSON and YAML plugin contributes parsing, never markup. Denote routes
+matching UTF-8 tabs to one host-rendered Structured surface and keeps the
+ordinary source editor as Raw. A compact two-button **Structured** / **Raw**
+group uses `aria-pressed`, visible text, and the standard focus ring; switching
+views never edits or saves the file.
+
+Structured view begins with **Collapse all** and **Expand all** native buttons,
+an optional bounded-view notice, and one virtualized tree. Every row states its
+key or index, type, scalar preview or child count, and optional YAML anchor, so
+meaning does not depend on syntax color. Non-empty containers use a familiar
+chevron and an expanded/collapsed accessible name. The root is expanded
+initially. Collapse all restores that state; Expand all expands at most 5,000
+containers and announces when the bound is reached.
+
+The tree uses one roving keyboard stop. Up/Down move through visible entries,
+Left collapses or moves to the parent, Right expands or moves to the first
+child, Home/End reach the boundaries, and Enter/Space toggles a container.
+Focus moves to a surviving ancestor when collapse hides the current row.
+Parsing, expansion limits, and errors use polite status text; parse errors keep
+the Raw control available and show a line and column when known. Rows retain
+pointer-sized targets, use no decorative motion, and use system borders,
+selection, and focus colors under forced colors.
+
 ### Editor Settings
 
 Editor text size uses a compact 12–24 px range with minus/plus controls and a

@@ -7,6 +7,13 @@ text. Invalid UTF-8 and mixed-line-ending files open as reversible Base64 so
 unchanged bytes round-trip exactly. Images provide both a visual preview and a
 raw Base64 editor. PDFs open in a separate read-only local viewer.
 
+When the optional JSON and YAML viewer is enabled, UTF-8 `.json`, `.yaml`, and
+`.yml` tabs add **Structured** and **Raw**. Structured is a local, bounded typed
+tree; Raw is the ordinary source editor and remains complete for malformed,
+unsupported, or oversized content. Neither mode switch edits or saves the file.
+Expansion state stays with that open tab when it moves between panes and is
+cleared when the tab closes or the viewer unregisters.
+
 ## Read PDFs
 
 - Open a `.pdf` from the tree, recent files, command palette, restored tabs, or

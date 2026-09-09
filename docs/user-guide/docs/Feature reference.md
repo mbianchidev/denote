@@ -258,6 +258,14 @@ more detail and examples.
 
 ## Optional plugins
 
+- The optional JSON and YAML viewer opens `.json`, `.yaml`, and `.yml` as a
+  host-rendered, virtualized typed tree or the exact Raw source; it provides
+  per-container disclosure, first-level Collapse all, bounded Expand all,
+  complete arrow/Home/End keyboard navigation, located errors, per-tab transient
+  expansion, safe YAML 1.2 core parsing, and fixed source, document, node, depth,
+  and alias limits. It is disabled by default, requests only Structured viewer,
+  and clears derived state on tab, plugin, vault-lock, crash, update, and
+  teardown boundaries without modifying files.
 - Approved API version 1 plugins can observe the active explicit or implicit
   project's stable opaque ID and vault-relative root through `project-context`
   change events, without receiving absolute paths or Denote implementation

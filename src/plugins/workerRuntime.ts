@@ -7,8 +7,14 @@ import type {
   PluginProjectContextChangeEvent,
   PluginProjectRepositoryContext,
   PluginSourceControlAction,
+  PluginStructuredViewerParseRequest,
+  PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
-import { emojiPickerMatchesManifest } from "@denote/plugin-sdk";
+import {
+  emojiPickerMatchesManifest,
+  isPluginStructuredViewerRegistration,
+  MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES,
+} from "@denote/plugin-sdk";
 import {
   privilegedHostOperation,
   runHostOperation,
@@ -25,6 +31,7 @@ import {
   type PluginSidebarContribution,
   type PluginSourceControlContribution,
   type PluginStatusContribution,
+  type PluginStructuredViewerContribution,
   type PluginWorkerConnectMessage,
 } from "./runtimeMessages";
 
@@ -36,6 +43,7 @@ export type {
   PluginSidebarContribution,
   PluginSourceControlContribution,
   PluginStatusContribution,
+  PluginStructuredViewerContribution,
 } from "./runtimeMessages";
 export type {
   PluginActionHostSecrets,
@@ -49,6 +57,7 @@ const COMMAND_TIMEOUT_MS = 30_000;
 // Source-control actions drive the bounded native Git transport, whose own hard
 // timeout is ten minutes. Only this lease is extended to match it.
 const SOURCE_CONTROL_ACTION_TIMEOUT_MS = 600_000;
+const STRUCTURED_VIEW_TIMEOUT_MS = 15_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -57,6 +66,7 @@ interface PendingRequest {
   expectedType:
     | "command-result"
     | "source-control-action-result"
+    | "structured-view-result"
     | "deactivated";
 }
 
@@ -79,6 +89,8 @@ interface Runtime {
   stagedDecorations: Map<string, PluginDecorationContribution>;
   emojiPickers: Map<string, PluginEmojiPickerContribution>;
   stagedEmojiPickers: Map<string, PluginEmojiPickerContribution>;
+  structuredViewers: Map<string, PluginStructuredViewerContribution>;
+  stagedStructuredViewers: Map<string, PluginStructuredViewerContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
   stagedSourceControlProviders: Map<string, PluginSourceControlContribution>;
   automaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
@@ -139,6 +151,9 @@ export class PluginWorkerRuntime {
     private readonly onEmojiPickersChanged: (
       pickers: PluginEmojiPickerContribution[],
     ) => void = () => {},
+    private readonly onStructuredViewersChanged: (
+      viewers: PluginStructuredViewerContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -194,6 +209,7 @@ export class PluginWorkerRuntime {
     }
     runtime.phase = "deactivating";
     this.publishEmojiPickers();
+    this.publishStructuredViewers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(
@@ -293,6 +309,7 @@ export class PluginWorkerRuntime {
         `Plugin source control provider ${providerId} is not registered.`,
       );
     }
+
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(
       runtime,
@@ -323,6 +340,47 @@ export class PluginWorkerRuntime {
     } finally {
       runtime.activeActions.delete(requestId);
     }
+  }
+
+  async parseStructuredView(
+    pluginId: string,
+    viewerId: string,
+    request: PluginStructuredViewerParseRequest,
+  ): Promise<PluginStructuredViewModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.structuredViewers.has(viewerId)) {
+      throw new Error(`Plugin structured viewer ${viewerId} is not registered.`);
+    }
+    if (
+      new TextEncoder().encode(request.source).byteLength >
+      MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES
+    ) {
+      return {
+        rootId: null,
+        nodes: [],
+        error: {
+          code: "SOURCE_LIMIT",
+          message:
+            "Structured view size limit is 4 MiB. Use Raw view for this file.",
+        },
+        notices: [],
+        truncated: false,
+      };
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      STRUCTURED_VIEW_TIMEOUT_MS,
+      "structured-view-result",
+    );
+    runtime.port.postMessage({
+      type: "parse-structured-view",
+      viewerId,
+      request,
+      requestId,
+    });
+    return (await result) as PluginStructuredViewModel;
   }
 
   isRunning(pluginId: string): boolean {
@@ -455,6 +513,8 @@ export class PluginWorkerRuntime {
       stagedDecorations: new Map(),
       emojiPickers: new Map(),
       stagedEmojiPickers: new Map(),
+      structuredViewers: new Map(),
+      stagedStructuredViewers: new Map(),
       sourceControlProviders: new Map(),
       stagedSourceControlProviders: new Map(),
       automaticCommits: new Map(),
@@ -555,6 +615,10 @@ export class PluginWorkerRuntime {
         runtime.emojiPickers.set(id, picker);
       }
       runtime.stagedEmojiPickers.clear();
+      for (const [id, viewer] of runtime.stagedStructuredViewers) {
+        runtime.structuredViewers.set(id, viewer);
+      }
+      runtime.stagedStructuredViewers.clear();
       for (const [providerId, provider] of runtime.stagedSourceControlProviders) {
         runtime.sourceControlProviders.set(providerId, provider);
       }
@@ -570,6 +634,7 @@ export class PluginWorkerRuntime {
       this.publishSourceControlProviders();
       this.publishAutomaticLocalCommits();
       this.publishEmojiPickers();
+      this.publishStructuredViewers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -740,6 +805,50 @@ export class PluginWorkerRuntime {
         runtime.stagedEmojiPickers.delete(message.id);
         this.publishEmojiPickers();
         return;
+      case "register-structured-viewer": {
+        const registration = {
+          id: message.id,
+          title: message.title,
+          extensions: message.extensions,
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("structured-viewer") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginStructuredViewerRegistration(registration) ||
+          runtime.structuredViewers.size +
+            runtime.stagedStructuredViewers.size >
+            0 ||
+          message.extensions.some((extension) =>
+            this.structuredViewerExtensionRegistered(extension),
+          )
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized structured viewer registration.`,
+            ),
+          );
+          return;
+        }
+        const contribution: PluginStructuredViewerContribution = {
+          pluginId,
+          ...registration,
+        };
+        const viewers = runtime.activated
+          ? runtime.structuredViewers
+          : runtime.stagedStructuredViewers;
+        viewers.set(message.id, contribution);
+        if (runtime.activated) {
+          this.publishStructuredViewers();
+        }
+        return;
+      }
+      case "unregister-structured-viewer":
+        runtime.structuredViewers.delete(message.id);
+        runtime.stagedStructuredViewers.delete(message.id);
+        this.publishStructuredViewers();
+        return;
       case "register-source-control": {
         if (
           (runtime.phase !== "activating" && runtime.phase !== "active") ||
@@ -886,8 +995,19 @@ export class PluginWorkerRuntime {
         }
         return;
       case "command-result":
-      case "source-control-action-result": {
-        if (!this.settle(runtime, message.requestId, message.type, message.error)) {
+      case "source-control-action-result":
+      case "structured-view-result": {
+        if (
+          !this.settle(
+            runtime,
+            message.requestId,
+            message.type,
+            message.error,
+            message.type === "structured-view-result"
+              ? message.model
+              : undefined,
+          )
+        ) {
           this.protocolViolation(
             pluginId,
             `unexpected ${message.type} for pending request`,
@@ -1030,6 +1150,7 @@ export class PluginWorkerRuntime {
     requestId: string,
     responseType: PendingRequest["expectedType"],
     error?: string,
+    value?: unknown,
   ): boolean {
     const pending = runtime.pending.get(requestId);
     if (!pending) {
@@ -1043,7 +1164,7 @@ export class PluginWorkerRuntime {
     if (error) {
       pending.reject(new Error(error));
     } else {
-      pending.resolve(undefined);
+      pending.resolve(value);
     }
     return true;
   }
@@ -1055,6 +1176,20 @@ export class PluginWorkerRuntime {
         runtime.stagedSourceControlProviders.has(id)
       ) {
         return true;
+      }
+    }
+    return false;
+  }
+
+  private structuredViewerExtensionRegistered(extension: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      for (const viewer of [
+        ...runtime.structuredViewers.values(),
+        ...runtime.stagedStructuredViewers.values(),
+      ]) {
+        if (viewer.extensions.includes(extension)) {
+          return true;
+        }
       }
     }
     return false;
@@ -1081,6 +1216,7 @@ export class PluginWorkerRuntime {
     this.publishSourceControlProviders();
     this.publishAutomaticLocalCommits();
     this.publishEmojiPickers();
+    this.publishStructuredViewers();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -1103,6 +1239,7 @@ export class PluginWorkerRuntime {
     }
     runtime.phase = "stopping";
     this.publishEmojiPickers();
+    this.publishStructuredViewers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
   }
@@ -1151,6 +1288,16 @@ export class PluginWorkerRuntime {
     this.onEmojiPickersChanged(
       [...this.runtimes.values()].flatMap((runtime) =>
         runtime.phase === "active" ? [...runtime.emojiPickers.values()] : [],
+      ),
+    );
+  }
+
+  private publishStructuredViewers(): void {
+    this.onStructuredViewersChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active"
+          ? [...runtime.structuredViewers.values()]
+          : [],
       ),
     );
   }

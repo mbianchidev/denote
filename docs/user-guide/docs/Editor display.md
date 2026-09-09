@@ -107,6 +107,19 @@ Terraform files use `.tf`, `.tfvars`, or `.hcl`. Helm `.tpl` files are detected
 automatically; Helm YAML templates stay YAML until **Helm template** is selected
 as the tab override.
 
+## Structured JSON and YAML
+
+When the optional JSON and YAML viewer is enabled, matching UTF-8 tabs open in
+Structured view and add a visible **Structured** / **Raw** control. Raw keeps
+the source editor, language highlighting, line-ending behavior, display guides,
+and editing settings described above. Structured is read-only presentation and
+does not change the source language or saved bytes.
+
+Structured view labels every type in text, virtualizes long trees, and keeps
+expansion state only for the open tab. Its parser and presentation limits are
+described in [Optional plugins](<Optional plugins.md>). Source language overrides
+remain available in Raw and never affect parsing or the file.
+
 ## Session restore
 
 **Reopen tabs from the last session** is enabled by default for each vault. It

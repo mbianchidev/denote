@@ -1809,6 +1809,172 @@ button:disabled {
   border-bottom: 1px solid var(--border);
 }
 
+.structured-data-viewer {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+}
+
+.structured-data-viewer__toolbar {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.structured-data-viewer__toolbar button,
+.structured-view-toggle button {
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--text-secondary);
+  background: var(--raised-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.structured-data-viewer__toolbar button:hover,
+.structured-view-toggle button:hover,
+.structured-view-toggle button[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--hover-bg);
+}
+
+.structured-view-toggle button[aria-pressed="true"] {
+  font-weight: 650;
+  border-color: var(--accent);
+}
+
+.structured-data-viewer__limit {
+  margin-left: auto;
+  color: var(--warning);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.structured-data-viewer__tree {
+  min-height: 0;
+  flex: 1;
+  padding: 6px 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.structured-data-viewer__row {
+  display: flex;
+  width: 100%;
+  height: 30px;
+  align-items: center;
+  gap: 8px;
+  padding-block: 0;
+  padding-right: 12px;
+  overflow: hidden;
+  text-align: left;
+  white-space: nowrap;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+
+.structured-data-viewer__row:hover,
+.structured-data-viewer__row:focus-visible {
+  background: var(--hover-bg);
+}
+
+.structured-data-viewer__row:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.structured-data-viewer__disclosure {
+  display: inline-flex;
+  width: 14px;
+  height: 24px;
+  flex: 0 0 14px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.structured-data-viewer__key {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.structured-data-viewer__type {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  font-weight: 650;
+  text-transform: uppercase;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+}
+
+.structured-data-viewer__value {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--code-string);
+  text-overflow: ellipsis;
+}
+
+.structured-data-viewer__row[aria-label*=", number,"] .structured-data-viewer__value {
+  color: var(--code-number);
+}
+
+.structured-data-viewer__row[aria-label*=", boolean,"] .structured-data-viewer__value,
+.structured-data-viewer__row[aria-label*=", null,"] .structured-data-viewer__value,
+.structured-data-viewer__row[aria-label*=", alias,"] .structured-data-viewer__value {
+  color: var(--code-keyword);
+}
+
+.structured-data-viewer__count,
+.structured-data-viewer__anchor {
+  color: var(--text-tertiary);
+}
+
+.structured-data-viewer__error,
+.structured-data-viewer__notice,
+.structured-data-viewer__loading {
+  display: grid;
+  gap: 6px;
+  margin: 14px;
+  padding: 12px;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.structured-data-viewer__error {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+
+.structured-data-viewer__notice {
+  margin-bottom: 0;
+  color: var(--warning);
+}
+
+.structured-view-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
 .image-viewer {
   display: grid;
   min-height: 0;
@@ -6020,6 +6186,20 @@ kbd {
 }
 
 @media (forced-colors: active) {
+  .structured-data-viewer__toolbar button,
+  .structured-view-toggle button,
+  .structured-data-viewer__type,
+  .structured-data-viewer__error,
+  .structured-data-viewer__notice {
+    border-color: ButtonText;
+  }
+
+  .structured-view-toggle button[aria-pressed="true"] {
+    color: HighlightText;
+    background: Highlight;
+    outline: 1px solid HighlightText;
+  }
+
   .language-combobox__trigger,
   .language-combobox__popover,
   .language-combobox__search,

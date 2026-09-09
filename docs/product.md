@@ -366,6 +366,19 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Locking a vault or disabling the plugin removes its editor UI; previously
   inserted Unicode remains ordinary portable text. No search, typing, note
   content, or preferences are sent to a network service.
+- The independently installable **JSON and YAML viewer** plugin is disabled by
+  default. After enablement, `.json`, `.yaml`, and `.yml` files can switch
+  between Denote's exact Raw source editor and a host-rendered Structured tree.
+  The tree labels keys, indexes, scalar types, aliases, and container types in
+  text, keeps the root and first level visible initially, supports per-container
+  disclosure plus bounded Collapse all and Expand all, virtualizes long visible
+  trees, and keeps expansion state only in the open tab. Parsing runs locally in
+  the isolated plugin worker with a YAML 1.2 core schema, no custom tags, merge
+  keys, constructors, scripts, or network access, and fixed 4 MiB source,
+  100-document, 50,000-node, 128-level, and 500-alias limits. Errors retain Raw
+  access and report line/column details when available. Locking a vault stops
+  the viewer worker; closing, disabling, crashing, updating, or removing the
+  plugin releases its models and never changes file bytes.
 - Development builds use a separate application identity and can explicitly
   load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
   untrusted, pass the ordinary package/runtime safety checks, and are

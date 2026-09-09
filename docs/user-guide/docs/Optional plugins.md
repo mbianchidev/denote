@@ -111,6 +111,43 @@ Settings reset clears the lists; disabling alone retains them for reinstall.
 The plugin has no direct filesystem, encryption-key, or network access. It
 does not replace the operating system's emoji picker.
 
+## JSON and YAML viewer
+
+Enable **JSON and YAML viewer** under **Code** to open `.json`, `.yaml`, and
+`.yml` files as structured trees. The plugin is off by default and its
+executable code is downloaded only after you approve **Structured viewer**. It
+has no file-write, network, process, or clipboard permission.
+
+Use **Structured** and **Raw** in the editor toolbar. Raw is Denote's ordinary
+source editor and preserves the complete file, including YAML comments,
+formatting, document separators, anchors, aliases, encoding, and line endings.
+Switching views never saves or reformats anything.
+
+Structured rows show the key or array index plus a written type: object, array,
+mapping, sequence, string, number, boolean, null, scalar, or alias. Anchors are
+shown beside their container or scalar. Aliases remain references and are not
+expanded recursively. The root and its first-level entries are visible when
+the view opens.
+
+Select a non-empty container to expand or collapse it. **Collapse all** keeps
+the root and first level visible. **Expand all** expands up to 5,000 containers
+and announces when more remain collapsed. Up/Down move through visible rows,
+Left collapses or moves to the parent, Right expands or moves to the first
+child, Home/End move to the boundaries, and Enter/Space toggles a container.
+
+Parsing is local in the isolated plugin worker. JSON/YAML Structured view is
+limited to 4 MiB of source, 100 YAML documents, 50,000 nodes, 128 levels, and
+500 aliases. YAML uses the 1.2 core schema: custom tags, YAML 1.1 known tags,
+merge keys, constructors, scripts, and network loading are disabled. A malformed
+file or exhausted limit shows an actionable error, with line and column when
+available, while Raw remains usable.
+
+Expansion state belongs only to the open tab. Closing the tab, disabling or
+updating the plugin, a crash, vault switch, or application teardown releases
+the parsed model. Locking an encrypted vault stops the viewer worker and clears
+decrypted derived state; it restarts after unlock. Disabling or removing the
+plugin never changes open files.
+
 ## Other optional features
 
 These capabilities are planned as separately enabled plugins:

@@ -731,6 +731,53 @@ future specialized grammar contribution would require a separately approved,
 typed, bundled host contract with deterministic disposal and fallback; API
 version 1 does not expose editor grammars or runtime grammar downloads.
 
+### Structured source viewers
+
+The additive API version 1 `structured-viewer` permission accepts one
+declarative viewer per plugin for the fixed JSON/YAML extension set. A
+registration contains a namespaced ID, title, lowercase unique extensions, and
+one worker-owned parser callback. It contains no React component, HTML, style,
+editor object, filesystem path, network handle, write capability, or arbitrary
+host action.
+
+For a matching open UTF-8 tab, the host sends only its vault-relative path,
+`json` or `yaml` format, and current in-memory source to the registered isolated
+worker. The host refuses source above 4 MiB before transfer. The worker returns
+one parent-first flat tree of at most 50,000 nodes and 8 MiB, or one bounded
+diagnostic. Runtime validation requires a single existing root, unique bounded
+IDs, exact parent/depth and child-count relationships, fixed container/scalar
+types, bounded display text, and no control or bidirectional formatting
+characters. Invalid registration, disclosure, or output terminates the runtime.
+Extension ownership is unique across active plugins.
+
+The renderer owns file routing, Raw/Structured controls, virtualization,
+disclosures, expansion state, keyboard navigation, focus restoration, status
+announcements, and forced-color behavior. Raw reuses the ordinary source editor
+and tab content; the plugin cannot write, normalize, reformat, or replace it.
+Expansion state is typed transient `EditorTab` state and is excluded from vault
+content and restored tab-session JSON. Unregistration clears it. A path-keyed
+component instance and monotonic parse request guard prevent state and late
+worker responses from crossing files.
+
+`denote.json-yaml-viewer` bundles `yaml` 2.9.0 in its separately downloaded
+archive. JSON uses the native parser after the host source bound and reports
+available error offsets. YAML uses `parseAllDocuments` with YAML 1.2 core,
+strict unique string keys, merge keys off, known YAML 1.1 tags off, no custom
+tags, and no conversion to recursive JavaScript objects. The plugin walks the
+AST iteratively. Anchors are labels and aliases are terminal references, so
+cycles and alias graphs are never recursively expanded. It additionally caps
+streams at 100 documents, depth at 128, aliases at 500, and emitted nodes at
+50,000. Unsupported tags and exhausted bounds return a diagnostic while Raw
+source remains available.
+
+Structured model memory lives only in the mounted host surface. Tab close,
+navigation to another file, Raw switching, plugin unregistration, crash,
+disable, update, vault switch, and application teardown unmount the surface.
+Structured-viewer workers are stopped while no workspace content is available
+or an encrypted vault is locked, then restarted from the verified installed
+package after unlock. This prevents decrypted source or derived models from
+surviving a lock without disabling or deleting the installed plugin.
+
 The native plugin manager embeds only `plugins/catalog.json`. Plugin
 artifacts remain separate GitHub Release assets and are downloaded over HTTPS after
 approval. The native core verifies the catalog size and SHA-256 digest before

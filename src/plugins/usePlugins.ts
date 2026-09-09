@@ -8,6 +8,8 @@ import type {
   PluginProjectContext,
   PluginProjectRepositoryContext,
   PluginSourceControlAction,
+  PluginStructuredViewerParseRequest,
+  PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
@@ -21,6 +23,7 @@ import {
   type PluginDecorationContribution,
   type PluginEmojiPickerContribution,
   type PluginSourceControlContribution,
+  type PluginStructuredViewerContribution,
 } from "./workerRuntime";
 import { emojiPreferenceSettings } from "./emojiPickers";
 
@@ -34,6 +37,7 @@ export interface PluginController {
   statusItems: PluginStatusContribution[];
   decorations: PluginDecorationContribution[];
   emojiPickers: PluginEmojiPickerContribution[];
+  structuredViewers: PluginStructuredViewerContribution[];
   saveEmojiPreferences: (
     pluginId: string,
     pickerId: string,
@@ -76,6 +80,11 @@ export interface PluginController {
     workspaceScope: string,
     hostSecrets?: PluginActionHostSecrets,
   ) => Promise<void>;
+  parseStructuredView: (
+    pluginId: string,
+    viewerId: string,
+    request: PluginStructuredViewerParseRequest,
+  ) => Promise<PluginStructuredViewModel>;
   emitNoteEvent: (event: PluginNoteEvent) => void;
   invalidateActionLeases: () => void;
   shutdown: () => Promise<void>;
@@ -97,6 +106,7 @@ export function usePlugins(
    */
   onVaultCloned: PluginVaultClonedHandler = () => {},
   projectRepositories: PluginProjectRepositoryContext[] = EMPTY_PROJECT_REPOSITORIES,
+  contentAvailable = true,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
@@ -109,6 +119,9 @@ export function usePlugins(
     PluginDecorationContribution[]
   >([]);
   const [emojiPickers, setEmojiPickers] = useState<PluginEmojiPickerContribution[]>([]);
+  const [structuredViewers, setStructuredViewers] = useState<
+    PluginStructuredViewerContribution[]
+  >([]);
   const [sourceControlProviders, setSourceControlProviders] = useState<
     PluginSourceControlContribution[]
   >([]);
@@ -128,6 +141,8 @@ export function usePlugins(
   const emojiWriteGenerations = useRef(new Map<string, number>());
   const workspaceIdentityRef = useRef(workspaceIdentity);
   workspaceIdentityRef.current = workspaceIdentity;
+  const contentAvailableRef = useRef(contentAvailable);
+  contentAvailableRef.current = contentAvailable;
 
   const refresh = useCallback(async () => {
     setPlugins(await api.listPlugins());
@@ -166,6 +181,7 @@ export function usePlugins(
       setAutomaticLocalCommits,
       (snapshot) => vaultClonedRef.current(snapshot),
       setEmojiPickers,
+      setStructuredViewers,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -193,6 +209,14 @@ export function usePlugins(
         for (const plugin of available.filter((entry) => entry.enabled)) {
           if (cancelled || !startsAllowedRef.current) {
             break;
+          }
+          if (
+            plugin.approvedPermissions.some(
+              (permission) => permission.capability === "structured-viewer",
+            ) &&
+            !contentAvailableRef.current
+          ) {
+            continue;
           }
           try {
             await runtime.start(plugin);
@@ -235,6 +259,44 @@ export function usePlugins(
     runtimeRef.current?.setWorkspaceIdentity(workspaceIdentity);
     runtimeRef.current?.setProjectContext(projectContext, projectRepositories);
   }, [projectContext, projectRepositories, workspaceIdentity]);
+
+  useEffect(() => {
+    const runtime = runtimeRef.current;
+    if (!runtime) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      for (const plugin of plugins) {
+        if (
+          cancelled ||
+          !plugin.enabled ||
+          !plugin.approvedPermissions.some(
+            (permission) => permission.capability === "structured-viewer",
+          )
+        ) {
+          continue;
+        }
+        const pluginId = plugin.catalog.manifest.id;
+        try {
+          if (contentAvailable) {
+            if (!runtime.isRunning(pluginId) && startsAllowedRef.current) {
+              await runtime.start(plugin);
+            }
+          } else if (runtime.isRunning(pluginId)) {
+            await runtime.stop(pluginId);
+          }
+        } catch (error) {
+          if (!cancelled) {
+            reportError(error);
+          }
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [contentAvailable, plugins, reportError]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -319,7 +381,10 @@ export function usePlugins(
           if (!runtime) {
             throw new Error("Plugin runtime is unavailable.");
           }
-          await runtime.start(prepared);
+          await runtime.start({
+            ...prepared,
+            approvedPermissions,
+          });
           runtimeStarted = true;
           if (!runtime.isRunning(pluginId)) {
             throw new Error(`Plugin ${pluginId} stopped before enablement completed.`);
@@ -645,6 +710,21 @@ export function usePlugins(
     [reloadSettings, withBusy],
   );
 
+  const parseStructuredView = useCallback(
+    (
+      pluginId: string,
+      viewerId: string,
+      request: PluginStructuredViewerParseRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.parseStructuredView(pluginId, viewerId, request);
+    },
+    [],
+  );
+
   const shutdown = useCallback(async () => {
     startsAllowedRef.current = false;
     await Promise.allSettled([...emojiWritesRef.current.values()]);
@@ -669,6 +749,7 @@ export function usePlugins(
     statusItems,
     decorations,
     emojiPickers,
+    structuredViewers,
     saveEmojiPreferences,
     sourceControlProviders,
     automaticLocalCommits,
@@ -687,6 +768,7 @@ export function usePlugins(
     importSettings,
     runCommand,
     runSourceControlAction,
+    parseStructuredView,
     emitNoteEvent,
     invalidateActionLeases,
     shutdown,

@@ -17,6 +17,8 @@ import type {
   PluginProjectRepositoryContext,
   PluginSourceControlProvider,
   PluginSourceControlViewModel,
+  PluginStructuredViewer,
+  PluginStructuredViewModel,
   PluginTextDocument,
   PluginUserActionContext,
 } from "@denote/plugin-sdk";
@@ -31,7 +33,12 @@ import {
 } from "./runtimeMessages";
 import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
-import { isPluginEmojiPicker, emojiPickerMatchesManifest } from "@denote/plugin-sdk";
+import {
+  emojiPickerMatchesManifest,
+  isPluginEmojiPicker,
+  isPluginStructuredViewerRegistration,
+  isPluginStructuredViewModel,
+} from "@denote/plugin-sdk";
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -50,11 +57,16 @@ const sourceControlHandlers = new Map<
   string,
   PluginSourceControlProvider["runAction"]
 >();
+const structuredViewerHandlers = new Map<
+  string,
+  PluginStructuredViewer["parse"]
+>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
 const automaticCommitSchedules = new Set<string>();
 const emojiPickers = new Set<string>();
+const structuredViewers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
 >();
@@ -321,6 +333,44 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("structured-viewer")) {
+    capabilities.structuredViewer = {
+      register(viewer) {
+        const registration = {
+          id: viewer?.id,
+          title: viewer?.title,
+          extensions: viewer?.extensions,
+        };
+        if (
+          cleaned ||
+          !isPluginStructuredViewerRegistration(registration) ||
+          typeof viewer.parse !== "function" ||
+          structuredViewers.size > 0
+        ) {
+          throw new Error(
+            "Invalid or duplicate structured viewer registration.",
+          );
+        }
+        validateContributionId(viewer.id, "structured viewer");
+        structuredViewers.add(viewer.id);
+        structuredViewerHandlers.set(viewer.id, viewer.parse);
+        send({
+          type: "register-structured-viewer",
+          ...registration,
+        });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          structuredViewers.delete(viewer.id);
+          structuredViewerHandlers.delete(viewer.id);
+          send({ type: "unregister-structured-viewer", id: viewer.id });
+        });
+      },
+    };
+  }
   if (permissions.has("note-events")) {
     capabilities.noteEvents = {
       subscribe(listener) {
@@ -558,8 +608,10 @@ async function cleanup(): Promise<unknown[]> {
   projectContextListeners.clear();
   commandHandlers.clear();
   sourceControlHandlers.clear();
+  structuredViewerHandlers.clear();
   automaticCommitSchedules.clear();
   emojiPickers.clear();
+  structuredViewers.clear();
   return failures;
 }
 
@@ -653,6 +705,30 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     } catch (error) {
       send({
         type: "source-control-action-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "parse-structured-view") {
+    try {
+      const parse = structuredViewerHandlers.get(message.viewerId);
+      if (!parse) {
+        throw new Error("Structured viewer is no longer registered.");
+      }
+      const model: PluginStructuredViewModel = await parse(message.request);
+      if (!isPluginStructuredViewModel(model)) {
+        throw new Error("Structured viewer returned an invalid model.");
+      }
+      send({
+        type: "structured-view-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "structured-view-result",
         requestId: message.requestId,
         error: errorMessage(error),
       });

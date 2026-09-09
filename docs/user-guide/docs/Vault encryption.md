@@ -24,6 +24,12 @@ its local renderer worker and clears decrypted PDF bytes, canvases, text,
 search indexes, object URLs, and caches. Unlocking restores the tab through the
 ordinary encrypted read boundary.
 
+A locked vault also stops the optional JSON and YAML viewer worker and removes
+its host-rendered tree and expansion model. Decrypted source is not sent again
+until unlock. Closing the tab, switching vaults, disabling or updating the
+plugin, a plugin crash, or closing Denote clears the same derived state without
+changing the encrypted file.
+
 ## Disable encryption
 
 Denote must decrypt every file and saved revision successfully before it removes

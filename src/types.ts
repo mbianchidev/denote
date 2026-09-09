@@ -408,6 +408,11 @@ export interface EditorTab {
   rawEditing: boolean;
   readOnly?: boolean;
   languageOverride?: SourceLanguageOverride;
+  structuredViewState?: {
+    pluginId: string;
+    viewerId: string;
+    expandedNodeIds: string[];
+  };
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
