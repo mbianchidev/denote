@@ -2684,7 +2684,7 @@ describe("App initial file-tree expansion", () => {
       () => {
         expect(mockPluginController.runSourceControlAction).toHaveBeenCalled();
       },
-      { timeout: 10_000 },
+      { timeout: 5000 },
     );
     // A placeholder has a synthetic path rather than a vault path, so it is
     // neither reloaded nor reported as a file the branch does not have.
