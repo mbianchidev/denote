@@ -291,6 +291,8 @@ more detail and examples.
 - The Welcome vault includes a Mermaid note, deterministic synthetic PDF,
   nested JSON and YAML examples, and a `code` folder covering every distinct
   core syntax mode plus filename-only and ambiguous detection cases.
+- Older Welcome vaults receive only missing `examples` and `code` files once;
+  existing paths remain untouched, and encrypted copies wait for unlock.
 - Graph view, Kanban, task enhancements, reminders, comments,
   highlighting, TTS/dictation, calendar, time tracking, and colorful text remain
   optional rather than built into the minimal core.

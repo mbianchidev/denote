@@ -105,7 +105,9 @@ Preserve the one-time, non-destructive Denote Welcome vault behavior. Existing
 Welcome vaults must not be overwritten. When adding, removing, or moving a
 Welcome file, update `SEED_FILES` in `src-tauri/src/default_vault.rs`. Content
 changes affect new Welcome vaults unless a separate non-destructive migration is
-implemented.
+implemented. The versioned `examples-v1` addition may add only missing
+`examples/` and `code/` files to older Welcome vaults; it preserves existing
+paths, defers while encrypted, and writes ciphertext after unlock.
 
 Tests and test fixtures must use synthetic mock data. Never copy filenames,
 paths, note text, customer data, personal data, or production data from a real

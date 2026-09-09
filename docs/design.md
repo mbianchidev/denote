@@ -474,6 +474,10 @@ source code so edge cases remain easy to exercise.
 New Welcome vaults seed the same canonical guide as both `.denote.md` and
 `Welcome.md`; the latter remains for stable links and existing-vault
 compatibility.
+Older Welcome vaults receive only missing `examples` and `code` paths once.
+Existing matching paths and user-added content keep their bytes. Encrypted
+copies wait for unlock and receive encrypted files before the workspace
+refreshes.
 
 ### Callouts
 

@@ -163,6 +163,14 @@ once to older unencrypted Welcome vaults. Existing `test` entries are preserved,
 symlinks are never traversed, and encrypted vaults defer the addition until the
 encryption manifest is removed.
 
+A separate `examples-v1` marker adds only missing canonical `examples/` and
+`code/` files to older Welcome vaults. Existing paths and user-added files are
+never replaced or removed. Locked encrypted vaults defer this addition; after a
+password or recovery-code unlock, the native host confirms the active vault is
+the registered default and writes every missing file plus the marker directly
+as authenticated ciphertext. Symlinked/reparse-point folders, files, or markers
+are refused without following them.
+
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's

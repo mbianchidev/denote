@@ -577,6 +577,11 @@ YAML files live in `docs/user-guide/examples/`; the PDF must remain exactly
 equal to the deterministic `createPdfFixture` output and contain no actions,
 forms, annotations, attachments, or external links.
 
+`src-tauri/src/default_vault.rs` also owns the non-destructive `examples-v1`
+addition for older Welcome vaults. Tests must prove exact source inventory,
+missing-file addition, existing-file preservation, one-time behavior, symlink
+refusal, encrypted deferral, and ciphertext creation after unlock.
+
 Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
 maintained package, so its small core stream tokenizer stays in
 `src/lib/syntaxLanguages.ts` and must retain synthetic coverage for YAML keys,

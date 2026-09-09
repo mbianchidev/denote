@@ -19,6 +19,7 @@ use crate::{
     app_links::{self, AppLinkResolution, ImportedAppLink},
     crypto::{self, EncryptionPhase},
     db::{self, AppState},
+    default_vault,
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, GitignoreStatusUpdate,
@@ -491,6 +492,11 @@ pub fn unlock_vault_with_password(
     let key = vault_key.copy_bytes();
     state.set_vault_key(vault_key)?;
     finish_pending_encryption(&state, &root, &mut manifest, &key)?;
+    if let Err(error) =
+        default_vault::add_missing_examples_after_unlock(&state.db_path, &root, &key)
+    {
+        eprintln!("Unable to add default-vault examples after unlock: {error}");
+    }
     refreshed_snapshot(&state)
 }
 
@@ -511,6 +517,11 @@ pub fn unlock_vault_with_recovery_code(
     let key = vault_key.copy_bytes();
     state.set_vault_key(vault_key)?;
     finish_pending_encryption(&state, &root, &mut manifest, &key)?;
+    if let Err(error) =
+        default_vault::add_missing_examples_after_unlock(&state.db_path, &root, &key)
+    {
+        eprintln!("Unable to add default-vault examples after unlock: {error}");
+    }
     refreshed_snapshot(&state)
 }
 

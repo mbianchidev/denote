@@ -17,6 +17,8 @@
 > This ordinary local folder is your built-in guide. Edit it, encrypt it, move it,
 > or delete it. Its `.denote.md` opens when no tab session needs restoring, and
 > Denote never replaces your changes.
+> When a release adds the `examples` or `code` collection, Denote adds only
+> missing paths once. Existing files keep their bytes.
 
 ## What is Denote
 

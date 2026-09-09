@@ -71,6 +71,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - The Welcome vault includes a one-time, non-destructive `test` folder covering
   Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
   highlighted source files.
+- Releases that add the canonical `examples` and `code` collections add only
+  missing paths once to older Welcome vaults. Existing matching files and
+  user-added content are preserved. Locked encrypted Welcome vaults defer the
+  addition until unlock, when new files are written as ciphertext.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
 - Installed desktop builds handle `denote:///absolute/path/to/file` app links.
