@@ -25,10 +25,7 @@ vi.mock("mermaid", () => ({
 
 beforeEach(() => {
   vi.spyOn(window, "getComputedStyle").mockImplementation(
-    () =>
-      ({
-        getPropertyValue: () => "",
-      }) as CSSStyleDeclaration,
+    () => document.createElement("div").style,
   );
 });
 
