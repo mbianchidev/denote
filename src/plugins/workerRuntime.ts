@@ -1,6 +1,8 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
 import type {
+  PluginDiagramRenderRequest,
+  PluginDiagramRenderResult,
   PluginNoteEvent,
   PluginManifest,
   PluginProjectContext,
@@ -12,6 +14,7 @@ import type {
 } from "@denote/plugin-sdk";
 import {
   emojiPickerMatchesManifest,
+  isPluginDiagramRendererRegistration,
   isPluginStructuredViewerRegistration,
   MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES,
 } from "@denote/plugin-sdk";
@@ -26,6 +29,7 @@ import {
   type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginDecorationContribution,
+  type PluginDiagramRendererContribution,
   type PluginEmojiPickerContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
@@ -34,11 +38,13 @@ import {
   type PluginStructuredViewerContribution,
   type PluginWorkerConnectMessage,
 } from "./runtimeMessages";
+import { DiagramRendererHost } from "./diagramRenderers";
 
 export type {
   PluginAutomaticLocalCommitContribution,
   PluginCommandContribution,
   PluginDecorationContribution,
+  PluginDiagramRendererContribution,
   PluginEmojiPickerContribution,
   PluginSidebarContribution,
   PluginSourceControlContribution,
@@ -91,6 +97,8 @@ interface Runtime {
   stagedEmojiPickers: Map<string, PluginEmojiPickerContribution>;
   structuredViewers: Map<string, PluginStructuredViewerContribution>;
   stagedStructuredViewers: Map<string, PluginStructuredViewerContribution>;
+  diagramRenderers: Map<string, PluginDiagramRendererContribution>;
+  stagedDiagramRenderers: Map<string, PluginDiagramRendererContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
   stagedSourceControlProviders: Map<string, PluginSourceControlContribution>;
   automaticCommits: Map<string, PluginAutomaticLocalCommitContribution>;
@@ -116,6 +124,9 @@ export class PluginWorkerRuntime {
   private readonly generations = new Map<string, number>();
   private projectContext: PluginProjectContext | null = null;
   private projectRepositories: PluginProjectRepositoryContext[] = [];
+  private readonly diagramHost = new DiagramRendererHost((pluginId, error) => {
+    void this.failRuntime(pluginId, error);
+  });
   /**
    * Identifies the workspace the host is showing. It never leaves the host: it
    * is compared here and only the resulting change flag is broadcast.
@@ -153,6 +164,9 @@ export class PluginWorkerRuntime {
     ) => void = () => {},
     private readonly onStructuredViewersChanged: (
       viewers: PluginStructuredViewerContribution[],
+    ) => void = () => {},
+    private readonly onDiagramRenderersChanged: (
+      renderers: PluginDiagramRendererContribution[],
     ) => void = () => {},
   ) {}
 
@@ -210,6 +224,7 @@ export class PluginWorkerRuntime {
     runtime.phase = "deactivating";
     this.publishEmojiPickers();
     this.publishStructuredViewers();
+    this.publishDiagramRenderers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(
@@ -383,6 +398,26 @@ export class PluginWorkerRuntime {
     return (await result) as PluginStructuredViewModel;
   }
 
+  renderDiagram(
+    renderer: PluginDiagramRendererContribution,
+    request: PluginDiagramRenderRequest,
+    scopeId: string,
+    signal: AbortSignal,
+  ): Promise<PluginDiagramRenderResult> {
+    const runtime = this.requireRuntime(renderer.pluginId);
+    if (
+      runtime.phase !== "active" ||
+      !runtime.diagramRenderers.has(renderer.id)
+    ) {
+      throw new Error("The diagram renderer is no longer available.");
+    }
+    return this.diagramHost.render(renderer, request, scopeId, signal);
+  }
+
+  releaseDiagramScope(scopeId: string): void {
+    this.diagramHost.releaseScope(scopeId);
+  }
+
   isRunning(pluginId: string): boolean {
     return this.runtimes.get(pluginId)?.phase === "active";
   }
@@ -447,6 +482,7 @@ export class PluginWorkerRuntime {
       return;
     }
     this.workspaceIdentity = identity;
+    this.diagramHost.clearDerivedContent();
     // Every lease was granted against the previous workspace, so an action
     // still in flight must not be allowed to land on the new one. Unlike a
     // project change, this reaches plugins that never asked for project
@@ -515,6 +551,8 @@ export class PluginWorkerRuntime {
       stagedEmojiPickers: new Map(),
       structuredViewers: new Map(),
       stagedStructuredViewers: new Map(),
+      diagramRenderers: new Map(),
+      stagedDiagramRenderers: new Map(),
       sourceControlProviders: new Map(),
       stagedSourceControlProviders: new Map(),
       automaticCommits: new Map(),
@@ -619,6 +657,10 @@ export class PluginWorkerRuntime {
         runtime.structuredViewers.set(id, viewer);
       }
       runtime.stagedStructuredViewers.clear();
+      for (const [id, renderer] of runtime.stagedDiagramRenderers) {
+        runtime.diagramRenderers.set(id, renderer);
+      }
+      runtime.stagedDiagramRenderers.clear();
       for (const [providerId, provider] of runtime.stagedSourceControlProviders) {
         runtime.sourceControlProviders.set(providerId, provider);
       }
@@ -635,6 +677,7 @@ export class PluginWorkerRuntime {
       this.publishAutomaticLocalCommits();
       this.publishEmojiPickers();
       this.publishStructuredViewers();
+      this.publishDiagramRenderers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
       throw error;
@@ -848,6 +891,52 @@ export class PluginWorkerRuntime {
         runtime.structuredViewers.delete(message.id);
         runtime.stagedStructuredViewers.delete(message.id);
         this.publishStructuredViewers();
+        return;
+      case "register-diagram-renderer": {
+        const registration = {
+          id: message.id,
+          title: message.title,
+          languages: message.languages,
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("diagram-renderer") ||
+          !runtime.manifest.diagramRenderer ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginDiagramRendererRegistration(registration) ||
+          runtime.diagramRenderers.size +
+            runtime.stagedDiagramRenderers.size >
+            0 ||
+          message.languages.some((language) =>
+            this.diagramLanguageRegistered(language),
+          )
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized diagram renderer registration.`,
+            ),
+          );
+          return;
+        }
+        const contribution: PluginDiagramRendererContribution = {
+          pluginId,
+          ...registration,
+        };
+        const renderers = runtime.activated
+          ? runtime.diagramRenderers
+          : runtime.stagedDiagramRenderers;
+        renderers.set(message.id, contribution);
+        if (runtime.activated) {
+          this.publishDiagramRenderers();
+        }
+        return;
+      }
+      case "unregister-diagram-renderer":
+        runtime.diagramRenderers.delete(message.id);
+        runtime.stagedDiagramRenderers.delete(message.id);
+        this.diagramHost.disposePlugin(pluginId);
+        this.publishDiagramRenderers();
         return;
       case "register-source-control": {
         if (
@@ -1195,6 +1284,20 @@ export class PluginWorkerRuntime {
     return false;
   }
 
+  private diagramLanguageRegistered(language: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      for (const renderer of [
+        ...runtime.diagramRenderers.values(),
+        ...runtime.stagedDiagramRenderers.values(),
+      ]) {
+        if (renderer.languages.includes(language)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   private terminate(pluginId: string): void {
     const runtime = this.runtimes.get(pluginId);
     if (!runtime) {
@@ -1202,6 +1305,7 @@ export class PluginWorkerRuntime {
     }
     runtime.port.close();
     runtime.worker.terminate();
+    this.diagramHost.disposePlugin(pluginId);
     this.rejectPending(runtime, new Error(`Plugin ${pluginId} stopped.`));
     for (const handshake of runtime.handshakes) {
       window.clearTimeout(handshake.timeout);
@@ -1217,6 +1321,7 @@ export class PluginWorkerRuntime {
     this.publishAutomaticLocalCommits();
     this.publishEmojiPickers();
     this.publishStructuredViewers();
+    this.publishDiagramRenderers();
   }
 
   private protocolViolation(pluginId: string, detail: string): void {
@@ -1240,6 +1345,7 @@ export class PluginWorkerRuntime {
     runtime.phase = "stopping";
     this.publishEmojiPickers();
     this.publishStructuredViewers();
+    this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
   }
@@ -1300,6 +1406,18 @@ export class PluginWorkerRuntime {
           : [],
       ),
     );
+  }
+
+  private publishDiagramRenderers(): void {
+    const renderers = [...this.runtimes.values()].flatMap((runtime) =>
+      runtime.phase === "active"
+        ? [...runtime.diagramRenderers.values()]
+        : [],
+    );
+    this.diagramHost.retainPlugins(
+      new Set(renderers.map((renderer) => renderer.pluginId)),
+    );
+    this.onDiagramRenderersChanged(renderers);
   }
 
   private publishSourceControlProviders(): void {

@@ -73,6 +73,11 @@ import {
   DenoteCodeBlockEditor,
   DenoteCodeBlockEditorSettingsProvider,
 } from "./DenoteCodeBlockEditor";
+import {
+  DiagramCodeBlockEditor,
+  DiagramCodeBlockSettingsProvider,
+} from "./DiagramCodeBlockEditor";
+import type { DiagramEditorBinding } from "../plugins/diagramRenderers";
 import { referenceMarkdownPlugin } from "./ReferenceMarkdownNode";
 import { api, errorMessage } from "../lib/api";
 import {
@@ -296,6 +301,7 @@ interface MarkdownEditorProps {
   pluginDecorations?: PluginEditorDecoration[];
   emoji?: EmojiEditorBinding;
   emojiPickers?: EmojiContribution[];
+  diagrams?: DiagramEditorBinding;
   preferredViewMode: MarkdownViewMode;
   projectSourceMode?: boolean;
   readOnly: boolean;
@@ -330,6 +336,7 @@ export const MarkdownEditor = forwardRef<
     pluginDecorations = [],
     emoji,
     emojiPickers = [],
+    diagrams,
     preferredViewMode,
     projectSourceMode = false,
     readOnly,
@@ -511,6 +518,27 @@ export const MarkdownEditor = forwardRef<
   if (thematicBreaksRef.current === null) {
     thematicBreaksRef.current = captureThematicBreaks(markdown);
   }
+  const codeBlockEditorDescriptors = useMemo<CodeBlockEditorDescriptor[]>(
+    () => [
+      ...(diagrams
+        ? [
+            {
+              priority: 200,
+              match: (language: string | null | undefined) =>
+                typeof language === "string" &&
+                diagrams.renderers.some((renderer) =>
+                  renderer.languages.includes(
+                    language.trim().toLocaleLowerCase(),
+                  ),
+                ),
+              Editor: DiagramCodeBlockEditor,
+            },
+          ]
+        : []),
+      denoteCodeBlockEditorDescriptor,
+    ],
+    [diagrams],
+  );
   const plugins = useMemo(
     () => [
       headingsPlugin({ allowedHeadingLevels: [1, 2, 3, 4, 5, 6] }),
@@ -563,7 +591,7 @@ export const MarkdownEditor = forwardRef<
       tablePlugin(),
       codeBlockPlugin({
         defaultCodeBlockLanguage: "",
-        codeBlockEditorDescriptors: [denoteCodeBlockEditorDescriptor],
+        codeBlockEditorDescriptors,
       }),
       frontmatterPlugin(),
       directivesPlugin({
@@ -710,6 +738,7 @@ export const MarkdownEditor = forwardRef<
     ],
     [
       displayExtensions,
+      codeBlockEditorDescriptors,
       clearPreferredViewModeRestoration,
       sourceLock,
       forceSource,
@@ -944,13 +973,14 @@ export const MarkdownEditor = forwardRef<
     >
       <EmojiRichContext.Provider value={emojiRichBinding}>
       <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
+        <DiagramCodeBlockSettingsProvider binding={diagrams}>
         <DenoteCodeBlockEditorSettingsProvider
           readOnly={readOnly}
           tabExtensions={tabExtensions}
           onError={(caught) => onError(errorMessage(caught))}
         >
           <MDXEditor
-            key={htmlProcessing ? "details-html" : "standard-markdown"}
+          key={`${htmlProcessing ? "details-html" : "standard-markdown"}:${diagrams?.renderers.map((renderer) => renderer.id).join(",") ?? "no-diagrams"}`}
             ref={ref}
             markdown={editorSource}
             plugins={plugins}
@@ -1023,6 +1053,7 @@ export const MarkdownEditor = forwardRef<
             }}
           />
         </DenoteCodeBlockEditorSettingsProvider>
+        </DiagramCodeBlockSettingsProvider>
       </SafeRichHtmlRenderProvider>
       </EmojiRichContext.Provider>
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />

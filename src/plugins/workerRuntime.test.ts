@@ -441,6 +441,23 @@ function pluginWithStructuredViewer(): PluginView {
   };
 }
 
+function pluginWithDiagramRenderer(): PluginView {
+  const source = plugin();
+  const manifest = {
+    ...source.catalog.manifest,
+    permissions: [
+      ...source.catalog.manifest.permissions,
+      { capability: "diagram-renderer" as const },
+    ],
+    diagramRenderer: { entrypoint: "dist/renderer.js" },
+  };
+  return {
+    ...source,
+    catalog: { ...source.catalog, manifest },
+    approvedPermissions: manifest.permissions,
+  };
+}
+
 function pluginWithGit(): PluginView {
   return {
     ...plugin(),
@@ -604,6 +621,72 @@ describe("PluginWorkerRuntime", () => {
     ).resolves.toEqual(structuredViewModel);
     await runtime.stop("denote.reference");
     expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("registers and removes a diagram renderer through the actual isolated worker capability", async () => {
+    await bridgeRealPluginWorker();
+    const source = pluginWithDiagramRenderer();
+    const registration = {
+      id: "denote.reference.mermaid",
+      title: "Mermaid diagrams",
+      languages: ["mermaid"],
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          const renderer = context.capabilities.diagramRenderer;
+          if (!renderer) throw Error("Missing diagram renderer");
+          context.subscriptions.add(renderer.register(${JSON.stringify(registration)}));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(source);
+
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("terminates an unauthorized diagram renderer registration", async () => {
+    const source = plugin();
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), onError);
+
+    await runtime.start(source);
+    FakeWorker.instances[0].runtimePort?.postMessage({
+      type: "register-diagram-renderer",
+      id: "denote.reference.mermaid",
+      title: "Mermaid diagrams",
+      languages: ["mermaid"],
+    });
+
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/diagram renderer/i),
+        }),
+      );
+      expect(runtime.isRunning("denote.reference")).toBe(false);
+    });
   });
 
   it("terminates a structured viewer registration without permission", async () => {

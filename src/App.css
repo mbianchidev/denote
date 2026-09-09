@@ -1457,6 +1457,87 @@ button:disabled {
   line-height: 1.55;
 }
 
+.diagram-code-block {
+  overflow: hidden;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: 5px;
+}
+
+.diagram-code-block__toolbar {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 6px;
+  background: var(--code-gutter-bg);
+  border-bottom: 1px solid var(--code-border);
+}
+
+.diagram-code-block__toolbar button {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.diagram-code-block__toolbar button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+  border-color: var(--code-border);
+}
+
+.diagram-code-block__toolbar button:disabled {
+  color: var(--text-tertiary);
+  opacity: 0.65;
+}
+
+.diagram-code-block__status {
+  margin: 0;
+  padding: 18px;
+  color: var(--text-secondary);
+}
+
+.diagram-code-block__figure {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 12px;
+}
+
+.diagram-code-block__frame {
+  width: 100%;
+  min-height: 240px;
+  background: transparent;
+  border: 0;
+}
+
+.diagram-code-block__figure figcaption {
+  color: var(--text-secondary);
+  font-size: 0.82em;
+}
+
+.diagram-code-block__error {
+  display: grid;
+  gap: 6px;
+  margin: 12px;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  background: var(--danger-muted);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+}
+
+.diagram-code-block__error button {
+  width: fit-content;
+}
+
 .rich-code-block__copy {
   position: absolute;
   z-index: 3;
@@ -6209,6 +6290,19 @@ kbd {
   .denote-code-block-editor__delete {
     border-color: ButtonText;
     box-shadow: none;
+  }
+
+  .diagram-code-block,
+  .diagram-code-block__toolbar,
+  .diagram-code-block__error,
+  .diagram-code-block__toolbar button {
+    border-color: ButtonText;
+    box-shadow: none;
+  }
+
+  .diagram-code-block__error {
+    color: CanvasText;
+    background: Canvas;
   }
 
   .outline-resizer::after {

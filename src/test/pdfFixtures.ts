@@ -3,6 +3,7 @@ const PASSWORD_PDF_BASE64 =
 
 interface PdfFixturePage {
   text?: string;
+  lines?: readonly string[];
   rotation?: 0 | 90 | 180 | 270;
 }
 
@@ -22,9 +23,11 @@ export function createPdfFixture(
   for (const [index, page] of pages.entries()) {
     const pageObject = pageObjectNumbers[index];
     const contentObject = pageObject + 1;
-    const content = page.text
-      ? `BT /F1 16 Tf 36 96 Td (${escapePdfText(page.text)}) Tj ET`
-      : "q 0.75 g 24 24 96 96 re f Q";
+    const content = page.lines?.length
+      ? pdfTextLines(page.lines)
+      : page.text
+        ? `BT /F1 16 Tf 36 96 Td (${escapePdfText(page.text)}) Tj ET`
+        : "q 0.75 g 24 24 96 96 re f Q";
     const rotation = page.rotation ? ` /Rotate ${page.rotation}` : "";
     objects.push(
       `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 144 144]${rotation} /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObject} 0 R >>`,
@@ -78,4 +81,14 @@ function escapePdfText(value: string): string {
     .replace(/\\/g, "\\\\")
     .replace(/\(/g, "\\(")
     .replace(/\)/g, "\\)");
+}
+
+function pdfTextLines(lines: readonly string[]): string {
+  const [heading = "", body = ""] = lines;
+  return [
+    "BT /F1 16 Tf 24 104 Td",
+    `(${escapePdfText(heading)}) Tj`,
+    "/F1 10 Tf 0 -24 Td",
+    `(${escapePdfText(body)}) Tj ET`,
+  ].join(" ");
 }

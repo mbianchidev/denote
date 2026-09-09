@@ -613,6 +613,33 @@ the Raw control available and show a line and column when known. Rows retain
 pointer-sized targets, use no decorative motion, and use system borders,
 selection, and focus colors under forced colors.
 
+### Optional Mermaid diagrams
+
+The Mermaid plugin contributes only a renderer registration and a separately
+declared sandbox module. Denote owns the fenced-block toolbar, figure, error
+surface, source editor, copy/export actions, focus, status announcements, and
+teardown. Plugin code never supplies React, HTML, CSS, or editor controls.
+
+The toolbar is a compact native-button group in document order: source, copy,
+then export. Every icon has an accessible name and native tooltip; unavailable
+actions are disabled rather than hidden. **Show diagram source** reveals the
+ordinary fenced CodeMirror editor and moves focus to the located error line when
+known. Parse errors use a full one-pixel danger border, a written error heading,
+message, and location, so meaning never depends on color.
+
+The rendered figure uses an explicit safe `%% denote:title:` value of at most 80
+characters or the generic **Mermaid diagram** label. The scriptless display
+iframe is hidden from the accessibility tree so arbitrary visible node text is
+not announced as UI; the adjacent source action is the readable non-visual
+fallback. Light, dark, increased-contrast, and forced-colors state rerenders the
+diagram, while reduced motion disables transitions and animation.
+
+Active rendering uses one off-screen opaque sandbox at a time. Loading, success,
+copy, export, cancellation, and failure use polite status updates. Closing the
+tab or losing the contribution unmounts the figure and source surface, restores
+ordinary code rendering, and keeps keyboard focus in the surviving editor
+structure.
+
 ### Editor Settings
 
 Editor text size uses a compact 12–24 px range with minus/plus controls and a

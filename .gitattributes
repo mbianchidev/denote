@@ -6,3 +6,4 @@ scripts/*.mjs text eol=lf
 scripts/*.ts text eol=lf
 plugins/** text=auto eol=lf
 packages/plugin-sdk/** text=auto eol=lf
+docs/user-guide/examples/*.pdf binary

@@ -25,6 +25,10 @@ export interface PluginArchive {
 export function pluginPackagePaths(manifest: PluginManifest): string[] {
   return [
     manifest.entrypoint,
+    ...(manifest.diagramRenderer
+      ? [manifest.diagramRenderer.entrypoint]
+      : []),
+    ...(manifest.legal ?? []),
     manifest.documentation,
     manifest.icon,
     "plugin.json",

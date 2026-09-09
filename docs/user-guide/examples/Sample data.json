@@ -1,0 +1,20 @@
+{
+  "project": {
+    "name": "Orbit notebook",
+    "active": true,
+    "priority": 2,
+    "owner": null,
+    "steps": [
+      "draft",
+      "review",
+      "publish"
+    ],
+    "metadata": {
+      "offline": true,
+      "formats": [
+        "markdown",
+        "pdf"
+      ]
+    }
+  }
+}

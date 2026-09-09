@@ -40,6 +40,12 @@ pub struct PluginCompatibility {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct PluginDiagramRendererManifest {
+    pub entrypoint: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PluginManifest {
     pub schema_version: u32,
     pub id: String,
@@ -55,6 +61,10 @@ pub struct PluginManifest {
     pub compatibility: PluginCompatibility,
     pub permissions: Vec<PluginPermission>,
     pub entrypoint: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagram_renderer: Option<PluginDiagramRendererManifest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub legal: Vec<String>,
     pub documentation: String,
     pub settings: Option<Value>,
 }
@@ -183,6 +193,7 @@ pub(crate) struct PersistentPluginState {
     pub(crate) artifact_hashes: BTreeMap<String, String>,
     pub(crate) catalog_fingerprints: BTreeMap<String, String>,
     pub(crate) entrypoint_hashes: BTreeMap<String, String>,
+    pub(crate) diagram_renderer_hashes: BTreeMap<String, String>,
     pub(crate) installed_manifests: BTreeMap<String, PluginManifest>,
     pub(crate) settings: BTreeMap<String, Value>,
     pub(crate) settings_versions: BTreeMap<String, u32>,
@@ -206,5 +217,6 @@ pub(crate) struct PreparedPluginTransaction {
     pub(crate) artifact_sha256: String,
     pub(crate) catalog_fingerprint: String,
     pub(crate) entrypoint_sha256: Option<String>,
+    pub(crate) diagram_renderer_sha256: Option<String>,
     pub(crate) previously_enabled: bool,
 }

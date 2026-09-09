@@ -50,36 +50,44 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
     return entry;
   });
   const sourceCommit = pluginSdkSourceCommit(manifest, entries);
-  const outputPath = join(pluginDirectory, manifest.entrypoint);
-  const sourcePath = join(
-    pluginDirectory,
-    manifest.entrypoint.replace(/^dist\//, "src/").replace(/\.js$/, ".ts"),
-  );
-  await build({
-    configFile: false,
-    logLevel: "error",
-    plugins: [
-      ...(sourceCommit ? [pinnedPluginSdk(sourceCommit)] : []),
-      pluginBoundary(pluginDirectory, sdkRoot),
-      stableSourceLabels(manifest),
-    ],
-    build: {
-      emptyOutDir: true,
-      minify: false,
-      sourcemap: false,
-      outDir: dirname(outputPath),
-      lib: {
-        entry: sourcePath,
-        formats: ["es"],
-        fileName: () => basename(outputPath),
-      },
-      rolldownOptions: {
-        output: {
-          codeSplitting: false,
+  const entrypoints = [
+    { path: manifest.entrypoint, minify: false },
+    ...(manifest.diagramRenderer
+      ? [{ path: manifest.diagramRenderer.entrypoint, minify: true }]
+      : []),
+  ];
+  for (const [index, entrypoint] of entrypoints.entries()) {
+    const outputPath = join(pluginDirectory, entrypoint.path);
+    const sourcePath = join(
+      pluginDirectory,
+      entrypoint.path.replace(/^dist\//, "src/").replace(/\.js$/, ".ts"),
+    );
+    await build({
+      configFile: false,
+      logLevel: "error",
+      plugins: [
+        ...(sourceCommit ? [pinnedPluginSdk(sourceCommit)] : []),
+        pluginBoundary(pluginDirectory, sdkRoot),
+        stableSourceLabels(manifest),
+      ],
+      build: {
+        emptyOutDir: index === 0,
+        minify: entrypoint.minify,
+        sourcemap: false,
+        outDir: dirname(outputPath),
+        lib: {
+          entry: sourcePath,
+          formats: ["es"],
+          fileName: () => basename(outputPath),
+        },
+        rolldownOptions: {
+          output: {
+            codeSplitting: false,
+          },
         },
       },
-    },
-  });
+    });
+  }
   console.log(`Built ${manifest.id}@${manifest.version}.`);
   return manifest;
 }

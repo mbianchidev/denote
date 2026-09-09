@@ -99,6 +99,7 @@ fn prepare_fixture(manager: &PluginManager, mut catalog: PluginCatalogEntry) -> 
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
                 entrypoint_sha256: Some(entrypoint_sha256),
+                diagram_renderer_sha256: None,
                 previously_enabled: false,
             },
         );

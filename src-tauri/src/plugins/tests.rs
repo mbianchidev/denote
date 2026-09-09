@@ -449,6 +449,7 @@ fn failed_update_removes_only_the_new_package() {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
                 entrypoint_sha256: Some(prepared_hash),
+                diagram_renderer_sha256: None,
                 previously_enabled: true,
             },
         );
@@ -799,6 +800,7 @@ fn prepared_transaction_blocks_disable_until_rollback() {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
                 entrypoint_sha256: Some(entrypoint_sha256),
+                diagram_renderer_sha256: None,
                 previously_enabled: false,
             },
         );
@@ -838,6 +840,7 @@ fn read_entrypoint_rejects_changes_after_preparation() {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog).expect("fingerprint"),
                 entrypoint_sha256: Some(entrypoint_sha256),
+                diagram_renderer_sha256: None,
                 previously_enabled: false,
             },
         );

@@ -721,8 +721,8 @@ revalidates that it still belongs to the active vault and names a safe available
 directory, and uses that directory as `cwd`. Persistent terminal sessions and
 language-server protocols are not part of this API.
 
-API version 1 intentionally excludes arbitrary renderers, embedded plugin UI,
-menu injection, and general import/export hooks. Editor actions use command
+API version 1 intentionally excludes arbitrary host-DOM renderers, embedded
+plugin UI, menu injection, and general import/export hooks. Editor actions use command
 registrations so every privileged operation remains tied to an explicit,
 short-lived user action. New declarative contribution surfaces can be added
 compatibly; executable UI surfaces require a new API major and isolation review.
@@ -777,6 +777,62 @@ Structured-viewer workers are stopped while no workspace content is available
 or an encrypted vault is locked, then restarted from the verified installed
 package after unlock. This prevents decrypted source or derived models from
 surviving a lock without disabling or deleting the installed plugin.
+
+### Sandboxed diagram renderers
+
+The additive API version 1 `diagram-renderer` permission accepts one declarative
+registration per plugin: namespaced ID, title, and lowercase fence languages.
+The manifest must separately declare one `dist/` renderer entrypoint distinct
+from the worker entrypoint. Package validation, preparation, persisted state,
+startup recovery, and every read independently path-check and SHA-256-check
+both executables. A registration without permission or a declared module,
+duplicate language ownership, malformed output, or post-install modification
+terminates and removes the plugin.
+
+The activation entrypoint remains in the ordinary DOM-free plugin worker and
+registers metadata only. It does not import Mermaid. When a matching fenced
+block needs rendering, the host reads the separately verified module and sends
+it with the current source and normalized light, dark, or high-contrast theme
+to a fresh `sandbox="allow-scripts"` iframe without `allow-same-origin`. The
+fixed bootstrap accepts no plugin HTML. Its CSP is `default-src 'none'`, allows
+only its inline/bootstrap and blob module scripts plus inline diagram styles,
+and denies image, font, connection, object, base, and form sources. One sandbox
+runs at a time, 32 requests may wait, each is destroyed after one result,
+stale requests abort, and a five-second watchdog removes the frame.
+
+`denote.mermaid` bundles Mermaid 11.17.2 in the downloaded renderer package.
+Both Mermaid's dependency graph and the independent host sanitizer pin
+DOMPurify 3.4.15. The renderer fixes Mermaid to strict security, disables
+start-on-load, HTML labels, callback binding, and error diagrams, expands the
+secure configuration list, fixes themes and deterministic IDs, and never calls
+returned bind functions. Preflight rejects frontmatter/init directives, links,
+callbacks, HTML labels, images/icons/custom shapes, external or scriptable
+protocols, and custom style directives. The initial supported subset is
+flowchart, sequence, class, state, entity-relationship, and pie.
+
+The sandbox returns only a bounded result union. Errors contain a fixed code,
+bounded message, and optional positive line/column. Success contains SVG,
+diagram type, and an 80-character accessible name derived only from explicit
+`%% denote:title:` metadata or the generic label. The host validates the union,
+then a separate DOMPurify instance applies an explicit SVG tag/attribute
+allowlist and removes links, images, use references, foreign objects, scripts,
+animation, event handlers, URL-bearing attributes, and unsafe CSS. It also caps
+the sanitized tree at 10,000 elements and 2 MiB. Only this sanitized value may
+enter the cache, clipboard, or native export command.
+
+Display uses a second `sandbox=""` scriptless iframe with its own no-network
+CSP, preventing plugin or generated CSS from reaching the host document. The
+figure, controls, focus, announcements, source editor, copy, export, themes, and
+errors are host React. Source stays in the existing Lexical code node and is
+never sent back as transformed Markdown.
+
+Source is capped at 32 KiB, 1,000 lines, 4 KiB per line, 500 statements, and
+300 edges. Successful derived content uses a 32-entry/16-MiB LRU scoped to open
+editor tabs; failures are neither retried nor cached. Tab close clears its
+scope. Vault switch clears all derived output. Locking an encrypted vault stops
+diagram workers and clears contributions; disable, update, removal, crash, and
+teardown destroy sandboxes, module references, listeners, queued work, and
+caches before ordinary fenced-code rendering resumes.
 
 The native plugin manager embeds only `plugins/catalog.json`. Plugin
 artifacts remain separate GitHub Release assets and are downloaded over HTTPS after

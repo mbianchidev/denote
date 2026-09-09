@@ -379,6 +379,26 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   access and report line/column details when available. Locking a vault stops
   the viewer worker; closing, disabling, crashing, updating, or removing the
   plugin releases its models and never changes file bytes.
+- The independently installable **Mermaid diagrams** plugin is disabled by
+  default and requests only `diagram-renderer`. It renders fenced `mermaid`
+  blocks in Markdown Rich view while the exact fence remains available through
+  Source and a block-level source action. The plugin supports flowchart,
+  sequence, class, state, entity-relationship, and pie diagrams; located errors
+  remain isolated to one block, and safe rendered SVG can be copied or exported
+  through host-owned explicit actions.
+- Mermaid code is downloaded only after approval and executes only inside an
+  opaque no-network sandbox. Fixed strict configuration disables HTML labels
+  and callback binding; frontmatter/config directives, links, callbacks,
+  images, icons, external resources, custom styles, and unsafe protocols are
+  rejected before render. The host independently allowlist-sanitizes SVG and
+  displays it in a scriptless sandbox. Source, render time, complexity, output,
+  concurrency, queue, and cache limits fail closed without retries.
+- Mermaid diagrams follow live light, dark, high-contrast, forced-colors, and
+  reduced-motion state. Each figure uses explicit bounded metadata or the
+  generic **Mermaid diagram** name, retains a non-visual source path, and exposes
+  keyboard-named source, copy, and export controls. Tab close, vault switch or
+  lock, plugin disable/update/removal/crash, and teardown clear every derived
+  render and restore ordinary fenced code without changing Markdown.
 - Development builds use a separate application identity and can explicitly
   load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
   untrusted, pass the ordinary package/runtime safety checks, and are

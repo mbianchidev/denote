@@ -56,7 +56,12 @@ export function DenoteCodeBlockEditor({
   language,
   code,
   focusEmitter,
-}: CodeBlockEditorProps) {
+  focusLine,
+  focusRequest = 0,
+}: CodeBlockEditorProps & {
+  focusLine?: number;
+  focusRequest?: number;
+}) {
   const settings = useContext(DenoteCodeBlockEditorSettingsContext);
   if (!settings) {
     throw new Error("Code block editor settings are unavailable.");
@@ -189,6 +194,21 @@ export function DenoteCodeBlockEditor({
       syncingCodeRef.current = false;
     }
   }, [code]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || !focusLine || focusLine < 1) {
+      return;
+    }
+    const line = editor.state.doc.line(
+      Math.min(focusLine, editor.state.doc.lines),
+    );
+    editor.dispatch({
+      selection: { anchor: line.from },
+      scrollIntoView: true,
+    });
+    editor.focus();
+  }, [focusLine, focusRequest]);
 
   const syntaxLanguage = languageForFence(language);
   const choice: LanguageChoice | null = !language

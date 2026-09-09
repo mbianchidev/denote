@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use quick_xml::{Reader, XmlVersion, events::Event};
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
@@ -164,6 +165,248 @@ pub async fn read_plugin_entrypoint(
 ) -> AppResult<String> {
     let manager = state.inner().clone();
     run_blocking(move || manager.read_entrypoint(&plugin_id)).await
+}
+
+#[tauri::command]
+pub async fn read_plugin_diagram_renderer(
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+) -> AppResult<String> {
+    let manager = state.inner().clone();
+    run_blocking(move || manager.read_diagram_renderer(&plugin_id)).await
+}
+
+#[tauri::command]
+pub fn export_diagram_svg(app: AppHandle, suggested_name: String, svg: String) -> AppResult<bool> {
+    validate_export_svg(&svg)?;
+    let file_name = if suggested_name.chars().all(|character| {
+        character.is_ascii_alphanumeric() || matches!(character, ' ' | '-' | '_' | '.')
+    }) && !suggested_name.contains(['/', '\\'])
+        && suggested_name.to_ascii_lowercase().ends_with(".svg")
+    {
+        suggested_name
+    } else {
+        "diagram.svg".to_string()
+    };
+    let Some(selected) = app
+        .dialog()
+        .file()
+        .set_title("Export diagram as SVG")
+        .set_file_name(&file_name)
+        .add_filter("SVG image", &["svg"])
+        .blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let mut path = selected
+        .into_path()
+        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
+    if path.extension().and_then(|extension| extension.to_str()) != Some("svg") {
+        path.set_extension("svg");
+    }
+    fs::write(path, svg)?;
+    Ok(true)
+}
+
+pub(crate) fn validate_export_svg(svg: &str) -> AppResult<()> {
+    const MAX_SVG_BYTES: usize = 2 * 1024 * 1024;
+    const MAX_ELEMENTS: usize = 10_000;
+    const TAGS: &[&str] = &[
+        "svg",
+        "g",
+        "defs",
+        "marker",
+        "path",
+        "line",
+        "polyline",
+        "polygon",
+        "rect",
+        "circle",
+        "ellipse",
+        "text",
+        "tspan",
+        "title",
+        "desc",
+        "clipPath",
+        "linearGradient",
+        "radialGradient",
+        "stop",
+    ];
+    const ATTRIBUTES: &[&str] = &[
+        "xmlns",
+        "viewBox",
+        "width",
+        "height",
+        "role",
+        "aria-label",
+        "aria-labelledby",
+        "aria-describedby",
+        "aria-roledescription",
+        "id",
+        "class",
+        "data-look",
+        "transform",
+        "d",
+        "x",
+        "y",
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "cx",
+        "cy",
+        "r",
+        "rx",
+        "ry",
+        "dx",
+        "dy",
+        "points",
+        "fill",
+        "fill-opacity",
+        "stroke",
+        "stroke-width",
+        "stroke-opacity",
+        "stroke-dasharray",
+        "stroke-dashoffset",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "opacity",
+        "marker-start",
+        "marker-mid",
+        "marker-end",
+        "markerWidth",
+        "markerHeight",
+        "refX",
+        "refY",
+        "orient",
+        "preserveAspectRatio",
+        "text-anchor",
+        "dominant-baseline",
+        "font-family",
+        "font-size",
+        "font-weight",
+        "color",
+        "offset",
+        "stop-color",
+        "stop-opacity",
+    ];
+    const RENDERABLE: &[&str] = &[
+        "path", "line", "polyline", "polygon", "rect", "circle", "ellipse", "text",
+    ];
+    if svg.len() > MAX_SVG_BYTES {
+        return Err(AppError::Plugin(
+            "Diagram SVG exceeds the native export size limit".to_string(),
+        ));
+    }
+    let mut reader = Reader::from_str(svg);
+    reader.config_mut().trim_text(false);
+    let mut root_seen = false;
+    let mut elements = 0_usize;
+    let mut renderable = 0_usize;
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                let element_name = element.name();
+                let name = std::str::from_utf8(element_name.as_ref())
+                    .map_err(|_| AppError::Plugin("Diagram SVG has an invalid tag".to_string()))?;
+                if !TAGS.contains(&name) || (!root_seen && name != "svg") {
+                    return Err(AppError::Plugin(format!(
+                        "Diagram SVG contains unsupported tag {name}"
+                    )));
+                }
+                root_seen = true;
+                elements += 1;
+                if elements > MAX_ELEMENTS {
+                    return Err(AppError::Plugin(
+                        "Diagram SVG exceeds the native export element limit".to_string(),
+                    ));
+                }
+                if RENDERABLE.contains(&name) {
+                    renderable += 1;
+                }
+                for attribute in element.attributes().with_checks(true) {
+                    let attribute = attribute.map_err(|_| {
+                        AppError::Plugin("Diagram SVG has an invalid attribute".to_string())
+                    })?;
+                    let key = std::str::from_utf8(attribute.key.as_ref()).map_err(|_| {
+                        AppError::Plugin("Diagram SVG has an invalid attribute name".to_string())
+                    })?;
+                    if !ATTRIBUTES.contains(&key) {
+                        return Err(AppError::Plugin(format!(
+                            "Diagram SVG contains unsupported attribute {key}"
+                        )));
+                    }
+                    let value = attribute
+                        .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
+                        .map_err(|_| {
+                            AppError::Plugin(
+                                "Diagram SVG has an invalid attribute value".to_string(),
+                            )
+                        })?;
+                    validate_svg_attribute(key, value.as_ref())?;
+                }
+            }
+            Ok(Event::Eof) => break,
+            Ok(Event::Text(_) | Event::Comment(_) | Event::End(_)) => {}
+            Ok(_) => {
+                return Err(AppError::Plugin(
+                    "Diagram SVG contains unsupported XML content".to_string(),
+                ));
+            }
+            Err(_) => {
+                return Err(AppError::Plugin(
+                    "Diagram SVG is not well-formed XML".to_string(),
+                ));
+            }
+        }
+    }
+    if !root_seen || renderable == 0 {
+        return Err(AppError::Plugin(
+            "Diagram SVG contains no renderable content".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_svg_attribute(name: &str, value: &str) -> AppResult<()> {
+    if name == "xmlns" && value == "http://www.w3.org/2000/svg" {
+        return Ok(());
+    }
+    let lower = value.to_ascii_lowercase();
+    if value.contains('\\')
+        || value.chars().any(char::is_control)
+        || [
+            "javascript:",
+            "vbscript:",
+            "data:",
+            "file:",
+            "http:",
+            "https:",
+            "@import",
+            "@font-face",
+            "expression(",
+            "behavior:",
+            "-moz-binding",
+        ]
+        .iter()
+        .any(|pattern| lower.contains(pattern))
+    {
+        return Err(AppError::Plugin(format!(
+            "Diagram SVG contains unsafe {name} content"
+        )));
+    }
+    if lower.contains("url(")
+        && !(lower.starts_with("url(#")
+            && lower.ends_with(')')
+            && lower[5..lower.len() - 1]
+                .chars()
+                .all(|character| character.is_ascii_alphanumeric() || "-_.:".contains(character)))
+    {
+        return Err(AppError::Plugin(format!(
+            "Diagram SVG contains unsafe {name} reference"
+        )));
+    }
+    Ok(())
 }
 
 #[tauri::command]

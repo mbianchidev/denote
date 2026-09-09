@@ -22,6 +22,7 @@ export const PLUGIN_CAPABILITIES = [
   "editor-decoration",
   "emoji-picker",
   "structured-viewer",
+  "diagram-renderer",
   "note-events",
   "project-context",
   "source-control",
@@ -134,6 +135,10 @@ export interface PluginManifest {
   compatibility: PluginCompatibility;
   permissions: PluginPermissionRequest[];
   entrypoint: string;
+  diagramRenderer?: {
+    entrypoint: string;
+  };
+  legal?: string[];
   documentation: string;
   settings?: PluginSettingsSchema;
 }
@@ -323,6 +328,53 @@ export interface PluginStructuredViewer {
 
 export interface PluginStructuredViewerCapability {
   register: (viewer: PluginStructuredViewer) => PluginDisposable;
+}
+
+export type PluginDiagramTheme = "light" | "dark" | "high-contrast";
+
+export interface PluginDiagramRenderer {
+  id: string;
+  title: string;
+  languages: string[];
+}
+
+export interface PluginDiagramRendererCapability {
+  register: (renderer: PluginDiagramRenderer) => PluginDisposable;
+}
+
+export interface PluginDiagramRenderRequest {
+  source: string;
+  theme: PluginDiagramTheme;
+}
+
+export interface PluginDiagramRenderError {
+  code:
+    | "SOURCE_LIMIT"
+    | "UNSAFE_SOURCE"
+    | "UNSUPPORTED_DIAGRAM"
+    | "PARSE_ERROR"
+    | "RENDER_ERROR";
+  message: string;
+  line?: number;
+  column?: number;
+}
+
+export type PluginDiagramRenderResult =
+  | {
+      status: "success";
+      svg: string;
+      diagramType: string;
+      accessibleName: string;
+    }
+  | {
+      status: "error";
+      error: PluginDiagramRenderError;
+    };
+
+export interface PluginDiagramRendererModule {
+  renderDiagram: (
+    request: PluginDiagramRenderRequest,
+  ) => PluginDiagramRenderResult | Promise<PluginDiagramRenderResult>;
 }
 
 export interface PluginSecureStorage {
@@ -1489,6 +1541,7 @@ export interface PluginCapabilities {
   editorDecoration?: PluginEditorDecorationCapability;
   emojiPicker?: PluginEmojiPickerCapability;
   structuredViewer?: PluginStructuredViewerCapability;
+  diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
   sourceControl?: PluginSourceControlCapability;

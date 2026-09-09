@@ -1,0 +1,19 @@
+{
+  "name": "@denote/plugin-mermaid",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist",
+    "plugin.json",
+    "guide.md",
+    "icon.svg",
+    "legal"
+  ],
+  "dependencies": {
+    "@denote/plugin-sdk": "0.1.0",
+    "dompurify": "3.4.15",
+    "mermaid": "11.17.2"
+  }
+}

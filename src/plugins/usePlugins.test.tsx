@@ -211,10 +211,12 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
-  it("stops structured viewer workers while content is unavailable and restarts them after unlock", async () => {
+  it.each(["structured-viewer", "diagram-renderer"] as const)(
+    "stops %s workers while content is unavailable and restarts them after unlock",
+    async (capability) => {
     const enabled = makePlugin({
       enabled: true,
-      approvedPermissions: [{ capability: "structured-viewer" }],
+      approvedPermissions: [{ capability }],
     });
     const rendered = await mountReady(
       [enabled],
@@ -238,7 +240,8 @@ describe("usePlugins", () => {
       currentContentAvailable: false,
     });
     await waitFor(() => expect(runtime.stop).toHaveBeenCalledWith(pluginId));
-  });
+    },
+  );
 
   it("reactivates after settings import so shortcode enablement and lists take effect", async () => {
     const enabled = makePlugin({ enabled: true });

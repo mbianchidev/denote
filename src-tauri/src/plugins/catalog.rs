@@ -110,8 +110,39 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
         )));
     }
     validate_relative_path(&entry.manifest.entrypoint)?;
+    let has_diagram_permission = entry
+        .manifest
+        .permissions
+        .iter()
+        .any(|permission| permission.capability == "diagram-renderer");
+    match (&entry.manifest.diagram_renderer, has_diagram_permission) {
+        (Some(renderer), true) => {
+            validate_relative_path(&renderer.entrypoint)?;
+            if !renderer.entrypoint.starts_with("dist/")
+                || renderer.entrypoint == entry.manifest.entrypoint
+            {
+                return Err(AppError::Plugin(format!(
+                    "Invalid diagram renderer entrypoint for {id}"
+                )));
+            }
+        }
+        (None, true) => {
+            return Err(AppError::Plugin(format!(
+                "Plugin {id} requests diagram-renderer without an entrypoint"
+            )));
+        }
+        (Some(_), false) => {
+            return Err(AppError::Plugin(format!(
+                "Plugin {id} declares a diagram renderer without permission"
+            )));
+        }
+        (None, false) => {}
+    }
     validate_relative_path(&entry.manifest.documentation)?;
     validate_relative_path(&entry.manifest.icon)?;
+    for legal in &entry.manifest.legal {
+        validate_relative_path(legal)?;
+    }
     for permission in &entry.manifest.permissions {
         match permission.capability.as_str() {
             "commands"
@@ -120,6 +151,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "editor-decoration"
             | "emoji-picker"
             | "structured-viewer"
+            | "diagram-renderer"
             | "note-events"
             | "project-context"
             | "source-control"
