@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
+import "../App.css";
 import { EditorSettingsDialog } from "./EditorSettingsDialog";
 
 const pluginProps = {
@@ -24,6 +25,29 @@ const pluginProps = {
 };
 
 describe("EditorSettingsDialog", () => {
+  it("keeps a closed settings dialog out of layout", () => {
+    render(
+      <EditorSettingsDialog
+        {...pluginProps}
+        open={false}
+        disabled={false}
+        settings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        restoreTabs
+        externalDomains={[]}
+        allowAllExternalDomains={false}
+        onChange={vi.fn()}
+        onRestoreTabsChange={vi.fn()}
+        onRemoveExternalDomain={vi.fn()}
+        onClearExternalDomains={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(
+      getComputedStyle(screen.getByRole("dialog", { hidden: true })).display,
+    ).toBe("none");
+  });
+
   it("changes the persistent appearance preference with an accessible radio group", async () => {
     const user = userEvent.setup();
     const onThemePreferenceChange = vi.fn();

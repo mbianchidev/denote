@@ -653,6 +653,9 @@ chrome. Line numbers use a quiet gutter. Spaces, tabs, line endings, and trailin
 whitespace are low-contrast source annotations that become prominent only when
 explicitly enabled. The settings dialog applies changes immediately and states
 that markers never change saved content.
+Its header, section tabs, close control, and footer remain outside the scrolling
+body, so enabling a plugin or using a minimum-height window never hides the
+close path or exposes the editor underneath.
 Rich/source controls remain visible in a disabled segmented state while guides
 force source mode; their tooltip names the setting that restores mode switching.
 Files inside an explicit or implicit project use the same restrained gutter to

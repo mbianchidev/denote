@@ -4449,6 +4449,31 @@ kbd {
 
 .editor-settings-dialog {
   width: min(760px, calc(100vw - 48px));
+  height: min(680px, calc(100vh - 60px));
+  overflow: hidden;
+}
+
+.editor-settings-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-settings-dialog:not([open]) {
+  display: none;
+}
+
+.editor-settings-dialog > .dialog-header,
+.editor-settings-dialog__sections,
+.editor-settings-dialog__actions {
+  flex: none;
+}
+
+.editor-settings-dialog__body,
+.editor-settings-dialog > .plugin-settings {
+  min-height: 0;
+  max-height: none;
+  flex: 1 1 auto;
+  overflow: auto;
 }
 
 .editor-settings-dialog__sections {
