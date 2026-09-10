@@ -54,7 +54,7 @@ const SUPPORTED_DIAGRAMS = [
 ] as const;
 
 const UNSAFE_SOURCE_PATTERNS: Array<[RegExp, string]> = [
-  [/%%\s*\{(?:init|initialize)\s*:/i, "Mermaid configuration directives are unavailable."],
+  [/%%\s*\{/, "Mermaid configuration directives are unavailable."],
   [/^\s*click\s+/im, "Clickable nodes and callbacks are unavailable."],
   [/^\s*links?\s+/im, "Diagram links are unavailable."],
   [/(?:javascript|vbscript|data|file|https?):/i, "External and scriptable URLs are unavailable."],
@@ -139,6 +139,15 @@ export const renderDiagram: PluginDiagramRendererModule["renderDiagram"] =
       return error(
         "SOURCE_LIMIT",
         "Diagram source exceeds the 500-statement limit.",
+      );
+    }
+    if (
+      relationshipCount(prepared.source, diagramType) >
+      MERMAID_RENDERER_LIMITS.maxEdges
+    ) {
+      return error(
+        "SOURCE_LIMIT",
+        "Diagram source exceeds the 300-relationship limit.",
       );
     }
     try {
@@ -371,6 +380,58 @@ function firstDiagramLine(source: string): string {
       .map((line) => line.trim())
       .find((line) => line && !line.startsWith("%%")) ?? ""
   );
+}
+
+function relationshipCount(source: string, diagramType: string): number {
+  const lines = source
+    .split(/\r\n?|\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("%%"));
+  const body = lines.slice(1);
+  if (/^sankey(?:-beta)?\b/i.test(diagramType)) {
+    return body.filter((line) => line.split(",").length >= 3).length;
+  }
+  if (/^sequenceDiagram\b/i.test(diagramType)) {
+    return body.filter((line) =>
+      /(?:--?|==?|-\.-?)[<>x)]{1,2}/.test(line),
+    ).length;
+  }
+  if (/^C4/i.test(diagramType)) {
+    return body.filter((line) => /^\s*(?:Bi)?Rel(?:_[A-Za-z]+)?\s*\(/i.test(line))
+      .length;
+  }
+  if (/^requirement(?:Diagram)?\b/i.test(diagramType)) {
+    return body.filter((line) =>
+      /^\s*(?:contains|copies|derives|satisfies|verifies|refines|traces)\b/i.test(
+        line,
+      ),
+    ).length;
+  }
+  if (/^gitGraph\b/i.test(diagramType)) {
+    return body.filter((line) =>
+      /^\s*(?:commit|merge|cherry-pick)\b/i.test(line),
+    ).length;
+  }
+  if (/^(?:flowchart|graph|classDiagram|stateDiagram|architecture)/i.test(
+    diagramType,
+  )) {
+    return body.reduce(
+      (count, line) =>
+        count +
+        (
+          line.match(
+            /(?:-->|---|-\.-?>|==>|<\|--|\*--|o--|\.\.>|\.\.\|>|--\||\}o--|\|\|--|}--)/g,
+          ) ?? []
+        ).length,
+      0,
+    );
+  }
+  if (/^erDiagram\b/i.test(diagramType)) {
+    return body.filter((line) =>
+      /(?:\|\||o\||\|o|oo|\}\||\|[{}]|[{}]\|).*(?:--|\.\.)/.test(line),
+    ).length;
+  }
+  return 0;
 }
 
 function configuration(

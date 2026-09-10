@@ -140,6 +140,7 @@ Release day :milestone, after testing, 0d`;
     "---\ntitle: &name Unsafe\n---\nflowchart LR\nA-->B",
     "---\ntitle: !tag Unsafe\n---\nflowchart LR\nA-->B",
     "%%{init: { securityLevel: 'loose' }}%%\nflowchart LR\nA-->B",
+    "%%{  init: { darkMode: true } }%%\nflowchart LR\nA-->B",
     "flowchart LR\nA-->B\nclick A href \"https://example.test\"",
     "flowchart LR\nA[<b>Hello</b>]-->B",
     "flowchart LR\nA@{ img: \"https://example.test/a.png\" }",
@@ -187,5 +188,26 @@ Release day :milestone, after testing, 0d`;
       status: "error",
       error: { code: "SOURCE_LIMIT" },
     });
+  });
+
+  it("enforces the relationship limit for Sankey diagrams", async () => {
+    const source = [
+      "sankey-beta",
+      ...Array.from(
+        { length: MERMAID_RENDERER_LIMITS.maxEdges + 1 },
+        (_, index) => `Source${index},Target${index},1`,
+      ),
+    ].join("\n");
+
+    await expect(
+      renderDiagram({ source, theme: "light" }),
+    ).resolves.toMatchObject({
+      status: "error",
+      error: {
+        code: "SOURCE_LIMIT",
+        message: "Diagram source exceeds the 300-relationship limit.",
+      },
+    });
+    expect(render).not.toHaveBeenCalled();
   });
 });
