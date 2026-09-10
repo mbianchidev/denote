@@ -9,5 +9,16 @@
       "sha256": "4113da8542598813f52bff7a98dc26ea3897e6a8eef6a86ec4b8444ed302bc77",
       "sizeBytes": 1054007
     }
+  },
+  {
+    "version": "0.2.0",
+    "sourceCommit": "c09fe8118dca48690d41d5452aa48f1e16dfeabc",
+    "kind": "source",
+    "sourcePath": "plugins/mermaid",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0/denote.mermaid-0.2.0.tgz",
+      "sha256": "b970b49723b50e96941786f7c23d9d4db5f28a29d5e30127fb0d7857ca6034d3",
+      "sizeBytes": 1055077
+    }
   }
 ]
