@@ -160,6 +160,41 @@ entries. CI checks this before dependency installation, installs with lifecycle
 scripts disabled, audits JavaScript and Rust dependencies, and rejects new
 high-severity dependency vulnerabilities.
 
+The additive `diagram-renderer` capability uses two self-contained build
+outputs. `plugin.json` declares the normal worker `entrypoint` and a distinct
+`diagramRenderer.entrypoint`; source paths mirror them under `src/`. The worker
+entrypoint registers metadata only. The renderer entrypoint runs only in the
+host's opaque no-network sandbox after enablement and must export
+`renderDiagram(request)`. Both outputs are package-relative, independently
+bounded to 5 MiB, included in the deterministic archive, and independently
+hashed by the native installer. `npm run build:plugin -- denote.mermaid` builds
+both files without runtime imports.
+
+The host-side `src/plugins/diagramSandboxBootstrap.js` is imported as raw text
+and inserted as a static inline module in the opaque renderer frame. Its exact
+SHA-256 must match `DIAGRAM_SANDBOX_BOOTSTRAP_HASH` and the hash in
+`src-tauri/tauri.conf.json`; the unit test rejects drift. This avoids
+cross-origin Vite module loading in development without permitting arbitrary
+inline script. The bootstrap imports the verified renderer source through a
+short-lived Blob URL rather than synchronously base64-encoding the multi-megabyte
+bundle on the application UI thread.
+
+For Mermaid changes, run:
+
+```bash
+npm audit --audit-level=high
+npm ls mermaid dompurify
+npx vitest run \
+  packages/plugin-sdk/src/diagramRenderer.test.ts \
+  plugins/mermaid/tests/renderer.test.ts \
+  src/plugins/diagramRenderers.test.ts \
+  src/plugins/runtimeMessages.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/MermaidMarkdownEditor.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml diagram_renderer
+```
+
 ### Prepare an immutable plugin version
 
 Build and stage one independently downloadable plugin artifact with:
@@ -541,6 +576,20 @@ grammar dependencies must be direct dependencies, lazy-loaded, included in
 `package-lock.json`, and pass `npm audit`; Denote never downloads grammars at
 runtime. Specialized plugin grammar support requires a separately approved typed
 host contract and is not part of plugin API version 1.
+
+The canonical Welcome-vault language samples live in `docs/user-guide/code/`.
+Keep one tiny invented file for every distinct `CORE_SYNTAX_LANGUAGES`
+descriptor, plus representative filename-only rules and the ambiguous `.pp`
+case documented in `code/README.md`. `src/lib/welcomeSamples.test.ts` compares
+the directory with the live registry. The canonical Mermaid, PDF, JSON, and
+YAML files live in `docs/user-guide/examples/`; the PDF must remain exactly
+equal to the deterministic `createPdfFixture` output and contain no actions,
+forms, annotations, attachments, or external links.
+
+`src-tauri/src/default_vault.rs` also owns the non-destructive `examples-v1`
+addition for older Welcome vaults. Tests must prove exact source inventory,
+missing-file addition, existing-file preservation, one-time behavior, symlink
+refusal, encrypted deferral, and ciphertext creation after unlock.
 
 Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
 maintained package, so its small core stream tokenizer stays in

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
+  PluginDiagramRenderRequest,
+  PluginDiagramRenderResult,
   PluginNoteEvent,
   PluginEmojiPreferences,
   PluginPermissionRequest,
@@ -21,6 +23,7 @@ import {
   type PluginSidebarContribution,
   type PluginStatusContribution,
   type PluginDecorationContribution,
+  type PluginDiagramRendererContribution,
   type PluginEmojiPickerContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
@@ -38,6 +41,7 @@ export interface PluginController {
   decorations: PluginDecorationContribution[];
   emojiPickers: PluginEmojiPickerContribution[];
   structuredViewers: PluginStructuredViewerContribution[];
+  diagramRenderers: PluginDiagramRendererContribution[];
   saveEmojiPreferences: (
     pluginId: string,
     pickerId: string,
@@ -85,6 +89,13 @@ export interface PluginController {
     viewerId: string,
     request: PluginStructuredViewerParseRequest,
   ) => Promise<PluginStructuredViewModel>;
+  renderDiagram: (
+    renderer: PluginDiagramRendererContribution,
+    request: PluginDiagramRenderRequest,
+    scopeId: string,
+    signal: AbortSignal,
+  ) => Promise<PluginDiagramRenderResult>;
+  releaseDiagramScope: (scopeId: string) => void;
   emitNoteEvent: (event: PluginNoteEvent) => void;
   invalidateActionLeases: () => void;
   shutdown: () => Promise<void>;
@@ -121,6 +132,9 @@ export function usePlugins(
   const [emojiPickers, setEmojiPickers] = useState<PluginEmojiPickerContribution[]>([]);
   const [structuredViewers, setStructuredViewers] = useState<
     PluginStructuredViewerContribution[]
+  >([]);
+  const [diagramRenderers, setDiagramRenderers] = useState<
+    PluginDiagramRendererContribution[]
   >([]);
   const [sourceControlProviders, setSourceControlProviders] = useState<
     PluginSourceControlContribution[]
@@ -182,6 +196,7 @@ export function usePlugins(
       (snapshot) => vaultClonedRef.current(snapshot),
       setEmojiPickers,
       setStructuredViewers,
+      setDiagramRenderers,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -210,12 +225,7 @@ export function usePlugins(
           if (cancelled || !startsAllowedRef.current) {
             break;
           }
-          if (
-            plugin.approvedPermissions.some(
-              (permission) => permission.capability === "structured-viewer",
-            ) &&
-            !contentAvailableRef.current
-          ) {
+          if (!contentAvailableRef.current && requiresContent(plugin)) {
             continue;
           }
           try {
@@ -271,9 +281,7 @@ export function usePlugins(
         if (
           cancelled ||
           !plugin.enabled ||
-          !plugin.approvedPermissions.some(
-            (permission) => permission.capability === "structured-viewer",
-          )
+          !requiresContent(plugin)
         ) {
           continue;
         }
@@ -725,6 +733,26 @@ export function usePlugins(
     [],
   );
 
+  const renderDiagram = useCallback(
+    (
+      renderer: PluginDiagramRendererContribution,
+      request: PluginDiagramRenderRequest,
+      scopeId: string,
+      signal: AbortSignal,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.renderDiagram(renderer, request, scopeId, signal);
+    },
+    [],
+  );
+
+  const releaseDiagramScope = useCallback((scopeId: string) => {
+    runtimeRef.current?.releaseDiagramScope(scopeId);
+  }, []);
+
   const shutdown = useCallback(async () => {
     startsAllowedRef.current = false;
     await Promise.allSettled([...emojiWritesRef.current.values()]);
@@ -750,6 +778,7 @@ export function usePlugins(
     decorations,
     emojiPickers,
     structuredViewers,
+    diagramRenderers,
     saveEmojiPreferences,
     sourceControlProviders,
     automaticLocalCommits,
@@ -769,8 +798,18 @@ export function usePlugins(
     runCommand,
     runSourceControlAction,
     parseStructuredView,
+    renderDiagram,
+    releaseDiagramScope,
     emitNoteEvent,
     invalidateActionLeases,
     shutdown,
   };
+}
+
+function requiresContent(plugin: PluginView): boolean {
+  return plugin.approvedPermissions.some((permission) =>
+    ["structured-viewer", "diagram-renderer"].includes(
+      permission.capability,
+    ),
+  );
 }

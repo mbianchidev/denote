@@ -7,6 +7,7 @@
 - [Try a little of everything](#try-a-little-of-everything)
 - [Expandable details](#expandable-details)
 - [Syntax highlighting](#syntax-highlighting)
+- [Example files](#example-files)
 - [Read the guide](#read-the-guide)
 - [Test heading navigation](#test-heading-navigation)
 - [Tags](#tags)
@@ -16,6 +17,8 @@
 > This ordinary local folder is your built-in guide. Edit it, encrypt it, move it,
 > or delete it. Its `.denote.md` opens when no tab session needs restoring, and
 > Denote never replaces your changes.
+> When a release adds the `examples` or `code` collection, Denote adds only
+> missing paths once. Existing files keep their bytes.
 
 ## What is Denote
 
@@ -37,6 +40,8 @@ other regular file. Your files remain the source of truth.
 - [ ] Use the table of contents above to jump between headings
 - [ ] Edit this checklist and wait for autosave
 - [ ] Open **History** and restore an earlier revision
+- [ ] Enable **Mermaid diagrams** and open the diagram example
+- [ ] Open the PDF, JSON, YAML, and a few files in `code`
 
 | Feature | Where to try it |
 | --- | --- |
@@ -47,6 +52,10 @@ other regular file. Your files remain the source of truth.
 | Images | The orbit above |
 | Callouts | The information and warning boxes |
 | Code themes | The block below |
+| Optional diagrams | [Mermaid diagram example](<examples/Mermaid diagram.md>) |
+| PDF reader | [Synthetic PDF](<examples/Hello document.pdf>) |
+| Structured data | [JSON](<examples/Sample data.json>) and [YAML](<examples/Sample data.yaml>) |
+| Source languages | The `code` folder |
 
 ## Expandable details
 
@@ -81,6 +90,18 @@ const activeVault = vaults.find((vault) => vault === "music");
 record Note(String title) {}
 ```
 
+## Example files
+
+The `examples` folder contains one safe local Mermaid note, a deterministic
+one-page synthetic PDF, and nested JSON and YAML files. The JSON and YAML viewer
+plugin can show the data as collapsible trees; Raw view always keeps the exact
+source.
+
+The `code` folder contains tiny invented files covering every distinct core
+syntax-highlighting mode plus filename-only formats. Read
+[its coverage note](code/README.md) for alias deduplication and the intentionally
+ambiguous `.pp` behavior.
+
 >![warning]
 > A vault password cannot be recovered without an unused recovery code. Save the
 > ten codes somewhere outside the encrypted vault.
@@ -98,8 +119,9 @@ record Note(String title) {}
 9. [Keyboard shortcuts](<docs/Keyboard shortcuts.md>)
 10. [Optional plugins](<docs/Optional plugins.md>)
 
-Explore the `test` folder for Japanese, Russian, mixed-script, emoji, punctuation,
-nested-path, source-code, link, rename, and move fixtures.
+Explore the `test` folder for Japanese, Russian, mixed-script, emoji,
+punctuation, nested-path, link, rename, and move fixtures. Use `examples` and
+`code` for the safe document, structured-data, diagram, and language samples.
 
 ## Test heading navigation
 

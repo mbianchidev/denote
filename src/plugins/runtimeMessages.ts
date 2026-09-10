@@ -1,5 +1,6 @@
 import type {
   PluginCapability,
+  PluginDiagramRenderer,
   PluginEmojiPicker,
   PluginNoteEvent,
   PluginProjectContext,
@@ -12,6 +13,7 @@ import type {
 } from "@denote/plugin-sdk";
 import {
   isPluginEmojiPicker,
+  isPluginDiagramRendererRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -65,6 +67,10 @@ export interface PluginStructuredViewerContribution {
   id: string;
   title: string;
   extensions: string[];
+}
+
+export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
+  pluginId: string;
 }
 
 export interface PluginWorkerConnectMessage {
@@ -136,6 +142,13 @@ export type PluginRuntimeMessage =
       extensions: string[];
     }
   | { type: "unregister-structured-viewer"; id: string }
+  | {
+      type: "register-diagram-renderer";
+      id: string;
+      title: string;
+      languages: string[];
+    }
+  | { type: "unregister-diagram-renderer"; id: string }
   | {
       type: "register-source-control";
       id: string;
@@ -246,6 +259,10 @@ export function isPluginRuntimeMessage(
     case "register-structured-viewer":
       return isPluginStructuredViewerRegistration(value);
     case "unregister-structured-viewer":
+      return typeof value.id === "string";
+    case "register-diagram-renderer":
+      return isPluginDiagramRendererRegistration(value);
+    case "unregister-diagram-renderer":
       return typeof value.id === "string";
     case "register-source-control":
       return (

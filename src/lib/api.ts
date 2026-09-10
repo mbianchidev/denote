@@ -278,6 +278,10 @@ export const api = {
     }),
   readPluginEntrypoint: (pluginId: string) =>
     invoke<string>("read_plugin_entrypoint", { pluginId }),
+  readPluginDiagramRenderer: (pluginId: string) =>
+    invoke<string>("read_plugin_diagram_renderer", { pluginId }),
+  exportDiagramSvg: (suggestedName: string, svg: string) =>
+    invoke<boolean>("export_diagram_svg", { suggestedName, svg }),
   getPluginSettings: (pluginId: string) =>
     invoke<Record<string, unknown>>("get_plugin_settings", { pluginId }),
   setPluginSettings: (

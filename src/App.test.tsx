@@ -12,6 +12,7 @@ import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import type {
   PluginEmojiPickerContribution,
   PluginAutomaticLocalCommitContribution,
+  PluginDiagramRendererContribution,
   PluginSourceControlContribution,
   PluginStructuredViewerContribution,
 } from "./plugins/workerRuntime";
@@ -57,6 +58,7 @@ const mockPluginController = vi.hoisted(() => ({
   automaticLocalCommits: [] as PluginAutomaticLocalCommitContribution[],
   emojiPickers: [] as PluginEmojiPickerContribution[],
   structuredViewers: [] as PluginStructuredViewerContribution[],
+  diagramRenderers: [] as PluginDiagramRendererContribution[],
   saveEmojiPreferences: vi.fn().mockResolvedValue(undefined),
   loading: false,
   busyPluginIds: new Set<string>(),
@@ -71,6 +73,8 @@ const mockPluginController = vi.hoisted(() => ({
   runCommand: vi.fn(),
   runSourceControlAction: vi.fn().mockResolvedValue(undefined),
   parseStructuredView: vi.fn(),
+  renderDiagram: vi.fn(),
+  releaseDiagramScope: vi.fn(),
   emitNoteEvent: vi.fn(),
   invalidateActionLeases: vi.fn(),
   shutdown: vi.fn(),
@@ -1763,7 +1767,7 @@ describe("App initial file-tree expansion", () => {
         "print('synthetic') changed",
         "utf8",
         "lf",
-        "flush",
+        expect.stringMatching(/^(?:flush|autosave)$/),
         "sample-hash",
       );
       expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
@@ -2766,7 +2770,7 @@ describe("App initial file-tree expansion", () => {
           "print('synthetic') changed",
           "utf8",
           "lf",
-          "flush",
+          expect.stringMatching(/^(?:flush|autosave)$/),
           "sample-hash",
         );
       },

@@ -284,7 +284,16 @@ more detail and examples.
   paged history and diffs; and merge, rebase, cherry-pick, revert, and
   three-way conflict recovery. It remains disabled by default, never contacts a
   remote automatically, and removes its executable package when disabled.
-- Graph view, Kanban, Mermaid, task enhancements, reminders, comments,
+- The optional Mermaid plugin renders a safe local subset of fenced diagrams in
+  Rich view, keeps exact source available, isolates located errors, follows live
+  themes and accessibility modes, exports sanitized SVG, and clears all derived
+  content on tab, vault-lock, plugin, crash, update, and teardown boundaries.
+- The Welcome vault includes a Mermaid note, deterministic synthetic PDF,
+  nested JSON and YAML examples, and a `code` folder covering every distinct
+  core syntax mode plus filename-only and ambiguous detection cases.
+- Older Welcome vaults receive only missing `examples` and `code` files once;
+  existing paths remain untouched, and encrypted copies wait for unlock.
+- Graph view, Kanban, task enhancements, reminders, comments,
   highlighting, TTS/dictation, calendar, time tracking, and colorful text remain
   optional rather than built into the minimal core.
 

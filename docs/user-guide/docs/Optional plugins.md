@@ -148,13 +148,69 @@ the parsed model. Locking an encrypted vault stops the viewer worker and clears
 decrypted derived state; it restarts after unlock. Disabling or removing the
 plugin never changes open files.
 
+## Mermaid diagrams
+
+Enable **Mermaid diagrams** under **Diagrams and visualization** to render
+fenced `mermaid` blocks in Markdown Rich view. The plugin is disabled by
+default. Its executable package, including Mermaid 11.17.2, is downloaded only
+after you approve **Diagram renderer**.
+
+Denote owns the block controls and display. **Show diagram source** opens the
+ordinary editable fenced source without changing it. **Copy diagram SVG**
+copies independently sanitized SVG text, and **Export diagram SVG** opens a
+native save dialog. These actions are keyboard reachable, use visible focus,
+and report completion through a polite status announcement.
+
+Supported detector families are C4, flowchart, swimlane, ER, Git graph, Gantt,
+pie, quadrant, XY chart, requirement, sequence, class, state, journey,
+timeline, mindmap, Kanban, Sankey, packet, radar, block, tree view,
+architecture, event modeling, Ishikawa, Venn, treemap, Wardley, Cynefin, and
+railroad. Put an optional first line such as
+`%% denote:title: Note workflow` in the fence to provide a bounded accessible
+figure name. Otherwise Denote uses **Mermaid diagram**.
+
+YAML frontmatter may provide only a simple `title` and, for Gantt,
+`displayMode: compact`. Nested configuration, unknown keys, tags, anchors, and
+aliases are rejected. Diagram labels remain visual content; screen readers
+receive the explicit safe title or generic name and can always use the source
+path.
+
+Rendering is local and offline. The plugin rejects unsafe Mermaid frontmatter and initialization directives,
+HTML labels, links, callbacks, custom style directives, images, icons, external
+resources, and scriptable or unsafe URL schemes. Mermaid runs with strict
+security, fixed host configuration, HTML
+labels off, deterministic IDs, no callback binding, and a fixed local font
+family inside an opaque sandbox whose CSP denies network, image, font, object,
+form, and parent-origin access. Denote then sanitizes the returned SVG with a
+static allowlist and displays it in a second scriptless sandbox. No plugin HTML
+or React component enters the editor.
+
+Limits are 32 KiB and 1,000 lines of source, 4 KiB per line, 500 statements,
+300 edges, 10,000 sanitized SVG elements, and 2 MiB of SVG. The verified
+renderer module has a 30-second initialization bound per open editor. One
+diagram renders at a time, at most 32 wait, each render has a five-second watchdog,
+successful derived content is capped at 32 entries or 16 MiB, and failed
+renders are never retried or cached. A parse error stays beside only its block
+and includes a line and column when Mermaid provides them.
+
+Light, Dark, increased-contrast, and forced-colors changes rerender active
+diagrams. Motion is disabled for reduced-motion users. Closing the tab,
+switching vaults, locking an encrypted vault, disabling, updating, removing, or
+crashing the plugin, and application teardown cancel stale work, destroy
+sandboxes, clear derived SVG, unregister the contribution, and restore ordinary
+fenced-code rendering. Markdown is never rewritten.
+
+Open [the Mermaid example](<../examples/Mermaid diagram.md>) in the Denote
+Welcome vault. Older copies receive only missing `examples` and `code` files on
+the next startup, or after unlock when the Welcome vault is encrypted. Existing
+matching paths are not overwritten.
+
 ## Other optional features
 
 These capabilities are planned as separately enabled plugins:
 
 - graph view;
 - Kanban boards;
-- Mermaid diagrams;
 - task lists and reminders;
 - note comments and highlighting;
 - text-to-speech and dictation;

@@ -1,0 +1,4 @@
+filegroup(
+    name = "hello",
+    srcs = ["hello.py"],
+)

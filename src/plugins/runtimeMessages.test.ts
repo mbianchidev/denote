@@ -78,6 +78,43 @@ describe("plugin runtime source control messages", () => {
     expect(messages.every(isPluginRuntimeMessage)).toBe(true);
   });
 
+  describe("plugin runtime diagram renderer messages", () => {
+    it("accepts bounded declarative registration and removal", () => {
+      expect(
+        isPluginRuntimeMessage({
+          type: "register-diagram-renderer",
+          id: "denote.synthetic.mermaid",
+          title: "Mermaid diagrams",
+          languages: ["mermaid"],
+        }),
+      ).toBe(true);
+      expect(
+        isPluginRuntimeMessage({
+          type: "unregister-diagram-renderer",
+          id: "denote.synthetic.mermaid",
+        }),
+      ).toBe(true);
+    });
+
+    it("rejects duplicate, uppercase, and malformed diagram languages", () => {
+      for (const languages of [
+        ["mermaid", "mermaid"],
+        ["MERMAID"],
+        ["mermaid<script>"],
+        [],
+      ]) {
+        expect(
+          isPluginRuntimeMessage({
+            type: "register-diagram-renderer",
+            id: "denote.synthetic.mermaid",
+            title: "Mermaid diagrams",
+            languages,
+          }),
+        ).toBe(false);
+      }
+    });
+  });
+
   it("rejects malformed source control models", () => {
     expect(
       isPluginRuntimeMessage({

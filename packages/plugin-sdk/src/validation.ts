@@ -157,6 +157,59 @@ export function validatePluginManifest(
   ) {
     errors.push("entrypoint must point inside the package dist/ directory.");
   }
+  if (value.diagramRenderer !== undefined) {
+    if (!isRecord(value.diagramRenderer)) {
+      errors.push("diagramRenderer must be an object.");
+    } else {
+      requireSafeRelativePath(
+        value.diagramRenderer.entrypoint,
+        "diagramRenderer.entrypoint",
+        errors,
+      );
+      if (
+        typeof value.diagramRenderer.entrypoint === "string" &&
+        !value.diagramRenderer.entrypoint.startsWith("dist/")
+      ) {
+        errors.push(
+          "diagramRenderer.entrypoint must point inside the package dist/ directory.",
+        );
+      }
+      if (value.diagramRenderer.entrypoint === value.entrypoint) {
+        errors.push(
+          "diagramRenderer.entrypoint must differ from entrypoint.",
+        );
+      }
+    }
+  }
+  const hasDiagramPermission =
+    Array.isArray(value.permissions) &&
+    value.permissions.some(
+      (permission) =>
+        isRecord(permission) &&
+        permission.capability === "diagram-renderer",
+    );
+  if (hasDiagramPermission && value.diagramRenderer === undefined) {
+    errors.push("diagram-renderer permission requires diagramRenderer.");
+  }
+  if (!hasDiagramPermission && value.diagramRenderer !== undefined) {
+    errors.push("diagramRenderer requires the diagram-renderer permission.");
+  }
+  if (value.legal !== undefined) {
+    if (!Array.isArray(value.legal) || value.legal.length === 0) {
+      errors.push("legal must be a non-empty array.");
+    } else {
+      const legalPaths = new Set<string>();
+      value.legal.forEach((path, index) => {
+        requireSafeRelativePath(path, `legal[${index}]`, errors);
+        if (typeof path === "string") {
+          if (legalPaths.has(path)) {
+            errors.push(`legal contains duplicate ${path}.`);
+          }
+          legalPaths.add(path);
+        }
+      });
+    }
+  }
   requireSafeRelativePath(value.documentation, "documentation", errors);
   if (value.settings !== undefined) {
     validateSettings(value.settings, errors);

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" role="img" aria-label="Mermaid diagrams">
+  <rect x="3" y="4" width="7" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <rect x="14" y="15" width="7" height="5" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+  <path d="M10 6.5h3a4 4 0 0 1 4 4V15" fill="none" stroke="currentColor" stroke-width="1.5"/>
+</svg>

@@ -124,10 +124,17 @@ function validatePlugin(pluginDirectory: string): void {
       errors.push(`${label} guide does not match its catalog guide.`);
     }
   }
-  const requiredPaths = [manifest.icon];
+  const requiredPaths = [manifest.icon, ...(manifest.legal ?? [])];
   requiredPaths.push(
     requireArtifacts ? manifest.entrypoint : sourceEntrypoint(manifest.entrypoint),
   );
+  if (manifest.diagramRenderer) {
+    requiredPaths.push(
+      requireArtifacts
+        ? manifest.diagramRenderer.entrypoint
+        : sourceEntrypoint(manifest.diagramRenderer.entrypoint),
+    );
+  }
   for (const packagePath of requiredPaths) {
     const path = join(pluginDirectory, packagePath);
     if (!existsSync(path) || !statSync(path).isFile()) {
@@ -142,22 +149,34 @@ function validatePlugin(pluginDirectory: string): void {
           .map((entry) => entry.name)
           .sort()
       : [];
+    const expectedOutputFiles = [
+      manifest.entrypoint,
+      ...(manifest.diagramRenderer
+        ? [manifest.diagramRenderer.entrypoint]
+        : []),
+    ]
+      .map((path) => path.replace(/^dist\//, ""))
+      .sort();
     if (
-      outputFiles.length !== 1 ||
-      outputFiles[0] !== manifest.entrypoint.replace(/^dist\//, "")
+      outputFiles.length !== expectedOutputFiles.length ||
+      outputFiles.some((file, index) => file !== expectedOutputFiles[index])
     ) {
       errors.push(
-        `${label} must build one self-contained ${manifest.entrypoint} file.`,
+        `${label} must build only its declared self-contained entrypoints.`,
       );
     } else {
-      const output = readFileSync(
-        join(pluginDirectory, manifest.entrypoint),
-        "utf8",
-      );
-      if (/\bimport\s*\(|\bimportScripts\s*\(/.test(output)) {
-        errors.push(
-          `${label} output contains a runtime import and is not self-contained.`,
-        );
+      for (const entrypoint of [
+        manifest.entrypoint,
+        ...(manifest.diagramRenderer
+          ? [manifest.diagramRenderer.entrypoint]
+          : []),
+      ]) {
+        const output = readFileSync(join(pluginDirectory, entrypoint), "utf8");
+        if (/\bimport\s*\(|\bimportScripts\s*\(/.test(output)) {
+          errors.push(
+            `${label} output ${entrypoint} contains a runtime import and is not self-contained.`,
+          );
+        }
       }
     }
   }

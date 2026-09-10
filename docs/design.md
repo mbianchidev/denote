@@ -474,6 +474,10 @@ source code so edge cases remain easy to exercise.
 New Welcome vaults seed the same canonical guide as both `.denote.md` and
 `Welcome.md`; the latter remains for stable links and existing-vault
 compatibility.
+Older Welcome vaults receive only missing `examples` and `code` paths once.
+Existing matching paths and user-added content keep their bytes. Encrypted
+copies wait for unlock and receive encrypted files before the workspace
+refreshes.
 
 ### Callouts
 
@@ -613,6 +617,33 @@ the Raw control available and show a line and column when known. Rows retain
 pointer-sized targets, use no decorative motion, and use system borders,
 selection, and focus colors under forced colors.
 
+### Optional Mermaid diagrams
+
+The Mermaid plugin contributes only a renderer registration and a separately
+declared sandbox module. Denote owns the fenced-block toolbar, figure, error
+surface, source editor, copy/export actions, focus, status announcements, and
+teardown. Plugin code never supplies React, HTML, CSS, or editor controls.
+
+The toolbar is a compact native-button group in document order: source, copy,
+then export. Every icon has an accessible name and native tooltip; unavailable
+actions are disabled rather than hidden. **Show diagram source** reveals the
+ordinary fenced CodeMirror editor and moves focus to the located error line when
+known. Parse errors use a full one-pixel danger border, a written error heading,
+message, and location, so meaning never depends on color.
+
+The rendered figure uses an explicit safe `%% denote:title:` value of at most 80
+characters or the generic **Mermaid diagram** label. The scriptless display
+iframe is hidden from the accessibility tree so arbitrary visible node text is
+not announced as UI; the adjacent source action is the readable non-visual
+fallback. Light, dark, increased-contrast, and forced-colors state rerenders the
+diagram, while reduced motion disables transitions and animation.
+
+Active rendering uses one off-screen opaque sandbox at a time. Loading, success,
+copy, export, cancellation, and failure use polite status updates. Closing the
+tab or losing the contribution unmounts the figure and source surface, restores
+ordinary code rendering, and keeps keyboard focus in the surviving editor
+structure.
+
 ### Editor Settings
 
 Editor text size uses a compact 12–24 px range with minus/plus controls and a
@@ -622,6 +653,9 @@ chrome. Line numbers use a quiet gutter. Spaces, tabs, line endings, and trailin
 whitespace are low-contrast source annotations that become prominent only when
 explicitly enabled. The settings dialog applies changes immediately and states
 that markers never change saved content.
+Its header, section tabs, close control, and footer remain outside the scrolling
+body, so enabling a plugin or using a minimum-height window never hides the
+close path or exposes the editor underneath.
 Rich/source controls remain visible in a disabled segmented state while guides
 force source mode; their tooltip names the setting that restores mode switching.
 Files inside an explicit or implicit project use the same restrained gutter to

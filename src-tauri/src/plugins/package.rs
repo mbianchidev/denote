@@ -223,6 +223,16 @@ pub(crate) fn validate_extracted_package(
             catalog.manifest.id
         )));
     }
+    if let Some(renderer) = &catalog.manifest.diagram_renderer {
+        let entrypoint = staging.join(&renderer.entrypoint);
+        let metadata = fs::symlink_metadata(&entrypoint)?;
+        if !metadata.is_file() || metadata.len() > MAX_PLUGIN_ENTRYPOINT_BYTES {
+            return Err(AppError::Plugin(format!(
+                "Plugin {} has an invalid diagram renderer",
+                catalog.manifest.id
+            )));
+        }
+    }
     Ok(())
 }
 
@@ -254,6 +264,16 @@ pub(crate) fn validate_installed_package(
             "Plugin {} has an invalid entrypoint",
             manifest.id
         )));
+    }
+    if let Some(renderer) = &manifest.diagram_renderer {
+        let entrypoint = package_dir.join(&renderer.entrypoint);
+        let metadata = fs::symlink_metadata(&entrypoint)?;
+        if !metadata.is_file() || metadata.len() > MAX_PLUGIN_ENTRYPOINT_BYTES {
+            return Err(AppError::Plugin(format!(
+                "Plugin {} has an invalid diagram renderer",
+                manifest.id
+            )));
+        }
     }
     Ok(())
 }

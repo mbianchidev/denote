@@ -10,6 +10,8 @@ mod settings;
 mod types;
 
 #[cfg(test)]
+mod diagram_tests;
+#[cfg(test)]
 mod download_tests;
 #[cfg(test)]
 mod emoji_tests;

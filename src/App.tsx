@@ -1580,6 +1580,26 @@ function App() {
       pluginController.structuredViewers,
     ],
   );
+  const diagramRenderers = useMemo(
+    () =>
+      pluginController.diagramRenderers.filter(
+        (renderer) =>
+          !pluginController.busyPluginIds.has(renderer.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.catalog.manifest.id === renderer.pluginId &&
+              plugin.enabled,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.diagramRenderers,
+      pluginController.plugins,
+    ],
+  );
+  const diagramRendererKey = diagramRenderers
+    .map((renderer) => `${renderer.pluginId}\u0000${renderer.id}`)
+    .join("\u0001");
   const activeStructuredViewer =
     activeFileTab?.encoding === "utf8"
       ? structuredViewerForPath(structuredViewers, activeFileTab.path)
@@ -8851,7 +8871,7 @@ function App() {
           />
         ) : paneUsesRichMarkdown ? (
           <MarkdownEditor
-            key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}:${pluginDecorationKey}`}
+            key={`${paneTab.path}:${paneTab.editorRevision}:${editorDisplayKey}:${pluginDecorationKey}:${diagramRendererKey}`}
             notePath={paneTab.path}
             markdown={paneTab.content}
             lineEnding={paneTab.lineEnding}
@@ -8859,6 +8879,17 @@ function App() {
             pluginDecorations={pluginController.decorations}
             emoji={emojiPickers.length ? { host: emojiHost, scope: emojiScope(pane.id, paneTab.path) } : undefined}
             emojiPickers={emojiPickers}
+            diagrams={
+              diagramRenderers.length > 0
+                ? {
+                    scopeId: `${pane.id}:${paneTab.path}`,
+                    renderers: diagramRenderers,
+                    renderDiagram: pluginController.renderDiagram,
+                    releaseScope: pluginController.releaseDiagramScope,
+                    exportSvg: api.exportDiagramSvg,
+                  }
+                : undefined
+            }
             preferredViewMode={markdownViewMode}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}

@@ -24,8 +24,9 @@ release ledger.
 Every plugin contains:
 
 - `plugin.json` with a namespaced ID, semantic version, publisher, license,
-  category, Denote/API compatibility, permissions, package paths, and optional
-  settings schema;
+  category, Denote/API compatibility, permissions, package paths, optional
+  settings schema, and an optional separately verified
+  `diagramRenderer.entrypoint`;
 - `guide.md` with purpose, permissions, usage, settings, disable behavior, and
   troubleshooting sections available to the catalog before code execution;
 - `icon.svg` or another package-relative icon;
@@ -212,13 +213,18 @@ concurrent.
 
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
-secure storage. Approved plugins may also observe `project-context`. Sensitive
+secure storage. It also supports bounded declarative emoji, structured-viewer,
+and diagram-renderer registrations. Approved plugins may also observe
+`project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations exist only
 inside an explicit command action.
 
-Arbitrary renderer code, embedded webviews, custom React components, menu
-injection, and general import/export hooks are deliberately not approved
-surfaces in API version 1. Editor actions are exposed as commands so they inherit
+Arbitrary host-DOM renderer code, embedded plugin webviews, custom React
+components, menu injection, and general import/export hooks are deliberately
+not approved surfaces in API version 1. The diagram renderer exception is a
+separately declared executable that runs only in a fixed opaque sandbox and
+returns bounded data for independent host sanitization; it cannot inject UI.
+Editor actions are exposed as commands so they inherit
 the same user-action lease and permission checks. Adding a new surface requires a
 typed declarative contract, deterministic disposal, accessibility behavior,
 security review, and an additive SDK release; executable UI injection requires a
@@ -311,6 +317,51 @@ bundled `yaml` 2.9.0 parser uses strict YAML 1.2 core with merge keys, known YAM
 1.1 tags, and custom tags disabled. It traverses parser nodes iteratively and
 shows aliases as terminal references, with separate 100-document, 128-level,
 500-alias, and 50,000-node limits.
+
+### Sandboxed diagram renderer
+
+The additive API version 1 `diagram-renderer` permission accepts one
+registration per plugin for lowercase fenced-code languages. The registration
+contains only a namespaced ID, title, and languages. It returns a disposable
+handle. It contains no render function, HTML, CSS, React component, editor
+object, path, source, callback, or native capability.
+
+A requesting manifest must also declare one
+`diagramRenderer.entrypoint` under `dist/`, separate from the activation
+entrypoint. Build, archive, native package, preparation, state, startup, and
+read validation treat both files as independently bounded executable inputs
+with separate SHA-256 digests. The renderer file is unavailable before a
+matching prepared or enabled permission and is deleted with the package.
+
+The host loads the renderer once per active editor scope into an opaque
+`sandbox="allow-scripts"` iframe with a fixed SHA-256-authorized inline
+bootstrap and no network, image, font, storage, nested worker, Tauri, or
+parent-origin access. The verified module has a 30-second initialization bound
+and is never shared across tabs; each serial `renderDiagram(request)` call has
+its own five-second watchdog and
+returns only the SDK's bounded success or error union. The host independently sanitizes successful SVG, owns all
+rendering UI and actions, and displays the result in a second scriptless
+sandbox. Invalid protocol or unsafe output removes the plugin; a source parse
+error remains local to its block.
+
+`denote.mermaid` requests only this permission and registers only `mermaid`.
+Its archive owns Mermaid and its renderer dependencies; Mermaid implementation
+does not enter the desktop bundle. The generic host SVG sanitizer separately
+pins DOMPurify. Source preflight and fixed strict configuration reject configuration
+directives, HTML labels, links/callbacks, custom styles, images/icons, resources,
+and unsafe protocols. Simple YAML frontmatter permits only a bounded title and
+Gantt `displayMode: compact`; nested configuration, tags, anchors, aliases, and
+unknown keys are rejected. All Mermaid 11.17.2 detector families except its
+internal info/error diagrams are supported within fixed source, line,
+statement, edge, time, queue, element, SVG, and cache limits.
+
+The host keeps exact fenced source in the ordinary Markdown node. Theme changes
+cancel stale output and rerender. Source, copy, and export controls are native
+buttons with accessible names and visible focus. Parse errors include location
+when available and reveal the source editor. Tab close, vault switch, encrypted
+lock, unregistration, crash, update, disable, removal, and teardown clear
+derived SVG, queues, caches, sandboxes, and listeners without changing
+Markdown.
 
 ### Git transport
 

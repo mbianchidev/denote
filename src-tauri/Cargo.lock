@@ -1077,6 +1077,7 @@ dependencies = [
  "keyring",
  "libc",
  "mime_guess",
+ "quick-xml",
  "reqwest",
  "rlimit",
  "rusqlite",

@@ -254,7 +254,13 @@ export async function verifyArchiveContents(path: string, directory: string, man
       }
       seen.add(entry.path);
       expanded += entry.size;
-      if (expanded > MAX_BYTES || (entry.path === manifest.entrypoint && entry.size > 5 * 1024 * 1024)) {
+      const executablePaths = new Set([
+        manifest.entrypoint,
+        ...(manifest.diagramRenderer
+          ? [manifest.diagramRenderer.entrypoint]
+          : []),
+      ]);
+      if (expanded > MAX_BYTES || (executablePaths.has(entry.path) && entry.size > 5 * 1024 * 1024)) {
         failure ??= new Error("Plugin archive exceeds expanded size limits.");
       }
       const chunks: Buffer[] = [];

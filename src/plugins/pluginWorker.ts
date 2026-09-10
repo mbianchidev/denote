@@ -7,6 +7,7 @@ import type {
   PluginCapability,
   PluginCommand,
   PluginDisposable,
+  PluginDiagramRenderer,
   PluginGitResult,
   PluginLogger,
   PluginNetworkResponse,
@@ -36,6 +37,7 @@ import { createGitCapability } from "./gitCapability";
 import {
   emojiPickerMatchesManifest,
   isPluginEmojiPicker,
+  isPluginDiagramRendererRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -67,6 +69,7 @@ const noteListeners = new Set<
 const automaticCommitSchedules = new Set<string>();
 const emojiPickers = new Set<string>();
 const structuredViewers = new Set<string>();
+const diagramRenderers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
 >();
@@ -371,6 +374,33 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("diagram-renderer")) {
+    capabilities.diagramRenderer = {
+      register(renderer: PluginDiagramRenderer) {
+        if (
+          cleaned ||
+          !isPluginDiagramRendererRegistration(renderer) ||
+          diagramRenderers.size > 0
+        ) {
+          throw new Error(
+            "Invalid or duplicate diagram renderer registration.",
+          );
+        }
+        validateContributionId(renderer.id, "diagram renderer");
+        diagramRenderers.add(renderer.id);
+        send({ type: "register-diagram-renderer", ...renderer });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          diagramRenderers.delete(renderer.id);
+          send({ type: "unregister-diagram-renderer", id: renderer.id });
+        });
+      },
+    };
+  }
   if (permissions.has("note-events")) {
     capabilities.noteEvents = {
       subscribe(listener) {
@@ -612,6 +642,7 @@ async function cleanup(): Promise<unknown[]> {
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
+  diagramRenderers.clear();
   return failures;
 }
 

@@ -167,6 +167,7 @@ impl PluginManager {
                 artifact_sha256: catalog.artifact.sha256.clone(),
                 catalog_fingerprint: catalog_fingerprint(&catalog)?,
                 entrypoint_sha256: None,
+                diagram_renderer_sha256: None,
                 previously_enabled,
             },
         );
@@ -174,12 +175,19 @@ impl PluginManager {
         let result = (|| {
             let bytes = self.download_to_cache(&catalog)?;
             let entrypoint_sha256 = self.install_package(&catalog, &bytes)?;
+            let diagram_renderer_sha256 = catalog
+                .manifest
+                .diagram_renderer
+                .as_ref()
+                .map(|renderer| sha256_file(&self.install_dir(&catalog).join(&renderer.entrypoint)))
+                .transpose()?;
             self.clear_error(plugin_id)?;
             let mut transactions = self.pending_transactions()?;
             let transaction = transactions
                 .get_mut(&transaction_id)
                 .ok_or_else(|| AppError::Plugin("Plugin preparation was cancelled".to_string()))?;
             transaction.entrypoint_sha256 = Some(entrypoint_sha256);
+            transaction.diagram_renderer_sha256 = diagram_renderer_sha256;
             drop(transactions);
             self.installed_plugin(&catalog, transaction_id.clone())
         })();
@@ -232,6 +240,13 @@ impl PluginManager {
                     AppError::Plugin("Plugin preparation is incomplete".to_string())
                 })?,
             );
+            if let Some(hash) = transaction.diagram_renderer_sha256 {
+                state
+                    .diagram_renderer_hashes
+                    .insert(plugin_id.clone(), hash);
+            } else {
+                state.diagram_renderer_hashes.remove(&plugin_id);
+            }
             state
                 .installed_manifests
                 .insert(plugin_id.clone(), catalog.manifest.clone());
@@ -313,6 +328,7 @@ impl PluginManager {
             state.enabled.remove(plugin_id);
             state.updates_available.remove(plugin_id);
             state.entrypoint_hashes.remove(plugin_id);
+            state.diagram_renderer_hashes.remove(plugin_id);
             state.installed_manifests.remove(plugin_id);
             state.development_plugin_ids.remove(plugin_id);
             state.errors.remove(plugin_id);
@@ -337,6 +353,7 @@ impl PluginManager {
                 "Plugin entrypoint escapes its package: {plugin_id}"
             )));
         }
+
         let metadata = fs::symlink_metadata(&canonical_entrypoint)?;
         if !metadata.is_file() || metadata.len() > MAX_PLUGIN_ENTRYPOINT_BYTES {
             return Err(AppError::Plugin(format!(
@@ -362,6 +379,48 @@ impl PluginManager {
         })
     }
 
+    pub(crate) fn read_diagram_renderer(&self, plugin_id: &str) -> AppResult<String> {
+        self.authorize_runtime(plugin_id, Some("diagram-renderer"))?;
+        let manifest = self.runtime_manifest(plugin_id)?;
+        let renderer = manifest.diagram_renderer.as_ref().ok_or_else(|| {
+            AppError::Plugin(format!(
+                "Plugin {plugin_id} has no diagram renderer entrypoint"
+            ))
+        })?;
+        let install_dir = self.install_dir_for_manifest(&manifest);
+        let entrypoint = install_dir.join(&renderer.entrypoint);
+        let canonical_root = fs::canonicalize(&install_dir)?;
+        let canonical_entrypoint = fs::canonicalize(&entrypoint)?;
+        if !canonical_entrypoint.starts_with(&canonical_root) {
+            return Err(AppError::Plugin(format!(
+                "Plugin diagram renderer escapes its package: {plugin_id}"
+            )));
+        }
+        let metadata = fs::symlink_metadata(&canonical_entrypoint)?;
+        if !metadata.is_file() || metadata.len() > MAX_PLUGIN_ENTRYPOINT_BYTES {
+            return Err(AppError::Plugin(format!(
+                "Plugin diagram renderer is invalid or too large: {plugin_id}"
+            )));
+        }
+        let expected_hash = self.expected_diagram_renderer_hash(plugin_id)?;
+        let mut bytes = Vec::with_capacity(metadata.len() as usize);
+        fs::File::open(&canonical_entrypoint)?
+            .take(MAX_PLUGIN_ENTRYPOINT_BYTES + 1)
+            .read_to_end(&mut bytes)?;
+        if bytes.len() as u64 != metadata.len()
+            || hex::encode(Sha256::digest(&bytes)) != expected_hash
+        {
+            return Err(AppError::Plugin(format!(
+                "Plugin diagram renderer integrity check failed: {plugin_id}"
+            )));
+        }
+        String::from_utf8(bytes).map_err(|error| {
+            AppError::Plugin(format!(
+                "Plugin diagram renderer is not valid UTF-8 for {plugin_id}: {error}"
+            ))
+        })
+    }
+
     pub(crate) fn expected_entrypoint_hash(&self, plugin_id: &str) -> AppResult<String> {
         let pending = self.pending_transactions()?;
         let prepared_hash = pending
@@ -372,6 +431,7 @@ impl PluginManager {
         if let Some(hash) = prepared_hash {
             return Ok(hash);
         }
+
         self.state()?
             .entrypoint_hashes
             .get(plugin_id)
@@ -379,6 +439,27 @@ impl PluginManager {
             .ok_or_else(|| {
                 AppError::Plugin(format!(
                     "Plugin {plugin_id} has no recorded entrypoint integrity hash"
+                ))
+            })
+    }
+
+    fn expected_diagram_renderer_hash(&self, plugin_id: &str) -> AppResult<String> {
+        let pending = self.pending_transactions()?;
+        let prepared_hash = pending
+            .values()
+            .find(|transaction| transaction.plugin_id == plugin_id)
+            .and_then(|transaction| transaction.diagram_renderer_sha256.clone());
+        drop(pending);
+        if let Some(hash) = prepared_hash {
+            return Ok(hash);
+        }
+        self.state()?
+            .diagram_renderer_hashes
+            .get(plugin_id)
+            .cloned()
+            .ok_or_else(|| {
+                AppError::Plugin(format!(
+                    "Plugin {plugin_id} has no recorded diagram renderer integrity hash"
                 ))
             })
     }
@@ -542,6 +623,11 @@ impl PluginManager {
             .cloned()
             .unwrap_or_default();
         let expected_entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
+        let expected_diagram_renderer_hash = self
+            .state()?
+            .diagram_renderer_hashes
+            .get(plugin_id)
+            .cloned();
         let plugin_root = self.plugin_root(plugin_id);
         if !plugin_root.exists() {
             return Ok(None);
@@ -574,6 +660,13 @@ impl PluginManager {
             if entrypoint_hash != expected_entrypoint_hash {
                 continue;
             }
+            let renderer_hash = manifest
+                .diagram_renderer
+                .as_ref()
+                .and_then(|renderer| sha256_file(&path.join(&renderer.entrypoint)).ok());
+            if renderer_hash != expected_diagram_renderer_hash {
+                continue;
+            }
             candidates.push(manifest);
         }
         if candidates.len() != 1 {
@@ -602,6 +695,11 @@ impl PluginManager {
             let approved_permissions = self.state()?.approved_permissions.get(plugin_id).cloned();
             let artifact_hash = self.state()?.artifact_hashes.get(plugin_id).cloned();
             let entrypoint_hash = self.state()?.entrypoint_hashes.get(plugin_id).cloned();
+            let renderer_hash = self
+                .state()?
+                .diagram_renderer_hashes
+                .get(plugin_id)
+                .cloned();
             if enabled.contains(plugin_id) {
                 let active_manifest = self.recover_installed_manifest(plugin_id)?;
                 let installed_valid = active_manifest.as_ref().is_some_and(|manifest| {
@@ -615,6 +713,15 @@ impl PluginManager {
                     };
                     let approved_matches = approved_permissions.as_ref()
                         == Some(&manifest.permissions.iter().cloned().collect());
+                    let renderer_matches =
+                        match (manifest.diagram_renderer.as_ref(), renderer_hash.as_deref()) {
+                            (Some(renderer), Some(expected)) => {
+                                sha256_file(&install_dir.join(&renderer.entrypoint))
+                                    .is_ok_and(|actual| actual == expected)
+                            }
+                            (None, None) => true,
+                            _ => false,
+                        };
                     let mut installed_catalog = catalog.clone();
                     installed_catalog.manifest = manifest.clone();
                     installed_catalog.revoked = None;
@@ -624,6 +731,7 @@ impl PluginManager {
                     install_dir.is_dir()
                         && validate_installed_package(manifest, &install_dir).is_ok()
                         && entrypoint_matches
+                        && renderer_matches
                         && approved_matches
                         && compatible
                         && !explicitly_revoked

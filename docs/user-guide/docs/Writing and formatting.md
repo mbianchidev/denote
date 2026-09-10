@@ -156,6 +156,21 @@ directory is not sufficient proof that a file is a Helm template. Select
 Fenced code blocks in rich mode include an inline **Copy** button. It copies the
 live code block text, including edits made inside the block.
 
+### Mermaid fences
+
+Fenced `mermaid` blocks remain ordinary portable Markdown. When the optional
+**Mermaid diagrams** plugin is enabled, Rich view replaces a matching block with
+a host-owned diagram surface. Source view and **Show diagram source** keep the
+exact fence editable, and disabling the plugin immediately restores normal code
+rendering without changing bytes.
+
+The plugin supports a deliberately safe local subset and rejects directives,
+HTML labels, links, callbacks, images, external resources, and custom styles.
+Errors stay beside the affected block. See
+[Optional plugins](<Optional plugins.md#mermaid-diagrams>) and the
+[Welcome diagram example](<../examples/Mermaid diagram.md>) for supported
+diagram types, limits, copy/export behavior, accessibility, and troubleshooting.
+
 ## Tags
 
 Put tags on a tag-only final line, such as `#guide #project/atlas #研究`. Rich
