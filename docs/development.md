@@ -170,6 +170,15 @@ bounded to 5 MiB, included in the deterministic archive, and independently
 hashed by the native installer. `npm run build:plugin -- denote.mermaid` builds
 both files without runtime imports.
 
+The host-side `src/plugins/diagramSandboxBootstrap.js` is imported as raw text
+and inserted as a static inline module in the opaque renderer frame. Its exact
+SHA-256 must match `DIAGRAM_SANDBOX_BOOTSTRAP_HASH` and the hash in
+`src-tauri/tauri.conf.json`; the unit test rejects drift. This avoids
+cross-origin Vite module loading in development without permitting arbitrary
+inline script. The bootstrap imports the verified renderer source through a
+short-lived Blob URL rather than synchronously base64-encoding the multi-megabyte
+bundle on the application UI thread.
+
 For Mermaid changes, run:
 
 ```bash

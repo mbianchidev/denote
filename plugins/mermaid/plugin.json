@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "denote.mermaid",
   "name": "Mermaid diagrams",
-  "version": "0.1.0",
-  "description": "Render a safe local subset of Mermaid fenced blocks in Markdown rich view.",
+  "version": "0.2.0",
+  "description": "Render local Mermaid fenced blocks in Markdown rich view with strict source and SVG safety boundaries.",
   "publisher": {
     "name": "Denote",
     "url": "https://github.com/mbianchidev/denote"

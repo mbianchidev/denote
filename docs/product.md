@@ -386,10 +386,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - The independently installable **Mermaid diagrams** plugin is disabled by
   default and requests only `diagram-renderer`. It renders fenced `mermaid`
   blocks in Markdown Rich view while the exact fence remains available through
-  Source and a block-level source action. The plugin supports flowchart,
-  sequence, class, state, entity-relationship, and pie diagrams; located errors
-  remain isolated to one block, and safe rendered SVG can be copied or exported
-  through host-owned explicit actions.
+  Source and a block-level source action. The plugin supports Mermaid's public
+  C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY,
+  requirement, sequence, class, state, journey, timeline, mindmap, Kanban,
+  Sankey, packet, radar, block, tree, architecture, event-modeling, Ishikawa,
+  Venn, treemap, Wardley, Cynefin, and railroad families; located errors remain
+  isolated to one block, and safe rendered SVG can be copied or exported.
 - Mermaid code is downloaded only after approval and executes only inside an
   opaque no-network sandbox. Fixed strict configuration disables HTML labels
   and callback binding; frontmatter/config directives, links, callbacks,

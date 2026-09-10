@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { api } from "../lib/api";
 import {
+  DIAGRAM_SANDBOX_BOOTSTRAP_HASH,
   DiagramRendererHost,
   DiagramRenderCache,
   diagramSandboxDocument,
@@ -75,15 +77,16 @@ describe("diagram renderer host boundary", () => {
   });
 
   it("builds a fixed opaque no-network sandbox document", () => {
-    const document = diagramSandboxDocument(
-      "tauri://localhost/assets/diagramSandboxBootstrap.js",
-    );
+    const document = diagramSandboxDocument();
     expect(document).toContain("default-src 'none'");
     expect(document).toContain("connect-src 'none'");
     expect(document).toContain("img-src 'none'");
-    expect(document).toContain("script-src tauri: data:");
+    expect(document).toContain(
+      `script-src '${DIAGRAM_SANDBOX_BOOTSTRAP_HASH}' blob:`,
+    );
     expect(document).toContain("worker-src 'none'");
-    expect(document).not.toContain("<script>");
+    expect(document).toContain("<script type=\"module\">");
+    expect(document).not.toContain("<script type=\"module\" src=");
     expect(document).not.toContain("allow-same-origin");
     expect(document).not.toContain("http:");
     expect(document).not.toContain("https:");
@@ -91,8 +94,13 @@ describe("diagram renderer host boundary", () => {
       join(process.cwd(), "src/plugins/diagramSandboxBootstrap.js"),
       "utf8",
     );
+    expect(DIAGRAM_SANDBOX_BOOTSTRAP_HASH).toBe(
+      `sha256-${createHash("sha256").update(bootstrap).digest("base64")}`,
+    );
+    expect(document).toContain(bootstrap);
     expect(bootstrap).toContain("RTCPeerConnection");
-    expect(bootstrap).toContain("data:text/javascript;base64");
+    expect(bootstrap).toContain("URL.createObjectURL");
+    expect(bootstrap).toContain("URL.revokeObjectURL");
     expect(bootstrap).toContain("hash.slice(1)");
   });
 

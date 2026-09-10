@@ -11,6 +11,10 @@ import {
   MAX_PLUGIN_DIAGRAM_SVG_BYTES,
   isPluginDiagramRenderResult,
 } from "@denote/plugin-sdk";
+import diagramSandboxBootstrap from "./diagramSandboxBootstrap.js?raw";
+
+export const DIAGRAM_SANDBOX_BOOTSTRAP_HASH =
+  "sha256-YL/+v3Ibpu5bxy8Rdum29twfQ7wFcwuXVAxoIpFJQ6A=";
 
 export interface PluginDiagramRendererContribution {
   pluginId: string;
@@ -369,32 +373,17 @@ export function currentDiagramTheme(): PluginDiagramTheme {
     : "dark";
 }
 
-export function diagramSandboxDocument(
-  bootstrapUrl = "tauri://localhost/assets/diagramSandboxBootstrap.js",
-): string {
-  const parsedBootstrap = new URL(bootstrapUrl);
-  const bootstrapSource =
-    parsedBootstrap.origin === "null"
-      ? parsedBootstrap.protocol
-      : parsedBootstrap.origin;
+export function diagramSandboxDocument(): string {
   return `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${escapeHtmlAttribute(bootstrapSource)} data:; worker-src 'none'; child-src 'none'; frame-src 'none'; style-src 'unsafe-inline'; img-src 'none'; media-src 'none'; font-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '${DIAGRAM_SANDBOX_BOOTSTRAP_HASH}' blob:; worker-src 'none'; child-src 'none'; frame-src 'none'; style-src 'unsafe-inline'; img-src 'none'; media-src 'none'; font-src 'none'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 </head>
 <body>
-<script type="module" src="${escapeHtmlAttribute(bootstrapUrl)}"></script>
+<script type="module">${diagramSandboxBootstrap}</script>
 </body>
 </html>`;
-}
-
-function escapeHtmlAttribute(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 interface QueueEntry {
@@ -410,10 +399,20 @@ interface QueueEntry {
 
 const MAX_RENDER_QUEUE = 32;
 const RENDER_TIMEOUT_MS = 5_000;
+const RENDERER_INITIALIZATION_TIMEOUT_MS = 30_000;
 
 export class DiagramRendererHost {
   private readonly cache = new DiagramRenderCache();
   private readonly moduleSources = new Map<string, Promise<string>>();
+  private readonly sandboxes = new Map<
+    string,
+    {
+      pluginId: string;
+      scopeId: string;
+      sandbox: DiagramRendererSandbox;
+    }
+  >();
+  private readonly sandboxDisposalTimers = new Map<string, number>();
   private readonly generations = new Map<string, number>();
   private readonly queue: QueueEntry[] = [];
   private active: QueueEntry | null = null;
@@ -440,6 +439,7 @@ export class DiagramRendererHost {
     if (signal.aborted) {
       throw abortError();
     }
+    this.cancelSandboxDisposal(sandboxKey(renderer.pluginId, scopeId));
     this.pruneCancelledQueue();
     if (this.queue.length >= MAX_RENDER_QUEUE) {
       return {
@@ -496,6 +496,11 @@ export class DiagramRendererHost {
         this.queue.splice(index, 1);
       }
     }
+    for (const [key, record] of this.sandboxes) {
+      if (record.scopeId === scopeId) {
+        this.scheduleSandboxDisposal(key);
+      }
+    }
   }
 
   clearDerivedContent(): void {
@@ -512,11 +517,19 @@ export class DiagramRendererHost {
     if (this.active) {
       this.active.controller.abort();
     }
+    this.disposeSandboxes();
   }
 
   disposePlugin(pluginId: string): void {
     this.bumpGeneration(pluginId);
     this.moduleSources.delete(pluginId);
+    for (const [key, record] of this.sandboxes) {
+      if (record.pluginId === pluginId) {
+        this.cancelSandboxDisposal(key);
+        record.sandbox.dispose();
+        this.sandboxes.delete(key);
+      }
+    }
     this.cache.clear();
     if (this.active?.renderer.pluginId === pluginId) {
       this.active.controller.abort();
@@ -544,6 +557,7 @@ export class DiagramRendererHost {
       this.bumpGeneration(pluginId);
     }
     this.moduleSources.clear();
+    this.disposeSandboxes();
     this.cache.clear();
     if (this.active) {
       this.active.controller.abort();
@@ -633,11 +647,53 @@ export class DiagramRendererHost {
     ) {
       throw abortError();
     }
-    const result = await renderInSandbox(
-      moduleSource,
-      entry.request,
-      entry.signal,
-    );
+    const key = sandboxKey(entry.renderer.pluginId, entry.scopeId);
+    let record = this.sandboxes.get(key);
+    if (!record) {
+      record = {
+        pluginId: entry.renderer.pluginId,
+        scopeId: entry.scopeId,
+        sandbox: new DiagramRendererSandbox(moduleSource),
+      };
+      this.sandboxes.set(key, record);
+    }
+    try {
+      await record.sandbox.initialize(entry.signal);
+    } catch (caught) {
+      const error =
+        caught instanceof Error ? caught : new Error(errorMessage(caught));
+      if (
+        error.name === "AbortError" ||
+        entry.signal.aborted ||
+        entry.generation !== this.generation(entry.renderer.pluginId)
+      ) {
+        throw abortError();
+      }
+      this.sandboxes.delete(key);
+      record.sandbox.dispose();
+      this.onFatalError(entry.renderer.pluginId, error);
+      throw error;
+    }
+    let result: unknown;
+    try {
+      result = await record.sandbox.render(entry.request, entry.signal);
+    } catch (caught) {
+      const error =
+        caught instanceof Error ? caught : new Error(errorMessage(caught));
+      if (record.sandbox.isDisposed()) {
+        this.sandboxes.delete(key);
+      }
+      if (error.name === "AbortError" || entry.signal.aborted) {
+        throw abortError();
+      }
+      this.sandboxes.delete(key);
+      record.sandbox.dispose();
+      this.onFatalError(entry.renderer.pluginId, error);
+      throw error;
+    }
+    if (record.sandbox.isDisposed()) {
+      this.sandboxes.delete(key);
+    }
     if (!isPluginDiagramRenderResult(result)) {
       const error = new Error(
         "Diagram renderer returned an invalid bounded result.",
@@ -689,105 +745,240 @@ export class DiagramRendererHost {
       }
     }
   }
+
+  private disposeSandboxes(): void {
+    for (const timer of this.sandboxDisposalTimers.values()) {
+      window.clearTimeout(timer);
+    }
+    this.sandboxDisposalTimers.clear();
+    for (const record of this.sandboxes.values()) {
+      record.sandbox.dispose();
+    }
+    this.sandboxes.clear();
+  }
+
+  private cancelSandboxDisposal(key: string): void {
+    const timer = this.sandboxDisposalTimers.get(key);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      this.sandboxDisposalTimers.delete(key);
+    }
+  }
+
+  private scheduleSandboxDisposal(key: string): void {
+    this.cancelSandboxDisposal(key);
+    const timer = window.setTimeout(() => {
+      this.sandboxDisposalTimers.delete(key);
+      const record = this.sandboxes.get(key);
+      this.sandboxes.delete(key);
+      record?.sandbox.dispose();
+    }, 0);
+    this.sandboxDisposalTimers.set(key, timer);
+  }
 }
 
-function renderInSandbox(
-  moduleSource: string,
-  request: PluginDiagramRenderRequest,
-  signal: AbortSignal,
-): Promise<unknown> {
-  return new Promise((resolve, reject) => {
+class DiagramRendererSandbox {
+  private readonly token = crypto.randomUUID();
+  private readonly frame = document.createElement("iframe");
+  private readonly ready: Promise<void>;
+  private resolveReady: () => void = () => {};
+  private rejectReady: (error: Error) => void = () => {};
+  private initializationTimeout = 0;
+  private initializationStarted = false;
+  private readySettled = false;
+  private active:
+    | {
+        requestId: string;
+        resolve: (value: unknown) => void;
+        reject: (error: Error) => void;
+        timeout: number;
+        signal: AbortSignal;
+        abort: () => void;
+      }
+    | null = null;
+  private disposed = false;
+
+  constructor(private readonly moduleSource: string) {
+    this.ready = new Promise<void>((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    this.frame.title = "Diagram rendering sandbox";
+    this.frame.setAttribute("sandbox", "allow-scripts");
+    this.frame.setAttribute("aria-hidden", "true");
+    this.frame.tabIndex = -1;
+    this.frame.style.position = "fixed";
+    this.frame.style.left = "-10000px";
+    this.frame.style.top = "0";
+    this.frame.style.width = "1024px";
+    this.frame.style.height = "768px";
+    this.frame.style.opacity = "0";
+    this.frame.style.pointerEvents = "none";
+    this.frame.src = `data:text/html;charset=utf-8,${encodeURIComponent(
+      diagramSandboxDocument(),
+    )}#${encodeURIComponent(this.token)}`;
+    window.addEventListener("message", this.receive);
+    this.initializationTimeout = window.setTimeout(() => {
+      this.failReady(
+        new Error(
+          `Diagram renderer initialization exceeded the ${
+            RENDERER_INITIALIZATION_TIMEOUT_MS / 1_000
+          }-second limit.`,
+        ),
+      );
+    }, RENDERER_INITIALIZATION_TIMEOUT_MS);
+    document.body.appendChild(this.frame);
+  }
+
+  initialize(signal: AbortSignal): Promise<void> {
+    return abortable(this.ready, signal);
+  }
+
+  render(
+    request: PluginDiagramRenderRequest,
+    signal: AbortSignal,
+  ): Promise<unknown> {
+    if (this.disposed) {
+      return Promise.reject(new Error("Diagram renderer sandbox stopped."));
+    }
     if (signal.aborted) {
-      reject(abortError());
+      return Promise.reject(abortError());
+    }
+    if (this.active) {
+      return Promise.reject(
+        new Error("Diagram renderer sandbox is already rendering."),
+      );
+    }
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve, reject) => {
+      const abort = () => {
+        this.finishActive(requestId, () => reject(abortError()));
+        this.dispose();
+      };
+      const timeout = window.setTimeout(() => {
+        this.finishActive(requestId, () =>
+          resolve({
+            status: "error",
+            error: {
+              code: "RENDER_ERROR",
+              message: "Diagram rendering exceeded the five-second limit.",
+            },
+          }),
+        );
+        this.dispose();
+      }, RENDER_TIMEOUT_MS);
+      this.active = {
+        requestId,
+        resolve,
+        reject,
+        timeout,
+        signal,
+        abort,
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      this.frame.contentWindow?.postMessage(
+        { token: this.token, type: "render", requestId, request },
+        "*",
+      );
+    });
+  }
+
+  isDisposed(): boolean {
+    return this.disposed;
+  }
+
+  dispose(): void {
+    if (this.disposed) {
       return;
     }
-    const token = crypto.randomUUID();
-    const frame = document.createElement("iframe");
-    frame.title = "Diagram rendering sandbox";
-    frame.setAttribute("sandbox", "allow-scripts");
-    frame.setAttribute("aria-hidden", "true");
-    frame.tabIndex = -1;
-    frame.style.position = "fixed";
-    frame.style.left = "-10000px";
-    frame.style.top = "0";
-    frame.style.width = "1024px";
-    frame.style.height = "768px";
-    frame.style.opacity = "0";
-    frame.style.pointerEvents = "none";
-    const bootstrapUrl = new URL(
-      "./diagramSandboxBootstrap.js",
-      import.meta.url,
-    );
-    bootstrapUrl.hash = encodeURIComponent(token);
-    frame.src = `data:text/html;charset=utf-8,${encodeURIComponent(
-      diagramSandboxDocument(bootstrapUrl.href),
-    )}`;
-    let initialized = false;
-    let rendering = false;
-    const cleanup = () => {
-      window.clearTimeout(timeout);
-      signal.removeEventListener("abort", abort);
-      window.removeEventListener("message", receive);
-      frame.remove();
-    };
-    const fail = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-    const abort = () => fail(abortError());
-    const timeout = window.setTimeout(() => {
-      cleanup();
-      resolve({
-        status: "error",
-        error: {
-          code: "RENDER_ERROR",
-          message: "Diagram rendering exceeded the five-second limit.",
+    this.disposed = true;
+    window.clearTimeout(this.initializationTimeout);
+    window.removeEventListener("message", this.receive);
+    this.frame.remove();
+    if (!this.readySettled) {
+      this.readySettled = true;
+      this.rejectReady(new Error("Diagram renderer sandbox stopped."));
+    }
+    const active = this.active;
+    this.active = null;
+    if (active) {
+      window.clearTimeout(active.timeout);
+      active.signal.removeEventListener("abort", active.abort);
+      active.reject(abortError());
+    }
+  }
+
+  private readonly receive = (event: MessageEvent<unknown>) => {
+    if (
+      event.source !== this.frame.contentWindow ||
+      !isRecord(event.data) ||
+      event.data.token !== this.token
+    ) {
+      return;
+    }
+    if (event.data.type === "listening" && !this.initializationStarted) {
+      this.initializationStarted = true;
+      this.frame.contentWindow?.postMessage(
+        {
+          token: this.token,
+          type: "initialize",
+          moduleSource: this.moduleSource,
         },
-      });
-    }, RENDER_TIMEOUT_MS);
-    const receive = (event: MessageEvent<unknown>) => {
-      if (
-        event.source !== frame.contentWindow ||
-        !isRecord(event.data) ||
-        event.data.token !== token
-      ) {
-        return;
+        "*",
+      );
+      return;
+    }
+    if (event.data.type === "ready" && !this.readySettled) {
+      this.readySettled = true;
+      window.clearTimeout(this.initializationTimeout);
+      this.resolveReady();
+      return;
+    }
+    const requestId =
+      typeof event.data.requestId === "string"
+        ? event.data.requestId
+        : null;
+    if (event.data.type === "result" && requestId) {
+      const result = event.data.result;
+      this.finishActive(requestId, () =>
+        this.active?.resolve(result),
+      );
+      return;
+    }
+    if (event.data.type === "failure") {
+      const error = new Error(
+        typeof event.data.error === "string"
+          ? event.data.error
+          : "Diagram renderer sandbox failed.",
+      );
+      if (requestId) {
+        this.finishActive(requestId, () => this.active?.reject(error));
+      } else {
+        this.failReady(error);
       }
-      if (event.data.type === "listening" && !initialized) {
-        initialized = true;
-        frame.contentWindow?.postMessage(
-          { token, type: "initialize", moduleSource },
-          "*",
-        );
-        return;
-      }
-      if (event.data.type === "ready" && !rendering) {
-        rendering = true;
-        frame.contentWindow?.postMessage(
-          { token, type: "render", request },
-          "*",
-        );
-        return;
-      }
-      if (event.data.type === "result") {
-        cleanup();
-        resolve(event.data.result);
-        return;
-      }
-      if (event.data.type === "failure") {
-        fail(
-          new Error(
-            typeof event.data.error === "string"
-              ? event.data.error
-              : "Diagram renderer sandbox failed.",
-          ),
-        );
-      }
-    };
-    signal.addEventListener("abort", abort, { once: true });
-    window.addEventListener("message", receive);
-    document.body.appendChild(frame);
-  });
+    }
+  };
+
+  private failReady(error: Error): void {
+    if (this.readySettled) {
+      return;
+    }
+    this.readySettled = true;
+    window.clearTimeout(this.initializationTimeout);
+    this.rejectReady(error);
+    this.dispose();
+  }
+
+  private finishActive(requestId: string, settle: () => void): void {
+    const active = this.active;
+    if (!active || active.requestId !== requestId) {
+      return;
+    }
+    window.clearTimeout(active.timeout);
+    active.signal.removeEventListener("abort", active.abort);
+    settle();
+    this.active = null;
+  }
 }
 
 function cacheKey(
@@ -795,6 +986,10 @@ function cacheKey(
   request: PluginDiagramRenderRequest,
 ): string {
   return `${renderer.pluginId}\u0000${renderer.id}\u0000${request.theme}\u0000${request.source}`;
+}
+
+function sandboxKey(pluginId: string, scopeId: string): string {
+  return `${pluginId}\u0000${scopeId}`;
 }
 
 function abortError(): Error {

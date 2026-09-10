@@ -799,24 +799,30 @@ terminates and removes the plugin.
 
 The activation entrypoint remains in the ordinary DOM-free plugin worker and
 registers metadata only. It does not import Mermaid. When a matching fenced
-block needs rendering, the host reads the separately verified module and sends
-it with the current source and normalized light, dark, or high-contrast theme
-to a fresh `sandbox="allow-scripts"` iframe without `allow-same-origin`. The
-fixed bootstrap accepts no plugin HTML. Its CSP is `default-src 'none'`, allows
-only its inline/bootstrap and blob module scripts plus inline diagram styles,
-and denies image, font, connection, object, base, and form sources. One sandbox
-runs at a time, 32 requests may wait, each is destroyed after one result,
-stale requests abort, and a five-second watchdog removes the frame.
+block needs rendering, the host reads the separately verified module and loads
+it once into a `sandbox="allow-scripts"` iframe without `allow-same-origin`. The
+fixed bootstrap accepts no plugin HTML. Its exact source SHA-256 is allowlisted
+by both the application and frame CSP, so the same static inline module works
+in Vite development and packaged builds without `unsafe-inline`. The frame
+allows only that bootstrap, the short-lived Blob-URL renderer module, and inline diagram
+styles; it denies image, font, connection, object, base, and form sources. The
+verified module has a 30-second initialization bound and is reused for serial
+renders only within that editor scope. Thirty-two requests may wait. Each
+diagram keeps a separate five-second watchdog; timeout or cancellation destroys
+the sandbox before another request can use it. Tab close destroys its scope's
+sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 11.17.2 in the downloaded renderer package.
 Both Mermaid's dependency graph and the independent host sanitizer pin
 DOMPurify 3.4.15. The renderer fixes Mermaid to strict security, disables
 start-on-load, HTML labels, callback binding, and error diagrams, expands the
 secure configuration list, fixes themes and deterministic IDs, and never calls
-returned bind functions. Preflight rejects frontmatter/init directives, links,
+returned bind functions. Preflight accepts YAML frontmatter only when it contains a bounded scalar
+`title` and optional Gantt `displayMode: compact`; nested configuration,
+unknown keys, tags, anchors, and aliases are rejected. Init directives, links,
 callbacks, HTML labels, images/icons/custom shapes, external or scriptable
-protocols, and custom style directives. The initial supported subset is
-flowchart, sequence, class, state, entity-relationship, and pie.
+protocols, and custom style directives are rejected. Every public Mermaid
+11.17.2 detector family except internal info/error diagrams is accepted.
 
 The sandbox returns only a bounded result union. Errors contain a fixed code,
 bounded message, and optional positive line/column. Success contains SVG,

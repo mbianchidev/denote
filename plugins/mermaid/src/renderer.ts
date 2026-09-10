@@ -21,16 +21,39 @@ export const MERMAID_RENDERER_LIMITS = {
 } as const;
 
 const SUPPORTED_DIAGRAMS = [
-  /^(?:flowchart|graph)\b/i,
+  /^C4(?:Context|Container|Component|Dynamic|Deployment)\b/,
+  /^(?:flowchart(?:-elk)?|graph)\b/i,
+  /^swimlane-beta\b/i,
   /^sequenceDiagram\b/i,
-  /^classDiagram\b/i,
+  /^classDiagram(?:-v2)?\b/i,
   /^stateDiagram(?:-v2)?\b/i,
   /^erDiagram\b/i,
+  /^gitGraph\b/i,
+  /^gantt\b/i,
   /^pie\b/i,
+  /^quadrantChart\b/i,
+  /^xychart(?:-beta)?\b/i,
+  /^requirement(?:Diagram)?\b/i,
+  /^journey\b/i,
+  /^timeline\b/i,
+  /^mindmap\b/i,
+  /^kanban\b/i,
+  /^sankey(?:-beta)?\b/i,
+  /^packet(?:-beta)?\b/i,
+  /^radar-beta\b/i,
+  /^block(?:-beta)?\b/i,
+  /^treeView-beta\b/i,
+  /^architecture(?:-beta)?\b/i,
+  /^eventmodeling\b/i,
+  /^ishikawa(?:-beta)?\b/i,
+  /^venn-beta\b/i,
+  /^treemap\b/i,
+  /^wardley-beta\b/i,
+  /^cynefin-beta(?:[\s:]|$)/i,
+  /^railroad-(?:beta|ebnf-beta|abnf-beta|peg-beta)\b/i,
 ] as const;
 
 const UNSAFE_SOURCE_PATTERNS: Array<[RegExp, string]> = [
-  [/^\s*---\s*$/m, "YAML frontmatter is unavailable."],
   [/%%\s*\{(?:init|initialize)\s*:/i, "Mermaid configuration directives are unavailable."],
   [/^\s*click\s+/im, "Clickable nodes and callbacks are unavailable."],
   [/^\s*links?\s+/im, "Diagram links are unavailable."],
@@ -119,7 +142,13 @@ export const renderDiagram: PluginDiagramRendererModule["renderDiagram"] =
       );
     }
     try {
-      mermaid.initialize(configuration(request.theme, stableSeed(prepared.source)));
+      mermaid.initialize(
+        configuration(
+          request.theme,
+          stableSeed(prepared.source),
+          prepared.displayMode,
+        ),
+      );
       const rendered = await mermaid.render(
         `denote-mermaid-${stableSeed(`${request.theme}\u0000${prepared.source}`)}`,
         prepared.source,
@@ -133,14 +162,21 @@ export const renderDiagram: PluginDiagramRendererModule["renderDiagram"] =
     } catch (caught) {
       return {
         status: "error",
-        error: parseError(caught),
+        error: parseError(caught, prepared.lineOffset),
       };
     }
   };
 
+interface PreparedSource {
+  source: string;
+  title: string;
+  displayMode?: "compact";
+  lineOffset: number;
+}
+
 function prepareSource(
   value: string,
-): { source: string; title: string } | { error: PluginDiagramRenderError } {
+): PreparedSource | { error: PluginDiagramRenderError } {
   const bytes = new TextEncoder().encode(value).byteLength;
   const lines = value.split(/\r\n?|\n/);
   if (
@@ -160,13 +196,33 @@ function prepareSource(
       },
     };
   }
+  const frontmatter = safeFrontmatter(value);
+  if ("error" in frontmatter) {
+    return frontmatter;
+  }
+  let source = frontmatter.source;
+  let lineOffset = frontmatter.lineOffset;
   for (const [pattern, message] of UNSAFE_SOURCE_PATTERNS) {
-    if (pattern.test(value)) {
+    if (pattern.test(source)) {
       return { error: { code: "UNSAFE_SOURCE", message } };
     }
   }
-  const titleMatch = lines[0]?.match(/^%%\s*denote:title:\s*(.+?)\s*$/i);
-  const title = titleMatch ? safeTitle(titleMatch[1]) : "Mermaid diagram";
+  const sourceLines = source.split(/\r\n?|\n/);
+  const titleMatch = sourceLines[0]?.match(
+    /^%%\s*denote:title:\s*(.+?)\s*$/i,
+  );
+  if (titleMatch && frontmatter.title) {
+    return {
+      error: {
+        code: "UNSAFE_SOURCE",
+        message:
+          "Use either YAML title frontmatter or denote:title metadata, not both.",
+      },
+    };
+  }
+  const title = titleMatch
+    ? safeTitle(titleMatch[1])
+    : (frontmatter.title ?? "Mermaid diagram");
   if (titleMatch && title === null) {
     return {
       error: {
@@ -176,9 +232,126 @@ function prepareSource(
       },
     };
   }
+  if (titleMatch) {
+    source = sourceLines.slice(1).join("\n");
+    lineOffset += 1;
+  }
   return {
-    source: titleMatch ? lines.slice(1).join("\n") : value,
+    source,
     title: title ?? "Mermaid diagram",
+    ...(frontmatter.displayMode
+      ? { displayMode: frontmatter.displayMode }
+      : {}),
+    lineOffset,
+  };
+}
+
+function safeFrontmatter(
+  source: string,
+):
+  | {
+      source: string;
+      title: string | null;
+      displayMode?: "compact";
+      lineOffset: number;
+    }
+  | { error: PluginDiagramRenderError } {
+  const lines = source.split(/\r\n?|\n/);
+  if (lines[0]?.trim() !== "---") {
+    return { source, title: null, lineOffset: 0 };
+  }
+  const end = lines.findIndex(
+    (line, index) => index > 0 && line.trim() === "---",
+  );
+  if (end < 0) {
+    return frontmatterError("YAML frontmatter is missing its closing ---.");
+  }
+  let title: string | null = null;
+  let displayMode: "compact" | undefined;
+  const seen = new Set<string>();
+  for (const line of lines.slice(1, end)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    if (
+      line !== line.trimStart() ||
+      /[&*!]|<<\s*:|[\[\]{}|>]/.test(trimmed)
+    ) {
+      return frontmatterError(
+        "YAML frontmatter supports only simple title and displayMode values.",
+      );
+    }
+    const match = trimmed.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/);
+    if (!match || !["title", "displayMode"].includes(match[1])) {
+      return frontmatterError(
+        "YAML frontmatter supports only title and displayMode.",
+      );
+    }
+    if (seen.has(match[1])) {
+      return frontmatterError(
+        `YAML frontmatter contains duplicate ${match[1]}.`,
+      );
+    }
+    seen.add(match[1]);
+    const scalar = safeYamlScalar(match[2]);
+    if (scalar === null) {
+      return frontmatterError(
+        `YAML frontmatter ${match[1]} must be a simple string.`,
+      );
+    }
+    if (match[1] === "title") {
+      title = safeTitle(scalar);
+      if (title === null) {
+        return frontmatterError(
+          "Diagram titles must be plain text of at most 80 characters.",
+        );
+      }
+    } else if (scalar === "compact") {
+      displayMode = "compact";
+    } else {
+      return frontmatterError(
+        "YAML displayMode supports only compact.",
+      );
+    }
+  }
+  return {
+    source: lines.slice(end + 1).join("\n"),
+    title,
+    ...(displayMode ? { displayMode } : {}),
+    lineOffset: end + 1,
+  };
+}
+
+function safeYamlScalar(value: string): string | null {
+  const scalar = value.trim();
+  if (!scalar) {
+    return null;
+  }
+  if (scalar.startsWith('"')) {
+    try {
+      const parsed: unknown = JSON.parse(scalar);
+      return typeof parsed === "string" ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  if (scalar.startsWith("'")) {
+    return scalar.endsWith("'") && scalar.length >= 2
+      ? scalar.slice(1, -1).replace(/''/g, "'")
+      : null;
+  }
+  return /[\u0000-\u001f\u007f]/.test(scalar) ? null : scalar;
+}
+
+function frontmatterError(
+  message: string,
+): { error: PluginDiagramRenderError } {
+  return {
+    error: {
+      code: "UNSAFE_SOURCE",
+      message,
+    },
   };
 }
 
@@ -200,7 +373,11 @@ function firstDiagramLine(source: string): string {
   );
 }
 
-function configuration(theme: PluginDiagramTheme, seed: string) {
+function configuration(
+  theme: PluginDiagramTheme,
+  seed: string,
+  displayMode?: "compact",
+) {
   const themeVariables =
     theme === "dark"
       ? {
@@ -260,6 +437,7 @@ function configuration(theme: PluginDiagramTheme, seed: string) {
     logLevel: "fatal" as const,
     secure: [...SECURE_CONFIGURATION_KEYS],
     flowchart: { htmlLabels: false },
+    ...(displayMode ? { gantt: { displayMode } } : {}),
   };
 }
 
@@ -338,7 +516,10 @@ function flattenSvgStyles(source: string): string {
   }
 }
 
-function parseError(caught: unknown): PluginDiagramRenderError {
+function parseError(
+  caught: unknown,
+  lineOffset = 0,
+): PluginDiagramRenderError {
   const raw =
     caught instanceof Error
       ? caught.message
@@ -358,7 +539,7 @@ function parseError(caught: unknown): PluginDiagramRenderError {
   return {
     code: "PARSE_ERROR",
     message: message || "Mermaid could not parse this diagram.",
-    ...(line ? { line: Number(line) } : {}),
+    ...(line ? { line: Number(line) + lineOffset } : {}),
     ...(column ? { column: Number(column) } : {}),
   };
 }

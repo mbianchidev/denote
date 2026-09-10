@@ -333,11 +333,13 @@ read validation treat both files as independently bounded executable inputs
 with separate SHA-256 digests. The renderer file is unavailable before a
 matching prepared or enabled permission and is deleted with the package.
 
-The host runs the renderer only in a fresh opaque `sandbox="allow-scripts"`
-iframe with a fixed bootstrap and no network, image, font, storage, nested
-worker, Tauri, or parent-origin access. The module exports the fixed
-`renderDiagram(request)` function and returns only the SDK's bounded success or
-error union. The host independently sanitizes successful SVG, owns all
+The host loads the renderer once per active editor scope into an opaque
+`sandbox="allow-scripts"` iframe with a fixed SHA-256-authorized inline
+bootstrap and no network, image, font, storage, nested worker, Tauri, or
+parent-origin access. The verified module has a 30-second initialization bound
+and is never shared across tabs; each serial `renderDiagram(request)` call has
+its own five-second watchdog and
+returns only the SDK's bounded success or error union. The host independently sanitizes successful SVG, owns all
 rendering UI and actions, and displays the result in a second scriptless
 sandbox. Invalid protocol or unsafe output removes the plugin; a source parse
 error remains local to its block.
@@ -347,9 +349,11 @@ Its archive owns Mermaid and its renderer dependencies; Mermaid implementation
 does not enter the desktop bundle. The generic host SVG sanitizer separately
 pins DOMPurify. Source preflight and fixed strict configuration reject configuration
 directives, HTML labels, links/callbacks, custom styles, images/icons, resources,
-and unsafe protocols. Flowchart, sequence, class, state, ER, and pie diagrams
-are supported within fixed source, line, statement, edge, time, queue, element,
-SVG, and cache limits.
+and unsafe protocols. Simple YAML frontmatter permits only a bounded title and
+Gantt `displayMode: compact`; nested configuration, tags, anchors, aliases, and
+unknown keys are rejected. All Mermaid 11.17.2 detector families except its
+internal info/error diagrams are supported within fixed source, line,
+statement, edge, time, queue, element, SVG, and cache limits.
 
 The host keeps exact fenced source in the ordinary Markdown node. Theme changes
 cancel stale output and rerender. Source, copy, and export controls are native

@@ -1,4 +1,4 @@
-const token = decodeURIComponent(new URL(import.meta.url).hash.slice(1));
+const token = decodeURIComponent(location.hash.slice(1));
 let renderDiagram = null;
 
 for (const name of [
@@ -33,11 +33,16 @@ addEventListener("message", async (event) => {
   }
   try {
     if (message.type === "initialize") {
-      const module = await import(moduleDataUrl(message.moduleSource));
-      if (typeof module.renderDiagram !== "function") {
-        throw new Error("Renderer export is unavailable.");
+      const moduleUrl = rendererModuleUrl(message.moduleSource);
+      try {
+        const module = await import(/* @vite-ignore */ moduleUrl);
+        if (typeof module.renderDiagram !== "function") {
+          throw new Error("Renderer export is unavailable.");
+        }
+        renderDiagram = module.renderDiagram;
+      } finally {
+        URL.revokeObjectURL(moduleUrl);
       }
-      renderDiagram = module.renderDiagram;
       parent.postMessage({ token, type: "ready" }, "*");
       return;
     }
@@ -46,13 +51,17 @@ addEventListener("message", async (event) => {
         throw new Error("Renderer is not initialized.");
       }
       const result = await renderDiagram(message.request);
-      parent.postMessage({ token, type: "result", result }, "*");
+      parent.postMessage(
+        { token, type: "result", requestId: message.requestId, result },
+        "*",
+      );
     }
   } catch (error) {
     parent.postMessage(
       {
         token,
         type: "failure",
+        requestId: message.requestId,
         error: error instanceof Error ? error.message : String(error),
       },
       "*",
@@ -62,14 +71,11 @@ addEventListener("message", async (event) => {
 
 parent.postMessage({ token, type: "listening" }, "*");
 
-function moduleDataUrl(source) {
+function rendererModuleUrl(source) {
   if (typeof source !== "string") {
     throw new Error("Renderer source is invalid.");
   }
-  const bytes = new TextEncoder().encode(source);
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000));
-  }
-  return `data:text/javascript;base64,${btoa(binary)}`;
+  return URL.createObjectURL(
+    new Blob([source], { type: "text/javascript" }),
+  );
 }

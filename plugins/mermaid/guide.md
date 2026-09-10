@@ -14,16 +14,20 @@ the returned SVG before display, copy, or export.
 
 ## Usage
 
-Create a fenced block whose language is `mermaid`. Flowcharts, sequence
-diagrams, class diagrams, state diagrams, entity-relationship diagrams, and pie
-charts are supported. Use **Show diagram source** to edit the exact fence,
-**Copy SVG** to copy sanitized SVG text, or **Export SVG** to choose a local
-file.
+Create a fenced block whose language is `mermaid`. The plugin accepts Mermaid
+11.17.2's C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY
+chart, requirement, sequence, class, state, journey, timeline, mindmap, Kanban,
+Sankey, packet, radar, block, tree-view, architecture, event-modeling,
+Ishikawa, Venn, treemap, Wardley, Cynefin, and railroad detector families.
+Use **Show diagram source** to edit the exact fence, **Copy SVG** to copy
+sanitized SVG text, or **Export SVG** to choose a local file.
 
 An optional first line such as `%% denote:title: Build flow` supplies the
 bounded accessible figure name. Without it, Denote uses **Mermaid diagram**.
-Initializers, frontmatter configuration, HTML labels, links, callbacks, images,
-icons, external resources, and custom style directives are rejected.
+YAML frontmatter may instead contain a simple `title` and Gantt
+`displayMode: compact`. Other frontmatter keys, nested configuration, YAML
+tags/anchors/aliases, initialization directives, HTML labels, links, callbacks,
+images, icons, external resources, and custom style directives are rejected.
 
 Source is limited to 32 KiB, 1,000 lines, 4 KiB per line, 500 statements, and
 300 edges. Sanitized SVG is limited to 10,000 elements and 2 MiB. Denote runs
