@@ -416,7 +416,7 @@
       "schemaVersion": 1,
       "id": "denote.mermaid",
       "name": "Mermaid diagrams",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "description": "Render local Mermaid fenced blocks in Markdown rich view with strict source and SVG safety boundaries.",
       "publisher": {
         "name": "Denote",
@@ -447,13 +447,13 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0/denote.mermaid-0.2.0.tgz",
-      "sha256": "b970b49723b50e96941786f7c23d9d4db5f28a29d5e30127fb0d7857ca6034d3",
-      "sizeBytes": 1055077
+      "url": "https://github.com/mbianchidev/denote/releases/download/v1.0.0/denote.mermaid-0.2.1.tgz",
+      "sha256": "631df8598214874ce3b14f354c84b2de8f738ccd55648aad1a0fdde27fffd4a6",
+      "sizeBytes": 1055431
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "c09fe8118dca48690d41d5452aa48f1e16dfeabc",
+      "sourceCommit": "aa22355a6e1573d78fec3bab1a9fd51efaf8d756",
       "trusted": true
     },
     "guide": "# Mermaid diagrams\n\n## Purpose\n\nRender a safe, local subset of fenced `mermaid` blocks inside Markdown Rich\nview while keeping the exact portable fence source available for editing.\n\n## Enablement and permissions\n\nThis plugin is disabled by default. Enabling it asks only for **Diagram\nrenderer**. Denote downloads and verifies the executable package after approval,\nruns its renderer in an opaque no-network sandbox, and independently sanitizes\nthe returned SVG before display, copy, or export.\n\n## Usage\n\nCreate a fenced block whose language is `mermaid`. The plugin accepts Mermaid\n11.17.2's C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY\nchart, requirement, sequence, class, state, journey, timeline, mindmap, Kanban,\nSankey, packet, radar, block, tree-view, architecture, event-modeling,\nIshikawa, Venn, treemap, Wardley, Cynefin, and railroad detector families.\nUse **Show diagram source** to edit the exact fence, **Copy SVG** to copy\nsanitized SVG text, or **Export SVG** to choose a local file.\n\nAn optional first line such as `%% denote:title: Build flow` supplies the\nbounded accessible figure name. Without it, Denote uses **Mermaid diagram**.\nYAML frontmatter may instead contain a simple `title` and Gantt\n`displayMode: compact`. Other frontmatter keys, nested configuration, YAML\ntags/anchors/aliases, initialization directives, HTML labels, links, callbacks,\nimages, icons, external resources, and custom style directives are rejected.\n\nSource is limited to 32 KiB, 1,000 lines, 4 KiB per line, 500 statements, and\n300 edges. Sanitized SVG is limited to 10,000 elements and 2 MiB. Denote runs\none render at a time, queues at most 32, stops a render after five seconds,\ncaches at most 32 successful results or 16 MiB, and does not retry or cache\nfailures.\n\n## Settings\n\nThis plugin has no settings. Denote follows the live Light, Dark, high-contrast,\nand forced-colors environment automatically.\n\n## Disable behavior\n\nDisabling, removing, updating, or crashing the plugin restores ordinary fenced\ncode rendering. Denote unregisters the contribution, destroys render sandboxes,\nclears derived SVG and caches, and deletes downloaded package code without\nchanging Markdown.\n\n## Troubleshooting\n\nLocated parse errors appear beside only the affected block and keep its source\neditor available. Simplify diagrams that exceed the documented source,\nstatement, edge, time, element, or SVG limits. The plugin is unavailable while\nan encrypted vault is locked and resumes from verified package code after\nunlock.\n\n## Third-party licenses\n\nThe downloaded renderer bundles Mermaid 11.17.2 under the MIT License and\nDOMPurify 3.4.15 under its Apache License 2.0 option. Source notices and license\ntexts ship in the verified archive under `legal/`.\n"
