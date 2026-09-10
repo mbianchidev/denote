@@ -940,9 +940,8 @@ class DiagramRendererSandbox {
         : null;
     if (event.data.type === "result" && requestId) {
       const result = event.data.result;
-      this.finishActive(requestId, () =>
-        this.active?.resolve(result),
-      );
+      const resolve = this.active?.resolve;
+      this.finishActive(requestId, () => resolve?.(result));
       return;
     }
     if (event.data.type === "failure") {
@@ -952,7 +951,8 @@ class DiagramRendererSandbox {
           : "Diagram renderer sandbox failed.",
       );
       if (requestId) {
-        this.finishActive(requestId, () => this.active?.reject(error));
+        const reject = this.active?.reject;
+        this.finishActive(requestId, () => reject?.(error));
       } else {
         this.failReady(error);
       }

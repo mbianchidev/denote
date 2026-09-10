@@ -97,6 +97,12 @@ describe("diagram renderer host boundary", () => {
     expect(DIAGRAM_SANDBOX_BOOTSTRAP_HASH).toBe(
       `sha256-${createHash("sha256").update(bootstrap).digest("base64")}`,
     );
+    const tauriConfig = JSON.parse(
+      readFileSync(join(process.cwd(), "src-tauri/tauri.conf.json"), "utf8"),
+    ) as { app: { security: { csp: string } } };
+    expect(tauriConfig.app.security.csp).toContain(
+      `'${DIAGRAM_SANDBOX_BOOTSTRAP_HASH}'`,
+    );
     expect(document).toContain(bootstrap);
     expect(bootstrap).toContain("RTCPeerConnection");
     expect(bootstrap).toContain("URL.createObjectURL");
