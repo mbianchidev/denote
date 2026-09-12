@@ -605,18 +605,25 @@ CodeMirror parse for outline generation.
 
 ## Prepare a release
 
-From an up-to-date `main` branch, update every Denote version source, commit and
-push the update, then create and push the matching tag with one command:
+From a clean `main` branch, run the release script with either an unprefixed
+semantic version or the matching `v`-prefixed tag:
 
 ```bash
-npm run release -- 0.1.1 && git add . && git commit -m "Release v0.1.1" && git push && git tag v0.1.1 && git push origin v0.1.1
+./scripts/release.sh 0.3.2
+# Equivalent:
+./scripts/release.sh v0.3.2
 ```
 
-The script updates `package.json`, `package-lock.json`,
+The script fetches `origin`, fast-forwards `main`, refuses local-only commits or
+an existing release tag, checks updater provisioning, installs dependencies
+without lifecycle scripts after validating plugin package metadata, runs the
+complete release validation suite, and updates `package.json`, `package-lock.json`,
 `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`,
 `src-tauri/tauri.conf.json`, and every current plugin catalog URL. The URLs
 target the matching versioned GitHub Release while retaining each archive's
-source commit, checksum, and size.
+source commit, checksum, and size. Only those release files may change. After
+validation, the script creates an unsigned `Release v<version>` commit, pushes
+`main`, then creates and pushes the matching tag.
 
 Tags must use semantic versions and point to a commit on `main`. The release
 workflow validates the tag against every version source and builds every
