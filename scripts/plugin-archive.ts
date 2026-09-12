@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { create } from "tar";
-import { Deflate } from "pako";
+import { Deflate, GZheader, Z_OK, zlibDeflateSetHeader } from "pako";
 import type { PluginManifest } from "@denote/plugin-sdk";
 
 const MAX_PLUGIN_PACKAGE_BYTES = 25 * 1024 * 1024;
@@ -101,22 +101,20 @@ export function gzipPluginArchive(bytes: Uint8Array): Buffer {
     memLevel: 8,
     windowBits: 15,
     strategy: 0,
-    header: { os: 255, time: 0 },
   });
+  compressor.onStart = (stream) => {
+    const header = new GZheader();
+    header.os = 0xff;
+    header.time = 0;
+    const status = zlibDeflateSetHeader(stream, header);
+    if (status !== Z_OK) {
+      throw new Error(`Plugin archive gzip header setup failed: ${status}`);
+    }
+  };
   if (!compressor.push(bytes, true) || compressor.err !== 0) {
     throw new Error(`Plugin archive compression failed: ${compressor.msg}`);
   }
-  const result = Buffer.from(compressor.result);
-  if (
-    result.length < 10 ||
-    result[0] !== 0x1f ||
-    result[1] !== 0x8b ||
-    result[2] !== 0x08
-  ) {
-    throw new Error("Plugin archive compression returned an invalid gzip stream");
-  }
-  result[9] = 0xff;
-  return result;
+  return Buffer.from(compressor.result);
 }
 
 export function readPluginGuide(
