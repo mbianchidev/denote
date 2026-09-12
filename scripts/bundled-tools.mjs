@@ -90,6 +90,39 @@ export function redirectAllowed(url, allowlist) {
   return parsed.protocol === "https:" && allowlist.includes(parsed.hostname);
 }
 
+export function githubApiUrlAllowed(url) {
+  const parsed = new URL(url);
+  return (
+    parsed.protocol === "https:" &&
+    parsed.hostname === "api.github.com" &&
+    parsed.port === "" &&
+    parsed.username === "" &&
+    parsed.password === ""
+  );
+}
+
+export function githubApiToken(
+  environment = process.env,
+  loadStoredToken = () => {
+    const outcome = spawnSync(
+      "gh",
+      ["auth", "token", "--hostname", "github.com"],
+      {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      },
+    );
+    return outcome.status === 0 ? outcome.stdout?.trim() ?? "" : null;
+  },
+) {
+  return (
+    environment.GH_TOKEN?.trim() ||
+    environment.GITHUB_TOKEN?.trim() ||
+    loadStoredToken()?.trim() ||
+    null
+  );
+}
+
 export function parseZipEntries(bytes) {
   const view = Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   const eocd = findEndOfCentralDirectory(view);
@@ -227,19 +260,30 @@ function verifyArtifact(path, artifact) {
 }
 
 async function verifySignedTag(url, expectedTag, expectedCommit) {
+  if (!githubApiUrlAllowed(url)) {
+    throw new Error(`Signed release tag URL is not allowed: ${url}`);
+  }
+  const token = githubApiToken();
   const response = await fetch(url, {
     redirect: "error",
     signal: AbortSignal.timeout(30_000),
     headers: {
       accept: "application/vnd.github+json",
       "user-agent": "Denote bundled-tools preparation",
-      ...(process.env.GH_TOKEN
-        ? { authorization: `Bearer ${process.env.GH_TOKEN}` }
+      ...(token
+        ? { authorization: `Bearer ${token}` }
         : {}),
     },
   });
   if (!response.ok) {
-    throw new Error(`Unable to verify signed release tag: HTTP ${response.status}.`);
+    const authenticationHint = [401, 403].includes(response.status)
+      ? token
+        ? " The GitHub credential was rejected or its API quota is exhausted."
+        : " Run `gh auth login` or set GH_TOKEN or GITHUB_TOKEN to avoid anonymous API limits."
+      : "";
+    throw new Error(
+      `Unable to verify signed release tag: HTTP ${response.status}.${authenticationHint}`,
+    );
   }
   const value = await response.json();
   if (

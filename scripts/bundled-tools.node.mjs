@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   assertPackagedSize,
   currentTarget,
+  githubApiToken,
+  githubApiUrlAllowed,
   parseZipEntries,
   redirectAllowed,
   safeArchivePath,
@@ -31,6 +33,36 @@ test("allows only pinned HTTPS redirect hosts", () => {
   );
   assert.equal(redirectAllowed("http://github.com/tool", hosts), false);
   assert.equal(redirectAllowed("https://example.invalid/tool", hosts), false);
+});
+
+test("uses explicit or stored credentials only for the GitHub API", () => {
+  assert.equal(
+    githubApiToken({ GH_TOKEN: " explicit-token " }, () => {
+      throw new Error("stored credentials should not be read");
+    }),
+    "explicit-token",
+  );
+  assert.equal(
+    githubApiToken({ GITHUB_TOKEN: " workflow-token " }, () => {
+      throw new Error("stored credentials should not be read");
+    }),
+    "workflow-token",
+  );
+  assert.equal(githubApiToken({}, () => " stored-token\n"), "stored-token");
+  assert.equal(githubApiToken({}, () => null), null);
+
+  assert.equal(
+    githubApiUrlAllowed("https://api.github.com/repos/git/git/git/tags/example"),
+    true,
+  );
+  assert.equal(
+    githubApiUrlAllowed("http://api.github.com/repos/git/git/git/tags/example"),
+    false,
+  );
+  assert.equal(
+    githubApiUrlAllowed("https://example.invalid/repos/git/git/git/tags/example"),
+    false,
+  );
 });
 
 test("rejects malformed ZIP input before extraction", () => {
