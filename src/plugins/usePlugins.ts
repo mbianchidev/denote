@@ -29,8 +29,98 @@ import {
   type PluginStructuredViewerContribution,
 } from "./workerRuntime";
 import { emojiPreferenceSettings } from "./emojiPickers";
+import {
+  getPluginAutoUpdateEnabled,
+  savePluginAutoUpdateEnabled,
+} from "../lib/pluginAutoUpdate";
 
 const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
+
+/**
+ * Compares two permission requests for exact equality, independent of key
+ * order. Used to decide whether an update can be applied automatically: an
+ * update that expands or otherwise changes what a plugin can access must
+ * always go through explicit, reviewed approval instead.
+ *
+ * This switches exhaustively over every current `PluginPermissionRequest`
+ * variant. A future scoped variant added to the SDK must be handled here
+ * explicitly (the `never` check below fails the build otherwise) so this
+ * comparison can never silently treat a differently scoped grant as
+ * unchanged.
+ */
+function permissionRequestEqual(
+  a: PluginPermissionRequest,
+  b: PluginPermissionRequest,
+): boolean {
+  if (a.capability !== b.capability) {
+    return false;
+  }
+  const sortedJson = (values: string[] | undefined) =>
+    JSON.stringify([...(values ?? [])].sort());
+  switch (a.capability) {
+    case "network": {
+      const other = b as Extract<PluginPermissionRequest, { capability: "network" }>;
+      return sortedJson(a.hosts) === sortedJson(other.hosts);
+    }
+    case "process": {
+      const other = b as Extract<PluginPermissionRequest, { capability: "process" }>;
+      return (
+        sortedJson(a.executables.macos) === sortedJson(other.executables.macos) &&
+        sortedJson(a.executables.linux) === sortedJson(other.executables.linux) &&
+        sortedJson(a.executables.windows) === sortedJson(other.executables.windows)
+      );
+    }
+    case "commands":
+    case "sidebar":
+    case "status":
+    case "editor-decoration":
+    case "emoji-picker":
+    case "structured-viewer":
+    case "diagram-renderer":
+    case "note-events":
+    case "project-context":
+    case "source-control":
+    case "automatic-local-commit":
+    case "git":
+    case "workspace-read":
+    case "workspace-write":
+    case "clipboard-read":
+    case "clipboard-write":
+    case "notifications":
+    case "secure-storage":
+      // These capabilities carry no additional scope, so a matching
+      // capability name is a complete equality check.
+      return true;
+    default: {
+      const exhaustive: never = a;
+      throw new Error(
+        `Unhandled plugin capability in permission comparison: ${JSON.stringify(exhaustive)}`,
+      );
+    }
+  }
+}
+
+function permissionsUnchanged(
+  approved: PluginPermissionRequest[],
+  requested: PluginPermissionRequest[],
+): boolean {
+  if (approved.length !== requested.length) {
+    return false;
+  }
+  // Consume each approved entry at most once so a single approved permission
+  // cannot be reused to match two different requested permissions.
+  const remaining = [...approved];
+  for (const requestedPermission of requested) {
+    const matchIndex = remaining.findIndex((approvedPermission) =>
+      permissionRequestEqual(approvedPermission, requestedPermission),
+    );
+    if (matchIndex === -1) {
+      return false;
+    }
+    remaining.splice(matchIndex, 1);
+  }
+  return true;
+}
 
 export interface PluginController {
   plugins: PluginView[];
@@ -60,6 +150,8 @@ export interface PluginController {
   disable: (pluginId: string) => Promise<void>;
   disableAll: () => Promise<void>;
   updateAll: () => Promise<void>;
+  autoUpdateEnabled: boolean;
+  setAutoUpdateEnabled: (enabled: boolean) => void;
   loadDevelopmentPlugin: () => Promise<void>;
   clearData: (pluginId: string) => Promise<void>;
   clearCredentials: (pluginId: string) => Promise<void>;
@@ -144,12 +236,25 @@ export function usePlugins(
   >([]);
   const [loading, setLoading] = useState(true);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
+  const [autoUpdateEnabled, setAutoUpdateEnabledState] = useState(
+    getPluginAutoUpdateEnabled,
+  );
+  const autoUpdateAttemptedRef = useRef(new Set<string>());
+  const setAutoUpdateEnabled = useCallback((enabled: boolean) => {
+    savePluginAutoUpdateEnabled(enabled);
+    setAutoUpdateEnabledState(enabled);
+  }, []);
   const runtimeRef = useRef<PluginWorkerRuntime | null>(null);
   // Held in a ref so a changing handler never restarts every plugin runtime.
   const vaultClonedRef = useRef(onVaultCloned);
   vaultClonedRef.current = onVaultCloned;
   const pendingTransactionsRef = useRef(new Map<string, string>());
   const startsAllowedRef = useRef(true);
+  // Set while an explicit `disableAll` recovery action is in flight so the
+  // automatic-update effect never races it: `disableAll` is not funneled
+  // through the per-plugin `withBusy` queue, and an automatic update could
+  // otherwise re-enable a plugin the user just asked to stop.
+  const bulkDisableInFlightRef = useRef(false);
   const emojiWritesRef = useRef(new Map<string, Promise<void>>());
   const pluginOperationsRef = useRef(new Map<string, Promise<void>>());
   const emojiWriteGenerations = useRef(new Map<string, number>());
@@ -507,6 +612,57 @@ export function usePlugins(
     }
   }, [enable, plugins]);
 
+  useEffect(() => {
+    // Wait until startup restoration (recovery, restart of already-enabled
+    // plugins, then a final refresh) has settled: acting on an intermediate
+    // snapshot could race the native transaction it starts from.
+    if (!autoUpdateEnabled || loading) {
+      return;
+    }
+    const eligible = plugins.filter((plugin) => {
+      if (
+        !plugin.enabled ||
+        plugin.status !== "update-available" ||
+        plugin.previouslyApproved !== true ||
+        busyPluginIds.has(plugin.catalog.manifest.id)
+      ) {
+        return false;
+      }
+      const attemptKey = `${plugin.catalog.manifest.id}@${plugin.catalog.manifest.version}`;
+      return (
+        !autoUpdateAttemptedRef.current.has(attemptKey) &&
+        permissionsUnchanged(
+          plugin.approvedPermissions,
+          plugin.catalog.manifest.permissions,
+        )
+      );
+    });
+    if (eligible.length === 0) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      for (const plugin of eligible) {
+        if (cancelled || bulkDisableInFlightRef.current) {
+          return;
+        }
+        const attemptKey = `${plugin.catalog.manifest.id}@${plugin.catalog.manifest.version}`;
+        autoUpdateAttemptedRef.current.add(attemptKey);
+        try {
+          await enable(
+            plugin.catalog.manifest.id,
+            plugin.catalog.manifest.permissions,
+          );
+        } catch (error) {
+          reportError(error);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [autoUpdateEnabled, loading, plugins, busyPluginIds, enable, reportError]);
+
   const loadDevelopmentPlugin = useCallback(async () => {
     const pluginId = await api.chooseDevelopmentPluginArchive();
     if (pluginId) {
@@ -525,20 +681,25 @@ export function usePlugins(
   );
 
   const disableAll = useCallback(async () => {
-    startsAllowedRef.current = false;
-    await Promise.allSettled([...emojiWritesRef.current.values()]);
-    const runtime = runtimeRef.current;
-    if (runtime) {
-      await runtime.stopAll().catch(reportError);
-    }
-    await api.recoverPluginTransactions();
-    pendingTransactionsRef.current.clear();
-    for (const plugin of plugins) {
-      if (plugin.enabled) {
-        await api.disablePlugin(plugin.catalog.manifest.id);
+    bulkDisableInFlightRef.current = true;
+    try {
+      startsAllowedRef.current = false;
+      await Promise.allSettled([...emojiWritesRef.current.values()]);
+      const runtime = runtimeRef.current;
+      if (runtime) {
+        await runtime.stopAll().catch(reportError);
       }
+      await api.recoverPluginTransactions();
+      pendingTransactionsRef.current.clear();
+      for (const plugin of plugins) {
+        if (plugin.enabled) {
+          await api.disablePlugin(plugin.catalog.manifest.id);
+        }
+      }
+      await refresh();
+    } finally {
+      bulkDisableInFlightRef.current = false;
     }
-    await refresh();
   }, [plugins, refresh, reportError]);
 
   const clearCredentials = useCallback(
@@ -790,6 +951,8 @@ export function usePlugins(
     disable,
     disableAll,
     updateAll,
+    autoUpdateEnabled,
+    setAutoUpdateEnabled,
     loadDevelopmentPlugin,
     clearData,
     clearCredentials,

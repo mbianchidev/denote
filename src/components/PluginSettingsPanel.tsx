@@ -72,6 +72,8 @@ interface PluginSettingsPanelProps {
   onDisable: (pluginId: string) => Promise<void>;
   onDisableAll: () => Promise<void>;
   onUpdateAll: () => Promise<void>;
+  autoUpdateEnabled: boolean;
+  onSetAutoUpdateEnabled: (enabled: boolean) => void;
   onLoadDevelopment?: () => Promise<void>;
   onClearData: (pluginId: string) => Promise<void>;
   onClearCredentials: (pluginId: string) => Promise<void>;
@@ -100,6 +102,8 @@ export function PluginSettingsPanel({
   onDisable,
   onDisableAll,
   onUpdateAll,
+  autoUpdateEnabled,
+  onSetAutoUpdateEnabled,
   onLoadDevelopment = async () => {},
   onClearData,
   onClearCredentials,
@@ -251,6 +255,27 @@ export function PluginSettingsPanel({
           </p>
         </div>
         <div className="plugin-settings__header-actions">
+          <label
+            className="plugin-setting plugin-setting--checkbox plugin-settings__auto-update"
+            htmlFor="plugin-auto-update-toggle"
+          >
+            <input
+              id="plugin-auto-update-toggle"
+              type="checkbox"
+              checked={autoUpdateEnabled}
+              onChange={(event) =>
+                onSetAutoUpdateEnabled(event.currentTarget.checked)
+              }
+            />
+            <span>
+              <strong>Automatically update plugins</strong>
+              <small>
+                Applies updates that keep every previously approved
+                permission unchanged. Updates that request new permissions
+                still need review in Update all.
+              </small>
+            </span>
+          </label>
           {developmentSupported ? (
             <button
               type="button"

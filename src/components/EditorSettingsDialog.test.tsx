@@ -17,6 +17,8 @@ const pluginProps = {
   onDisablePlugin: vi.fn(),
   onDisableAllPlugins: vi.fn(),
   onUpdateAllPlugins: vi.fn(),
+  pluginAutoUpdateEnabled: false,
+  onSetPluginAutoUpdateEnabled: vi.fn(),
   onClearPluginData: vi.fn(),
   onClearPluginCredentials: vi.fn(),
   onUpdatePluginSettings: vi.fn(),
