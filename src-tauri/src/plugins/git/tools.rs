@@ -2,7 +2,7 @@ use std::{
     fs::{self, File},
     io::Read,
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 use flate2::read::GzDecoder;
@@ -14,6 +14,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::plugins::package::ensure_managed_directory;
+
+use super::background_command;
 
 const LOCK_JSON: &str = include_str!("../../../../bundled-tools.lock.json");
 const MAX_INTEGRITY_BYTES: u64 = 16 * 1024 * 1024;
@@ -254,7 +256,7 @@ pub(crate) fn inspect(
             Ok(version) => ToolStatus {
                 tool: kind.name().to_string(),
                 selected_source: mode.label().to_string(),
-                resolved_path: Some(path.to_string_lossy().into_owned()),
+                resolved_path: Some(crate::paths::path_for_display(&path)),
                 version: Some(version),
                 validation_status: "valid".to_string(),
                 message: format!("{} is ready.", kind.name()),
@@ -275,7 +277,7 @@ fn invalid_status(
     ToolStatus {
         tool: kind.name().to_string(),
         selected_source: mode.label().to_string(),
-        resolved_path: path.map(|value| value.to_string_lossy().into_owned()),
+        resolved_path: path.map(|value| crate::paths::path_for_display(&value)),
         version: None,
         validation_status: "invalid".to_string(),
         message: error.to_string(),
@@ -293,7 +295,7 @@ fn inspect_bundled(resource_dir: &Path, install_dir: &Path, kind: ToolKind) -> T
                         Ok(version) => ToolStatus {
                             tool: kind.name().to_string(),
                             selected_source: ExecutableMode::Bundled.label().to_string(),
-                            resolved_path: Some(path.to_string_lossy().into_owned()),
+                            resolved_path: Some(crate::paths::path_for_display(&path)),
                             version: Some(version),
                             validation_status: "valid".to_string(),
                             message: format!("{} is downloaded and ready.", kind.name()),
@@ -864,7 +866,7 @@ fn verify_executable(path: &Path, kind: ToolKind) -> AppResult<()> {
 }
 
 fn probe(path: &Path, kind: ToolKind) -> AppResult<String> {
-    let mut command = Command::new(path);
+    let mut command = background_command(path);
     command
         .arg(kind.probe_argument())
         .stdin(Stdio::null())

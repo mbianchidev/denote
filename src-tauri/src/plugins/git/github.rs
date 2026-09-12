@@ -16,14 +16,16 @@ use std::{
     time::Duration,
 };
 
-use command_group::CommandGroup;
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::error::{AppError, AppResult};
 use crate::plugins::PluginManager;
 
-use super::transport::{GitOperationToken, first_line};
+use super::{
+    background_command, spawn_background_group,
+    transport::{GitOperationToken, first_line},
+};
 
 /// Ceiling for one adapter invocation. A listing is a small metadata read and
 /// a token read is smaller still, so this is far below the Git limit.
@@ -234,7 +236,7 @@ fn run_gh(
 ) -> AppResult<GhOutcome> {
     let mut stdout_file = tempfile::tempfile()?;
     let mut stderr_file = tempfile::tempfile()?;
-    let mut command = Command::new(executable);
+    let mut command = background_command(executable);
     command
         .args(args)
         .stdin(Stdio::null())
@@ -248,8 +250,7 @@ fn run_gh(
         .env("PAGER", "cat")
         .env("CLICOLOR", "0")
         .env("NO_COLOR", "1");
-    let mut child = command
-        .group_spawn()
+    let mut child = spawn_background_group(&mut command)
         .map_err(|error| AppError::Plugin(format!("Unable to start the GitHub CLI: {error}")))?;
     let deadline = std::time::Instant::now() + GH_TIMEOUT;
     let mut output_exceeded = false;

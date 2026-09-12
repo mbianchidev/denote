@@ -22,15 +22,18 @@ use std::{
 };
 
 use base64::{Engine, engine::general_purpose::STANDARD};
-use command_group::{CommandGroup, GroupChild};
+use command_group::GroupChild;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 
-use super::askpass::{
-    ASKPASS_CONTEXT_ENV, ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial,
-    apply_askpass_environment,
+use super::{
+    askpass::{
+        ASKPASS_CONTEXT_ENV, ASKPASS_FILE_ENV, ASKPASS_MODE_ENV, AskpassMaterial,
+        apply_askpass_environment,
+    },
+    background_command, spawn_background_group,
 };
 use crate::plugins::settings::{GitCommitSigningMode, GitSettingsPolicy};
 
@@ -185,34 +188,56 @@ impl SystemGitSettings {
         self.values(key).last()
     }
 
-    fn parse(output: &[u8]) -> AppResult<Self> {
-        if output.len() as u64 > MAX_CONFIG_BYTES {
+    fn last_of(&self, keys: &[&str]) -> Option<&str> {
+        self.values.iter().rev().find_map(|(candidate, value)| {
+            keys.iter()
+                .any(|key| candidate.eq_ignore_ascii_case(key))
+                .then_some(value.as_str())
+        })
+    }
+
+    pub(crate) fn parse_scopes(outputs: &[&[u8]]) -> AppResult<Self> {
+        let total_bytes = outputs
+            .iter()
+            .try_fold(0u64, |total, output| total.checked_add(output.len() as u64))
+            .ok_or_else(|| {
+                AppError::Plugin("The system Git configuration is too large to use".to_string())
+            })?;
+        if total_bytes > MAX_CONFIG_BYTES {
             return Err(AppError::Plugin(
                 "The system Git configuration is too large to use".to_string(),
             ));
         }
-        let mut values = Vec::new();
-        for record in output
-            .split(|byte| *byte == 0)
-            .filter(|record| !record.is_empty())
-        {
-            let separator = record.iter().position(|byte| matches!(byte, b'\n' | b'='));
-            let Some(separator) = separator else {
-                continue;
-            };
-            let key = String::from_utf8_lossy(&record[..separator]).to_ascii_lowercase();
-            if !SYSTEM_GIT_SETTING_KEYS.contains(&key.as_str()) {
-                continue;
+        let mut settings = Self::default();
+        for output in outputs {
+            for record in output
+                .split(|byte| *byte == 0)
+                .filter(|record| !record.is_empty())
+            {
+                let separator = record.iter().position(|byte| matches!(byte, b'\n' | b'='));
+                let Some(separator) = separator else {
+                    continue;
+                };
+                let key = String::from_utf8_lossy(&record[..separator]).to_ascii_lowercase();
+                if !SYSTEM_GIT_SETTING_KEYS.contains(&key.as_str()) {
+                    continue;
+                }
+                let value = String::from_utf8_lossy(&record[separator + 1..]).into_owned();
+                if key == "credential.helper" && value.is_empty() {
+                    settings
+                        .values
+                        .retain(|(candidate, _)| candidate != "credential.helper");
+                    continue;
+                }
+                if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
+                    return Err(AppError::Plugin(format!(
+                        "The system Git setting {key} is empty, too large, or contains control characters"
+                    )));
+                }
+                settings.values.push((key, value));
             }
-            let value = String::from_utf8_lossy(&record[separator + 1..]).into_owned();
-            if value.is_empty() || value.len() > 4096 || value.chars().any(char::is_control) {
-                return Err(AppError::Plugin(format!(
-                    "The system Git setting {key} is empty, too large, or contains control characters"
-                )));
-            }
-            values.push((key, value));
         }
-        Ok(Self { values })
+        Ok(settings)
     }
 }
 
@@ -226,6 +251,7 @@ const SYSTEM_GIT_SETTING_KEYS: &[&str] = &[
     "credential.usehttppath",
     "credential.username",
     "gpg.format",
+    "gpg.openpgp.program",
     "gpg.program",
     "gpg.ssh.program",
     "gpg.x509.program",
@@ -1368,16 +1394,21 @@ pub(crate) fn apply_system_git_settings(
                 let (program_key, default_program) = match format.as_str() {
                     "ssh" => ("gpg.ssh.program", "ssh-keygen"),
                     "x509" => ("gpg.x509.program", "gpgsm"),
-                    _ => ("gpg.program", "gpg"),
+                    _ => ("gpg.openpgp.program", "gpg"),
+                };
+                let configured_program = if policy.use_system_settings {
+                    if format == "openpgp" {
+                        settings.last_of(&["gpg.program", "gpg.openpgp.program"])
+                    } else {
+                        settings.last(program_key)
+                    }
+                } else {
+                    None
                 };
                 push_system_config(
                     &mut prefix,
                     program_key,
-                    policy
-                        .use_system_settings
-                        .then(|| settings.last(program_key))
-                        .flatten()
-                        .unwrap_or(default_program),
+                    configured_program.unwrap_or(default_program),
                 )?;
                 if policy.use_system_settings
                     && let Some(value) = settings.last("user.signingkey")
@@ -1432,24 +1463,58 @@ fn git_config_truthy(value: &str) -> bool {
 }
 
 pub(crate) fn read_system_git_settings(executable: &Path) -> AppResult<SystemGitSettings> {
-    let mut command = Command::new(executable);
-    command.args(["config", "--global", "--includes", "--null", "--list"]);
+    let system = read_git_config_scope(executable, GitConfigScope::System)?;
+    let global = read_git_config_scope(executable, GitConfigScope::Global)?;
+    SystemGitSettings::parse_scopes(&[&system, &global])
+}
+
+#[derive(Clone, Copy)]
+enum GitConfigScope {
+    System,
+    Global,
+}
+
+impl GitConfigScope {
+    fn flag(self) -> &'static str {
+        match self {
+            Self::System => "--system",
+            Self::Global => "--global",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Global => "global",
+        }
+    }
+}
+
+fn read_git_config_scope(executable: &Path, scope: GitConfigScope) -> AppResult<Vec<u8>> {
+    let mut command = background_command(executable);
+    command.args(["config", scope.flag(), "--includes", "--null", "--list"]);
     remove_inherited_environment(&mut command);
     command
+        .env_remove("GIT_CONFIG_GLOBAL")
+        .env_remove("GIT_CONFIG_NOSYSTEM")
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .stderr(Stdio::piped())
         .stdout(Stdio::piped());
     let output = command.output().map_err(|error| {
-        AppError::Plugin(format!("Unable to read the system Git settings: {error}"))
+        AppError::Plugin(format!(
+            "Unable to read the {} Git settings: {error}",
+            scope.label()
+        ))
     })?;
     if !output.status.success() {
         return Err(AppError::Plugin(format!(
-            "Unable to read the system Git settings: {}",
+            "Unable to read the {} Git settings: {}",
+            scope.label(),
             first_line(&String::from_utf8_lossy(&output.stderr))
         )));
     }
-    SystemGitSettings::parse(&output.stdout)
+    Ok(output.stdout)
 }
 
 fn read_only(args: Vec<String>) -> GitPlanStep {
@@ -2932,7 +2997,7 @@ pub(crate) fn run_git_command_with_input(
 ) -> AppResult<CommandOutcome> {
     let mut stdout_file = tempfile::tempfile()?;
     let mut stderr_file = tempfile::tempfile()?;
-    let mut command = Command::new(execution.executable);
+    let mut command = background_command(execution.executable);
     command.args(hardening_arguments(execution));
     command.args(args);
     command
@@ -2945,8 +3010,7 @@ pub(crate) fn run_git_command_with_input(
         .stdout(Stdio::from(stdout_file.try_clone()?))
         .stderr(Stdio::from(stderr_file.try_clone()?));
     apply_environment(&mut command, execution);
-    let mut child = command
-        .group_spawn()
+    let mut child = spawn_background_group(&mut command)
         .map_err(|error| AppError::Plugin(format!("Unable to start Git: {error}")))?;
     // The payload is written from its own thread and the pipe is closed when
     // that thread ends, so a payload larger than the pipe buffer can never
@@ -3115,6 +3179,8 @@ pub(crate) fn hardening_arguments(execution: &GitExecution<'_>) -> Vec<String> {
         "diff.external=".to_string(),
         "-c".to_string(),
         "gpg.program=".to_string(),
+        "-c".to_string(),
+        "gpg.openpgp.program=".to_string(),
         "-c".to_string(),
         "gpg.ssh.program=".to_string(),
         "-c".to_string(),
@@ -3294,17 +3360,7 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
 /// containment checks, but removes only that transport prefix when passing a
 /// host-owned path to Git.
 pub(crate) fn git_cli_path(path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let value = path.to_string_lossy();
-        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{rest}"));
-        }
-        if let Some(rest) = value.strip_prefix(r"\\?\") {
-            return PathBuf::from(rest);
-        }
-    }
-    path.to_path_buf()
+    crate::paths::without_windows_verbatim_prefix(path)
 }
 
 pub(crate) fn git_cli_path_string(path: &Path) -> String {

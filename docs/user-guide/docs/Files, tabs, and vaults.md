@@ -58,7 +58,9 @@ decoders are bundled; no PDF is sent to a network service.
   assignments, order, groups, collapsed state, focused pane, and active files by
   default. Disable this per vault in **Editor display settings**.
 - Use the editor toolbar to copy content, an attachment-ready file, or the active
-  absolute path. Encrypted vault attachments use a temporary plaintext cache.
+  absolute path. On Windows, shown and copied paths use ordinary `C:\folder` or
+  `\\server\share` notation, never the internal `\\?\` prefix. Encrypted vault
+  attachments use a temporary plaintext cache.
 - PDF text is copied through ordinary selection. The toolbar content-copy and
   version-history actions are unavailable because PDFs are read-only; attachment
   and path copy remain available.
@@ -191,6 +193,13 @@ to the operating system Trash.
 Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
+
+When you return to Denote after changing files in another editor, terminal, or
+Git client, Denote refreshes the active vault. New and renamed files appear,
+removed files disappear, and clean open tabs reload or close as needed. Unsaved
+tabs are never overwritten or closed by this refresh. If a file disappears just
+before you open it, Denote refreshes the tree instead of showing the operating
+system's missing-file error.
 
 ### Open an app link
 

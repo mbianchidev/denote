@@ -173,7 +173,17 @@ The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
-them into memory.
+them into memory. Windows keeps verbatim canonical paths internally for identity
+and containment checks, but UI presentation, copied absolute paths, executable
+status, and renderer error formatting remove the `\\?\` prefix and convert
+verbatim UNC paths back to ordinary `\\server\share` form.
+When the desktop window regains focus, the renderer requests a fresh active-vault
+snapshot and search index so files created, renamed, moved, removed, or edited by
+another application are reconciled before the next action. Clean open tabs
+reload from disk and clean tabs whose paths disappeared close; unsaved tabs are
+preserved without being overwritten or closed. A file that disappears between
+the focus refresh and an open request triggers one more guarded refresh and
+reports the stale path instead of the raw operating-system read error.
 Project-configuration IPC carries the originating snapshot's vault path only as
 an identity guard. Rust compares that value to the current active vault and
 rejects stale queued requests before using the active vault as the operation
@@ -532,25 +542,30 @@ would only fall back to `$HOME/.gitconfig` or `$XDG_CONFIG_HOME/git/config`,
 either of which could reintroduce a filter or a command-bearing key.
 
 The Git plugin can explicitly opt into **Use system Git settings**, which is its
-default. The host reads the user's global configuration with the resolved Git
-binary, keeps only bounded values for `user.name`, `user.email`,
-`user.signingKey`, `commit.gpgSign`, the `gpg.*` program/format keys,
-`credential.helper`, `credential.useHttpPath`, `credential.username`, and the
-safe `core.autocrlf`, `core.eol`, `core.ignoreCase`, and
+default. The host reads the selected Git's system configuration and then its
+user-global configuration, keeps only bounded values for `user.name`,
+`user.email`, `user.signingKey`, `commit.gpgSign`, the `gpg.*` program/format
+keys, `credential.helper`, `credential.useHttpPath`, `credential.username`, and
+the safe `core.autocrlf`, `core.eol`, `core.ignoreCase`, and
 `core.precomposeUnicode` values, then reapplies only the values needed by the
-typed operation after the hardening overrides. Credential helpers are enabled
-only for the `system` authentication mode. GPG programs and signing values are
-enabled only for a manual commit whose signing policy requires them. A masked
-key setting can override `user.signingKey`; the passphrase remains entirely in
-the system GPG agent or pinentry. Automatic commits keep the isolated unsigned
+typed operation after the hardening overrides. The later global scope wins for
+single-valued settings and an empty higher-precedence credential helper clears
+earlier helpers exactly as Git does. Credential helpers are enabled only for
+the `system` authentication mode. GPG programs and signing values are enabled
+only for a manual commit whose signing policy requires them. A masked key
+setting can override `user.signingKey`; the passphrase remains entirely in the
+system GPG agent or pinentry. Automatic commits keep the isolated unsigned
 path.
 
 Hardening pins every GPG program to an empty value before operation-specific
 settings are applied. A signed manual commit therefore always restores one
-explicit program after that pin: the configured program when present, otherwise
-Git's format default (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures, or
-`gpgsm` for X.509). This prevents an empty `gpg.program` from being executed
-without weakening unsigned operations.
+explicit program after that pin. OpenPGP honors both the modern
+`gpg.openpgp.program` setting and the legacy `gpg.program` alias in Git's
+original system-to-global order, so the later effective setting wins; otherwise
+the format default is used (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures,
+or `gpgsm` for X.509). This keeps a configured Windows Gpg4win installation
+from being replaced by Git for Windows' bundled GPG while still preventing an
+empty program from being executed on unsigned operations.
 
 An SSH signing passphrase never enters plugin code. `SourceControlPanel` passes
 it as host-only metadata beside the typed commit action;
@@ -616,11 +631,11 @@ discards a comment or a blank line before it ever looks for a trailing
 backslash, so neither `; \` nor `# \` can hide the dangerous line that follows
 it.
 
-Remote authentication is host-owned. `system` uses the allowlisted global
-credential-helper configuration and is the default; Git terminal prompts remain
-disabled, so an unavailable helper fails instead of hanging. `public` clears the
-helper, `ssh-agent` uses the pinned SSH client and running agent, and
-`github-https` is bound to the address the operation
+Remote authentication is host-owned. `system` uses the allowlisted system and
+user-global credential-helper configuration and is the default; Git terminal
+prompts remain disabled, so an unavailable helper fails instead of hanging.
+`public` clears the helper, `ssh-agent` uses the pinned SSH client and running
+agent, and `github-https` is bound to the address the operation
 will really contact. A `github-https` fetch or pull reads the remote's fetch
 URLs, and a push reads its push URLs, with `git remote get-url [--push] --all`,
 so a separate `pushurl` or a mirror list cannot route a GitHub token to another
@@ -630,8 +645,10 @@ after it runs, so the askpass answer is bound to Git's own prompt as well: it
 parses the target Git quotes there and answers only for an HTTPS URL whose host
 is exactly `github.com` or `www.github.com`, and answers an absent, malformed,
 non-HTTPS, userinfo-confused, port-bearing, lookalike, or non-GitHub target with
-nothing. The cancellable operation is registered before the GitHub CLI is
-reached, so cancelling during credential acquisition stops the
+nothing. On Windows, the askpass executable path is converted from the verbatim
+path returned by canonicalization to the ordinary drive or UNC form Git for
+Windows can launch. The cancellable operation is registered before the GitHub
+CLI is reached, so cancelling during credential acquisition stops the
 adapter and the Git command never starts, and both the registration and the
 secret are released by scope guards on every error, timeout, and cancellation
 path. The GitHub adapter captures its output into bounded private temporary
@@ -652,10 +669,12 @@ anything but `clone` and `clean-failed-clone` respectively, before the native
 folder chooser opens or any native command runs.
 
 Operations run in a command process group with a ten minute hard timeout and
-output bounded at 8 MiB. The bound is enforced while the command runs and again
-once it has exited, so output from a command that finishes between two polls
-fails the operation instead of being silently truncated, and a truncated
-conflict stage can never be written into the worktree.
+output bounded at 8 MiB. Windows Git and GitHub CLI children suppress console
+windows, including when the process-group builder adds its own creation flags.
+The output bound is enforced while the command runs and again once it has
+exited, so output from a command that finishes between two polls fails the
+operation instead of being silently truncated, and a truncated conflict stage
+can never be written into the worktree.
 
 The operation ID is generated by the host runtime for each invocation and
 returned to the plugin as `{ operationId, result }` before the operation

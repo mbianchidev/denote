@@ -21,6 +21,7 @@ import type {
   PluginToolStatus,
   ProjectRoot,
 } from "../types";
+import { systemPathForDisplay } from "../lib/systemPath";
 
 const CATEGORY_LABELS: Record<PluginCategory, string> = {
   code: "Code",
@@ -462,7 +463,7 @@ export function PluginSettingsPanel({
                       ) : null}
                       {plugin.error ? (
                         <p className="plugin-card__error" role="alert">
-                          {plugin.error}
+                          {systemPathForDisplay(plugin.error)}
                         </p>
                       ) : null}
 
@@ -1027,7 +1028,7 @@ function ExecutableSettings({
                   <input
                     value={
                       typeof draft[tool.pathKey] === "string"
-                        ? String(draft[tool.pathKey])
+                        ? systemPathForDisplay(String(draft[tool.pathKey]))
                         : ""
                     }
                     onChange={(event) =>
@@ -1071,7 +1072,11 @@ function ExecutableSettings({
                     </div>
                     <div>
                       <dt>Resolved path</dt>
-                      <dd>{status.resolvedPath ?? "None"}</dd>
+                      <dd>
+                        {status.resolvedPath
+                          ? systemPathForDisplay(status.resolvedPath)
+                          : "None"}
+                      </dd>
                     </div>
                     <div>
                       <dt>Version</dt>
@@ -1082,8 +1087,8 @@ function ExecutableSettings({
                       <dd>{status.validationStatus.replace("-", " ")}</dd>
                     </div>
                   </dl>
-                  <p>{status.message}</p>
-                  <p>{status.guidance}</p>
+                  <p>{systemPathForDisplay(status.message)}</p>
+                  <p>{systemPathForDisplay(status.guidance)}</p>
                 </div>
               </div>
             ) : null}

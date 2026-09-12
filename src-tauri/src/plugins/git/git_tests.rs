@@ -560,7 +560,7 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
         &[
             "user.name=Synthetic Author",
             "user.email=author@example.invalid",
-            "gpg.program=gpg",
+            "gpg.openpgp.program=gpg",
             "commit.gpgSign=true",
             "--gpg-sign=ABCDEF1234567890",
         ],
@@ -599,6 +599,179 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
 }
 
 #[test]
+fn applies_the_modern_openpgp_program_from_system_settings() {
+    let request = PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    };
+    let settings = SystemGitSettings::parse_scopes(&[
+        &b"gpg.program\nC:/Program Files/Git/usr/bin/gpg.exe\0"[..],
+        &b"gpg.openpgp.program\nC:/Program Files/GnuPG/bin/gpg.exe\0user.signingkey\nSYNTHETIC-KEY\0"[..],
+    ])
+    .expect("system signing settings");
+    let mut plan = plan_git_request(&request).expect("commit plan");
+
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::Always,
+            signing_key: None,
+        },
+        &settings,
+    )
+    .expect("apply signing settings");
+
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(
+        args,
+        &[
+            "gpg.openpgp.program=C:/Program Files/GnuPG/bin/gpg.exe",
+            "user.signingkey=SYNTHETIC-KEY",
+            "commit.gpgSign=true",
+            "--gpg-sign",
+        ],
+    );
+    assert!(
+        !args
+            .iter()
+            .any(|argument| argument == "gpg.program=C:/Program Files/Git/usr/bin/gpg.exe"),
+        "the legacy fallback must not replace an explicit OpenPGP program"
+    );
+}
+
+#[test]
+fn openpgp_program_aliases_follow_git_configuration_order() {
+    let request = PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Record synthetic note".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    };
+    let settings = SystemGitSettings::parse_scopes(&[
+        &b"gpg.openpgp.program\nC:/System/GnuPG/bin/gpg.exe\0"[..],
+        &b"gpg.program\nC:/User/GnuPG/bin/gpg.exe\0"[..],
+    ])
+    .expect("system signing settings");
+    let mut plan = plan_git_request(&request).expect("commit plan");
+
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::Always,
+            signing_key: None,
+        },
+        &settings,
+    )
+    .expect("apply signing settings");
+
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    assert!(
+        args.iter()
+            .any(|argument| argument == "gpg.openpgp.program=C:/User/GnuPG/bin/gpg.exe"),
+        "the later legacy alias must keep Git's normal configuration precedence: {args:?}"
+    );
+}
+
+#[test]
+fn system_git_settings_apply_system_then_global_precedence() {
+    let settings = SystemGitSettings::parse_scopes(&[
+        &b"user.name\nSystem Author\0credential.helper\nmanager\0core.autocrlf\ntrue\0"[..],
+        &b"user.name\nGlobal Author\0credential.helper\ncustom-helper\0"[..],
+    ])
+    .expect("scoped settings");
+    let request = PluginGitRequest::Fetch {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        prune: false,
+        auth_mode: PluginGitAuthMode::System,
+    };
+    let mut plan = plan_git_request(&request).expect("fetch plan");
+
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::System,
+            signing_key: None,
+        },
+        &settings,
+    )
+    .expect("apply settings");
+
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(
+        args,
+        &[
+            "user.name=Global Author",
+            "core.autocrlf=true",
+            "credential.helper=manager",
+            "credential.helper=custom-helper",
+            "fetch",
+        ],
+    );
+}
+
+#[test]
+fn empty_global_credential_helper_clears_system_helpers() {
+    let settings = SystemGitSettings::parse_scopes(&[
+        &b"credential.helper\nmanager\0"[..],
+        &b"credential.helper\n\0"[..],
+    ])
+    .expect("scoped settings");
+    let request = PluginGitRequest::Pull {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        branch: "main".to_string(),
+        strategy: PluginGitPullStrategy::FastForwardOnly,
+        auth_mode: PluginGitAuthMode::System,
+    };
+    let mut plan = plan_git_request(&request).expect("pull plan");
+
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::System,
+            signing_key: None,
+        },
+        &settings,
+    )
+    .expect("apply settings");
+
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    assert!(
+        !args
+            .iter()
+            .any(|argument| argument.starts_with("credential.helper=")),
+        "an empty higher-precedence helper must clear system helpers"
+    );
+}
+
+#[test]
 fn explicit_signing_remains_enabled_when_system_settings_are_disabled() {
     let request = PluginGitRequest::Commit {
         scope: PluginGitScope::Vault,
@@ -627,7 +800,7 @@ fn explicit_signing_remains_enabled_when_system_settings_are_disabled() {
     expect_args_in_order(
         args,
         &[
-            "gpg.program=gpg",
+            "gpg.openpgp.program=gpg",
             "commit.gpgSign=true",
             "--gpg-sign=SYNTHETIC-KEY",
         ],
@@ -1089,6 +1262,7 @@ fn pins_every_command_bearing_configuration_key_on_the_command_line() {
         "sequence.editor=:",
         "diff.external=",
         "gpg.program=",
+        "gpg.openpgp.program=",
         "gpg.ssh.program=",
         "gpg.x509.program=",
         "credential.helper=",

@@ -49,6 +49,7 @@ import type {
   PluginProcessResult,
   PluginTextDocument,
 } from "@denote/plugin-sdk";
+import { systemPathForDisplay } from "./systemPath";
 
 export const api = {
   getRuntimeInfo: () => invoke<RuntimeInfo>("get_runtime_info"),
@@ -477,10 +478,10 @@ function fileToBase64(file: File): Promise<string> {
 
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) {
-    return error.message;
+    return systemPathForDisplay(error.message);
   }
   if (typeof error === "string") {
-    return error;
+    return systemPathForDisplay(error);
   }
   return "An unexpected error occurred.";
 }

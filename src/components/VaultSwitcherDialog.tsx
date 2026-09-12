@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/api";
+import { systemPathForDisplay } from "../lib/systemPath";
 import type { KnownVault } from "../types";
 import type {
   PluginSourceControlAction,
@@ -191,7 +192,7 @@ export function VaultSwitcherDialog({
                 This removes the vault and its Denote metadata from the recent
                 list.
               </p>
-              <code>{pendingDelete.path}</code>
+              <code>{systemPathForDisplay(pendingDelete.path)}</code>
             </div>
             <label>
               <input
@@ -268,7 +269,7 @@ export function VaultSwitcherDialog({
                   </span>
                   <span className="vault-switcher-item__details">
                     <strong>{vault.name}</strong>
-                    <span>{vault.path}</span>
+                    <span>{systemPathForDisplay(vault.path)}</span>
                     <small>
                       {[
                         vault.current

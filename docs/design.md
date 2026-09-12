@@ -296,6 +296,8 @@ semantic meaning.
 - **Focus:** Moss border plus a one-pixel outer emphasis.
 - **Error / Disabled:** Error uses measured danger; disabled state remains
   visible but clearly recedes.
+- **System paths:** Show native drive or UNC paths. Windows UI, errors, and
+  copied paths never expose the internal `\\?\` canonicalization prefix.
 
 ### Navigation
 

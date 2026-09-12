@@ -252,11 +252,14 @@ branch involved, and only an ordinary push is offered: there is no force push.
 
 Choose how Denote signs in under **Remote authentication**, in the plugin's
 settings. *System Git credentials* is the default and uses your configured
-credential helper or OS keychain. *Public repository* needs no credentials, *SSH agent* uses the agent
-you already have running, and *GitHub sign-in* uses the GitHub CLI on your
-machine. The Git view shows the mode you configured and sends you to Settings to
-change it, so it always matches what the next fetch, pull, push, or clone will
-use. With GitHub sign-in you can browse your repositories and pick one to clone.
+credential helper or OS keychain, including Git for Windows helpers installed in
+system configuration. Git and GitHub CLI commands stay in the background on
+Windows instead of opening console windows. *Public repository* needs no
+credentials, *SSH agent* uses the agent you already have running, and *GitHub
+sign-in* uses the GitHub CLI on your machine. The Git view shows the mode you
+configured and sends you to Settings to change it, so it always matches what the
+next fetch, pull, push, or clone will use. With GitHub sign-in you can browse
+your repositories and pick one to clone.
 Denote reads the token itself, uses it only for that one Git command, and
 deletes it straight afterwards; it is never stored in plugin settings, written
 into your repository's configuration, or shown in a message or log. Denote also
@@ -321,7 +324,9 @@ imports only bounded allowlisted identity, credential-helper, line-ending, and
 GPG values into its hardened Git process. Manual commits can follow the system
 signing default, always sign, or never sign. The optional GPG key field is masked;
 your system GPG agent or pinentry asks for the passphrase, which Denote never
-stores. Automatic commits remain unsigned.
+stores. Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`
+in Git's normal order, including a Gpg4win path on Windows. Automatic commits
+remain unsigned.
 
 The manual commit form provides **Sign commit**, enabled by default for each
 submission, plus **Commit** and **Commit and push**. Turn signing off for an

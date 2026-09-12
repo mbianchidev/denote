@@ -96,7 +96,7 @@ pub fn absolute_entry_path(vault_path: &str, relative_path: &str) -> AppResult<S
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let path = existing_entry(&root, relative_path)?;
-    Ok(path_to_string(&path))
+    Ok(crate::paths::path_for_display(&path))
 }
 
 pub(crate) fn app_link_file_path(root: &Path, target: &Path) -> AppResult<String> {
@@ -3984,9 +3984,11 @@ mod tests {
             .expect("absolute file path");
 
         assert_eq!(
-            PathBuf::from(path),
+            fs::canonicalize(PathBuf::from(&path)).expect("canonical returned path"),
             fs::canonicalize(vault_path.join("note.md")).expect("canonical note")
         );
+        #[cfg(windows)]
+        assert!(!path.starts_with(r"\\?\"));
         assert!(absolute_entry_path(vault_path.to_str().unwrap(), "../note.md").is_err());
     }
 

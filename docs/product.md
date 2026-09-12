@@ -83,6 +83,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Previously opened vaults use a cached file tree for immediate switching, then
   refresh disk state and search content in the background. First-time vault
   registration may perform the slower complete scan.
+- Returning to Denote refreshes the active vault after another application may
+  have created, renamed, moved, removed, or edited files. Clean open files
+  reload, clean tabs whose paths disappeared close, and unsaved tabs remain
+  untouched. A stale file-tree row refreshes instead of exposing the operating
+  system's missing-file error.
 - Non-current user vaults can be removed from the recent list, with a separate
   explicit option to move the folder and all contents to system Trash.
 - Every regular file up to 25 MB can be opened. PDFs are read-only; other files
@@ -199,7 +204,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system
-  clipboard from the editor toolbar.
+  clipboard from the editor toolbar. Windows paths use their ordinary drive or
+  UNC form and never expose the internal `\\?\` canonicalization prefix.
 - A per-file read mode disables editing without changing the file or its
   rich/source presentation.
 - The active in-memory content or a native attachment-ready file can also be
@@ -438,11 +444,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   setting, so the view reports the configured one and sends you to Settings to
   change it.
 - The default authentication mode uses the credential helpers and stored
-  credentials from the user's global Git configuration. Public, SSH-agent, and
-  host-owned GitHub CLI modes remain available. The host imports only bounded
-  allowlisted identity, credential-helper, line-ending, and signing values into
-  its otherwise isolated Git invocation; repository-local command configuration
-  remains rejected.
+  credentials from the selected Git's system and user-global configuration.
+  Public, SSH-agent, and host-owned GitHub CLI modes remain available. The host
+  imports only bounded allowlisted identity, credential-helper, line-ending, and
+  signing values into its otherwise isolated Git invocation; repository-local
+  command configuration remains rejected.
 - Official releases publish verified Git and GitHub CLI archives for every
   release target, while installers contain only signed metadata and legal
   notices. Git selects exactly one of Bundled (default), System, or Custom.
@@ -455,10 +461,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, version, validation result, prerequisite guidance, and a native path
   picker. Existing path-only settings migrate to explicit System or Custom
   modes without changing the executable previously used.
-- Manual commits can follow the global Git signing default, always sign, or
-  never sign. An optional masked GPG key setting selects the key. The system GPG
-  agent or pinentry owns any passphrase; Denote never stores or receives it.
-  Automatic commits remain unsigned and unattended.
+- Manual commits can follow the system and user-global Git signing default,
+  always sign, or never sign. An optional masked GPG key setting selects the
+  key, and modern or legacy OpenPGP program settings keep Git's normal
+  precedence. The system GPG agent or pinentry owns any passphrase; Denote never
+  stores or receives it. Automatic commits remain unsigned and unattended.
 - The manual commit form offers Commit and Commit and push. Its per-commit
   signing control defaults on and can explicitly request an unsigned commit.
   Leaving the message empty uses `Denote manual commit {timestamp}`, with the
