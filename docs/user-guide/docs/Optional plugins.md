@@ -44,6 +44,13 @@ changed. An enabled plugin keeps running its installed version until its update
 has downloaded, verified, started, and completed. If that fails, Denote removes
 the attempted replacement and starts the installed version again.
 
+The plugin manager also has an **Automatically update plugins** toggle, off by
+default. Turning it on applies updates for previously approved plugins in the
+background, without the **Update all** confirmation, but only when the update
+keeps every permission the plugin already holds unchanged. An update that asks
+for a new or different permission still waits for you to review it through
+**Update all** or that plugin's own **Review and update** action.
+
 Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
 keychain. Plugins cannot read Denote credentials or another plugin's entries.

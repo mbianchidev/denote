@@ -208,6 +208,7 @@ beforeEach(() => {
   vi.mocked(api.listPluginBundles).mockResolvedValue([]);
   runtimeInstances.length = 0;
   callOrder.length = 0;
+  localStorage.clear();
 });
 
 describe("usePlugins", () => {
@@ -536,6 +537,95 @@ describe("usePlugins", () => {
     );
     expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-git");
     expect(runtimeInstances[0].start).toHaveBeenCalledWith(git);
+  });
+
+  it("does not auto-update plugins by default", async () => {
+    const outdated = makePlugin({
+      status: "update-available",
+      enabled: true,
+      previouslyApproved: true,
+      approvedPermissions: [...catalog.manifest.permissions],
+    });
+    await mountReady([outdated]);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+  });
+
+  it("automatically updates a previously approved plugin whose permissions are unchanged", async () => {
+    const outdated = makePlugin({
+      status: "update-available",
+      enabled: true,
+      previouslyApproved: true,
+      approvedPermissions: [...catalog.manifest.permissions],
+    });
+    const { result } = await mountReady([outdated]);
+
+    vi.mocked(api.preparePluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("prepare");
+      return {
+        pluginId,
+        version: catalog.manifest.version,
+        entrypoint: "dist/index.js",
+        transactionId: "tx-auto",
+      };
+    });
+    queueListPlugins([outdated]);
+    vi.mocked(api.commitPluginEnable).mockImplementationOnce(async () => {
+      callOrder.push("commit");
+    });
+    queueListPlugins([{ ...outdated, status: "enabled" }]);
+
+    act(() => {
+      result.current.setAutoUpdateEnabled(true);
+    });
+
+    await waitFor(() =>
+      expect(api.commitPluginEnable).toHaveBeenCalledWith("tx-auto"),
+    );
+    expect(api.preparePluginEnable).toHaveBeenCalledWith(
+      pluginId,
+      catalog.manifest.permissions,
+    );
+  });
+
+  it("never auto-updates a plugin whose update requests different permissions", async () => {
+    const outdated = makePlugin({
+      status: "update-available",
+      enabled: true,
+      previouslyApproved: true,
+      // Missing a permission the current catalog manifest requests, so the
+      // update expands what the plugin can access.
+      approvedPermissions: catalog.manifest.permissions.slice(1),
+    });
+    const { result } = await mountReady([outdated]);
+
+    act(() => {
+      result.current.setAutoUpdateEnabled(true);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+  });
+
+  it("never auto-updates a plugin the user has disabled", async () => {
+    const disabledButUpdatable = makePlugin({
+      status: "update-available",
+      enabled: false,
+      previouslyApproved: true,
+      approvedPermissions: [...catalog.manifest.permissions],
+    });
+    const { result } = await mountReady([disabledButUpdatable]);
+
+    act(() => {
+      result.current.setAutoUpdateEnabled(true);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
   });
 
   it("restarts the installed version when an explicit update fails", async () => {

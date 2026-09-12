@@ -4830,6 +4830,15 @@ kbd {
   gap: 8px;
 }
 
+.plugin-settings__auto-update {
+  max-width: 260px;
+  padding: 4px 0;
+}
+
+.plugin-settings__auto-update small {
+  display: block;
+}
+
 .plugin-settings__header p {
   margin-top: 4px;
   color: var(--text-secondary);

@@ -39,6 +39,8 @@ function props(overrides: Partial<Parameters<typeof PluginSettingsPanel>[0]> = {
     onDisable: vi.fn().mockResolvedValue(undefined),
     onDisableAll: vi.fn().mockResolvedValue(undefined),
     onUpdateAll: vi.fn().mockResolvedValue(undefined),
+    autoUpdateEnabled: false,
+    onSetAutoUpdateEnabled: vi.fn(),
     onClearData: vi.fn().mockResolvedValue(undefined),
     onClearCredentials: vi.fn().mockResolvedValue(undefined),
     onUpdateSettings: vi.fn().mockResolvedValue(undefined),

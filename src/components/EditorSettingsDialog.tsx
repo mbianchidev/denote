@@ -43,6 +43,8 @@ interface EditorSettingsDialogProps {
   onDisablePlugin: (pluginId: string) => Promise<void>;
   onDisableAllPlugins: () => Promise<void>;
   onUpdateAllPlugins: () => Promise<void>;
+  pluginAutoUpdateEnabled: boolean;
+  onSetPluginAutoUpdateEnabled: (enabled: boolean) => void;
   onLoadDevelopmentPlugin?: () => Promise<void>;
   onClearPluginData: (pluginId: string) => Promise<void>;
   onClearPluginCredentials: (pluginId: string) => Promise<void>;
@@ -86,6 +88,8 @@ export function EditorSettingsDialog({
   onDisablePlugin,
   onDisableAllPlugins,
   onUpdateAllPlugins,
+  pluginAutoUpdateEnabled,
+  onSetPluginAutoUpdateEnabled,
   onLoadDevelopmentPlugin = async () => {},
   onClearPluginData,
   onClearPluginCredentials,
@@ -391,6 +395,8 @@ export function EditorSettingsDialog({
           onDisable={onDisablePlugin}
           onDisableAll={onDisableAllPlugins}
           onUpdateAll={onUpdateAllPlugins}
+          autoUpdateEnabled={pluginAutoUpdateEnabled}
+          onSetAutoUpdateEnabled={onSetPluginAutoUpdateEnabled}
           onLoadDevelopment={onLoadDevelopmentPlugin}
           onClearData={onClearPluginData}
           onClearCredentials={onClearPluginCredentials}

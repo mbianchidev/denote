@@ -114,6 +114,13 @@ The valid installed version remains available until the replacement commits, and
 rollback removes only the staged replacement before restarting the installed
 runtime. Updating one plugin never prepares, downloads, starts, or changes
 another.
+An **Automatically update plugins** toggle in the same panel, off by default
+and persisted locally, lets Denote apply this same per-plugin update sequence
+without a confirmation prompt for plugins whose next version keeps every
+already-approved permission unchanged. A plugin whose next version changes its
+requested permissions is never touched by the automatic path; it keeps showing
+as update-available until the user reviews it through **Update all** or its
+own **Review and update** action.
 When the focused file has an active explicit or implicit project, Settings also
 shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
 server, Linter, Compiler, and Code navigation roles report unavailable,
@@ -771,8 +778,13 @@ update. Rehosting unchanged bytes under a newer Denote release URL does not mark
 a plugin update available; a changed archive digest or permission set does.
 **Review and update** or **Update all** downloads the new artifact, repeats
 permission approval, and keeps the installed package as the rollback target
-until the new runtime commits. Updates remain explicit foreground actions,
-never automatic background replacements.
+until the new runtime commits. An opt-in **Automatically update plugins**
+toggle applies the same download, verify, and commit sequence in the
+background, but only for a previously approved plugin whose latest catalog
+entry requests the exact same permission set it already holds. Any update that
+adds, removes, or otherwise changes a requested permission is never applied
+automatically; it still requires explicit review through **Update all** or
+that plugin's own **Review and update** action.
 
 Plugin archives must not be committed. Generated release packages live only in
 ignored `.plugin-artifacts/`, and CI's dependency-free
