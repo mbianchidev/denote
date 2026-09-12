@@ -460,10 +460,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, version, validation result, prerequisite guidance, and a native path
   picker. Existing path-only settings migrate to explicit System or Custom
   modes without changing the executable previously used.
-- Manual commits can follow the global Git signing default, always sign, or
-  never sign. An optional masked GPG key setting selects the key. The system GPG
-  agent or pinentry owns any passphrase; Denote never stores or receives it.
-  Automatic commits remain unsigned and unattended.
+- Manual commits can follow the system and user-global Git signing default,
+  always sign, or never sign. An optional masked GPG key setting selects the
+  key, and modern or legacy OpenPGP program settings keep Git's normal
+  precedence. The system GPG agent or pinentry owns any passphrase; Denote never
+  stores or receives it. Automatic commits remain unsigned and unattended.
 - The manual commit form offers Commit and Commit and push. Its per-commit
   signing control defaults on and can explicitly request an unsigned commit.
   Leaving the message empty uses `Denote manual commit {timestamp}`, with the

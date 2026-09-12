@@ -188,6 +188,14 @@ impl SystemGitSettings {
         self.values(key).last()
     }
 
+    fn last_of(&self, keys: &[&str]) -> Option<&str> {
+        self.values.iter().rev().find_map(|(candidate, value)| {
+            keys.iter()
+                .any(|key| candidate.eq_ignore_ascii_case(key))
+                .then_some(value.as_str())
+        })
+    }
+
     pub(crate) fn parse_scopes(outputs: &[&[u8]]) -> AppResult<Self> {
         let total_bytes = outputs
             .iter()
@@ -243,6 +251,7 @@ const SYSTEM_GIT_SETTING_KEYS: &[&str] = &[
     "credential.usehttppath",
     "credential.username",
     "gpg.format",
+    "gpg.openpgp.program",
     "gpg.program",
     "gpg.ssh.program",
     "gpg.x509.program",
@@ -1385,16 +1394,21 @@ pub(crate) fn apply_system_git_settings(
                 let (program_key, default_program) = match format.as_str() {
                     "ssh" => ("gpg.ssh.program", "ssh-keygen"),
                     "x509" => ("gpg.x509.program", "gpgsm"),
-                    _ => ("gpg.program", "gpg"),
+                    _ => ("gpg.openpgp.program", "gpg"),
+                };
+                let configured_program = if policy.use_system_settings {
+                    if format == "openpgp" {
+                        settings.last_of(&["gpg.program", "gpg.openpgp.program"])
+                    } else {
+                        settings.last(program_key)
+                    }
+                } else {
+                    None
                 };
                 push_system_config(
                     &mut prefix,
                     program_key,
-                    policy
-                        .use_system_settings
-                        .then(|| settings.last(program_key))
-                        .flatten()
-                        .unwrap_or(default_program),
+                    configured_program.unwrap_or(default_program),
                 )?;
                 if policy.use_system_settings
                     && let Some(value) = settings.last("user.signingkey")
@@ -3165,6 +3179,8 @@ pub(crate) fn hardening_arguments(execution: &GitExecution<'_>) -> Vec<String> {
         "diff.external=".to_string(),
         "-c".to_string(),
         "gpg.program=".to_string(),
+        "-c".to_string(),
+        "gpg.openpgp.program=".to_string(),
         "-c".to_string(),
         "gpg.ssh.program=".to_string(),
         "-c".to_string(),

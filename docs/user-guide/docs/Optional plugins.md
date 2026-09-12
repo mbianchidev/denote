@@ -324,7 +324,9 @@ imports only bounded allowlisted identity, credential-helper, line-ending, and
 GPG values into its hardened Git process. Manual commits can follow the system
 signing default, always sign, or never sign. The optional GPG key field is masked;
 your system GPG agent or pinentry asks for the passphrase, which Denote never
-stores. Automatic commits remain unsigned.
+stores. Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`
+in Git's normal order, including a Gpg4win path on Windows. Automatic commits
+remain unsigned.
 
 The manual commit form provides **Sign commit**, enabled by default for each
 submission, plus **Commit** and **Commit and push**. Turn signing off for an

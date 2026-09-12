@@ -556,10 +556,13 @@ path.
 
 Hardening pins every GPG program to an empty value before operation-specific
 settings are applied. A signed manual commit therefore always restores one
-explicit program after that pin: the configured program when present, otherwise
-Git's format default (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures, or
-`gpgsm` for X.509). This prevents an empty `gpg.program` from being executed
-without weakening unsigned operations.
+explicit program after that pin. OpenPGP honors both the modern
+`gpg.openpgp.program` setting and the legacy `gpg.program` alias in Git's
+original system-to-global order, so the later effective setting wins; otherwise
+the format default is used (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures,
+or `gpgsm` for X.509). This keeps a configured Windows Gpg4win installation
+from being replaced by Git for Windows' bundled GPG while still preventing an
+empty program from being executed on unsigned operations.
 
 An SSH signing passphrase never enters plugin code. `SourceControlPanel` passes
 it as host-only metadata beside the typed commit action;

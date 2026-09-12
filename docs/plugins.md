@@ -515,6 +515,9 @@ shutdown. Errors redact absolute host paths and URL passwords, as does the
 standard output of every operation except the typed `diff` and `show` reads:
 those return Git's bytes unchanged, because a surface renders them as content
 and quotes them back in a hunk request.
+For OpenPGP signing, both the modern `gpg.openpgp.program` setting and the
+legacy `gpg.program` alias retain Git's system-to-global order, so a configured
+Windows Gpg4win installation is not replaced by Git for Windows' bundled GPG.
 
 ### Remote authentication
 
