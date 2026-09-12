@@ -438,11 +438,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   setting, so the view reports the configured one and sends you to Settings to
   change it.
 - The default authentication mode uses the credential helpers and stored
-  credentials from the user's global Git configuration. Public, SSH-agent, and
-  host-owned GitHub CLI modes remain available. The host imports only bounded
-  allowlisted identity, credential-helper, line-ending, and signing values into
-  its otherwise isolated Git invocation; repository-local command configuration
-  remains rejected.
+  credentials from the selected Git's system and user-global configuration.
+  Public, SSH-agent, and host-owned GitHub CLI modes remain available. The host
+  imports only bounded allowlisted identity, credential-helper, line-ending, and
+  signing values into its otherwise isolated Git invocation; repository-local
+  command configuration remains rejected.
 - Official releases publish verified Git and GitHub CLI archives for every
   release target, while installers contain only signed metadata and legal
   notices. Git selects exactly one of Bundled (default), System, or Custom.

@@ -500,26 +500,29 @@ every protocol except HTTPS and SSH, pins every command-bearing configuration
 key on the command line so repository configuration cannot win, replaces the
 user's global configuration with a host-owned empty file so nothing in `$HOME`
 can reintroduce a filter or a command. When the plugin's host-owned
-`useSystemGitSettings` setting is true, the host reads the global config and
-reapplies only bounded allowlisted identity, credential-helper, line-ending, and
-GPG signing values after those hardening pins. Credential helpers are restored
-only for `system` authentication, and GPG programs only for signed manual
-commits; passphrases remain in system pinentry. The host still rejects dangerous repository-local
-configuration before running. Operations use process
-groups, output bounded at 8 MiB that fails rather than truncates, a ten minute
-hard timeout, and a native per-plugin cancellation registry that is also cleared
-on disable, failed enable rollback, disable-all, and shutdown. Errors redact
-absolute host paths and URL passwords, as does the standard output of every
-operation except the typed `diff` and `show` reads: those return Git's bytes
-unchanged, because a surface renders them as content and quotes them back in a
-hunk request.
+`useSystemGitSettings` setting is true, the host reads the selected Git's system
+configuration and then its user-global configuration, preserving Git's
+precedence and credential-helper reset semantics, and reapplies only bounded
+allowlisted identity, credential-helper, line-ending, and GPG signing values
+after those hardening pins. Credential helpers are restored only for `system`
+authentication, and GPG programs only for signed manual commits; passphrases
+remain in system pinentry. The host still rejects dangerous repository-local
+configuration before running. Operations use process groups, suppress console
+windows on Windows, bound output at 8 MiB and fail rather than truncate, enforce
+a ten minute hard timeout, and use a native per-plugin cancellation registry
+that is also cleared on disable, failed enable rollback, disable-all, and
+shutdown. Errors redact absolute host paths and URL passwords, as does the
+standard output of every operation except the typed `diff` and `show` reads:
+those return Git's bytes unchanged, because a surface renders them as content
+and quotes them back in a hunk request.
 
 ### Remote authentication
 
-`system` restores the user's allowlisted global credential helpers and is the
-default. `public` and `ssh-agent` need nothing beyond the hardened invocation: prompts
-are already disabled, so an unconfigured agent fails with Git's own error rather
-than waiting for input. `github-https` is served by a host-owned GitHub adapter.
+`system` restores the allowlisted credential helpers from the selected Git's
+system and user-global configuration and is the default. `public` and
+`ssh-agent` need nothing beyond the hardened invocation: prompts are already
+disabled, so an unconfigured agent fails with Git's own error rather than
+waiting for input. `github-https` is served by a host-owned GitHub adapter.
 The host resolves the GitHub CLI from fixed platform locations or the reserved
 `githubExecutablePath` setting, requires an absolute, canonical, regular file
 that answers `gh version`, and runs it with a stripped environment that removes

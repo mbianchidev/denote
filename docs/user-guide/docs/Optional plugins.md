@@ -252,11 +252,14 @@ branch involved, and only an ordinary push is offered: there is no force push.
 
 Choose how Denote signs in under **Remote authentication**, in the plugin's
 settings. *System Git credentials* is the default and uses your configured
-credential helper or OS keychain. *Public repository* needs no credentials, *SSH agent* uses the agent
-you already have running, and *GitHub sign-in* uses the GitHub CLI on your
-machine. The Git view shows the mode you configured and sends you to Settings to
-change it, so it always matches what the next fetch, pull, push, or clone will
-use. With GitHub sign-in you can browse your repositories and pick one to clone.
+credential helper or OS keychain, including Git for Windows helpers installed in
+system configuration. Git and GitHub CLI commands stay in the background on
+Windows instead of opening console windows. *Public repository* needs no
+credentials, *SSH agent* uses the agent you already have running, and *GitHub
+sign-in* uses the GitHub CLI on your machine. The Git view shows the mode you
+configured and sends you to Settings to change it, so it always matches what the
+next fetch, pull, push, or clone will use. With GitHub sign-in you can browse
+your repositories and pick one to clone.
 Denote reads the token itself, uses it only for that one Git command, and
 deletes it straight afterwards; it is never stored in plugin settings, written
 into your repository's configuration, or shown in a message or log. Denote also

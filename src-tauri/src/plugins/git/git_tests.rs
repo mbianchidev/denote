@@ -599,6 +599,89 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
 }
 
 #[test]
+fn system_git_settings_apply_system_then_global_precedence() {
+    let settings = SystemGitSettings::parse_scopes(&[
+        &b"user.name\nSystem Author\0credential.helper\nmanager\0core.autocrlf\ntrue\0"[..],
+        &b"user.name\nGlobal Author\0credential.helper\ncustom-helper\0"[..],
+    ])
+    .expect("scoped settings");
+    let request = PluginGitRequest::Fetch {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        prune: false,
+        auth_mode: PluginGitAuthMode::System,
+    };
+    let mut plan = plan_git_request(&request).expect("fetch plan");
+
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::System,
+            signing_key: None,
+        },
+        &settings,
+    )
+    .expect("apply settings");
+
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    expect_args_in_order(
+        args,
+        &[
+            "user.name=Global Author",
+            "core.autocrlf=true",
+            "credential.helper=manager",
+            "credential.helper=custom-helper",
+            "fetch",
+        ],
+    );
+}
+
+#[test]
+fn empty_global_credential_helper_clears_system_helpers() {
+    let settings = SystemGitSettings::parse_scopes(&[
+        &b"credential.helper\nmanager\0"[..],
+        &b"credential.helper\n\0"[..],
+    ])
+    .expect("scoped settings");
+    let request = PluginGitRequest::Pull {
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        branch: "main".to_string(),
+        strategy: PluginGitPullStrategy::FastForwardOnly,
+        auth_mode: PluginGitAuthMode::System,
+    };
+    let mut plan = plan_git_request(&request).expect("pull plan");
+
+    apply_system_git_settings(
+        &mut plan,
+        &request,
+        &GitSettingsPolicy {
+            use_system_settings: true,
+            signing: GitCommitSigningMode::System,
+            signing_key: None,
+        },
+        &settings,
+    )
+    .expect("apply settings");
+
+    let args = match &plan[0] {
+        GitPlanStep::Command { args, .. } => args,
+        other => panic!("expected command, found {other:?}"),
+    };
+    assert!(
+        !args
+            .iter()
+            .any(|argument| argument.starts_with("credential.helper=")),
+        "an empty higher-precedence helper must clear system helpers"
+    );
+}
+
+#[test]
 fn explicit_signing_remains_enabled_when_system_settings_are_disabled() {
     let request = PluginGitRequest::Commit {
         scope: PluginGitScope::Vault,

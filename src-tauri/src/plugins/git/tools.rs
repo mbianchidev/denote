@@ -2,7 +2,7 @@ use std::{
     fs::{self, File},
     io::Read,
     path::{Component, Path, PathBuf},
-    process::{Command, Stdio},
+    process::Stdio,
 };
 
 use flate2::read::GzDecoder;
@@ -14,6 +14,8 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::plugins::package::ensure_managed_directory;
+
+use super::background_command;
 
 const LOCK_JSON: &str = include_str!("../../../../bundled-tools.lock.json");
 const MAX_INTEGRITY_BYTES: u64 = 16 * 1024 * 1024;
@@ -864,7 +866,7 @@ fn verify_executable(path: &Path, kind: ToolKind) -> AppResult<()> {
 }
 
 fn probe(path: &Path, kind: ToolKind) -> AppResult<String> {
-    let mut command = Command::new(path);
+    let mut command = background_command(path);
     command
         .arg(kind.probe_argument())
         .stdin(Stdio::null())
