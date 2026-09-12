@@ -11,7 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { create } from "tar";
-import { Deflate } from "pako";
+import { Deflate, GZheader, Z_OK, zlibDeflateSetHeader } from "pako";
 import type { PluginManifest } from "@denote/plugin-sdk";
 
 const MAX_PLUGIN_PACKAGE_BYTES = 25 * 1024 * 1024;
@@ -93,16 +93,24 @@ export async function writePluginArchive(
 }
 
 export function gzipPluginArchive(bytes: Uint8Array): Buffer {
-  // Native zlib variants emit different DEFLATE bytes. Pako 2.1.0 is pinned to
-  // retain the established archive format, including the portable gzip header.
+  // Keep the established DEFLATE bytes and portable gzip header across Pako releases.
   const compressor = new Deflate({
     gzip: true,
     level: 6,
+    legacyHash: true,
     memLevel: 8,
     windowBits: 15,
     strategy: 0,
-    header: { os: 255, time: 0 },
   });
+  compressor.onStart = (stream) => {
+    const header = new GZheader();
+    header.os = 0xff;
+    header.time = 0;
+    const status = zlibDeflateSetHeader(stream, header);
+    if (status !== Z_OK) {
+      throw new Error(`Plugin archive gzip header setup failed: ${status}`);
+    }
+  };
   if (!compressor.push(bytes, true) || compressor.err !== 0) {
     throw new Error(`Plugin archive compression failed: ${compressor.msg}`);
   }

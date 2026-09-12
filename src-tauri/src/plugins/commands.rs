@@ -307,8 +307,7 @@ pub(crate) fn validate_export_svg(svg: &str) -> AppResult<()> {
         match reader.read_event() {
             Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
                 let element_name = element.name();
-                let name = std::str::from_utf8(element_name.as_ref())
-                    .map_err(|_| AppError::Plugin("Diagram SVG has an invalid tag".to_string()))?;
+                let name: &str = element_name.as_ref();
                 if !TAGS.contains(&name) || (!root_seen && name != "svg") {
                     return Err(AppError::Plugin(format!(
                         "Diagram SVG contains unsupported tag {name}"
@@ -328,16 +327,14 @@ pub(crate) fn validate_export_svg(svg: &str) -> AppResult<()> {
                     let attribute = attribute.map_err(|_| {
                         AppError::Plugin("Diagram SVG has an invalid attribute".to_string())
                     })?;
-                    let key = std::str::from_utf8(attribute.key.as_ref()).map_err(|_| {
-                        AppError::Plugin("Diagram SVG has an invalid attribute name".to_string())
-                    })?;
+                    let key: &str = attribute.key.as_ref();
                     if !ATTRIBUTES.contains(&key) {
                         return Err(AppError::Plugin(format!(
                             "Diagram SVG contains unsupported attribute {key}"
                         )));
                     }
                     let value = attribute
-                        .decoded_and_normalized_value(XmlVersion::Implicit1_0, reader.decoder())
+                        .normalized_value(XmlVersion::Implicit1_0)
                         .map_err(|_| {
                             AppError::Plugin(
                                 "Diagram SVG has an invalid attribute value".to_string(),

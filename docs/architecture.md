@@ -93,12 +93,10 @@ normalized representation or write one back. Search and editable-document
 scans skip PDFs before reading their contents; PDF text search belongs to the
 bounded in-document reader, and vault-wide replace cannot target a PDF.
 
-The renderer pins `pdfjs-dist` 5.4.296 exactly. This is the newest reviewed
-release that both avoids the arbitrary-JavaScript-execution advisory affecting
-5.6.83 through 5.7.x and remains compatible with Denote's supported Node 22
-build toolchain; PDF.js 6 requires newer typed-array behavior than that
-toolchain provides. The Apache-2.0 package is imported directly rather than
-through a React wrapper.
+The renderer pins `pdfjs-dist` 6.3.289 exactly. This reviewed release avoids
+the arbitrary-JavaScript-execution advisory affecting 5.6.83 through 5.7.x and
+supports Denote's Node 24.15-or-newer build toolchain. The Apache-2.0 package is
+imported directly rather than through a React wrapper.
 
 `scripts/pdfjs-assets.mjs` copies only regular files from the installed PDF.js
 CMaps, standard fonts, ICC profile, and image-decoder WebAssembly directories
