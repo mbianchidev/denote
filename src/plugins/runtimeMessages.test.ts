@@ -78,6 +78,39 @@ describe("plugin runtime source control messages", () => {
     expect(messages.every(isPluginRuntimeMessage)).toBe(true);
   });
 
+  it("accepts every source control authentication mode", () => {
+    for (const authMode of [
+      "system",
+      "public",
+      "ssh-agent",
+      "github-https",
+    ] as const) {
+      expect(
+        isPluginRuntimeMessage({
+          type: "register-source-control",
+          id: "denote.synthetic.git",
+          title: "Git",
+          model: {
+            ...model,
+            remoteAccess: { ...model.remoteAccess, authMode },
+          },
+        }),
+      ).toBe(true);
+    }
+
+    expect(
+      isPluginRuntimeMessage({
+        type: "register-source-control",
+        id: "denote.synthetic.git",
+        title: "Git",
+        model: {
+          ...model,
+          remoteAccess: { ...model.remoteAccess, authMode: "ambient" },
+        },
+      }),
+    ).toBe(false);
+  });
+
   describe("plugin runtime diagram renderer messages", () => {
     it("accepts bounded declarative registration and removal", () => {
       expect(

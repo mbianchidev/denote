@@ -504,7 +504,9 @@ function isRemoteAccess(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.authMode === "string" &&
-    ["public", "ssh-agent", "github-https"].includes(value.authMode) &&
+    ["system", "public", "ssh-agent", "github-https"].includes(
+      value.authMode,
+    ) &&
     typeof value.cloneAvailable === "boolean" &&
     typeof value.githubAvailable === "boolean" &&
     isArrayOf(value.repositories, isRepositoryChoice) &&
