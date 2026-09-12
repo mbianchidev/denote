@@ -894,6 +894,10 @@ only the target integrity manifest and legal material. That manifest pins exact
 release-asset URLs, archive and executable bytes, and redirect hosts. `build.rs`
 anchors its digest into the native binary; preparation rejects combined tool
 assets above 96 MiB.
+GitHub tag metadata credentials are sent only to `https://api.github.com`.
+Preparation prefers `GH_TOKEN`, then `GITHUB_TOKEN`, then the `github.com`
+credential stored by GitHub CLI, and uses anonymous access only when none is
+available.
 
 Inspecting settings does not download a Bundled tool: it reports the locked
 version and `not downloaded` status. When and only when Bundled mode is selected

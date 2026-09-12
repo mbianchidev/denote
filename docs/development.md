@@ -99,6 +99,10 @@ npm run verify:bundled-tools -- --target aarch64-apple-darwin
 The immutable inputs live in `bundled-tools.lock.json`. Preparation never
 resolves `latest`; it verifies bounded downloads, release provenance, archive
 paths, the installed tree, executable permissions, and exact Git/gh versions.
+GitHub tag metadata uses `GH_TOKEN` or `GITHUB_TOKEN` when present, otherwise it
+reuses the token stored by `gh auth login` for `github.com`. Without a token it
+falls back to the anonymous API limit, so authenticate before release
+preparation.
 The generated `src-tauri/resources/tools/` and
 `src-tauri/target/bundled-tools/` trees are ignored and must not be committed.
 The resource tree contains only the anchored integrity manifest and legal
