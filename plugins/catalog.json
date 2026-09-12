@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.1/denote.reference-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.2/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
@@ -290,7 +290,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.1/denote.git-0.6.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.2/denote.git-0.6.0.tgz",
       "sha256": "08457843e15c2d605986b84fe3417d6e4a7ea60513bddcbfad59ea1cb0299e49",
       "sizeBytes": 67629
     },
@@ -360,7 +360,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.1/denote.emoji-picker-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.2/denote.emoji-picker-0.1.1.tgz",
       "sha256": "501acb6a911f2aa85fd47adc8709fd867d3482b495209dc490cd4b54aca0dbf6",
       "sizeBytes": 105317
     },
@@ -400,7 +400,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.1/denote.json-yaml-viewer-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.2/denote.json-yaml-viewer-0.1.0.tgz",
       "sha256": "e689562611625db190d4d34de51e60a641274dde059c9a63fe88fc04d0116bda",
       "sizeBytes": 66134
     },
@@ -447,7 +447,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.1/denote.mermaid-0.2.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.2/denote.mermaid-0.2.1.tgz",
       "sha256": "631df8598214874ce3b14f354c84b2de8f738ccd55648aad1a0fdde27fffd4a6",
       "sizeBytes": 1055431
     },
