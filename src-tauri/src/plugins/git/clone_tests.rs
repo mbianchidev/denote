@@ -611,6 +611,18 @@ fn answers_a_username_prompt_without_reading_the_secret() {
     assert_eq!(answer, super::askpass::GITHUB_TOKEN_USERNAME);
 }
 
+#[cfg(windows)]
+#[test]
+fn askpass_program_uses_a_git_compatible_windows_path() {
+    let program = super::askpass::askpass_program().expect("askpass program");
+    let value = program.to_string_lossy();
+
+    assert!(
+        !value.starts_with(r"\\?\"),
+        "Git for Windows must not receive a verbatim executable path: {value}"
+    );
+}
+
 #[test]
 fn answers_a_password_prompt_from_the_private_file_only() {
     let directory = TempDir::new().expect("directory");

@@ -566,7 +566,9 @@ userinfo-confused, port-bearing, lookalike, or non-GitHub target is answered
 with nothing, so a remote repointed after the preflight and before the prompt
 gets Git's own authentication error rather than the token. An
 unsupported or unconfigured mode produces an actionable error and never falls
-back to an interactive prompt.
+back to an interactive prompt. On Windows, the askpass executable path is
+converted from the verbatim path returned by canonicalization to the ordinary
+drive or UNC form Git for Windows can launch.
 
 The mode itself is a host-persisted plugin setting rather than plugin state. The
 source-control panel reports the configured mode read-only and points at

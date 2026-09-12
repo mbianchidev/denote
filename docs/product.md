@@ -83,6 +83,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Previously opened vaults use a cached file tree for immediate switching, then
   refresh disk state and search content in the background. First-time vault
   registration may perform the slower complete scan.
+- Returning to Denote refreshes the active vault after another application may
+  have created, renamed, moved, removed, or edited files. Clean open files
+  reload, clean tabs whose paths disappeared close, and unsaved tabs remain
+  untouched. A stale file-tree row refreshes instead of exposing the operating
+  system's missing-file error.
 - Non-current user vaults can be removed from the recent list, with a separate
   explicit option to move the folder and all contents to system Trash.
 - Every regular file up to 25 MB can be opened. PDFs are read-only; other files

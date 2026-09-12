@@ -419,7 +419,9 @@ pub(crate) fn askpass_program() -> AppResult<PathBuf> {
                 .to_string(),
         ));
     }
-    Ok(canonical)
+    // Windows canonicalization produces a verbatim `\\?\` path that Git for
+    // Windows does not consistently accept as an executable command.
+    Ok(super::transport::git_cli_path(&canonical))
 }
 
 /// Points one Git child at the askpass program. Applied after the shared

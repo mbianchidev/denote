@@ -94,6 +94,13 @@ const mockDeepLinks = vi.hoisted(() => ({
   ),
 }));
 
+const mockAppWindow = vi.hoisted(() => ({
+  focusListener: null as ((event: { payload: boolean }) => void) | null,
+  close: vi.fn().mockResolvedValue(undefined),
+  onCloseRequested: vi.fn().mockResolvedValue(() => {}),
+  onFocusChanged: vi.fn(),
+}));
+
 vi.mock("./lib/api", () => ({
   api: mockApi,
   errorMessage: (value: unknown) =>
@@ -107,10 +114,7 @@ vi.mock("@tauri-apps/plugin-deep-link", () => ({
   onOpenUrl: mockDeepLinks.onOpenUrl,
 }));
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({
-    close: vi.fn().mockResolvedValue(undefined),
-    onCloseRequested: vi.fn().mockResolvedValue(() => {}),
-  }),
+  getCurrentWindow: () => mockAppWindow,
 }));
 const mockOpener = vi.hoisted(() => ({
   openPath: vi.fn(),
@@ -288,6 +292,17 @@ describe("App initial file-tree expansion", () => {
     });
     mockDeepLinks.listener = null;
     mockDeepLinks.getCurrent.mockResolvedValue(null);
+    mockAppWindow.focusListener = null;
+    mockAppWindow.onFocusChanged.mockImplementation(
+      async (listener: (event: { payload: boolean }) => void) => {
+        mockAppWindow.focusListener = listener;
+        return () => {
+          if (mockAppWindow.focusListener === listener) {
+            mockAppWindow.focusListener = null;
+          }
+        };
+      },
+    );
     mockApi.listSearchDocuments.mockResolvedValue({
       documents: [],
       skippedCount: 0,
@@ -522,6 +537,178 @@ describe("App initial file-tree expansion", () => {
       /\.GIT|Node_Modules/,
     );
     expect(screen.getByTestId("file-tree-dotfiles")).toHaveTextContent("true");
+  });
+
+  it("refreshes external file tree changes when the window regains focus", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("before.md", "markdown")]),
+    );
+    mockApi.refreshVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("after.md", "markdown")]),
+    );
+
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: "Open before.md" }),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockAppWindow.onFocusChanged).toHaveBeenCalled();
+    });
+    await act(async () => {
+      mockAppWindow.focusListener?.({ payload: true });
+      await Promise.resolve();
+    });
+
+    expect(
+      await screen.findByRole("button", { name: "Open after.md" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Open before.md" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("refreshes a stale tree instead of reporting a removed file read error", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("removed.md", "markdown")]),
+    );
+    mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([]));
+    mockApi.readNote.mockRejectedValueOnce(
+      new Error(
+        "File operation failed: The system cannot find the file specified.",
+      ),
+    );
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open removed.md" }),
+    );
+
+    expect(
+      (await screen.findAllByText(/removed.md is no longer in this vault/))
+        .length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.queryByRole("button", { name: "Open removed.md" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/system cannot find the file specified/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it("preserves unsaved content when an external refresh removes its path", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("draft.txt", "text")]),
+    );
+    mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open draft.txt" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Change Edit draft.txt" }),
+    );
+    expect(screen.getByLabelText("Content of Edit draft.txt")).toHaveTextContent(
+      "draft.txt content changed",
+    );
+    await waitFor(() => {
+      expect(mockAppWindow.onFocusChanged).toHaveBeenCalled();
+    });
+    await act(async () => {
+      mockAppWindow.focusListener?.({ payload: true });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("button", { name: "Open draft.txt" }),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Content of Edit draft.txt")).toHaveTextContent(
+      "draft.txt content changed",
+    );
+  });
+
+  it("closes a clean tab removed outside Denote", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("removed.txt", "text")]),
+    );
+    mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([]));
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open removed.txt" }),
+    );
+    expect(
+      screen.getByLabelText("Content of Edit removed.txt"),
+    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockAppWindow.onFocusChanged).toHaveBeenCalled();
+    });
+    await act(async () => {
+      mockAppWindow.focusListener?.({ payload: true });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.queryByLabelText("Content of Edit removed.txt"),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      (await screen.findAllByText(
+        /whose file is no longer in this vault: removed.txt/,
+      )).length,
+    ).toBeGreaterThan(0);
+  });
+
+  it("reloads a clean tab edited outside Denote", async () => {
+    const snapshot = workspaceSnapshot([fileNode("changed.txt", "text")]);
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.refreshVault.mockResolvedValue(snapshot);
+    mockApi.readNote
+      .mockResolvedValueOnce({
+        path: "changed.txt",
+        content: "before",
+        contentHash: "before-hash",
+        encoding: "utf8",
+        lineEnding: "lf",
+        stats: noteStats(),
+      })
+      .mockResolvedValueOnce({
+        path: "changed.txt",
+        content: "after",
+        contentHash: "after-hash",
+        encoding: "utf8",
+        lineEnding: "lf",
+        stats: noteStats(),
+      });
+
+    render(<App />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open changed.txt" }),
+    );
+    expect(
+      screen.getByLabelText("Content of Edit changed.txt"),
+    ).toHaveTextContent("before");
+    await waitFor(() => {
+      expect(mockAppWindow.onFocusChanged).toHaveBeenCalled();
+    });
+    await act(async () => {
+      mockAppWindow.focusListener?.({ payload: true });
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText("Content of Edit changed.txt"),
+      ).toHaveTextContent("after");
+    });
   });
 
   it("restores a PDF in a split pane without routing it through the text editor", async () => {

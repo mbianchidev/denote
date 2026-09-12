@@ -931,6 +931,9 @@ function App() {
   const appLinkHandlerRef = useRef<(uri: string) => Promise<void>>(
     async () => {},
   );
+  const refreshExternalWorkspaceRef = useRef<() => Promise<void>>(
+    async () => {},
+  );
   /**
    * Opens the vault a host clone produced. It is held in a ref because the
    * plugin runtime is created before the workspace loader exists, and because
@@ -2327,6 +2330,13 @@ function App() {
     },
     [rebuildSearchIndex, showError, workspace],
   );
+
+  const refreshAndReindex = useCallback(async () => {
+    if (!workspace) {
+      return null;
+    }
+    return refreshWorkspace(true);
+  }, [refreshWorkspace, workspace]);
 
   const applyProjectConfiguration = useCallback(
     (
@@ -3854,6 +3864,7 @@ function App() {
   useEffect(() => {
     let unlistenClose: (() => void) | undefined;
     let unlistenExit: (() => void) | undefined;
+    let unlistenFocus: (() => void) | undefined;
     const appWindow = getCurrentWindow();
     void appWindow
       .onCloseRequested(async (event) => {
@@ -3869,9 +3880,20 @@ function App() {
         unlistenExit = cleanup;
       })
       .catch(showError);
+    void appWindow
+      .onFocusChanged((event) => {
+        if (event.payload) {
+          void refreshExternalWorkspaceRef.current().catch(showError);
+        }
+      })
+      .then((cleanup) => {
+        unlistenFocus = cleanup;
+      })
+      .catch(showError);
     return () => {
       unlistenClose?.();
       unlistenExit?.();
+      unlistenFocus?.();
     };
   }, [completeSafeExit, showError]);
 
@@ -4066,7 +4088,12 @@ function App() {
         );
       } catch (caught) {
         if (generation === vaultGeneration.current) {
-          reportError(caught);
+          const snapshot = await refreshAndReindex();
+          if (snapshot && !findNode(snapshot.tree, path)) {
+            setStatus(`${title} is no longer in this vault. Refreshed files.`);
+          } else {
+            reportError(caught);
+          }
         }
       } finally {
         if (workspaceOperationStarted) {
@@ -4081,6 +4108,7 @@ function App() {
       commitPaneState,
       openRequestCurrent,
       readEditorTab,
+      refreshAndReindex,
       setWorkspaceLock,
       showError,
       showLinkError,
@@ -5081,31 +5109,31 @@ function App() {
     };
   }, [persistTabSession, tabLayoutKey, workspace]);
 
-  const refreshAndReindex = useCallback(async () => {
-    if (!workspace) {
-      return null;
-    }
-    return refreshWorkspace(true);
-  }, [refreshWorkspace, workspace]);
-
   /**
-   * Puts every open tab back in step with the working tree after Git replaced
-   * what is on disk.
+   * Puts open tabs back in step with a refreshed working tree.
    *
-   * Open notes were flushed before the action started, so nothing here can
-   * lose an edit: every tab is read again from disk. Pane layout, tab order,
-   * groups, and each tab's language and view choices are untouched, so only
-   * the bytes change. A tab whose file the checkout removed is closed and
-   * named, and a tab whose content really changed is given a new editor
-   * revision, because an editor history built on the previous branch could
-   * otherwise write those bytes back.
+   * Source-control callers flush every tab first, so all files reload. An
+   * external refresh preserves any path with unsaved changes, including a path
+   * removed while Denote was unfocused. Pane layout, tab order, groups, and
+   * each tab's language and view choices stay unchanged.
    */
   const reloadOpenTabsFromDisk = useCallback(
-    async (snapshot: WorkspaceSnapshot | null): Promise<void> => {
+    async (
+      snapshot: WorkspaceSnapshot | null,
+      reason: "source-control" | "external" = "source-control",
+    ): Promise<void> => {
       const open = [...tabsRef.current];
       if (open.length === 0) {
         return;
       }
+      const protectedPaths =
+        reason === "external"
+          ? new Set(
+              open
+                .filter((tab) => tabHasUnsavedChanges(tab))
+                .map((tab) => tab.path),
+            )
+          : new Set<string>();
       const reloaded = new Map<
         string,
         | {
@@ -5128,7 +5156,8 @@ function App() {
           tab.placeholder ||
           tab.transient ||
           reloaded.has(tab.path) ||
-          disappeared.has(tab.path)
+          disappeared.has(tab.path) ||
+          protectedPaths.has(tab.path)
         ) {
           continue;
         }
@@ -5136,7 +5165,9 @@ function App() {
           disappeared.add(tab.path);
           continue;
         }
-        cancelPendingPath(tab.path);
+        if (reason === "source-control") {
+          cancelPendingPath(tab.path);
+        }
         try {
           if (tab.kind === "pdf") {
             const document = await api.readPdf(tab.path);
@@ -5159,8 +5190,15 @@ function App() {
               ? { kind: "note", document }
               : { kind: "note", document, imageDataUrl },
           );
-        } catch {
-          disappeared.add(tab.path);
+        } catch (caught) {
+          if (reason === "source-control") {
+            disappeared.add(tab.path);
+          } else {
+            console.error(
+              `Unable to refresh open file ${tab.path}:`,
+              caught,
+            );
+          }
         }
       }
       let removedPaths: string[] = [];
@@ -5170,8 +5208,19 @@ function App() {
           (disappeared.has(tab.path) || reloaded.has(tab.path)),
       );
       commitPaneState((current) => {
-        const removal = removePaneTabs(current.panes, (path) =>
-          disappeared.has(path),
+        const protectedAtCommit =
+          reason === "external"
+            ? new Set(
+                current.panes
+                  .flatMap((pane) => pane.tabs)
+                  .filter((tab) => tabHasUnsavedChanges(tab))
+                  .map((tab) => tab.path),
+              )
+            : new Set<string>();
+        const removal = removePaneTabs(
+          current.panes,
+          (path) =>
+            disappeared.has(path) && !protectedAtCommit.has(path),
         );
         removedPaths = removal.removedPaths;
         return {
@@ -5179,6 +5228,9 @@ function App() {
           panes: removal.panes.map((pane) => ({
             ...pane,
             tabs: pane.tabs.map((tab) => {
+              if (protectedAtCommit.has(tab.path)) {
+                return tab;
+              }
               const update = reloaded.get(tab.path);
               if (!update) {
                 return tab;
@@ -5232,18 +5284,45 @@ function App() {
         dispatchErrors({ type: "remove-markdown-prefix", path });
       }
       if (removedPaths.length > 0) {
+        const removed = new Set(removedPaths);
         setSelectedPath((current) =>
-          current !== null && disappeared.has(current) ? null : current,
+          current !== null && removed.has(current) ? null : current,
         );
         setStatus(
-          `Closed ${removedPaths.length} tab${
-            removedPaths.length === 1 ? "" : "s"
-          } whose file is not on this branch: ${removedPaths.join(", ")}`,
+          reason === "source-control"
+            ? `Closed ${removedPaths.length} tab${
+                removedPaths.length === 1 ? "" : "s"
+              } whose file is not on this branch: ${removedPaths.join(", ")}`
+            : `Closed ${removedPaths.length} tab${
+                removedPaths.length === 1 ? "" : "s"
+              } whose file is no longer in this vault: ${removedPaths.join(", ")}`,
         );
       }
     },
     [cancelPendingPath, commitPaneState],
   );
+
+  const refreshExternalWorkspace = useCallback(async () => {
+    if (
+      !workspace ||
+      workspaceLockedRef.current ||
+      closingWindow.current ||
+      (workspace.encryption.enabled && !workspace.encryption.unlocked)
+    ) {
+      return;
+    }
+    const generation = vaultGeneration.current;
+    const snapshot = await refreshAndReindex();
+    if (
+      !snapshot ||
+      generation !== vaultGeneration.current ||
+      workspaceLockedRef.current
+    ) {
+      return;
+    }
+    await reloadOpenTabsFromDisk(snapshot, "external");
+  }, [refreshAndReindex, reloadOpenTabsFromDisk, workspace]);
+  refreshExternalWorkspaceRef.current = refreshExternalWorkspace;
 
   const runSourceControlAction = useCallback(
     async (

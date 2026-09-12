@@ -174,6 +174,13 @@ commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
 them into memory.
+When the desktop window regains focus, the renderer requests a fresh active-vault
+snapshot and search index so files created, renamed, moved, removed, or edited by
+another application are reconciled before the next action. Clean open tabs
+reload from disk and clean tabs whose paths disappeared close; unsaved tabs are
+preserved without being overwritten or closed. A file that disappears between
+the focus refresh and an open request triggers one more guarded refresh and
+reports the stale path instead of the raw operating-system read error.
 Project-configuration IPC carries the originating snapshot's vault path only as
 an identity guard. Rust compares that value to the current active vault and
 rejects stale queued requests before using the active vault as the operation
@@ -632,8 +639,10 @@ after it runs, so the askpass answer is bound to Git's own prompt as well: it
 parses the target Git quotes there and answers only for an HTTPS URL whose host
 is exactly `github.com` or `www.github.com`, and answers an absent, malformed,
 non-HTTPS, userinfo-confused, port-bearing, lookalike, or non-GitHub target with
-nothing. The cancellable operation is registered before the GitHub CLI is
-reached, so cancelling during credential acquisition stops the
+nothing. On Windows, the askpass executable path is converted from the verbatim
+path returned by canonicalization to the ordinary drive or UNC form Git for
+Windows can launch. The cancellable operation is registered before the GitHub
+CLI is reached, so cancelling during credential acquisition stops the
 adapter and the Git command never starts, and both the registration and the
 secret are released by scope guards on every error, timeout, and cancellation
 path. The GitHub adapter captures its output into bounded private temporary

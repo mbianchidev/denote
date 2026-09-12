@@ -192,6 +192,13 @@ Known vaults open from their cached file tree and become usable immediately.
 Denote refreshes disk changes and search content in the background. A first-time
 vault open can take longer because it creates that cache.
 
+When you return to Denote after changing files in another editor, terminal, or
+Git client, Denote refreshes the active vault. New and renamed files appear,
+removed files disappear, and clean open tabs reload or close as needed. Unsaved
+tabs are never overwritten or closed by this refresh. If a file disappears just
+before you open it, Denote refreshes the tree instead of showing the operating
+system's missing-file error.
+
 ### Open an app link
 
 Installed desktop builds accept `denote:///` links containing a URL-encoded
