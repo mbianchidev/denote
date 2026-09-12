@@ -6,7 +6,7 @@ const { invoke } = vi.hoisted(() => ({
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
-import { api } from "./api";
+import { api, errorMessage } from "./api";
 
 describe("project configuration API", () => {
   beforeEach(() => {
@@ -85,5 +85,13 @@ describe("project configuration API", () => {
       "Synthetic clipboard text",
     );
     expect(invoke).toHaveBeenCalledWith("read_clipboard_text");
+  });
+
+  test("normalizes Windows verbatim paths in native errors", () => {
+    expect(
+      errorMessage(
+        new Error(String.raw`Unable to open \\?\C:\workspace\note.md`),
+      ),
+    ).toBe(String.raw`Unable to open C:\workspace\note.md`);
   });
 });

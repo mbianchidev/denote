@@ -3360,17 +3360,7 @@ pub(crate) fn apply_environment(command: &mut Command, execution: &GitExecution<
 /// containment checks, but removes only that transport prefix when passing a
 /// host-owned path to Git.
 pub(crate) fn git_cli_path(path: &Path) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let value = path.to_string_lossy();
-        if let Some(rest) = value.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{rest}"));
-        }
-        if let Some(rest) = value.strip_prefix(r"\\?\") {
-            return PathBuf::from(rest);
-        }
-    }
-    path.to_path_buf()
+    crate::paths::without_windows_verbatim_prefix(path)
 }
 
 pub(crate) fn git_cli_path_string(path: &Path) -> String {

@@ -204,7 +204,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Find and replace works in the current note or across the vault, with a
   selectable preview before vault-wide changes are applied.
 - The active file's validated absolute path can be copied to the system
-  clipboard from the editor toolbar.
+  clipboard from the editor toolbar. Windows paths use their ordinary drive or
+  UNC form and never expose the internal `\\?\` canonicalization prefix.
 - A per-file read mode disables editing without changing the file or its
   rich/source presentation.
 - The active in-memory content or a native attachment-ready file can also be

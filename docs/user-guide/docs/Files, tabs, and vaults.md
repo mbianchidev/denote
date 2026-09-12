@@ -58,7 +58,9 @@ decoders are bundled; no PDF is sent to a network service.
   assignments, order, groups, collapsed state, focused pane, and active files by
   default. Disable this per vault in **Editor display settings**.
 - Use the editor toolbar to copy content, an attachment-ready file, or the active
-  absolute path. Encrypted vault attachments use a temporary plaintext cache.
+  absolute path. On Windows, shown and copied paths use ordinary `C:\folder` or
+  `\\server\share` notation, never the internal `\\?\` prefix. Encrypted vault
+  attachments use a temporary plaintext cache.
 - PDF text is copied through ordinary selection. The toolbar content-copy and
   version-history actions are unavailable because PDFs are read-only; attachment
   and path copy remain available.

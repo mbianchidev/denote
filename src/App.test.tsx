@@ -539,6 +539,22 @@ describe("App initial file-tree expansion", () => {
     expect(screen.getByTestId("file-tree-dotfiles")).toHaveTextContent("true");
   });
 
+  it("shows the active Windows vault without its verbatim path prefix", async () => {
+    mockApi.getLastVault.mockResolvedValue({
+      ...workspaceSnapshot([]),
+      vaultPath: String.raw`\\?\C:\workspace`,
+    });
+
+    render(<App />);
+
+    expect(
+      await screen.findByText(String.raw`C:\workspace`),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(String.raw`\\?\C:\workspace`),
+    ).not.toBeInTheDocument();
+  });
+
   it("refreshes external file tree changes when the window regains focus", async () => {
     mockApi.getLastVault.mockResolvedValue(
       workspaceSnapshot([fileNode("before.md", "markdown")]),

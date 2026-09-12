@@ -173,7 +173,10 @@ The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's
 internal `.denote` folder, and limits document and image sizes before reading
-them into memory.
+them into memory. Windows keeps verbatim canonical paths internally for identity
+and containment checks, but UI presentation, copied absolute paths, executable
+status, and renderer error formatting remove the `\\?\` prefix and convert
+verbatim UNC paths back to ordinary `\\server\share` form.
 When the desktop window regains focus, the renderer requests a fresh active-vault
 snapshot and search index so files created, renamed, moved, removed, or edited by
 another application are reconciled before the next action. Clean open tabs

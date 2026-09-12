@@ -106,6 +106,7 @@ import { VaultUnlockScreen } from "./components/VaultUnlockScreen";
 import { VaultSwitcherDialog } from "./components/VaultSwitcherDialog";
 import { Welcome } from "./components/Welcome";
 import { api, errorMessage } from "./lib/api";
+import { systemPathForDisplay } from "./lib/systemPath";
 import {
   appErrorsReducer,
   INITIAL_APP_ERRORS,
@@ -9862,7 +9863,11 @@ function App() {
           ) : null}
         </div>
         <footer className="status-bar">
-          <span>{activeFileTab?.path ?? activeTab?.title ?? workspace.vaultPath}</span>
+          <span>
+            {activeFileTab?.path ??
+              activeTab?.title ??
+              systemPathForDisplay(workspace.vaultPath)}
+          </span>
           <span className="status-bar__spacer" />
           {activeProject ? (
             <span

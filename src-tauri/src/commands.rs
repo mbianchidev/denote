@@ -202,7 +202,7 @@ pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault
             KnownVault {
                 id: vault.id,
                 name: vault.name,
-                path: vault.path,
+                path: crate::paths::path_for_display(path),
                 last_opened_at: vault.last_opened_at,
                 available,
                 current,

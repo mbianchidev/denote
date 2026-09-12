@@ -6,6 +6,7 @@ mod default_vault;
 mod error;
 mod gitignore;
 mod models;
+mod paths;
 mod plugins;
 mod updater;
 mod vault;

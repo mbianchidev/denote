@@ -58,7 +58,7 @@ describe("VaultSwitcherDialog", () => {
           {
             id: 1,
             name: "Work",
-            path: "/vaults/work",
+            path: String.raw`\\?\C:\vaults\work`,
             lastOpenedAt: "2026-08-28T10:00:00Z",
             available: true,
             current: false,
@@ -86,6 +86,10 @@ describe("VaultSwitcherDialog", () => {
     expect(onSwitch).toHaveBeenCalledWith(1);
     expect(onClose).toHaveBeenCalledOnce();
     expect(screen.getByText(/Built-in guide/)).toBeInTheDocument();
+    expect(screen.getByText(String.raw`C:\vaults\work`)).toBeInTheDocument();
+    expect(
+      screen.queryByText(String.raw`\\?\C:\vaults\work`),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Music/ })).toBeDisabled();
   });
 

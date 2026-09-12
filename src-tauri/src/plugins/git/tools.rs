@@ -256,7 +256,7 @@ pub(crate) fn inspect(
             Ok(version) => ToolStatus {
                 tool: kind.name().to_string(),
                 selected_source: mode.label().to_string(),
-                resolved_path: Some(path.to_string_lossy().into_owned()),
+                resolved_path: Some(crate::paths::path_for_display(&path)),
                 version: Some(version),
                 validation_status: "valid".to_string(),
                 message: format!("{} is ready.", kind.name()),
@@ -277,7 +277,7 @@ fn invalid_status(
     ToolStatus {
         tool: kind.name().to_string(),
         selected_source: mode.label().to_string(),
-        resolved_path: path.map(|value| value.to_string_lossy().into_owned()),
+        resolved_path: path.map(|value| crate::paths::path_for_display(&value)),
         version: None,
         validation_status: "invalid".to_string(),
         message: error.to_string(),
@@ -295,7 +295,7 @@ fn inspect_bundled(resource_dir: &Path, install_dir: &Path, kind: ToolKind) -> T
                         Ok(version) => ToolStatus {
                             tool: kind.name().to_string(),
                             selected_source: ExecutableMode::Bundled.label().to_string(),
-                            resolved_path: Some(path.to_string_lossy().into_owned()),
+                            resolved_path: Some(crate::paths::path_for_display(&path)),
                             version: Some(version),
                             validation_status: "valid".to_string(),
                             message: format!("{} is downloaded and ready.", kind.name()),
