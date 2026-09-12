@@ -1,6 +1,6 @@
 # PDF.js legal notice
 
-Denote uses Mozilla PDF.js 5.4.296 from the `pdfjs-dist` package to render PDF
+Denote uses Mozilla PDF.js 6.3.289 from the `pdfjs-dist` package to render PDF
 files locally. PDF.js is licensed under Apache License 2.0.
 
 The desktop build includes the package license together with the runtime CMaps,

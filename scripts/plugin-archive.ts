@@ -93,11 +93,11 @@ export async function writePluginArchive(
 }
 
 export function gzipPluginArchive(bytes: Uint8Array): Buffer {
-  // Native zlib variants emit different DEFLATE bytes. Pako 2.1.0 is pinned to
-  // retain the established archive format, including the portable gzip header.
+  // Keep the established DEFLATE bytes and portable gzip header across Pako releases.
   const compressor = new Deflate({
     gzip: true,
     level: 6,
+    legacyHash: true,
     memLevel: 8,
     windowBits: 15,
     strategy: 0,
@@ -106,7 +106,17 @@ export function gzipPluginArchive(bytes: Uint8Array): Buffer {
   if (!compressor.push(bytes, true) || compressor.err !== 0) {
     throw new Error(`Plugin archive compression failed: ${compressor.msg}`);
   }
-  return Buffer.from(compressor.result);
+  const result = Buffer.from(compressor.result);
+  if (
+    result.length < 10 ||
+    result[0] !== 0x1f ||
+    result[1] !== 0x8b ||
+    result[2] !== 0x08
+  ) {
+    throw new Error("Plugin archive compression returned an invalid gzip stream");
+  }
+  result[9] = 0xff;
+  return result;
 }
 
 export function readPluginGuide(
