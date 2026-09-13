@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "52d0fe14645a6e3d60605db52d09c434603a1797",
+    "kind": "source",
+    "sourcePath": "plugins/kanban",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.3.4/denote.kanban-0.1.0.tgz",
+      "sha256": "52f616970f1c6d50221b4d68824a2b6aff3b485af41791a6a3eb7b3d0fde9ac6",
+      "sizeBytes": 20603
+    }
+  }
+]
