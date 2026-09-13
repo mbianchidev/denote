@@ -633,6 +633,33 @@ the Raw control available and show a line and column when known. Rows retain
 pointer-sized targets, use no decorative motion, and use system borders,
 selection, and focus colors under forced colors.
 
+### Optional Kanban boards
+
+The Kanban plugin contributes a bounded board model and Markdown edits, never
+markup. Denote owns the **Board** / **Markdown** controls, horizontal board
+layout, semantic column and card lists, forms, note-link activation, focus,
+status announcements, autosave, and revision history.
+
+Columns use flat sidebar-toned surfaces with one-pixel borders. Cards use the
+raised panel tone and tight four-pixel corners; they remain compact work items,
+not decorative dashboard cards. Board and column titles stay visually stronger
+than metadata. Card Markdown is shown as wrapped plain text, with note links as
+text buttons and hashtags as compact semantic pills.
+
+Pointer drag handles are visually muted and absent from the accessibility tree.
+Every column also has named Move left and Move right buttons. Every card has
+named Move up, Move down, Move to previous column, and Move to next column
+buttons. Successful moves keep focus on the moved item and announce its new
+column and position through a polite live region. Add, edit, rename, and delete
+flows use native inline forms and buttons in document order. Deletion requires
+an inline confirmation and moves focus to the nearest surviving item.
+
+Board errors retain the Markdown control and use written error text rather than
+color alone. Read mode keeps links available but disables every mutation and
+drag handle. Forced colors retain borders, visible focus, and selected toggle
+state; reduced motion adds no special case because board operations use no
+decorative animation.
+
 ### Optional Mermaid diagrams
 
 The Mermaid plugin contributes only a renderer registration and a separately

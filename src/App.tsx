@@ -87,11 +87,13 @@ import {
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
 import { StructuredDataViewer } from "./components/StructuredDataViewer";
+import { KanbanBoardEditor } from "./components/KanbanBoardEditor";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
 import { readEmojiPreferences } from "./plugins/emojiPickers";
 import { structuredViewerForPath } from "./plugins/structuredViewers";
+import { kanbanBoardForPath } from "./plugins/kanbanBoards";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
@@ -1585,6 +1587,22 @@ function App() {
       pluginController.structuredViewers,
     ],
   );
+  const kanbanBoards = useMemo(
+    () =>
+      pluginController.kanbanBoards.filter(
+        (board) =>
+          !pluginController.busyPluginIds.has(board.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.catalog.manifest.id === board.pluginId && plugin.enabled,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.kanbanBoards,
+      pluginController.plugins,
+    ],
+  );
   const diagramRenderers = useMemo(
     () =>
       pluginController.diagramRenderers.filter(
@@ -1609,9 +1627,14 @@ function App() {
     activeFileTab?.encoding === "utf8"
       ? structuredViewerForPath(structuredViewers, activeFileTab.path)
       : null;
+  const activeKanbanBoard =
+    activeFileTab?.encoding === "utf8" && !activeFileTab.transient
+      ? kanbanBoardForPath(kanbanBoards, activeFileTab.path)
+      : null;
   const effectiveOutlineAvailable =
     outlineAvailable &&
-    (!activeStructuredViewer || (activeFileTab?.rawEditing ?? false));
+    (!activeStructuredViewer || (activeFileTab?.rawEditing ?? false)) &&
+    (!activeKanbanBoard || (activeFileTab?.rawEditing ?? false));
   const effectiveOutlineVisible = outlineVisible && effectiveOutlineAvailable;
   const structuredViewerKey = structuredViewers
     .map((viewer) => `${viewer.pluginId}\u0000${viewer.id}`)
@@ -5692,7 +5715,16 @@ function App() {
   );
 
   const createEntry = useCallback(
-    async (directory: boolean, parentOverride?: string) => {
+    async (
+      directory: boolean,
+      parentOverride?: string,
+      options?: {
+        title?: string;
+        message?: string;
+        suggestedName?: string;
+        requiredSuffixes?: string[];
+      },
+    ) => {
       if (!workspace || workspaceLockedRef.current) {
         return;
       }
@@ -5703,12 +5735,16 @@ function App() {
         (selectedNode?.kind === "folder"
           ? selectedNode.path
           : selectedPath?.split("/").slice(0, -1).join("/") || "");
-      const suggested = directory ? "New folder" : "Untitled.md";
+      const suggested =
+        options?.suggestedName ?? (directory ? "New folder" : "Untitled.md");
       const entered = await requestText({
-        title: directory ? "Create folder" : "Create file",
-        message: directory
-          ? "Choose a name for the new folder."
-          : "Choose a filename. Files without an extension are created as Markdown.",
+        title:
+          options?.title ?? (directory ? "Create folder" : "Create file"),
+        message:
+          options?.message ??
+          (directory
+            ? "Choose a name for the new folder."
+            : "Choose a filename. Files without an extension are created as Markdown."),
         initialValue: suggested,
         confirmLabel: "Create",
       });
@@ -5721,10 +5757,17 @@ function App() {
       ) {
         return;
       }
+      const requiredSuffixes = options?.requiredSuffixes ?? [];
       const name =
-        !directory && !/\.[^./\\]+$/.test(entered)
-          ? `${entered}.md`
-          : entered;
+        !directory &&
+        requiredSuffixes.length > 0 &&
+        !requiredSuffixes.some((suffix) =>
+          entered.toLowerCase().endsWith(suffix),
+        )
+          ? `${entered.replace(/\.(?:md|markdown)$/i, "")}${requiredSuffixes[0]}`
+          : !directory && !/\.[^./\\]+$/.test(entered)
+            ? `${entered}.md`
+            : entered;
       let createdNode: FileNode | null = null;
       let mutationStarted = false;
       try {
@@ -7139,13 +7182,20 @@ function App() {
         tab.path === activePathRef.current &&
         (tab.kind === "image" ||
           (tab.encoding === "utf8" &&
-            structuredViewerForPath(structuredViewers, tab.path)))
+            (structuredViewerForPath(structuredViewers, tab.path) ||
+              kanbanBoardForPath(kanbanBoards, tab.path))))
           ? { ...tab, rawEditing }
           : tab,
       ),
     );
-    setStatus(rawEditing ? "Raw source view" : "Structured view");
-  }, [commitTabs, structuredViewers]);
+    setStatus(
+      rawEditing
+        ? "Markdown source view"
+        : activeKanbanBoard
+          ? "Board view"
+          : "Structured view",
+    );
+  }, [activeKanbanBoard, commitTabs, kanbanBoards, structuredViewers]);
 
   const toggleReadMode = useCallback(() => {
     const path = activePathRef.current;
@@ -7896,6 +7946,7 @@ function App() {
     onMove: (node) => void requestMoveNode(node),
     onDelete: (node) => void trashNode(node),
   };
+  const primaryKanbanBoard = kanbanBoards[0] ?? null;
   const commandPaletteCommands: CommandPaletteCommand[] = [
     {
       id: "file.find",
@@ -8003,6 +8054,27 @@ function App() {
       disabled: !workspaceReady,
       run: () => showSidebarView("trash"),
     },
+    ...(primaryKanbanBoard
+      ? [
+          {
+            id: "kanban.new",
+            title: "Create Kanban board",
+            description:
+              "Create an empty portable Markdown board beside the current selection.",
+            category: "File",
+            keywords: ["board", "columns", "cards"],
+            disabled: !workspaceReady,
+            run: () =>
+              createEntry(false, undefined, {
+                title: "Create Kanban board",
+                message:
+                  "Choose a filename ending in .kanban.md or .kanban.markdown.",
+                suggestedName: primaryKanbanBoard.defaultFileName,
+                requiredSuffixes: primaryKanbanBoard.fileSuffixes,
+              }),
+          } satisfies CommandPaletteCommand,
+        ]
+      : []),
     {
       id: "file.new",
       title: "Create new file",
@@ -8830,7 +8902,13 @@ function App() {
       paneProject && !editorDisplaySettings.showLineNumbers
         ? { ...editorDisplaySettings, showLineNumbers: true }
         : editorDisplaySettings;
-    const paneUsesRichMarkdown = usesRichMarkdownEditor(paneTab, paneProject);
+    const paneKanbanBoard =
+      paneTab.encoding === "utf8" && !paneTab.transient
+        ? kanbanBoardForPath(kanbanBoards, paneTab.path)
+        : null;
+    const paneUsesRichMarkdown =
+      usesRichMarkdownEditor(paneTab, paneProject) &&
+      !(paneKanbanBoard && paneTab.rawEditing);
     const paneMarkdownError =
       paneUsesRichMarkdown
         ? markdownAppErrorForPath(
@@ -8852,7 +8930,8 @@ function App() {
       paneTab.kind !== "markdown" &&
       paneTab.kind !== "image" &&
       paneTab.kind !== "pdf" &&
-      (!paneStructuredViewer || paneTab.rawEditing);
+      (!paneStructuredViewer || paneTab.rawEditing) &&
+      (!paneKanbanBoard || paneTab.rawEditing);
     const paneSourceLanguage =
       paneTab.encoding === "utf8"
         ? resolveSourceLanguage(
@@ -8893,6 +8972,33 @@ function App() {
             <img src={paneTab.imageDataUrl} alt={paneTab.title} />
             <figcaption>{paneTab.path}</figcaption>
           </figure>
+        ) : paneKanbanBoard && !paneTab.rawEditing ? (
+          <KanbanBoardEditor
+            key={`${paneKanbanBoard.pluginId}:${paneKanbanBoard.id}:${paneTab.path}`}
+            title={paneKanbanBoard.title}
+            path={paneTab.path}
+            source={paneTab.content}
+            readOnly={paneReadOnly}
+            parse={(request) =>
+              pluginController.parseKanbanBoard(
+                paneKanbanBoard.pluginId,
+                paneKanbanBoard.id,
+                request,
+              )
+            }
+            edit={(request) =>
+              pluginController.editKanbanBoard(
+                paneKanbanBoard.pluginId,
+                paneKanbanBoard.id,
+                request,
+              )
+            }
+            onChange={(content) => changeTabContent(paneTab.path, content)}
+            onLinkOpen={(href, label) =>
+              void openLinkFromTab(paneTab, href, label)
+            }
+            onError={showError}
+          />
         ) : paneStructuredViewer && !paneTab.rawEditing ? (
           <StructuredDataViewer
             key={`${paneStructuredViewer.viewer.pluginId}:${paneStructuredViewer.viewer.id}:${paneTab.path}`}
@@ -8997,7 +9103,10 @@ function App() {
               displaySettings={paneDisplaySettings}
               languageOverride={paneTab.languageOverride}
               projectMode={paneCodeContext}
-              markdownSource={paneUsesProjectMarkdownSource}
+              markdownSource={
+                paneUsesProjectMarkdownSource ||
+                Boolean(paneKanbanBoard && paneTab.rawEditing)
+              }
               emoji={emojiPickers.length ? { host: emojiHost, scope: emojiScope(pane.id, paneTab.path) } : undefined}
               errorLocation={
                 paneUsesProjectMarkdownSource
@@ -9479,7 +9588,30 @@ function App() {
             >
               <ArrowRight aria-hidden="true" size={16} />
             </button>
-            {activeStructuredViewer ? (
+            {activeKanbanBoard ? (
+              <div
+                className="structured-view-toggle"
+                role="group"
+                aria-label={`${activeKanbanBoard.title} view`}
+              >
+                <button
+                  type="button"
+                  aria-pressed={!(activeFileTab?.rawEditing ?? false)}
+                  disabled={workspaceLocked}
+                  onClick={() => setActiveRawEditing(false)}
+                >
+                  Board
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={activeFileTab?.rawEditing ?? false}
+                  disabled={workspaceLocked}
+                  onClick={() => setActiveRawEditing(true)}
+                >
+                  Markdown
+                </button>
+              </div>
+            ) : activeStructuredViewer ? (
               <div
                 className="structured-view-toggle"
                 role="group"

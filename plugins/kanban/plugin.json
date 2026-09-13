@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.kanban",
+  "name": "Kanban boards",
+  "version": "0.1.0",
+  "description": "Create and edit keyboard-accessible Kanban boards stored as portable Markdown.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "productivity",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.3.4",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "kanban-board"
+    }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

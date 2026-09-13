@@ -428,6 +428,42 @@ tests, docs, dependency manifests, and lockfile first; pin that full commit with
 `npm run pin:plugin -- denote.json-yaml-viewer --ref "$(git rev-parse HEAD)"
 --release <Denote-tag>`, then commit only its catalog and ledger metadata.
 
+### Kanban board development
+
+Use `npm run dev:plugin -- denote.kanban` and load the ignored development
+archive from **Settings → Plugins**. The plugin requests only `kanban-board`.
+Representation-specific parsing and source splicing stay in
+`plugins/kanban/src/board.ts`; `src/components/KanbanBoardEditor.tsx`, path
+routing, autosave, links, focus, and the runtime protocol remain generic
+host-owned API-v1 surfaces.
+
+Run focused coverage with:
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/kanban.test.ts \
+  src/plugins/kanbanBoards.test.ts \
+  src/plugins/runtimeMessages.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/KanbanBoardEditor.test.tsx \
+  src/App.test.tsx \
+  plugins/kanban/tests
+```
+
+Use only synthetic board content. Cover initialization after existing Markdown,
+LF/CRLF handling, malformed and duplicate markers, source/model/card limits,
+note links and tags, add/edit/delete/move operations, byte-preserving reorder,
+stale worker responses, lock/unlock, disable/re-enable, exact Markdown fallback,
+pointer drag, every keyboard move alternative, announcements, and focus after
+move or deletion.
+
+Stage the source-only archive with
+`npm run package:plugin -- denote.kanban`. Commit source, SDK, host, tests, docs,
+dependency manifests, and lockfile first; pin that full commit with
+`npm run pin:plugin -- denote.kanban --ref "$(git rev-parse HEAD)" --release
+<Denote-tag>`, then commit only its catalog and ledger metadata.
+
 ## Build a desktop bundle
 
 ```bash

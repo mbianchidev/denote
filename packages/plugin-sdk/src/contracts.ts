@@ -22,6 +22,7 @@ export const PLUGIN_CAPABILITIES = [
   "editor-decoration",
   "emoji-picker",
   "structured-viewer",
+  "kanban-board",
   "diagram-renderer",
   "note-events",
   "project-context",
@@ -329,6 +330,124 @@ export interface PluginStructuredViewer {
 
 export interface PluginStructuredViewerCapability {
   register: (viewer: PluginStructuredViewer) => PluginDisposable;
+}
+
+export interface PluginKanbanLink {
+  label: string;
+  href: string;
+}
+
+export interface PluginKanbanCard {
+  id: string;
+  title: string;
+  body: string;
+  tags: string[];
+  links: PluginKanbanLink[];
+}
+
+export interface PluginKanbanColumn {
+  id: string;
+  title: string;
+  cards: PluginKanbanCard[];
+}
+
+export interface PluginKanbanError {
+  message: string;
+  line?: number;
+  column?: number;
+  code?: string;
+}
+
+export interface PluginKanbanBoardModel {
+  title: string;
+  columns: PluginKanbanColumn[];
+  error: PluginKanbanError | null;
+  notices: string[];
+  canInitialize: boolean;
+}
+
+export interface PluginKanbanBoardRequest {
+  path: string;
+  source: string;
+}
+
+export type PluginKanbanEdit =
+  | {
+      type: "initialize";
+      title: string;
+      initialColumnTitle: string;
+    }
+  | {
+      type: "rename-board";
+      title: string;
+    }
+  | {
+      type: "add-column";
+      title: string;
+      beforeColumnId: string | null;
+    }
+  | {
+      type: "rename-column";
+      columnId: string;
+      title: string;
+    }
+  | {
+      type: "delete-column";
+      columnId: string;
+    }
+  | {
+      type: "move-column";
+      columnId: string;
+      beforeColumnId: string | null;
+    }
+  | {
+      type: "add-card";
+      columnId: string;
+      title: string;
+      body: string;
+      beforeCardId: string | null;
+    }
+  | {
+      type: "edit-card";
+      cardId: string;
+      title: string;
+      body: string;
+    }
+  | {
+      type: "delete-card";
+      cardId: string;
+    }
+  | {
+      type: "move-card";
+      cardId: string;
+      targetColumnId: string;
+      beforeCardId: string | null;
+    };
+
+export interface PluginKanbanEditRequest extends PluginKanbanBoardRequest {
+  edit: PluginKanbanEdit;
+}
+
+export interface PluginKanbanEditResult {
+  source: string;
+  model: PluginKanbanBoardModel;
+}
+
+export interface PluginKanbanBoardProvider {
+  id: string;
+  title: string;
+  fileSuffixes: string[];
+  defaultFileName: string;
+  parse: (
+    request: PluginKanbanBoardRequest,
+  ) => PluginKanbanBoardModel | Promise<PluginKanbanBoardModel>;
+  edit: (
+    request: PluginKanbanEditRequest,
+  ) => PluginKanbanEditResult | Promise<PluginKanbanEditResult>;
+}
+
+export interface PluginKanbanBoardCapability {
+  register: (provider: PluginKanbanBoardProvider) => PluginDisposable;
 }
 
 export type PluginDiagramTheme = "light" | "dark" | "high-contrast";
@@ -1547,6 +1666,7 @@ export interface PluginCapabilities {
   editorDecoration?: PluginEditorDecorationCapability;
   emojiPicker?: PluginEmojiPickerCapability;
   structuredViewer?: PluginStructuredViewerCapability;
+  kanbanBoard?: PluginKanbanBoardCapability;
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;

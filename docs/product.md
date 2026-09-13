@@ -399,6 +399,24 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   access and report line/column details when available. Locking a vault stops
   the viewer worker; closing, disabling, crashing, updating, or removing the
   plugin releases its models and never changes file bytes.
+- The independently installable **Kanban boards** plugin is disabled by default
+  and requests only `kanban-board`. Files ending in `.kanban.md` or
+  `.kanban.markdown` switch between exact Markdown source and a host-rendered
+  Board view. Initialization appends one explicit versioned board block after
+  existing Markdown. Columns and cards use standard headings and bounded HTML
+  comment markers, while card details remain ordinary Markdown with relative
+  note links and hashtags. Reordering moves the original marked block
+  byte-for-byte; unrelated content outside the board and unknown content inside
+  moved cards or columns is preserved.
+- Kanban columns and cards can be created, renamed, edited, deleted, and
+  reordered. Pointer drag handles have complete visible keyboard alternatives:
+  columns move left or right, and cards move up, down, or to an adjacent column.
+  Moves restore focus to the moved item and use polite status announcements.
+  Board parsing and edits run in the isolated plugin worker with fixed 4 MiB
+  source, 128-column, 5,000-card, and 64 KiB-per-card-detail limits. The host
+  owns forms, lists, focus, links, autosave, revision history, and file writes.
+  Locking a vault stops the worker; disabling the plugin leaves board files
+  untouched and readable as Markdown.
 - The independently installable **Mermaid diagrams** plugin is disabled by
   default and requests only `diagram-renderer`. It renders fenced `mermaid`
   blocks in Markdown Rich view while the exact fence remains available through

@@ -313,7 +313,8 @@ not invoke any workspace mutation. Plugin API version 1 intentionally exposes
 command registration, static sidebar views, note events, plugin-scoped
 state/settings, optional secure storage, status items, literal source-editor
 decorations, typed source-control view models, typed automatic local commit
-schedules, and explicit user-action services.
+schedules, bounded Kanban board models and open-tab edits, and explicit
+user-action services.
 Source-control providers contribute host-rendered repository, resource, branch,
 remote, history, diff, conflict, operation, and recovery data; they cannot render
 HTML or execute Git directly. A provider describes an advanced operation as a
@@ -811,6 +812,55 @@ Structured-viewer workers are stopped while no workspace content is available
 or an encrypted vault is locked, then restarted from the verified installed
 package after unlock. This prevents decrypted source or derived models from
 surviving a lock without disabling or deleting the installed plugin.
+
+### Markdown Kanban boards
+
+The additive API version 1 `kanban-board` permission accepts one declarative
+provider per plugin. Its registration contains a namespaced ID, title, one to
+four lowercase `.md` or `.markdown` filename suffixes, a default filename, and
+worker-owned parse and edit callbacks. It contains no React component, HTML,
+style, editor object, absolute path, native capability, or general workspace
+service. Suffix ownership is unique across active providers.
+
+For a matching open UTF-8 tab, the host sends the vault-relative path and
+current in-memory source to the isolated worker. Source is refused above 4 MiB.
+Parse returns either one bounded diagnostic, an initializable state, or one
+board containing a display-safe title, at most 128 columns and 5,000 cards,
+globally unique bounded IDs, 64 KiB of details per card, and at most 32 extracted
+tags and 32 Markdown links per card. The validated model is capped at 8 MiB.
+
+Edit sends the same current source plus one closed operation union:
+initialize/rename board; add/rename/delete/move column; or
+add/edit/delete/move card. The worker returns replacement source and the
+corresponding board model. Runtime validation applies the same source and model
+bounds to the response before the renderer receives it. A malformed
+registration, duplicate suffix, invalid request, invalid model, or mismatched
+response type terminates the runtime.
+
+This is a narrow editor write surface rather than `workspace-write`. Enabling a
+provider performs no edit. Only a host-rendered control in the matching open tab
+can issue an operation. The returned source enters `changeTabContent`, so
+ordinary edit recording, autosave debounce, expected-hash conflict handling,
+revision history, workspace locks, and encrypted save behavior remain host
+owned. The plugin cannot select another file or write while its view is absent.
+
+The renderer owns the Board/Markdown toggle, semantic ordered lists, inline
+forms, delete confirmations, pointer drag targets, complete keyboard move
+controls, focus restoration, polite announcements, note-link resolution, and
+read-only state. A successful edit installs the returned model immediately so a
+moved item's focus survives while the parent tab adopts the new source; a later
+stale parse result is ignored. Switching to Markdown uses the ordinary exact
+source editor.
+
+`denote.kanban` recognizes `.kanban.md` and `.kanban.markdown`. Its portable
+format has one versioned board start/end pair. Each column and card has paired
+HTML comment markers with a stable ID, followed by an ordinary level-two or
+level-three heading. Card details are unchanged Markdown. Initialization appends
+the board after existing content. Rename and text edits replace only their
+heading or body range; reorder operations splice the original complete marked
+range, preserving unknown Markdown byte-for-byte. Disabling or removing the
+plugin leaves the file unchanged. Locking an encrypted vault stops the worker
+and clears its contribution until unlock.
 
 ### Sandboxed diagram renderers
 

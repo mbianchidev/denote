@@ -13,6 +13,7 @@ import type {
   PluginEmojiPickerContribution,
   PluginAutomaticLocalCommitContribution,
   PluginDiagramRendererContribution,
+  PluginKanbanBoardContribution,
   PluginSourceControlContribution,
   PluginStructuredViewerContribution,
 } from "./plugins/workerRuntime";
@@ -59,6 +60,7 @@ const mockPluginController = vi.hoisted(() => ({
   automaticLocalCommits: [] as PluginAutomaticLocalCommitContribution[],
   emojiPickers: [] as PluginEmojiPickerContribution[],
   structuredViewers: [] as PluginStructuredViewerContribution[],
+  kanbanBoards: [] as PluginKanbanBoardContribution[],
   diagramRenderers: [] as PluginDiagramRendererContribution[],
   saveEmojiPreferences: vi.fn().mockResolvedValue(undefined),
   loading: false,
@@ -74,6 +76,8 @@ const mockPluginController = vi.hoisted(() => ({
   runCommand: vi.fn(),
   runSourceControlAction: vi.fn().mockResolvedValue(undefined),
   parseStructuredView: vi.fn(),
+  parseKanbanBoard: vi.fn(),
+  editKanbanBoard: vi.fn(),
   renderDiagram: vi.fn(),
   releaseDiagramScope: vi.fn(),
   emitNoteEvent: vi.fn(),
@@ -224,6 +228,24 @@ vi.mock("./components/StructuredDataViewer", () => ({
     </section>
   ),
 }));
+vi.mock("./components/KanbanBoardEditor", () => ({
+  KanbanBoardEditor: ({
+    path,
+    source,
+    onChange,
+  }: {
+    path: string;
+    source: string;
+    onChange: (source: string) => void;
+  }) => (
+    <section aria-label={`Kanban ${path}`}>
+      <output aria-label={`Kanban source ${path}`}>{source}</output>
+      <button type="button" onClick={() => onChange(`${source}\nupdated`)}>
+        Update board
+      </button>
+    </section>
+  ),
+}));
 vi.mock("./components/FileTree", () => ({
   FileTree: ({
     expandedPaths,
@@ -358,6 +380,7 @@ describe("App initial file-tree expansion", () => {
     mockPluginController.automaticLocalCommits = [];
     mockPluginController.emojiPickers = [];
     mockPluginController.structuredViewers = [];
+    mockPluginController.kanbanBoards = [];
     mockPluginController.plugins = [];
     mockPluginController.busyPluginIds = new Set();
     mockApi.listKnownVaultFiles.mockResolvedValue({ files: [], truncated: false });
@@ -368,6 +391,23 @@ describe("App initial file-tree expansion", () => {
       error: null,
       notices: [],
       truncated: false,
+    });
+    mockPluginController.parseKanbanBoard.mockResolvedValue({
+      title: "Synthetic board",
+      columns: [],
+      error: null,
+      notices: [],
+      canInitialize: false,
+    });
+    mockPluginController.editKanbanBoard.mockResolvedValue({
+      source: "updated Kanban source",
+      model: {
+        title: "Synthetic board",
+        columns: [],
+        error: null,
+        notices: [],
+        canInitialize: false,
+      },
     });
     mockApi.pluginAutomaticCommit.mockResolvedValue({
       status: "committed",
@@ -1274,6 +1314,97 @@ describe("App initial file-tree expansion", () => {
     expect(
       await screen.findByLabelText("Expanded nodes first.json"),
     ).toBeEmptyDOMElement();
+  });
+
+  it("routes enabled Kanban files between Board and exact Markdown source", async () => {
+    const user = userEvent.setup();
+    const source = [
+      "<!-- denote-kanban:board:v1:start -->",
+      "# Release board",
+      "<!-- denote-kanban:board:end -->",
+    ].join("\n");
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("Release.kanban.md")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "Release.kanban.md",
+      content: source,
+      contentHash: "kanban-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockPluginController.plugins = [kanbanPluginView()];
+    mockPluginController.kanbanBoards = [kanbanBoardContribution()];
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open Release.kanban.md" }),
+    );
+    expect(
+      await screen.findByRole("region", {
+        name: "Kanban Release.kanban.md",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Board" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Markdown" }));
+    expect(
+      screen.getByLabelText("Content of Edit Release.kanban.md").textContent,
+    ).toBe(source);
+    expect(screen.getByRole("button", { name: "Markdown" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Board" }));
+    expect(
+      screen.getByLabelText("Kanban source Release.kanban.md").textContent,
+    ).toBe(source);
+    expect(mockApi.recordEdit).not.toHaveBeenCalledWith("Release.kanban.md");
+  });
+
+  it("creates a Kanban-suffixed Markdown file from the command palette", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    mockApi.createEntry.mockResolvedValue(fileNode("Sprint.kanban.md"));
+    mockPluginController.plugins = [kanbanPluginView()];
+    mockPluginController.kanbanBoards = [kanbanBoardContribution()];
+    render(<App />);
+
+    expect(
+      await screen.findByRole("button", { name: "New file" }),
+    ).toBeEnabled();
+    fireEvent.keyDown(window, { key: "p", code: "KeyP", ctrlKey: true });
+    const palette = await screen.findByRole("dialog", {
+      name: "Command palette",
+    });
+    fireEvent.change(within(palette).getByRole("combobox"), {
+      target: { value: "Create Kanban board" },
+    });
+    fireEvent.keyDown(within(palette).getByRole("combobox"), { key: "Enter" });
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Create Kanban board",
+    });
+    fireEvent.change(
+      within(dialog).getByRole("textbox", { name: "Create Kanban board" }),
+      {
+        target: { value: "Sprint.md" },
+      },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create" }));
+
+    await waitFor(() =>
+      expect(mockApi.createEntry).toHaveBeenCalledWith(
+        "",
+        "Sprint.kanban.md",
+        false,
+      ),
+    );
   });
 
   it.each(["project", "workspace"] as const)(
@@ -3132,6 +3263,35 @@ function structuredViewerContribution(): PluginStructuredViewerContribution {
     id: "denote.json-yaml-viewer.viewer",
     title: "JSON and YAML viewer",
     extensions: ["json", "yaml", "yml"],
+  };
+}
+
+function kanbanBoardContribution(): PluginKanbanBoardContribution {
+  return {
+    pluginId: "denote.kanban",
+    id: "denote.kanban.board",
+    title: "Kanban boards",
+    fileSuffixes: [".kanban.md", ".kanban.markdown"],
+    defaultFileName: "Board.kanban.md",
+  };
+}
+
+function kanbanPluginView(): PluginView {
+  const plugin = syntheticEmojiPluginView();
+  return {
+    ...plugin,
+    enabled: true,
+    status: "enabled",
+    approvedPermissions: [{ capability: "kanban-board" }],
+    catalog: {
+      ...plugin.catalog,
+      manifest: {
+        ...plugin.catalog.manifest,
+        id: "denote.kanban",
+        name: "Kanban boards",
+        permissions: [{ capability: "kanban-board" }],
+      },
+    },
   };
 }
 

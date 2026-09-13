@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import catalogJson from "../../plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
+  type PluginKanbanBoardModel,
+  type PluginKanbanEditResult,
   type PluginGitResult,
   type PluginEmojiPicker,
   type PluginSourceControlViewModel,
@@ -119,6 +121,23 @@ const structuredViewModel: PluginStructuredViewModel = {
   notices: [],
   truncated: false,
 };
+const kanbanBoardModel: PluginKanbanBoardModel = {
+  title: "Synthetic board",
+  columns: [
+    {
+      id: "column-backlog",
+      title: "Backlog",
+      cards: [],
+    },
+  ],
+  error: null,
+  notices: [],
+  canInitialize: false,
+};
+const kanbanEditResult: PluginKanbanEditResult = {
+  source: "updated Kanban source",
+  model: kanbanBoardModel,
+};
 
 class FakePort extends EventTarget {
   peer: FakePort | null = null;
@@ -174,6 +193,14 @@ class FakeWorker extends EventTarget {
     extensions: string[];
   } | null = null;
   static structuredViewModel: PluginStructuredViewModel = structuredViewModel;
+  static kanbanBoardOnActivate: {
+    id: string;
+    title: string;
+    fileSuffixes: string[];
+    defaultFileName: string;
+  } | null = null;
+  static kanbanBoardModel: PluginKanbanBoardModel = kanbanBoardModel;
+  static kanbanEditResult: PluginKanbanEditResult = kanbanEditResult;
   static sourceControlActionResultType:
     | "source-control-action-result"
     | "command-result" = "source-control-action-result";
@@ -233,6 +260,12 @@ class FakeWorker extends EventTarget {
             ...FakeWorker.structuredViewerOnActivate,
           });
         }
+        if (FakeWorker.kanbanBoardOnActivate) {
+          port.postMessage({
+            type: "register-kanban-board",
+            ...FakeWorker.kanbanBoardOnActivate,
+          });
+        }
         if (FakeWorker.failActivationAfterSourceControl) {
           port.postMessage({
             type: "activation-error",
@@ -267,6 +300,24 @@ class FakeWorker extends EventTarget {
           type: "structured-view-result",
           requestId: data.requestId,
           model: FakeWorker.structuredViewModel,
+        });
+      } else if (
+        data.type === "parse-kanban-board" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "kanban-board-result",
+          requestId: data.requestId,
+          model: FakeWorker.kanbanBoardModel,
+        });
+      } else if (
+        data.type === "edit-kanban-board" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "kanban-edit-result",
+          requestId: data.requestId,
+          result: FakeWorker.kanbanEditResult,
         });
       } else if (
         data.type === "deactivate" &&
@@ -441,6 +492,17 @@ function pluginWithStructuredViewer(): PluginView {
   };
 }
 
+function pluginWithKanbanBoard(): PluginView {
+  const source = plugin();
+  return {
+    ...source,
+    approvedPermissions: [
+      ...source.approvedPermissions,
+      { capability: "kanban-board" },
+    ],
+  };
+}
+
 function pluginWithDiagramRenderer(): PluginView {
   const source = plugin();
   const manifest = {
@@ -495,6 +557,9 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.emojiPickerOnActivate = null;
     FakeWorker.structuredViewerOnActivate = null;
     FakeWorker.structuredViewModel = structuredViewModel;
+    FakeWorker.kanbanBoardOnActivate = null;
+    FakeWorker.kanbanBoardModel = kanbanBoardModel;
+    FakeWorker.kanbanEditResult = kanbanEditResult;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
@@ -621,6 +686,180 @@ describe("PluginWorkerRuntime", () => {
     ).resolves.toEqual(structuredViewModel);
     await runtime.stop("denote.reference");
     expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("registers, parses, edits, and removes a bounded Kanban board provider", async () => {
+    const changed = vi.fn();
+    const registration = {
+      id: "denote.reference.kanban",
+      title: "Kanban boards",
+      fileSuffixes: [".kanban.md"],
+      defaultFileName: "Board.kanban.md",
+    };
+    FakeWorker.kanbanBoardOnActivate = registration;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(pluginWithKanbanBoard());
+
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    await expect(
+      runtime.parseKanbanBoard(
+        "denote.reference",
+        registration.id,
+        {
+          path: "Synthetic.kanban.md",
+          source: "# Synthetic",
+        },
+      ),
+    ).resolves.toEqual(kanbanBoardModel);
+    await expect(
+      runtime.editKanbanBoard(
+        "denote.reference",
+        registration.id,
+        {
+          path: "Synthetic.kanban.md",
+          source: "# Synthetic",
+          edit: {
+            type: "add-column",
+            title: "Doing",
+            beforeColumnId: null,
+          },
+        },
+      ),
+    ).resolves.toEqual(kanbanEditResult);
+
+    expect(FakeWorker.instances[0].received).toContainEqual(
+      expect.objectContaining({
+        type: "edit-kanban-board",
+        providerId: registration.id,
+      }),
+    );
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("runs Kanban parsing and edits through the actual isolated worker capability", async () => {
+    await bridgeRealPluginWorker();
+    const source = pluginWithKanbanBoard();
+    const registration = {
+      id: "denote.reference.kanban",
+      title: "Kanban boards",
+      fileSuffixes: [".kanban.md"],
+      defaultFileName: "Board.kanban.md",
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          const kanban = context.capabilities.kanbanBoard;
+          if (!kanban) throw Error("Missing Kanban board");
+          context.subscriptions.add(kanban.register({
+            ...${JSON.stringify(registration)},
+            parse() {
+              return ${JSON.stringify(kanbanBoardModel)};
+            },
+            edit(request) {
+              return {
+                source: request.source + "\\nupdated",
+                model: ${JSON.stringify(kanbanBoardModel)},
+              };
+            },
+          }));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(source);
+
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    await expect(
+      runtime.parseKanbanBoard("denote.reference", registration.id, {
+        path: "Synthetic.kanban.md",
+        source: "# Synthetic",
+      }),
+    ).resolves.toEqual(kanbanBoardModel);
+    await expect(
+      runtime.editKanbanBoard("denote.reference", registration.id, {
+        path: "Synthetic.kanban.md",
+        source: "# Synthetic",
+        edit: {
+          type: "rename-board",
+          title: "Updated",
+        },
+      }),
+    ).resolves.toEqual({
+      source: "# Synthetic\nupdated",
+      model: kanbanBoardModel,
+    });
+    await runtime.stop("denote.reference");
+  });
+
+  it("terminates a Kanban registration without permission", async () => {
+    const onError = vi.fn();
+    FakeWorker.kanbanBoardOnActivate = {
+      id: "denote.reference.kanban",
+      title: "Kanban boards",
+      fileSuffixes: [".kanban.md"],
+      defaultFileName: "Board.kanban.md",
+    };
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      vi.fn(),
+    );
+
+    await runtime.start(plugin()).catch(() => {});
+
+    await vi.waitFor(() => {
+      expect(FakeWorker.instances[0].terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/Kanban board/i),
+        }),
+      );
+    });
   });
 
   it("registers and removes a diagram renderer through the actual isolated worker capability", async () => {

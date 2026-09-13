@@ -162,6 +162,74 @@ the parsed model. Locking an encrypted vault stops the viewer worker and clears
 decrypted derived state; it restarts after unlock. Disabling or removing the
 plugin never changes open files.
 
+## Kanban boards
+
+Enable **Kanban boards** under **Productivity** to create visual boards backed by
+portable Markdown. The plugin is disabled by default and its code is downloaded
+only after you approve **Kanban board**. It has no general workspace-read,
+workspace-write, network, process, clipboard, or credential permission.
+
+Run **Create Kanban board** from the command palette, or create a file ending in
+`.kanban.md` or `.kanban.markdown`. Open it and choose **Board** in the editor
+toolbar. A new or ordinary Markdown file first shows **Initialize board**.
+Initialization appends the managed board after any existing Markdown instead of
+replacing it, then creates one Backlog column.
+
+Use **Add column** and **Add card** to build the board. Rename the board or a
+column with its edit control. Card details accept ordinary Markdown. Write a
+relative link such as `[Design](Design.md)` to link another note, and write
+hashtags such as `#planning` to show tags on the card. Choosing a link uses
+Denote's normal safe link resolution.
+
+Drag handles reorder columns and cards with a pointer. The same actions are
+always available without dragging:
+
+- each column has **Move left** and **Move right**;
+- each card has **Move up**, **Move down**, **Move to previous column**, and
+  **Move to next column**.
+
+After a move, keyboard focus stays on that item and Denote announces its new
+column and position. Add, edit, rename, delete, and confirmation controls are
+ordinary keyboard-focusable buttons and fields. Read mode keeps note links
+available while disabling every edit and drag action.
+
+Choose **Markdown** to inspect or edit the exact source. A board remains readable
+without Denote:
+
+```markdown
+<!-- denote-kanban:board:v1:start -->
+# Release board
+
+<!-- denote-kanban:column:start id="column-example" -->
+## Backlog
+
+<!-- denote-kanban:card:start id="card-example" -->
+### Write the specification
+
+See [Specification](Specification.md). #planning
+<!-- denote-kanban:card:end -->
+
+<!-- denote-kanban:column:end -->
+<!-- denote-kanban:board:end -->
+```
+
+The HTML comments identify only the ranges managed by the plugin. Reordering
+moves the original complete card or column block byte-for-byte. Markdown outside
+the board and unknown Markdown inside a moved card or column remains unchanged.
+Renaming changes only that heading. Editing a card changes only its title and
+details.
+
+Board view is limited to 4 MiB of source, 128 columns, 5,000 cards, and 64 KiB
+of details per card. A malformed marker or exhausted limit keeps **Markdown**
+available with an actionable error. Reserved `denote-kanban` marker lines cannot
+be used as card details.
+
+Parsing and edits run locally in the isolated plugin worker. The host owns the
+visible board, forms, focus, link opening, autosave, revision history, and file
+writes. Locking an encrypted vault stops the worker and clears the Board view
+until unlock. Disabling or removing the plugin never changes or deletes board
+files; they continue to open as Markdown.
+
 ## Mermaid diagrams
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
@@ -224,7 +292,6 @@ matching paths are not overwritten.
 These capabilities are planned as separately enabled plugins:
 
 - graph view;
-- Kanban boards;
 - task lists and reminders;
 - note comments and highlighting;
 - text-to-speech and dictation;
