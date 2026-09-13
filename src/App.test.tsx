@@ -1504,6 +1504,41 @@ describe("App initial file-tree expansion", () => {
     );
   });
 
+  it("keeps a matching vault-relative destination internal", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("note.md"),
+        folderNode("notes", [fileNode("notes/plan.md")]),
+      ]),
+    );
+    mockApi.readNote.mockImplementation(async (path: string) => ({
+      path,
+      content:
+        path === "note.md"
+          ? "[Plan](notes/plan.md)"
+          : "Synthetic internal destination",
+      contentHash: `${path}-hash`,
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    }));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Open note.md" }),
+    );
+    await user.click(await screen.findByRole("link", { name: "Plan" }));
+
+    await waitFor(() => {
+      expect(mockApi.readNote).toHaveBeenCalledWith("notes/plan.md");
+    });
+    expect(mockApi.openExternalUri).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("heading", { name: /Allow .*?\?/ }),
+    ).not.toBeInTheDocument();
+  });
+
   it("runs source control actions, keeps provider models live, and cleans up removed providers", async () => {
     const user = userEvent.setup();
     const contribution: PluginSourceControlContribution = {
