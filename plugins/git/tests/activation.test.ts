@@ -139,13 +139,15 @@ describe("Git plugin activation", () => {
       "project-context",
       "git",
       "automatic-local-commit",
+      "automatic-git-push",
     ]);
     expect(capabilities).not.toContain("network");
     expect(capabilities).not.toContain("process");
     expect(capabilities).not.toContain("workspace-write");
     expect(plugin.manifest.category).toBe("code");
     expect(plugin.manifest.compatibility.apiVersion).toBe(1);
-    expect(plugin.manifest.settings?.version).toBe(2);
+    expect(plugin.manifest.compatibility.minimumDenoteVersion).toBe("0.3.4");
+    expect(plugin.manifest.settings?.version).toBe(3);
     expect(
       Object.fromEntries(
         Object.entries(plugin.manifest.settings?.properties ?? {}).map(
@@ -167,6 +169,7 @@ describe("Git plugin activation", () => {
       gpgSigningKey: "",
       autoCommitIntervalMinutes: 0,
       autoCommitMessage: "Denote automatic commit {timestamp}",
+      autoPushAfterCommit: false,
       includePatterns: "",
       excludePatterns: ".denote",
     });
@@ -228,6 +231,7 @@ describe("Git plugin activation", () => {
       excludePatterns: "notes/drafts",
       authorName: "Synthetic Author",
       authorEmail: "synthetic@example.invalid",
+      autoPushAfterCommit: true,
     });
 
     await plugin.activate(harness.context);
@@ -241,6 +245,7 @@ describe("Git plugin activation", () => {
         excludePatterns: ["notes/drafts"],
         authorName: "Synthetic Author",
         authorEmail: "synthetic@example.invalid",
+        pushAfterCommit: true,
       },
     ]);
     // The schedule is disposable with the rest of the plugin's surfaces.
@@ -263,13 +268,17 @@ describe("Git plugin activation", () => {
         message: "Denote automatic commit {timestamp}",
         includePatterns: ["notes"],
         excludePatterns: [".denote"],
+        pushAfterCommit: false,
       },
     ]);
   });
 
   it("registers no schedule when the interval disables automatic commits", async () => {
     for (const autoCommitIntervalMinutes of [0, -5, 1441, "15"]) {
-      const harness = activationHarness({ autoCommitIntervalMinutes });
+      const harness = activationHarness({
+        autoCommitIntervalMinutes,
+        autoPushAfterCommit: true,
+      });
 
       await plugin.activate(harness.context);
 

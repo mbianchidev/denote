@@ -340,6 +340,7 @@ export interface PluginAutomaticCommitRequest {
   excludePatterns: string[];
   authorName: string | null;
   authorEmail: string | null;
+  pushAfterCommit: boolean;
 }
 
 export type PluginAutomaticCommitStatus =
@@ -347,10 +348,16 @@ export type PluginAutomaticCommitStatus =
   | "unchanged"
   | "skipped";
 
+export type PluginAutomaticPushStatus = "pushed" | "skipped" | "failed";
+
 export interface PluginAutomaticCommitOutcome {
   status: PluginAutomaticCommitStatus;
   message: string;
   commitId: string | null;
+  push: {
+    status: PluginAutomaticPushStatus;
+    message: string;
+  } | null;
 }
 
 /**

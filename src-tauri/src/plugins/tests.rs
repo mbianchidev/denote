@@ -1040,7 +1040,12 @@ fn catalog_accepts_unconstrained_project_context_capability() {
 #[test]
 fn catalog_accepts_unconstrained_source_control_capabilities() {
     let mut catalog = catalog();
-    for capability in ["source-control", "automatic-local-commit", "git"] {
+    for capability in [
+        "source-control",
+        "automatic-local-commit",
+        "automatic-git-push",
+        "git",
+    ] {
         catalog.manifest.permissions.push(PluginPermission {
             capability: capability.to_string(),
             hosts: vec![],

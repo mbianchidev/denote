@@ -240,12 +240,16 @@ belonged to another.
 Set **Automatic commit interval** above zero to let Denote commit for you on a
 timer. Denote saves your open notes first, then commits only tracked files that
 changed and match your include and exclude prefixes. It never adds a new file
-you have not tracked yourself, never contacts a remote, and waits for the next
-interval when work is already staged, a merge is unfinished, the vault is
-locked, or Denote is busy. Nothing happens the moment you enable it: the first
-automatic commit is one full interval later. If a run cannot finish, whatever
-you had staged is left exactly as it was, and if another Git tool changed your
-index in the meantime Denote leaves that index untouched and tells you so.
+you have not tracked yourself, and waits for the next interval when work is
+already staged, a merge is unfinished, the vault is locked, or Denote is busy.
+Nothing happens the moment you enable it: the first automatic commit is one full
+interval later. Turn on **Push automatic commits** to use that same interval to
+push only after a new automatic commit succeeds. Denote uses the current
+branch's existing upstream, never creates one, and never force-pushes. A missing
+upstream or failed push leaves the new commit local and tells you why. If a run
+cannot finish, whatever you had staged is left exactly as it was, and if another
+Git tool changed your index in the meantime Denote leaves that index untouched
+and tells you so.
 Changing any plugin setting reloads the plugin so the new interval, message, or
 prefixes apply straight away. The default message is
 `Denote automatic commit {timestamp}`. `{timestamp}` becomes the current local
@@ -253,9 +257,11 @@ time in `yyyy-mm-dd hh:mm` format when the commit runs.
 
 You can also work with remotes. The Repository tab adds a remote, changes a
 remote's URL, and removes one, and the repository section fetches, pulls, and
-pushes. Denote never does any of that on its own. A pull, a push, a URL change,
-and a remote removal each ask you first and name the exact remote, URL, and
-branch involved, and only an ordinary push is offered: there is no force push.
+pushes. Denote never fetches or pulls on its own. A user-invoked pull, push, URL
+change, and remote removal each ask you first and name the exact remote, URL,
+and branch involved. The opt-in automatic push is the only unattended remote
+action, and both manual and automatic paths offer only ordinary pushes: there is
+no force push.
 
 Choose how Denote signs in under **Remote authentication**, in the plugin's
 settings. *System Git credentials* is the default and uses your configured

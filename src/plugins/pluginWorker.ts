@@ -482,6 +482,14 @@ function runtimeContext(): PluginActivationContext {
           pluginId,
           schedule,
         );
+        if (
+          normalized.pushAfterCommit &&
+          !permissions.has("automatic-git-push")
+        ) {
+          throw new Error(
+            "Automatic Git push requires the automatic-git-push permission.",
+          );
+        }
         if (automaticCommitSchedules.has(normalized.id)) {
           throw new Error(
             `Automatic local commit ${normalized.id} is already registered.`,
@@ -500,12 +508,21 @@ function runtimeContext(): PluginActivationContext {
                 `Automatic local commit ${normalized.id} is no longer registered.`,
               );
             }
+            const updated = normalizeAutomaticLocalCommitSchedule(pluginId, {
+              ...next,
+              id: normalized.id,
+            });
+            if (
+              updated.pushAfterCommit &&
+              !permissions.has("automatic-git-push")
+            ) {
+              throw new Error(
+                "Automatic Git push requires the automatic-git-push permission.",
+              );
+            }
             send({
               type: "update-automatic-local-commit",
-              schedule: normalizeAutomaticLocalCommitSchedule(pluginId, {
-                ...next,
-                id: normalized.id,
-              }),
+              schedule: updated,
             });
           },
           dispose() {

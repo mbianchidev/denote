@@ -967,6 +967,7 @@ pub(super) fn automatic_commit_with_app_state(
             repository_root: &repository_root,
             redacted_roots,
             encrypted,
+            transport: crate::plugins::git::GitTransportPolicy::RemoteOnly,
         },
         operation_id,
     )

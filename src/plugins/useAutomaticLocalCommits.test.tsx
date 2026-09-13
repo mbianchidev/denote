@@ -17,6 +17,7 @@ function schedule(
     excludePatterns: [],
     authorName: null,
     authorEmail: null,
+    pushAfterCommit: false,
     ...overrides,
   };
 }
@@ -202,6 +203,26 @@ describe("useAutomaticLocalCommits", () => {
     expect(scheduled.runs).toHaveLength(1);
     await advance(5);
     expect(scheduled.runs).toHaveLength(2);
+  });
+
+  it("restarts the interval when automatic push is enabled", async () => {
+    const scheduled = harness();
+
+    await advance(4);
+    scheduled.rerender({
+      schedules: [schedule({ pushAfterCommit: true })],
+      enabled: true,
+      workspaceIdentity: "/synthetic/vault-alpha",
+      projectId: null,
+      canRun: () => true,
+    });
+
+    await advance(1);
+    expect(scheduled.runs).toHaveLength(0);
+    await advance(4);
+    expect(scheduled.runs).toEqual([
+      expect.objectContaining({ pushAfterCommit: true }),
+    ]);
   });
 
   it("removes the timer when the schedule disappears with its plugin", async () => {

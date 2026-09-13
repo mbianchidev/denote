@@ -373,6 +373,7 @@ describe("App initial file-tree expansion", () => {
       status: "committed",
       message: "Committed the tracked changes.",
       commitId: "1111111111111111111111111111111111111111",
+      push: null,
     });
   });
 
@@ -1995,6 +1996,7 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    mockPluginController.runSourceControlAction.mockClear();
     await user.click(screen.getByRole("button", { name: "Stage sample.py" }));
 
     await waitFor(() => {
@@ -2040,6 +2042,7 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    mockPluginController.runSourceControlAction.mockClear();
     await user.click(screen.getByRole("button", { name: "Push" }));
 
     expect(
@@ -2663,6 +2666,7 @@ describe("App initial file-tree expansion", () => {
             excludePatterns: [],
             authorName: null,
             authorEmail: null,
+            pushAfterCommit: false,
           },
           "/synthetic-vault",
           null,
@@ -2702,6 +2706,7 @@ describe("App initial file-tree expansion", () => {
         status: "skipped",
         message: "Changes are already staged, so Denote left this commit to you.",
         commitId: null,
+        push: null,
       });
 
       render(<App />);
@@ -2739,6 +2744,37 @@ describe("App initial file-tree expansion", () => {
       await vi.advanceTimersByTimeAsync(300_000);
 
       expect(mockApi.pluginAutomaticCommit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports an automatic commit pushed to its upstream", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockPluginController.automaticLocalCommits = [
+        automaticCommitSchedule({ pushAfterCommit: true }),
+      ];
+      mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+      mockApi.pluginAutomaticCommit.mockResolvedValue({
+        status: "committed",
+        message: "Committed the tracked changes.",
+        commitId: "1111111111111111111111111111111111111111",
+        push: {
+          status: "pushed",
+          message: "Pushed the automatic commit to origin/main.",
+        },
+      });
+
+      render(<App />);
+      await screen.findByTestId("file-tree-expanded");
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByText("Automatic commit 1111111 pushed").length,
+        ).toBeGreaterThan(0);
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -2991,6 +3027,7 @@ describe("App initial file-tree expansion", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    mockPluginController.runSourceControlAction.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
     fireEvent.click(screen.getByRole("button", { name: "Switch to topic" }));
     fireEvent.click(
@@ -3021,7 +3058,9 @@ describe("App initial file-tree expansion", () => {
 
 });
 
-function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
+function automaticCommitSchedule(
+  overrides: Partial<PluginAutomaticLocalCommitContribution> = {},
+): PluginAutomaticLocalCommitContribution {
   return {
     pluginId: "denote.synthetic",
     id: "denote.synthetic.nightly",
@@ -3031,6 +3070,8 @@ function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
     excludePatterns: [],
     authorName: null,
     authorEmail: null,
+    pushAfterCommit: false,
+    ...overrides,
   };
 }
 

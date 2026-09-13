@@ -24,6 +24,7 @@ export interface PluginAutomaticLocalCommitPayload {
   excludePatterns: string[];
   authorName: string | null;
   authorEmail: string | null;
+  pushAfterCommit: boolean;
 }
 
 export interface PluginAutomaticLocalCommitContribution
@@ -62,6 +63,7 @@ function normalizeScheduleFields(
     includePatterns: patterns(schedule.includePatterns, "include"),
     excludePatterns: patterns(schedule.excludePatterns, "exclude"),
     ...identity(schedule.authorName, schedule.authorEmail),
+    pushAfterCommit: schedule.pushAfterCommit === true,
   };
 }
 
@@ -85,6 +87,7 @@ export function isPluginAutomaticLocalCommitPayload(
     return (
       normalized.authorName === (value.authorName ?? null) &&
       normalized.authorEmail === (value.authorEmail ?? null) &&
+      normalized.pushAfterCommit === value.pushAfterCommit &&
       sameStrings(normalized.includePatterns, value.includePatterns) &&
       sameStrings(normalized.excludePatterns, value.excludePatterns)
     );

@@ -1,10 +1,12 @@
-//! Standing automatic local commits.
+//! Standing automatic local commits and their optional upstream push.
 //!
-//! This is the only Git work Denote starts without a user action, so it is
-//! deliberately the narrowest path in the transport: a fixed sequence of local
-//! commands that stages tracked changes the user's own settings selected and
-//! commits them. No remote command, no checkout, and no sequencer command can
-//! be reached from here, and untracked files are never added.
+//! This is the only Git work Denote starts without a user action, so the commit
+//! path is deliberately narrow: a fixed sequence of local commands that stages
+//! tracked changes the user's own settings selected and commits them. A
+//! separately approved setting may then push that new commit to the current
+//! branch's existing upstream. It never creates an upstream, force-pushes,
+//! fetches, pulls, checks out, or reaches a sequencer command, and untracked
+//! files are never added.
 //!
 //! A run that does not finish restores the user's index byte for byte, but only
 //! while the index on disk is still the one Denote's own staging produced. Any
@@ -29,11 +31,13 @@ use crate::error::{AppError, AppResult};
 use crate::plugins::PluginManager;
 
 use super::transport::{
-    CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken,
-    GitTransportPolicy, assert_repository_config_is_safe, detect_operation_state,
-    ensure_encrypted_repository_metadata, redact, resolve_git_directory, run_git_command,
-    validate_author_email, validate_author_name, validate_commit_message, validate_operation_id,
-    validated_path,
+    CommandOutcome, GIT_TIMEOUT, GitDirectoryState, GitExecution, GitOperationToken, GitPlanStep,
+    GitTransportPolicy, PluginGitAuthMode, PluginGitPushMode, PluginGitRequest, PluginGitScope,
+    RemoteDirection, apply_system_git_settings, assert_repository_config_is_safe,
+    detect_operation_state, ensure_encrypted_repository_metadata, plan_git_request,
+    read_remote_urls, read_system_git_settings, redact, resolve_git_directory, run_git_command,
+    run_git_plan, validate_author_email, validate_author_name, validate_branch_name,
+    validate_commit_message, validate_operation_id, validate_remote_name, validated_path,
 };
 
 /// Ceiling for every read of the index: the snapshot taken before staging
@@ -64,6 +68,8 @@ pub struct AutomaticCommitRequest {
     pub author_name: Option<String>,
     #[serde(default)]
     pub author_email: Option<String>,
+    #[serde(default)]
+    pub push_after_commit: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -74,6 +80,44 @@ pub enum AutomaticCommitStatus {
     Skipped,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AutomaticPushStatus {
+    Pushed,
+    Skipped,
+    Failed,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomaticPushOutcome {
+    pub status: AutomaticPushStatus,
+    pub message: String,
+}
+
+impl AutomaticPushOutcome {
+    fn pushed(remote: &str, branch: &str) -> Self {
+        Self {
+            status: AutomaticPushStatus::Pushed,
+            message: format!("Pushed the automatic commit to {remote}/{branch}."),
+        }
+    }
+
+    fn skipped(message: impl Into<String>) -> Self {
+        Self {
+            status: AutomaticPushStatus::Skipped,
+            message: message.into(),
+        }
+    }
+
+    fn failed(message: impl Into<String>) -> Self {
+        Self {
+            status: AutomaticPushStatus::Failed,
+            message: message.into(),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AutomaticCommitOutcome {
@@ -81,6 +125,7 @@ pub struct AutomaticCommitOutcome {
     /// Human-readable reason. It never names a note, a path, or note content.
     pub message: String,
     pub commit_id: Option<String>,
+    pub push: Option<AutomaticPushOutcome>,
 }
 
 impl AutomaticCommitOutcome {
@@ -89,6 +134,7 @@ impl AutomaticCommitOutcome {
             status: AutomaticCommitStatus::Skipped,
             message: message.into(),
             commit_id: None,
+            push: None,
         }
     }
 
@@ -97,6 +143,7 @@ impl AutomaticCommitOutcome {
             status: AutomaticCommitStatus::Unchanged,
             message: "No tracked change matched the automatic commit settings.".to_string(),
             commit_id: None,
+            push: None,
         }
     }
 
@@ -106,6 +153,7 @@ impl AutomaticCommitOutcome {
             message: "Committed the tracked changes that matched the automatic commit settings."
                 .to_string(),
             commit_id,
+            push: None,
         }
     }
 }
@@ -119,6 +167,7 @@ pub(crate) struct ValidatedAutomaticCommit {
     pub(crate) exclude_patterns: Vec<String>,
     pub(crate) author_name: Option<String>,
     pub(crate) author_email: Option<String>,
+    pub(crate) push_after_commit: bool,
 }
 
 pub(crate) fn validate_automatic_commit(
@@ -148,6 +197,7 @@ pub(crate) fn validate_automatic_commit(
         exclude_patterns: validated_prefixes(&request.exclude_patterns)?,
         author_name,
         author_email,
+        push_after_commit: request.push_after_commit,
     })
 }
 
@@ -897,6 +947,18 @@ pub(crate) struct AutomaticCommitTarget<'a> {
     pub(crate) repository_root: &'a Path,
     pub(crate) redacted_roots: Vec<PathBuf>,
     pub(crate) encrypted: bool,
+    pub(crate) transport: GitTransportPolicy,
+}
+
+struct AutomaticPushTarget {
+    remote: String,
+    local_branch: String,
+    remote_branch: String,
+}
+
+enum AutomaticPushReadiness {
+    Ready(AutomaticPushTarget),
+    Skipped(AutomaticPushOutcome),
 }
 
 impl PluginManager {
@@ -924,6 +986,7 @@ impl PluginManager {
             repository_root,
             redacted_roots,
             encrypted,
+            transport,
         } = target;
         // Both permissions are required: the standing schedule authority and
         // the Git authority it commits with.
@@ -931,6 +994,9 @@ impl PluginManager {
         self.enabled_permission(plugin_id, "automatic-local-commit")?;
         validate_operation_id(operation_id)?;
         let validated = validate_automatic_commit(&request)?;
+        if validated.push_after_commit {
+            self.enabled_permission(plugin_id, "automatic-git-push")?;
+        }
         if resolve_git_directory(repository_root)? == GitDirectoryState::Missing {
             return Ok(AutomaticCommitOutcome::skipped(
                 "This scope is not a Git repository yet, so there was nothing to commit.",
@@ -951,11 +1017,11 @@ impl PluginManager {
             hooks_directory: &hooks_directory,
             global_config: &global_config,
             redacted_roots,
-            // An automatic commit is local by construction: it never contacts
-            // a remote, so it never needs credentials.
+            // The commit phase is local. A requested push prepares its own
+            // short-lived credential material only after the commit lands.
             askpass: None,
             encrypted,
-            transport: GitTransportPolicy::RemoteOnly,
+            transport,
         };
         // Registering with the shared operation registry is what makes a
         // standing run cancellable by plugin disable and by shutdown.
@@ -963,8 +1029,204 @@ impl PluginManager {
             .inner
             .git_operations
             .register(plugin_id, operation_id)?;
-        let result = run_automatic_commit(&execution, &token, &validated, observer);
+        let mut result = run_automatic_commit(&execution, &token, &validated, observer);
+        if matches!(
+            &result,
+            Ok(outcome) if outcome.status == AutomaticCommitStatus::Committed
+                && validated.push_after_commit
+        ) {
+            let push = match self.run_automatic_push(plugin_id, &execution, &token) {
+                Ok(push) => push,
+                Err(error) => AutomaticPushOutcome::failed(redact(
+                    &error.to_string(),
+                    &execution.redacted_roots,
+                )),
+            };
+            if let Ok(outcome) = &mut result {
+                outcome.push = Some(push);
+            }
+        }
         self.inner.git_operations.finish(&token.operation_id);
         result
     }
+
+    fn run_automatic_push(
+        &self,
+        plugin_id: &str,
+        base_execution: &GitExecution<'_>,
+        token: &GitOperationToken,
+    ) -> AppResult<AutomaticPushOutcome> {
+        let target = match automatic_push_target(base_execution, token)? {
+            AutomaticPushReadiness::Ready(target) => target,
+            AutomaticPushReadiness::Skipped(outcome) => return Ok(outcome),
+        };
+        let auth_mode = self.automatic_push_auth_mode(plugin_id)?;
+        let request = PluginGitRequest::Push {
+            scope: PluginGitScope::Vault,
+            remote: target.remote.clone(),
+            branch: target.local_branch.clone(),
+            set_upstream: false,
+            mode: Some(PluginGitPushMode::Normal),
+            auth_mode,
+        };
+        let mut steps = plan_git_request(&request)?;
+        let Some(GitPlanStep::Command { args, .. }) = steps.first_mut() else {
+            return Err(AppError::Plugin(
+                "Denote could not prepare the automatic push".to_string(),
+            ));
+        };
+        let Some(refspec) = args.last_mut() else {
+            return Err(AppError::Plugin(
+                "Denote could not prepare the automatic push target".to_string(),
+            ));
+        };
+        *refspec = format!(
+            "refs/heads/{}:refs/heads/{}",
+            target.local_branch, target.remote_branch
+        );
+
+        let policy = self.git_settings_policy(plugin_id)?;
+        let system_settings = if policy.use_system_settings {
+            read_system_git_settings(base_execution.executable)?
+        } else {
+            Default::default()
+        };
+        apply_system_git_settings(&mut steps, &request, &policy, &system_settings)?;
+        let urls = read_remote_urls(base_execution, &target.remote, RemoteDirection::Push, token)?;
+        let askpass = self.authentication_material(plugin_id, auth_mode, &urls, Some(token))?;
+        let execution = GitExecution {
+            executable: base_execution.executable,
+            repository_root: base_execution.repository_root,
+            hooks_directory: base_execution.hooks_directory,
+            global_config: base_execution.global_config,
+            redacted_roots: base_execution.redacted_roots.clone(),
+            askpass: askpass.as_ref(),
+            encrypted: base_execution.encrypted,
+            transport: base_execution.transport,
+        };
+        let result = run_git_plan(&steps, &execution, token)?;
+        if result.cancelled {
+            return Ok(AutomaticPushOutcome::skipped(
+                "The automatic push was cancelled after the commit was created.",
+            ));
+        }
+        if result.exit_code != 0 {
+            return Ok(AutomaticPushOutcome::failed(
+                if result.stderr.trim().is_empty() {
+                    "Git reported no details.".to_string()
+                } else {
+                    result.stderr.trim().to_string()
+                },
+            ));
+        }
+        Ok(AutomaticPushOutcome::pushed(
+            &target.remote,
+            &target.remote_branch,
+        ))
+    }
+
+    fn automatic_push_auth_mode(&self, plugin_id: &str) -> AppResult<PluginGitAuthMode> {
+        let settings = self.settings(plugin_id)?;
+        match settings
+            .get("authenticationMode")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("system")
+        {
+            "system" => Ok(PluginGitAuthMode::System),
+            "public" => Ok(PluginGitAuthMode::Public),
+            "ssh-agent" => Ok(PluginGitAuthMode::SshAgent),
+            "github-https" => Ok(PluginGitAuthMode::GithubHttps),
+            _ => Err(AppError::Plugin(
+                "The automatic push authentication mode is invalid".to_string(),
+            )),
+        }
+    }
+}
+
+fn automatic_push_target(
+    execution: &GitExecution<'_>,
+    token: &GitOperationToken,
+) -> AppResult<AutomaticPushReadiness> {
+    let branch = run_git_command(
+        &[
+            "symbolic-ref".to_string(),
+            "--quiet".to_string(),
+            "--short".to_string(),
+            "HEAD".to_string(),
+        ],
+        execution,
+        token,
+        Instant::now() + GIT_TIMEOUT,
+        false,
+    )?;
+    if branch.cancelled || token.is_cancelled() {
+        return Ok(AutomaticPushReadiness::Skipped(
+            AutomaticPushOutcome::skipped(
+                "The automatic push was cancelled after the commit was created.",
+            ),
+        ));
+    }
+    if branch.exit_code != 0 {
+        return Ok(AutomaticPushReadiness::Skipped(
+            AutomaticPushOutcome::skipped(
+                "The automatic commit was created on a detached HEAD, so Denote did not push it.",
+            ),
+        ));
+    }
+    let local_branch = String::from_utf8_lossy(&branch.stdout).trim().to_string();
+    validate_branch_name(&local_branch)?;
+
+    let upstream = run_git_command(
+        &[
+            "for-each-ref".to_string(),
+            "--count=1".to_string(),
+            "--format=%(upstream:remotename)%00%(upstream:remoteref)".to_string(),
+            format!("refs/heads/{local_branch}"),
+        ],
+        execution,
+        token,
+        Instant::now() + GIT_TIMEOUT,
+        false,
+    )?;
+    if upstream.cancelled || token.is_cancelled() {
+        return Ok(AutomaticPushReadiness::Skipped(
+            AutomaticPushOutcome::skipped(
+                "The automatic push was cancelled after the commit was created.",
+            ),
+        ));
+    }
+    if upstream.exit_code != 0 {
+        return Err(AppError::Plugin(
+            "Denote could not read the current branch's upstream".to_string(),
+        ));
+    }
+    let value = String::from_utf8_lossy(&upstream.stdout);
+    let value = value.trim_end_matches(['\r', '\n']);
+    let Some((remote, remote_ref)) = value.split_once('\0') else {
+        return Err(AppError::Plugin(
+            "Git returned an invalid automatic push target".to_string(),
+        ));
+    };
+    if remote.is_empty() || remote_ref.is_empty() {
+        return Ok(AutomaticPushReadiness::Skipped(
+            AutomaticPushOutcome::skipped(
+                "The current branch has no upstream, so Denote kept the automatic commit local.",
+            ),
+        ));
+    }
+    validate_remote_name(remote)?;
+    let remote_branch = remote_ref
+        .strip_prefix("refs/heads/")
+        .ok_or_else(|| {
+            AppError::Plugin(
+                "The current branch's upstream is not a remote branch Denote can push".to_string(),
+            )
+        })?
+        .to_string();
+    validate_branch_name(&remote_branch)?;
+    Ok(AutomaticPushReadiness::Ready(AutomaticPushTarget {
+        remote: remote.to_string(),
+        local_branch,
+        remote_branch,
+    }))
 }

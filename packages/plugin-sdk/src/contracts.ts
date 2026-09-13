@@ -27,6 +27,7 @@ export const PLUGIN_CAPABILITIES = [
   "project-context",
   "source-control",
   "automatic-local-commit",
+  "automatic-git-push",
   "git",
   "workspace-read",
   "workspace-write",
@@ -1031,8 +1032,8 @@ export interface PluginSourceControlCapability {
 /**
  * One standing automatic local commit. A plugin describes what should be
  * committed and how often; it never receives a vault path, a project ID, or a
- * Git capability for it. The host owns the timer, the repository scope, and
- * the commit itself.
+ * Git capability for it. The host owns the timer, the repository scope, the
+ * commit, and any separately approved push of that new commit.
  */
 export interface PluginAutomaticLocalCommitSchedule {
   id: string;
@@ -1048,6 +1049,11 @@ export interface PluginAutomaticLocalCommitSchedule {
   /** Optional commit identity. Both halves are required together. */
   authorName?: string;
   authorEmail?: string;
+  /**
+   * Push the new commit to the current branch's existing upstream. Requires
+   * the separate automatic-git-push permission.
+   */
+  pushAfterCommit?: boolean;
 }
 
 export type PluginAutomaticLocalCommitUpdate = Omit<

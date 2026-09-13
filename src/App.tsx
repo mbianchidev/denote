@@ -5573,6 +5573,7 @@ function App() {
             excludePatterns: schedule.excludePatterns,
             authorName: schedule.authorName,
             authorEmail: schedule.authorEmail,
+            pushAfterCommit: schedule.pushAfterCommit,
           },
           vaultPath,
           projectId,
@@ -5580,11 +5581,23 @@ function App() {
         );
         if (outcome.status === "committed") {
           await refreshAndReindex();
-          setStatus(
-            outcome.commitId
-              ? `Automatic commit ${outcome.commitId.slice(0, 7)}`
-              : "Automatic commit created",
-          );
+          const commitStatus = outcome.commitId
+            ? `Automatic commit ${outcome.commitId.slice(0, 7)}`
+            : "Automatic commit created";
+          if (outcome.push?.status === "pushed") {
+            setStatus(`${commitStatus} pushed`);
+          } else if (outcome.push?.status === "skipped") {
+            setStatus(`${commitStatus}; push skipped: ${outcome.push.message}`);
+          } else if (outcome.push?.status === "failed") {
+            setStatus(`${commitStatus}; push failed`);
+            showError(
+              new Error(
+                `${commitStatus} was created, but automatic push failed: ${outcome.push.message}`,
+              ),
+            );
+          } else {
+            setStatus(commitStatus);
+          }
         } else if (outcome.status === "unchanged") {
           setStatus("Automatic commit: no changes");
         } else {

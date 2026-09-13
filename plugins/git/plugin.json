@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.git",
   "name": "Git vault versioning",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
   "publisher": {
     "name": "Denote",
@@ -14,7 +14,7 @@
   "category": "code",
   "compatibility": {
     "apiVersion": 1,
-    "minimumDenoteVersion": "0.1.0",
+    "minimumDenoteVersion": "0.3.4",
     "maximumDenoteVersion": "1.0.0"
   },
   "permissions": [
@@ -35,10 +35,13 @@
     },
     {
       "capability": "automatic-local-commit"
+    },
+    {
+      "capability": "automatic-git-push"
     }
   ],
   "settings": {
-    "version": 2,
+    "version": 3,
     "migrations": [
       {
         "from": 1,
@@ -46,6 +49,13 @@
         "defaults": {
           "gitExecutableMode": "system",
           "githubExecutableMode": "system"
+        }
+      },
+      {
+        "from": 2,
+        "to": 3,
+        "defaults": {
+          "autoPushAfterCommit": false
         }
       }
     ],
@@ -214,6 +224,12 @@
         "title": "Automatic commit message",
         "description": "Message recorded on each automatic local commit. Use {timestamp} for the current local time as yyyy-mm-dd hh:mm.",
         "default": "Denote automatic commit {timestamp}"
+      },
+      "autoPushAfterCommit": {
+        "type": "boolean",
+        "title": "Push automatic commits",
+        "description": "After an automatic commit succeeds, push it to the current branch's existing upstream using the same interval. Denote never creates an upstream or force-pushes.",
+        "default": false
       },
       "includePatterns": {
         "type": "string",

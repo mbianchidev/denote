@@ -1020,6 +1020,8 @@ export class PluginWorkerRuntime {
         if (
           (runtime.phase !== "activating" && runtime.phase !== "active") ||
           !runtime.permissions.has("automatic-local-commit") ||
+          (message.schedule.pushAfterCommit &&
+            !runtime.permissions.has("automatic-git-push")) ||
           !message.schedule.id.startsWith(`${pluginId}.`) ||
           (registering && known) ||
           (!registering && !known)

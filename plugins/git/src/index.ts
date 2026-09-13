@@ -155,6 +155,7 @@ async function automaticCommitSchedule(
     message: settings.autoCommitMessage,
     includePatterns: settings.includePatterns,
     excludePatterns: settings.excludePatterns,
+    pushAfterCommit: settings.autoPushAfterCommit,
     ...(settings.identity
       ? {
           authorName: settings.identity.authorName,

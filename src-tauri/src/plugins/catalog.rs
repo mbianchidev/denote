@@ -156,6 +156,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "project-context"
             | "source-control"
             | "automatic-local-commit"
+            | "automatic-git-push"
             | "git"
             | "workspace-read"
             | "workspace-write"

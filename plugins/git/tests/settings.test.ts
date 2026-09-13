@@ -18,6 +18,7 @@ describe("readGitSettings", () => {
     expect(DEFAULT_SETTINGS.autoCommitMessage).toBe(
       "Denote automatic commit {timestamp}",
     );
+    expect(DEFAULT_SETTINGS.autoPushAfterCommit).toBe(false);
     expect(DEFAULT_SETTINGS.useSystemGitSettings).toBe(true);
     expect(DEFAULT_SETTINGS.authMode).toBe("system");
     expect(DEFAULT_SETTINGS.signingMode).toBe("system");
@@ -33,6 +34,7 @@ describe("readGitSettings", () => {
         authorEmail: "author@example.invalid",
         autoCommitIntervalMinutes: 15,
         autoCommitMessage: "Synthetic automatic commit",
+        autoPushAfterCommit: true,
         includePatterns: "notes, projects/alpha ,",
         excludePatterns: "scratch",
         useSystemGitSettings: false,
@@ -53,6 +55,7 @@ describe("readGitSettings", () => {
       },
       autoCommitIntervalMinutes: 15,
       autoCommitMessage: "Synthetic automatic commit",
+      autoPushAfterCommit: true,
       includePatterns: ["notes", "projects/alpha"],
       excludePatterns: ["scratch"],
     });

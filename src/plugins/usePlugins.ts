@@ -81,6 +81,7 @@ function permissionRequestEqual(
     case "project-context":
     case "source-control":
     case "automatic-local-commit":
+    case "automatic-git-push":
     case "git":
     case "workspace-read":
     case "workspace-write":
