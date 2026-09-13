@@ -4795,8 +4795,11 @@ kbd {
 
 .plugin-settings__header h3,
 .plugin-settings__header p,
+.plugin-settings__updates h4,
+.plugin-settings__updates p,
+.plugin-settings__recovery h4,
+.plugin-settings__recovery p,
 .plugin-settings__groups h4,
-.plugin-card h5,
 .plugin-card p,
 .plugin-card__details h6,
 .plugin-guide h6 {
@@ -4822,21 +4825,61 @@ kbd {
   white-space: nowrap;
 }
 
-.plugin-settings__header-actions {
+.plugin-settings__updates,
+.plugin-settings__recovery {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 12px;
+  background: var(--editor-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.plugin-settings__updates h4,
+.plugin-settings__recovery h4 {
+  font-size: 12px;
+}
+
+.plugin-settings__updates p,
+.plugin-settings__recovery p {
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.plugin-settings__update-actions {
   display: flex;
   flex: none;
   flex-wrap: wrap;
+  align-items: center;
   justify-content: flex-end;
   gap: 8px;
 }
 
 .plugin-settings__auto-update {
-  max-width: 260px;
-  padding: 4px 0;
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 2px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 650;
+  cursor: pointer;
 }
 
-.plugin-settings__auto-update small {
-  display: block;
+.plugin-settings__auto-update input {
+  width: auto;
+  height: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.plugin-settings__recovery .secondary-button {
+  flex: none;
 }
 
 .plugin-settings__header p {
@@ -4974,10 +5017,14 @@ kbd {
 }
 
 .plugin-settings__groups,
-.plugin-settings__groups > section,
-.plugin-settings__list {
+.plugin-settings__groups > section {
   display: grid;
   gap: 12px;
+}
+
+.plugin-settings__list {
+  display: grid;
+  gap: 6px;
 }
 
 .plugin-settings__groups h4 {
@@ -4998,31 +5045,67 @@ kbd {
 }
 
 .plugin-card {
-  display: grid;
-  gap: 14px;
-  padding: 16px;
   background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
+  overflow: hidden;
 }
 
-.plugin-card__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
+.plugin-card__summary {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 11px;
+  cursor: pointer;
+  list-style: none;
 }
 
-.plugin-card__header > div {
+.plugin-card__summary::-webkit-details-marker {
+  display: none;
+}
+
+.plugin-card__summary:hover {
+  background: var(--editor-bg);
+}
+
+.plugin-card__summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.plugin-card[open] > .plugin-card__summary {
+  background: var(--editor-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.plugin-card__disclosure {
+  color: var(--text-tertiary);
+  transition: transform 120ms ease;
+}
+
+.plugin-card[open] > .plugin-card__summary .plugin-card__disclosure {
+  transform: rotate(90deg);
+}
+
+.plugin-card__name {
   min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.plugin-card h5 {
-  font-size: 13px;
+.plugin-card__body {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 16px;
 }
 
-.plugin-card__header p {
-  margin-top: 3px;
+.plugin-card__description {
   color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.45;
@@ -5266,6 +5349,13 @@ kbd {
   border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
 }
 
+.plugin-card__signing-warning strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
 .plugin-settings-json {
   border-top: 1px solid var(--border);
 }
@@ -5411,7 +5501,20 @@ kbd {
     display: grid;
   }
 
+  .plugin-settings__updates,
+  .plugin-settings__recovery {
+    display: grid;
+  }
+
+  .plugin-settings__update-actions {
+    justify-content: flex-start;
+  }
+
   .plugin-settings__header .secondary-button {
+    justify-self: start;
+  }
+
+  .plugin-settings__recovery .secondary-button {
     justify-self: start;
   }
 }
@@ -6298,9 +6401,19 @@ kbd {
   *::after {
     scroll-behavior: auto !important;
   }
+
+  .plugin-card__disclosure {
+    transition: none;
+  }
 }
 
 @media (forced-colors: active) {
+  .plugin-card,
+  .plugin-settings__updates,
+  .plugin-settings__recovery {
+    border-color: ButtonText;
+  }
+
   .structured-data-viewer__toolbar button,
   .structured-view-toggle button,
   .structured-data-viewer__type,

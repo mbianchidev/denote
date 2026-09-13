@@ -102,9 +102,12 @@ the picker.
 The Settings dialog contains the searchable, category-grouped plugin manager.
 It shows catalog metadata, requested permissions, status, in-app guides,
 declarative settings, enable/disable controls, and explicit data or credential
-cleanup. Permissions must be approved before download. Structured permission
-objects are persisted and compared with the current manifest, so any permission
-change requires approval again.
+cleanup. Each catalog entry is a native disclosure, collapsed by default to its
+name and current status; opening it reveals the remaining information and
+actions, while entries with errors open automatically. Permissions must be
+approved before download. Structured permission objects are persisted and
+compared with the current manifest, so any permission change requires approval
+again.
 Prior approval metadata remains after package code is disabled or removed; it
 does not grant runtime access. It exists so an explicit **Update all** can select
 only previously approved plugins, show one confirmation, and re-accept each
@@ -120,7 +123,9 @@ without a confirmation prompt for plugins whose next version keeps every
 already-approved permission unchanged. A plugin whose next version changes its
 requested permissions is never touched by the automatic path; it keeps showing
 as update-available until the user reviews it through **Update all** or its
-own **Review and update** action.
+own **Review and update** action. Automatic updates and **Update all** share a
+compact update strip; **Disable all plugins** is separated into the recovery
+footer below the catalog.
 When the focused file has an active explicit or implicit project, Settings also
 shows a non-blocking **Code tooling** recommendation. Git, Terminal, Language
 server, Linter, Compiler, and Code navigation roles report unavailable,
@@ -525,6 +530,9 @@ and quotes them back in a hunk request.
 For OpenPGP signing, both the modern `gpg.openpgp.program` setting and the
 legacy `gpg.program` alias retain Git's system-to-global order, so a configured
 Windows Gpg4win installation is not replaced by Git for Windows' bundled GPG.
+When system Git settings are active, the host settings surface warns users to
+verify those program values and `user.signingKey` before relying on a system
+GPG key, because separate Windows GPG installations may use separate keyrings.
 
 ### Remote authentication
 

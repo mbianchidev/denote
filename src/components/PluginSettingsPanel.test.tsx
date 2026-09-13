@@ -50,14 +50,128 @@ function props(overrides: Partial<Parameters<typeof PluginSettingsPanel>[0]> = {
   };
 }
 
+function pluginDisclosure(name: string): HTMLDetailsElement {
+  const nameElement = screen
+    .getAllByText(name)
+    .find((element) => element.closest("summary"));
+  expect(nameElement).toBeDefined();
+  const disclosure = nameElement!.closest("details");
+  expect(disclosure).not.toBeNull();
+  return disclosure as HTMLDetailsElement;
+}
+
+async function expandPlugin(
+  user: ReturnType<typeof userEvent.setup>,
+  name = "Reference plugin",
+): Promise<HTMLDetailsElement> {
+  const disclosure = pluginDisclosure(name);
+  if (!disclosure.open) {
+    await user.click(disclosure.querySelector("summary")!);
+  }
+  return disclosure;
+}
+
 describe("PluginSettingsPanel", () => {
+  it("collapses plugins to their name and status until opened", async () => {
+    const user = userEvent.setup();
+    render(<PluginSettingsPanel {...props()} />);
+
+    const disclosure = pluginDisclosure("Reference plugin");
+    const summary = disclosure.querySelector("summary");
+    expect(disclosure).not.toHaveAttribute("open");
+    expect(summary).toHaveTextContent("Reference plugin");
+    expect(summary).toHaveTextContent("Disabled");
+    expect(summary).not.toHaveTextContent(catalog.manifest.description);
+
+    await user.click(summary!);
+
+    expect(disclosure).toHaveAttribute("open");
+    expect(screen.getByText(catalog.manifest.description)).toBeInTheDocument();
+  });
+
+  it("separates plugin updates from the global recovery action", async () => {
+    const user = userEvent.setup();
+    const onSetAutoUpdateEnabled = vi.fn();
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [plugin({ enabled: true, status: "enabled" })],
+          onSetAutoUpdateEnabled,
+        })}
+      />,
+    );
+
+    const autoUpdate = screen.getByRole("checkbox", {
+      name: "Automatically update plugins",
+    });
+    expect(autoUpdate.closest(".plugin-settings__updates")).not.toBeNull();
+    await user.click(autoUpdate);
+    expect(onSetAutoUpdateEnabled).toHaveBeenCalledWith(true);
+
+    expect(
+      screen
+        .getByRole("button", { name: "Disable all plugins" })
+        .closest(".plugin-settings__recovery"),
+    ).not.toBeNull();
+  });
+
+  it("warns when the Git plugin uses system signing configuration", async () => {
+    const user = userEvent.setup();
+    const gitCatalog = {
+      ...catalog,
+      manifest: {
+        ...catalog.manifest,
+        id: "denote.git",
+        name: "Git vault versioning",
+        settings: {
+          version: 1,
+          properties: {
+            useSystemGitSettings: {
+              type: "boolean" as const,
+              title: "Use system Git settings",
+              default: true,
+            },
+            gpgSigningKey: {
+              type: "string" as const,
+              title: "GPG signing key",
+              default: "",
+              sensitive: true,
+            },
+          },
+        },
+      },
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({
+          plugins: [
+            plugin({
+              catalog: gitCatalog,
+              settings: {
+                useSystemGitSettings: true,
+                gpgSigningKey: "",
+              },
+            }),
+          ],
+        })}
+      />,
+    );
+
+    await expandPlugin(user, "Git vault versioning");
+
+    expect(
+      screen.getByText("Check your system Git signing configuration"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/user\.signingKey.*gpg\.openpgp\.program.*gpg\.program/i),
+    ).toBeInTheDocument();
+  });
+
   it("shows catalog metadata and filters plugins", async () => {
     const user = userEvent.setup();
     render(<PluginSettingsPanel {...props()} />);
 
-    expect(
-      screen.getByRole("heading", { name: "Reference plugin" }),
-    ).toBeInTheDocument();
+    await expandPlugin(user);
     expect(screen.getByText("Not stored locally")).toBeInTheDocument();
 
     const search = screen.getByRole("searchbox", { name: "Search plugins" });
@@ -65,9 +179,7 @@ describe("PluginSettingsPanel", () => {
     expect(screen.getByText("No plugins match these filters.")).toBeInTheDocument();
     await user.clear(search);
     await user.type(search, "synthetic value");
-    expect(
-      screen.getByRole("heading", { name: "Reference plugin" }),
-    ).toBeInTheDocument();
+    expect(pluginDisclosure("Reference plugin")).toBeInTheDocument();
   });
 
   it("loads local archives only when development support is available", async () => {

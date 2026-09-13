@@ -355,6 +355,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Terminal, Language server, Linter, Compiler, and Code navigation roles show
   unavailable, disabled, or enabled status; Denote never downloads or enables
   them automatically, and core project behavior does not depend on plugins.
+- Plugin catalog entries are collapsed by default to one keyboard-operable row
+  showing only the plugin name and current status. Opening a row reveals its
+  description, provenance, permissions, guide, settings, and lifecycle actions;
+  entries with an error open automatically. Automatic update controls live in
+  a compact update strip, while **Disable all plugins** stays in a separate
+  recovery footer below the catalog.
 - **Update all** appears only when previously approved plugins have available
   updates. One confirmation lists the affected plugins and re-accepts each
   latest complete permission payload. Each plugin then updates through its own
@@ -465,7 +471,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   always sign, or never sign. An optional masked GPG key setting selects the
   key, and modern or legacy OpenPGP program settings keep Git's normal
   precedence. The system GPG agent or pinentry owns any passphrase; Denote never
-  stores or receives it. Automatic commits remain unsigned and unattended.
+  stores or receives it. While system Git settings are enabled, the settings
+  surface warns that `user.signingKey`, `gpg.openpgp.program`, and the legacy
+  `gpg.program` must identify the intended secret key and GPG installation,
+  especially on Windows where separate GPG installations can use different
+  keyrings. Automatic commits remain unsigned and unattended.
 - The manual commit form offers Commit and Commit and push. Its per-commit
   signing control defaults on and can explicitly request an unsigned commit.
   Leaving the message empty uses `Denote manual commit {timestamp}`, with the
