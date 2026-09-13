@@ -1,9 +1,11 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronRight,
   FolderOpen,
   Info,
   Plug,
+  Power,
   Search,
   ShieldCheck,
   Trash2,
@@ -254,9 +256,32 @@ export function PluginSettingsPanel({
             enable it. Disabling stops the plugin and deletes its package.
           </p>
         </div>
-        <div className="plugin-settings__header-actions">
+        {developmentSupported ? (
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void onLoadDevelopment().catch(onError)}
+          >
+            <FolderOpen aria-hidden="true" size={14} />
+            Load local plugin archive
+          </button>
+        ) : null}
+      </header>
+
+      <section
+        className="plugin-settings__updates"
+        aria-labelledby="plugin-update-settings-title"
+      >
+        <div>
+          <h4 id="plugin-update-settings-title">Plugin updates</h4>
+          <p>
+            Automatic updates run only when every approved permission stays
+            unchanged.
+          </p>
+        </div>
+        <div className="plugin-settings__update-actions">
           <label
-            className="plugin-setting plugin-setting--checkbox plugin-settings__auto-update"
+            className="plugin-settings__auto-update"
             htmlFor="plugin-auto-update-toggle"
           >
             <input
@@ -267,25 +292,8 @@ export function PluginSettingsPanel({
                 onSetAutoUpdateEnabled(event.currentTarget.checked)
               }
             />
-            <span>
-              <strong>Automatically update plugins</strong>
-              <small>
-                Applies updates that keep every previously approved
-                permission unchanged. Updates that request new permissions
-                still need review in Update all.
-              </small>
-            </span>
+            <span>Automatically update plugins</span>
           </label>
-          {developmentSupported ? (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => void onLoadDevelopment().catch(onError)}
-            >
-              <FolderOpen aria-hidden="true" size={14} />
-              Load local plugin archive
-            </button>
-          ) : null}
           {approvedUpdates.length > 0 ? (
             <button
               type="button"
@@ -299,17 +307,8 @@ export function PluginSettingsPanel({
               Update all ({approvedUpdates.length})
             </button>
           ) : null}
-          {plugins.some((plugin) => plugin.enabled) ? (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => void onDisableAll().catch(onError)}
-            >
-              Disable all plugins
-            </button>
-          ) : null}
         </div>
-      </header>
+      </section>
 
       {pendingUpdateAll ? (
         <section
@@ -436,92 +435,135 @@ export function PluginSettingsPanel({
                   const draft = drafts[pluginId] ?? plugin.settings;
                   const confirmEnable = pendingEnable === pluginId;
                   return (
-                    <article className="plugin-card" key={pluginId}>
-                      <header className="plugin-card__header">
-                        <div>
-                          <h5>{manifest.name}</h5>
-                          <p>{manifest.description}</p>
-                        </div>
+                    <details
+                      className="plugin-card"
+                      key={pluginId}
+                      open={plugin.error ? true : undefined}
+                    >
+                      <summary className="plugin-card__summary">
+                        <ChevronRight
+                          className="plugin-card__disclosure"
+                          aria-hidden="true"
+                          size={14}
+                        />
+                        <span className="plugin-card__name">
+                          {manifest.name}
+                        </span>
                         <span
                           className={`plugin-status plugin-status--${plugin.status}`}
                         >
                           {statusLabel(plugin)}
                         </span>
-                      </header>
-                      <dl className="plugin-card__metadata">
-                        <div>
-                          <dt>Version</dt>
-                          <dd>
-                            {runtimeManifest.version !== manifest.version
-                              ? `${runtimeManifest.version} installed · ${manifest.version} available`
-                              : manifest.version}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>Publisher</dt>
-                          <dd>{manifest.publisher.name}</dd>
-                        </div>
-                        <div>
-                          <dt>Package</dt>
-                          <dd>{plugin.enabled ? "Downloaded" : "Not stored locally"}</dd>
-                        </div>
-                        <div>
-                          <dt>Trust</dt>
-                          <dd>
-                            {plugin.development
-                              ? "Local development archive"
-                              : plugin.catalog.provenance.trusted
-                              ? `Verified ${plugin.catalog.provenance.publisherId}`
-                              : "Untrusted"}
-                          </dd>
-                        </div>
-                      </dl>
-                      {plugin.development ? (
-                        <div className="notice-block notice-block--info">
-                          <Info aria-hidden="true" size={15} />
-                          <p>
-                            This archive is trusted only for this development
-                            session. Disable the plugin before loading a rebuilt
-                            archive with the same ID.
-                          </p>
-                        </div>
-                      ) : null}
-                      {plugin.error ? (
-                        <p className="plugin-card__error" role="alert">
-                          {systemPathForDisplay(plugin.error)}
+                      </summary>
+                      <div className="plugin-card__body">
+                        <p className="plugin-card__description">
+                          {manifest.description}
                         </p>
-                      ) : null}
+                        <dl className="plugin-card__metadata">
+                          <div>
+                            <dt>Version</dt>
+                            <dd>
+                              {runtimeManifest.version !== manifest.version
+                                ? `${runtimeManifest.version} installed · ${manifest.version} available`
+                                : manifest.version}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Publisher</dt>
+                            <dd>{manifest.publisher.name}</dd>
+                          </div>
+                          <div>
+                            <dt>Package</dt>
+                            <dd>
+                              {plugin.enabled
+                                ? "Downloaded"
+                                : "Not stored locally"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Trust</dt>
+                            <dd>
+                              {plugin.development
+                                ? "Local development archive"
+                                : plugin.catalog.provenance.trusted
+                                  ? `Verified ${plugin.catalog.provenance.publisherId}`
+                                  : "Untrusted"}
+                            </dd>
+                          </div>
+                        </dl>
+                        {plugin.development ? (
+                          <div className="notice-block notice-block--info">
+                            <Info aria-hidden="true" size={15} />
+                            <p>
+                              This archive is trusted only for this development
+                              session. Disable the plugin before loading a
+                              rebuilt archive with the same ID.
+                            </p>
+                          </div>
+                        ) : null}
+                        {plugin.error ? (
+                          <p className="plugin-card__error" role="alert">
+                            {systemPathForDisplay(plugin.error)}
+                          </p>
+                        ) : null}
 
-                      <details
-                        className="plugin-card__details"
-                        open={Boolean(plugin.error) ? true : undefined}
-                      >
-                        <summary>Permissions and guide</summary>
-                        <div className="plugin-card__details-body">
-                          <section>
-                            <h6>Permissions</h6>
-                            {permissions.length > 0 ? (
-                              <ul>
-                                {manifest.permissions.map((permission) => (
-                                  <li key={permission.capability}>
-                                    {permissionLabel(permission.capability)}
-                                    {permissionScope(permission) ? (
-                                      <small>{permissionScope(permission)}</small>
-                                    ) : null}
-                                  </li>
-                                ))}
-                              </ul>
-                            ) : (
-                              <p>No additional permissions.</p>
-                            )}
-                          </section>
-                          <Guide guide={plugin.catalog.guide} />
-                        </div>
-                      </details>
+                        <details
+                          className="plugin-card__details"
+                          open={Boolean(plugin.error) ? true : undefined}
+                        >
+                          <summary>Permissions and guide</summary>
+                          <div className="plugin-card__details-body">
+                            <section>
+                              <h6>Permissions</h6>
+                              {permissions.length > 0 ? (
+                                <ul>
+                                  {manifest.permissions.map((permission) => (
+                                    <li key={permission.capability}>
+                                      {permissionLabel(permission.capability)}
+                                      {permissionScope(permission) ? (
+                                        <small>
+                                          {permissionScope(permission)}
+                                        </small>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p>No additional permissions.</p>
+                              )}
+                            </section>
+                            <Guide guide={plugin.catalog.guide} />
+                          </div>
+                        </details>
 
-                      {Object.keys(settingDefinitions).length > 0 ? (
-                        <fieldset className="plugin-card__settings" disabled={busy}>
-                          <legend>Settings</legend>
+                        {Object.keys(settingDefinitions).length > 0 ? (
+                          <fieldset
+                            className="plugin-card__settings"
+                            disabled={busy}
+                          >
+                            <legend>Settings</legend>
+                            {pluginId === "denote.git" &&
+                            draft.useSystemGitSettings !== false ? (
+                              <div className="notice-block notice-block--warning plugin-card__signing-warning">
+                                <AlertTriangle
+                                  aria-hidden="true"
+                                  size={15}
+                                />
+                                <div>
+                                  <strong>
+                                    Check your system Git signing configuration
+                                  </strong>
+                                  <p>
+                                    Before signing with a system GPG key, verify
+                                    that user.signingKey and
+                                    gpg.openpgp.program (or gpg.program) point
+                                    to the intended secret key and GPG
+                                    installation. On Windows, Git may otherwise
+                                    use a different bundled GPG and keyring.
+                                  </p>
+                                </div>
+                              </div>
+                            ) : null}
                           {Object.entries(settingDefinitions).map(
                             ([key, definition]) =>
                               !EXECUTABLE_SETTING_KEYS.has(key) ? (
@@ -696,119 +738,114 @@ export function PluginSettingsPanel({
                               Import JSON
                             </button>
                           </details>
-                        </fieldset>
-                      ) : null}
+                          </fieldset>
+                        ) : null}
 
-                      {confirmEnable ? (
-                        <section
-                          className="plugin-card__permission-confirm"
-                          aria-labelledby={`${pluginId}-permission-title`}
-                        >
-                          <h6 id={`${pluginId}-permission-title`}>
-                            <ShieldCheck aria-hidden="true" size={14} />
-                            {plugin.status === "update-available"
-                              ? "Approve update permissions?"
-                              : "Approve permissions?"}
-                          </h6>
-                          <p>
-                            Denote will {plugin.development ? "verify" : "download and verify"} the
-                            package, then run it in an isolated worker. An
-                            installed version remains available unless the update
-                            completes successfully.
-                          </p>
-                          {pluginId === "denote.git" ? (
-                            <div className="notice-block notice-block--info">
-                              <Info aria-hidden="true" size={15} />
-                              <p>
-                                Git is required. Bundled is the default; System
-                                and Custom require Git installed on this machine.
-                                Bundled downloads Git only when the first Git
-                                action needs it. GitHub CLI is optional and is
-                                needed only for GitHub sign-in and repository
-                                browsing; its Bundled archive is likewise
-                                downloaded only for those actions.
-                              </p>
+                        {confirmEnable ? (
+                          <section
+                            className="plugin-card__permission-confirm"
+                            aria-labelledby={`${pluginId}-permission-title`}
+                          >
+                            <h6 id={`${pluginId}-permission-title`}>
+                              <ShieldCheck aria-hidden="true" size={14} />
+                              {plugin.status === "update-available"
+                                ? "Approve update permissions?"
+                                : "Approve permissions?"}
+                            </h6>
+                            <p>
+                              Denote will{" "}
+                              {plugin.development
+                                ? "verify"
+                                : "download and verify"}{" "}
+                              the package, then run it in an isolated worker. An
+                              installed version remains available unless the
+                              update completes successfully.
+                            </p>
+                            {pluginId === "denote.git" ? (
+                              <div className="notice-block notice-block--info">
+                                <Info aria-hidden="true" size={15} />
+                                <p>
+                                  Git is required. Bundled is the default;
+                                  System and Custom require Git installed on
+                                  this machine. Bundled downloads Git only when
+                                  the first Git action needs it. GitHub CLI is
+                                  optional and is needed only for GitHub sign-in
+                                  and repository browsing; its Bundled archive
+                                  is likewise downloaded only for those actions.
+                                </p>
+                              </div>
+                            ) : null}
+                            <div>
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={busy}
+                                onClick={() => setPendingEnable(null)}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="primary-button"
+                                disabled={busy}
+                                onClick={() =>
+                                  void onEnable(
+                                    pluginId,
+                                    manifest.permissions,
+                                  )
+                                    .then(() => setPendingEnable(null))
+                                    .catch(onError)
+                                }
+                              >
+                                {busy
+                                  ? plugin.status === "update-available"
+                                    ? "Updating…"
+                                    : "Enabling…"
+                                  : plugin.status === "update-available"
+                                    ? "Approve and update"
+                                    : "Approve and enable"}
+                              </button>
                             </div>
-                          ) : null}
-                          <div>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={busy}
-                              onClick={() => setPendingEnable(null)}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              className="primary-button"
-                              disabled={busy}
-                              onClick={() =>
-                                void onEnable(pluginId, manifest.permissions)
-                                  .then(() => setPendingEnable(null))
-                                  .catch(onError)
-                              }
-                            >
-                              {busy
-                                ? plugin.status === "update-available"
-                                  ? "Updating…"
-                                  : "Enabling…"
-                                : plugin.status === "update-available"
-                                  ? "Approve and update"
-                                  : "Approve and enable"}
-                            </button>
-                          </div>
-                        </section>
-                      ) : (
-                        <div className="plugin-card__actions">
-                          {plugin.status === "update-available" ? (
-                            <button
-                              type="button"
-                              className="primary-button"
-                              disabled={busy}
-                              onClick={() => setPendingEnable(pluginId)}
-                            >
-                              Review and update
-                            </button>
-                          ) : !plugin.enabled ? (
-                            <button
-                              type="button"
-                              className="primary-button"
-                              disabled={busy || plugin.status === "incompatible"}
-                              onClick={() => setPendingEnable(pluginId)}
-                            >
-                              Enable
-                            </button>
-                          ) : null}
-                          {plugin.enabled ? (
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={busy}
-                              onClick={() =>
-                                void onDisable(pluginId).catch(onError)
-                              }
-                            >
-                              {busy ? "Disabling…" : "Disable and remove code"}
-                            </button>
-                          ) : null}
-                          {!plugin.enabled ? (
-                            <>
+                          </section>
+                        ) : (
+                          <div className="plugin-card__actions">
+                            {plugin.status === "update-available" ? (
+                              <button
+                                type="button"
+                                className="primary-button"
+                                disabled={busy}
+                                onClick={() => setPendingEnable(pluginId)}
+                              >
+                                Review and update
+                              </button>
+                            ) : !plugin.enabled ? (
+                              <button
+                                type="button"
+                                className="primary-button"
+                                disabled={
+                                  busy || plugin.status === "incompatible"
+                                }
+                                onClick={() => setPendingEnable(pluginId)}
+                              >
+                                Enable
+                              </button>
+                            ) : null}
+                            {plugin.enabled ? (
                               <button
                                 type="button"
                                 className="secondary-button"
                                 disabled={busy}
                                 onClick={() =>
-                                  setPendingCleanup({
-                                    pluginId,
-                                    kind: "data",
-                                  })
+                                  void onDisable(pluginId).catch(onError)
                                 }
                               >
-                                <Trash2 aria-hidden="true" size={13} />
-                                Delete saved data
+                                {busy
+                                  ? "Disabling…"
+                                  : "Disable and remove code"}
                               </button>
-                              {plugin.hasCredentials ? (
+                            ) : null}
+                            {!plugin.enabled ? (
+                              <>
                                 <button
                                   type="button"
                                   className="secondary-button"
@@ -816,72 +853,88 @@ export function PluginSettingsPanel({
                                   onClick={() =>
                                     setPendingCleanup({
                                       pluginId,
-                                      kind: "credentials",
+                                      kind: "data",
                                     })
                                   }
                                 >
                                   <Trash2 aria-hidden="true" size={13} />
-                                  Delete credentials
+                                  Delete saved data
                                 </button>
-                              ) : null}
-                            </>
-                          ) : null}
-                        </div>
-                      )}
-                      {pendingCleanup?.pluginId === pluginId ? (
-                        <section
-                          className="plugin-card__permission-confirm"
-                          aria-labelledby={`${pluginId}-cleanup-title`}
-                        >
-                          <h6 id={`${pluginId}-cleanup-title`}>
-                            Delete plugin {pendingCleanup.kind}?
-                          </h6>
-                          <p>
-                            This does not delete notes or other user-authored
-                            vault content.
-                          </p>
-                          <div>
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              disabled={busy}
-                              onClick={() => setPendingCleanup(null)}
-                            >
-                              Cancel
-                            </button>
-                            <button
-                              type="button"
-                              className="danger-button"
-                              disabled={busy}
-                              onClick={() => {
-                                const cleanup =
-                                  pendingCleanup.kind === "data"
-                                    ? onClearData(pluginId)
-                                    : onClearCredentials(pluginId);
-                                void cleanup
-                                  .then(() => {
-                                    if (pendingCleanup.kind === "data") {
-                                      setDrafts((current) => ({
-                                        ...current,
-                                        [pluginId]: {},
-                                      }));
-                                      setDirtyPluginIds((current) => {
-                                        const next = new Set(current);
-                                        next.delete(pluginId);
-                                        return next;
-                                      });
+                                {plugin.hasCredentials ? (
+                                  <button
+                                    type="button"
+                                    className="secondary-button"
+                                    disabled={busy}
+                                    onClick={() =>
+                                      setPendingCleanup({
+                                        pluginId,
+                                        kind: "credentials",
+                                      })
                                     }
-                                    setPendingCleanup(null);
-                                  })
-                                  .catch(onError);
-                              }}
-                            >
-                              Delete {pendingCleanup.kind}
-                            </button>
+                                  >
+                                    <Trash2 aria-hidden="true" size={13} />
+                                    Delete credentials
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : null}
                           </div>
-                        </section>
-                      ) : null}
-                    </article>
+                        )}
+                        {pendingCleanup?.pluginId === pluginId ? (
+                          <section
+                            className="plugin-card__permission-confirm"
+                            aria-labelledby={`${pluginId}-cleanup-title`}
+                          >
+                            <h6 id={`${pluginId}-cleanup-title`}>
+                              Delete plugin {pendingCleanup.kind}?
+                            </h6>
+                            <p>
+                              This does not delete notes or other user-authored
+                              vault content.
+                            </p>
+                            <div>
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                disabled={busy}
+                                onClick={() => setPendingCleanup(null)}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                className="danger-button"
+                                disabled={busy}
+                                onClick={() => {
+                                  const cleanup =
+                                    pendingCleanup.kind === "data"
+                                      ? onClearData(pluginId)
+                                      : onClearCredentials(pluginId);
+                                  void cleanup
+                                    .then(() => {
+                                      if (pendingCleanup.kind === "data") {
+                                        setDrafts((current) => ({
+                                          ...current,
+                                          [pluginId]: {},
+                                        }));
+                                        setDirtyPluginIds((current) => {
+                                          const next = new Set(current);
+                                          next.delete(pluginId);
+                                          return next;
+                                        });
+                                      }
+                                      setPendingCleanup(null);
+                                    })
+                                    .catch(onError);
+                                }}
+                              >
+                                Delete {pendingCleanup.kind}
+                              </button>
+                            </div>
+                          </section>
+                        ) : null}
+                      </div>
+                    </details>
                   );
                 })}
               </div>
@@ -889,6 +942,29 @@ export function PluginSettingsPanel({
           ))}
         </div>
       )}
+
+      {plugins.some((plugin) => plugin.enabled) ? (
+        <section
+          className="plugin-settings__recovery"
+          aria-labelledby="plugin-recovery-title"
+        >
+          <div>
+            <h4 id="plugin-recovery-title">Plugin recovery</h4>
+            <p>
+              Stop every active plugin and remove its downloaded code. Saved
+              settings, data, and credentials remain.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void onDisableAll().catch(onError)}
+          >
+            <Power aria-hidden="true" size={14} />
+            Disable all plugins
+          </button>
+        </section>
+      ) : null}
     </section>
   );
 }

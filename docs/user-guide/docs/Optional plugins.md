@@ -5,6 +5,11 @@ run by default. Open **Settings → Plugins** to browse the catalog. You can sea
 category or enabled state, inspect permissions, and read each guide before
 enabling anything.
 
+Each plugin starts as a compact row showing only its name and current status.
+Open the row to see its description, version, publisher, permissions, guide,
+settings, and enable, update, disable, or cleanup actions. Entries with an error
+open automatically so the failure stays visible.
+
 Plugin code comes from separately verified GitHub Release assets, not from the
 desktop installer. Denote checks each package's pinned size and checksum before
 installing it.
@@ -49,7 +54,9 @@ default. Turning it on applies updates for previously approved plugins in the
 background, without the **Update all** confirmation, but only when the update
 keeps every permission the plugin already holds unchanged. An update that asks
 for a new or different permission still waits for you to review it through
-**Update all** or that plugin's own **Review and update** action.
+**Update all** or that plugin's own **Review and update** action. Update controls
+stay together near the top of the panel. **Disable all plugins** is in the
+separate **Plugin recovery** section below the catalog.
 
 Plugins that need credentials can request secure storage. Approved credentials
 are stored in an isolated plugin namespace backed by the operating-system
@@ -334,6 +341,12 @@ your system GPG agent or pinentry asks for the passphrase, which Denote never
 stores. Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`
 in Git's normal order, including a Gpg4win path on Windows. Automatic commits
 remain unsigned.
+
+Before relying on a system GPG key, verify that your selected Git's system or
+global configuration points `user.signingKey` and `gpg.openpgp.program` (or the
+legacy `gpg.program`) at the intended secret key and GPG installation. This is
+especially important on Windows, where Git for Windows and Gpg4win can use
+different GPG executables and keyrings.
 
 The manual commit form provides **Sign commit**, enabled by default for each
 submission, plus **Commit** and **Commit and push**. Turn signing off for an

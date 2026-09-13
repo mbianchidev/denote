@@ -334,18 +334,30 @@ create-and-switch with an explicit start-point selector when search has no exact
 match, and keeps icon buttons for rename and delete. Current branches remain
 visible but disabled, and every option keeps an exact accessible action name.
 Remote URL management lives on the separate Repository tab.
-The plugin manager groups **Update all** with the global recovery controls only
-when approved updates exist. Its first activation opens an inline confirmation
-that lists exact plugin names and explains that the latest full permission sets
-will be accepted; it never hides this security consequence behind a progress
-button. An enabled plugin with an update keeps its installed-version settings
-and runtime until the user chooses **Review and update** or **Update all**; the
-card shows both installed and available versions when they differ.
+The plugin manager keeps automatic updates and conditional **Update all** in one
+compact update strip beneath the section introduction. **Disable all plugins**
+lives separately in a recovery footer below the catalog rather than competing
+with normal controls. Activating **Update all** first opens an inline
+confirmation that lists exact plugin names and explains that the latest full
+permission sets will be accepted; it never hides this security consequence
+behind a progress button.
+An enabled plugin with an update keeps its installed-version settings and
+runtime until the user chooses **Review and update** or **Update all**; the
+expanded entry shows both installed and available versions when they differ.
+Catalog entries use native disclosure controls, closed by default, with a
+44-pixel summary row containing only a chevron, plugin name, and lifecycle
+status. Opening one reveals description, provenance, permissions, guide,
+settings, and lifecycle actions. Error entries open automatically, focus remains
+visible, and nested permissions or JSON disclosures retain native keyboard
+behavior.
 Git executable settings use one compact status block per tool: selected source,
 resolved path, locked or detected version, validation state, and prerequisite
 guidance. Bundled mode shows **not downloaded** until an action first needs it;
 opening settings never starts a download. The native path picker appears only
-for Custom mode.
+for Custom mode. While **Use system Git settings** is active, a warning asks the
+user to verify the selected Git's `user.signingKey`,
+`gpg.openpgp.program`, or legacy `gpg.program` before relying on a system GPG
+key, including the possibility of separate Windows GPG keyrings.
 The source-control commit form places an enabled-by-default **Sign commit**
 control after the commit message. Its native password input exists only while
 signing is selected, explains that it is one-shot and SSH-signing-only, and
