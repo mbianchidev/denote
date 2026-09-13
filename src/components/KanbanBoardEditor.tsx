@@ -108,6 +108,9 @@ export function KanbanBoardEditor({
   const editRef = useRef(edit);
   const onChangeRef = useRef(onChange);
   const onErrorRef = useRef(onError);
+  const currentPathRef = useRef(path);
+  const currentSourceRef = useRef(source);
+  const mountedRef = useRef(true);
   const lastAppliedSource = useRef<string | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const editorFocus = useRef<HTMLElement | null>(null);
@@ -118,6 +121,16 @@ export function KanbanBoardEditor({
   editRef.current = edit;
   onChangeRef.current = onChange;
   onErrorRef.current = onError;
+  currentPathRef.current = path;
+  currentSourceRef.current = source;
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      parseRequest.current += 1;
+    };
+  }, []);
 
   useEffect(() => {
     if (lastAppliedSource.current === source) {
@@ -189,12 +202,25 @@ export function KanbanBoardEditor({
     }
     setBusy(true);
     parseRequest.current += 1;
+    const expectedPath = path;
+    const expectedSource = source;
     try {
       const result = await editRef.current({
-        path,
-        source,
+        path: expectedPath,
+        source: expectedSource,
         edit: operation,
       });
+      if (!mountedRef.current) {
+        return;
+      }
+      if (
+        currentPathRef.current !== expectedPath ||
+        currentSourceRef.current !== expectedSource
+      ) {
+        throw new Error(
+          "The Kanban board changed before this edit completed. Try again.",
+        );
+      }
       lastAppliedSource.current = result.source;
       setModel(result.model);
       setParseError(null);
@@ -208,12 +234,16 @@ export function KanbanBoardEditor({
       }
       onChangeRef.current(result.source);
     } catch (error) {
-      onErrorRef.current(error);
-      setAnnouncement(
-        error instanceof Error ? error.message : "Kanban board edit failed.",
-      );
+      if (mountedRef.current) {
+        onErrorRef.current(error);
+        setAnnouncement(
+          error instanceof Error ? error.message : "Kanban board edit failed.",
+        );
+      }
     } finally {
-      setBusy(false);
+      if (mountedRef.current) {
+        setBusy(false);
+      }
     }
   };
 

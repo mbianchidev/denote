@@ -316,4 +316,64 @@ describe("KanbanBoardEditor", () => {
       }),
     );
   });
+
+  it("refuses a stale worker edit after the open source changes", async () => {
+    let finishEdit:
+      | ((value: { source: string; model: PluginKanbanBoardModel }) => void)
+      | null = null;
+    const edit = vi.fn(
+      () =>
+        new Promise<{ source: string; model: PluginKanbanBoardModel }>(
+          (resolve) => {
+            finishEdit = resolve;
+          },
+        ),
+    );
+    const onChange = vi.fn();
+    const onError = vi.fn();
+    const parse = vi.fn(async () => model);
+    const rendered = render(
+      <KanbanBoardEditor
+        title="Kanban boards"
+        path="Release.kanban.md"
+        source="first source"
+        readOnly={false}
+        parse={parse}
+        edit={edit}
+        onChange={onChange}
+        onLinkOpen={vi.fn()}
+        onError={onError}
+      />,
+    );
+    const user = userEvent.setup();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Move Write specification down",
+      }),
+    );
+
+    rendered.rerender(
+      <KanbanBoardEditor
+        title="Kanban boards"
+        path="Release.kanban.md"
+        source="second source"
+        readOnly={false}
+        parse={parse}
+        edit={edit}
+        onChange={onChange}
+        onLinkOpen={vi.fn()}
+        onError={onError}
+      />,
+    );
+    await act(async () => {
+      finishEdit?.({ source: "stale result", model });
+    });
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringMatching(/changed before this edit completed/i),
+      }),
+    );
+  });
 });
