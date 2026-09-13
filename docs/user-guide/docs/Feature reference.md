@@ -172,8 +172,10 @@ more detail and examples.
 - Render a tag-only final line as colored pills in rich mode.
 - Assign stable default colors and editable per-vault color overrides.
 - Search a tag by selecting its document tag pill.
-- Resolve no-protocol links relative to the current file inside Denote,
-  including parent paths such as `../assets/image.svg`.
+- Resolve existing no-protocol vault paths and explicit relative targets inside
+  Denote, including parent paths such as `../assets/image.svg`.
+- Default unresolved host-like destinations such as
+  `github.com/mbianchidev` to HTTPS before external-domain confirmation.
 - Navigate file and same-file `#heading` anchors in rich or source mode, including
   stable suffixes for duplicate headings.
 - Normalize HTTP(S) protocols, confirm unknown domains, and manage exact or

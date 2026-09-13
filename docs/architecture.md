@@ -1632,7 +1632,11 @@ the opener plugin invokes the operating-system file manager. Duplication reads
 the bounded plaintext through the vault encryption boundary, creates a
 non-conflicting sibling with a fresh encrypted representation when necessary,
 and updates the cached tree. Every no-scheme link resolves relative to the current note and
-stays inside the vault. Hostless local `file:///` links use the associated
+stays inside the vault when it names an existing path or uses an explicit `/`,
+`./`, `../`, or `#` target. When that internal lookup fails, a target whose
+leading segment is host-like defaults to `https://` and enters the same
+external-domain validation and confirmation path as an explicit HTTPS URL.
+Hostless local `file:///` links use the associated
 desktop application; remote file hosts are rejected.
 HTTP(S) schemes are normalized to lowercase and unknown exact domains require
 confirmation; trust is local-only and can be exact or wildcard. Mail, telephone,

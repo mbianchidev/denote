@@ -237,7 +237,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Renaming or moving a file/folder updates relative inline links, images, and
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.
-- No-protocol links always resolve relative to the current file inside the vault.
+- No-protocol links first resolve relative to the current file inside the vault.
+  Existing vault paths and explicit `/`, `./`, `../`, or `#` targets stay
+  internal. An unresolved host-like destination such as
+  `github.com/mbianchidev` defaults to HTTPS and follows the ordinary external
+  domain policy.
 - File and same-file `#heading` fragments navigate to stable rendered heading
   anchors or the matching Markdown source line.
 - HTTP(S) links normalize protocol case and require confirmation for unknown
@@ -419,7 +423,7 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,
   and binds every action to that host-issued repository identity. It performs
-  one read-only refresh when its Git view first opens in a vault and supports initialize,
+  one read-only refresh whenever its Git view opens and supports initialize,
   stage, unstage, commit or commit-and-push of staged changes, and cancellation
   of a running operation. It
   requests no network, process, or workspace-write permission. Setting an

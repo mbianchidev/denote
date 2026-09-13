@@ -202,12 +202,18 @@ source mode so Denote preserves the escape exactly.
 Paste or insert an image to save it beside the note in an `assets` folder.
 Relative image paths stay portable.
 
-Links without a protocol open inside the vault relative to the current note.
+Links without a protocol first look inside the vault relative to the current
+note. Existing paths and explicit `/`, `./`, `../`, or `#` targets stay local.
 `Optional plugins.md` means a file in the same folder;
 `../assets/orbit.svg` moves up one folder and opens the image.
 Append a heading fragment to navigate inside a file:
 `Welcome.md#what-is-denote`. A fragment such as `#images-and-links` navigates
 within the current file.
+
+If no vault path matches and the destination starts with a host-like segment,
+Denote adds `https://`. For example, `github.com/mbianchidev` opens as
+`https://github.com/mbianchidev` through the normal external-domain
+confirmation.
 
 HTTP and HTTPS links open in the operating system browser after confirmation for
 an unknown domain. Choose **Allow domain** or **Allow all external domains**;
