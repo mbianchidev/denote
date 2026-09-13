@@ -384,8 +384,9 @@ and cancellation of deferred work when the app unmounts. Delimiter fast paths
 are covered alongside the full Markdown, HTML, reference, TOC, and code tests;
 never replace those safety parsers with a permissive fallback.
 App-level regressions also require note-event bookkeeping to remain completely
-off the edit path when no enabled plugin requests `note-events`, and the first
-Git refresh to wait until its source-control view is opened.
+off the edit path when no enabled plugin requests `note-events`, and Git
+refreshes to wait until the source-control view opens and rerun whenever it is
+reopened.
 
 Stage with `npm run package:plugin -- denote.emoji-picker`, commit source and
 build inputs, then pin that source with `npm run pin:plugin -- denote.emoji-picker`

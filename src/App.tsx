@@ -295,6 +295,7 @@ import {
 import {
   externalLinkTarget,
   hasUriScheme,
+  implicitHttpsTarget,
   isBlockedExternalScheme,
   isLocalFileUrl,
   isWebLink,
@@ -1713,54 +1714,6 @@ function App() {
   const invalidatePluginActions = pluginController.invalidateActionLeases;
   const runPluginSourceControlAction =
     pluginController.runSourceControlAction;
-  const initiallyRefreshedProviders = useRef(new Set<string>());
-  useEffect(() => {
-    if (!workspace) {
-      return;
-    }
-    const availableKeys = new Set(
-      pluginController.sourceControlProviders.map(
-        (provider) =>
-          `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`,
-      ),
-    );
-    for (const key of initiallyRefreshedProviders.current) {
-      if (key.startsWith(`${workspace.vaultPath}\u0000`) && !availableKeys.has(key)) {
-        initiallyRefreshedProviders.current.delete(key);
-      }
-    }
-    if (!activeSourceControlProvider) {
-      return;
-    }
-    const provider = pluginController.sourceControlProviders.find(
-      (candidate) =>
-        candidate.pluginId === activeSourceControlProvider.pluginId &&
-        candidate.id === activeSourceControlProvider.providerId,
-    );
-    if (
-      !provider ||
-      !provider.model.repository.label.endsWith("refresh required")
-    ) {
-      return;
-    }
-    const key = `${workspace.vaultPath}\u0000${provider.pluginId}\u0000${provider.id}`;
-    if (initiallyRefreshedProviders.current.has(key)) {
-      return;
-    }
-    initiallyRefreshedProviders.current.add(key);
-    void runPluginSourceControlAction(
-      provider.pluginId,
-      provider.id,
-      { id: "refresh" },
-      workspace.vaultPath,
-    ).catch(showError);
-  }, [
-    activeSourceControlProvider,
-    pluginController.sourceControlProviders,
-    runPluginSourceControlAction,
-    showError,
-    workspace?.vaultPath,
-  ]);
   useEffect(() => {
     invalidatePluginActions();
   }, [invalidatePluginActions, workspace?.vaultPath]);
@@ -5620,6 +5573,7 @@ function App() {
             excludePatterns: schedule.excludePatterns,
             authorName: schedule.authorName,
             authorEmail: schedule.authorEmail,
+            pushAfterCommit: schedule.pushAfterCommit,
           },
           vaultPath,
           projectId,
@@ -5627,11 +5581,23 @@ function App() {
         );
         if (outcome.status === "committed") {
           await refreshAndReindex();
-          setStatus(
-            outcome.commitId
-              ? `Automatic commit ${outcome.commitId.slice(0, 7)}`
-              : "Automatic commit created",
-          );
+          const commitStatus = outcome.commitId
+            ? `Automatic commit ${outcome.commitId.slice(0, 7)}`
+            : "Automatic commit created";
+          if (outcome.push?.status === "pushed") {
+            setStatus(`${commitStatus} pushed`);
+          } else if (outcome.push?.status === "skipped") {
+            setStatus(`${commitStatus}; push skipped: ${outcome.push.message}`);
+          } else if (outcome.push?.status === "failed") {
+            setStatus(`${commitStatus}; push failed`);
+            showError(
+              new Error(
+                `${commitStatus} was created, but automatic push failed: ${outcome.push.message}`,
+              ),
+            );
+          } else {
+            setStatus(commitStatus);
+          }
         } else if (outcome.status === "unchanged") {
           setStatus("Automatic commit: no changes");
         } else {
@@ -7454,6 +7420,15 @@ function App() {
             .map((node) => node.path),
         );
         if (!resolved) {
+          const implicitExternalTarget =
+            implicitHttpsTarget(normalizedTarget);
+          if (implicitExternalTarget) {
+            await openWebLinksWithPolicy(
+              [implicitExternalTarget],
+              externalDomainPolicy,
+            );
+            return;
+          }
           showLinkError(`Link target not found: ${normalizedTarget}`);
           return;
         }
@@ -9141,6 +9116,9 @@ function App() {
         onSourceControlProviderChange={(pluginId, providerId) => {
           setActivePluginSidebar(null);
           setActiveSourceControlProvider({ pluginId, providerId });
+          void runSourceControlAction(pluginId, providerId, {
+            id: "refresh",
+          });
         }}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={toggleTheme}

@@ -448,11 +448,13 @@ shows Command/Control-Shift-V and returns focus to the preserved editor
 selection.
 
 External web navigation uses a compact confirmation dialog that states the exact
-domain and full destination. The primary choices are explicit: allow that domain
-or allow all external domains. Settings show exact trusted domains as removable
-rows, or one `*` row when wildcard trust is enabled. The editor toolbar exposes
-one compact open-all action only when the active file contains browser links;
-the same trust dialog pauses and resumes its ordered queue.
+domain and full normalized destination. Existing vault paths and explicit
+relative targets stay internal; an unresolved host-like destination is shown
+with its default `https://` prefix. The primary choices are explicit: allow that
+domain or allow all external domains. Settings show exact trusted domains as
+removable rows, or one `*` row when wildcard trust is enabled. The editor toolbar
+exposes one compact open-all action only when the active file contains browser
+links; the same trust dialog pauses and resumes its ordered queue.
 
 About Denote remains the single build/support surface. Its definition list
 shows version, full source commit, platform, architecture, package, and update

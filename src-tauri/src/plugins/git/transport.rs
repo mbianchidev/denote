@@ -4015,7 +4015,7 @@ pub(crate) fn read_remote_urls(
         )));
     }
     for url in &urls {
-        validate_remote_url(url)?;
+        validate_remote_url_for(url, execution.transport)?;
     }
     Ok(urls)
 }

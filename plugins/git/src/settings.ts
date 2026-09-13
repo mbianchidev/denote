@@ -13,6 +13,7 @@ export interface GitPluginSettings {
   identity: GitCommitIdentity | null;
   autoCommitIntervalMinutes: number;
   autoCommitMessage: string;
+  autoPushAfterCommit: boolean;
   includePatterns: string[];
   excludePatterns: string[];
   /**
@@ -49,6 +50,7 @@ export const DEFAULT_SETTINGS: GitPluginSettings = {
   identity: null,
   autoCommitIntervalMinutes: 0,
   autoCommitMessage: DEFAULT_AUTO_COMMIT_MESSAGE,
+  autoPushAfterCommit: false,
   includePatterns: [],
   excludePatterns: [".denote"],
   authMode: "system",
@@ -74,6 +76,7 @@ export function readGitSettings(value: unknown): GitPluginSettings {
     autoCommitMessage:
       trimmedText(settings.autoCommitMessage, 500) ??
       DEFAULT_AUTO_COMMIT_MESSAGE,
+    autoPushAfterCommit: booleanValue(settings.autoPushAfterCommit, false),
     includePatterns: patterns(settings.includePatterns),
     excludePatterns: patterns(settings.excludePatterns, [".denote"]),
     authMode: choice(settings.authenticationMode, AUTH_MODES, "system"),

@@ -1089,6 +1089,7 @@ describe("usePlugins", () => {
           excludePatterns: [],
           authorName: null,
           authorEmail: null,
+          pushAfterCommit: false,
         },
       ]);
     });

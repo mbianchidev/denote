@@ -23,6 +23,51 @@ export function externalLinkTarget(href: string): string {
     : href;
 }
 
+export function implicitHttpsTarget(href: string): string | null {
+  const target = href.trim();
+  if (
+    !target ||
+    target.startsWith("/") ||
+    target.startsWith("./") ||
+    target.startsWith("../") ||
+    target.startsWith("#") ||
+    target.startsWith("?") ||
+    target.includes("\\")
+  ) {
+    return null;
+  }
+
+  const authority = target.split(/[/?#]/, 1)[0];
+  const portQualifiedHost =
+    /^(?:localhost|(?:[^:]+\.)+[^:]+|\[[^\]]+\]):\d+$/i.test(authority);
+  if (hasUriScheme(target) && !portQualifiedHost) {
+    return null;
+  }
+  if (!authority || authority.includes("@")) {
+    return null;
+  }
+
+  const hostname = authority.startsWith("[")
+    ? authority.slice(0, authority.indexOf("]") + 1)
+    : authority.replace(/:\d+$/, "");
+  if (
+    hostname.toLowerCase() !== "localhost" &&
+    !hostname.includes(".") &&
+    !(hostname.startsWith("[") && hostname.endsWith("]"))
+  ) {
+    return null;
+  }
+
+  try {
+    const url = new URL(`https://${target}`);
+    return url.hostname && !url.username && !url.password
+      ? `https://${target}`
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function hasUriScheme(href: string): boolean {
   return URI_SCHEME.test(href);
 }

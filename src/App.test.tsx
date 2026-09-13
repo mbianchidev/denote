@@ -44,6 +44,7 @@ const mockApi = vi.hoisted(() => ({
   createEntry: vi.fn(),
   trashEntry: vi.fn(),
   restoreTrashItem: vi.fn(),
+  openExternalUri: vi.fn(),
   pluginAutomaticCommit: vi.fn(),
 }));
 
@@ -352,6 +353,7 @@ describe("App initial file-tree expansion", () => {
       isDirectory: false,
     });
     mockApi.restoreTrashItem.mockResolvedValue(fileNode(".gitignore"));
+    mockApi.openExternalUri.mockResolvedValue(undefined);
     mockPluginController.sourceControlProviders = [];
     mockPluginController.automaticLocalCommits = [];
     mockPluginController.emojiPickers = [];
@@ -371,6 +373,7 @@ describe("App initial file-tree expansion", () => {
       status: "committed",
       message: "Committed the tracked changes.",
       commitId: "1111111111111111111111111111111111111111",
+      push: null,
     });
   });
 
@@ -1418,19 +1421,19 @@ describe("App initial file-tree expansion", () => {
     });
   });
 
-  it("defers the initial source control refresh until its view opens", async () => {
+  it("refreshes source control whenever its view opens but not before", async () => {
     const user = userEvent.setup();
     const contribution: PluginSourceControlContribution = {
       pluginId: "denote.synthetic",
       id: "git",
       title: "Synthetic Git",
-      model: appSourceControlModel("Synthetic repository refresh required"),
+      model: appSourceControlModel("Synthetic repository"),
     };
     mockPluginController.sourceControlProviders = [contribution];
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
 
-    const { rerender } = render(<App />);
-    let sourceControl = await screen.findByRole("button", {
+    render(<App />);
+    const sourceControl = await screen.findByRole("button", {
       name: "Source control: Synthetic Git",
     });
     expect(
@@ -1448,16 +1451,8 @@ describe("App initial file-tree expansion", () => {
       ),
     );
 
-    await user.click(screen.getByRole("button", { name: "Files" }));
-    mockPluginController.sourceControlProviders = [];
-    rerender(<App />);
-    mockPluginController.sourceControlProviders = [contribution];
-    rerender(<App />);
     mockPluginController.runSourceControlAction.mockClear();
-    sourceControl = await screen.findByRole("button", {
-      name: "Source control: Synthetic Git",
-    });
-
+    await user.click(screen.getByRole("button", { name: "Files" }));
     await user.click(sourceControl);
 
     await waitFor(() =>
@@ -1468,6 +1463,80 @@ describe("App initial file-tree expansion", () => {
         "/synthetic-vault",
       ),
     );
+  });
+
+  it("opens an unresolved bare web destination as HTTPS", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("note.md")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "note.md",
+      content: "[Profile](github.com/mbianchidev)",
+      contentHash: "note-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Open note.md" }),
+    );
+    await user.click(await screen.findByRole("link", { name: "Profile" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Allow github.com?" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("https://github.com/mbianchidev"),
+    ).toBeInTheDocument();
+    expect(mockApi.openExternalUri).not.toHaveBeenCalled();
+
+    await user.click(
+      screen.getByRole("button", { name: "Allow github.com" }),
+    );
+
+    await waitFor(() =>
+      expect(mockApi.openExternalUri).toHaveBeenCalledWith(
+        "https://github.com/mbianchidev",
+      ),
+    );
+  });
+
+  it("keeps a matching vault-relative destination internal", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("note.md"),
+        folderNode("notes", [fileNode("notes/plan.md")]),
+      ]),
+    );
+    mockApi.readNote.mockImplementation(async (path: string) => ({
+      path,
+      content:
+        path === "note.md"
+          ? "[Plan](notes/plan.md)"
+          : "Synthetic internal destination",
+      contentHash: `${path}-hash`,
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    }));
+
+    render(<App />);
+    await user.click(
+      await screen.findByRole("button", { name: "Open note.md" }),
+    );
+    await user.click(await screen.findByRole("link", { name: "Plan" }));
+
+    await waitFor(() => {
+      expect(mockApi.readNote).toHaveBeenCalledWith("notes/plan.md");
+    });
+    expect(mockApi.openExternalUri).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("heading", { name: /Allow .*?\?/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("runs source control actions, keeps provider models live, and cleans up removed providers", async () => {
@@ -1962,6 +2031,7 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    mockPluginController.runSourceControlAction.mockClear();
     await user.click(screen.getByRole("button", { name: "Stage sample.py" }));
 
     await waitFor(() => {
@@ -2007,6 +2077,7 @@ describe("App initial file-tree expansion", () => {
     await user.click(
       await screen.findByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    mockPluginController.runSourceControlAction.mockClear();
     await user.click(screen.getByRole("button", { name: "Push" }));
 
     expect(
@@ -2630,6 +2701,7 @@ describe("App initial file-tree expansion", () => {
             excludePatterns: [],
             authorName: null,
             authorEmail: null,
+            pushAfterCommit: false,
           },
           "/synthetic-vault",
           null,
@@ -2669,6 +2741,7 @@ describe("App initial file-tree expansion", () => {
         status: "skipped",
         message: "Changes are already staged, so Denote left this commit to you.",
         commitId: null,
+        push: null,
       });
 
       render(<App />);
@@ -2706,6 +2779,37 @@ describe("App initial file-tree expansion", () => {
       await vi.advanceTimersByTimeAsync(300_000);
 
       expect(mockApi.pluginAutomaticCommit).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reports an automatic commit pushed to its upstream", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockPluginController.automaticLocalCommits = [
+        automaticCommitSchedule({ pushAfterCommit: true }),
+      ];
+      mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+      mockApi.pluginAutomaticCommit.mockResolvedValue({
+        status: "committed",
+        message: "Committed the tracked changes.",
+        commitId: "1111111111111111111111111111111111111111",
+        push: {
+          status: "pushed",
+          message: "Pushed the automatic commit to origin/main.",
+        },
+      });
+
+      render(<App />);
+      await screen.findByTestId("file-tree-expanded");
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      await waitFor(() => {
+        expect(
+          screen.getAllByText("Automatic commit 1111111 pushed").length,
+        ).toBeGreaterThan(0);
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -2958,6 +3062,7 @@ describe("App initial file-tree expansion", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Source control: Synthetic Git" }),
     );
+    mockPluginController.runSourceControlAction.mockClear();
     fireEvent.click(screen.getByRole("button", { name: "Branch: main" }));
     fireEvent.click(screen.getByRole("button", { name: "Switch to topic" }));
     fireEvent.click(
@@ -2988,7 +3093,9 @@ describe("App initial file-tree expansion", () => {
 
 });
 
-function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
+function automaticCommitSchedule(
+  overrides: Partial<PluginAutomaticLocalCommitContribution> = {},
+): PluginAutomaticLocalCommitContribution {
   return {
     pluginId: "denote.synthetic",
     id: "denote.synthetic.nightly",
@@ -2998,6 +3105,8 @@ function automaticCommitSchedule(): PluginAutomaticLocalCommitContribution {
     excludePatterns: [],
     authorName: null,
     authorEmail: null,
+    pushAfterCommit: false,
+    ...overrides,
   };
 }
 

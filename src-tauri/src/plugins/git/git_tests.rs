@@ -2175,7 +2175,7 @@ pub(super) struct GitFixture {
 
 pub(super) fn git_manager(data: &TempDir, cache: &TempDir) -> PluginManager {
     let mut catalog = catalog();
-    for capability in ["git", "automatic-local-commit"] {
+    for capability in ["git", "automatic-local-commit", "automatic-git-push"] {
         catalog.manifest.permissions.push(PluginPermission {
             capability: capability.to_string(),
             hosts: vec![],

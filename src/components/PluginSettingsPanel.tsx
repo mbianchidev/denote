@@ -49,6 +49,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "project-context": "Observe the focused project root",
   "source-control": "Provide source control status and actions",
   "automatic-local-commit": "Allow automatic local commits",
+  "automatic-git-push": "Push new automatic commits to an existing upstream",
   git: "Run reviewed Git operations in this vault or project",
   "workspace-read": "Read vault content",
   "workspace-write": "Change vault content after an explicit action",

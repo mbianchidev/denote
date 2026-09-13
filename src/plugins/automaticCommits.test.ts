@@ -36,7 +36,17 @@ describe("normalizeAutomaticLocalCommitSchedule", () => {
       excludePatterns: ["notes/drafts"],
       authorName: "Synthetic Author",
       authorEmail: "synthetic@example.invalid",
+      pushAfterCommit: false,
     });
+  });
+
+  it("preserves an explicit automatic push request", () => {
+    expect(
+      normalizeAutomaticLocalCommitSchedule(
+        "denote.synthetic",
+        schedule({ pushAfterCommit: true }),
+      ).pushAfterCommit,
+    ).toBe(true);
   });
 
   it("requires the plugin's own ID prefix", () => {
@@ -130,6 +140,7 @@ describe("isPluginAutomaticLocalCommitPayload", () => {
         excludePatterns: [],
         authorName: null,
         authorEmail: null,
+        pushAfterCommit: false,
       }),
     ).toBe(true);
   });
@@ -144,6 +155,7 @@ describe("isPluginAutomaticLocalCommitPayload", () => {
         excludePatterns: [],
         authorName: null,
         authorEmail: null,
+        pushAfterCommit: false,
       }),
     ).toBe(false);
     expect(
@@ -155,6 +167,19 @@ describe("isPluginAutomaticLocalCommitPayload", () => {
         excludePatterns: [],
         authorName: "Synthetic Author",
         authorEmail: null,
+        pushAfterCommit: false,
+      }),
+    ).toBe(false);
+    expect(
+      isPluginAutomaticLocalCommitPayload({
+        id: "denote.synthetic.nightly",
+        intervalMinutes: 15,
+        message: "Synthetic automatic commit",
+        includePatterns: [],
+        excludePatterns: [],
+        authorName: null,
+        authorEmail: null,
+        pushAfterCommit: "yes",
       }),
     ).toBe(false);
     expect(isPluginAutomaticLocalCommitPayload({ id: "" })).toBe(false);

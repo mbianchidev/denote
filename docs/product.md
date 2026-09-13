@@ -237,7 +237,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Renaming or moving a file/folder updates relative inline links, images, and
   reference definitions in eligible Markdown files; skipped or conflicting
   rewrites are surfaced.
-- No-protocol links always resolve relative to the current file inside the vault.
+- No-protocol links first resolve relative to the current file inside the vault.
+  Existing vault paths and explicit `/`, `./`, `../`, or `#` targets stay
+  internal. An unresolved host-like destination such as
+  `github.com/mbianchidev` defaults to HTTPS and follows the ordinary external
+  domain policy.
 - File and same-file `#heading` fragments navigate to stable rendered heading
   anchors or the matching Markdown source line.
 - HTTP(S) links normalize protocol case and require confirmation for unknown
@@ -425,30 +429,35 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,
   and binds every action to that host-issued repository identity. It performs
-  one read-only refresh when its Git view first opens in a vault and supports initialize,
+  one read-only refresh whenever its Git view opens and supports initialize,
   stage, unstage, commit or commit-and-push of staged changes, and cancellation
   of a running operation. It
-  requests no network, process, or workspace-write permission. Setting an
+  requests no generic network, process, or workspace-write permission. Setting an
   automatic commit interval above zero also enables timed local commits: Denote
   saves open notes first, then commits only tracked changes that match the
   configured include and exclude prefixes, never adds untracked files, never
-  contacts a remote, skips the run when work is already staged or a merge is
-  unfinished, and leaves the index exactly as it was whenever a run does not
-  finish. Its default message is `Denote automatic commit {timestamp}`, where
-  the placeholder resolves in the current timezone as `yyyy-mm-dd hh:mm`.
+  contacts a remote unless **Push automatic commits** is enabled, skips the run
+  when work is already staged or a merge is unfinished, and leaves the index
+  exactly as it was whenever a run does not finish. The opt-in push uses the
+  same interval, requires its own approved permission, runs only after a new
+  automatic commit, and pushes the current branch to its existing upstream
+  without creating one or force-pushing. Its default message is
+  `Denote automatic commit {timestamp}`, where the placeholder resolves in the
+  current timezone as `yyyy-mm-dd hh:mm`.
 - Remote work is explicit and confirmed. The same view adds remotes, changes a
   remote URL, removes a remote, fetches, pulls, and pushes, and clones a
-  repository into a new vault. Denote never fetches, pulls, or pushes on its own
-  or from an automatic commit; a pull, a push, a URL change, a remote removal,
-  and a clone each ask first, naming the exact remote, URL, and branch, and only
-  an ordinary push is offered. Remotes may be public HTTPS, an SSH remote served
-  by a running agent, or GitHub over HTTPS, where Denote's own GitHub CLI
-  adapter can list your repositories to pick from and supplies the credential
-  itself; no token is ever stored in plugin settings, written into repository
-  configuration, or shown in a message or log, and a credential is only ever
-  offered to the address the operation will really contact. The mode is a
-  setting, so the view reports the configured one and sends you to Settings to
-  change it.
+  repository into a new vault. Denote never fetches or pulls on its own.
+  User-invoked pull, push, URL-change, remote-removal, and clone actions each ask
+  first, naming the exact remote, URL, and branch. The separately approved
+  automatic push is the only unattended remote action, and it is an ordinary
+  push of the new automatic commit to an existing upstream. Remotes may be
+  public HTTPS, an SSH remote served by a running agent, or GitHub over HTTPS,
+  where Denote's own GitHub CLI adapter can list your repositories to pick from
+  and supplies the credential itself; no token is ever stored in plugin
+  settings, written into repository configuration, or shown in a message or
+  log, and a credential is only ever offered to the address the operation will
+  really contact. The mode is a setting, so the view reports the configured one
+  and sends you to Settings to change it.
 - The default authentication mode uses the credential helpers and stored
   credentials from the selected Git's system and user-global configuration.
   Public, SSH-agent, and host-owned GitHub CLI modes remain available. The host

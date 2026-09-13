@@ -938,6 +938,7 @@ describe("PluginWorkerRuntime", () => {
       excludePatterns: ["notes/drafts"],
       authorName: null,
       authorEmail: null,
+      pushAfterCommit: false,
     };
     const onAutomaticCommitsChanged = vi.fn();
     const runtime = new PluginWorkerRuntime(
@@ -962,6 +963,7 @@ describe("PluginWorkerRuntime", () => {
         excludePatterns: ["notes/drafts"],
         authorName: null,
         authorEmail: null,
+        pushAfterCommit: false,
       },
     ]);
 
@@ -975,6 +977,7 @@ describe("PluginWorkerRuntime", () => {
         excludePatterns: [],
         authorName: "Synthetic Author",
         authorEmail: "synthetic@example.invalid",
+        pushAfterCommit: false,
       },
     });
     await vi.waitFor(() => {
@@ -1006,6 +1009,7 @@ describe("PluginWorkerRuntime", () => {
       excludePatterns: [],
       authorName: null,
       authorEmail: null,
+      pushAfterCommit: false,
     };
     const onAutomaticCommitsChanged = vi.fn();
     const runtime = new PluginWorkerRuntime(
@@ -1036,6 +1040,7 @@ describe("PluginWorkerRuntime", () => {
       excludePatterns: [],
       authorName: null,
       authorEmail: null,
+      pushAfterCommit: false,
     };
     FakeWorker.failActivationAfterSourceControl = true;
     const onAutomaticCommitsChanged = vi.fn();
@@ -1070,6 +1075,7 @@ describe("PluginWorkerRuntime", () => {
       excludePatterns: [],
       authorName: null,
       authorEmail: null,
+      pushAfterCommit: false,
     };
     const onError = vi.fn();
     const onAutomaticCommitsChanged = vi.fn();
@@ -1084,6 +1090,48 @@ describe("PluginWorkerRuntime", () => {
     );
 
     await runtime.start(plugin()).catch(() => {});
+
+    await vi.waitFor(() => {
+      expect(FakeWorker.instances[0].terminated).toBe(true);
+      expect(onError).toHaveBeenCalledWith(
+        "denote.reference",
+        expect.objectContaining({
+          message: expect.stringMatching(/automatic local commit/i),
+        }),
+      );
+    });
+
+    expect(
+      onAutomaticCommitsChanged.mock.calls.every(
+        ([schedules]) => Array.isArray(schedules) && schedules.length === 0,
+      ),
+    ).toBe(true);
+  });
+
+  it("terminates automatic push registrations without permission", async () => {
+    FakeWorker.automaticCommitOnActivate = {
+      id: "denote.reference.nightly",
+      intervalMinutes: 5,
+      message: "Synthetic automatic commit",
+      includePatterns: [],
+      excludePatterns: [],
+      authorName: null,
+      authorEmail: null,
+      pushAfterCommit: true,
+    };
+    const onError = vi.fn();
+    const onAutomaticCommitsChanged = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      onError,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      onAutomaticCommitsChanged,
+    );
+
+    await runtime.start(pluginWithAutomaticCommit()).catch(() => {});
 
     await vi.waitFor(() => {
       expect(FakeWorker.instances[0].terminated).toBe(true);
@@ -1125,6 +1173,7 @@ describe("PluginWorkerRuntime", () => {
         excludePatterns: [],
         authorName: null,
         authorEmail: null,
+        pushAfterCommit: false,
       },
     });
 
@@ -1158,6 +1207,7 @@ describe("PluginWorkerRuntime", () => {
             intervalMinutes: settings.intervalMinutes,
             message: "Synthetic automatic commit",
             includePatterns: ["notes/"],
+            pushAfterCommit: true,
           });
           registration.update({
             intervalMinutes: 45,
@@ -1185,7 +1235,7 @@ describe("PluginWorkerRuntime", () => {
         moduleUrl: pluginModule,
         pluginId: "denote.reference",
         expectedVersion: "0.1.0",
-        permissions: ["automatic-local-commit"],
+        permissions: ["automatic-local-commit", "automatic-git-push"],
       },
       ports: [port],
     });
@@ -1223,6 +1273,7 @@ describe("PluginWorkerRuntime", () => {
           excludePatterns: [],
           authorName: null,
           authorEmail: null,
+          pushAfterCommit: true,
         },
       });
       expect(port.messages).toContainEqual({
@@ -1235,6 +1286,7 @@ describe("PluginWorkerRuntime", () => {
           excludePatterns: ["notes/drafts"],
           authorName: null,
           authorEmail: null,
+          pushAfterCommit: false,
         },
       });
       expect(port.messages).toContainEqual({ type: "activated" });

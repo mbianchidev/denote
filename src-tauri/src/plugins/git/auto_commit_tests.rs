@@ -9,11 +9,12 @@ use std::{
 use super::{
     auto_commit::{
         AutomaticCommitObserver, AutomaticCommitOutcome, AutomaticCommitRequest,
-        AutomaticCommitStatus, AutomaticCommitTarget, ValidatedAutomaticCommit,
-        automatic_commit_argument_templates, is_eligible, validate_automatic_commit,
+        AutomaticCommitStatus, AutomaticCommitTarget, AutomaticPushStatus,
+        ValidatedAutomaticCommit, automatic_commit_argument_templates, is_eligible,
+        validate_automatic_commit,
     },
     git_tests::{GitFixture, encrypt_fixture, fixture, identify, new_operation_id},
-    transport::{git_cli_path, resolve_git_executable},
+    transport::{GitTransportPolicy, git_cli_path, resolve_git_executable},
 };
 
 const PLUGIN_ID: &str = "denote.reference";
@@ -26,6 +27,7 @@ fn request(message: &str) -> AutomaticCommitRequest {
         exclude_patterns: vec![],
         author_name: None,
         author_email: None,
+        push_after_commit: false,
     }
 }
 
@@ -56,6 +58,7 @@ fn run_observed(
             repository_root: &fixture.vault_root,
             redacted_roots: vec![fixture.vault_root.clone()],
             encrypted: false,
+            transport: GitTransportPolicy::AllowLocal,
         },
         &new_operation_id(),
         observer,
@@ -120,6 +123,8 @@ fn git_command(repository: &Path) -> Command {
             "tag.gpgSign=false",
             "-c",
             "gpg.program=",
+            "-c",
+            "safe.bareRepository=all",
         ])
         .env("GIT_CONFIG_GLOBAL", git_cli_path(&empty_config))
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -172,7 +177,7 @@ impl<F: Fn()> AutomaticCommitObserver for BatchInterference<F> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn never_reaches_a_remote_or_history_rewriting_command() {
+fn stays_local_when_automatic_push_is_disabled() {
     let validated = validate_automatic_commit(&AutomaticCommitRequest {
         schedule_id: "denote.reference.nightly".to_string(),
         message: "Synthetic automatic commit".to_string(),
@@ -180,6 +185,7 @@ fn never_reaches_a_remote_or_history_rewriting_command() {
         exclude_patterns: vec!["notes/drafts".to_string()],
         author_name: Some("Synthetic Author".to_string()),
         author_email: Some("synthetic@example.invalid".to_string()),
+        push_after_commit: false,
     })
     .expect("validate");
 
@@ -299,6 +305,7 @@ fn refuses_a_half_configured_identity_and_unsafe_prefixes() {
             exclude_patterns: vec![],
             author_name: None,
             author_email: None,
+            push_after_commit: false,
         }
     );
 }
@@ -323,6 +330,21 @@ fn reports_unchanged_when_no_tracked_file_changed() {
         git_output(&fixture.vault_root, &["rev-parse", "HEAD"]),
         head
     );
+}
+
+#[test]
+fn does_not_push_when_no_new_commit_was_created() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    initialized(&fixture);
+    let mut scheduled = request("Synthetic automatic commit");
+    scheduled.push_after_commit = true;
+
+    let outcome = run_observed(&fixture, scheduled, &()).expect("run");
+
+    assert_eq!(outcome.status, AutomaticCommitStatus::Unchanged);
+    assert!(outcome.push.is_none());
 }
 
 #[test]
@@ -363,6 +385,73 @@ fn commits_tracked_changes_and_never_adds_untracked_files() {
             &["status", "--porcelain", "--untracked-files=all"]
         ),
         "?? beta.md"
+    );
+}
+
+#[test]
+fn pushes_a_new_commit_to_the_current_upstream_when_enabled() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    initialized(&fixture);
+    let remote = fixture.data.path().join("synthetic-remote.git");
+    fs::create_dir_all(&remote).expect("remote directory");
+    git(&remote, &["init", "--bare"]);
+    let remote_path = remote.to_string_lossy().to_string();
+    git(
+        &fixture.vault_root,
+        &["remote", "add", "origin", &remote_path],
+    );
+    git(
+        &fixture.vault_root,
+        &["push", "--set-upstream", "origin", "main"],
+    );
+    fs::write(
+        fixture.vault_root.join("alpha.md"),
+        "first synthetic line\nsecond synthetic line\n",
+    )
+    .expect("note");
+    let mut scheduled = request("Synthetic automatic commit");
+    scheduled.push_after_commit = true;
+
+    let outcome = run_observed(&fixture, scheduled, &()).expect("run");
+
+    assert_eq!(outcome.status, AutomaticCommitStatus::Committed);
+    assert_eq!(
+        outcome.push.as_ref().map(|push| push.status),
+        Some(AutomaticPushStatus::Pushed)
+    );
+    assert_eq!(
+        git_output(&remote, &["rev-parse", "refs/heads/main"]),
+        git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
+    );
+}
+
+#[test]
+fn keeps_a_new_commit_local_when_the_branch_has_no_upstream() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    initialized(&fixture);
+    let before = git_output(&fixture.vault_root, &["rev-parse", "HEAD"]);
+    fs::write(
+        fixture.vault_root.join("alpha.md"),
+        "first synthetic line\nsecond synthetic line\n",
+    )
+    .expect("note");
+    let mut scheduled = request("Synthetic automatic commit");
+    scheduled.push_after_commit = true;
+
+    let outcome = run_observed(&fixture, scheduled, &()).expect("run");
+
+    assert_eq!(outcome.status, AutomaticCommitStatus::Committed);
+    assert_eq!(
+        outcome.push.as_ref().map(|push| push.status),
+        Some(AutomaticPushStatus::Skipped)
+    );
+    assert_ne!(
+        git_output(&fixture.vault_root, &["rev-parse", "HEAD"]),
+        before
     );
 }
 
@@ -915,6 +1004,7 @@ fn refuses_a_plugin_without_the_automatic_local_commit_permission() {
             .expect("permissions");
         permissions.retain(|permission| permission.capability != "automatic-local-commit");
     }
+
     let head = git_output(&fixture.vault_root, &["rev-parse", "HEAD"]);
 
     let failure =
@@ -924,6 +1014,43 @@ fn refuses_a_plugin_without_the_automatic_local_commit_permission() {
         failure
             .to_string()
             .contains("automatic-local-commit permission"),
+        "{failure}"
+    );
+    assert_eq!(
+        git_output(&fixture.vault_root, &["rev-parse", "HEAD"]),
+        head
+    );
+}
+
+#[test]
+fn refuses_automatic_push_without_its_permission() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    initialized(&fixture);
+    fs::write(
+        fixture.vault_root.join("alpha.md"),
+        "second synthetic line\n",
+    )
+    .expect("note");
+    {
+        let mut state = fixture.manager.state().expect("state");
+        let permissions = state
+            .approved_permissions
+            .get_mut(PLUGIN_ID)
+            .expect("permissions");
+        permissions.retain(|permission| permission.capability != "automatic-git-push");
+    }
+    let head = git_output(&fixture.vault_root, &["rev-parse", "HEAD"]);
+    let mut scheduled = request("Synthetic automatic commit");
+    scheduled.push_after_commit = true;
+
+    let failure = run_observed(&fixture, scheduled, &()).expect_err("refused");
+
+    assert!(
+        failure
+            .to_string()
+            .contains("automatic-git-push permission"),
         "{failure}"
     );
     assert_eq!(

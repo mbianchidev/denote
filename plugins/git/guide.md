@@ -12,8 +12,9 @@ commit tracked changes for you on a timer.
 
 It now works with remotes too: add, change, and remove a remote, fetch, pull,
 push, and clone a repository into a new vault. Every one of those is something
-you ask for. Nothing here fetches, pulls, or pushes on its own, and an automatic
-commit never touches a remote at all.
+you ask for. Nothing here fetches or pulls on its own. If you separately enable
+**Push automatic commits**, the new commit is pushed to the current branch's
+existing upstream after it is created.
 
 The plugin never runs a process of its own. Denote owns the Git executable, the
 GitHub CLI, the folder chooser, every credential, and every repository write;
@@ -38,15 +39,18 @@ Enabling requests these permissions:
   interval above zero. The plugin only describes the schedule; Denote owns the
   timer, the repository, and the commit itself, and the plugin never learns
   where your vault is.
+- **Automatic Git push** allows that schedule to request one ordinary push of a
+  new automatic commit to the current branch's existing upstream. It never
+  creates an upstream or permits a force push.
 
 The plugin does not request network, process, or workspace-write permission, so
 it cannot open a connection of its own, run its own executable, or arbitrarily
 edit your notes. Remote work and an explicitly submitted conflict resolution go
 through the Git permission: Denote validates and performs the exact operation.
 
-Enabling does not change your vault. After the provider is registered, Denote
-runs one read-only refresh so the first Git view already shows repository
-status. Registering an automatic commit schedule runs no Git command: the first
+Enabling does not change your vault or run Git. Each time you open the Git view,
+Denote runs one read-only refresh so changes made outside Denote are already
+shown. Registering an automatic commit schedule runs no Git command: the first
 automatic commit happens one whole interval later.
 
 ## Usage
@@ -198,8 +202,15 @@ the commit matches what you see. It then commits **only tracked files that
 changed** and match your include and exclude prefixes, using your configured
 message and author identity. The default is
 `Denote automatic commit {timestamp}`; `{timestamp}` becomes the current local
-time in `yyyy-mm-dd hh:mm` format when the commit runs. It never adds an untracked file, never touches a
-remote, and never switches, merges, or rewrites anything.
+time in `yyyy-mm-dd hh:mm` format when the commit runs. It never adds an
+untracked file and never switches, merges, or rewrites anything.
+
+Turn on **Push automatic commits** to push only after a new automatic commit
+succeeds. It uses the same interval and the configured remote authentication
+mode, and targets only the current branch's existing upstream. Denote never
+creates an upstream, guesses a remote, or force-pushes. A detached HEAD, missing
+upstream, cancellation, authentication error, or rejected push leaves the new
+commit local and reports why.
 
 A run is skipped, and simply waits for the next interval, when there is no
 repository or no commit on `HEAD` yet, when a merge, rebase, cherry-pick, or
@@ -450,6 +461,9 @@ than done quietly; **Discard result** puts the merge Denote derived back.
 - **Automatic commit message** is the message used for each automatic commit.
   Its default ends in `{timestamp}`, which Denote resolves to the current local
   time as `yyyy-mm-dd hh:mm`.
+- **Push automatic commits** uses the same interval and pushes only after a new
+  automatic commit succeeds. It defaults off, requires an existing upstream,
+  and never creates one or force-pushes.
 - **Include patterns** and **Exclude patterns** are comma-separated relative
   path prefixes for automatic commits. An empty include list means the whole
   scope; excludes always win. Prefixes match whole path segments, so `notes`
@@ -475,7 +489,11 @@ restores them.
 ## Troubleshooting
 
 - **"refresh required" beside the repository name** appears only until the
-  host's first read-only refresh finishes. Use Refresh to retry a failed read.
+  latest read-only open refresh finishes. Use Refresh to retry a failed read.
+- **An automatic push was skipped** means the commit was created locally but
+  the current branch had no usable upstream, the repository was detached, or
+  the operation was cancelled. Configure an upstream and wait for the next new
+  automatic commit.
 - **"Not initialized"** after a refresh means this vault or project has no
   repository. Use `Git: Initialize repository`, or open one that already has a
   repository.

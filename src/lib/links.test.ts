@@ -3,6 +3,7 @@ import {
   externalLinkTarget,
   extractWebLinks,
   hasUriScheme,
+  implicitHttpsTarget,
   isBlockedExternalScheme,
   isExternalLink,
   isLocalFileUrl,
@@ -33,6 +34,21 @@ describe("external link routing", () => {
     expect(isLocalFileUrl("file://attacker.example/share/note.pdf")).toBe(
       false,
     );
+  });
+
+  it("defaults bare host-like destinations to HTTPS", () => {
+    expect(implicitHttpsTarget("github.com/mbianchidev")).toBe(
+      "https://github.com/mbianchidev",
+    );
+    expect(implicitHttpsTarget("127.0.0.1:4173/preview")).toBe(
+      "https://127.0.0.1:4173/preview",
+    );
+    expect(implicitHttpsTarget("/docs/guide.md")).toBeNull();
+    expect(implicitHttpsTarget("./guide.md")).toBeNull();
+    expect(implicitHttpsTarget("../guide.md")).toBeNull();
+    expect(implicitHttpsTarget("#heading")).toBeNull();
+    expect(implicitHttpsTarget("notes/plan.md")).toBeNull();
+    expect(implicitHttpsTarget("mailto:hello@example.com")).toBeNull();
   });
 
   it("opens every non-empty link on an ordinary click", () => {

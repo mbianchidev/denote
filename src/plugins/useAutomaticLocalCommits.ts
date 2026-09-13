@@ -119,6 +119,7 @@ function scheduleSignature(
         schedule.excludePatterns.join("\u0003"),
         schedule.authorName ?? "",
         schedule.authorEmail ?? "",
+        schedule.pushAfterCommit ? "push" : "local",
       ].join("\u0001"),
     )
     .join("\u0002");

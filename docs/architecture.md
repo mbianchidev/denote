@@ -334,10 +334,12 @@ returned to a plugin.
 The separate `automatic-local-commit` permission exposes exactly one activation
 capability: registering a typed schedule with an ID, a bounded interval in whole
 minutes above zero, a commit message, validated repository-relative include and
-exclude path prefixes, and an optional commit identity. Registration returns a
-handle that replaces or removes the schedule, and the runtime applies every
-register, update, and unregister transactionally, discarding staged schedules
-when activation fails and clearing them when the plugin stops, crashes, or is
+exclude path prefixes, an optional commit identity, and an optional request to
+push the new commit. That request is accepted only while the plugin also holds
+the separate `automatic-git-push` permission. Registration returns a handle that
+replaces or removes the schedule, and the runtime applies every register,
+update, and unregister transactionally, discarding staged schedules when
+activation fails and clearing them when the plugin stops, crashes, or is
 disabled. No vault path, project ID, or Git capability is exposed to plugin code
 through it, and the schedule itself runs no Git command.
 
@@ -355,17 +357,18 @@ It never creates a plugin user-action lease and never dispatches a provider
 action.
 
 That native command requires both the `git` and `automatic-local-commit`
-approved permissions, revalidates workspace and project identity, and reuses the
-host-owned Git executable with the same hardening and encryption preflight as
-the typed transport. It refuses to act when there is no repository or HEAD, when
-a merge, rebase, cherry-pick, revert, sequencer, or conflict is in progress, when
-anything is already staged, when the vault is locked or its encryption sweep
-fails, and when no tracked worktree change matches the configured prefixes. It
-never adds an untracked file: eligible paths come from NUL-safe tracked-change
-output, are filtered by normalized prefixes where excludes win, and are staged
-with `git add -u --` alone. Before staging it snapshots the index bytes and
-metadata, or its safe absence, revalidates HEAD immediately before committing,
-and restores that snapshot exactly whenever staging, the commit, or cancellation
+approved permissions, plus `automatic-git-push` before it accepts a push request.
+It revalidates workspace and project identity and reuses the host-owned Git
+executable with the same hardening and encryption preflight as the typed
+transport. It refuses to act when there is no repository or HEAD, when a merge,
+rebase, cherry-pick, revert, sequencer, or conflict is in progress, when anything
+is already staged, when the vault is locked or its encryption sweep fails, and
+when no tracked worktree change matches the configured prefixes. It never adds
+an untracked file: eligible paths come from NUL-safe tracked-change output, are
+filtered by normalized prefixes where excludes win, and are staged with
+`git add -u --` alone. Before staging it snapshots the index bytes and metadata,
+or its safe absence, revalidates HEAD immediately before committing, and
+restores that snapshot exactly whenever staging, the commit, or cancellation
 stops the run. Restoring is conditional on ownership: every index state the run
 produces, the snapshot itself and then each staging batch that lands, is
 fingerprinted by SHA-256 digest, size, filesystem identity, and timestamp, read
@@ -375,14 +378,20 @@ fingerprint, so an index another Git process committed, staged, or replaced in
 the meantime is left exactly as that process wrote it and the run reports a
 skipped or failed outcome saying the concurrent Git activity was preserved.
 Ownership moving with each staging batch is what keeps a failed or cancelled run
-from leaving its own partial staging behind. Fetch, pull, push, checkout, merge,
-rebase, revert, and every
-other remote or history-rewriting command are unreachable from it: a standing
-run is local by construction, whatever remotes the repository has. It returns a
-typed `committed`, `unchanged`, or `skipped` status with a message and, where
-available, a commit ID, and its generated messages never contain note content or
-paths. Standing runs register in the same Git operation registry as typed
-requests, so plugin disablement and application shutdown cancel them.
+from leaving its own partial staging behind.
+
+When push is enabled and the commit lands, the same native operation reads the
+current branch's configured upstream and performs one fixed ordinary push with
+the selected authentication mode. It never creates an upstream, guesses a
+remote, force-pushes, fetches, pulls, checks out, merges, rebases, or starts a
+sequencer operation. A detached HEAD or missing upstream keeps the commit local
+and reports a skipped push. Authentication and push failures report that the
+commit already exists and never roll it back. The result keeps the typed
+`committed`, `unchanged`, or `skipped` commit status and adds a typed pushed,
+skipped, or failed push outcome where applicable; generated messages never
+contain note content or paths. Standing runs register in the same Git operation
+registry as typed requests, so plugin disablement and application shutdown
+cancel them.
 Each provider is addressed by its `(pluginId, providerId)` pair. The activity
 rail and vault sidebar render only the typed model with native host controls;
 standardized user actions are returned to the owning provider through a
@@ -1632,7 +1641,11 @@ the opener plugin invokes the operating-system file manager. Duplication reads
 the bounded plaintext through the vault encryption boundary, creates a
 non-conflicting sibling with a fresh encrypted representation when necessary,
 and updates the cached tree. Every no-scheme link resolves relative to the current note and
-stays inside the vault. Hostless local `file:///` links use the associated
+stays inside the vault when it names an existing path or uses an explicit `/`,
+`./`, `../`, or `#` target. When that internal lookup fails, a target whose
+leading segment is host-like defaults to `https://` and enters the same
+external-domain validation and confirmation path as an explicit HTTPS URL.
+Hostless local `file:///` links use the associated
 desktop application; remote file hosts are rejected.
 HTTP(S) schemes are normalized to lowercase and unknown exact domains require
 confirmation; trust is local-only and can be exact or wildcard. Mail, telephone,

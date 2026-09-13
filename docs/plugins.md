@@ -651,14 +651,16 @@ The approved `automatic-local-commit` permission adds one activation capability,
 `automaticLocalCommit`. It is not a Git capability: a plugin registers a typed
 schedule with an ID, a whole-minute interval above zero and bounded at a day, a
 commit message, validated repository-relative include and exclude path prefixes,
-and an optional commit identity, and receives a handle that replaces or removes
-it. The worker validates every field before the registration leaves it, and the
-host validates the message again and refuses anything a plugin sent without
-going through the capability. Registering, replacing, and removing a schedule
-are applied transactionally, staged schedules are discarded when activation
-fails, and every schedule disappears the moment the plugin stops, crashes, or is
-disabled. Plugin code receives no vault path, no project ID, and no Git handle
-through it, and registering runs no Git command.
+an optional commit identity, and an optional request to push the new commit, and
+receives a handle that replaces or removes it. A push request also requires the
+separate approved `automatic-git-push` permission. The worker validates every
+field before the registration leaves it, and the host validates the message
+again and refuses anything a plugin sent without going through the capability.
+Registering, replacing, and removing a schedule are applied transactionally,
+staged schedules are discarded when activation fails, and every schedule
+disappears the moment the plugin stops, crashes, or is disabled. Plugin code
+receives no vault path, no project ID, and no Git handle through it, and
+registering runs no Git command.
 
 The host owns the timers and the commit. One timer exists per plugin, schedule,
 and current vault and project, and only while a workspace is open and an
@@ -677,9 +679,10 @@ It creates no plugin action lease and dispatches no provider action, so plugin
 code never runs on a timer.
 
 The native command requires both the `git` and `automatic-local-commit`
-approved permissions, revalidates vault scope and project identity, and reuses
-the host-owned executable, the hardening, and the encryption preflight of the
-typed transport. It refuses to act without a repository or a commit on `HEAD`,
+approved permissions, plus `automatic-git-push` before accepting a push request.
+It revalidates vault scope and project identity, and reuses the host-owned
+executable, the hardening, and the encryption preflight of the typed transport.
+It refuses to act without a repository or a commit on `HEAD`,
 during a merge, rebase, cherry-pick, revert, or sequencer, with an unresolved
 conflict, with anything already staged, and when the vault is locked or its
 sweep cannot verify a file. Eligible paths come from NUL-safe tracked-change
@@ -694,13 +697,17 @@ single bounded, link-refusing read, and rollback rechecks that fingerprint
 first: an index another Git process took over is left exactly as that process
 wrote it, and the run reports that the concurrent Git activity was preserved.
 `HEAD` is confirmed again immediately before committing so external Git activity
-cannot be raced. No fetch, pull,
-push, checkout, merge, rebase, revert, or other remote or history-rewriting
-command is reachable from an automatic run, which stays local by construction. The result is a typed `committed`, `unchanged`, or
-`skipped` status with a message and, where available, a commit ID, and no
-generated message contains note content or paths. Standing runs join the same
-cancellation registry as typed requests, so disabling the plugin or closing
-Denote stops them.
+cannot be raced. If the separately approved push option is enabled and a new
+commit lands, the same run reads the current branch's existing upstream and
+performs one ordinary push with the configured authentication mode. It never
+creates an upstream, guesses a remote, force-pushes, fetches, pulls, checks out,
+merges, rebases, reverts, or starts a sequencer operation. A detached HEAD,
+missing upstream, cancellation, authentication failure, or rejected push keeps
+the new commit local and reports that exact partial outcome. The result is a
+typed `committed`, `unchanged`, or `skipped` commit status plus a typed push
+outcome where applicable, and no generated message contains note content or
+paths. Standing runs join the same cancellation registry as typed requests, so
+disabling the plugin or closing Denote stops them.
 
 The repository reference plugin is the end-to-end fixture. Its independently
 downloadable archive is a separate GitHub Release asset, staged locally only in
@@ -708,11 +715,12 @@ ignored `.plugin-artifacts/`; only catalog metadata enters the desktop bundle.
 
 `denote.git`, the Git vault versioning plugin, is the first production catalog
 entry and the `git` role candidate in the Code tooling bundle. It requests
-commands, status, source control, project context, Git, and
-`automatic-local-commit`, and requests no network, process, or workspace-write
-permission. Its current increment registers one source-control provider, one
-status item, refresh and initialize commands, and, when its interval setting is
-above zero, one automatic local commit schedule. It supports refresh,
+commands, status, source control, project context, Git,
+`automatic-local-commit`, and `automatic-git-push`, and requests no generic
+network, process, or workspace-write permission. Its current increment registers
+one source-control provider, one status item, refresh and initialize commands,
+and, when its interval setting is above zero, one automatic local commit
+schedule. It supports refresh,
 initialize, stage, unstage, commit of staged changes, remote operations,
 cloning, branch work, staging by hunk, paged commit history with its commit
 diffs, working-tree and index diffs, scheduled local commits of tracked changes,
