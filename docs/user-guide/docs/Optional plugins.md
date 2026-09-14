@@ -175,23 +175,19 @@ toolbar. A new or ordinary Markdown file first shows **Initialize board**.
 Initialization appends the managed board after any existing Markdown instead of
 replacing it, then creates one Backlog column.
 
-Use **Add column** and **Add card** to build the board. Rename the board or a
-column with its edit control. Card details accept ordinary Markdown. Write a
+Use **Add column** and **Add card** to build the board. Click the board, column,
+or card title to edit it. Click card details to edit their ordinary Markdown;
+typing stays in the details field instead of jumping back to the title. Write a
 relative link such as `[Design](Design.md)` to link another note, and write
-hashtags such as `#planning` to show tags on the card. Choosing a link uses
-Denote's normal safe link resolution.
+hashtags such as `#planning` to show tags on the card.
 
-Drag handles reorder columns and cards with a pointer. The same actions are
-always available without dragging:
-
-- each column has **Move left** and **Move right**;
-- each card has **Move up**, **Move down**, **Move to previous column**, and
-  **Move to next column**.
-
-After a move, keyboard focus stays on that item and Denote announces its new
-column and position. Add, edit, rename, delete, and confirmation controls are
-ordinary keyboard-focusable buttons and fields. Read mode keeps note links
-available while disabling every edit and drag action.
+Drag a column or card to reorder it or move a card between columns. For
+keyboard movement, focus the item's grip, press Space to pick it up, use
+Left/Right for columns or any arrow key for cards, then press Space to drop.
+Home and End move to the first or last position, and Escape cancels. Focus stays
+on the moved grip and Denote announces its new location. No arrow or pencil
+action icons are shown. Read mode keeps note links available while disabling
+every edit and drag action.
 
 Choose **Markdown** to inspect or edit the exact source. A board remains readable
 without Denote:

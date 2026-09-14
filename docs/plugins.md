@@ -358,8 +358,9 @@ boundaries. The plugin receives no editor object, DOM, absolute vault path,
 native API, arbitrary workspace read/write service, or action lease.
 
 Denote owns path routing, Board/Markdown controls, semantic lists and headings,
-forms, deletion confirmation, drag-and-drop, keyboard move alternatives, note
-link activation, focus restoration, announcements, and read-only behavior. The
+direct title/body editing, deletion confirmation, drag-and-drop, keyboard
+pickup/move/drop on the same grips, note link activation, focus restoration,
+announcements, and read-only behavior. The
 Markdown source remains the complete fallback for malformed or oversized
 boards. Provider workers stop while an encrypted vault is locked and restart
 after unlock; disable, crash, update, removal, and teardown unregister the

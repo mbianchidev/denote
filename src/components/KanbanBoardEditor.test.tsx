@@ -104,26 +104,22 @@ describe("KanbanBoardEditor", () => {
     );
   });
 
-  it("provides keyboard-operable alternatives for every card and column move", async () => {
-    renderBoard();
+  it("uses grip controls for pointer and keyboard movement without arrow buttons", async () => {
+    const { container } = renderBoard();
     await screen.findByRole("heading", { name: "Release board" });
 
     expect(
-      screen.getByRole("button", { name: "Move Backlog right" }),
-    ).toBeEnabled();
-    expect(
-      screen.getByRole("button", { name: "Move Write specification down" }),
+      screen.getByRole("button", { name: "Reorder column Backlog" }),
     ).toBeEnabled();
     expect(
       screen.getByRole("button", {
-        name: "Move Write specification to next column",
+        name: "Reorder card Write specification",
       }),
     ).toBeEnabled();
     expect(
-      screen.getByRole("button", {
-        name: "Move Write specification to previous column",
-      }),
-    ).toBeDisabled();
+      screen.queryByRole("button", { name: /^Move / }),
+    ).not.toBeInTheDocument();
+    expect(container.querySelector(".lucide-pencil")).not.toBeInTheDocument();
   });
 
   it("moves a card across columns and restores focus to the moved card", async () => {
@@ -145,13 +141,13 @@ describe("KanbanBoardEditor", () => {
       model: moved,
     }));
     renderBoard({ edit });
-    const user = userEvent.setup();
 
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Move Write specification to next column",
-      }),
-    );
+    const handle = await screen.findByRole("button", {
+      name: "Reorder card Write specification",
+    });
+    handle.focus();
+    fireEvent.keyDown(handle, { key: " " });
+    fireEvent.keyDown(handle, { key: "ArrowRight" });
 
     expect(edit).toHaveBeenCalledWith({
       path: "Release.kanban.md",
@@ -165,12 +161,48 @@ describe("KanbanBoardEditor", () => {
     });
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Edit Write specification" }),
+        screen.getByRole("button", {
+          name: "Reorder card Write specification",
+        }),
       ).toHaveFocus(),
     );
     expect(screen.getByRole("status")).toHaveTextContent(
       "Moved card Write specification to Doing",
     );
+  });
+
+  it("edits titles and bodies by clicking the text without moving focus while typing", async () => {
+    const user = userEvent.setup();
+    const { container } = renderBoard();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Edit details for Write specification",
+      }),
+    );
+    const body = screen.getByRole("textbox", {
+      name: "Card details (Markdown)",
+    });
+    expect(body).toHaveFocus();
+    await user.type(body, " more");
+    expect(body).toHaveFocus();
+    expect(
+      screen.getByRole("textbox", { name: "Card title" }),
+    ).not.toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Backlog" }));
+    expect(
+      screen.getByRole("textbox", { name: "Column title" }),
+    ).toHaveFocus();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(
+      screen.getByRole("button", { name: "Write specification" }),
+    );
+    expect(
+      screen.getByRole("textbox", { name: "Card title" }),
+    ).toHaveFocus();
+    expect(container.querySelector(".lucide-pencil")).not.toBeInTheDocument();
   });
 
   it("adds cards through a focused inline Markdown form", async () => {
@@ -267,42 +299,34 @@ describe("KanbanBoardEditor", () => {
     );
   });
 
-  it("supports pointer card dragging while leaving the same move available as buttons", async () => {
+  it("supports pointer card dragging between columns", async () => {
     const moved: PluginKanbanBoardModel = {
       ...model,
       columns: [
         {
           ...model.columns[0],
-          cards: [model.columns[0].cards[1], model.columns[0].cards[0]],
+          cards: [model.columns[0].cards[1]],
         },
-        model.columns[1],
+        {
+          ...model.columns[1],
+          cards: [model.columns[0].cards[0]],
+        },
       ],
     };
     const edit = vi.fn(async () => ({ source: "dragged source", model: moved }));
     const { container } = renderBoard({ edit });
     await screen.findByRole("heading", { name: "Release board" });
-    const handles = container.querySelectorAll<HTMLElement>(
-      ".kanban-card .kanban-drag-handle",
-    );
-    const cards = container.querySelectorAll<HTMLElement>(".kanban-card");
-    const values = new Map<string, string>();
-    const dataTransfer = {
-      effectAllowed: "all",
-      types: [] as string[],
-      setData(type: string, value: string) {
-        values.set(type, value);
-        if (!this.types.includes(type)) {
-          this.types.push(type);
-        }
-      },
-      getData(type: string) {
-        return values.get(type) ?? "";
-      },
-    };
+    const handle = screen.getByRole("button", {
+      name: "Reorder card Write specification",
+    });
+    const doing = screen
+      .getByRole("button", { name: "Doing" })
+      .closest(".kanban-column");
+    const dataTransfer = createDataTransfer();
 
-    fireEvent.dragStart(handles[0], { dataTransfer });
-    fireEvent.dragOver(cards[1], { dataTransfer });
-    fireEvent.drop(cards[1], { dataTransfer });
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.dragOver(doing!, { dataTransfer });
+    fireEvent.drop(doing!, { dataTransfer });
 
     await act(async () => {});
     expect(edit).toHaveBeenCalledWith(
@@ -310,8 +334,41 @@ describe("KanbanBoardEditor", () => {
         edit: {
           type: "move-card",
           cardId: "card-spec",
-          targetColumnId: "column-backlog",
-          beforeCardId: "card-review",
+          targetColumnId: "column-doing",
+          beforeCardId: null,
+        },
+      }),
+    );
+    expect(container.querySelector(".lucide-arrow-left")).not.toBeInTheDocument();
+  });
+
+  it("supports pointer column reordering", async () => {
+    const moved: PluginKanbanBoardModel = {
+      ...model,
+      columns: [model.columns[1], model.columns[0]],
+    };
+    const edit = vi.fn(async () => ({ source: "dragged source", model: moved }));
+    renderBoard({ edit });
+    await screen.findByRole("heading", { name: "Release board" });
+    const handle = screen.getByRole("button", {
+      name: "Reorder column Doing",
+    });
+    const backlog = screen
+      .getByRole("button", { name: "Backlog" })
+      .closest(".kanban-column");
+    const dataTransfer = createDataTransfer();
+
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.dragOver(backlog!, { dataTransfer });
+    fireEvent.drop(backlog!, { dataTransfer });
+
+    await act(async () => {});
+    expect(edit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        edit: {
+          type: "move-column",
+          columnId: "column-doing",
+          beforeColumnId: "column-backlog",
         },
       }),
     );
@@ -345,12 +402,11 @@ describe("KanbanBoardEditor", () => {
         onError={onError}
       />,
     );
-    const user = userEvent.setup();
-    await user.click(
-      await screen.findByRole("button", {
-        name: "Move Write specification down",
-      }),
-    );
+    const handle = await screen.findByRole("button", {
+      name: "Reorder card Write specification",
+    });
+    fireEvent.keyDown(handle, { key: " " });
+    fireEvent.keyDown(handle, { key: "ArrowDown" });
 
     rendered.rerender(
       <KanbanBoardEditor
@@ -377,3 +433,20 @@ describe("KanbanBoardEditor", () => {
     );
   });
 });
+
+function createDataTransfer() {
+  const values = new Map<string, string>();
+  return {
+    effectAllowed: "all",
+    types: [] as string[],
+    setData(type: string, value: string) {
+      values.set(type, value);
+      if (!this.types.includes(type)) {
+        this.types.push(type);
+      }
+    },
+    getData(type: string) {
+      return values.get(type) ?? "";
+    },
+  };
+}

@@ -26,17 +26,16 @@ An empty or ordinary Markdown file first shows **Initialize board**. Initializat
 appends the managed board after any existing content instead of replacing it.
 The default board starts with one Backlog column.
 
-Use **Add column** and **Add card** to build the board. Card details accept
-ordinary Markdown. Relative links such as `[Design](Design.md)` appear as note
-links, and hashtags such as `#planning` appear as tags. Choose a note link to
-open it through Denote's normal safe link handling.
+Use **Add column** and **Add card** to build the board. Click the board, column,
+or card title to edit it. Click a card's details to edit its Markdown without
+moving focus back to the title. Relative links such as `[Design](Design.md)`
+appear as note links, and hashtags such as `#planning` appear as tags. Choose a
+note link to open it through Denote's normal safe link handling.
 
-Pointer users can drag columns and cards. Every drag action has visible keyboard
-alternatives:
-
-- columns provide **Move left** and **Move right**;
-- cards provide **Move up**, **Move down**, **Move to previous column**, and
-  **Move to next column**.
+Drag a column or card to reorder it or move a card between columns. The grip is
+also the complete keyboard alternative: focus it, press Space, use Left/Right
+for columns or any arrow key for cards, then press Space again to drop. Home and
+End move to the first or last position, and Escape cancels.
 
 The Markdown representation is:
 

@@ -410,9 +410,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   byte-for-byte; unrelated content outside the board and unknown content inside
   moved cards or columns is preserved.
 - Kanban columns and cards can be created, renamed, edited, deleted, and
-  reordered. Pointer drag handles have complete visible keyboard alternatives:
-  columns move left or right, and cards move up, down, or to an adjacent column.
-  Moves restore focus to the moved item and use polite status announcements.
+  reordered. Titles and card details enter editing when clicked, without a
+  separate edit icon or focus jumping between fields. The grip supports pointer
+  drag-and-drop plus keyboard pickup with Space, arrow/Home/End movement, Space
+  to drop, and Escape to cancel. Moves restore focus to the moved item and use
+  polite status announcements.
   Board parsing and edits run in the isolated plugin worker with fixed 4 MiB
   source, 128-column, 5,000-card, and 64 KiB-per-card-detail limits. The host
   owns forms, lists, focus, links, autosave, revision history, and file writes.

@@ -851,15 +851,19 @@ ordinary edit recording, autosave debounce, expected-hash conflict handling,
 revision history, workspace locks, and encrypted save behavior remain host
 owned. The plugin cannot select another file or write while its view is absent.
 
-The renderer owns the Board/Markdown toggle, semantic ordered lists, inline
-forms, delete confirmations, pointer drag targets, complete keyboard move
-controls, focus restoration, polite announcements, note-link resolution, and
-read-only state. A successful edit installs the returned model immediately so a
-moved item's focus survives while the parent tab adopts the new source; a later
-stale parse result is ignored. Switching to Markdown uses the ordinary exact
-source editor. The `.kanban.md` and `.kanban.markdown` compound suffixes also
-route to that exact source editor when no provider is active, so disabling the
-plugin never sends its marker comments through Rich Markdown conversion.
+The renderer owns the Board/Markdown toggle, semantic ordered lists, direct
+title/body editing, delete confirmations, and pointer plus keyboard movement on
+one grip per item. Space picks up or drops; arrows and Home/End move; Escape
+cancels. A successful edit restores focus to the moved grip and announces its
+new location. The title/body editor session key excludes the live field values,
+so controlled-input updates do not refocus the first field while typing.
+
+A successful edit installs the returned model immediately while the parent tab
+adopts the new source; a later stale parse result is ignored. Switching to
+Markdown uses the ordinary exact source editor. The `.kanban.md` and
+`.kanban.markdown` compound suffixes also route to that exact source editor when
+no provider is active, so disabling the plugin never sends its marker comments
+through Rich Markdown conversion.
 
 `denote.kanban` recognizes `.kanban.md` and `.kanban.markdown`. Its portable
 format has one versioned board start/end pair. Each column and card has paired

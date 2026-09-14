@@ -18,7 +18,7 @@ Open the [Welcome guide](../Welcome.md) and review the optional plugin notes. #d
 <!-- denote-kanban:card:start id="card-keyboard-moves" -->
 ### Try keyboard card moves
 
-Move this card with the visible previous-column and next-column controls. #accessibility
+Focus this card's grip, press Space, use an arrow key, then press Space again. #accessibility
 <!-- denote-kanban:card:end -->
 
 <!-- denote-kanban:column:end -->

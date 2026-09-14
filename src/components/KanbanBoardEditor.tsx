@@ -1,10 +1,5 @@
 import {
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
-  ArrowUp,
   GripVertical,
-  Pencil,
   Plus,
   Trash2,
 } from "lucide-react";
@@ -23,8 +18,18 @@ import type {
   PluginKanbanEditResult,
 } from "@denote/plugin-sdk";
 
-const COLUMN_DRAG_TYPE = "application/x-denote-kanban-column";
-const CARD_DRAG_TYPE = "application/x-denote-kanban-card";
+const DRAG_DATA_TYPE = "text/plain";
+const DRAG_DATA_PREFIX = "denote-kanban:";
+
+type DraggedItem =
+  | {
+      kind: "column";
+      id: string;
+    }
+  | {
+      kind: "card";
+      id: string;
+    };
 
 type EditorState =
   | {
@@ -45,6 +50,7 @@ type EditorState =
       columnId: string;
       title: string;
       body: string;
+      focus: "title";
     }
   | {
       kind: "edit-card";
@@ -52,6 +58,7 @@ type EditorState =
       cardId: string;
       title: string;
       body: string;
+      focus: "title" | "body";
     }
   | {
       kind: "delete-column";
@@ -99,6 +106,7 @@ export function KanbanBoardEditor({
   const [busy, setBusy] = useState(false);
   const [announcement, setAnnouncement] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
+  const [grabbedItem, setGrabbedItem] = useState<DraggedItem | null>(null);
   const [initializeTitle, setInitializeTitle] = useState(() =>
     defaultBoardTitle(path),
   );
@@ -161,9 +169,10 @@ export function KanbanBoardEditor({
     };
   }, [path, source]);
 
+  const editorSession = editorSessionKey(editor);
   useEffect(() => {
     editorFocus.current?.focus();
-  }, [editor]);
+  }, [editorSession]);
 
   useLayoutEffect(() => {
     const key = focusAfterUpdate.current;
@@ -322,6 +331,136 @@ export function KanbanBoardEditor({
     );
   };
 
+  const startPointerDrag = (
+    event: React.DragEvent<HTMLElement>,
+    item: DraggedItem,
+  ) => {
+    if (readOnly || busy) {
+      event.preventDefault();
+      return;
+    }
+    event.stopPropagation();
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData(
+      DRAG_DATA_TYPE,
+      `${DRAG_DATA_PREFIX}${item.kind}:${item.id}`,
+    );
+    setGrabbedItem(null);
+  };
+
+  const toggleKeyboardGrab = (item: DraggedItem, label: string) => {
+    const grabbed =
+      grabbedItem?.kind === item.kind && grabbedItem.id === item.id;
+    setGrabbedItem(grabbed ? null : item);
+    setAnnouncement(
+      grabbed
+        ? `Dropped ${label}`
+        : `Picked up ${label}. Use arrow keys to move it, then press Space to drop.`,
+    );
+  };
+
+  const onColumnReorderKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    columnId: string,
+    columnTitle: string,
+    columnIndex: number,
+  ) => {
+    if (!model) {
+      return;
+    }
+    const item: DraggedItem = { kind: "column", id: columnId };
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      toggleKeyboardGrab(item, `column ${columnTitle}`);
+      return;
+    }
+    const grabbed =
+      grabbedItem?.kind === "column" && grabbedItem.id === columnId;
+    if (!grabbed) {
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setGrabbedItem(null);
+      setAnnouncement(`Cancelled moving column ${columnTitle}`);
+    } else if (event.key === "ArrowLeft" && columnIndex > 0) {
+      event.preventDefault();
+      moveColumn(columnId, columnIndex - 1);
+    } else if (
+      event.key === "ArrowRight" &&
+      columnIndex < model.columns.length - 1
+    ) {
+      event.preventDefault();
+      moveColumn(columnId, columnIndex + 1);
+    } else if (event.key === "Home" && columnIndex > 0) {
+      event.preventDefault();
+      moveColumn(columnId, 0);
+    } else if (
+      event.key === "End" &&
+      columnIndex < model.columns.length - 1
+    ) {
+      event.preventDefault();
+      moveColumn(columnId, model.columns.length - 1);
+    }
+  };
+
+  const onCardReorderKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    card: PluginKanbanCard,
+    cardIndex: number,
+    columnIndex: number,
+  ) => {
+    if (!model) {
+      return;
+    }
+    const column = model.columns[columnIndex];
+    const item: DraggedItem = { kind: "card", id: card.id };
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      toggleKeyboardGrab(item, `card ${card.title}`);
+      return;
+    }
+    const grabbed =
+      grabbedItem?.kind === "card" && grabbedItem.id === card.id;
+    if (!grabbed) {
+      return;
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setGrabbedItem(null);
+      setAnnouncement(`Cancelled moving card ${card.title}`);
+    } else if (event.key === "ArrowUp" && cardIndex > 0) {
+      event.preventDefault();
+      moveCard(card.id, column.id, cardIndex - 1);
+    } else if (
+      event.key === "ArrowDown" &&
+      cardIndex < column.cards.length - 1
+    ) {
+      event.preventDefault();
+      moveCard(card.id, column.id, cardIndex + 1);
+    } else if (event.key === "ArrowLeft" && columnIndex > 0) {
+      event.preventDefault();
+      const previous = model.columns[columnIndex - 1];
+      moveCard(card.id, previous.id, previous.cards.length);
+    } else if (
+      event.key === "ArrowRight" &&
+      columnIndex < model.columns.length - 1
+    ) {
+      event.preventDefault();
+      const next = model.columns[columnIndex + 1];
+      moveCard(card.id, next.id, next.cards.length);
+    } else if (event.key === "Home" && cardIndex > 0) {
+      event.preventDefault();
+      moveCard(card.id, column.id, 0);
+    } else if (
+      event.key === "End" &&
+      cardIndex < column.cards.length - 1
+    ) {
+      event.preventDefault();
+      moveCard(card.id, column.id, column.cards.length - 1);
+    }
+  };
+
   const parseFailure =
     model?.error ?? (parseError ? { message: parseError } : null);
   const boardHeadingId = `kanban-board-${safeDomId(path)}`;
@@ -471,22 +610,22 @@ export function KanbanBoardEditor({
           <div className="kanban-board-editor__title">
             <div>
               <span className="dialog-kicker">Kanban board</span>
-              <h1 id={boardHeadingId}>{model.title}</h1>
+              <h1 id={boardHeadingId}>
+                <button
+                  ref={registerFocusTarget("board")}
+                  type="button"
+                  className="kanban-title-button"
+                  title="Edit board title"
+                  disabled={readOnly || busy}
+                  onClick={(event) => {
+                    rememberTrigger(event.currentTarget);
+                    setEditor({ kind: "board-title", title: model.title });
+                  }}
+                >
+                  {model.title}
+                </button>
+              </h1>
             </div>
-            <button
-              ref={registerFocusTarget("board")}
-              type="button"
-              className="icon-button"
-              title="Edit board title"
-              aria-label="Edit board title"
-              disabled={readOnly || busy}
-              onClick={(event) => {
-                rememberTrigger(event.currentTarget);
-                setEditor({ kind: "board-title", title: model.title });
-              }}
-            >
-              <Pencil aria-hidden="true" size={16} />
-            </button>
           </div>
         )}
         <div className="kanban-board-editor__toolbar">
@@ -559,34 +698,67 @@ export function KanbanBoardEditor({
           <li
             key={column.id}
             className="kanban-column"
+            data-grabbed={
+              grabbedItem?.kind === "column" &&
+              grabbedItem.id === column.id
+            }
+            draggable={!readOnly && !busy}
+            onDragStart={(event) => {
+              if (shouldIgnoreDragStart(event.target)) {
+                event.preventDefault();
+                return;
+              }
+              startPointerDrag(event, { kind: "column", id: column.id });
+            }}
             onDragOver={(event) => {
-              if (hasDragType(event.dataTransfer, COLUMN_DRAG_TYPE)) {
+              if (hasTextDrag(event.dataTransfer)) {
                 event.preventDefault();
               }
             }}
             onDrop={(event) => {
-              const columnId = event.dataTransfer.getData(COLUMN_DRAG_TYPE);
-              if (!columnId || columnId === column.id) {
+              const item = readDraggedItem(event.dataTransfer);
+              if (!item) {
                 return;
               }
               event.preventDefault();
-              moveColumnBefore(columnId, column.id, columnIndex + 1);
+              if (item.kind === "column" && item.id !== column.id) {
+                moveColumnBefore(item.id, column.id, columnIndex + 1);
+              } else if (item.kind === "card") {
+                moveCard(item.id, column.id, column.cards.length);
+              }
             }}
           >
             <section aria-labelledby={`kanban-column-${safeDomId(column.id)}`}>
               <header className="kanban-column__header">
-                <span
+                <button
+                  ref={registerFocusTarget(`column:${column.id}`)}
+                  type="button"
                   className="kanban-drag-handle"
                   draggable={!readOnly && !busy}
-                  aria-hidden="true"
+                  aria-label={`Reorder column ${column.title}`}
+                  aria-pressed={
+                    grabbedItem?.kind === "column" &&
+                    grabbedItem.id === column.id
+                  }
+                  title="Drag to reorder. Press Space, then use Left or Right."
+                  disabled={readOnly || busy}
                   onDragStart={(event) => {
-                    event.stopPropagation();
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData(COLUMN_DRAG_TYPE, column.id);
+                    startPointerDrag(event, {
+                      kind: "column",
+                      id: column.id,
+                    });
                   }}
+                  onKeyDown={(event) =>
+                    onColumnReorderKeyDown(
+                      event,
+                      column.id,
+                      column.title,
+                      columnIndex,
+                    )
+                  }
                 >
-                  <GripVertical size={15} />
-                </span>
+                  <GripVertical aria-hidden="true" size={15} />
+                </button>
                 {editor?.kind === "rename-column" &&
                 editor.columnId === column.id ? (
                   <form
@@ -631,7 +803,22 @@ export function KanbanBoardEditor({
                   <>
                     <div className="kanban-column__title">
                       <h2 id={`kanban-column-${safeDomId(column.id)}`}>
-                        {column.title}
+                        <button
+                          type="button"
+                          className="kanban-title-button"
+                          title={`Rename ${column.title}`}
+                          disabled={readOnly || busy}
+                          onClick={(event) => {
+                            rememberTrigger(event.currentTarget);
+                            setEditor({
+                              kind: "rename-column",
+                              columnId: column.id,
+                              title: column.title,
+                            });
+                          }}
+                        >
+                          {column.title}
+                        </button>
                       </h2>
                       <span>
                         {column.cards.length}{" "}
@@ -639,40 +826,6 @@ export function KanbanBoardEditor({
                       </span>
                     </div>
                     <div className="kanban-item-actions">
-                      <IconAction
-                        label={`Move ${column.title} left`}
-                        icon={<ArrowLeft aria-hidden="true" size={14} />}
-                        disabled={readOnly || busy || columnIndex === 0}
-                        onClick={() => moveColumn(column.id, columnIndex - 1)}
-                      />
-                      <IconAction
-                        label={`Move ${column.title} right`}
-                        icon={<ArrowRight aria-hidden="true" size={14} />}
-                        disabled={
-                          readOnly ||
-                          busy ||
-                          columnIndex === model.columns.length - 1
-                        }
-                        onClick={() => moveColumn(column.id, columnIndex + 1)}
-                      />
-                      <button
-                        ref={registerFocusTarget(`column:${column.id}`)}
-                        type="button"
-                        className="icon-button"
-                        title={`Rename ${column.title}`}
-                        aria-label={`Rename ${column.title}`}
-                        disabled={readOnly || busy}
-                        onClick={(event) => {
-                          rememberTrigger(event.currentTarget);
-                          setEditor({
-                            kind: "rename-column",
-                            columnId: column.id,
-                            title: column.title,
-                          });
-                        }}
-                      >
-                        <Pencil aria-hidden="true" size={14} />
-                      </button>
                       <button
                         type="button"
                         className="icon-button"
@@ -731,21 +884,40 @@ export function KanbanBoardEditor({
                   <li
                     key={card.id}
                     className="kanban-card"
+                    data-grabbed={
+                      grabbedItem?.kind === "card" &&
+                      grabbedItem.id === card.id
+                    }
+                    draggable={!readOnly && !busy}
+                    onDragStart={(event) => {
+                      if (shouldIgnoreDragStart(event.target)) {
+                        event.preventDefault();
+                        return;
+                      }
+                      startPointerDrag(event, {
+                        kind: "card",
+                        id: card.id,
+                      });
+                    }}
                     onDragOver={(event) => {
-                      if (hasDragType(event.dataTransfer, CARD_DRAG_TYPE)) {
+                      if (hasTextDrag(event.dataTransfer)) {
                         event.preventDefault();
                         event.stopPropagation();
                       }
                     }}
                     onDrop={(event) => {
-                      const cardId = event.dataTransfer.getData(CARD_DRAG_TYPE);
-                      if (!cardId || cardId === card.id) {
+                      const item = readDraggedItem(event.dataTransfer);
+                      if (
+                        !item ||
+                        item.kind !== "card" ||
+                        item.id === card.id
+                      ) {
                         return;
                       }
                       event.preventDefault();
                       event.stopPropagation();
                       moveCardBefore(
-                        cardId,
+                        item.id,
                         column.id,
                         card.id,
                         cardIndex + 1,
@@ -778,25 +950,81 @@ export function KanbanBoardEditor({
                     ) : (
                       <article>
                         <header className="kanban-card__header">
-                          <span
+                          <button
+                            ref={registerFocusTarget(`card:${card.id}`)}
+                            type="button"
                             className="kanban-drag-handle"
                             draggable={!readOnly && !busy}
-                            aria-hidden="true"
+                            aria-label={`Reorder card ${card.title}`}
+                            aria-pressed={
+                              grabbedItem?.kind === "card" &&
+                              grabbedItem.id === card.id
+                            }
+                            title="Drag to move. Press Space, then use arrow keys."
+                            disabled={readOnly || busy}
                             onDragStart={(event) => {
-                              event.stopPropagation();
-                              event.dataTransfer.effectAllowed = "move";
-                              event.dataTransfer.setData(CARD_DRAG_TYPE, card.id);
+                              startPointerDrag(event, {
+                                kind: "card",
+                                id: card.id,
+                              });
                             }}
+                            onKeyDown={(event) =>
+                              onCardReorderKeyDown(
+                                event,
+                                card,
+                                cardIndex,
+                                columnIndex,
+                              )
+                            }
                           >
-                            <GripVertical size={14} />
-                          </span>
-                          <h3>{card.title}</h3>
+                            <GripVertical aria-hidden="true" size={14} />
+                          </button>
+                          <h3>
+                            <button
+                              type="button"
+                              className="kanban-title-button"
+                              title={`Rename ${card.title}`}
+                              disabled={readOnly || busy}
+                              onClick={(event) => {
+                                rememberTrigger(event.currentTarget);
+                                setEditor({
+                                  kind: "edit-card",
+                                  columnId: column.id,
+                                  cardId: card.id,
+                                  title: card.title,
+                                  body: card.body,
+                                  focus: "title",
+                                });
+                              }}
+                            >
+                              {card.title}
+                            </button>
+                          </h3>
                         </header>
-                        {card.body ? (
-                          <div className="kanban-card__body">{card.body}</div>
-                        ) : (
-                          <p className="kanban-card__empty">No details</p>
-                        )}
+                        <button
+                          type="button"
+                          className={
+                            card.body
+                              ? "kanban-card__body"
+                              : "kanban-card__body kanban-card__empty"
+                          }
+                          title={`Edit details for ${card.title}`}
+                          aria-label={`Edit details for ${card.title}`}
+                          disabled={readOnly || busy}
+                          onClick={(event) => {
+                            rememberTrigger(event.currentTarget);
+                            setEditor({
+                              kind: "edit-card",
+                              columnId: column.id,
+                              cardId: card.id,
+                              title: card.title,
+                              body: card.body,
+                              focus: "body",
+                            });
+                          }}
+                        >
+                          {card.body || "No details"}
+                        </button>
                         <CardMetadata
                           card={card}
                           onLinkOpen={onLinkOpen}
@@ -805,76 +1033,6 @@ export function KanbanBoardEditor({
                           className="kanban-item-actions kanban-card__actions"
                           aria-label={`Actions for ${card.title}`}
                         >
-                          <IconAction
-                            label={`Move ${card.title} up`}
-                            icon={<ArrowUp aria-hidden="true" size={14} />}
-                            disabled={readOnly || busy || cardIndex === 0}
-                            onClick={() =>
-                              moveCard(card.id, column.id, cardIndex - 1)
-                            }
-                          />
-                          <IconAction
-                            label={`Move ${card.title} down`}
-                            icon={<ArrowDown aria-hidden="true" size={14} />}
-                            disabled={
-                              readOnly ||
-                              busy ||
-                              cardIndex === column.cards.length - 1
-                            }
-                            onClick={() =>
-                              moveCard(card.id, column.id, cardIndex + 1)
-                            }
-                          />
-                          <IconAction
-                            label={`Move ${card.title} to previous column`}
-                            icon={<ArrowLeft aria-hidden="true" size={14} />}
-                            disabled={readOnly || busy || columnIndex === 0}
-                            onClick={() => {
-                              const previous = model.columns[columnIndex - 1];
-                              if (previous) {
-                                moveCard(
-                                  card.id,
-                                  previous.id,
-                                  previous.cards.length,
-                                );
-                              }
-                            }}
-                          />
-                          <IconAction
-                            label={`Move ${card.title} to next column`}
-                            icon={<ArrowRight aria-hidden="true" size={14} />}
-                            disabled={
-                              readOnly ||
-                              busy ||
-                              columnIndex === model.columns.length - 1
-                            }
-                            onClick={() => {
-                              const next = model.columns[columnIndex + 1];
-                              if (next) {
-                                moveCard(card.id, next.id, next.cards.length);
-                              }
-                            }}
-                          />
-                          <button
-                            ref={registerFocusTarget(`card:${card.id}`)}
-                            type="button"
-                            className="icon-button"
-                            title={`Edit ${card.title}`}
-                            aria-label={`Edit ${card.title}`}
-                            disabled={readOnly || busy}
-                            onClick={(event) => {
-                              rememberTrigger(event.currentTarget);
-                              setEditor({
-                                kind: "edit-card",
-                                columnId: column.id,
-                                cardId: card.id,
-                                title: card.title,
-                                body: card.body,
-                              });
-                            }}
-                          >
-                            <Pencil aria-hidden="true" size={14} />
-                          </button>
                           <button
                             type="button"
                             className="icon-button"
@@ -973,6 +1131,7 @@ export function KanbanBoardEditor({
                       columnId: column.id,
                       title: "",
                       body: "",
+                      focus: "title",
                     });
                   }}
                 >
@@ -984,19 +1143,19 @@ export function KanbanBoardEditor({
                 className="kanban-drop-zone"
                 aria-hidden="true"
                 onDragOver={(event) => {
-                  if (hasDragType(event.dataTransfer, CARD_DRAG_TYPE)) {
+                  if (hasTextDrag(event.dataTransfer)) {
                     event.preventDefault();
                     event.stopPropagation();
                   }
                 }}
                 onDrop={(event) => {
-                  const cardId = event.dataTransfer.getData(CARD_DRAG_TYPE);
-                  if (!cardId) {
+                  const item = readDraggedItem(event.dataTransfer);
+                  if (!item || item.kind !== "card") {
                     return;
                   }
                   event.preventDefault();
                   event.stopPropagation();
-                  moveCard(cardId, column.id, column.cards.length);
+                  moveCard(item.id, column.id, column.cards.length);
                 }}
               />
             </section>
@@ -1006,17 +1165,17 @@ export function KanbanBoardEditor({
           className="kanban-column-drop-zone"
           aria-hidden="true"
           onDragOver={(event) => {
-            if (hasDragType(event.dataTransfer, COLUMN_DRAG_TYPE)) {
+            if (hasTextDrag(event.dataTransfer)) {
               event.preventDefault();
             }
           }}
           onDrop={(event) => {
-            const columnId = event.dataTransfer.getData(COLUMN_DRAG_TYPE);
-            if (!columnId) {
+            const item = readDraggedItem(event.dataTransfer);
+            if (!item || item.kind !== "column") {
               return;
             }
             event.preventDefault();
-            moveColumn(columnId, model.columns.length);
+            moveColumn(item.id, model.columns.length);
           }}
         />
       </ol>
@@ -1058,7 +1217,7 @@ function CardForm({
 }: {
   editor: Extract<EditorState, { kind: "add-card" | "edit-card" }>;
   busy: boolean;
-  focusRef: (element: HTMLInputElement | null) => void;
+  focusRef: (element: HTMLInputElement | HTMLTextAreaElement | null) => void;
   onChange: (editor: EditorState) => void;
   onCancel: () => void;
   onSubmit: () => void;
@@ -1074,7 +1233,7 @@ function CardForm({
       <label>
         Card title
         <input
-          ref={focusRef}
+          ref={editor.focus === "title" ? focusRef : undefined}
           value={editor.title}
           onChange={(event) =>
             onChange({ ...editor, title: event.currentTarget.value })
@@ -1086,6 +1245,7 @@ function CardForm({
       <label>
         Card details (Markdown)
         <textarea
+          ref={editor.focus === "body" ? focusRef : undefined}
           value={editor.body}
           onChange={(event) =>
             onChange({ ...editor, body: event.currentTarget.value })
@@ -1178,31 +1338,6 @@ function CardMetadata({
   );
 }
 
-function IconAction({
-  label,
-  icon,
-  disabled,
-  onClick,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  disabled: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="icon-button"
-      title={label}
-      aria-label={label}
-      disabled={disabled}
-      onClick={onClick}
-    >
-      {icon}
-    </button>
-  );
-}
-
 function columnTitle(model: PluginKanbanBoardModel, columnId: string): string {
   return (
     model.columns.find((column) => column.id === columnId)?.title ?? "column"
@@ -1217,6 +1352,26 @@ function cardTitle(model: PluginKanbanBoardModel, cardId: string): string {
     }
   }
   return "card";
+}
+
+function editorSessionKey(editor: EditorState): string {
+  if (!editor) {
+    return "";
+  }
+  switch (editor.kind) {
+    case "board-title":
+    case "add-column":
+      return editor.kind;
+    case "rename-column":
+    case "delete-column":
+      return `${editor.kind}:${editor.columnId}`;
+    case "add-card":
+      return `${editor.kind}:${editor.columnId}:${editor.focus}`;
+    case "edit-card":
+      return `${editor.kind}:${editor.cardId}:${editor.focus}`;
+    case "delete-card":
+      return `${editor.kind}:${editor.cardId}`;
+  }
 }
 
 function defaultBoardTitle(path: string): string {
@@ -1234,6 +1389,29 @@ function safeDomId(value: string): string {
   return value.replace(/[^a-z0-9_-]/gi, "-");
 }
 
-function hasDragType(dataTransfer: DataTransfer, type: string): boolean {
-  return Array.from(dataTransfer.types).includes(type);
+function hasTextDrag(dataTransfer: DataTransfer): boolean {
+  return Array.from(dataTransfer.types).includes(DRAG_DATA_TYPE);
+}
+
+function readDraggedItem(dataTransfer: DataTransfer): DraggedItem | null {
+  const value = dataTransfer.getData(DRAG_DATA_TYPE);
+  const match = /^denote-kanban:(column|card):(.+)$/.exec(value);
+  if (!match) {
+    return null;
+  }
+  return {
+    kind: match[1] as DraggedItem["kind"],
+    id: match[2],
+  };
+}
+
+function shouldIgnoreDragStart(target: EventTarget | null): boolean {
+  return (
+    target instanceof HTMLElement &&
+    Boolean(
+      target.closest(
+        "input, textarea, select, a, button:not(.kanban-drag-handle)",
+      ),
+    )
+  );
 }

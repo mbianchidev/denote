@@ -646,13 +646,18 @@ not decorative dashboard cards. Board and column titles stay visually stronger
 than metadata. Card Markdown is shown as wrapped plain text, with note links as
 text buttons and hashtags as compact semantic pills.
 
-Pointer drag handles are visually muted and absent from the accessibility tree.
-Every column also has named Move left and Move right buttons. Every card has
-named Move up, Move down, Move to previous column, and Move to next column
-buttons. Successful moves keep focus on the moved item and announce its new
-column and position through a polite live region. Add, edit, rename, and delete
-flows use native inline forms and buttons in document order. Deletion requires
-an inline confirmation and moves focus to the nearest surviving item.
+Each visually muted grip is a named native button and the pointer drag target.
+Space picks up the column or card; arrow keys move it, Home/End reach the first
+or last position, Space drops, and Escape cancels. Successful moves keep focus
+on the grip and announce the new column and position through a polite live
+region. No separate arrow-move controls appear.
+
+Board, column, and card titles are quiet text buttons that become inline fields
+when clicked. Card details use the same direct-edit treatment and focus the
+details field without jumping back to the title on each keystroke. No pencil
+icon is shown. Add and delete flows use native controls in document order.
+Deletion requires an inline confirmation and moves focus to the nearest
+surviving item.
 
 Board errors retain the Markdown control and use written error text rather than
 color alone. Read mode keeps links available but disables every mutation and
