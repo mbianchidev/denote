@@ -4,6 +4,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -107,6 +108,7 @@ export function KanbanBoardEditor({
   const [announcement, setAnnouncement] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
   const [grabbedItem, setGrabbedItem] = useState<DraggedItem | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [initializeTitle, setInitializeTitle] = useState(() =>
     defaultBoardTitle(path),
   );
@@ -122,6 +124,7 @@ export function KanbanBoardEditor({
   const lastAppliedSource = useRef<string | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
   const editorFocus = useRef<HTMLElement | null>(null);
+  const pointerDrag = useRef<DraggedItem | null>(null);
   const focusTargets = useRef(new Map<string, HTMLButtonElement>());
   const focusAfterUpdate = useRef<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
@@ -341,11 +344,18 @@ export function KanbanBoardEditor({
     }
     event.stopPropagation();
     event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData(
-      DRAG_DATA_TYPE,
-      `${DRAG_DATA_PREFIX}${item.kind}:${item.id}`,
-    );
+    const value = `${DRAG_DATA_PREFIX}${item.kind}:${item.id}`;
+    pointerDrag.current = item;
+    event.dataTransfer.setData(DRAG_DATA_TYPE, value);
     setGrabbedItem(null);
+  };
+
+  const draggedItemForDrop = (dataTransfer: DataTransfer) =>
+    readDraggedItem(dataTransfer) ?? pointerDrag.current;
+
+  const finishPointerDrag = () => {
+    pointerDrag.current = null;
+    setDropTarget(null);
   };
 
   const toggleKeyboardGrab = (item: DraggedItem, label: string) => {
@@ -695,9 +705,43 @@ export function KanbanBoardEditor({
 
       <ol className="kanban-board-editor__columns" aria-label="Board columns">
         {model.columns.map((column, columnIndex) => (
-          <li
-            key={column.id}
-            className="kanban-column"
+          <Fragment key={column.id}>
+            <li
+              className="kanban-column-drop-zone"
+              data-active={
+                dropTarget === `column-slot:${column.id}`
+              }
+              aria-hidden="true"
+              onDragOver={(event) => {
+                if (pointerDrag.current?.kind !== "column") {
+                  return;
+                }
+                event.preventDefault();
+                setDropTarget(`column-slot:${column.id}`);
+              }}
+              onDragLeave={() =>
+                setDropTarget((current) =>
+                  current === `column-slot:${column.id}`
+                    ? null
+                    : current,
+                )
+              }
+              onDrop={(event) => {
+                const item = draggedItemForDrop(event.dataTransfer);
+                if (!item || item.kind !== "column") {
+                  return;
+                }
+                event.preventDefault();
+                moveColumnBefore(
+                  item.id,
+                  column.id,
+                  columnIndex + 1,
+                );
+                finishPointerDrag();
+              }}
+            />
+            <li
+              className="kanban-column"
             data-grabbed={
               grabbedItem?.kind === "column" &&
               grabbedItem.id === column.id
@@ -710,13 +754,14 @@ export function KanbanBoardEditor({
               }
               startPointerDrag(event, { kind: "column", id: column.id });
             }}
+            onDragEnd={finishPointerDrag}
             onDragOver={(event) => {
-              if (hasTextDrag(event.dataTransfer)) {
+              if (pointerDrag.current) {
                 event.preventDefault();
               }
             }}
             onDrop={(event) => {
-              const item = readDraggedItem(event.dataTransfer);
+              const item = draggedItemForDrop(event.dataTransfer);
               if (!item) {
                 return;
               }
@@ -726,6 +771,7 @@ export function KanbanBoardEditor({
               } else if (item.kind === "card") {
                 moveCard(item.id, column.id, column.cards.length);
               }
+              finishPointerDrag();
             }}
           >
             <section aria-labelledby={`kanban-column-${safeDomId(column.id)}`}>
@@ -881,9 +927,50 @@ export function KanbanBoardEditor({
                 aria-label={`${column.title} cards`}
               >
                 {column.cards.map((card, cardIndex) => (
-                  <li
-                    key={card.id}
-                    className="kanban-card"
+                  <Fragment key={card.id}>
+                    <li
+                      className="kanban-drop-zone"
+                      data-active={
+                        dropTarget ===
+                        `card-slot:${column.id}:${card.id}`
+                      }
+                      aria-hidden="true"
+                      onDragOver={(event) => {
+                        if (pointerDrag.current?.kind !== "card") {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setDropTarget(
+                          `card-slot:${column.id}:${card.id}`,
+                        );
+                      }}
+                      onDragLeave={() =>
+                        setDropTarget((current) =>
+                          current ===
+                          `card-slot:${column.id}:${card.id}`
+                            ? null
+                            : current,
+                        )
+                      }
+                      onDrop={(event) => {
+                        const item = draggedItemForDrop(event.dataTransfer);
+                        if (!item || item.kind !== "card") {
+                          return;
+                        }
+                        event.preventDefault();
+                        event.stopPropagation();
+                        moveCardBefore(
+                          item.id,
+                          column.id,
+                          card.id,
+                          cardIndex + 1,
+                        );
+                        finishPointerDrag();
+                      }}
+                    />
+                    <li
+                      className="kanban-card"
                     data-grabbed={
                       grabbedItem?.kind === "card" &&
                       grabbedItem.id === card.id
@@ -899,14 +986,15 @@ export function KanbanBoardEditor({
                         id: card.id,
                       });
                     }}
+                    onDragEnd={finishPointerDrag}
                     onDragOver={(event) => {
-                      if (hasTextDrag(event.dataTransfer)) {
+                      if (pointerDrag.current?.kind === "card") {
                         event.preventDefault();
                         event.stopPropagation();
                       }
                     }}
                     onDrop={(event) => {
-                      const item = readDraggedItem(event.dataTransfer);
+                      const item = draggedItemForDrop(event.dataTransfer);
                       if (
                         !item ||
                         item.kind !== "card" ||
@@ -922,6 +1010,7 @@ export function KanbanBoardEditor({
                         card.id,
                         cardIndex + 1,
                       );
+                      finishPointerDrag();
                     }}
                   >
                     {editor?.kind === "edit-card" &&
@@ -1077,8 +1166,41 @@ export function KanbanBoardEditor({
                         disabled={busy}
                       />
                     ) : null}
-                  </li>
+                    </li>
+                  </Fragment>
                 ))}
+                <li
+                  className="kanban-drop-zone"
+                  data-active={
+                    dropTarget === `card-slot:${column.id}:end`
+                  }
+                  aria-hidden="true"
+                  onDragOver={(event) => {
+                    if (pointerDrag.current?.kind !== "card") {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setDropTarget(`card-slot:${column.id}:end`);
+                  }}
+                  onDragLeave={() =>
+                    setDropTarget((current) =>
+                      current === `card-slot:${column.id}:end`
+                        ? null
+                        : current,
+                    )
+                  }
+                  onDrop={(event) => {
+                    const item = draggedItemForDrop(event.dataTransfer);
+                    if (!item || item.kind !== "card") {
+                      return;
+                    }
+                    event.preventDefault();
+                    event.stopPropagation();
+                    moveCard(item.id, column.id, column.cards.length);
+                    finishPointerDrag();
+                  }}
+                />
               </ol>
 
               {editor?.kind === "add-card" &&
@@ -1139,43 +1261,34 @@ export function KanbanBoardEditor({
                   Add card
                 </button>
               )}
-              <div
-                className="kanban-drop-zone"
-                aria-hidden="true"
-                onDragOver={(event) => {
-                  if (hasTextDrag(event.dataTransfer)) {
-                    event.preventDefault();
-                    event.stopPropagation();
-                  }
-                }}
-                onDrop={(event) => {
-                  const item = readDraggedItem(event.dataTransfer);
-                  if (!item || item.kind !== "card") {
-                    return;
-                  }
-                  event.preventDefault();
-                  event.stopPropagation();
-                  moveCard(item.id, column.id, column.cards.length);
-                }}
-              />
             </section>
-          </li>
+            </li>
+          </Fragment>
         ))}
         <li
           className="kanban-column-drop-zone"
+          data-active={dropTarget === "column-slot:end"}
           aria-hidden="true"
           onDragOver={(event) => {
-            if (hasTextDrag(event.dataTransfer)) {
-              event.preventDefault();
+            if (pointerDrag.current?.kind !== "column") {
+              return;
             }
+            event.preventDefault();
+            setDropTarget("column-slot:end");
           }}
+          onDragLeave={() =>
+            setDropTarget((current) =>
+              current === "column-slot:end" ? null : current,
+            )
+          }
           onDrop={(event) => {
-            const item = readDraggedItem(event.dataTransfer);
+            const item = draggedItemForDrop(event.dataTransfer);
             if (!item || item.kind !== "column") {
               return;
             }
             event.preventDefault();
             moveColumn(item.id, model.columns.length);
+            finishPointerDrag();
           }}
         />
       </ol>
@@ -1387,10 +1500,6 @@ function defaultBoardTitle(path: string): string {
 
 function safeDomId(value: string): string {
   return value.replace(/[^a-z0-9_-]/gi, "-");
-}
-
-function hasTextDrag(dataTransfer: DataTransfer): boolean {
-  return Array.from(dataTransfer.types).includes(DRAG_DATA_TYPE);
 }
 
 function readDraggedItem(dataTransfer: DataTransfer): DraggedItem | null {

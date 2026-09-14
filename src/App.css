@@ -2151,7 +2151,7 @@ button:disabled {
   min-height: 0;
   flex: 1;
   align-items: flex-start;
-  gap: 12px;
+  gap: 0;
   margin: 0;
   padding: 12px;
   overflow: auto;
@@ -2162,6 +2162,7 @@ button:disabled {
   width: min(320px, calc(100vw - 120px));
   max-height: 100%;
   flex: 0 0 min(320px, calc(100vw - 120px));
+  margin: 0 6px;
   background: var(--sidebar-bg);
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -2237,7 +2238,7 @@ button:disabled {
 .kanban-column__cards {
   display: grid;
   min-height: 0;
-  gap: 8px;
+  gap: 0;
   margin: 0;
   padding: 8px;
   overflow: auto;
@@ -2245,6 +2246,7 @@ button:disabled {
 }
 
 .kanban-card {
+  margin: 4px 0;
   background: var(--panel-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -2443,12 +2445,31 @@ button:disabled {
 
 .kanban-drop-zone {
   min-height: 8px;
+  border: 1px solid transparent;
+  border-radius: 4px;
 }
 
 .kanban-column-drop-zone {
-  width: 20px;
+  width: 12px;
   min-height: 160px;
-  flex: 0 0 20px;
+  flex: 0 0 12px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.kanban-drop-zone[data-active="true"],
+.kanban-column-drop-zone[data-active="true"] {
+  background: var(--accent-muted);
+  border-color: var(--accent);
+}
+
+.kanban-drop-zone[data-active="true"] {
+  min-height: 18px;
+}
+
+.kanban-column-drop-zone[data-active="true"] {
+  width: 24px;
+  flex-basis: 24px;
 }
 
 .kanban-board-editor__error,

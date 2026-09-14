@@ -322,7 +322,7 @@ describe("KanbanBoardEditor", () => {
     const doing = screen
       .getByRole("button", { name: "Doing" })
       .closest(".kanban-column");
-    const dataTransfer = createDataTransfer();
+    const dataTransfer = createDataTransfer(false);
 
     fireEvent.dragStart(handle, { dataTransfer });
     fireEvent.dragOver(doing!, { dataTransfer });
@@ -340,6 +340,45 @@ describe("KanbanBoardEditor", () => {
       }),
     );
     expect(container.querySelector(".lucide-arrow-left")).not.toBeInTheDocument();
+  });
+
+  it("reorders a card into any slot within the same column", async () => {
+    const moved: PluginKanbanBoardModel = {
+      ...model,
+      columns: [
+        {
+          ...model.columns[0],
+          cards: [model.columns[0].cards[1], model.columns[0].cards[0]],
+        },
+        model.columns[1],
+      ],
+    };
+    const edit = vi.fn(async () => ({ source: "reordered source", model: moved }));
+    const { container } = renderBoard({ edit });
+    await screen.findByRole("heading", { name: "Release board" });
+    const handle = screen.getByRole("button", {
+      name: "Reorder card Review change",
+    });
+    const firstSlot = container.querySelector<HTMLElement>(
+      '[aria-label="Backlog cards"] .kanban-drop-zone',
+    );
+    const dataTransfer = createDataTransfer(false);
+
+    fireEvent.dragStart(handle, { dataTransfer });
+    fireEvent.dragOver(firstSlot!, { dataTransfer });
+    fireEvent.drop(firstSlot!, { dataTransfer });
+
+    await act(async () => {});
+    expect(edit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        edit: {
+          type: "move-card",
+          cardId: "card-review",
+          targetColumnId: "column-backlog",
+          beforeCardId: "card-spec",
+        },
+      }),
+    );
   });
 
   it("supports pointer column reordering", async () => {
@@ -434,7 +473,7 @@ describe("KanbanBoardEditor", () => {
   });
 });
 
-function createDataTransfer() {
+function createDataTransfer(exposeData = true) {
   const values = new Map<string, string>();
   return {
     effectAllowed: "all",
@@ -446,7 +485,7 @@ function createDataTransfer() {
       }
     },
     getData(type: string) {
-      return values.get(type) ?? "";
+      return exposeData ? (values.get(type) ?? "") : "";
     },
   };
 }
