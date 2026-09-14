@@ -857,7 +857,9 @@ controls, focus restoration, polite announcements, note-link resolution, and
 read-only state. A successful edit installs the returned model immediately so a
 moved item's focus survives while the parent tab adopts the new source; a later
 stale parse result is ignored. Switching to Markdown uses the ordinary exact
-source editor.
+source editor. The `.kanban.md` and `.kanban.markdown` compound suffixes also
+route to that exact source editor when no provider is active, so disabling the
+plugin never sends its marker comments through Rich Markdown conversion.
 
 `denote.kanban` recognizes `.kanban.md` and `.kanban.markdown`. Its portable
 format has one versioned board start/end pair. Each column and card has paired

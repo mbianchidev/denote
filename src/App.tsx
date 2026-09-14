@@ -244,7 +244,7 @@ import {
   withProjectConfiguration,
 } from "./lib/workspaceTree";
 import {
-  usesProjectMarkdownSourceEditor,
+  usesMarkdownSourceEditor,
   usesRichMarkdownEditor,
 } from "./lib/editorRouting";
 import { acquireWorkspaceLockAndDrainProjectMutations } from "./lib/workspaceOperation";
@@ -8917,8 +8917,8 @@ function App() {
             markdownErrorSourceIdentity(markdownEditorSource(paneTab.content)),
           )
         : null;
-    const paneUsesProjectMarkdownSource =
-      usesProjectMarkdownSourceEditor(paneTab, paneProject);
+    const paneUsesMarkdownSource =
+      usesMarkdownSourceEditor(paneTab, paneProject);
     const paneCodeContext = paneProject !== null || vaultIsWorkspace;
     const paneStructuredViewer =
       paneTab.encoding === "utf8" && !paneTab.transient
@@ -8944,7 +8944,8 @@ function App() {
         {paneTab.encoding === "utf8" &&
         /\.(md|markdown)$/i.test(paneTab.path) &&
         !paneTab.transient &&
-        !paneUsesRichMarkdown ? (
+        !paneUsesRichMarkdown &&
+        (!paneKanbanBoard || paneTab.rawEditing) ? (
           <EmojiToolbar host={emojiHost} pickers={emojiPickers} disabled={paneReadOnly} scope={emojiScope(pane.id, paneTab.path)} />
         ) : null}
         {paneTab.kind === "pdf" ? (
@@ -9076,7 +9077,7 @@ function App() {
           />
         ) : (
           <>
-            {paneUsesProjectMarkdownSource ? (
+            {paneProject && paneUsesMarkdownSource ? (
               <div className="code-workspace-source-notice" role="note">
                 Code workspace source mode. Markdown syntax is edited exactly as
                 stored on disk.
@@ -9104,17 +9105,17 @@ function App() {
               languageOverride={paneTab.languageOverride}
               projectMode={paneCodeContext}
               markdownSource={
-                paneUsesProjectMarkdownSource ||
+                paneUsesMarkdownSource ||
                 Boolean(paneKanbanBoard && paneTab.rawEditing)
               }
               emoji={emojiPickers.length ? { host: emojiHost, scope: emojiScope(pane.id, paneTab.path) } : undefined}
               errorLocation={
-                paneUsesProjectMarkdownSource
+                paneUsesMarkdownSource
                   ? paneMarkdownError?.location
                   : undefined
               }
               errorNavigationRequest={
-                paneUsesProjectMarkdownSource
+                paneUsesMarkdownSource
                   ? (paneMarkdownError?.navigationRequest ?? 0)
                   : 0
               }
@@ -9997,6 +9998,7 @@ function App() {
           activeFileTab.kind !== "image" &&
           activeFileTab.kind !== "pdf" &&
           (!activeStructuredViewer || activeFileTab.rawEditing) &&
+          (!activeKanbanBoard || activeFileTab.rawEditing) &&
           !usesRichMarkdownEditor(activeFileTab, activeProject) ? (
             <SourceLanguageStatus
               path={activeFileTab.path}

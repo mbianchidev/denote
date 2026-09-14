@@ -10,16 +10,32 @@ function isUtf8MarkdownSource(
   );
 }
 
+function isPortablePluginMarkdown(
+  tab: Pick<EditorTab, "kind" | "encoding" | "path">,
+): boolean {
+  return (
+    isUtf8MarkdownSource(tab) &&
+    /\.kanban\.(?:md|markdown)$/i.test(tab.path)
+  );
+}
+
 export function usesRichMarkdownEditor(
   tab: Pick<EditorTab, "kind" | "encoding" | "path">,
   project: ProjectRoot | null,
 ): boolean {
-  return project === null && isUtf8MarkdownSource(tab);
+  return (
+    project === null &&
+    isUtf8MarkdownSource(tab) &&
+    !isPortablePluginMarkdown(tab)
+  );
 }
 
-export function usesProjectMarkdownSourceEditor(
+export function usesMarkdownSourceEditor(
   tab: Pick<EditorTab, "kind" | "encoding" | "path">,
   project: ProjectRoot | null,
 ): boolean {
-  return project !== null && isUtf8MarkdownSource(tab);
+  return (
+    isUtf8MarkdownSource(tab) &&
+    (project !== null || isPortablePluginMarkdown(tab))
+  );
 }

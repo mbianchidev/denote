@@ -693,7 +693,11 @@ describe("markdown utilities", () => {
 
   it("keeps every embedded guide page compatible with rich mode", () => {
     const root = join(process.cwd(), "docs/user-guide");
+
     for (const path of markdownFiles(root)) {
+      if (/\.kanban\.(?:md|markdown)$/i.test(path)) {
+        continue;
+      }
       expect(hasUnsupportedRichMarkdown(readFileSync(path, "utf8")), path).toBe(
         false,
       );

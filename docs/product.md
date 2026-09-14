@@ -417,7 +417,7 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   source, 128-column, 5,000-card, and 64 KiB-per-card-detail limits. The host
   owns forms, lists, focus, links, autosave, revision history, and file writes.
   Locking a vault stops the worker; disabling the plugin leaves board files
-  untouched and readable as Markdown.
+  untouched and readable in the exact Markdown source editor.
 - The independently installable **Mermaid diagrams** plugin is disabled by
   default and requests only `diagram-renderer`. It renders fenced `mermaid`
   blocks in Markdown Rich view while the exact fence remains available through

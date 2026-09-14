@@ -228,7 +228,7 @@ Parsing and edits run locally in the isolated plugin worker. The host owns the
 visible board, forms, focus, link opening, autosave, revision history, and file
 writes. Locking an encrypted vault stops the worker and clears the Board view
 until unlock. Disabling or removing the plugin never changes or deletes board
-files; they continue to open as Markdown.
+files; they continue to open in the exact Markdown source editor.
 
 Open [the Kanban board example](<../plugins/Kanban board.kanban.md>) in the
 Denote Welcome vault. Older copies receive only the missing `plugins` sample
