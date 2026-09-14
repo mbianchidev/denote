@@ -624,7 +624,8 @@ Keep one tiny invented file for every distinct `CORE_SYNTAX_LANGUAGES`
 descriptor, plus representative filename-only rules and the ambiguous `.pp`
 case documented in `code/README.md`. `src/lib/welcomeSamples.test.ts` compares
 the directory with the live registry. The canonical Mermaid, PDF, JSON, and
-YAML files live in `docs/user-guide/examples/`; the PDF must remain exactly
+YAML files live in `docs/user-guide/examples/`; optional workflow samples live
+in `docs/user-guide/plugins/`. The PDF must remain exactly
 equal to the deterministic `createPdfFixture` output and contain no actions,
 forms, annotations, attachments, or external links.
 
@@ -632,6 +633,8 @@ forms, annotations, attachments, or external links.
 addition for older Welcome vaults. Tests must prove exact source inventory,
 missing-file addition, existing-file preservation, one-time behavior, symlink
 refusal, encrypted deferral, and ciphertext creation after unlock.
+The separate `plugins-v1` addition owns the same guarantees for `plugins/`
+samples and must never broaden the older `examples-v1` prefix set.
 
 Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
 maintained package, so its small core stream tokenizer stays in

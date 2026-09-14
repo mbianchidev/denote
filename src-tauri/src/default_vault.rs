@@ -12,6 +12,7 @@ use crate::error::{AppError, AppResult};
 const DEFAULT_VAULT_NAME: &str = "Denote Welcome";
 const TEST_FIXTURE_MARKER: &str = ".denote/fixtures/test-v1";
 const EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/examples-v1";
+const PLUGIN_EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v1";
 const SEED_FILES: &[(&str, &[u8])] = &[
     (
         ".denote.md",
@@ -80,6 +81,10 @@ const SEED_FILES: &[(&str, &[u8])] = &[
     (
         "examples/Sample data.yaml",
         include_bytes!("../../docs/user-guide/examples/Sample data.yaml"),
+    ),
+    (
+        "plugins/Kanban board.kanban.md",
+        include_bytes!("../../docs/user-guide/plugins/Kanban board.kanban.md"),
     ),
     (
         "code/README.md",
@@ -423,6 +428,9 @@ pub fn ensure(app_data_dir: &Path) -> AppResult<PathBuf> {
         if let Err(error) = add_missing_examples_once(&existing, None) {
             eprintln!("Unable to add default-vault examples: {error}");
         }
+        if let Err(error) = add_missing_plugin_examples_once(&existing, None) {
+            eprintln!("Unable to add default-vault plugin examples: {error}");
+        }
         if let Err(error) = add_test_fixtures_once(&existing) {
             eprintln!("Unable to add default-vault test fixtures: {error}");
         }
@@ -442,6 +450,7 @@ pub fn ensure(app_data_dir: &Path) -> AppResult<PathBuf> {
         }
     }
     write_example_fixture_marker(&target, None)?;
+    write_plugin_example_fixture_marker(&target, None)?;
     write_test_fixture_marker(&target)?;
     Ok(fs::canonicalize(target)?)
 }
@@ -510,23 +519,67 @@ pub(crate) fn add_missing_examples_after_unlock(
     add_missing_examples_once(&default_vault, Some(vault_key))
 }
 
+pub(crate) fn add_missing_plugin_examples_after_unlock(
+    db_path: &Path,
+    root: &Path,
+    vault_key: &[u8; 32],
+) -> AppResult<()> {
+    let app_data_dir = db_path.parent().ok_or_else(|| {
+        AppError::State("Default vault database has no parent folder".to_string())
+    })?;
+    let default_vault = app_data_dir.join(DEFAULT_VAULT_NAME);
+    let Some(default_vault) = existing_default_vault(&default_vault)? else {
+        return Ok(());
+    };
+    if fs::canonicalize(root)? != default_vault {
+        return Ok(());
+    }
+    add_missing_plugin_examples_once(&default_vault, Some(vault_key))
+}
+
 fn add_missing_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -> AppResult<()> {
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        EXAMPLE_FIXTURE_MARKER,
+        &["examples/", "code/"],
+        "example",
+    )
+}
+
+fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -> AppResult<()> {
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_FIXTURE_MARKER,
+        &["plugins/"],
+        "plugin example",
+    )
+}
+
+fn add_missing_seed_collection_once(
+    root: &Path,
+    vault_key: Option<&[u8; 32]>,
+    marker_path: &str,
+    prefixes: &[&str],
+    label: &str,
+) -> AppResult<()> {
     let metadata = root.join(".denote");
     ensure_real_directory(&metadata, "Default vault metadata folder")?;
     let fixtures = metadata.join("fixtures");
     ensure_real_directory(&fixtures, "Default vault fixture folder")?;
-    let marker = root.join(EXAMPLE_FIXTURE_MARKER);
+    let marker = root.join(marker_path);
     match fs::symlink_metadata(&marker) {
         Ok(metadata) if metadata_is_link(&metadata) => {
             return Err(AppError::State(format!(
-                "Default vault example marker cannot be a symbolic link: {}",
+                "Default vault {label} marker cannot be a symbolic link: {}",
                 marker.display()
             )));
         }
         Ok(metadata) if metadata.is_file() => return Ok(()),
         Ok(_) => {
             return Err(AppError::State(format!(
-                "Default vault example marker is not a regular file: {}",
+                "Default vault {label} marker is not a regular file: {}",
                 marker.display()
             )));
         }
@@ -550,17 +603,17 @@ fn add_missing_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -> AppRe
     }
     for (relative_path, content) in SEED_FILES
         .iter()
-        .filter(|(path, _)| path.starts_with("examples/") || path.starts_with("code/"))
+        .filter(|(path, _)| prefixes.iter().any(|prefix| path.starts_with(prefix)))
     {
         let path = root.join(relative_path);
         let parent = path
             .parent()
             .ok_or_else(|| AppError::State(format!("Invalid seed path: {relative_path}")))?;
-        ensure_real_directory(parent, "Default vault example folder")?;
+        ensure_real_directory(parent, &format!("Default vault {label} folder"))?;
         match fs::symlink_metadata(&path) {
             Ok(metadata) if metadata_is_link(&metadata) || !metadata.is_file() => {
                 return Err(AppError::State(format!(
-                    "Default vault example is not a regular file: {}",
+                    "Default vault {label} is not a regular file: {}",
                     path.display()
                 )));
             }
@@ -575,7 +628,7 @@ fn add_missing_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -> AppRe
         };
         write_new_file(&path, &stored)?;
     }
-    write_example_fixture_marker(root, vault_key)
+    write_seed_collection_marker(root, vault_key, marker_path, label)
 }
 
 fn write_new_file(path: &Path, content: &[u8]) -> AppResult<()> {
@@ -592,6 +645,24 @@ fn write_new_file(path: &Path, content: &[u8]) -> AppResult<()> {
 }
 
 fn write_example_fixture_marker(root: &Path, vault_key: Option<&[u8; 32]>) -> AppResult<()> {
+    write_seed_collection_marker(root, vault_key, EXAMPLE_FIXTURE_MARKER, "example")
+}
+
+fn write_plugin_example_fixture_marker(root: &Path, vault_key: Option<&[u8; 32]>) -> AppResult<()> {
+    write_seed_collection_marker(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_FIXTURE_MARKER,
+        "plugin example",
+    )
+}
+
+fn write_seed_collection_marker(
+    root: &Path,
+    vault_key: Option<&[u8; 32]>,
+    marker_path: &str,
+    label: &str,
+) -> AppResult<()> {
     let encrypted = root.join(".denote/encryption.json").exists();
     let content = if encrypted {
         crate::crypto::encrypt_file_content(vault_key.ok_or(AppError::Locked)?, b"applied\n")?
@@ -600,9 +671,9 @@ fn write_example_fixture_marker(root: &Path, vault_key: Option<&[u8; 32]>) -> Ap
     };
     write_fixture_marker(
         root,
-        EXAMPLE_FIXTURE_MARKER,
+        marker_path,
         &content,
-        "Default vault example marker",
+        &format!("Default vault {label} marker"),
     )
 }
 
@@ -759,9 +830,11 @@ mod tests {
         assert!(vault.join("examples/Hello document.pdf").is_file());
         assert!(vault.join("examples/Sample data.json").is_file());
         assert!(vault.join("examples/Sample data.yaml").is_file());
+        assert!(vault.join("plugins/Kanban board.kanban.md").is_file());
         assert!(vault.join("code/Dockerfile").is_file());
         assert!(vault.join("code/hello.pp").is_file());
         assert!(vault.join("test/日本語 ノート.md").is_file());
+        assert!(vault.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).is_file());
 
         fs::write(&welcome, "My edited welcome").expect("edit welcome");
         let diagram = vault.join("examples/Mermaid diagram.md");
@@ -841,6 +914,7 @@ mod tests {
         assert!(resolved.join("examples/Hello document.pdf").is_file());
         assert!(resolved.join("examples/Sample data.json").is_file());
         assert!(resolved.join("examples/Sample data.yaml").is_file());
+        assert!(resolved.join("plugins/Kanban board.kanban.md").is_file());
         assert!(resolved.join("code/Dockerfile").is_file());
         assert!(resolved.join("code/hello.sln").is_file());
         assert!(resolved.join(EXAMPLE_FIXTURE_MARKER).is_file());
@@ -848,6 +922,32 @@ mod tests {
         fs::remove_dir_all(resolved.join("code")).expect("remove migrated code");
         assert_eq!(ensure(directory.path()).expect("existing vault"), resolved);
         assert!(!resolved.join("code").exists());
+    }
+
+    #[test]
+    fn adds_plugin_examples_once_without_overwriting_existing_files() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join("plugins")).expect("plugins folder");
+        fs::write(vault.join("Welcome.md"), "Existing guide").expect("welcome");
+        fs::write(
+            vault.join("plugins/Kanban board.kanban.md"),
+            "Existing Kanban board",
+        )
+        .expect("existing Kanban board");
+
+        let resolved = ensure(directory.path()).expect("updated default vault");
+
+        assert_eq!(
+            fs::read_to_string(resolved.join("plugins/Kanban board.kanban.md"))
+                .expect("preserved Kanban board"),
+            "Existing Kanban board"
+        );
+        assert!(resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).is_file());
+
+        fs::remove_dir_all(resolved.join("plugins")).expect("remove migrated plugins");
+        assert_eq!(ensure(directory.path()).expect("existing vault"), resolved);
+        assert!(!resolved.join("plugins").exists());
     }
 
     #[test]
@@ -903,6 +1003,41 @@ mod tests {
         assert!(resolved.join(EXAMPLE_FIXTURE_MARKER).is_file());
     }
 
+    #[test]
+    fn adds_plugin_examples_as_ciphertext_after_unlock() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join(".denote")).expect("metadata folder");
+        fs::write(vault.join("Welcome.md"), "Existing guide").expect("welcome");
+        let (mut manifest, vault_key, _) =
+            crate::crypto::create_manifest("synthetic plugin password").expect("manifest");
+        manifest.phase = crate::crypto::EncryptionPhase::Encrypted;
+        crate::crypto::save_manifest(&vault, &manifest).expect("save manifest");
+
+        let resolved = ensure(directory.path()).expect("locked default vault");
+        assert!(!resolved.join("plugins").exists());
+        assert!(!resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).exists());
+
+        let key = vault_key.copy_bytes();
+        add_missing_plugin_examples_after_unlock(
+            &directory.path().join("denote.sqlite3"),
+            &resolved,
+            &key,
+        )
+        .expect("add encrypted plugin examples");
+        let encrypted = fs::read(resolved.join("plugins/Kanban board.kanban.md"))
+            .expect("encrypted Kanban board");
+        assert_ne!(
+            encrypted,
+            include_bytes!("../../docs/user-guide/plugins/Kanban board.kanban.md")
+        );
+        assert_eq!(
+            crate::crypto::decrypt_file_content(&key, &encrypted).expect("decrypt Kanban board"),
+            include_bytes!("../../docs/user-guide/plugins/Kanban board.kanban.md")
+        );
+        assert!(resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).is_file());
+    }
+
     #[cfg(unix)]
     #[test]
     fn rejects_a_symlinked_default_vault_path() {
@@ -955,6 +1090,29 @@ mod tests {
         let resolved = ensure(directory.path()).expect("existing default vault");
 
         assert!(!resolved.join(EXAMPLE_FIXTURE_MARKER).exists());
+        assert_eq!(
+            fs::read_dir(outside.path())
+                .expect("outside folder")
+                .count(),
+            0
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn does_not_follow_an_existing_plugins_folder_symlink() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().expect("temp directory");
+        let outside = tempdir().expect("outside directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir(&vault).expect("old default vault");
+        fs::write(vault.join("Welcome.md"), "Existing guide").expect("welcome");
+        symlink(outside.path(), vault.join("plugins")).expect("plugins folder symlink");
+
+        let resolved = ensure(directory.path()).expect("existing default vault");
+
+        assert!(!resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).exists());
         assert_eq!(
             fs::read_dir(outside.path())
                 .expect("outside folder")

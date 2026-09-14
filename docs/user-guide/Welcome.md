@@ -17,8 +17,8 @@
 > This ordinary local folder is your built-in guide. Edit it, encrypt it, move it,
 > or delete it. Its `.denote.md` opens when no tab session needs restoring, and
 > Denote never replaces your changes.
-> When a release adds the `examples` or `code` collection, Denote adds only
-> missing paths once. Existing files keep their bytes.
+> When a release adds the `examples`, `code`, or `plugins` collection, Denote
+> adds only missing paths once. Existing files keep their bytes.
 
 ## What is Denote
 
@@ -41,6 +41,7 @@ other regular file. Your files remain the source of truth.
 - [ ] Edit this checklist and wait for autosave
 - [ ] Open **History** and restore an earlier revision
 - [ ] Enable **Mermaid diagrams** and open the diagram example
+- [ ] Enable **Kanban boards** and open the board example
 - [ ] Open the PDF, JSON, YAML, and a few files in `code`
 
 | Feature | Where to try it |
@@ -53,6 +54,7 @@ other regular file. Your files remain the source of truth.
 | Callouts | The information and warning boxes |
 | Code themes | The block below |
 | Optional diagrams | [Mermaid diagram example](<examples/Mermaid diagram.md>) |
+| Optional boards | [Kanban board example](<plugins/Kanban board.kanban.md>) |
 | PDF reader | [Synthetic PDF](<examples/Hello document.pdf>) |
 | Structured data | [JSON](<examples/Sample data.json>) and [YAML](<examples/Sample data.yaml>) |
 | Source languages | The `code` folder |
@@ -97,6 +99,11 @@ one-page synthetic PDF, and nested JSON and YAML files. The JSON and YAML viewer
 plugin can show the data as collapsible trees; Raw view always keeps the exact
 source.
 
+The `plugins` folder contains portable files for optional plugin workflows.
+Enable **Kanban boards** and open
+[the board example](<plugins/Kanban board.kanban.md>) to try three columns,
+Markdown card details, note links, tags, dragging, and keyboard move controls.
+
 The `code` folder contains tiny invented files covering every distinct core
 syntax-highlighting mode plus filename-only formats. Read
 [its coverage note](code/README.md) for alias deduplication and the intentionally
@@ -120,8 +127,9 @@ ambiguous `.pp` behavior.
 10. [Optional plugins](<docs/Optional plugins.md>)
 
 Explore the `test` folder for Japanese, Russian, mixed-script, emoji,
-punctuation, nested-path, link, rename, and move fixtures. Use `examples` and
-`code` for the safe document, structured-data, diagram, and language samples.
+punctuation, nested-path, link, rename, and move fixtures. Use `examples`,
+`plugins`, and `code` for safe document, structured-data, optional-workflow,
+diagram, and language samples.
 
 ## Test heading navigation
 

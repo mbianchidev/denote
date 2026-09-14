@@ -169,6 +169,13 @@ the registered default and writes every missing file plus the marker directly
 as authenticated ciphertext. Symlinked/reparse-point folders, files, or markers
 are refused without following them.
 
+A separate `plugins-v1` marker applies the same non-destructive and encrypted
+write rules only to canonical `plugins/` workflow examples. Its first file is
+`plugins/Kanban board.kanban.md`. The marker is independent from `examples-v1`,
+so an older Welcome vault that already received document and code examples can
+still receive the new plugin sample exactly once without changing any existing
+path.
+
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
 path, rejects parent traversal and symlink/reparse-point escapes, hides Denote's

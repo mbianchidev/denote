@@ -230,6 +230,11 @@ writes. Locking an encrypted vault stops the worker and clears the Board view
 until unlock. Disabling or removing the plugin never changes or deletes board
 files; they continue to open as Markdown.
 
+Open [the Kanban board example](<../plugins/Kanban board.kanban.md>) in the
+Denote Welcome vault. Older copies receive only the missing `plugins` sample
+once, including as ciphertext after an encrypted Welcome vault is unlocked.
+Existing matching paths are never overwritten.
+
 ## Mermaid diagrams
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
