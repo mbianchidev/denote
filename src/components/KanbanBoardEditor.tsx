@@ -52,6 +52,8 @@ interface PointerDragSession {
   active: boolean;
 }
 
+export const KANBAN_CARD_PREVIEW_LINES = 5;
+
 type EditorState =
   | {
       kind: "board-title";
@@ -1105,8 +1107,11 @@ export function KanbanBoardEditor({
                               ? "kanban-card__body"
                               : "kanban-card__body kanban-card__empty"
                           }
-                          title={`Edit details for ${card.title}`}
-                          aria-label={`Edit details for ${card.title}`}
+                          title={`Open and edit details for ${card.title}`}
+                          aria-label={`Open and edit details for ${card.title}`}
+                          style={{
+                            WebkitLineClamp: KANBAN_CARD_PREVIEW_LINES,
+                          }}
                           disabled={readOnly || busy}
                           onClick={(event) => {
                             rememberTrigger(event.currentTarget);

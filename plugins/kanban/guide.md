@@ -32,6 +32,9 @@ moving focus back to the title. Relative links such as `[Design](Design.md)`
 appear as note links, and hashtags such as `#planning` appear as tags. Choose a
 note link to open it through Denote's normal safe link handling.
 
+Collapsed cards show at most five wrapped detail lines. Click the card title or
+details to open the full Markdown in its editor.
+
 Drag a column or card to reorder it or move a card between columns. The grip is
 also the complete keyboard alternative: focus it, press Space, use Left/Right
 for columns or any arrow key for cards, then press Space again to drop. Home and

@@ -659,6 +659,10 @@ icon is shown. Add and delete flows use native controls in document order.
 Deletion requires an inline confirmation and moves focus to the nearest
 surviving item.
 
+Collapsed card details are clamped to five wrapped lines with an ellipsis.
+Opening the title or details replaces that card with the full untruncated
+Markdown editor.
+
 Board errors retain the Markdown control and use written error text rather than
 color alone. Read mode keeps links available but disables every mutation and
 drag handle. Forced colors retain borders, visible focus, and selected toggle

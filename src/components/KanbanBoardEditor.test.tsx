@@ -5,7 +5,10 @@ import type {
   PluginKanbanBoardModel,
   PluginKanbanEditRequest,
 } from "@denote/plugin-sdk";
-import { KanbanBoardEditor } from "./KanbanBoardEditor";
+import {
+  KANBAN_CARD_PREVIEW_LINES,
+  KanbanBoardEditor,
+} from "./KanbanBoardEditor";
 
 const model: PluginKanbanBoardModel = {
   title: "Release board",
@@ -177,7 +180,7 @@ describe("KanbanBoardEditor", () => {
 
     await user.click(
       await screen.findByRole("button", {
-        name: "Edit details for Write specification",
+        name: "Open and edit details for Write specification",
       }),
     );
     const body = screen.getByRole("textbox", {
@@ -203,6 +206,44 @@ describe("KanbanBoardEditor", () => {
       screen.getByRole("textbox", { name: "Card title" }),
     ).toHaveFocus();
     expect(container.querySelector(".lucide-pencil")).not.toBeInTheDocument();
+  });
+
+  it("shows five body lines until the card is opened", async () => {
+    const user = userEvent.setup();
+    const body = Array.from(
+      { length: 8 },
+      (_, index) => `Detail line ${index + 1}`,
+    ).join("\n");
+    renderBoard({
+      initialModel: {
+        ...model,
+        columns: [
+          {
+            ...model.columns[0],
+            cards: [
+              {
+                ...model.columns[0].cards[0],
+                body,
+              },
+            ],
+          },
+          model.columns[1],
+        ],
+      },
+    });
+
+    const preview = await screen.findByRole("button", {
+      name: "Open and edit details for Write specification",
+    });
+    expect(preview).toHaveStyle({
+      WebkitLineClamp: String(KANBAN_CARD_PREVIEW_LINES),
+    });
+    await user.click(preview);
+    expect(
+      screen.getByRole("textbox", {
+        name: "Card details (Markdown)",
+      }),
+    ).toHaveValue(body);
   });
 
   it("adds cards through a focused inline Markdown form", async () => {

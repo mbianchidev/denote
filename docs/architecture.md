@@ -855,8 +855,10 @@ The renderer owns the Board/Markdown toggle, semantic ordered lists, direct
 title/body editing, delete confirmations, and pointer plus keyboard movement on
 one grip per item. Space picks up or drops; arrows and Home/End move; Escape
 cancels. A successful edit restores focus to the moved grip and announces its
-new location. The title/body editor session key excludes the live field values,
-so controlled-input updates do not refocus the first field while typing.
+new location. Collapsed details use a five-line visual clamp; opening that card
+mounts the complete Markdown body in the editor. The title/body editor session
+key excludes the live field values, so controlled-input updates do not refocus
+the first field while typing.
 
 A successful edit installs the returned model immediately while the parent tab
 adopts the new source; a later stale parse result is ignored. Switching to
