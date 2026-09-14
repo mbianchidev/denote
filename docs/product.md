@@ -412,10 +412,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Kanban columns and cards can be created, renamed, edited, deleted, and
   reordered. Titles and card details enter editing when clicked, without a
   separate edit icon or focus jumping between fields. Collapsed cards show at
-  most five wrapped detail lines; opening a card exposes its complete Markdown.
-  The grip supports pointer drag-and-drop plus keyboard pickup with Space,
-  arrow/Home/End movement, Space to drop, and Escape to cancel. Moves restore
-  focus to the moved item and use polite status announcements.
+  most five wrapped detail lines and visibly mark overflow. Markdown links
+  render inline and take click priority over the card-open surface; other body
+  space or the title opens the complete Markdown. The grip supports pointer
+  drag-and-drop plus keyboard pickup with Space, arrow/Home/End movement, Space
+  to drop, and Escape to cancel. Moves restore focus to the moved item and use
+  polite status announcements.
   Board parsing and edits run in the isolated plugin worker with fixed 4 MiB
   source, 128-column, 5,000-card, and 64 KiB-per-card-detail limits. The host
   owns forms, lists, focus, links, autosave, revision history, and file writes.

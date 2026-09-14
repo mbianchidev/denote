@@ -100,7 +100,9 @@ describe("KanbanBoardEditor", () => {
       screen.getByRole("list", { name: "Tags for Write specification" }),
     ).toHaveTextContent("#planning");
 
-    await user.click(screen.getByRole("button", { name: "Specification" }));
+    const link = screen.getByRole("button", { name: "Specification" });
+    expect(link.closest(".kanban-card__body")).toBeInTheDocument();
+    await user.click(link);
     expect(onLinkOpen).toHaveBeenCalledWith(
       "Specification.md",
       "Specification",
@@ -233,12 +235,70 @@ describe("KanbanBoardEditor", () => {
     });
 
     const preview = await screen.findByRole("button", {
-      name: "Open and edit details for Write specification",
+      name: /Open and edit details for Write specification/,
     });
-    expect(preview).toHaveStyle({
+    expect(
+      preview.parentElement?.querySelector(".kanban-card__body"),
+    ).toHaveStyle({
       WebkitLineClamp: String(KANBAN_CARD_PREVIEW_LINES),
     });
+    expect(screen.getByText("More…")).toBeInTheDocument();
+    expect(preview).toHaveAccessibleName(
+      /more text available/,
+    );
     await user.click(preview);
+    expect(
+      screen.getByRole("textbox", {
+        name: "Card details (Markdown)",
+      }),
+    ).toHaveValue(body);
+  });
+
+  it("opens an inline link without opening the card editor", async () => {
+    const user = userEvent.setup();
+    const body = "[Specification](Specification.md)";
+    const { onLinkOpen } = renderBoard({
+      initialModel: {
+        ...model,
+        columns: [
+          {
+            ...model.columns[0],
+            cards: [
+              {
+                ...model.columns[0].cards[0],
+                body,
+                links: [
+                  {
+                    label: "Specification",
+                    href: "Specification.md",
+                  },
+                ],
+              },
+            ],
+          },
+          model.columns[1],
+        ],
+      },
+    });
+
+    await user.click(
+      await screen.findByRole("button", { name: "Specification" }),
+    );
+    expect(onLinkOpen).toHaveBeenCalledWith(
+      "Specification.md",
+      "Specification",
+    );
+    expect(
+      screen.queryByRole("textbox", {
+        name: "Card details (Markdown)",
+      }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Open and edit details for Write specification",
+      }),
+    );
     expect(
       screen.getByRole("textbox", {
         name: "Card details (Markdown)",

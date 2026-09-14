@@ -1100,21 +1100,11 @@ export function KanbanBoardEditor({
                             </button>
                           </h3>
                         </header>
-                        <button
-                          type="button"
-                          className={
-                            card.body
-                              ? "kanban-card__body"
-                              : "kanban-card__body kanban-card__empty"
-                          }
-                          title={`Open and edit details for ${card.title}`}
-                          aria-label={`Open and edit details for ${card.title}`}
-                          style={{
-                            WebkitLineClamp: KANBAN_CARD_PREVIEW_LINES,
-                          }}
+                        <CardBody
+                          card={card}
                           disabled={readOnly || busy}
-                          onClick={(event) => {
-                            rememberTrigger(event.currentTarget);
+                          onOpen={(trigger) => {
+                            rememberTrigger(trigger);
                             setEditor({
                               kind: "edit-card",
                               columnId: column.id,
@@ -1124,13 +1114,9 @@ export function KanbanBoardEditor({
                               focus: "body",
                             });
                           }}
-                        >
-                          {card.body || "No details"}
-                        </button>
-                        <CardMetadata
-                          card={card}
                           onLinkOpen={onLinkOpen}
                         />
+                        <CardTags card={card} />
                         <div
                           className="kanban-item-actions kanban-card__actions"
                           aria-label={`Actions for ${card.title}`}
@@ -1380,42 +1366,137 @@ const DeleteConfirmation = ({
   </div>
 );
 
-function CardMetadata({
+function CardBody({
   card,
+  disabled,
+  onOpen,
   onLinkOpen,
 }: {
   card: PluginKanbanCard;
+  disabled: boolean;
+  onOpen: (trigger: HTMLButtonElement) => void;
   onLinkOpen: (href: string, label: string) => void;
 }) {
-  if (card.tags.length === 0 && card.links.length === 0) {
-    return null;
-  }
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const [overflowing, setOverflowing] = useState(() =>
+    hasExplicitCardOverflow(card.body),
+  );
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+    const measure = () => {
+      setOverflowing(
+        hasExplicitCardOverflow(card.body) ||
+          (content.clientHeight > 0 &&
+            content.scrollHeight > content.clientHeight + 1),
+      );
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [card.body]);
+
   return (
-    <div className="kanban-card__metadata">
-      {card.tags.length > 0 ? (
-        <ul className="kanban-card__tags" aria-label={`Tags for ${card.title}`}>
-          {card.tags.map((tag) => (
-            <li key={tag}>#{tag}</li>
-          ))}
-        </ul>
-      ) : null}
-      {card.links.length > 0 ? (
-        <ul className="kanban-card__links" aria-label={`Links for ${card.title}`}>
-          {card.links.map((link) => (
-            <li key={`${link.label}\u0000${link.href}`}>
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => onLinkOpen(link.href, link.label)}
-              >
-                {link.label || link.href}
-              </button>
-            </li>
-          ))}
-        </ul>
+    <div
+      className={
+        card.body
+          ? "kanban-card__body-shell"
+          : "kanban-card__body-shell kanban-card__empty"
+      }
+      data-overflowing={overflowing}
+    >
+      <button
+        type="button"
+        className="kanban-card__body-open"
+        title={`Open and edit details for ${card.title}`}
+        aria-label={`Open and edit details for ${card.title}${
+          overflowing ? "; more text available" : ""
+        }`}
+        disabled={disabled}
+        onClick={(event) => onOpen(event.currentTarget)}
+      />
+      <div
+        ref={contentRef}
+        className="kanban-card__body"
+        style={{
+          WebkitLineClamp: KANBAN_CARD_PREVIEW_LINES,
+        }}
+      >
+        {card.body
+          ? renderCardBody(card, onLinkOpen)
+          : "No details"}
+      </div>
+      {overflowing ? (
+        <span className="kanban-card__more" aria-hidden="true">
+          More…
+        </span>
       ) : null}
     </div>
   );
+}
+
+function CardTags({ card }: { card: PluginKanbanCard }) {
+  if (card.tags.length === 0) {
+    return null;
+  }
+  return (
+    <ul className="kanban-card__tags" aria-label={`Tags for ${card.title}`}>
+      {card.tags.map((tag) => (
+        <li key={tag}>#{tag}</li>
+      ))}
+    </ul>
+  );
+}
+
+function renderCardBody(
+  card: PluginKanbanCard,
+  onLinkOpen: (href: string, label: string) => void,
+): React.ReactNode[] {
+  const links = new Set(
+    card.links.map((link) => `${link.label}\u0000${link.href}`),
+  );
+  const pattern =
+    /(?<!!)\[([^\]\r\n]{1,160})\]\(([^)\r\n]{1,1024})\)/g;
+  const content: React.ReactNode[] = [];
+  let offset = 0;
+  for (const match of card.body.matchAll(pattern)) {
+    const start = match.index ?? 0;
+    if (start > offset) {
+      content.push(card.body.slice(offset, start));
+    }
+    const label = match[1].trim();
+    const href = match[2].trim();
+    if (links.has(`${label}\u0000${href}`)) {
+      content.push(
+        <button
+          key={`${start}:${label}:${href}`}
+          type="button"
+          className="kanban-card__inline-link"
+          onClick={() => onLinkOpen(href, label)}
+        >
+          {label || href}
+        </button>,
+      );
+    } else {
+      content.push(match[0]);
+    }
+    offset = start + match[0].length;
+  }
+  if (offset < card.body.length) {
+    content.push(card.body.slice(offset));
+  }
+  return content;
+}
+
+function hasExplicitCardOverflow(body: string): boolean {
+  return body.split(/\r\n?|\n/).length > KANBAN_CARD_PREVIEW_LINES;
 }
 
 function columnTitle(model: PluginKanbanBoardModel, columnId: string): string {

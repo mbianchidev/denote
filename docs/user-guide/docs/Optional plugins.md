@@ -181,8 +181,10 @@ typing stays in the details field instead of jumping back to the title. Write a
 relative link such as `[Design](Design.md)` to link another note, and write
 hashtags such as `#planning` to show tags on the card.
 
-Closed cards show at most five wrapped detail lines. Click the title or details
-to open the card and edit its complete Markdown.
+Closed cards show at most five wrapped detail lines and show **More…** when text
+continues. Markdown links appear where they were written. Choosing a link opens
+it instead of the card editor; click the title or any non-link part of the body
+to edit the complete Markdown.
 
 Drag a column or card to reorder it or move a card between columns. For
 keyboard movement, focus the item's grip, press Space to pick it up, use

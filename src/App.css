@@ -2277,13 +2277,42 @@ button:disabled {
   line-height: 1.35;
 }
 
+.kanban-card__body-shell {
+  position: relative;
+  min-height: 1.5em;
+  border-radius: 3px;
+}
+
+.kanban-card__body-open {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+}
+
+.kanban-card__body-shell:hover .kanban-card__body-open:not(:disabled) {
+  background: var(--hover-bg);
+}
+
+.kanban-card__body-open:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
 .kanban-card__body {
+  position: relative;
+  z-index: 2;
   display: -webkit-box;
   width: 100%;
   max-height: 7.5em;
   padding: 2px;
   overflow: hidden;
   overflow-wrap: anywhere;
+  pointer-events: none;
   color: var(--text-secondary);
   font-family: inherit;
   font-size: 12px;
@@ -2292,18 +2321,49 @@ button:disabled {
   white-space: pre-wrap;
   -webkit-box-orient: vertical;
   background: transparent;
-  border: 0;
   border-radius: 3px;
 }
 
-.kanban-card__body:hover:not(:disabled) {
-  color: var(--text-primary);
-  background: var(--hover-bg);
+.kanban-card__inline-link {
+  position: relative;
+  z-index: 3;
+  display: inline;
+  padding: 0;
+  pointer-events: auto;
+  color: var(--accent-strong);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
 }
 
-.kanban-card__body:focus-visible {
+.kanban-card__inline-link:hover {
+  color: var(--text-primary);
+}
+
+.kanban-card__inline-link:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
+}
+
+.kanban-card__more {
+  position: absolute;
+  z-index: 4;
+  right: 2px;
+  bottom: 0;
+  padding-left: 22px;
+  pointer-events: none;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 18px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--panel-bg) 20px
+  );
 }
 
 .kanban-card__empty {
@@ -2311,13 +2371,7 @@ button:disabled {
   font-style: italic;
 }
 
-.kanban-card__metadata {
-  display: grid;
-  gap: 7px;
-}
-
-.kanban-card__tags,
-.kanban-card__links {
+.kanban-card__tags {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
@@ -2333,12 +2387,6 @@ button:disabled {
   background: var(--raised-bg);
   border: 1px solid var(--border-strong);
   border-radius: 999px;
-}
-
-.kanban-card__links .text-button {
-  min-height: 24px;
-  padding: 2px 0;
-  font-size: 11px;
 }
 
 .kanban-card__actions {
