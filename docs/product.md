@@ -71,10 +71,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - The Welcome vault includes a one-time, non-destructive `test` folder covering
   Japanese, Russian, mixed scripts, emoji, punctuation, nested paths, links, and
   highlighted source files.
-- Releases that add the canonical `examples` and `code` collections add only
-  missing paths once to older Welcome vaults. Existing matching files and
-  user-added content are preserved. Locked encrypted Welcome vaults defer the
-  addition until unlock, when new files are written as ciphertext.
+- Releases that add the canonical `examples`, `code`, or `plugins` collections
+  add only missing paths once to older Welcome vaults. Existing matching files
+  and user-added content are preserved. Each collection has its own versioned
+  marker. Locked encrypted Welcome vaults defer additions until unlock, when new
+  files are written as ciphertext.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
 - Installed desktop builds handle `denote:///absolute/path/to/file` app links.
@@ -399,6 +400,29 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   access and report line/column details when available. Locking a vault stops
   the viewer worker; closing, disabling, crashing, updating, or removing the
   plugin releases its models and never changes file bytes.
+- The independently installable **Kanban boards** plugin is disabled by default
+  and requests only `kanban-board`. Files ending in `.kanban.md` or
+  `.kanban.markdown` switch between exact Markdown source and a host-rendered
+  Board view. Initialization appends one explicit versioned board block after
+  existing Markdown. Columns and cards use standard headings and bounded HTML
+  comment markers, while card details remain ordinary Markdown with relative
+  note links and hashtags. Reordering moves the original marked block
+  byte-for-byte; unrelated content outside the board and unknown content inside
+  moved cards or columns is preserved.
+- Kanban columns and cards can be created, renamed, edited, deleted, and
+  reordered. Titles and card details enter editing when clicked, without a
+  separate edit icon or focus jumping between fields. Collapsed cards show at
+  most five wrapped detail lines and visibly mark overflow. Markdown links
+  render inline and take click priority over the card-open surface; other body
+  space or the title opens the complete Markdown. The grip supports pointer
+  drag-and-drop plus keyboard pickup with Space, arrow/Home/End movement, Space
+  to drop, and Escape to cancel. Moves restore focus to the moved item and use
+  polite status announcements.
+  Board parsing and edits run in the isolated plugin worker with fixed 4 MiB
+  source, 128-column, 5,000-card, and 64 KiB-per-card-detail limits. The host
+  owns forms, lists, focus, links, autosave, revision history, and file writes.
+  Locking a vault stops the worker; disabling the plugin leaves board files
+  untouched and readable in the exact Markdown source editor.
 - The independently installable **Mermaid diagrams** plugin is disabled by
   default and requests only `diagram-renderer`. It renders fenced `mermaid`
   blocks in Markdown Rich view while the exact fence remains available through

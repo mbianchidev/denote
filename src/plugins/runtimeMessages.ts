@@ -2,6 +2,10 @@ import type {
   PluginCapability,
   PluginDiagramRenderer,
   PluginEmojiPicker,
+  PluginKanbanBoardModel,
+  PluginKanbanBoardRequest,
+  PluginKanbanEditRequest,
+  PluginKanbanEditResult,
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
@@ -14,6 +18,11 @@ import type {
 import {
   isPluginEmojiPicker,
   isPluginDiagramRendererRegistration,
+  isPluginKanbanBoardModel,
+  isPluginKanbanBoardRequest,
+  isPluginKanbanEditRequest,
+  isPluginKanbanEditResult,
+  isPluginKanbanRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -69,6 +78,14 @@ export interface PluginStructuredViewerContribution {
   extensions: string[];
 }
 
+export interface PluginKanbanBoardContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+  fileSuffixes: string[];
+  defaultFileName: string;
+}
+
 export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
   pluginId: string;
 }
@@ -98,6 +115,18 @@ export type PluginHostMessage =
       type: "parse-structured-view";
       viewerId: string;
       request: PluginStructuredViewerParseRequest;
+      requestId: string;
+    }
+  | {
+      type: "parse-kanban-board";
+      providerId: string;
+      request: PluginKanbanBoardRequest;
+      requestId: string;
+    }
+  | {
+      type: "edit-kanban-board";
+      providerId: string;
+      request: PluginKanbanEditRequest;
       requestId: string;
     }
   | { type: "note-event"; event: PluginNoteEvent }
@@ -142,6 +171,14 @@ export type PluginRuntimeMessage =
       extensions: string[];
     }
   | { type: "unregister-structured-viewer"; id: string }
+  | {
+      type: "register-kanban-board";
+      id: string;
+      title: string;
+      fileSuffixes: string[];
+      defaultFileName: string;
+    }
+  | { type: "unregister-kanban-board"; id: string }
   | {
       type: "register-diagram-renderer";
       id: string;
@@ -193,6 +230,18 @@ export type PluginRuntimeMessage =
       error?: string;
     }
   | {
+      type: "kanban-board-result";
+      requestId: string;
+      model?: PluginKanbanBoardModel;
+      error?: string;
+    }
+  | {
+      type: "kanban-edit-result";
+      requestId: string;
+      result?: PluginKanbanEditResult;
+      error?: string;
+    }
+  | {
       type: "log";
       level: "debug" | "info" | "warn" | "error";
       message: string;
@@ -227,6 +276,22 @@ export function isPluginRuntimeMessage(
           (value.error === undefined &&
             isPluginStructuredViewModel(value.model)))
       );
+    case "kanban-board-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.model === undefined) ||
+          (value.error === undefined &&
+            isPluginKanbanBoardModel(value.model)))
+      );
+    case "kanban-edit-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.result === undefined) ||
+          (value.error === undefined &&
+            isPluginKanbanEditResult(value.result)))
+      );
     case "register-command":
       return typeof value.id === "string" && typeof value.title === "string";
     case "unregister-command":
@@ -259,6 +324,10 @@ export function isPluginRuntimeMessage(
     case "register-structured-viewer":
       return isPluginStructuredViewerRegistration(value);
     case "unregister-structured-viewer":
+      return typeof value.id === "string";
+    case "register-kanban-board":
+      return isPluginKanbanRegistration(value);
+    case "unregister-kanban-board":
       return typeof value.id === "string";
     case "register-diagram-renderer":
       return isPluginDiagramRendererRegistration(value);
@@ -330,6 +399,18 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.viewerId === "string" &&
         typeof value.requestId === "string" &&
         isStructuredViewerParseRequest(value.request)
+      );
+    case "parse-kanban-board":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginKanbanBoardRequest(value.request)
+      );
+    case "edit-kanban-board":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginKanbanEditRequest(value.request)
       );
     case "note-event":
       return (

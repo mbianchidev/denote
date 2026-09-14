@@ -162,6 +162,80 @@ the parsed model. Locking an encrypted vault stops the viewer worker and clears
 decrypted derived state; it restarts after unlock. Disabling or removing the
 plugin never changes open files.
 
+## Kanban boards
+
+Enable **Kanban boards** under **Productivity** to create visual boards backed by
+portable Markdown. The plugin is disabled by default and its code is downloaded
+only after you approve **Kanban board**. It has no general workspace-read,
+workspace-write, network, process, clipboard, or credential permission.
+
+Run **Create Kanban board** from the command palette, or create a file ending in
+`.kanban.md` or `.kanban.markdown`. Open it and choose **Board** in the editor
+toolbar. A new or ordinary Markdown file first shows **Initialize board**.
+Initialization appends the managed board after any existing Markdown instead of
+replacing it, then creates one Backlog column.
+
+Use **Add column** and **Add card** to build the board. Click the board, column,
+or card title to edit it. Click card details to edit their ordinary Markdown;
+typing stays in the details field instead of jumping back to the title. Write a
+relative link such as `[Design](Design.md)` to link another note, and write
+hashtags such as `#planning` to show tags on the card.
+
+Closed cards show at most five wrapped detail lines and show **More…** when text
+continues. Markdown links appear where they were written. Choosing a link opens
+it instead of the card editor; click the title or any non-link part of the body
+to edit the complete Markdown.
+
+Drag a column or card to reorder it or move a card between columns. For
+keyboard movement, focus the item's grip, press Space to pick it up, use
+Left/Right for columns or any arrow key for cards, then press Space to drop.
+Home and End move to the first or last position, and Escape cancels. Focus stays
+on the moved grip and Denote announces its new location. No arrow or pencil
+action icons are shown. Read mode keeps note links available while disabling
+every edit and drag action.
+
+Choose **Markdown** to inspect or edit the exact source. A board remains readable
+without Denote:
+
+```markdown
+<!-- denote-kanban:board:v1:start -->
+# Release board
+
+<!-- denote-kanban:column:start id="column-example" -->
+## Backlog
+
+<!-- denote-kanban:card:start id="card-example" -->
+### Write the specification
+
+See [Specification](Specification.md). #planning
+<!-- denote-kanban:card:end -->
+
+<!-- denote-kanban:column:end -->
+<!-- denote-kanban:board:end -->
+```
+
+The HTML comments identify only the ranges managed by the plugin. Reordering
+moves the original complete card or column block byte-for-byte. Markdown outside
+the board and unknown Markdown inside a moved card or column remains unchanged.
+Renaming changes only that heading. Editing a card changes only its title and
+details.
+
+Board view is limited to 4 MiB of source, 128 columns, 5,000 cards, and 64 KiB
+of details per card. A malformed marker or exhausted limit keeps **Markdown**
+available with an actionable error. Reserved `denote-kanban` marker lines cannot
+be used as card details.
+
+Parsing and edits run locally in the isolated plugin worker. The host owns the
+visible board, forms, focus, link opening, autosave, revision history, and file
+writes. Locking an encrypted vault stops the worker and clears the Board view
+until unlock. Disabling or removing the plugin never changes or deletes board
+files; they continue to open in the exact Markdown source editor.
+
+Open [the Kanban board example](<../plugins/Kanban board.kanban.md>) in the
+Denote Welcome vault. Older copies receive only the missing `plugins` sample
+once, including as ciphertext after an encrypted Welcome vault is unlocked.
+Existing matching paths are never overwritten.
+
 ## Mermaid diagrams
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
@@ -224,7 +298,6 @@ matching paths are not overwritten.
 These capabilities are planned as separately enabled plugins:
 
 - graph view;
-- Kanban boards;
 - task lists and reminders;
 - note comments and highlighting;
 - text-to-speech and dictation;

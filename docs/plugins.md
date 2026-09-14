@@ -52,8 +52,8 @@ metadata, and release ledger are self-contained in `plugins/<name>/`. Shared
 typed contracts stay in `packages/plugin-sdk`.
 
 Host capability adapters are intentionally not plugin implementation. Generic
-renderer surfaces such as the emoji picker and source-control panel remain in
-`src/`, while privileged Git execution remains in
+renderer surfaces such as the emoji picker, Kanban board, and source-control
+panel remain in `src/`, while privileged Git execution remains in
 `src-tauri/src/plugins/git/`. Moving those files into a downloadable plugin
 would either bundle disabled plugin code into the app or grant plugin workers
 DOM/native access that API version 1 deliberately forbids. A future executable
@@ -187,7 +187,9 @@ concurrent.
   note lifecycle events, plugin-scoped settings/state, OS keychain storage, and
   explicit-command-action capabilities for versioned workspace text,
   allowlisted HTTPS, clipboard access, notifications, platform-qualified
-  allowlisted process groups, and the typed hardened Git transport. Static
+  allowlisted process groups, and the typed hardened Git transport. The
+  separately bounded `kanban-board` surface can transform only the matching
+  already-open tab after a host-rendered board action. Static
   status items and literal source-editor
   decorations use disposable contribution handles like commands and sidebars.
   Privileged action leases expire when the command settles, the worker starts
@@ -202,10 +204,11 @@ concurrent.
   corrupt general state file does not strand known secrets.
 - Secrets must use the OS-backed keychain implementation, never manifests,
   settings, logs, caches, packages, or telemetry.
-- Enabling a plugin cannot mutate vault content because workspace writes exist
-  only in command action context. The host validates the current plugin
-  permission before every read, write, network, clipboard, notification, or
-  process operation.
+- Enabling a plugin cannot mutate vault content. General workspace writes exist
+  only in command action context; Kanban source replacement exists only after a
+  host-rendered operation in the matching open tab. The host validates the
+  current plugin permission before every read, write, network, clipboard,
+  notification, process, or Kanban operation.
 - Plugin command leases capture project identity as well as vault scope. Existing
   bounded process execution resolves and validates that captured project again,
   then runs with its current root as the working directory. Unmarking, switching
@@ -226,8 +229,8 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-and diagram-renderer registrations. Approved plugins may also observe
-`project-context`. Sensitive
+`kanban-board`, and diagram-renderer registrations. Approved plugins may also
+observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations exist only
 inside an explicit command action.
 
@@ -329,6 +332,47 @@ bundled `yaml` 2.9.0 parser uses strict YAML 1.2 core with merge keys, known YAM
 1.1 tags, and custom tags disabled. It traverses parser nodes iteratively and
 shows aliases as terminal references, with separate 100-document, 128-level,
 500-alias, and 50,000-node limits.
+
+### Markdown Kanban boards
+
+The additive API version 1 `kanban-board` permission accepts one namespaced
+provider per plugin. A registration declares a title, one to four lowercase
+Markdown filename suffixes, a default filename, and worker-owned parse and edit
+callbacks. Active providers cannot claim the same suffix.
+
+For a matching open UTF-8 tab, the host sends only its vault-relative path and
+current in-memory source. Parse returns a bounded declarative board model:
+one title, at most 128 columns and 5,000 cards, unique bounded IDs, card titles,
+up to 64 KiB of card details, and bounded extracted tags and Markdown links.
+Edit receives that same source plus one fixed operation to initialize or rename
+a board, add/rename/delete/move a column, or add/edit/delete/move a card. It
+returns replacement source and the corresponding validated model. Source and
+model are each bounded before they cross the worker boundary; malformed
+registration, requests, models, or edits are runtime protocol violations.
+
+The capability is an editor-specific write surface, not general
+`workspace-write`. Enabling cannot change content. Only a host-rendered board
+control can issue an edit, and the returned source updates the already-open tab
+through its normal edit, autosave, revision-history, encryption, and conflict
+boundaries. The plugin receives no editor object, DOM, absolute vault path,
+native API, arbitrary workspace read/write service, or action lease.
+
+Denote owns path routing, Board/Markdown controls, semantic lists and headings,
+direct title/body editing, deletion confirmation, drag-and-drop, keyboard
+pickup/move/drop on the same grips, note link activation, focus restoration,
+five-line collapsed detail previews with explicit overflow, inline link
+activation above the card-open target, announcements, and read-only behavior. The
+Markdown source remains the complete fallback for malformed or oversized
+boards. Provider workers stop while an encrypted vault is locked and restart
+after unlock; disable, crash, update, removal, and teardown unregister the
+surface without changing board files.
+
+`denote.kanban` uses `.kanban.md` and `.kanban.markdown`. A versioned board is
+delimited by explicit HTML comments. Columns and cards use paired markers with
+stable IDs plus ordinary level-two and level-three headings. Card details remain
+ordinary Markdown. Initialization appends the managed block after existing
+content. Reordering moves an original marked slice byte-for-byte, so unknown
+Markdown inside it and all content outside the board remain unchanged.
 
 ### Sandboxed diagram renderer
 

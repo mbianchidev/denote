@@ -4,7 +4,10 @@ import {
   isPluginRuntimeMessage,
   type PluginRuntimeMessage,
 } from "./runtimeMessages";
-import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
+import type {
+  PluginKanbanBoardModel,
+  PluginSourceControlViewModel,
+} from "@denote/plugin-sdk";
 
 const model: PluginSourceControlViewModel = {
   selectedTab: "changes",
@@ -49,6 +52,28 @@ const model: PluginSourceControlViewModel = {
     cleanup: null,
     review: null,
   },
+};
+
+const kanbanModel: PluginKanbanBoardModel = {
+  title: "Synthetic board",
+  columns: [
+    {
+      id: "column-backlog",
+      title: "Backlog",
+      cards: [
+        {
+          id: "card-one",
+          title: "Synthetic card",
+          body: "#mock",
+          tags: ["mock"],
+          links: [],
+        },
+      ],
+    },
+  ],
+  error: null,
+  notices: [],
+  canInitialize: false,
 };
 
 describe("plugin runtime source control messages", () => {
@@ -127,6 +152,112 @@ describe("plugin runtime source control messages", () => {
           id: "denote.synthetic.mermaid",
         }),
       ).toBe(true);
+    });
+
+    describe("plugin runtime Kanban board messages", () => {
+      it("accepts bounded registration, parse, edit, and removal messages", () => {
+        expect(
+          isPluginRuntimeMessage({
+            type: "register-kanban-board",
+            id: "denote.synthetic.kanban",
+            title: "Kanban boards",
+            fileSuffixes: [".kanban.md"],
+            defaultFileName: "Board.kanban.md",
+          }),
+        ).toBe(true);
+        expect(
+          isPluginHostMessage({
+            type: "parse-kanban-board",
+            providerId: "denote.synthetic.kanban",
+            requestId: "request-1",
+            request: {
+              path: "Synthetic.kanban.md",
+              source: "# Synthetic",
+            },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginHostMessage({
+            type: "edit-kanban-board",
+            providerId: "denote.synthetic.kanban",
+            requestId: "request-2",
+            request: {
+              path: "Synthetic.kanban.md",
+              source: "# Synthetic",
+              edit: {
+                type: "add-column",
+                title: "Doing",
+                beforeColumnId: null,
+              },
+            },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginRuntimeMessage({
+            type: "kanban-board-result",
+            requestId: "request-1",
+            model: kanbanModel,
+          }),
+        ).toBe(true);
+        expect(
+          isPluginRuntimeMessage({
+            type: "kanban-edit-result",
+            requestId: "request-2",
+            result: {
+              source: "updated source",
+              model: kanbanModel,
+            },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginRuntimeMessage({
+            type: "unregister-kanban-board",
+            id: "denote.synthetic.kanban",
+          }),
+        ).toBe(true);
+      });
+
+      it("rejects malformed suffixes, operations, and models", () => {
+        expect(
+          isPluginRuntimeMessage({
+            type: "register-kanban-board",
+            id: "denote.synthetic.kanban",
+            title: "Kanban boards",
+            fileSuffixes: [".KANBAN.md"],
+            defaultFileName: "Board.kanban.md",
+          }),
+        ).toBe(false);
+        expect(
+          isPluginHostMessage({
+            type: "edit-kanban-board",
+            providerId: "denote.synthetic.kanban",
+            requestId: "request-2",
+            request: {
+              path: "Synthetic.kanban.md",
+              source: "# Synthetic",
+              edit: {
+                type: "move-card",
+                cardId: "card-one",
+                targetColumnId: "column-backlog",
+                beforeCardId: 4,
+              },
+            },
+          }),
+        ).toBe(false);
+        expect(
+          isPluginRuntimeMessage({
+            type: "kanban-board-result",
+            requestId: "request-1",
+            model: {
+              ...kanbanModel,
+              columns: [
+                kanbanModel.columns[0],
+                kanbanModel.columns[0],
+              ],
+            },
+          }),
+        ).toBe(false);
+      });
     });
 
     it("rejects duplicate, uppercase, and malformed diagram languages", () => {

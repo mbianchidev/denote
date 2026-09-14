@@ -3,6 +3,10 @@ import type { PluginView } from "../types";
 import type {
   PluginDiagramRenderRequest,
   PluginDiagramRenderResult,
+  PluginKanbanBoardModel,
+  PluginKanbanBoardRequest,
+  PluginKanbanEditRequest,
+  PluginKanbanEditResult,
   PluginNoteEvent,
   PluginManifest,
   PluginProjectContext,
@@ -15,7 +19,9 @@ import type {
 import {
   emojiPickerMatchesManifest,
   isPluginDiagramRendererRegistration,
+  isPluginKanbanRegistration,
   isPluginStructuredViewerRegistration,
+  MAX_PLUGIN_KANBAN_SOURCE_BYTES,
   MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES,
 } from "@denote/plugin-sdk";
 import {
@@ -31,6 +37,7 @@ import {
   type PluginDecorationContribution,
   type PluginDiagramRendererContribution,
   type PluginEmojiPickerContribution,
+  type PluginKanbanBoardContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
   type PluginSourceControlContribution,
@@ -46,6 +53,7 @@ export type {
   PluginDecorationContribution,
   PluginDiagramRendererContribution,
   PluginEmojiPickerContribution,
+  PluginKanbanBoardContribution,
   PluginSidebarContribution,
   PluginSourceControlContribution,
   PluginStatusContribution,
@@ -64,6 +72,7 @@ const COMMAND_TIMEOUT_MS = 30_000;
 // timeout is ten minutes. Only this lease is extended to match it.
 const SOURCE_CONTROL_ACTION_TIMEOUT_MS = 600_000;
 const STRUCTURED_VIEW_TIMEOUT_MS = 15_000;
+const KANBAN_OPERATION_TIMEOUT_MS = 15_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -73,6 +82,8 @@ interface PendingRequest {
     | "command-result"
     | "source-control-action-result"
     | "structured-view-result"
+    | "kanban-board-result"
+    | "kanban-edit-result"
     | "deactivated";
 }
 
@@ -97,6 +108,8 @@ interface Runtime {
   stagedEmojiPickers: Map<string, PluginEmojiPickerContribution>;
   structuredViewers: Map<string, PluginStructuredViewerContribution>;
   stagedStructuredViewers: Map<string, PluginStructuredViewerContribution>;
+  kanbanBoards: Map<string, PluginKanbanBoardContribution>;
+  stagedKanbanBoards: Map<string, PluginKanbanBoardContribution>;
   diagramRenderers: Map<string, PluginDiagramRendererContribution>;
   stagedDiagramRenderers: Map<string, PluginDiagramRendererContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
@@ -168,6 +181,9 @@ export class PluginWorkerRuntime {
     private readonly onDiagramRenderersChanged: (
       renderers: PluginDiagramRendererContribution[],
     ) => void = () => {},
+    private readonly onKanbanBoardsChanged: (
+      boards: PluginKanbanBoardContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -224,6 +240,7 @@ export class PluginWorkerRuntime {
     runtime.phase = "deactivating";
     this.publishEmojiPickers();
     this.publishStructuredViewers();
+    this.publishKanbanBoards();
     this.publishDiagramRenderers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
@@ -398,6 +415,84 @@ export class PluginWorkerRuntime {
     return (await result) as PluginStructuredViewModel;
   }
 
+  async parseKanbanBoard(
+    pluginId: string,
+    providerId: string,
+    request: PluginKanbanBoardRequest,
+  ): Promise<PluginKanbanBoardModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.kanbanBoards.has(providerId)) {
+      throw new Error(
+        `Plugin Kanban board provider ${providerId} is not registered.`,
+      );
+    }
+    if (
+      new TextEncoder().encode(request.source).byteLength >
+      MAX_PLUGIN_KANBAN_SOURCE_BYTES
+    ) {
+      return {
+        title: "",
+        columns: [],
+        error: {
+          code: "SOURCE_LIMIT",
+          message:
+            "Kanban board size limit is 4 MiB. Use Markdown view for this file.",
+        },
+        notices: [],
+        canInitialize: false,
+      };
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      KANBAN_OPERATION_TIMEOUT_MS,
+      "kanban-board-result",
+    );
+    runtime.port.postMessage({
+      type: "parse-kanban-board",
+      providerId,
+      request,
+      requestId,
+    });
+    return (await result) as PluginKanbanBoardModel;
+  }
+
+  async editKanbanBoard(
+    pluginId: string,
+    providerId: string,
+    request: PluginKanbanEditRequest,
+  ): Promise<PluginKanbanEditResult> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.kanbanBoards.has(providerId)) {
+      throw new Error(
+        `Plugin Kanban board provider ${providerId} is not registered.`,
+      );
+    }
+    if (
+      new TextEncoder().encode(request.source).byteLength >
+      MAX_PLUGIN_KANBAN_SOURCE_BYTES
+    ) {
+      throw new Error(
+        "Kanban board size limit is 4 MiB. Use Markdown view for this file.",
+      );
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      KANBAN_OPERATION_TIMEOUT_MS,
+      "kanban-edit-result",
+    );
+    runtime.port.postMessage({
+      type: "edit-kanban-board",
+      providerId,
+      request,
+      requestId,
+    });
+    return (await result) as PluginKanbanEditResult;
+  }
+
   renderDiagram(
     renderer: PluginDiagramRendererContribution,
     request: PluginDiagramRenderRequest,
@@ -551,6 +646,8 @@ export class PluginWorkerRuntime {
       stagedEmojiPickers: new Map(),
       structuredViewers: new Map(),
       stagedStructuredViewers: new Map(),
+      kanbanBoards: new Map(),
+      stagedKanbanBoards: new Map(),
       diagramRenderers: new Map(),
       stagedDiagramRenderers: new Map(),
       sourceControlProviders: new Map(),
@@ -657,6 +754,10 @@ export class PluginWorkerRuntime {
         runtime.structuredViewers.set(id, viewer);
       }
       runtime.stagedStructuredViewers.clear();
+      for (const [id, board] of runtime.stagedKanbanBoards) {
+        runtime.kanbanBoards.set(id, board);
+      }
+      runtime.stagedKanbanBoards.clear();
       for (const [id, renderer] of runtime.stagedDiagramRenderers) {
         runtime.diagramRenderers.set(id, renderer);
       }
@@ -677,6 +778,7 @@ export class PluginWorkerRuntime {
       this.publishAutomaticLocalCommits();
       this.publishEmojiPickers();
       this.publishStructuredViewers();
+      this.publishKanbanBoards();
       this.publishDiagramRenderers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
@@ -892,6 +994,49 @@ export class PluginWorkerRuntime {
         runtime.stagedStructuredViewers.delete(message.id);
         this.publishStructuredViewers();
         return;
+      case "register-kanban-board": {
+        const registration = {
+          id: message.id,
+          title: message.title,
+          fileSuffixes: message.fileSuffixes,
+          defaultFileName: message.defaultFileName,
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("kanban-board") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginKanbanRegistration(registration) ||
+          runtime.kanbanBoards.size + runtime.stagedKanbanBoards.size > 0 ||
+          message.fileSuffixes.some((suffix) =>
+            this.kanbanFileSuffixRegistered(suffix),
+          )
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized Kanban board registration.`,
+            ),
+          );
+          return;
+        }
+        const contribution: PluginKanbanBoardContribution = {
+          pluginId,
+          ...registration,
+        };
+        const boards = runtime.activated
+          ? runtime.kanbanBoards
+          : runtime.stagedKanbanBoards;
+        boards.set(message.id, contribution);
+        if (runtime.activated) {
+          this.publishKanbanBoards();
+        }
+        return;
+      }
+      case "unregister-kanban-board":
+        runtime.kanbanBoards.delete(message.id);
+        runtime.stagedKanbanBoards.delete(message.id);
+        this.publishKanbanBoards();
+        return;
       case "register-diagram-renderer": {
         const registration = {
           id: message.id,
@@ -1087,7 +1232,9 @@ export class PluginWorkerRuntime {
         return;
       case "command-result":
       case "source-control-action-result":
-      case "structured-view-result": {
+      case "structured-view-result":
+      case "kanban-board-result":
+      case "kanban-edit-result": {
         if (
           !this.settle(
             runtime,
@@ -1096,6 +1243,10 @@ export class PluginWorkerRuntime {
             message.error,
             message.type === "structured-view-result"
               ? message.model
+              : message.type === "kanban-board-result"
+                ? message.model
+                : message.type === "kanban-edit-result"
+                  ? message.result
               : undefined,
           )
         ) {
@@ -1286,6 +1437,20 @@ export class PluginWorkerRuntime {
     return false;
   }
 
+  private kanbanFileSuffixRegistered(suffix: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      for (const board of [
+        ...runtime.kanbanBoards.values(),
+        ...runtime.stagedKanbanBoards.values(),
+      ]) {
+        if (board.fileSuffixes.includes(suffix)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   private diagramLanguageRegistered(language: string): boolean {
     for (const runtime of this.runtimes.values()) {
       for (const renderer of [
@@ -1323,6 +1488,7 @@ export class PluginWorkerRuntime {
     this.publishAutomaticLocalCommits();
     this.publishEmojiPickers();
     this.publishStructuredViewers();
+    this.publishKanbanBoards();
     this.publishDiagramRenderers();
   }
 
@@ -1347,6 +1513,7 @@ export class PluginWorkerRuntime {
     runtime.phase = "stopping";
     this.publishEmojiPickers();
     this.publishStructuredViewers();
+    this.publishKanbanBoards();
     this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
@@ -1406,6 +1573,14 @@ export class PluginWorkerRuntime {
         runtime.phase === "active"
           ? [...runtime.structuredViewers.values()]
           : [],
+      ),
+    );
+  }
+
+  private publishKanbanBoards(): void {
+    this.onKanbanBoardsChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active" ? [...runtime.kanbanBoards.values()] : [],
       ),
     );
   }

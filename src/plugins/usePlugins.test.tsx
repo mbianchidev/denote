@@ -7,6 +7,7 @@ import {
   type PluginEmojiPreferences,
 } from "@denote/plugin-sdk";
 import type { PluginEmojiPickerContribution } from "./emojiPickers";
+import type { PluginKanbanBoardContribution } from "./workerRuntime";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
@@ -16,6 +17,7 @@ interface MockRuntimeInstance {
   onSourceControlProvidersChanged?: unknown;
   onAutomaticLocalCommitsChanged?: unknown;
   onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void;
+  onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void;
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
@@ -24,6 +26,8 @@ interface MockRuntimeInstance {
   runCommand: ReturnType<typeof vi.fn>;
   runSourceControlAction: ReturnType<typeof vi.fn>;
   parseStructuredView: ReturnType<typeof vi.fn>;
+  parseKanbanBoard: ReturnType<typeof vi.fn>;
+  editKanbanBoard: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
   setWorkspaceIdentity: ReturnType<typeof vi.fn>;
@@ -78,6 +82,23 @@ vi.mock("./workerRuntime", () => {
       notices: [],
       truncated: false,
     }));
+    parseKanbanBoard = vi.fn(async () => ({
+      title: "Synthetic board",
+      columns: [],
+      error: null,
+      notices: [],
+      canInitialize: false,
+    }));
+    editKanbanBoard = vi.fn(async () => ({
+      source: "updated source",
+      model: {
+        title: "Synthetic board",
+        columns: [],
+        error: null,
+        notices: [],
+        canInitialize: false,
+      },
+    }));
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
@@ -95,6 +116,8 @@ vi.mock("./workerRuntime", () => {
       public onVaultCloned?: unknown,
       public onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void,
       public onStructuredViewersChanged?: unknown,
+      public onDiagramRenderersChanged?: unknown,
+      public onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -212,7 +235,7 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
-  it.each(["structured-viewer", "diagram-renderer"] as const)(
+  it.each(["structured-viewer", "kanban-board", "diagram-renderer"] as const)(
     "stops %s workers while content is unavailable and restarts them after unlock",
     async (capability) => {
     const enabled = makePlugin({
@@ -296,6 +319,46 @@ describe("usePlugins", () => {
     expect(result.current.plugins[0].settings.recents).toBe('["\u{1f44b}"]');
     expect(runtime.start).not.toHaveBeenCalled();
     expect(runtime.stop).not.toHaveBeenCalled();
+  });
+
+  it("publishes Kanban contributions and forwards bounded parse and edit requests", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const runtime = runtimeInstances[0];
+    const board: PluginKanbanBoardContribution = {
+      pluginId,
+      id: `${pluginId}.kanban`,
+      title: "Kanban boards",
+      fileSuffixes: [".kanban.md"],
+      defaultFileName: "Board.kanban.md",
+    };
+    await act(async () => runtime.onKanbanBoardsChanged?.([board]));
+    expect(result.current.kanbanBoards).toEqual([board]);
+
+    const request = {
+      path: "Synthetic.kanban.md",
+      source: "# Synthetic",
+    };
+    await result.current.parseKanbanBoard(pluginId, board.id, request);
+    expect(runtime.parseKanbanBoard).toHaveBeenCalledWith(
+      pluginId,
+      board.id,
+      request,
+    );
+
+    const editRequest = {
+      ...request,
+      edit: {
+        type: "add-column" as const,
+        title: "Doing",
+        beforeColumnId: null,
+      },
+    };
+    await result.current.editKanbanBoard(pluginId, board.id, editRequest);
+    expect(runtime.editKanbanBoard).toHaveBeenCalledWith(
+      pluginId,
+      board.id,
+      editRequest,
+    );
   });
 
   it("serializes preferences and reports persistence errors without suppressing the next save", async () => {

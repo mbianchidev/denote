@@ -9,6 +9,9 @@ import type {
   PluginDisposable,
   PluginDiagramRenderer,
   PluginGitResult,
+  PluginKanbanBoardModel,
+  PluginKanbanBoardProvider,
+  PluginKanbanEditResult,
   PluginLogger,
   PluginNetworkResponse,
   PluginNoteEvent,
@@ -38,6 +41,9 @@ import {
   emojiPickerMatchesManifest,
   isPluginEmojiPicker,
   isPluginDiagramRendererRegistration,
+  isPluginKanbanBoardModel,
+  isPluginKanbanEditResult,
+  isPluginKanbanRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -63,12 +69,21 @@ const structuredViewerHandlers = new Map<
   string,
   PluginStructuredViewer["parse"]
 >();
+const kanbanParseHandlers = new Map<
+  string,
+  PluginKanbanBoardProvider["parse"]
+>();
+const kanbanEditHandlers = new Map<
+  string,
+  PluginKanbanBoardProvider["edit"]
+>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
 const automaticCommitSchedules = new Set<string>();
 const emojiPickers = new Set<string>();
 const structuredViewers = new Set<string>();
+const kanbanBoards = new Set<string>();
 const diagramRenderers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
@@ -374,6 +389,48 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("kanban-board")) {
+    capabilities.kanbanBoard = {
+      register(provider) {
+        const registration = {
+          id: provider?.id,
+          title: provider?.title,
+          fileSuffixes: provider?.fileSuffixes,
+          defaultFileName: provider?.defaultFileName,
+        };
+        if (
+          cleaned ||
+          !isPluginKanbanRegistration(registration) ||
+          typeof provider.parse !== "function" ||
+          typeof provider.edit !== "function" ||
+          kanbanBoards.size > 0
+        ) {
+          throw new Error(
+            "Invalid or duplicate Kanban board registration.",
+          );
+        }
+        validateContributionId(provider.id, "Kanban board");
+        kanbanBoards.add(provider.id);
+        kanbanParseHandlers.set(provider.id, provider.parse);
+        kanbanEditHandlers.set(provider.id, provider.edit);
+        send({
+          type: "register-kanban-board",
+          ...registration,
+        });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          kanbanBoards.delete(provider.id);
+          kanbanParseHandlers.delete(provider.id);
+          kanbanEditHandlers.delete(provider.id);
+          send({ type: "unregister-kanban-board", id: provider.id });
+        });
+      },
+    };
+  }
   if (permissions.has("diagram-renderer")) {
     capabilities.diagramRenderer = {
       register(renderer: PluginDiagramRenderer) {
@@ -656,9 +713,12 @@ async function cleanup(): Promise<unknown[]> {
   commandHandlers.clear();
   sourceControlHandlers.clear();
   structuredViewerHandlers.clear();
+  kanbanParseHandlers.clear();
+  kanbanEditHandlers.clear();
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
+  kanbanBoards.clear();
   diagramRenderers.clear();
   return failures;
 }
@@ -777,6 +837,54 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     } catch (error) {
       send({
         type: "structured-view-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "parse-kanban-board") {
+    try {
+      const parse = kanbanParseHandlers.get(message.providerId);
+      if (!parse) {
+        throw new Error("Kanban board provider is no longer registered.");
+      }
+      const model: PluginKanbanBoardModel = await parse(message.request);
+      if (!isPluginKanbanBoardModel(model)) {
+        throw new Error("Kanban board provider returned an invalid model.");
+      }
+      send({
+        type: "kanban-board-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "kanban-board-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "edit-kanban-board") {
+    try {
+      const edit = kanbanEditHandlers.get(message.providerId);
+      if (!edit) {
+        throw new Error("Kanban board provider is no longer registered.");
+      }
+      const result: PluginKanbanEditResult = await edit(message.request);
+      if (!isPluginKanbanEditResult(result)) {
+        throw new Error("Kanban board provider returned an invalid edit.");
+      }
+      send({
+        type: "kanban-edit-result",
+        requestId: message.requestId,
+        result,
+      });
+    } catch (error) {
+      send({
+        type: "kanban-edit-result",
         requestId: message.requestId,
         error: errorMessage(error),
       });

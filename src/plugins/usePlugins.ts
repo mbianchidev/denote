@@ -4,6 +4,10 @@ import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
   PluginDiagramRenderRequest,
   PluginDiagramRenderResult,
+  PluginKanbanBoardModel,
+  PluginKanbanBoardRequest,
+  PluginKanbanEditRequest,
+  PluginKanbanEditResult,
   PluginNoteEvent,
   PluginEmojiPreferences,
   PluginPermissionRequest,
@@ -25,6 +29,7 @@ import {
   type PluginDecorationContribution,
   type PluginDiagramRendererContribution,
   type PluginEmojiPickerContribution,
+  type PluginKanbanBoardContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
 } from "./workerRuntime";
@@ -76,6 +81,7 @@ function permissionRequestEqual(
     case "editor-decoration":
     case "emoji-picker":
     case "structured-viewer":
+    case "kanban-board":
     case "diagram-renderer":
     case "note-events":
     case "project-context":
@@ -132,6 +138,7 @@ export interface PluginController {
   decorations: PluginDecorationContribution[];
   emojiPickers: PluginEmojiPickerContribution[];
   structuredViewers: PluginStructuredViewerContribution[];
+  kanbanBoards: PluginKanbanBoardContribution[];
   diagramRenderers: PluginDiagramRendererContribution[];
   saveEmojiPreferences: (
     pluginId: string,
@@ -182,6 +189,16 @@ export interface PluginController {
     viewerId: string,
     request: PluginStructuredViewerParseRequest,
   ) => Promise<PluginStructuredViewModel>;
+  parseKanbanBoard: (
+    pluginId: string,
+    providerId: string,
+    request: PluginKanbanBoardRequest,
+  ) => Promise<PluginKanbanBoardModel>;
+  editKanbanBoard: (
+    pluginId: string,
+    providerId: string,
+    request: PluginKanbanEditRequest,
+  ) => Promise<PluginKanbanEditResult>;
   renderDiagram: (
     renderer: PluginDiagramRendererContribution,
     request: PluginDiagramRenderRequest,
@@ -225,6 +242,9 @@ export function usePlugins(
   const [emojiPickers, setEmojiPickers] = useState<PluginEmojiPickerContribution[]>([]);
   const [structuredViewers, setStructuredViewers] = useState<
     PluginStructuredViewerContribution[]
+  >([]);
+  const [kanbanBoards, setKanbanBoards] = useState<
+    PluginKanbanBoardContribution[]
   >([]);
   const [diagramRenderers, setDiagramRenderers] = useState<
     PluginDiagramRendererContribution[]
@@ -303,6 +323,7 @@ export function usePlugins(
       setEmojiPickers,
       setStructuredViewers,
       setDiagramRenderers,
+      setKanbanBoards,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -895,6 +916,36 @@ export function usePlugins(
     [],
   );
 
+  const parseKanbanBoard = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginKanbanBoardRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.parseKanbanBoard(pluginId, providerId, request);
+    },
+    [],
+  );
+
+  const editKanbanBoard = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginKanbanEditRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.editKanbanBoard(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const renderDiagram = useCallback(
     (
       renderer: PluginDiagramRendererContribution,
@@ -940,6 +991,7 @@ export function usePlugins(
     decorations,
     emojiPickers,
     structuredViewers,
+    kanbanBoards,
     diagramRenderers,
     saveEmojiPreferences,
     sourceControlProviders,
@@ -962,6 +1014,8 @@ export function usePlugins(
     runCommand,
     runSourceControlAction,
     parseStructuredView,
+    parseKanbanBoard,
+    editKanbanBoard,
     renderDiagram,
     releaseDiagramScope,
     emitNoteEvent,
@@ -972,7 +1026,7 @@ export function usePlugins(
 
 function requiresContent(plugin: PluginView): boolean {
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "diagram-renderer"].includes(
+    ["structured-viewer", "kanban-board", "diagram-renderer"].includes(
       permission.capability,
     ),
   );

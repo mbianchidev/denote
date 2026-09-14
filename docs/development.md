@@ -428,6 +428,42 @@ tests, docs, dependency manifests, and lockfile first; pin that full commit with
 `npm run pin:plugin -- denote.json-yaml-viewer --ref "$(git rev-parse HEAD)"
 --release <Denote-tag>`, then commit only its catalog and ledger metadata.
 
+### Kanban board development
+
+Use `npm run dev:plugin -- denote.kanban` and load the ignored development
+archive from **Settings → Plugins**. The plugin requests only `kanban-board`.
+Representation-specific parsing and source splicing stay in
+`plugins/kanban/src/board.ts`; `src/components/KanbanBoardEditor.tsx`, path
+routing, autosave, links, focus, and the runtime protocol remain generic
+host-owned API-v1 surfaces.
+
+Run focused coverage with:
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/kanban.test.ts \
+  src/plugins/kanbanBoards.test.ts \
+  src/plugins/runtimeMessages.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/KanbanBoardEditor.test.tsx \
+  src/App.test.tsx \
+  plugins/kanban/tests
+```
+
+Use only synthetic board content. Cover initialization after existing Markdown,
+LF/CRLF handling, malformed and duplicate markers, source/model/card limits,
+note links and tags, add/edit/delete/move operations, byte-preserving reorder,
+stale worker responses, lock/unlock, disable/re-enable, exact Markdown fallback,
+pointer drag, every keyboard move alternative, announcements, and focus after
+move or deletion.
+
+Stage the source-only archive with
+`npm run package:plugin -- denote.kanban`. Commit source, SDK, host, tests, docs,
+dependency manifests, and lockfile first; pin that full commit with
+`npm run pin:plugin -- denote.kanban --ref "$(git rev-parse HEAD)" --release
+<Denote-tag>`, then commit only its catalog and ledger metadata.
+
 ## Build a desktop bundle
 
 ```bash
@@ -588,7 +624,8 @@ Keep one tiny invented file for every distinct `CORE_SYNTAX_LANGUAGES`
 descriptor, plus representative filename-only rules and the ambiguous `.pp`
 case documented in `code/README.md`. `src/lib/welcomeSamples.test.ts` compares
 the directory with the live registry. The canonical Mermaid, PDF, JSON, and
-YAML files live in `docs/user-guide/examples/`; the PDF must remain exactly
+YAML files live in `docs/user-guide/examples/`; optional workflow samples live
+in `docs/user-guide/plugins/`. The PDF must remain exactly
 equal to the deterministic `createPdfFixture` output and contain no actions,
 forms, annotations, attachments, or external links.
 
@@ -596,6 +633,8 @@ forms, annotations, attachments, or external links.
 addition for older Welcome vaults. Tests must prove exact source inventory,
 missing-file addition, existing-file preservation, one-time behavior, symlink
 refusal, encrypted deferral, and ciphertext creation after unlock.
+The separate `plugins-v1` addition owns the same guarantees for `plugins/`
+samples and must never broaden the older `examples-v1` prefix set.
 
 Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
 maintained package, so its small core stream tokenizer stays in

@@ -497,6 +497,11 @@ pub fn unlock_vault_with_password(
     {
         eprintln!("Unable to add default-vault examples after unlock: {error}");
     }
+    if let Err(error) =
+        default_vault::add_missing_plugin_examples_after_unlock(&state.db_path, &root, &key)
+    {
+        eprintln!("Unable to add default-vault plugin examples after unlock: {error}");
+    }
     refreshed_snapshot(&state)
 }
 
@@ -521,6 +526,11 @@ pub fn unlock_vault_with_recovery_code(
         default_vault::add_missing_examples_after_unlock(&state.db_path, &root, &key)
     {
         eprintln!("Unable to add default-vault examples after unlock: {error}");
+    }
+    if let Err(error) =
+        default_vault::add_missing_plugin_examples_after_unlock(&state.db_path, &root, &key)
+    {
+        eprintln!("Unable to add default-vault plugin examples after unlock: {error}");
     }
     refreshed_snapshot(&state)
 }

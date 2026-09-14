@@ -490,10 +490,10 @@ source code so edge cases remain easy to exercise.
 New Welcome vaults seed the same canonical guide as both `.denote.md` and
 `Welcome.md`; the latter remains for stable links and existing-vault
 compatibility.
-Older Welcome vaults receive only missing `examples` and `code` paths once.
-Existing matching paths and user-added content keep their bytes. Encrypted
-copies wait for unlock and receive encrypted files before the workspace
-refreshes.
+Older Welcome vaults receive only missing `examples`, `code`, and optional
+workflow `plugins` paths once through separate collection markers. Existing
+matching paths and user-added content keep their bytes. Encrypted copies wait
+for unlock and receive encrypted files before the workspace refreshes.
 
 ### Callouts
 
@@ -632,6 +632,44 @@ Parsing, expansion limits, and errors use polite status text; parse errors keep
 the Raw control available and show a line and column when known. Rows retain
 pointer-sized targets, use no decorative motion, and use system borders,
 selection, and focus colors under forced colors.
+
+### Optional Kanban boards
+
+The Kanban plugin contributes a bounded board model and Markdown edits, never
+markup. Denote owns the **Board** / **Markdown** controls, horizontal board
+layout, semantic column and card lists, forms, note-link activation, focus,
+status announcements, autosave, and revision history.
+
+Columns use flat sidebar-toned surfaces with one-pixel borders. Cards use the
+raised panel tone and tight four-pixel corners; they remain compact work items,
+not decorative dashboard cards. Board and column titles stay visually stronger
+than metadata. Card Markdown is shown as wrapped plain text, with note links as
+text buttons and hashtags as compact semantic pills.
+
+Each visually muted grip is a named native button and the pointer drag target.
+Space picks up the column or card; arrow keys move it, Home/End reach the first
+or last position, Space drops, and Escape cancels. Successful moves keep focus
+on the grip and announce the new column and position through a polite live
+region. No separate arrow-move controls appear.
+
+Board, column, and card titles are quiet text buttons that become inline fields
+when clicked. Card details use the same direct-edit treatment and focus the
+details field without jumping back to the title on each keystroke. No pencil
+icon is shown. Add and delete flows use native controls in document order.
+Deletion requires an inline confirmation and moves focus to the nearest
+surviving item.
+
+Collapsed card details are clamped to five wrapped lines. A compact **More…**
+label overlays the trailing edge only when content continues and the card-open
+control announces the same state. Markdown links render inline above the
+full-area card-open control, so a link click navigates while any non-link body
+space opens the full untruncated Markdown editor.
+
+Board errors retain the Markdown control and use written error text rather than
+color alone. Read mode keeps links available but disables every mutation and
+drag handle. Forced colors retain borders, visible focus, and selected toggle
+state; reduced motion adds no special case because board operations use no
+decorative animation.
 
 ### Optional Mermaid diagrams
 
