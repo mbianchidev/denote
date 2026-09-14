@@ -2222,6 +2222,9 @@ button:disabled {
   border: 0;
   border-radius: 3px;
   cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .kanban-drag-handle:active {
@@ -2233,6 +2236,11 @@ button:disabled {
 .kanban-card[data-grabbed="true"] {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
+}
+
+.kanban-column[data-dragging="true"],
+.kanban-card[data-dragging="true"] {
+  opacity: 0.55;
 }
 
 .kanban-column__cards {

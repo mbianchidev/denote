@@ -321,12 +321,33 @@ describe("KanbanBoardEditor", () => {
     });
     const doing = screen
       .getByRole("button", { name: "Doing" })
-      .closest(".kanban-column");
-    const dataTransfer = createDataTransfer(false);
+      .closest(".kanban-column") as HTMLElement;
+    const board = container.querySelector<HTMLElement>(
+      ".kanban-board-editor__columns",
+    );
+    const backlog = screen
+      .getByRole("button", { name: "Backlog" })
+      .closest(".kanban-column") as HTMLElement;
+    mockRect(board!, 0, 0, 800, 600);
+    mockRect(backlog!, 20, 20, 280, 520);
+    mockRect(doing!, 320, 20, 280, 520);
 
-    fireEvent.dragStart(handle, { dataTransfer });
-    fireEvent.dragOver(doing!, { dataTransfer });
-    fireEvent.drop(doing!, { dataTransfer });
+    fireEvent.pointerDown(handle, {
+      pointerId: 1,
+      button: 0,
+      clientX: 100,
+      clientY: 150,
+    });
+    fireEvent.pointerMove(handle, {
+      pointerId: 1,
+      clientX: 420,
+      clientY: 300,
+    });
+    fireEvent.pointerUp(handle, {
+      pointerId: 1,
+      clientX: 420,
+      clientY: 300,
+    });
 
     await act(async () => {});
     expect(edit).toHaveBeenCalledWith(
@@ -359,14 +380,33 @@ describe("KanbanBoardEditor", () => {
     const handle = screen.getByRole("button", {
       name: "Reorder card Review change",
     });
-    const firstSlot = container.querySelector<HTMLElement>(
-      '[aria-label="Backlog cards"] .kanban-drop-zone',
+    const board = container.querySelector<HTMLElement>(
+      ".kanban-board-editor__columns",
     );
-    const dataTransfer = createDataTransfer(false);
+    const columns = container.querySelectorAll<HTMLElement>(".kanban-column");
+    const cards = container.querySelectorAll<HTMLElement>(".kanban-card");
+    mockRect(board!, 0, 0, 800, 600);
+    mockRect(columns[0], 20, 20, 280, 520);
+    mockRect(columns[1], 320, 20, 280, 520);
+    mockRect(cards[0], 40, 100, 240, 100);
+    mockRect(cards[1], 40, 220, 240, 100);
 
-    fireEvent.dragStart(handle, { dataTransfer });
-    fireEvent.dragOver(firstSlot!, { dataTransfer });
-    fireEvent.drop(firstSlot!, { dataTransfer });
+    fireEvent.pointerDown(handle, {
+      pointerId: 2,
+      button: 0,
+      clientX: 100,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(handle, {
+      pointerId: 2,
+      clientX: 100,
+      clientY: 80,
+    });
+    fireEvent.pointerUp(handle, {
+      pointerId: 2,
+      clientX: 100,
+      clientY: 80,
+    });
 
     await act(async () => {});
     expect(edit).toHaveBeenCalledWith(
@@ -394,12 +434,33 @@ describe("KanbanBoardEditor", () => {
     });
     const backlog = screen
       .getByRole("button", { name: "Backlog" })
-      .closest(".kanban-column");
-    const dataTransfer = createDataTransfer();
+      .closest(".kanban-column") as HTMLElement;
+    const board = document.querySelector<HTMLElement>(
+      ".kanban-board-editor__columns",
+    );
+    const doing = screen
+      .getByRole("button", { name: "Doing" })
+      .closest(".kanban-column") as HTMLElement;
+    mockRect(board!, 0, 0, 800, 600);
+    mockRect(backlog!, 20, 20, 280, 520);
+    mockRect(doing!, 320, 20, 280, 520);
 
-    fireEvent.dragStart(handle, { dataTransfer });
-    fireEvent.dragOver(backlog!, { dataTransfer });
-    fireEvent.drop(backlog!, { dataTransfer });
+    fireEvent.pointerDown(handle, {
+      pointerId: 3,
+      button: 0,
+      clientX: 450,
+      clientY: 80,
+    });
+    fireEvent.pointerMove(handle, {
+      pointerId: 3,
+      clientX: 80,
+      clientY: 80,
+    });
+    fireEvent.pointerUp(handle, {
+      pointerId: 3,
+      clientX: 80,
+      clientY: 80,
+    });
 
     await act(async () => {});
     expect(edit).toHaveBeenCalledWith(
@@ -473,19 +534,22 @@ describe("KanbanBoardEditor", () => {
   });
 });
 
-function createDataTransfer(exposeData = true) {
-  const values = new Map<string, string>();
-  return {
-    effectAllowed: "all",
-    types: [] as string[],
-    setData(type: string, value: string) {
-      values.set(type, value);
-      if (!this.types.includes(type)) {
-        this.types.push(type);
-      }
-    },
-    getData(type: string) {
-      return exposeData ? (values.get(type) ?? "") : "";
-    },
-  };
+function mockRect(
+  element: HTMLElement,
+  left: number,
+  top: number,
+  width: number,
+  height: number,
+) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    x: left,
+    y: top,
+    left,
+    top,
+    width,
+    height,
+    right: left + width,
+    bottom: top + height,
+    toJSON: () => ({}),
+  });
 }
