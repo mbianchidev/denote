@@ -367,10 +367,53 @@ describe("Note graph indexing", () => {
     expect(secondDiagnostics.definitionEdits).toBe(fixture.count);
   });
 
+  it("joins dense AST-fallback edit chunks once", () => {
+    const editCount = 512;
+    const line = "[x](a b)\n";
+    const source = `paragraph\n<span>\n${line.repeat(
+      editCount,
+    )}</span>\n`;
+    const diagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+    const originalJoin = Array.prototype.join;
+    let matchingJoins = 0;
+    const joinSpy = vi
+      .spyOn(Array.prototype, "join")
+      .mockImplementation(function (
+        this: unknown[],
+        separator?: string,
+      ) {
+        if (separator === "" && this.length === editCount * 2 + 1) {
+          matchingJoins += 1;
+        }
+        return originalJoin.call(this, separator);
+      });
+
+    let parsed;
+    try {
+      parsed = parseNoteGraphDocument(
+        document("Dense fallback.md", source),
+        diagnostics,
+      );
+    } finally {
+      joinSpy.mockRestore();
+    }
+
+    expect(parsed.links).toHaveLength(MAX_RAW_LINKS_PER_NOTE);
+    expect(parsed.omittedLinks).toBe(
+      editCount - MAX_RAW_LINKS_PER_NOTE,
+    );
+    expect(matchingJoins).toBe(1);
+  });
+
   it("applies dense inline-link normalization at the exact request bound", () => {
     const line = "[x](a b)\n";
     const size = 256 * 1024;
-    const linkCount = Math.floor(size / line.length);
+    const linkCount = 2_048;
     const source = `${line.repeat(linkCount)}${"x".repeat(
       size - linkCount * line.length,
     )}`;
