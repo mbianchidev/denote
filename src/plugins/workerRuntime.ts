@@ -7,6 +7,9 @@ import type {
   PluginKanbanBoardRequest,
   PluginKanbanEditRequest,
   PluginKanbanEditResult,
+  PluginNoteGraphIndexRequest,
+  PluginNoteGraphModel,
+  PluginNoteGraphQuery,
   PluginNoteEvent,
   PluginManifest,
   PluginProjectContext,
@@ -20,6 +23,9 @@ import {
   emojiPickerMatchesManifest,
   isPluginDiagramRendererRegistration,
   isPluginKanbanRegistration,
+  isPluginNoteGraphIndexRequest,
+  isPluginNoteGraphQuery,
+  isPluginNoteGraphRegistration,
   isPluginStructuredViewerRegistration,
   MAX_PLUGIN_KANBAN_SOURCE_BYTES,
   MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES,
@@ -38,6 +44,7 @@ import {
   type PluginDiagramRendererContribution,
   type PluginEmojiPickerContribution,
   type PluginKanbanBoardContribution,
+  type PluginNoteGraphContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
   type PluginSourceControlContribution,
@@ -54,6 +61,7 @@ export type {
   PluginDiagramRendererContribution,
   PluginEmojiPickerContribution,
   PluginKanbanBoardContribution,
+  PluginNoteGraphContribution,
   PluginSidebarContribution,
   PluginSourceControlContribution,
   PluginStatusContribution,
@@ -73,6 +81,7 @@ const COMMAND_TIMEOUT_MS = 30_000;
 const SOURCE_CONTROL_ACTION_TIMEOUT_MS = 600_000;
 const STRUCTURED_VIEW_TIMEOUT_MS = 15_000;
 const KANBAN_OPERATION_TIMEOUT_MS = 15_000;
+const NOTE_GRAPH_OPERATION_TIMEOUT_MS = 30_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -84,6 +93,8 @@ interface PendingRequest {
     | "structured-view-result"
     | "kanban-board-result"
     | "kanban-edit-result"
+    | "note-graph-index-result"
+    | "note-graph-query-result"
     | "deactivated";
 }
 
@@ -110,6 +121,8 @@ interface Runtime {
   stagedStructuredViewers: Map<string, PluginStructuredViewerContribution>;
   kanbanBoards: Map<string, PluginKanbanBoardContribution>;
   stagedKanbanBoards: Map<string, PluginKanbanBoardContribution>;
+  noteGraphs: Map<string, PluginNoteGraphContribution>;
+  stagedNoteGraphs: Map<string, PluginNoteGraphContribution>;
   diagramRenderers: Map<string, PluginDiagramRendererContribution>;
   stagedDiagramRenderers: Map<string, PluginDiagramRendererContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
@@ -184,6 +197,9 @@ export class PluginWorkerRuntime {
     private readonly onKanbanBoardsChanged: (
       boards: PluginKanbanBoardContribution[],
     ) => void = () => {},
+    private readonly onNoteGraphsChanged: (
+      graphs: PluginNoteGraphContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -241,6 +257,7 @@ export class PluginWorkerRuntime {
     this.publishEmojiPickers();
     this.publishStructuredViewers();
     this.publishKanbanBoards();
+    this.publishNoteGraphs();
     this.publishDiagramRenderers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
@@ -493,6 +510,62 @@ export class PluginWorkerRuntime {
     return (await result) as PluginKanbanEditResult;
   }
 
+  async indexNoteGraph(
+    pluginId: string,
+    providerId: string,
+    request: PluginNoteGraphIndexRequest,
+  ): Promise<void> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.noteGraphs.has(providerId)) {
+      throw new Error(`Plugin note graph ${providerId} is not registered.`);
+    }
+    if (!isPluginNoteGraphIndexRequest(request)) {
+      throw new Error("Invalid note graph index request.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      NOTE_GRAPH_OPERATION_TIMEOUT_MS,
+      "note-graph-index-result",
+    );
+    runtime.port.postMessage({
+      type: "index-note-graph",
+      providerId,
+      request,
+      requestId,
+    });
+    await result;
+  }
+
+  async queryNoteGraph(
+    pluginId: string,
+    providerId: string,
+    request: PluginNoteGraphQuery,
+  ): Promise<PluginNoteGraphModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.noteGraphs.has(providerId)) {
+      throw new Error(`Plugin note graph ${providerId} is not registered.`);
+    }
+    if (!isPluginNoteGraphQuery(request)) {
+      throw new Error("Invalid note graph query.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      NOTE_GRAPH_OPERATION_TIMEOUT_MS,
+      "note-graph-query-result",
+    );
+    runtime.port.postMessage({
+      type: "query-note-graph",
+      providerId,
+      request,
+      requestId,
+    });
+    return (await result) as PluginNoteGraphModel;
+  }
+
   renderDiagram(
     renderer: PluginDiagramRendererContribution,
     request: PluginDiagramRenderRequest,
@@ -648,6 +721,8 @@ export class PluginWorkerRuntime {
       stagedStructuredViewers: new Map(),
       kanbanBoards: new Map(),
       stagedKanbanBoards: new Map(),
+      noteGraphs: new Map(),
+      stagedNoteGraphs: new Map(),
       diagramRenderers: new Map(),
       stagedDiagramRenderers: new Map(),
       sourceControlProviders: new Map(),
@@ -758,6 +833,10 @@ export class PluginWorkerRuntime {
         runtime.kanbanBoards.set(id, board);
       }
       runtime.stagedKanbanBoards.clear();
+      for (const [id, graph] of runtime.stagedNoteGraphs) {
+        runtime.noteGraphs.set(id, graph);
+      }
+      runtime.stagedNoteGraphs.clear();
       for (const [id, renderer] of runtime.stagedDiagramRenderers) {
         runtime.diagramRenderers.set(id, renderer);
       }
@@ -779,6 +858,7 @@ export class PluginWorkerRuntime {
       this.publishEmojiPickers();
       this.publishStructuredViewers();
       this.publishKanbanBoards();
+      this.publishNoteGraphs();
       this.publishDiagramRenderers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
@@ -1037,6 +1117,45 @@ export class PluginWorkerRuntime {
         runtime.stagedKanbanBoards.delete(message.id);
         this.publishKanbanBoards();
         return;
+      case "register-note-graph": {
+        const registration = {
+          id: message.id,
+          title: message.title,
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("note-graph") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginNoteGraphRegistration(registration) ||
+          runtime.noteGraphs.size + runtime.stagedNoteGraphs.size > 0 ||
+          this.noteGraphProviderIdRegistered(message.id)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized note graph registration.`,
+            ),
+          );
+          return;
+        }
+        const contribution: PluginNoteGraphContribution = {
+          pluginId,
+          ...registration,
+        };
+        const graphs = runtime.activated
+          ? runtime.noteGraphs
+          : runtime.stagedNoteGraphs;
+        graphs.set(message.id, contribution);
+        if (runtime.activated) {
+          this.publishNoteGraphs();
+        }
+        return;
+      }
+      case "unregister-note-graph":
+        runtime.noteGraphs.delete(message.id);
+        runtime.stagedNoteGraphs.delete(message.id);
+        this.publishNoteGraphs();
+        return;
       case "register-diagram-renderer": {
         const registration = {
           id: message.id,
@@ -1234,7 +1353,9 @@ export class PluginWorkerRuntime {
       case "source-control-action-result":
       case "structured-view-result":
       case "kanban-board-result":
-      case "kanban-edit-result": {
+      case "kanban-edit-result":
+      case "note-graph-index-result":
+      case "note-graph-query-result": {
         if (
           !this.settle(
             runtime,
@@ -1247,6 +1368,8 @@ export class PluginWorkerRuntime {
                 ? message.model
                 : message.type === "kanban-edit-result"
                   ? message.result
+                  : message.type === "note-graph-query-result"
+                    ? message.model
               : undefined,
           )
         ) {
@@ -1437,6 +1560,15 @@ export class PluginWorkerRuntime {
     return false;
   }
 
+  private noteGraphProviderIdRegistered(id: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.noteGraphs.has(id) || runtime.stagedNoteGraphs.has(id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private kanbanFileSuffixRegistered(suffix: string): boolean {
     for (const runtime of this.runtimes.values()) {
       for (const board of [
@@ -1489,6 +1621,7 @@ export class PluginWorkerRuntime {
     this.publishEmojiPickers();
     this.publishStructuredViewers();
     this.publishKanbanBoards();
+    this.publishNoteGraphs();
     this.publishDiagramRenderers();
   }
 
@@ -1514,6 +1647,7 @@ export class PluginWorkerRuntime {
     this.publishEmojiPickers();
     this.publishStructuredViewers();
     this.publishKanbanBoards();
+    this.publishNoteGraphs();
     this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
@@ -1581,6 +1715,14 @@ export class PluginWorkerRuntime {
     this.onKanbanBoardsChanged(
       [...this.runtimes.values()].flatMap((runtime) =>
         runtime.phase === "active" ? [...runtime.kanbanBoards.values()] : [],
+      ),
+    );
+  }
+
+  private publishNoteGraphs(): void {
+    this.onNoteGraphsChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active" ? [...runtime.noteGraphs.values()] : [],
       ),
     );
   }

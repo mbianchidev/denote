@@ -445,6 +445,27 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   keyboard-named source, copy, and export controls. Tab close, vault switch or
   lock, plugin disable/update/removal/crash, and teardown clear every derived
   render and restore ordinary fenced code without changing Markdown.
+- The independently installable **Note graph** plugin is disabled by default
+  and requests only `note-graph`. Its isolated worker incrementally indexes
+  standard inline and reference Markdown links from bounded local note
+  snapshots. It receives no absolute vault path, editor object, network
+  capability, general workspace read/write access, or encryption key.
+- A host-rendered activity-rail view switches between a global vault graph and
+  an undirected local neighborhood for the active note. Folder, tag, orphan
+  status, and one-to-three connection-depth filters update the model without
+  changing Markdown. Selecting a visual node or its list row opens that note
+  through Denote's ordinary file-navigation flow.
+- The graph uses a bounded deterministic constellation plus an equivalent
+  searchable keyboard list with one roving tab stop, Arrow/Home/End movement,
+  visible focus, and Enter activation. Input is capped at 10,000 UTF-8 Markdown
+  notes, 1 MiB per note, and 16 MiB total; output is capped at 500 nodes and
+  2,000 edges. Changed notes are reparsed individually, path-set changes
+  re-resolve existing targets without reparsing unchanged source, and omitted
+  input or output is reported.
+- Graph source, parsed links, filters, layout, and derived models remain local
+  and in memory. Locking or switching a vault, disabling/updating/removing the
+  plugin, a worker crash, and application teardown release them. Disabling or
+  removing the plugin leaves every note byte unchanged.
 - Development builds use a separate application identity and can explicitly
   load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
   untrusted, pass the ordinary package/runtime safety checks, and are

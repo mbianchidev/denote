@@ -88,12 +88,14 @@ import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
 import { StructuredDataViewer } from "./components/StructuredDataViewer";
 import { KanbanBoardEditor } from "./components/KanbanBoardEditor";
+import { NoteGraphPanel } from "./components/NoteGraphPanel";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
 import { readEmojiPreferences } from "./plugins/emojiPickers";
 import { structuredViewerForPath } from "./plugins/structuredViewers";
 import { kanbanBoardForPath } from "./plugins/kanbanBoards";
+import { createNoteGraphSnapshot } from "./plugins/noteGraphs";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
@@ -326,6 +328,7 @@ import type {
 import type {
   EditorSearchNavigation,
   EditorTab,
+  DocumentBatch,
   FileNode,
   GitignoreStatusUpdate,
   HeadingItem,
@@ -800,9 +803,14 @@ function App() {
       pluginId: string;
       providerId: string;
     } | null>(null);
+  const [activeNoteGraph, setActiveNoteGraph] = useState<{
+    pluginId: string;
+    providerId: string;
+  } | null>(null);
   const showSidebarView = useCallback((view: SidebarView) => {
     setActiveSourceControlProvider(null);
     setActivePluginSidebar(null);
+    setActiveNoteGraph(null);
     setSidebarView(view);
   }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -821,6 +829,8 @@ function App() {
   );
   const [searchQueryFocusRequest, setSearchQueryFocusRequest] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchDocumentBatch, setSearchDocumentBatch] =
+    useState<DocumentBatch | null>(null);
   const [searchNavigation, setSearchNavigation] = useState<
     (EditorSearchNavigation & { path: string }) | null
   >(null);
@@ -1603,6 +1613,39 @@ function App() {
       pluginController.plugins,
     ],
   );
+  const noteGraphs = useMemo(
+    () =>
+      pluginController.noteGraphs.filter(
+        (graph) =>
+          !pluginController.busyPluginIds.has(graph.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.catalog.manifest.id === graph.pluginId && plugin.enabled,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.noteGraphs,
+      pluginController.plugins,
+    ],
+  );
+  const noteGraphSnapshot = useMemo(
+    () =>
+      workspace && noteGraphs.length > 0 && activeNoteGraph
+        ? createNoteGraphSnapshot(
+            workspace.vaultPath,
+            searchDocumentBatch,
+            activePath,
+          )
+        : null,
+    [
+      activeNoteGraph,
+      activePath,
+      noteGraphs.length,
+      searchDocumentBatch,
+      workspace?.vaultPath,
+    ],
+  );
   const diagramRenderers = useMemo(
     () =>
       pluginController.diagramRenderers.filter(
@@ -2053,6 +2096,7 @@ function App() {
         }
         searchIndex.current = nextIndex;
         searchIndexReady.current = true;
+        setSearchDocumentBatch(batch);
         const searchRequest = searchRequestRef.current;
         const results = await nextIndex.query(searchRequest);
         if (
@@ -2146,6 +2190,7 @@ function App() {
       queryRequest.current += 1;
       searchIndex.current = new VaultSearchIndex();
       searchIndexReady.current = false;
+      setSearchDocumentBatch(null);
       setSearchResults([]);
       setSearchNavigation(null);
       if (resetTabs || vaultLocked) {
@@ -8738,6 +8783,12 @@ function App() {
         provider.pluginId === activeSourceControlProvider?.pluginId &&
         provider.id === activeSourceControlProvider.providerId,
     ) ?? null;
+  const activeNoteGraphContribution =
+    noteGraphs.find(
+      (graph) =>
+        graph.pluginId === activeNoteGraph?.pluginId &&
+        graph.id === activeNoteGraph.providerId,
+    ) ?? null;
   const activeSourceControlAction = useCallback(
     (
       action: PluginSourceControlAction,
@@ -8781,9 +8832,19 @@ function App() {
     if (activeSourceControlProvider && !activeSourceControlContribution) {
       setActiveSourceControlProvider(null);
       setActivePluginSidebar(null);
+      setActiveNoteGraph(null);
       setSidebarView("files");
     }
   }, [activeSourceControlContribution, activeSourceControlProvider]);
+
+  useEffect(() => {
+    if (activeNoteGraph && !activeNoteGraphContribution) {
+      setActiveNoteGraph(null);
+      setActiveSourceControlProvider(null);
+      setActivePluginSidebar(null);
+      setSidebarView("files");
+    }
+  }, [activeNoteGraph, activeNoteGraphContribution]);
 
   if (!workspace) {
     return (
@@ -9213,22 +9274,31 @@ function App() {
         activeView={sidebarView}
         activePluginView={activePluginSidebarView?.id ?? null}
         activeSourceControlProvider={activeSourceControlProvider}
+        activeNoteGraph={activeNoteGraph}
         pluginViews={pluginController.sidebarViews}
         sourceControlProviders={pluginController.sourceControlProviders}
+        noteGraphs={noteGraphs}
         theme={theme}
         onViewChange={(view) => {
           showSidebarView(view);
         }}
         onPluginViewChange={(viewId) => {
           setActiveSourceControlProvider(null);
+          setActiveNoteGraph(null);
           setActivePluginSidebar(viewId);
         }}
         onSourceControlProviderChange={(pluginId, providerId) => {
           setActivePluginSidebar(null);
+          setActiveNoteGraph(null);
           setActiveSourceControlProvider({ pluginId, providerId });
           void runSourceControlAction(pluginId, providerId, {
             id: "refresh",
           });
+        }}
+        onNoteGraphChange={(pluginId, providerId) => {
+          setActivePluginSidebar(null);
+          setActiveSourceControlProvider(null);
+          setActiveNoteGraph({ pluginId, providerId });
         }}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={toggleTheme}
@@ -9264,7 +9334,18 @@ function App() {
             </button>
           </div>
         </header>
-        {activeSourceControlContribution ? (
+        {activeNoteGraphContribution ? (
+          <NoteGraphPanel
+            key={`${activeNoteGraphContribution.pluginId}:${activeNoteGraphContribution.id}`}
+            provider={activeNoteGraphContribution}
+            snapshot={noteGraphSnapshot}
+            activePath={activePath}
+            indexNoteGraph={pluginController.indexNoteGraph}
+            queryNoteGraph={pluginController.queryNoteGraph}
+            onOpenFile={(path) => void openFile(path)}
+            onError={showError}
+          />
+        ) : activeSourceControlContribution ? (
           <SourceControlPanel
             key={`${activeSourceControlContribution.pluginId}:${activeSourceControlContribution.id}`}
             title={activeSourceControlContribution.title}

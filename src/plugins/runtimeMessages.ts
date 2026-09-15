@@ -6,6 +6,9 @@ import type {
   PluginKanbanBoardRequest,
   PluginKanbanEditRequest,
   PluginKanbanEditResult,
+  PluginNoteGraphIndexRequest,
+  PluginNoteGraphModel,
+  PluginNoteGraphQuery,
   PluginNoteEvent,
   PluginProjectContext,
   PluginProjectContextChangeEvent,
@@ -23,6 +26,10 @@ import {
   isPluginKanbanEditRequest,
   isPluginKanbanEditResult,
   isPluginKanbanRegistration,
+  isPluginNoteGraphIndexRequest,
+  isPluginNoteGraphModel,
+  isPluginNoteGraphQuery,
+  isPluginNoteGraphRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -86,6 +93,12 @@ export interface PluginKanbanBoardContribution {
   defaultFileName: string;
 }
 
+export interface PluginNoteGraphContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+}
+
 export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
   pluginId: string;
 }
@@ -127,6 +140,18 @@ export type PluginHostMessage =
       type: "edit-kanban-board";
       providerId: string;
       request: PluginKanbanEditRequest;
+      requestId: string;
+    }
+  | {
+      type: "index-note-graph";
+      providerId: string;
+      request: PluginNoteGraphIndexRequest;
+      requestId: string;
+    }
+  | {
+      type: "query-note-graph";
+      providerId: string;
+      request: PluginNoteGraphQuery;
       requestId: string;
     }
   | { type: "note-event"; event: PluginNoteEvent }
@@ -179,6 +204,12 @@ export type PluginRuntimeMessage =
       defaultFileName: string;
     }
   | { type: "unregister-kanban-board"; id: string }
+  | {
+      type: "register-note-graph";
+      id: string;
+      title: string;
+    }
+  | { type: "unregister-note-graph"; id: string }
   | {
       type: "register-diagram-renderer";
       id: string;
@@ -242,6 +273,17 @@ export type PluginRuntimeMessage =
       error?: string;
     }
   | {
+      type: "note-graph-index-result";
+      requestId: string;
+      error?: string;
+    }
+  | {
+      type: "note-graph-query-result";
+      requestId: string;
+      model?: PluginNoteGraphModel;
+      error?: string;
+    }
+  | {
       type: "log";
       level: "debug" | "info" | "warn" | "error";
       message: string;
@@ -264,6 +306,7 @@ export function isPluginRuntimeMessage(
     case "deactivated":
     case "command-result":
     case "source-control-action-result":
+    case "note-graph-index-result":
       return (
         typeof value.requestId === "string" &&
         (value.error === undefined || typeof value.error === "string")
@@ -291,6 +334,13 @@ export function isPluginRuntimeMessage(
         ((value.error !== undefined && value.result === undefined) ||
           (value.error === undefined &&
             isPluginKanbanEditResult(value.result)))
+      );
+    case "note-graph-query-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.model === undefined) ||
+          (value.error === undefined && isPluginNoteGraphModel(value.model)))
       );
     case "register-command":
       return typeof value.id === "string" && typeof value.title === "string";
@@ -328,6 +378,10 @@ export function isPluginRuntimeMessage(
     case "register-kanban-board":
       return isPluginKanbanRegistration(value);
     case "unregister-kanban-board":
+      return typeof value.id === "string";
+    case "register-note-graph":
+      return isPluginNoteGraphRegistration(value);
+    case "unregister-note-graph":
       return typeof value.id === "string";
     case "register-diagram-renderer":
       return isPluginDiagramRendererRegistration(value);
@@ -411,6 +465,18 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.providerId === "string" &&
         typeof value.requestId === "string" &&
         isPluginKanbanEditRequest(value.request)
+      );
+    case "index-note-graph":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginNoteGraphIndexRequest(value.request)
+      );
+    case "query-note-graph":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginNoteGraphQuery(value.request)
       );
     case "note-event":
       return (

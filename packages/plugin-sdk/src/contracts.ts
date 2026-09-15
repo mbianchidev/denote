@@ -23,6 +23,7 @@ export const PLUGIN_CAPABILITIES = [
   "emoji-picker",
   "structured-viewer",
   "kanban-board",
+  "note-graph",
   "diagram-renderer",
   "note-events",
   "project-context",
@@ -448,6 +449,74 @@ export interface PluginKanbanBoardProvider {
 
 export interface PluginKanbanBoardCapability {
   register: (provider: PluginKanbanBoardProvider) => PluginDisposable;
+}
+
+export interface PluginNoteGraphDocument {
+  path: string;
+  title: string;
+  source: string;
+  tags: string[];
+}
+
+export interface PluginNoteGraphIndexRequest {
+  mode: "replace" | "update";
+  documents: PluginNoteGraphDocument[];
+  removedPaths: string[];
+  skippedCount: number;
+  truncated: boolean;
+}
+
+export type PluginNoteGraphScope = "global" | "local";
+export type PluginNoteGraphOrphanFilter = "all" | "only" | "connected";
+export type PluginNoteGraphDepth = 1 | 2 | 3;
+
+export interface PluginNoteGraphQuery {
+  scope: PluginNoteGraphScope;
+  activePath: string | null;
+  folder: string | null;
+  tag: string | null;
+  orphanFilter: PluginNoteGraphOrphanFilter;
+  depth: PluginNoteGraphDepth;
+}
+
+export interface PluginNoteGraphNode {
+  id: string;
+  path: string;
+  title: string;
+  tags: string[];
+  incoming: number;
+  outgoing: number;
+  orphan: boolean;
+  distance: number | null;
+}
+
+export interface PluginNoteGraphEdge {
+  sourceId: string;
+  targetId: string;
+}
+
+export interface PluginNoteGraphModel {
+  nodes: PluginNoteGraphNode[];
+  edges: PluginNoteGraphEdge[];
+  totalNotes: number;
+  matchingNotes: number;
+  totalEdges: number;
+  activeNodeId: string | null;
+  truncated: boolean;
+  notices: string[];
+}
+
+export interface PluginNoteGraphProvider {
+  id: string;
+  title: string;
+  index: (request: PluginNoteGraphIndexRequest) => void | Promise<void>;
+  query: (
+    request: PluginNoteGraphQuery,
+  ) => PluginNoteGraphModel | Promise<PluginNoteGraphModel>;
+}
+
+export interface PluginNoteGraphCapability {
+  register: (provider: PluginNoteGraphProvider) => PluginDisposable;
 }
 
 export type PluginDiagramTheme = "light" | "dark" | "high-contrast";
@@ -1667,6 +1736,7 @@ export interface PluginCapabilities {
   emojiPicker?: PluginEmojiPickerCapability;
   structuredViewer?: PluginStructuredViewerCapability;
   kanbanBoard?: PluginKanbanBoardCapability;
+  noteGraph?: PluginNoteGraphCapability;
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;

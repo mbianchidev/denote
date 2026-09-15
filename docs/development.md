@@ -464,6 +464,46 @@ dependency manifests, and lockfile first; pin that full commit with
 `npm run pin:plugin -- denote.kanban --ref "$(git rev-parse HEAD)" --release
 <Denote-tag>`, then commit only its catalog and ledger metadata.
 
+### Note graph development
+
+Use `npm run dev:plugin -- denote.note-graph` and load the ignored development
+archive from **Settings → Plugins**. The plugin requests only `note-graph`.
+Markdown link parsing, the transient note map, incremental update handling,
+target resolution, graph traversal, filtering, and ranking stay in
+`plugins/note-graph/`. `src/components/NoteGraphPanel.tsx`, bounded snapshot
+construction, activity-rail integration, file opening, focus, and the runtime
+protocol remain generic host-owned API-v1 surfaces.
+
+Run focused coverage with:
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/noteGraph.test.ts \
+  src/plugins/noteGraphs.test.ts \
+  src/plugins/runtimeMessages.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/ActivityRail.test.tsx \
+  src/components/NoteGraphPanel.test.tsx \
+  src/App.test.tsx \
+  plugins/note-graph/tests
+```
+
+Use only synthetic Markdown. Cover inline and full/collapsed/shortcut reference
+links, legacy destinations with bare spaces, fragments, percent encoding,
+root-relative and extensionless paths, ambiguous case, external schemes,
+malformed source, path additions/removals, changed-note-only reparsing,
+incoming/outgoing counts, orphans, global/local depth, every filter, node/edge
+limits, stale requests, lock/unlock, disable/re-enable, visual selection, the
+roving keyboard list, announcements, and host-owned navigation.
+
+Stage the source-only archive with
+`npm run package:plugin -- denote.note-graph`. Commit source, SDK, host, tests,
+docs, dependency manifests, and lockfile first; pin that full commit with
+`npm run pin:plugin -- denote.note-graph --ref "$(git rev-parse HEAD)"
+--release <Denote-tag>`, then commit only its catalog and release-ledger
+metadata. Never commit the generated `.tgz`.
+
 ## Build a desktop bundle
 
 ```bash

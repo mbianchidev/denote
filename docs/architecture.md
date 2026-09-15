@@ -320,8 +320,8 @@ not invoke any workspace mutation. Plugin API version 1 intentionally exposes
 command registration, static sidebar views, note events, plugin-scoped
 state/settings, optional secure storage, status items, literal source-editor
 decorations, typed source-control view models, typed automatic local commit
-schedules, bounded Kanban board models and open-tab edits, and explicit
-user-action services.
+schedules, bounded Kanban board models and open-tab edits, bounded note-graph
+indexes and queries, and explicit user-action services.
 Source-control providers contribute host-rendered repository, resource, branch,
 remote, history, diff, conflict, operation, and recovery data; they cannot render
 HTML or execute Git directly. A provider describes an advanced operation as a
@@ -879,6 +879,66 @@ heading or body range; reorder operations splice the original complete marked
 range, preserving unknown Markdown byte-for-byte. Disabling or removing the
 plugin leaves the file unchanged. Locking an encrypted vault stops the worker
 and clears its contribution until unlock.
+
+### Note graphs
+
+The additive API version 1 `note-graph` permission accepts one stateful
+declarative provider per plugin. Its registration contains a namespaced ID,
+title, an `index` callback, and a `query` callback. It contains no React
+component, HTML, CSS, editor object, absolute path, native capability, network
+handle, or write service.
+
+While the graph view is active, the host builds a local graph snapshot from the
+same bounded vault documents used by search. Each document sent to the worker contains only its
+vault-relative path, display title, current saved source, and normalized tags.
+MDX, binary content, PDFs, and non-Markdown files are excluded. Transfer is
+capped at 10,000 documents, 1 MiB per source, and 16 MiB of source in total;
+the active note takes priority when the cap is reached. The request also reports
+skipped or truncated input.
+
+The first request for a provider or workspace is `replace`; later requests are
+`update` deltas containing only changed documents and removed paths. The host
+compares source, title, and tags, then serializes requests through the existing
+worker message queue. A failed delta leaves the previous snapshot current and is
+retried rather than being reported as indexed. Vault changes force replacement.
+
+Queries contain only a global/local scope, optional active vault-relative path,
+optional folder and tag filters, `all` / `only` / `connected` orphan selection,
+and local depth 1–3. The returned model is capped at 500 unique note nodes and
+2,000 unique directed edges. Every edge must reference returned nodes; paths and
+IDs must be unique and display-safe; counts, distances, orphan state, active
+identity, notices, and truncation are validated independently in both worker and
+host. Invalid registration, request, or output terminates the runtime.
+
+The renderer owns the activity-rail entry, labelled filters, Global/Local and
+graph/list controls, deterministic radial layout, zoom, keyboard list,
+announcements, and host file opening. The SVG plot is presentation-only and
+hidden from assistive technology; the searchable list exposes the same notes
+with one roving Tab stop, Arrow/Home/End movement, and native button activation.
+No graph model can name an absolute path or navigate outside the current vault.
+
+`denote.note-graph` keeps its parsed note map only in the isolated worker.
+Replace parses every supplied note; update reparses only supplied changes and
+removes named paths. Inline links plus full, collapsed, and shortcut reference
+links use first-definition-wins semantics. Relative and root-relative targets
+are percent-decoded and resolved against the current indexed path set with exact
+case first and an unambiguous case-fold fallback. External schemes, images,
+fragment-only targets, vault escapes, malformed encoding, and self-links are
+ignored. Existing raw targets are resolved at query time, so adding or removing
+a note can connect or disconnect unchanged source without reparsing it.
+
+Global queries rank bounded output by connection count. Local queries use an
+undirected breadth-first neighborhood of the active note and rank by distance
+before connection count. Incoming and outgoing counts and orphan status are
+computed across the complete bounded index before presentation filters and
+output limits are applied.
+
+Note-graph workers are stopped while no workspace content is available or an
+encrypted vault is locked, then restarted from the verified installed package
+after unlock. Closing the graph view releases its host model; vault switch or
+lock, plugin disable/update/removal/crash, and application teardown release the
+worker index and every derived layout. The capability exposes no edit operation,
+so enabling, using, disabling, or removing it cannot change Markdown.
 
 ### Sandboxed diagram renderers
 

@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.note-graph",
+  "name": "Note graph",
+  "version": "0.1.0",
+  "description": "Explore bounded local connections between Markdown notes without changing vault content.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "knowledge-management",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.4.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "note-graph"
+    }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

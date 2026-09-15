@@ -15,6 +15,7 @@ import {
   type PluginCatalogEntry,
   type PluginManifest,
 } from "@denote/plugin-sdk";
+import { containsPluginRuntimeImport } from "./plugin-runtime-imports";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "plugins");
@@ -172,7 +173,7 @@ function validatePlugin(pluginDirectory: string): void {
           : []),
       ]) {
         const output = readFileSync(join(pluginDirectory, entrypoint), "utf8");
-        if (/\bimport\s*\(|\bimportScripts\s*\(/.test(output)) {
+        if (containsPluginRuntimeImport(output, entrypoint)) {
           errors.push(
             `${label} output ${entrypoint} contains a runtime import and is not self-contained.`,
           );

@@ -3157,6 +3157,378 @@ button.tag-chip:active,
   white-space: pre-wrap;
 }
 
+.note-graph-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.note-graph-panel__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.note-graph-panel__busy {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.note-graph-panel__switches {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.note-graph-panel__segment {
+  display: inline-flex;
+  min-width: 0;
+  padding: 2px;
+  background: var(--app-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.note-graph-panel__segment button {
+  display: inline-flex;
+  min-width: 30px;
+  height: 27px;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 9px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.note-graph-panel__segment button[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.note-graph-panel__filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.note-graph-panel__filters label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.note-graph-panel__filters select {
+  width: 100%;
+  min-width: 0;
+  height: 30px;
+  padding: 0 7px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.note-graph-panel__filters select:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.note-graph-panel__status,
+.note-graph-panel__notices {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.note-graph-panel__notices {
+  display: grid;
+  gap: 4px;
+  padding-left: 18px;
+}
+
+.note-graph-plot {
+  position: relative;
+  min-height: 310px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 48%, var(--accent-muted), transparent 42%),
+    var(--editor-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.note-graph-plot__toolbar {
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  color: var(--text-tertiary);
+  background: var(--sidebar-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.note-graph-plot__toolbar button {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  padding: 0;
+  place-items: center;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.note-graph-plot__toolbar button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+}
+
+.note-graph-plot__toolbar span {
+  min-width: 34px;
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.note-graph-plot__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 310px;
+}
+
+.note-graph-plot__edge {
+  stroke: var(--text-tertiary);
+  stroke-width: 1.2;
+  opacity: 0.85;
+  vector-effect: non-scaling-stroke;
+}
+
+.note-graph-plot__node {
+  cursor: pointer;
+}
+
+.note-graph-plot__node circle {
+  fill: var(--text-tertiary);
+  stroke: var(--editor-bg);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.note-graph-plot__node text {
+  fill: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 560;
+  paint-order: stroke;
+  stroke: var(--editor-bg);
+  stroke-linejoin: round;
+  stroke-width: 3px;
+}
+
+.note-graph-plot__node[data-selected="true"] circle {
+  fill: var(--accent-strong);
+  stroke: var(--accent-contrast);
+}
+
+.note-graph-plot__node[data-active="true"] circle {
+  fill: var(--accent);
+  stroke: var(--focus);
+  stroke-width: 3;
+}
+
+.note-graph-plot__node[data-selected="true"] text,
+.note-graph-plot__node[data-active="true"] text {
+  fill: var(--text-primary);
+  font-weight: 700;
+}
+
+.note-graph-panel__selection {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: 9px 10px;
+  text-align: left;
+  background: var(--panel-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.note-graph-panel__selection strong,
+.note-graph-panel__selection span,
+.note-graph-panel__selection small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-graph-panel__selection span,
+.note-graph-panel__selection small {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.note-graph-list {
+  display: flex;
+  min-height: 260px;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.note-graph-list__search {
+  display: flex;
+  height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--text-tertiary);
+  background: var(--app-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+
+.note-graph-list__search:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.note-graph-list__search input {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.note-graph-list ul {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.note-graph-list li button {
+  display: flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.note-graph-list li button:hover,
+.note-graph-list li button[data-selected="true"] {
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
+.note-graph-list li button[aria-current="page"] {
+  border-left: 2px solid var(--accent);
+}
+
+.note-graph-list li button > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.note-graph-list strong,
+.note-graph-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-graph-list strong {
+  font-size: 12px;
+}
+
+.note-graph-list small {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.note-graph-list em {
+  flex: none;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+}
+
+.note-graph-panel__empty {
+  display: grid;
+  min-height: 180px;
+  margin: 0;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (forced-colors: active) {
+  .note-graph-plot {
+    background: Canvas;
+  }
+
+  .note-graph-plot__node circle,
+  .note-graph-plot__edge {
+    fill: CanvasText;
+    stroke: CanvasText;
+  }
+
+  .note-graph-plot__node text {
+    fill: CanvasText;
+    stroke: Canvas;
+  }
+
+  .note-graph-plot__node[data-active="true"] circle,
+  .note-graph-plot__node[data-selected="true"] circle {
+    fill: Highlight;
+    stroke: HighlightText;
+  }
+}
+
 .source-control__content {
   min-height: 0;
   flex: 1;

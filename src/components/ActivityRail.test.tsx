@@ -16,12 +16,15 @@ describe("ActivityRail", () => {
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
+        activeNoteGraph={null}
         pluginViews={[]}
         sourceControlProviders={[]}
+        noteGraphs={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={vi.fn()}
         onAbout={onAbout}
         onThemeToggle={vi.fn()}
       />,
@@ -39,12 +42,15 @@ describe("ActivityRail", () => {
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
+        activeNoteGraph={null}
         pluginViews={[{ id: "denote.reference.status", title: "Plugin reference" }]}
         sourceControlProviders={[]}
+        noteGraphs={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={onPluginViewChange}
         onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -70,6 +76,7 @@ describe("ActivityRail", () => {
           pluginId: "denote.alpha",
           providerId: "git",
         }}
+        activeNoteGraph={null}
         pluginViews={[]}
         sourceControlProviders={[
           {
@@ -85,10 +92,12 @@ describe("ActivityRail", () => {
             model: sourceControlModel(),
           },
         ]}
+        noteGraphs={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={onSourceControlProviderChange}
+        onNoteGraphChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -115,12 +124,53 @@ describe("ActivityRail", () => {
     );
   });
 
+  it("opens a registered note graph with a distinct rail control", async () => {
+    const user = userEvent.setup();
+    const onNoteGraphChange = vi.fn();
+    render(
+      <ActivityRail
+        activeView="files"
+        activePluginView={null}
+        activeSourceControlProvider={null}
+        activeNoteGraph={{
+          pluginId: "denote.note-graph",
+          providerId: "denote.note-graph.graph",
+        }}
+        pluginViews={[]}
+        sourceControlProviders={[]}
+        noteGraphs={[
+          {
+            pluginId: "denote.note-graph",
+            id: "denote.note-graph.graph",
+            title: "Note graph",
+          },
+        ]}
+        theme="dark"
+        onViewChange={vi.fn()}
+        onPluginViewChange={vi.fn()}
+        onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={onNoteGraphChange}
+        onAbout={vi.fn()}
+        onThemeToggle={vi.fn()}
+      />,
+    );
+
+    const graph = screen.getByRole("button", { name: "Note graph" });
+    expect(graph).toHaveAttribute("aria-pressed", "true");
+    await user.click(graph);
+    expect(onNoteGraphChange).toHaveBeenCalledWith(
+      "denote.note-graph",
+      "denote.note-graph.graph",
+    );
+  });
+
   it("disambiguates providers with duplicate titles from the same plugin", () => {
     render(
       <ActivityRail
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
+        activeNoteGraph={null}
         pluginViews={[]}
         sourceControlProviders={[
           {
@@ -136,10 +186,12 @@ describe("ActivityRail", () => {
             model: sourceControlModel(),
           },
         ]}
+        noteGraphs={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -164,15 +216,18 @@ describe("ActivityRail", () => {
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
+        activeNoteGraph={null}
         pluginViews={[
           { id: "denote.alpha.view", title: "Alpha" },
           { id: "denote.beta.view", title: "Beta" },
         ]}
         sourceControlProviders={[]}
+        noteGraphs={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,

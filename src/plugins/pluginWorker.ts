@@ -14,6 +14,8 @@ import type {
   PluginKanbanEditResult,
   PluginLogger,
   PluginNetworkResponse,
+  PluginNoteGraphModel,
+  PluginNoteGraphProvider,
   PluginNoteEvent,
   PluginProcessResult,
   PluginProjectContext,
@@ -44,6 +46,10 @@ import {
   isPluginKanbanBoardModel,
   isPluginKanbanEditResult,
   isPluginKanbanRegistration,
+  isPluginNoteGraphIndexRequest,
+  isPluginNoteGraphModel,
+  isPluginNoteGraphQuery,
+  isPluginNoteGraphRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -77,6 +83,14 @@ const kanbanEditHandlers = new Map<
   string,
   PluginKanbanBoardProvider["edit"]
 >();
+const noteGraphIndexHandlers = new Map<
+  string,
+  PluginNoteGraphProvider["index"]
+>();
+const noteGraphQueryHandlers = new Map<
+  string,
+  PluginNoteGraphProvider["query"]
+>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
@@ -84,6 +98,7 @@ const automaticCommitSchedules = new Set<string>();
 const emojiPickers = new Set<string>();
 const structuredViewers = new Set<string>();
 const kanbanBoards = new Set<string>();
+const noteGraphs = new Set<string>();
 const diagramRenderers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
@@ -431,6 +446,41 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("note-graph")) {
+    capabilities.noteGraph = {
+      register(provider) {
+        const registration = {
+          id: provider?.id,
+          title: provider?.title,
+        };
+        if (
+          cleaned ||
+          !isPluginNoteGraphRegistration(registration) ||
+          typeof provider.index !== "function" ||
+          typeof provider.query !== "function" ||
+          noteGraphs.size > 0
+        ) {
+          throw new Error("Invalid or duplicate note graph registration.");
+        }
+        validateContributionId(provider.id, "note graph");
+        noteGraphs.add(provider.id);
+        noteGraphIndexHandlers.set(provider.id, provider.index);
+        noteGraphQueryHandlers.set(provider.id, provider.query);
+        send({ type: "register-note-graph", ...registration });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          noteGraphs.delete(provider.id);
+          noteGraphIndexHandlers.delete(provider.id);
+          noteGraphQueryHandlers.delete(provider.id);
+          send({ type: "unregister-note-graph", id: provider.id });
+        });
+      },
+    };
+  }
   if (permissions.has("diagram-renderer")) {
     capabilities.diagramRenderer = {
       register(renderer: PluginDiagramRenderer) {
@@ -715,10 +765,13 @@ async function cleanup(): Promise<unknown[]> {
   structuredViewerHandlers.clear();
   kanbanParseHandlers.clear();
   kanbanEditHandlers.clear();
+  noteGraphIndexHandlers.clear();
+  noteGraphQueryHandlers.clear();
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
   kanbanBoards.clear();
+  noteGraphs.clear();
   diagramRenderers.clear();
   return failures;
 }
@@ -885,6 +938,56 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     } catch (error) {
       send({
         type: "kanban-edit-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "index-note-graph") {
+    try {
+      const index = noteGraphIndexHandlers.get(message.providerId);
+      if (!index) {
+        throw new Error("Note graph provider is no longer registered.");
+      }
+      if (!isPluginNoteGraphIndexRequest(message.request)) {
+        throw new Error("Note graph provider received an invalid index request.");
+      }
+      await index(message.request);
+      send({
+        type: "note-graph-index-result",
+        requestId: message.requestId,
+      });
+    } catch (error) {
+      send({
+        type: "note-graph-index-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "query-note-graph") {
+    try {
+      const query = noteGraphQueryHandlers.get(message.providerId);
+      if (!query) {
+        throw new Error("Note graph provider is no longer registered.");
+      }
+      if (!isPluginNoteGraphQuery(message.request)) {
+        throw new Error("Note graph provider received an invalid query.");
+      }
+      const model: PluginNoteGraphModel = await query(message.request);
+      if (!isPluginNoteGraphModel(model)) {
+        throw new Error("Note graph provider returned an invalid model.");
+      }
+      send({
+        type: "note-graph-query-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "note-graph-query-result",
         requestId: message.requestId,
         error: errorMessage(error),
       });

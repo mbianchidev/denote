@@ -7,4 +7,5 @@ export * from "./validation";
 export * from "./emoji";
 export * from "./structuredViewer";
 export * from "./kanban";
+export * from "./noteGraph";
 export * from "./diagramRenderer";
