@@ -13,6 +13,8 @@ describe("Note graph guide", () => {
     expect(guide).toContain("at most 256 KiB from any one note");
     expect(guide).toContain("at most 256 documents and 512 KiB");
     expect(guide).toContain("at most 512 removed paths");
+    expect(guide).toContain("prioritizes the active note");
+    expect(guide).not.toContain("active and open notes");
     expect(guide).toContain("first 100,000 local link occurrences");
     expect(guide).toContain("at most 500 nodes and 2,000 edges");
     expect(guide).not.toContain("1 MiB of source per document");

@@ -18,8 +18,8 @@ The host builds a snapshot of at most 5,000 notes and 8 MiB of Markdown source,
 with at most 256 KiB from any one note. Denote sends that snapshot to the worker
 as ordered index requests containing at most 256 documents and 512 KiB of source
 each, with at most 512 removed paths in one request. If a vault exceeds a host
-bound, Denote prioritizes the active and open notes and reports that the graph
-is incomplete.
+bound, Denote prioritizes the active note and reports that the graph is
+incomplete.
 
 ## Usage
 
