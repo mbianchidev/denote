@@ -246,6 +246,8 @@ export function usePlugins(
   contentAvailable = true,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
+  const pluginsRef = useRef(plugins);
+  pluginsRef.current = plugins;
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
   const [commands, setCommands] = useState<PluginCommandContribution[]>([]);
   const [sidebarViews, setSidebarViews] = useState<
@@ -430,29 +432,50 @@ export function usePlugins(
         if (
           cancelled ||
           !plugin.enabled ||
-          !requiresContent(plugin)
+          !requiresContent(plugin) ||
+          busyPluginIds.has(plugin.catalog.manifest.id) ||
+          pluginOperationsRef.current.has(plugin.catalog.manifest.id)
         ) {
           continue;
         }
         const pluginId = plugin.catalog.manifest.id;
         try {
+          const noteGraph = plugin.approvedPermissions.some(
+            (permission) => permission.capability === "note-graph",
+          );
           const resetForWorkspace =
-            workspaceChanged &&
-            plugin.approvedPermissions.some(
-              (permission) => permission.capability === "note-graph",
-            );
-          if (resetForWorkspace && runtime.isRunning(pluginId)) {
-            await runtime.stop(pluginId);
+            workspaceChanged && noteGraph;
+          if (
+            noteGraph &&
+            runtime.isRunning(pluginId) &&
+            (resetForWorkspace || !contentAvailable)
+          ) {
+            await runtime.forceStop(pluginId);
           }
           if (
             cancelled ||
-            workspaceIdentityRef.current !== workspaceIdentity
+            workspaceIdentityRef.current !== workspaceIdentity ||
+            contentAvailableRef.current !== contentAvailable ||
+            pluginOperationsRef.current.has(pluginId)
           ) {
             return;
           }
           if (contentAvailable) {
             if (!runtime.isRunning(pluginId) && startsAllowedRef.current) {
-              await runtime.start(plugin);
+              const currentPlugin = pluginsRef.current.find(
+                (candidate) =>
+                  candidate.catalog.manifest.id === pluginId,
+              );
+              if (
+                !currentPlugin?.enabled ||
+                pluginOperationsRef.current.has(pluginId) ||
+                workspaceIdentityRef.current !== workspaceIdentity ||
+                contentAvailableRef.current !== contentAvailable ||
+                cancelled
+              ) {
+                continue;
+              }
+              await runtime.start(currentPlugin);
             }
           } else if (runtime.isRunning(pluginId)) {
             await runtime.stop(pluginId);
@@ -467,7 +490,13 @@ export function usePlugins(
     return () => {
       cancelled = true;
     };
-  }, [contentAvailable, plugins, reportError, workspaceIdentity]);
+  }, [
+    busyPluginIds,
+    contentAvailable,
+    plugins,
+    reportError,
+    workspaceIdentity,
+  ]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {

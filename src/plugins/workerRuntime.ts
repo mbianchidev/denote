@@ -243,6 +243,15 @@ export class PluginWorkerRuntime {
     }
   }
 
+  async forceStop(pluginId: string): Promise<void> {
+    this.nextGeneration(pluginId);
+    const starting = this.starts.get(pluginId);
+    if (starting) {
+      await starting.operation.catch(() => {});
+    }
+    await this.teardownRuntime(pluginId);
+  }
+
   private async stopRuntime(pluginId: string): Promise<void> {
     this.nextGeneration(pluginId);
     const starting = this.starts.get(pluginId);

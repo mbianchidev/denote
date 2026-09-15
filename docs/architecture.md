@@ -892,9 +892,11 @@ While the graph view is active, the host builds a local graph snapshot from the
 same bounded vault documents used by search. Each document sent to the worker contains only its
 vault-relative path, display title, current saved source, and normalized tags.
 MDX, binary content, PDFs, and non-Markdown files are excluded. Transfer is
-capped at 10,000 documents, 1 MiB per source, and 16 MiB of source in total;
-the active note takes priority when the cap is reached. The request also reports
-skipped or truncated input.
+capped at 5,000 documents, 256 KiB per source, and 8 MiB of source in total;
+the active note takes priority when the cap is reached. Index work is split into
+requests of at most 256 documents and 512 KiB of source so accepted worker
+operations remain below their timeout; removal-only batches carry at most 512
+paths. The request also reports skipped or truncated input.
 
 The first request for a provider or workspace is `replace`; later requests are
 `update` deltas containing only changed documents and removed paths. The host
@@ -931,14 +933,19 @@ Global queries rank bounded output by connection count. Local queries use an
 undirected breadth-first neighborhood of the active note and rank by distance
 before connection count. Incoming and outgoing counts and orphan status are
 computed across the complete bounded index before presentation filters and
-output limits are applied.
+output limits are applied. Resolution is cached between queries and rebuilt only
+after an index change, with at most 100,000 resolved links retained for degree,
+adjacency, and filtering work. Exhausting that analysis budget is explicit.
 
 Note-graph workers are stopped while no workspace content is available or an
 encrypted vault is locked, then restarted from the verified installed package
-after unlock. Closing the graph view releases its host model; vault switch or
-lock, plugin disable/update/removal/crash, and application teardown release the
-worker index and every derived layout. The capability exposes no edit operation,
-so enabling, using, disabling, or removing it cannot change Markdown.
+after unlock. A vault switch or lock withdraws the contribution and
+force-terminates the graph worker instead of queueing deactivation behind an
+index operation; an enabled plugin then starts cleanly for the current
+workspace. Closing the graph view releases its host model; plugin
+disable/update/removal/crash and application teardown release the worker index
+and every derived layout. The capability exposes no edit operation, so enabling,
+using, disabling, or removing it cannot change Markdown.
 
 ### Sandboxed diagram renderers
 

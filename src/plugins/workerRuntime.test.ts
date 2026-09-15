@@ -228,6 +228,7 @@ class FakeWorker extends EventTarget {
     title: string;
   } | null = null;
   static noteGraphModel: PluginNoteGraphModel = noteGraphModel;
+  static completeNoteGraphIndexes = true;
   static sourceControlActionResultType:
     | "source-control-action-result"
     | "command-result" = "source-control-action-result";
@@ -354,7 +355,8 @@ class FakeWorker extends EventTarget {
         });
       } else if (
         data.type === "index-note-graph" &&
-        typeof data.requestId === "string"
+        typeof data.requestId === "string" &&
+        FakeWorker.completeNoteGraphIndexes
       ) {
         port.postMessage({
           type: "note-graph-index-result",
@@ -623,6 +625,7 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.kanbanEditResult = kanbanEditResult;
     FakeWorker.noteGraphOnActivate = null;
     FakeWorker.noteGraphModel = noteGraphModel;
+    FakeWorker.completeNoteGraphIndexes = true;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
@@ -885,6 +888,57 @@ describe("PluginWorkerRuntime", () => {
     );
 
     await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("force stops a note graph without waiting for queued deactivation", async () => {
+    const changed = vi.fn();
+    const registration = {
+      id: "denote.reference.graph",
+      title: "Note graph",
+    };
+    FakeWorker.noteGraphOnActivate = registration;
+    FakeWorker.completeNoteGraphIndexes = false;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+    await runtime.start(pluginWithNoteGraph());
+
+    const indexing = runtime.indexNoteGraph(
+      "denote.reference",
+      registration.id,
+      {
+        mode: "replace",
+        documents: [
+          {
+            path: "Alpha.md",
+            title: "Alpha",
+            source: "# Alpha",
+            tags: [],
+          },
+        ],
+        removedPaths: [],
+        skippedCount: 0,
+        truncated: false,
+      },
+    );
+    const rejected = expect(indexing).rejects.toThrow(/stopped/i);
+    await runtime.forceStop("denote.reference");
+
+    await rejected;
+    expect(FakeWorker.instances[0].terminated).toBe(true);
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 

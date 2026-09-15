@@ -6,9 +6,12 @@ import type {
   PluginNoteGraphQuery,
 } from "./contracts";
 
-export const MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS = 10_000;
-export const MAX_PLUGIN_NOTE_GRAPH_SOURCE_BYTES = 1024 * 1024;
-export const MAX_PLUGIN_NOTE_GRAPH_INDEX_BYTES = 16 * 1024 * 1024;
+export const MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS = 5_000;
+export const MAX_PLUGIN_NOTE_GRAPH_SOURCE_BYTES = 256 * 1024;
+export const MAX_PLUGIN_NOTE_GRAPH_INDEX_BYTES = 512 * 1024;
+export const MAX_PLUGIN_NOTE_GRAPH_INDEX_DOCUMENTS = 256;
+export const MAX_PLUGIN_NOTE_GRAPH_INDEX_REMOVALS = 512;
+export const MAX_PLUGIN_NOTE_GRAPH_TOTAL_SOURCE_BYTES = 8 * 1024 * 1024;
 export const MAX_PLUGIN_NOTE_GRAPH_TAGS_PER_DOCUMENT = 32;
 export const MAX_PLUGIN_NOTE_GRAPH_NODES = 500;
 export const MAX_PLUGIN_NOTE_GRAPH_EDGES = 2_000;
@@ -33,9 +36,9 @@ export function isPluginNoteGraphIndexRequest(
     !isRecord(value) ||
     (value.mode !== "replace" && value.mode !== "update") ||
     !Array.isArray(value.documents) ||
-    value.documents.length > MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS ||
+    value.documents.length > MAX_PLUGIN_NOTE_GRAPH_INDEX_DOCUMENTS ||
     !Array.isArray(value.removedPaths) ||
-    value.removedPaths.length > MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS ||
+    value.removedPaths.length > MAX_PLUGIN_NOTE_GRAPH_INDEX_REMOVALS ||
     !nonNegativeInteger(value.skippedCount) ||
     typeof value.truncated !== "boolean"
   ) {

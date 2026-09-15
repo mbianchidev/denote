@@ -10,9 +10,11 @@ import {
 import { fromMarkdown } from "mdast-util-from-markdown";
 
 export const MAX_RAW_LINKS_PER_NOTE = 128;
+export const MAX_RESOLVED_LINKS = 100_000;
 
 const MAX_MODEL_NOTICES = 16;
 const MAX_NOTICE_PATH_LENGTH = 360;
+const MAX_RESOLVED_LINKS_LABEL = "100,000";
 
 interface MarkdownNode {
   type: string;
@@ -29,6 +31,13 @@ export interface ParsedNoteGraphDocument {
   links: string[];
   omittedLinks: number;
   parseError: boolean;
+}
+
+export interface NoteGraphParseDiagnostics {
+  definitionEdits: number;
+  definitionScannerCharacters: number;
+  inlineScannerCharacters: number;
+  rangeComparisons: number;
 }
 
 export type NoteGraphDocumentParser = (
@@ -55,7 +64,8 @@ interface ResolvedGraph {
   edges: Array<readonly [source: string, target: string]>;
   incoming: Map<string, number>;
   outgoing: Map<string, number>;
-  adjacency: Map<string, Set<string>> | null;
+  adjacency: Map<string, Set<string>>;
+  omittedResolvedLinks: number;
 }
 
 interface TextEdit {
@@ -64,8 +74,31 @@ interface TextEdit {
   replacement: string;
 }
 
+interface InlineLinkCandidate {
+  start: number;
+  end: number;
+  targetStart: number;
+  targetEnd: number;
+}
+
+interface MarkdownFence {
+  character: "`" | "~";
+  length: number;
+}
+
+interface HtmlBlock {
+  endMarker: string | null;
+  caseInsensitive: boolean;
+}
+
+interface LegacyDefinitionLine {
+  edit: { start: number; end: number; target: string } | null;
+}
+
 export class NoteGraphIndex {
   private readonly documents = new Map<string, IndexedDocument>();
+  private resolvedGraphCache: ResolvedGraph | null = null;
+  private resolvedGraphBuilds = 0;
   private skippedCount = 0;
   private hostTruncated = false;
 
@@ -74,22 +107,31 @@ export class NoteGraphIndex {
       parseNoteGraphDocument,
   ) {}
 
+  get resolvedGraphBuildCount(): number {
+    return this.resolvedGraphBuilds;
+  }
+
   index(request: PluginNoteGraphIndexRequest): void {
+    let graphChanged = request.mode === "replace";
     if (request.mode === "replace") {
       this.documents.clear();
     }
     for (const path of request.removedPaths) {
-      this.documents.delete(path);
+      graphChanged = this.documents.delete(path) || graphChanged;
     }
     for (const document of request.documents) {
       this.documents.set(document.path, this.indexDocument(document));
+      graphChanged = true;
+    }
+    if (graphChanged) {
+      this.resolvedGraphCache = null;
     }
     this.skippedCount = request.skippedCount;
     this.hostTruncated = request.truncated;
   }
 
   query(request: PluginNoteGraphQuery): PluginNoteGraphModel {
-    const graph = this.resolveGraph(request.scope === "local");
+    const graph = this.resolvedGraph();
     const activePath = resolveActivePath(request.activePath, graph.paths);
     const distances =
       request.scope === "local"
@@ -151,9 +193,9 @@ export class NoteGraphIndex {
       .map(([sourceId, targetId]) => ({ sourceId, targetId }));
     const nodeTruncated = matchingNotes > selected.length;
     const edgeTruncated = availableEdges.length > edges.length;
-    const linkTruncated = graph.documents.some(
-      (document) => document.omittedLinks > 0,
-    );
+    const linkTruncated =
+      graph.omittedResolvedLinks > 0 ||
+      graph.documents.some((document) => document.omittedLinks > 0);
     const notices = this.modelNotices({
       graph,
       request,
@@ -219,7 +261,17 @@ export class NoteGraphIndex {
     };
   }
 
-  private resolveGraph(includeAdjacency: boolean): ResolvedGraph {
+  private resolvedGraph(): ResolvedGraph {
+    if (this.resolvedGraphCache) {
+      return this.resolvedGraphCache;
+    }
+    const graph = this.buildResolvedGraph();
+    this.resolvedGraphCache = graph;
+    this.resolvedGraphBuilds += 1;
+    return graph;
+  }
+
+  private buildResolvedGraph(): ResolvedGraph {
     const documents = [...this.documents.values()].sort((left, right) =>
       compareText(left.path, right.path),
     );
@@ -228,19 +280,26 @@ export class NoteGraphIndex {
     );
     const incoming = new Map<string, number>();
     const outgoing = new Map<string, number>();
-    const adjacency = includeAdjacency
-      ? new Map<string, Set<string>>()
-      : null;
+    const adjacency = new Map<string, Set<string>>();
     for (const document of documents) {
       incoming.set(document.path, 0);
       outgoing.set(document.path, 0);
-      adjacency?.set(document.path, new Set());
+      adjacency.set(document.path, new Set());
     }
 
     const edges: Array<readonly [string, string]> = [];
+    let remainingLinks = MAX_RESOLVED_LINKS;
+    let omittedResolvedLinks = 0;
     for (const document of documents) {
       const targets = new Set<string>();
-      for (const candidate of document.links) {
+      const analyzedLinks = Math.min(
+        document.links.length,
+        remainingLinks,
+      );
+      omittedResolvedLinks += document.links.length - analyzedLinks;
+      remainingLinks -= analyzedLinks;
+      for (let index = 0; index < analyzedLinks; index += 1) {
+        const candidate = document.links[index];
         const target = resolveCandidate(candidate, paths);
         if (target !== null && target !== document.path) {
           targets.add(target);
@@ -253,16 +312,19 @@ export class NoteGraphIndex {
           (outgoing.get(document.path) ?? 0) + 1,
         );
         incoming.set(target, (incoming.get(target) ?? 0) + 1);
-        adjacency?.get(document.path)?.add(target);
-        adjacency?.get(target)?.add(document.path);
+        adjacency.get(document.path)?.add(target);
+        adjacency.get(target)?.add(document.path);
       }
     }
-    edges.sort(
-      (left, right) =>
-        compareText(left[0], right[0]) ||
-        compareText(left[1], right[1]),
-    );
-    return { documents, paths, edges, incoming, outgoing, adjacency };
+    return {
+      documents,
+      paths,
+      edges,
+      incoming,
+      outgoing,
+      adjacency,
+      omittedResolvedLinks,
+    };
   }
 
   private modelNotices({
@@ -281,9 +343,9 @@ export class NoteGraphIndex {
     const notices = new NoticeCollector();
     if (this.skippedCount > 0) {
       notices.add(
-        `Denote skipped ${this.skippedCount} note${
+        `Denote skipped ${this.skippedCount} vault file${
           this.skippedCount === 1 ? "" : "s"
-        } while building the bounded local index.`,
+        } while preparing the bounded graph input.`,
       );
     }
     if (this.hostTruncated) {
@@ -315,6 +377,13 @@ export class NoteGraphIndex {
         `Only the first ${MAX_PLUGIN_NOTE_GRAPH_EDGES} connections between shown notes are rendered.`,
       );
     }
+    if (graph.omittedResolvedLinks > 0) {
+      notices.add(
+        `The graph omitted ${graph.omittedResolvedLinks} local link occurrence${
+          graph.omittedResolvedLinks === 1 ? "" : "s"
+        } after the deterministic ${MAX_RESOLVED_LINKS_LABEL}-link analysis budget.`,
+      );
+    }
     for (const document of graph.documents) {
       if (document.parseError) {
         notices.add(
@@ -335,17 +404,29 @@ export class NoteGraphIndex {
 
 export function parseNoteGraphDocument(
   document: PluginNoteGraphDocument,
+  diagnostics?: NoteGraphParseDiagnostics,
 ): ParsedNoteGraphDocument {
+  if (diagnostics) {
+    diagnostics.definitionEdits = 0;
+    diagnostics.definitionScannerCharacters = 0;
+    diagnostics.inlineScannerCharacters = 0;
+    diagnostics.rangeComparisons = 0;
+  }
   try {
-    const initialRoot = fromMarkdown(document.source) as MarkdownNode;
-    const frontmatterEnd = frontmatterLength(document.source);
-    const normalizedSource = normalizeLegacyDestinations(
+    const preparedSource = prepareLegacyMarkdown(
       document.source,
+      diagnostics,
+    );
+    const initialRoot = fromMarkdown(preparedSource) as MarkdownNode;
+    const frontmatterEnd = frontmatterLength(preparedSource);
+    const normalizedSource = normalizeLegacyDestinations(
+      preparedSource,
       initialRoot,
       frontmatterEnd,
+      diagnostics,
     );
     const root =
-      normalizedSource === document.source
+      normalizedSource === preparedSource
         ? initialRoot
         : (fromMarkdown(normalizedSource) as MarkdownNode);
     const definitions = new Map<string, string>();
@@ -400,10 +481,263 @@ export function parseNoteGraphDocument(
   }
 }
 
+function prepareLegacyMarkdown(
+  source: string,
+  diagnostics?: NoteGraphParseDiagnostics,
+): string {
+  const frontmatterEnd = frontmatterLength(source);
+  const output: string[] = [];
+  let changed = false;
+  let fence: MarkdownFence | null = null;
+  let htmlBlock: HtmlBlock | null = null;
+  let inlineCodeTicks = 0;
+  let offset = 0;
+
+  while (offset < source.length) {
+    const newline = source.indexOf("\n", offset);
+    const nextOffset = newline < 0 ? source.length : newline + 1;
+    const contentEnd =
+      newline >= 0 && source[newline - 1] === "\r"
+        ? newline - 1
+        : newline < 0
+          ? source.length
+          : newline;
+    const line = source.slice(offset, contentEnd);
+    const ending = source.slice(contentEnd, nextOffset);
+    let protectedLine = offset < frontmatterEnd;
+    const marker = fenceMarker(line);
+
+    if (fence) {
+      protectedLine = true;
+      if (
+        marker &&
+        marker.character === fence.character &&
+        marker.length >= fence.length
+      ) {
+        fence = null;
+      }
+    } else if (marker) {
+      protectedLine = true;
+      fence = marker;
+      inlineCodeTicks = 0;
+    } else if (htmlBlock) {
+      protectedLine = true;
+      if (
+        (htmlBlock.endMarker === null && line.trim().length === 0) ||
+        (htmlBlock.endMarker !== null &&
+          includesMarker(
+            line,
+            htmlBlock.endMarker,
+            htmlBlock.caseInsensitive,
+          ))
+      ) {
+        htmlBlock = null;
+      }
+    } else {
+      htmlBlock = htmlBlockStart(line);
+      if (htmlBlock) {
+        protectedLine = true;
+        if (
+          htmlBlock.endMarker !== null &&
+          includesMarker(
+            line.slice(line.indexOf("<") + 1),
+            htmlBlock.endMarker,
+            htmlBlock.caseInsensitive,
+          )
+        ) {
+          htmlBlock = null;
+        }
+      }
+      const inlineCode = inlineCodeState(line, inlineCodeTicks);
+      protectedLine =
+        protectedLine ||
+        inlineCodeTicks > 0 ||
+        inlineCode.containsCode ||
+        /^(?: {4}|\t)/.test(line);
+      inlineCodeTicks = inlineCode.nextTicks;
+    }
+
+    let preparedLine = line;
+    if (!protectedLine) {
+      const definition = legacyDefinitionLine(line);
+      if (definition?.edit) {
+        preparedLine = `${line.slice(0, definition.edit.start)}<${
+          definition.edit.target
+        }>${line.slice(definition.edit.end)}`;
+        changed = true;
+        if (diagnostics) {
+          diagnostics.definitionEdits += 1;
+        }
+      } else if (!definition) {
+        const inlineEdits = legacyInlineEdits(line);
+        if (inlineEdits.length > 0) {
+          preparedLine = applyTextEdits(line, inlineEdits);
+          changed = true;
+        }
+      }
+    }
+    output.push(preparedLine, ending);
+    if (diagnostics) {
+      diagnostics.definitionScannerCharacters += nextOffset - offset;
+    }
+    offset = nextOffset;
+  }
+  return changed ? output.join("") : source;
+}
+
+function legacyDefinitionLine(
+  line: string,
+): LegacyDefinitionLine | null {
+  let cursor = 0;
+  while (cursor < 3 && line[cursor] === " ") {
+    cursor += 1;
+  }
+  if (line[cursor] !== "[") {
+    return null;
+  }
+  const labelStart = cursor + 1;
+  let safeToPrepare = true;
+  cursor = labelStart;
+  while (cursor < line.length && line[cursor] !== "]") {
+    if (
+      line[cursor] === "[" ||
+      line[cursor] === "\\" ||
+      cursor - labelStart >= 999
+    ) {
+      safeToPrepare = false;
+    }
+    cursor += 1;
+  }
+  if (
+    cursor === labelStart ||
+    line[cursor] !== "]" ||
+    line[cursor + 1] !== ":"
+  ) {
+    return null;
+  }
+  if (!safeToPrepare) {
+    return { edit: null };
+  }
+  cursor += 2;
+  while (line[cursor] === " " || line[cursor] === "\t") {
+    cursor += 1;
+  }
+  const rawTarget = line.slice(cursor);
+  const leading = rawTarget.length - rawTarget.trimStart().length;
+  const target = rawTarget.trim();
+  if (!isSafeLegacyTarget(target) || target.includes("`")) {
+    return { edit: null };
+  }
+  const start = cursor + leading;
+  return {
+    edit: {
+      start,
+      end: start + target.length,
+      target,
+    },
+  };
+}
+
+function legacyInlineEdits(line: string): TextEdit[] {
+  const edits: TextEdit[] = [];
+  for (const candidate of inlineLinkCandidates(line)) {
+    const rawTarget = line.slice(
+      candidate.targetStart,
+      candidate.targetEnd,
+    );
+    const leading = rawTarget.length - rawTarget.trimStart().length;
+    const target = rawTarget.trim();
+    if (!isSafeLegacyTarget(target)) {
+      continue;
+    }
+    const start = candidate.targetStart + leading;
+    edits.push({
+      start,
+      end: start + target.length,
+      replacement: `<${target}>`,
+    });
+  }
+  return edits;
+}
+
+function fenceMarker(line: string): MarkdownFence | null {
+  const match = line.match(/^ {0,3}(`{3,}|~{3,})/);
+  if (!match) {
+    return null;
+  }
+  return {
+    character: match[1][0] as MarkdownFence["character"],
+    length: match[1].length,
+  };
+}
+
+function htmlBlockStart(line: string): HtmlBlock | null {
+  const value = line.replace(/^ {0,3}/, "");
+  if (value.startsWith("<!--")) {
+    return { endMarker: "-->", caseInsensitive: false };
+  }
+  if (value.startsWith("<?")) {
+    return { endMarker: "?>", caseInsensitive: false };
+  }
+  if (value.startsWith("<![CDATA[")) {
+    return { endMarker: "]]>", caseInsensitive: false };
+  }
+  if (/^<![A-Z]/.test(value)) {
+    return { endMarker: ">", caseInsensitive: false };
+  }
+  const raw = value.match(/^<(script|pre|style|textarea)(?:\s|>|$)/i);
+  if (raw) {
+    return {
+      endMarker: `</${raw[1]}>`,
+      caseInsensitive: true,
+    };
+  }
+  return /^<\/?[A-Za-z][^>]*>/.test(value)
+    ? { endMarker: null, caseInsensitive: false }
+    : null;
+}
+
+function includesMarker(
+  line: string,
+  marker: string,
+  caseInsensitive: boolean,
+): boolean {
+  return caseInsensitive
+    ? line.toLowerCase().includes(marker.toLowerCase())
+    : line.includes(marker);
+}
+
+function inlineCodeState(
+  line: string,
+  currentTicks: number,
+): { containsCode: boolean; nextTicks: number } {
+  let containsCode = currentTicks > 0;
+  let ticks = currentTicks;
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] !== "`") {
+      continue;
+    }
+    let end = index + 1;
+    while (line[end] === "`") {
+      end += 1;
+    }
+    const run = end - index;
+    if (ticks === 0) {
+      ticks = run;
+      containsCode = true;
+    } else if (ticks === run) {
+      ticks = 0;
+    }
+    index = end - 1;
+  }
+  return { containsCode, nextTicks: ticks };
+}
+
 function normalizeLegacyDestinations(
   source: string,
   root: MarkdownNode,
   frontmatterEnd: number,
+  diagnostics?: NoteGraphParseDiagnostics,
 ): string {
   if (!/\s/.test(source) || !source.includes("]")) {
     return source;
@@ -411,13 +745,17 @@ function normalizeLegacyDestinations(
   const protectedRanges = collectProtectedRanges(root, frontmatterEnd);
   const definitionRanges: Array<readonly [number, number]> = [];
   const edits: TextEdit[] = [];
+  const definitionProtectedRanges = new MonotonicRangeCursor(
+    protectedRanges,
+    diagnostics,
+  );
   const definitionPattern =
     /^ {0,3}\[[^\]\r\n]+\]:[ \t]*([^\r\n]*)/gm;
   for (const match of source.matchAll(definitionPattern)) {
     const start = match.index ?? 0;
     const end = start + match[0].length;
     definitionRanges.push([start, end]);
-    if (overlapsAny(start, end, protectedRanges)) {
+    if (definitionProtectedRanges.overlaps(start, end)) {
       continue;
     }
     const rawTarget = match[1];
@@ -435,25 +773,31 @@ function normalizeLegacyDestinations(
     });
   }
 
-  const inlinePattern = /(\[[^\]\n]+\])\(([^()\n]+)\)/g;
-  for (const match of source.matchAll(inlinePattern)) {
-    const start = match.index ?? 0;
-    const end = start + match[0].length;
+  const inlineProtectedRanges = new MonotonicRangeCursor(
+    protectedRanges,
+    diagnostics,
+  );
+  const inlineDefinitionRanges = new MonotonicRangeCursor(
+    definitionRanges,
+    diagnostics,
+  );
+  for (const candidate of inlineLinkCandidates(source, diagnostics)) {
     if (
-      isEscapedAt(source, start) ||
-      overlapsAny(start, end, protectedRanges) ||
-      overlapsAny(start, end, definitionRanges)
+      inlineProtectedRanges.overlaps(candidate.start, candidate.end) ||
+      inlineDefinitionRanges.overlaps(candidate.start, candidate.end)
     ) {
       continue;
     }
-    const rawTarget = match[2];
+    const rawTarget = source.slice(
+      candidate.targetStart,
+      candidate.targetEnd,
+    );
     const leading = rawTarget.length - rawTarget.trimStart().length;
     const target = rawTarget.trim();
     if (!isSafeLegacyTarget(target)) {
       continue;
     }
-    const targetStart =
-      start + match[0].indexOf(rawTarget) + leading;
+    const targetStart = candidate.targetStart + leading;
     edits.push({
       start: targetStart,
       end: targetStart + target.length,
@@ -461,15 +805,127 @@ function normalizeLegacyDestinations(
     });
   }
 
-  return edits
-    .sort((left, right) => right.start - left.start)
-    .reduce(
-      (value, edit) =>
-        `${value.slice(0, edit.start)}${edit.replacement}${value.slice(
-          edit.end,
-        )}`,
-      source,
-    );
+  return applyTextEdits(source, edits);
+}
+
+function applyTextEdits(source: string, edits: TextEdit[]): string {
+  if (edits.length === 0) {
+    return source;
+  }
+  const ordered = [...edits].sort(
+    (left, right) =>
+      left.start - right.start || left.end - right.end,
+  );
+  const output: string[] = [];
+  let cursor = 0;
+  for (const edit of ordered) {
+    if (
+      edit.start < cursor ||
+      edit.start < 0 ||
+      edit.end < edit.start ||
+      edit.end > source.length
+    ) {
+      throw new Error("Legacy Markdown link edits overlap or are invalid.");
+    }
+    output.push(source.slice(cursor, edit.start), edit.replacement);
+    cursor = edit.end;
+  }
+  output.push(source.slice(cursor));
+  return output.join("");
+}
+
+function* inlineLinkCandidates(
+    source: string,
+    diagnostics?: NoteGraphParseDiagnostics,
+): Generator<InlineLinkCandidate> {
+    let state: "search" | "label" | "target" = "search";
+    let labelStart = 0;
+    let labelHasContent = false;
+    let labelInvalid = false;
+    let targetStart = 0;
+    let targetHasWhitespace = false;
+    let precedingBackslashes = 0;
+    let index = 0;
+
+    while (index < source.length) {
+      const character = source[index];
+      const escaped = precedingBackslashes % 2 === 1;
+      precedingBackslashes =
+        character === "\\" ? precedingBackslashes + 1 : 0;
+      if (diagnostics) {
+        diagnostics.inlineScannerCharacters += 1;
+      }
+
+      if (state === "search") {
+        if (character === "[" && !escaped) {
+          state = "label";
+          labelStart = index;
+          labelHasContent = false;
+          labelInvalid = false;
+        }
+        index += 1;
+        continue;
+      }
+
+      if (state === "label") {
+        if (character === "\n" || character === "\r") {
+          state = "search";
+        } else if (
+          character === "[" &&
+          !escaped
+        ) {
+          labelInvalid = true;
+        } else if (character === "]") {
+          if (
+            labelHasContent &&
+            !labelInvalid &&
+            source[index + 1] === "("
+          ) {
+            if (diagnostics) {
+              diagnostics.inlineScannerCharacters += 1;
+            }
+            state = "target";
+            targetStart = index + 2;
+            targetHasWhitespace = false;
+            precedingBackslashes = 0;
+            index += 2;
+            continue;
+          }
+          state = "search";
+        } else {
+          labelHasContent = true;
+        }
+        index += 1;
+        continue;
+      }
+
+      if (
+        character === "\n" ||
+        character === "\r" ||
+        character === "("
+      ) {
+        state = "search";
+        index += 1;
+        continue;
+      }
+      if (character === ")") {
+        if (index > targetStart && targetHasWhitespace) {
+          yield {
+            start: labelStart,
+            end: index + 1,
+            targetStart,
+            targetEnd: index,
+          };
+        }
+        state = "search";
+        index += 1;
+        continue;
+      }
+      if (/\s/.test(character)) {
+        targetHasWhitespace = true;
+      }
+      index += 1;
+    }
 }
 
 function isSafeLegacyTarget(target: string): boolean {
@@ -508,6 +964,30 @@ function collectProtectedRanges(
     }
   }
   return merged;
+}
+
+class MonotonicRangeCursor {
+  private index = 0;
+
+  constructor(
+    private readonly ranges: Array<readonly [number, number]>,
+    private readonly diagnostics?: NoteGraphParseDiagnostics,
+  ) {}
+
+  overlaps(start: number, end: number): boolean {
+    while (this.index < this.ranges.length) {
+      const [rangeStart, rangeEnd] = this.ranges[this.index];
+      if (this.diagnostics) {
+        this.diagnostics.rangeComparisons += 1;
+      }
+      if (rangeEnd <= start) {
+        this.index += 1;
+        continue;
+      }
+      return rangeStart < end;
+    }
+    return false;
+  }
 }
 
 function* markdownNodes(root: MarkdownNode): Generator<MarkdownNode> {
@@ -658,10 +1138,10 @@ function resolveActivePath(
 function localDistances(
   activePath: string | null,
   depth: 1 | 2 | 3,
-  adjacency: Map<string, Set<string>> | null,
+  adjacency: Map<string, Set<string>>,
 ): Map<string, number> {
   const distances = new Map<string, number>();
-  if (activePath === null || adjacency === null) {
+  if (activePath === null) {
     return distances;
   }
   distances.set(activePath, 0);
@@ -764,28 +1244,6 @@ function compareText(left: string, right: string): number {
 
 function hasUriScheme(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(value);
-}
-
-function overlapsAny(
-  start: number,
-  end: number,
-  ranges: Array<readonly [number, number]>,
-): boolean {
-  return ranges.some(
-    ([rangeStart, rangeEnd]) => start < rangeEnd && end > rangeStart,
-  );
-}
-
-function isEscapedAt(source: string, offset: number): boolean {
-  let backslashes = 0;
-  for (
-    let index = offset - 1;
-    index >= 0 && source[index] === "\\";
-    index -= 1
-  ) {
-    backslashes += 1;
-  }
-  return backslashes % 2 === 1;
 }
 
 function noticePath(path: string): string {

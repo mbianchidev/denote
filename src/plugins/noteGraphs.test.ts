@@ -3,7 +3,7 @@ import type { DocumentBatch, SearchDocument } from "../types";
 import {
   createNoteGraphSnapshot,
   noteGraphFolders,
-  noteGraphIndexRequest,
+  noteGraphIndexRequests,
   noteGraphTags,
 } from "./noteGraphs";
 
@@ -72,34 +72,91 @@ describe("note graph host snapshots", () => {
     );
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
-    expect(noteGraphIndexRequest(null, first!)).toMatchObject({
+    expect(noteGraphIndexRequests(null, first!)[0]).toMatchObject({
       mode: "replace",
       documents: expect.arrayContaining([
         expect.objectContaining({ path: "Alpha.md" }),
         expect.objectContaining({ path: "Beta.md" }),
       ]),
     });
-    expect(noteGraphIndexRequest(first, second!)).toEqual({
-      mode: "update",
-      documents: [
-        {
-          path: "Alpha.md",
-          title: "Alpha updated",
-          source: "# Alpha updated",
-          tags: [],
-        },
-        {
-          path: "Gamma.md",
-          title: "Gamma",
-          source: "# Gamma",
-          tags: [],
-        },
-      ],
-      removedPaths: ["Beta.md"],
+    expect(noteGraphIndexRequests(first, second!)).toEqual([
+      {
+        mode: "update",
+        documents: [
+          {
+            path: "Alpha.md",
+            title: "Alpha updated",
+            source: "# Alpha updated",
+            tags: [],
+          },
+          {
+            path: "Gamma.md",
+            title: "Gamma",
+            source: "# Gamma",
+            tags: [],
+          },
+        ],
+        removedPaths: ["Beta.md"],
+        skippedCount: 0,
+        truncated: false,
+      },
+    ]);
+    expect(noteGraphIndexRequests(second, second!)).toEqual([]);
+  });
+
+  it("splits a full snapshot into bounded ordered index requests", () => {
+    const source = "x".repeat(200_000);
+    const requests = noteGraphIndexRequests(null, {
+      workspaceKey: "vault-one",
+      documents: ["Alpha", "Beta", "Gamma"].map((title) => ({
+        path: `${title}.md`,
+        title,
+        source,
+        tags: [],
+      })),
       skippedCount: 0,
       truncated: false,
     });
-    expect(noteGraphIndexRequest(second, second!)).toBeNull();
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      mode: "replace",
+      documents: [
+        expect.objectContaining({ path: "Alpha.md" }),
+        expect.objectContaining({ path: "Beta.md" }),
+      ],
+    });
+    expect(requests[1]).toMatchObject({
+      mode: "update",
+      documents: [expect.objectContaining({ path: "Gamma.md" })],
+      removedPaths: [],
+    });
+  });
+
+  it("splits large removal sets without reparsing documents", () => {
+    const previous = {
+      workspaceKey: "vault-one",
+      documents: Array.from({ length: 600 }, (_, index) => ({
+        path: `${index}.md`,
+        title: String(index),
+        source: "",
+        tags: [],
+      })),
+      skippedCount: 0,
+      truncated: false,
+    };
+    const requests = noteGraphIndexRequests(previous, {
+      ...previous,
+      documents: [],
+    });
+
+    expect(requests).toHaveLength(2);
+    expect(requests[0]).toMatchObject({
+      mode: "update",
+      documents: [],
+    });
+    expect(requests[0].removedPaths).toHaveLength(512);
+    expect(requests[1].removedPaths).toHaveLength(88);
   });
 
   it("builds bounded folder and tag filter choices", () => {

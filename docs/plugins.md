@@ -389,8 +389,10 @@ later `update` deltas while that view remains active.
 Each bounded document contains only a vault-relative Markdown path, display
 title, current source, and normalized tags. Updates carry only changed documents
 and removed paths plus the current skipped/truncated status. Requests are capped
-at 10,000 notes, 1 MiB per source, and 16 MiB total source. The active saved
-note takes priority when the input cap is reached.
+at 256 documents, 512 KiB of source, and 512 removed paths. The complete host
+snapshot is capped at 5,000 notes, 256 KiB per note, and 8 MiB total source,
+then sent as one `replace` request followed by ordered `update` batches. The
+active saved note takes priority when the input cap is reached.
 
 A query chooses global or local scope, an optional active note, folder and tag
 filters, orphan selection, and local depth 1–3. The worker returns at most 500
@@ -414,13 +416,18 @@ extensionless, exact-case, and uniquely case-folded targets resolve against the
 current bounded note set. Update requests reparse only changed notes; queries
 resolve stored targets against the current path set, so a newly added or removed
 note can change connections without reparsing unchanged source.
+Resolved paths, degrees, and adjacency are cached between filter queries and
+invalidated by index changes. At most 100,000 resolved links enter that cache;
+later links are omitted with an explicit bounded notice.
 
 The plugin requests no commands, note events, workspace reads/writes, network,
 process, clipboard, notification, or credential permission. Its complete graph
 state is local, transient, and derived. Closing the view releases the host
-model. Locking or switching the vault, disabling/updating/removing the plugin, a
-worker crash, or application teardown releases the worker index. No operation
-can edit or delete Markdown.
+model. Locking or switching the vault immediately withdraws and force-terminates
+the stateful worker rather than waiting behind a queued index operation; an
+enabled plugin restarts empty for the current workspace. Disabling/updating/
+removing the plugin, a worker crash, or application teardown also releases the
+worker index. No operation can edit or delete Markdown.
 
 ### Sandboxed diagram renderer
 

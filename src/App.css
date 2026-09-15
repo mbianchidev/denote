@@ -3309,7 +3309,7 @@ button.tag-chip:active,
 
 .note-graph-plot__toolbar span {
   min-width: 34px;
-  font-size: 9px;
+  font-size: 10px;
   font-variant-numeric: tabular-nums;
   text-align: center;
 }

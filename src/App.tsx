@@ -829,8 +829,10 @@ function App() {
   );
   const [searchQueryFocusRequest, setSearchQueryFocusRequest] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [searchDocumentBatch, setSearchDocumentBatch] =
-    useState<DocumentBatch | null>(null);
+  const [searchDocumentBatch, setSearchDocumentBatch] = useState<{
+    generation: number;
+    batch: DocumentBatch;
+  } | null>(null);
   const [searchNavigation, setSearchNavigation] = useState<
     (EditorSearchNavigation & { path: string }) | null
   >(null);
@@ -1633,8 +1635,10 @@ function App() {
     () =>
       workspace && noteGraphs.length > 0 && activeNoteGraph
         ? createNoteGraphSnapshot(
-            workspace.vaultPath,
-            searchDocumentBatch,
+            `${workspace.vaultPath}\u0000${searchDocumentBatch?.generation ?? -1}`,
+            searchDocumentBatch?.generation === vaultGeneration.current
+              ? searchDocumentBatch.batch
+              : null,
             activePath,
           )
         : null,
@@ -2096,7 +2100,7 @@ function App() {
         }
         searchIndex.current = nextIndex;
         searchIndexReady.current = true;
-        setSearchDocumentBatch(batch);
+        setSearchDocumentBatch({ generation, batch });
         const searchRequest = searchRequestRef.current;
         const results = await nextIndex.query(searchRequest);
         if (
@@ -9336,7 +9340,7 @@ function App() {
         </header>
         {activeNoteGraphContribution ? (
           <NoteGraphPanel
-            key={`${activeNoteGraphContribution.pluginId}:${activeNoteGraphContribution.id}`}
+            key={`${activeNoteGraphContribution.pluginId}:${activeNoteGraphContribution.id}:${workspace.vaultPath}`}
             provider={activeNoteGraphContribution}
             snapshot={noteGraphSnapshot}
             activePath={activePath}

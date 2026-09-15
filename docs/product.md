@@ -457,9 +457,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   through Denote's ordinary file-navigation flow.
 - The graph uses a bounded deterministic constellation plus an equivalent
   searchable keyboard list with one roving tab stop, Arrow/Home/End movement,
-  visible focus, and Enter activation. Input is capped at 10,000 UTF-8 Markdown
-  notes, 1 MiB per note, and 16 MiB total; output is capped at 500 nodes and
-  2,000 edges. Changed notes are reparsed individually, path-set changes
+  visible focus, and Enter activation. Input is capped at 5,000 UTF-8 Markdown
+  notes, 256 KiB per note, and 8 MiB total, processed in bounded 512 KiB /
+  256-note worker requests with at most 512 removals. Connection analysis is
+  capped at 100,000 resolved links, and output at 500 nodes and 2,000 edges.
+  Changed notes are reparsed individually, path-set changes
   re-resolve existing targets without reparsing unchanged source, and omitted
   input or output is reported.
 - Graph source, parsed links, filters, layout, and derived models remain local

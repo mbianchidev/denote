@@ -279,10 +279,12 @@ removing a note can resolve links already present in unchanged notes without
 reparsing their Markdown. Autosaves and external-file refreshes feed the same
 incremental path.
 
-Input is limited to 10,000 UTF-8 Markdown notes, 1 MiB per note, and 16 MiB in
-total. The visible model is limited to 500 nodes and 2,000 edges. Notes or
-connections beyond a limit are omitted with a written notice so large vaults
-remain responsive.
+Input is limited to 5,000 UTF-8 Markdown notes, 256 KiB per note, and 8 MiB in
+total. Indexing sends at most 256 notes and 512 KiB to the worker at once.
+Removal batches carry at most 512 paths. Connection analysis keeps at most
+100,000 resolved links, and the visible model is limited to 500 nodes and 2,000
+edges. Notes or connections beyond a limit are omitted with a written notice so
+large vaults remain responsive.
 
 Closing the view releases its rendered model. Locking or switching a vault,
 disabling or updating the plugin, a crash, or application exit releases the

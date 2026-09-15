@@ -14,9 +14,12 @@ source. The worker has no absolute vault path, DOM access, network access,
 process access, encryption key, or workspace write capability. All indexing and
 queries stay on the device, and enabling the plugin does not change a file.
 
-The host accepts at most 1 MiB of source per document, 16 MiB per index request,
-and 10,000 notes. If a vault exceeds a host bound, Denote prioritizes the active
-and open notes and reports that the graph is incomplete.
+The host builds a snapshot of at most 5,000 notes and 8 MiB of Markdown source,
+with at most 256 KiB from any one note. Denote sends that snapshot to the worker
+as ordered index requests containing at most 256 documents and 512 KiB of source
+each, with at most 512 removed paths in one request. If a vault exceeds a host
+bound, Denote prioritizes the active and open notes and reports that the graph
+is incomplete.
 
 ## Usage
 
@@ -46,7 +49,10 @@ outgoing-link counts.
 The worker reparses only documents supplied by Denote as changed. Removed paths
 are deleted from the in-memory index. Link targets are resolved against the
 current path set at query time, so adding or removing a target can fix or remove
-an older note's connection without reparsing that unchanged source note.
+an older note's connection without reparsing that unchanged source note. The
+resolved connections, degrees, and local-neighborhood index are cached until
+indexed document content or path membership changes, so changing view filters
+does not rebuild the vault graph.
 
 Inline links and full, collapsed, or shortcut reference links are supported.
 Root-relative and note-relative paths, percent-encoded paths, and extensionless
@@ -59,9 +65,10 @@ frontmatter; prefer portable Markdown such as
 `[Plan](<Project Plan.md>)`.
 
 Each note contributes at most 128 local link occurrences. Repeated links between
-the same pair of notes become one edge. The host renders at most 500 nodes and
-2,000 edges per query; counts continue to describe the complete indexed graph,
-and notices identify omitted content.
+the same pair of notes become one edge. Across the vault, the plugin analyzes
+the first 100,000 local link occurrences in deterministic path and source order.
+The host renders at most 500 nodes and 2,000 edges per query. Counts describe the
+bounded analyzed graph, and notices identify omitted content.
 
 ## Settings
 
@@ -82,9 +89,10 @@ notes differ only by case, use the target's exact case. For a path with spaces,
 use angle brackets or percent encoding.
 
 A notice reports notes that could not be parsed, links omitted after the
-128-link per-note bound, host indexing limits, or the 500-node and 2,000-edge
-rendering limits. Simplify an unusually dense note or narrow the folder, tag,
-or local-depth filters when the view is truncated.
+128-link per-note or 100,000-link vault analysis bounds, host indexing limits,
+or the 500-node and 2,000-edge rendering limits. Simplify an unusually dense
+note or narrow the folder, tag, or local-depth filters when the view is
+truncated.
 
 `mdast-util-from-markdown` parses Markdown inside the worker. It is distributed
 under the MIT license.

@@ -72,6 +72,30 @@ describe("note graph contract", () => {
         truncated: false,
       }),
     ).toBe(false);
+    expect(
+      isPluginNoteGraphIndexRequest({
+        mode: "update",
+        documents: Array.from({ length: 257 }, (_, index) => ({
+          ...document,
+          path: `${index}.md`,
+        })),
+        removedPaths: [],
+        skippedCount: 0,
+        truncated: false,
+      }),
+    ).toBe(false);
+    expect(
+      isPluginNoteGraphIndexRequest({
+        mode: "update",
+        documents: [],
+        removedPaths: Array.from(
+          { length: 513 },
+          (_, index) => `${index}.md`,
+        ),
+        skippedCount: 0,
+        truncated: false,
+      }),
+    ).toBe(false);
   });
 
   it("accepts only the closed graph query choices", () => {

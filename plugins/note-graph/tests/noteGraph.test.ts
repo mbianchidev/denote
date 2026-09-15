@@ -7,8 +7,10 @@ import {
 } from "@denote/plugin-sdk";
 import {
   MAX_RAW_LINKS_PER_NOTE,
+  MAX_RESOLVED_LINKS,
   NoteGraphIndex,
   parseNoteGraphDocument,
+  type NoteGraphParseDiagnostics,
 } from "../src/noteGraph";
 
 const globalQuery: PluginNoteGraphQuery = {
@@ -121,6 +123,7 @@ describe("Note graph indexing", () => {
           "[Fragment](#section)",
           "[Malformed](Bad%ZZ.md)",
           "[Escape](../Outside.md)",
+          "[Outer [Inner](Nested Target.md)]",
           "![Image](Safe.md)",
           "`[Inline code](Safe Note.md)`",
           "<!-- [HTML](Safe Note.md) -->",
@@ -135,11 +138,12 @@ describe("Note graph indexing", () => {
       document("foo.md"),
       document("Safe.md"),
       document("Safe Note.md"),
+      document("Nested Target.md"),
     ]);
 
     const model = index.query(globalQuery);
 
-    expect(model.totalNotes).toBe(5);
+    expect(model.totalNotes).toBe(6);
     expect(edgePaths(index)).toEqual([
       "Start.md->Foo.md",
       "Start.md->Safe.md",
@@ -170,6 +174,246 @@ describe("Note graph indexing", () => {
     expect(model.notices).toEqual([
       "Broken.md could not be parsed; its note metadata remains indexed without links.",
     ]);
+  });
+
+  it("prepares definitions only outside protected Markdown ranges", () => {
+    const source = [
+      "---",
+      "[front]: Front Matter.md",
+      "---",
+      "`code",
+      "[inline]: Inline Note.md",
+      "`",
+      "```md",
+      "[fence]: Fence Note.md",
+      "```",
+      "    [indented]: Indented Note.md",
+      "<div>",
+      "[html]: Html Note.md",
+      "</div>",
+      "",
+      "[visible]: Visible Note.md",
+      "",
+      "[Visible][visible]",
+    ].join("\n");
+    const diagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+
+    const parsed = parseNoteGraphDocument(
+      document("Protected definitions.md", source),
+      diagnostics,
+    );
+
+    expect(parsed.links).toEqual(["Visible Note.md"]);
+    expect(diagnostics.definitionEdits).toBe(1);
+    expect(diagnostics.definitionScannerCharacters).toBe(source.length);
+  });
+
+  it("checks protected and definition ranges with linear work", () => {
+    const pairCount = 2_000;
+    const halfPairCount = pairCount / 2;
+    const protectedSource = (count: number) =>
+      Array.from({ length: count }, (_, index) => {
+        const suffix = String(index).padStart(4, "0");
+        return [
+          `\`[protected ${suffix}](Target Note.md)\``,
+          `[ref-${suffix}]: [definition ${suffix}](Target Note.md)`,
+        ].join("\n");
+      }).join("\n");
+    const source = protectedSource(pairCount);
+    const halfSource = protectedSource(halfPairCount);
+    const diagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+    const halfDiagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+    const sourceBytes = new TextEncoder().encode(source).byteLength;
+    const halfSourceBytes = new TextEncoder().encode(halfSource).byteLength;
+
+    const parsed = parseNoteGraphDocument(
+      document("Protected.md", source),
+      diagnostics,
+    );
+    const halfParsed = parseNoteGraphDocument(
+      document("Half protected.md", halfSource),
+      halfDiagnostics,
+    );
+
+    expect(parsed.links).toEqual([]);
+    expect(halfParsed.links).toEqual([]);
+    expect(sourceBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(halfSourceBytes).toBeLessThanOrEqual(256 * 1024);
+    expect(sourceBytes + halfSourceBytes).toBeLessThanOrEqual(512 * 1024);
+    expect(diagnostics.rangeComparisons).toBe(pairCount * 7 - 3);
+    expect(halfDiagnostics.rangeComparisons).toBe(
+      halfPairCount * 7 - 3,
+    );
+    expect(diagnostics.rangeComparisons).toBe(
+      halfDiagnostics.rangeComparisons * 2 + 3,
+    );
+  });
+
+  it("scans unmatched bracket fallback candidates in linear work", () => {
+    const adversarialSource = (size: number) => {
+      const tail = "] not a link\n[Valid](Target Note.md)\n";
+      return `${"[".repeat(size - tail.length)}${tail}`;
+    };
+    const source = adversarialSource(192 * 1024);
+    const comparisonSource = adversarialSource(16 * 1024);
+    const diagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+    const comparisonDiagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+
+    const parsed = parseNoteGraphDocument(
+      document("Adversarial.md", source),
+      diagnostics,
+    );
+    const comparisonParsed = parseNoteGraphDocument(
+      document("Comparison adversarial.md", comparisonSource),
+      comparisonDiagnostics,
+    );
+
+    expect(parsed.links).toEqual(["Target Note.md"]);
+    expect(comparisonParsed.links).toEqual(["Target Note.md"]);
+    expect(new TextEncoder().encode(source)).toHaveLength(192 * 1024);
+    expect(new TextEncoder().encode(comparisonSource)).toHaveLength(
+      16 * 1024,
+    );
+    expect(source.length + comparisonSource.length).toBeLessThanOrEqual(
+      512 * 1024,
+    );
+    expect(diagnostics.inlineScannerCharacters).toBe(source.length + 2);
+    expect(comparisonDiagnostics.inlineScannerCharacters).toBe(
+      comparisonSource.length + 2,
+    );
+    expect(diagnostics.inlineScannerCharacters - 2).toBe(
+      (comparisonDiagnostics.inlineScannerCharacters - 2) * 12,
+    );
+  });
+
+  it("normalizes two exact-bound dense definition documents before parsing", () => {
+    const denseDefinitions = (size: number) => {
+      const lines: string[] = [];
+      let length = 0;
+      for (let index = 0; ; index += 1) {
+        const line = `[${index}]:a b\n`;
+        if (length + line.length > size) {
+          break;
+        }
+        lines.push(line);
+        length += line.length;
+      }
+      return {
+        count: lines.length,
+        source: `${lines.join("")}${"x".repeat(size - length)}`,
+      };
+    };
+    const fixture = denseDefinitions(256 * 1024);
+    const firstDiagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+    const secondDiagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+
+    const first = parseNoteGraphDocument(
+      document("Dense one.md", fixture.source),
+      firstDiagnostics,
+    );
+    const second = parseNoteGraphDocument(
+      document("Dense two.md", fixture.source),
+      secondDiagnostics,
+    );
+
+    expect(new TextEncoder().encode(fixture.source)).toHaveLength(
+      256 * 1024,
+    );
+    expect(fixture.source.length * 2).toBe(512 * 1024);
+    expect(first.links).toEqual([]);
+    expect(second.links).toEqual([]);
+    expect(firstDiagnostics.definitionScannerCharacters).toBe(
+      fixture.source.length,
+    );
+    expect(secondDiagnostics.definitionScannerCharacters).toBe(
+      fixture.source.length,
+    );
+    expect(firstDiagnostics.definitionEdits).toBe(fixture.count);
+    expect(secondDiagnostics.definitionEdits).toBe(fixture.count);
+  });
+
+  it("applies dense inline-link normalization at the exact request bound", () => {
+    const line = "[x](a b)\n";
+    const size = 256 * 1024;
+    const linkCount = Math.floor(size / line.length);
+    const source = `${line.repeat(linkCount)}${"x".repeat(
+      size - linkCount * line.length,
+    )}`;
+    const firstDiagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+    const secondDiagnostics: NoteGraphParseDiagnostics = {
+      definitionEdits: 0,
+      definitionScannerCharacters: 0,
+      inlineScannerCharacters: 0,
+      rangeComparisons: 0,
+    };
+
+    const first = parseNoteGraphDocument(
+      document("Dense inline one.md", source),
+      firstDiagnostics,
+    );
+    const second = parseNoteGraphDocument(
+      document("Dense inline two.md", source),
+      secondDiagnostics,
+    );
+
+    expect(new TextEncoder().encode(source)).toHaveLength(size);
+    expect(source.length * 2).toBe(512 * 1024);
+    expect(first.links).toHaveLength(MAX_RAW_LINKS_PER_NOTE);
+    expect(second.links).toHaveLength(MAX_RAW_LINKS_PER_NOTE);
+    expect(new Set(first.links)).toEqual(new Set(["a b"]));
+    expect(new Set(second.links)).toEqual(new Set(["a b"]));
+    expect(first.omittedLinks).toBe(
+      linkCount - MAX_RAW_LINKS_PER_NOTE,
+    );
+    expect(second.omittedLinks).toBe(
+      linkCount - MAX_RAW_LINKS_PER_NOTE,
+    );
+    expect(firstDiagnostics.inlineScannerCharacters).toBe(
+      source.length + linkCount * 2,
+    );
+    expect(secondDiagnostics.inlineScannerCharacters).toBe(
+      source.length + linkCount * 2,
+    );
   });
 
   it("re-resolves unchanged notes after incremental additions and removals", () => {
@@ -304,6 +548,112 @@ describe("Note graph queries", () => {
       depthThreeFolder.nodes.map((node) => [node.path, node.distance]),
     ).toEqual([["deep/D.md", 3]]);
     expect(depthThreeFolder.activeNodeId).toBeNull();
+  });
+
+  it("describes shared scan omissions as skipped vault files", () => {
+    const index = new NoteGraphIndex();
+    index.index({
+      mode: "replace",
+      documents: [document("Available.md")],
+      removedPaths: [],
+      skippedCount: 2,
+      truncated: true,
+    });
+
+    expect(index.query(globalQuery).notices).toContain(
+      "Denote skipped 2 vault files while preparing the bounded graph input.",
+    );
+  });
+
+  it("reuses the resolved graph cache until indexed content changes", () => {
+    const index = connectedIndex();
+    expect(index.resolvedGraphBuildCount).toBe(0);
+
+    index.query(globalQuery);
+    index.query({ ...globalQuery, folder: "folder", tag: "team" });
+    const local = index.query({
+      ...globalQuery,
+      scope: "local",
+      activePath: "A.md",
+      orphanFilter: "connected",
+      depth: 3,
+    });
+    expect(local.nodes.some((node) => node.path === "deep/D.md")).toBe(
+      true,
+    );
+    expect(index.resolvedGraphBuildCount).toBe(1);
+
+    index.index({
+      mode: "update",
+      documents: [],
+      removedPaths: [],
+      skippedCount: 1,
+      truncated: true,
+    });
+    index.query(globalQuery);
+    expect(index.resolvedGraphBuildCount).toBe(1);
+
+    index.index({
+      mode: "update",
+      documents: [document("orphan.md", "[A](A.md)", ["Alpha"])],
+      removedPaths: [],
+      skippedCount: 0,
+      truncated: false,
+    });
+    index.query(globalQuery);
+    expect(index.resolvedGraphBuildCount).toBe(2);
+
+    index.index({
+      mode: "update",
+      documents: [],
+      removedPaths: ["missing.md"],
+      skippedCount: 0,
+      truncated: false,
+    });
+    index.query(globalQuery);
+    expect(index.resolvedGraphBuildCount).toBe(2);
+
+    index.index({
+      mode: "update",
+      documents: [],
+      removedPaths: ["other/F.md"],
+      skippedCount: 0,
+      truncated: false,
+    });
+    index.query(globalQuery);
+    expect(index.resolvedGraphBuildCount).toBe(3);
+  });
+
+  it("caps deterministic vault-wide link analysis at 100,000 occurrences", () => {
+    const sourceCount = Math.ceil((MAX_RESOLVED_LINKS + 1) / 128);
+    const parser = vi.fn((value: PluginNoteGraphDocument) => ({
+      links:
+        value.path === "Target.md"
+          ? []
+          : Array.from({ length: 128 }, () => "Target.md"),
+      omittedLinks: 0,
+      parseError: false,
+    }));
+    const index = new NoteGraphIndex(parser);
+    replace(index, [
+      ...Array.from({ length: sourceCount }, (_, sourceIndex) =>
+        document(
+          `sources/source-${String(sourceIndex).padStart(4, "0")}.md`,
+        ),
+      ),
+      document("Target.md"),
+    ]);
+
+    const first = index.query(globalQuery);
+    const second = index.query({ ...globalQuery, folder: "sources" });
+
+    expect(first.totalEdges).toBe(sourceCount);
+    expect(first.truncated).toBe(true);
+    expect(first.notices).toContain(
+      "The graph omitted 96 local link occurrences after the deterministic 100,000-link analysis budget.",
+    );
+    expect(second.totalEdges).toBe(sourceCount);
+    expect(index.resolvedGraphBuildCount).toBe(1);
   });
 
   it("bounds raw links, rendered nodes, and rendered edges with notices", () => {

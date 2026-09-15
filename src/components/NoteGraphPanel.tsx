@@ -23,7 +23,7 @@ import type {
 import type { PluginNoteGraphContribution } from "../plugins/workerRuntime";
 import {
   noteGraphFolders,
-  noteGraphIndexRequest,
+  noteGraphIndexRequests,
   noteGraphTags,
   type NoteGraphSnapshot,
 } from "../plugins/noteGraphs";
@@ -70,8 +70,11 @@ export function NoteGraphPanel({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [listQuery, setListQuery] = useState("");
   const [zoom, setZoom] = useState(1);
+  const [retryToken, setRetryToken] = useState(0);
   const sequence = useRef<Promise<void>>(Promise.resolve());
   const generation = useRef(0);
+  const retryCount = useRef(0);
+  const retryTimer = useRef<number | null>(null);
   const previousSnapshot = useRef<NoteGraphSnapshot | null>(null);
   const previousProvider = useRef<string | null>(null);
   const providerKey = `${provider.pluginId}:${provider.id}`;
@@ -101,6 +104,20 @@ export function NoteGraphPanel({
   );
 
   useEffect(() => {
+    if (retryTimer.current !== null) {
+      window.clearTimeout(retryTimer.current);
+      retryTimer.current = null;
+    }
+    retryCount.current = 0;
+    generation.current += 1;
+    previousProvider.current = providerKey;
+    previousSnapshot.current = null;
+    setModel(null);
+    setSelectedNodeId(null);
+    setStatus("Waiting for the local note index.");
+  }, [providerKey, snapshot?.workspaceKey]);
+
+  useEffect(() => {
     if (folder !== null && !folders.includes(folder)) {
       setFolder(null);
     }
@@ -114,50 +131,90 @@ export function NoteGraphPanel({
 
   useEffect(() => {
     const requestGeneration = ++generation.current;
+    let indexAttempted = false;
+    let indexCompleted = false;
+    let appliedIndexChunks = 0;
+    const isCurrent = () => requestGeneration === generation.current;
     const run = async () => {
-      if (!snapshot) {
-        if (requestGeneration === generation.current) {
-          setModel(null);
-          setLoading(false);
-          setStatus("Waiting for the local note index.");
+      try {
+        if (!isCurrent()) {
+          return;
         }
-        return;
-      }
-      if (previousProvider.current !== providerKey) {
-        previousProvider.current = providerKey;
-        previousSnapshot.current = null;
-      }
-      setLoading(true);
-      const indexRequest = noteGraphIndexRequest(
-        previousSnapshot.current,
-        snapshot,
-      );
-      if (indexRequest) {
-        setStatus(
-          indexRequest.mode === "replace"
-            ? "Indexing note connections…"
-            : "Updating changed note connections…",
+        if (!snapshot) {
+          if (isCurrent()) {
+            setModel(null);
+            setLoading(false);
+            setStatus("Waiting for the local note index.");
+          }
+          return;
+        }
+        if (previousProvider.current !== providerKey) {
+          previousProvider.current = providerKey;
+          previousSnapshot.current = null;
+        }
+        if (!isCurrent()) {
+          return;
+        }
+        setLoading(true);
+        const indexRequests = noteGraphIndexRequests(
+          previousSnapshot.current,
+          snapshot,
         );
-        await indexNoteGraph(provider.pluginId, provider.id, indexRequest);
-        previousSnapshot.current = snapshot;
+        if (indexRequests.length > 0) {
+          if (retryTimer.current !== null) {
+            window.clearTimeout(retryTimer.current);
+            retryTimer.current = null;
+          }
+          indexAttempted = true;
+          setStatus(
+            indexRequests[0].mode === "replace"
+              ? "Indexing note connections…"
+              : "Updating changed note connections…",
+          );
+          for (const indexRequest of indexRequests) {
+            if (!isCurrent()) {
+              if (appliedIndexChunks > 0) {
+                previousSnapshot.current = null;
+              }
+              return;
+            }
+            await indexNoteGraph(provider.pluginId, provider.id, indexRequest);
+            appliedIndexChunks += 1;
+            if (!isCurrent()) {
+              previousSnapshot.current = null;
+              return;
+            }
+          }
+          indexCompleted = true;
+          retryCount.current = 0;
+          previousSnapshot.current = snapshot;
+        }
+        if (!isCurrent()) {
+          return;
+        }
+        const nextModel = await queryNoteGraph(
+          provider.pluginId,
+          provider.id,
+          query,
+        );
+        if (!isCurrent()) {
+          return;
+        }
+        setModel(nextModel);
+        setLoading(false);
+        setStatus(
+          nextModel.matchingNotes === nextModel.totalNotes
+            ? `${nextModel.totalNotes} indexed note${
+                nextModel.totalNotes === 1 ? "" : "s"
+              }.`
+            : `${nextModel.matchingNotes} of ${nextModel.totalNotes} indexed notes match.`,
+        );
+      } catch (error) {
+        if (indexAttempted && !indexCompleted) {
+          previousSnapshot.current = null;
+        }
+        throw error;
       }
-      const nextModel = await queryNoteGraph(
-        provider.pluginId,
-        provider.id,
-        query,
-      );
-      if (requestGeneration !== generation.current) {
-        return;
-      }
-      setModel(nextModel);
-      setLoading(false);
-      setStatus(
-        nextModel.matchingNotes === nextModel.totalNotes
-          ? `${nextModel.totalNotes} indexed note${
-              nextModel.totalNotes === 1 ? "" : "s"
-            }.`
-          : `${nextModel.matchingNotes} of ${nextModel.totalNotes} indexed notes match.`,
-      );
     };
     const operation = sequence.current.then(run, run);
     sequence.current = operation.then(
@@ -170,8 +227,25 @@ export function NoteGraphPanel({
       }
       setLoading(false);
       setModel(null);
-      setStatus("The note graph could not be updated.");
-      onError(error);
+      const shouldRetry =
+        indexAttempted &&
+        !indexCompleted &&
+        snapshot !== null &&
+        retryCount.current < 1;
+      setStatus(
+        shouldRetry
+          ? "The note graph update failed. Retrying from a clean snapshot…"
+          : "The note graph could not be updated.",
+      );
+      if (shouldRetry) {
+        retryCount.current += 1;
+        retryTimer.current = window.setTimeout(() => {
+          retryTimer.current = null;
+          setRetryToken((current) => current + 1);
+        }, 250);
+      } else {
+        onError(error);
+      }
     });
     return () => {
       if (generation.current === requestGeneration) {
@@ -186,8 +260,18 @@ export function NoteGraphPanel({
     providerKey,
     query,
     queryNoteGraph,
+    retryToken,
     snapshot,
   ]);
+
+  useEffect(
+    () => () => {
+      if (retryTimer.current !== null) {
+        window.clearTimeout(retryTimer.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (!model || model.nodes.length === 0) {
@@ -205,6 +289,7 @@ export function NoteGraphPanel({
 
   const selectedNode =
     model?.nodes.find((node) => node.id === selectedNodeId) ?? null;
+  const graphControlsDisabled = loading && model === null;
   const filteredListNodes = useMemo(() => {
     const term = listQuery.trim().toLocaleLowerCase();
     if (!model || !term) {
@@ -229,6 +314,7 @@ export function NoteGraphPanel({
             <button
               type="button"
               aria-pressed={scope === "global"}
+              disabled={graphControlsDisabled}
               onClick={() => setScope("global")}
             >
               Global
@@ -236,6 +322,7 @@ export function NoteGraphPanel({
             <button
               type="button"
               aria-pressed={scope === "local"}
+              disabled={graphControlsDisabled}
               onClick={() => setScope("local")}
             >
               Local
@@ -270,6 +357,7 @@ export function NoteGraphPanel({
             Folder
             <select
               value={folder === null ? "*" : folder || "."}
+              disabled={graphControlsDisabled}
               onChange={(event) =>
                 setFolder(
                   event.currentTarget.value === "*"
@@ -292,6 +380,7 @@ export function NoteGraphPanel({
             Tag
             <select
               value={tag ?? "*"}
+              disabled={graphControlsDisabled}
               onChange={(event) =>
                 setTag(
                   event.currentTarget.value === "*"
@@ -312,6 +401,7 @@ export function NoteGraphPanel({
             Connections
             <select
               value={orphanFilter}
+              disabled={graphControlsDisabled}
               onChange={(event) =>
                 setOrphanFilter(
                   event.currentTarget.value as PluginNoteGraphOrphanFilter,
@@ -328,6 +418,7 @@ export function NoteGraphPanel({
               Depth
               <select
                 value={depth}
+                disabled={graphControlsDisabled}
                 onChange={(event) =>
                   setDepth(Number(event.currentTarget.value) as 1 | 2 | 3)
                 }
@@ -535,7 +626,6 @@ function GraphList({
       const next = nodes[0];
       const restoreFocus = focusedNode.current === selectedNodeId;
       onSelectedNodeChange(next.id);
-      focusedNode.current = next.id;
       if (restoreFocus) {
         queueMicrotask(() => buttons.current.get(next.id)?.focus());
       }
@@ -579,6 +669,9 @@ function GraphList({
           type="search"
           value={query}
           placeholder="Filter visible notes"
+          onFocus={() => {
+            focusedNode.current = null;
+          }}
           onChange={(event) => onQueryChange(event.currentTarget.value)}
         />
       </label>

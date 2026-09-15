@@ -1,8 +1,11 @@
 import {
   MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS,
   MAX_PLUGIN_NOTE_GRAPH_INDEX_BYTES,
+  MAX_PLUGIN_NOTE_GRAPH_INDEX_DOCUMENTS,
+  MAX_PLUGIN_NOTE_GRAPH_INDEX_REMOVALS,
   MAX_PLUGIN_NOTE_GRAPH_SOURCE_BYTES,
   MAX_PLUGIN_NOTE_GRAPH_TAGS_PER_DOCUMENT,
+  MAX_PLUGIN_NOTE_GRAPH_TOTAL_SOURCE_BYTES,
   type PluginNoteGraphDocument,
   type PluginNoteGraphIndexRequest,
 } from "@denote/plugin-sdk";
@@ -62,7 +65,7 @@ export function createNoteGraphSnapshot(
     if (
       sourceBytes > MAX_PLUGIN_NOTE_GRAPH_SOURCE_BYTES ||
       bounded.length >= MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS ||
-      bytes + sourceBytes > MAX_PLUGIN_NOTE_GRAPH_INDEX_BYTES
+      bytes + sourceBytes > MAX_PLUGIN_NOTE_GRAPH_TOTAL_SOURCE_BYTES
     ) {
       hostSkipped += 1;
       truncated = true;
@@ -79,18 +82,18 @@ export function createNoteGraphSnapshot(
   };
 }
 
-export function noteGraphIndexRequest(
+export function noteGraphIndexRequests(
   previous: NoteGraphSnapshot | null,
   next: NoteGraphSnapshot,
-): PluginNoteGraphIndexRequest | null {
+): PluginNoteGraphIndexRequest[] {
   if (!previous || previous.workspaceKey !== next.workspaceKey) {
-    return {
-      mode: "replace",
-      documents: next.documents,
-      removedPaths: [],
-      skippedCount: next.skippedCount,
-      truncated: next.truncated,
-    };
+    return chunkIndexDocuments(
+      "replace",
+      next.documents,
+      [],
+      next.skippedCount,
+      next.truncated,
+    );
   }
   const previousDocuments = new Map(
     previous.documents.map((document) => [document.path, document] as const),
@@ -111,15 +114,15 @@ export function noteGraphIndexRequest(
     previous.skippedCount === next.skippedCount &&
     previous.truncated === next.truncated
   ) {
-    return null;
+    return [];
   }
-  return {
-    mode: "update",
-    documents: changed,
+  return chunkIndexDocuments(
+    "update",
+    changed,
     removedPaths,
-    skippedCount: next.skippedCount,
-    truncated: next.truncated,
-  };
+    next.skippedCount,
+    next.truncated,
+  );
 }
 
 export function noteGraphFolders(
@@ -159,6 +162,50 @@ function sameDocument(
     left.tags.length === right.tags.length &&
     left.tags.every((tag, index) => tag === right.tags[index])
   );
+}
+
+function chunkIndexDocuments(
+  mode: PluginNoteGraphIndexRequest["mode"],
+  documents: PluginNoteGraphDocument[],
+  removedPaths: string[],
+  skippedCount: number,
+  truncated: boolean,
+): PluginNoteGraphIndexRequest[] {
+  const chunks: PluginNoteGraphDocument[][] = [];
+  let chunk: PluginNoteGraphDocument[] = [];
+  let bytes = 0;
+  for (const document of documents) {
+    const sourceBytes = stringBytes(document.source);
+    if (
+      chunk.length > 0 &&
+      (chunk.length >= MAX_PLUGIN_NOTE_GRAPH_INDEX_DOCUMENTS ||
+        bytes + sourceBytes > MAX_PLUGIN_NOTE_GRAPH_INDEX_BYTES)
+    ) {
+      chunks.push(chunk);
+      chunk = [];
+      bytes = 0;
+    }
+    chunk.push(document);
+    bytes += sourceBytes;
+  }
+  if (chunk.length > 0) {
+    chunks.push(chunk);
+  }
+  const requestCount = Math.max(
+    1,
+    chunks.length,
+    Math.ceil(removedPaths.length / MAX_PLUGIN_NOTE_GRAPH_INDEX_REMOVALS),
+  );
+  return Array.from({ length: requestCount }, (_, index) => ({
+    mode: index === 0 ? mode : "update",
+    documents: chunks[index] ?? [],
+    removedPaths: removedPaths.slice(
+      index * MAX_PLUGIN_NOTE_GRAPH_INDEX_REMOVALS,
+      (index + 1) * MAX_PLUGIN_NOTE_GRAPH_INDEX_REMOVALS,
+    ),
+    skippedCount,
+    truncated,
+  }));
 }
 
 function isMarkdownNotePath(path: string): boolean {

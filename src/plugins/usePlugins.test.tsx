@@ -16,6 +16,7 @@ import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
 
 interface MockRuntimeInstance {
+  running: boolean;
   onCommandsChanged: unknown;
   onSourceControlProvidersChanged?: unknown;
   onAutomaticLocalCommitsChanged?: unknown;
@@ -25,6 +26,7 @@ interface MockRuntimeInstance {
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
+  forceStop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
@@ -74,6 +76,10 @@ vi.mock("./workerRuntime", () => {
     stop = vi.fn(async () => {
       this.running = false;
       callOrder.push("stop");
+    });
+    forceStop = vi.fn(async () => {
+      this.running = false;
+      callOrder.push("forceStop");
     });
     stopAll = vi.fn(async () => {
       callOrder.push("stopAll");
@@ -286,7 +292,13 @@ describe("usePlugins", () => {
       currentWorkspaceIdentity: "/synthetic/encrypted-vault",
       currentContentAvailable: false,
     });
-    await waitFor(() => expect(runtime.stop).toHaveBeenCalledWith(pluginId));
+    await waitFor(() => {
+      if (capability === "note-graph") {
+        expect(runtime.forceStop).toHaveBeenCalledWith(pluginId);
+      } else {
+        expect(runtime.stop).toHaveBeenCalledWith(pluginId);
+      }
+    });
     },
   );
 
@@ -304,6 +316,7 @@ describe("usePlugins", () => {
     const runtime = runtimeInstances[0];
     runtime.start.mockClear();
     runtime.stop.mockClear();
+    runtime.forceStop.mockClear();
 
     rendered.rerender({
       currentProjectContext: null,
@@ -312,7 +325,7 @@ describe("usePlugins", () => {
     });
 
     await waitFor(() =>
-      expect(runtime.stop).toHaveBeenCalledWith(pluginId),
+      expect(runtime.forceStop).toHaveBeenCalledWith(pluginId),
     );
     await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
   });
@@ -920,6 +933,51 @@ describe("usePlugins", () => {
     });
 
     expect(callOrder).toEqual(["stop", "disablePlugin", "listPlugins"]);
+    expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
+  });
+
+  it("does not resurrect a graph runtime during a workspace switch and disable", async () => {
+    const enabled = makePlugin({
+      enabled: true,
+      approvedPermissions: [{ capability: "note-graph" }],
+    });
+    const rendered = await mountReady(
+      [enabled],
+      null,
+      "/synthetic/vault-alpha",
+      true,
+    );
+    const runtime = runtimeInstances[0];
+    runtime.start.mockClear();
+    let finishStop: (() => void) | undefined;
+    runtime.stop.mockImplementationOnce(async () => {
+      runtime.running = false;
+      callOrder.push("stop");
+      await new Promise<void>((resolve) => {
+        finishStop = resolve;
+      });
+    });
+    queueListPlugins([makePlugin({ enabled: false })]);
+
+    let disabling: Promise<void> | undefined;
+    act(() => {
+      disabling = rendered.result.current.disable(pluginId);
+    });
+    await waitFor(() => expect(runtime.stop).toHaveBeenCalledWith(pluginId));
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+      currentContentAvailable: true,
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(runtime.start).not.toHaveBeenCalled();
+
+    finishStop?.();
+    await act(async () => {
+      await disabling;
+    });
+    expect(runtime.start).not.toHaveBeenCalled();
     expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
   });
 
