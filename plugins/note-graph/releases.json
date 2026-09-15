@@ -1,0 +1,24 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "e759dccd3536d472ab5ad26ae056da7adc5e0727",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.0.tgz",
+      "sha256": "bb6400326bfe599b5b6434873d60be249d4e0ccb5c07aebbd938b8c7d12b0441",
+      "sizeBytes": 61346
+    }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "664094bdd0fe731eeb7d6ba4dbf629a3596f61f4",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.1.tgz",
+      "sha256": "674f93b3cc34042846f4e2f5d946d9d8f974ba5b254f4dc84e792841f6a4bcb3",
+      "sizeBytes": 61332
+    }
+  }
+]
