@@ -3,6 +3,7 @@ import { basename, dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { pluginSdkModulePath, pluginSdkSourceCommit } from "./plugin-sdk-provenance";
+import { pluginEntrypointConditions } from "./plugin-build-conditions";
 import { build, type Plugin } from "vite";
 import {
   parsePluginManifest,
@@ -51,9 +52,19 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
   });
   const sourceCommit = pluginSdkSourceCommit(manifest, entries);
   const entrypoints = [
-    { path: manifest.entrypoint, minify: false },
+    {
+      path: manifest.entrypoint,
+      minify: false,
+      conditions: pluginEntrypointConditions("worker"),
+    },
     ...(manifest.diagramRenderer
-      ? [{ path: manifest.diagramRenderer.entrypoint, minify: true }]
+      ? [
+          {
+            path: manifest.diagramRenderer.entrypoint,
+            minify: true,
+            conditions: pluginEntrypointConditions("diagram-renderer"),
+          },
+        ]
       : []),
   ];
   for (const [index, entrypoint] of entrypoints.entries()) {
@@ -70,6 +81,9 @@ export async function buildPlugin(pluginDirectory: string): Promise<PluginManife
         pluginBoundary(pluginDirectory, sdkRoot),
         stableSourceLabels(manifest),
       ],
+      resolve: {
+        conditions: entrypoint.conditions,
+      },
       build: {
         emptyOutDir: index === 0,
         minify: entrypoint.minify,

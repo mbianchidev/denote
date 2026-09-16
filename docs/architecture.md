@@ -1083,6 +1083,10 @@ DOM or direct Tauri bindings; the CSP denies direct network connections, and the
 host terminates the worker on invalid protocol messages or timeouts. Messages are
 scoped to the plugin ID by the host, so plugin code cannot choose the ID used for
 native storage or keychain calls.
+Activation bundles resolve conditional package exports with the `worker`
+condition, preventing a dependency from selecting a browser-only DOM build.
+Separately declared diagram-renderer bundles retain browser resolution for
+their reviewed opaque iframe runtime.
 Command and source-control contributions require the plugin ID prefix, remain
 staged until activation succeeds, and disappear when the worker terminates.
 Source-control model updates use the original registration handle and do not

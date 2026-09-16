@@ -159,6 +159,13 @@ Targeted one-off builds are also available:
 npm run build:plugin -- denote.example
 ```
 
+Activation entrypoints resolve conditional package exports with the `worker`
+condition because downloaded plugin code runs in a DOM-free module worker.
+Dependencies that publish separate browser and worker builds must select their
+worker-safe export. Diagram-renderer entrypoints retain browser resolution for
+their separately sandboxed iframe runtime. Keep
+`scripts/plugin-build.test.ts` aligned with this distinction.
+
 Plugin packages cannot declare npm lifecycle scripts or executable `bin`
 entries. CI checks this before dependency installation, installs with lifecycle
 scripts disabled, audits JavaScript and Rust dependencies, and rejects new

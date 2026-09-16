@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parsePluginManifest, type PluginCatalogEntry } from "@denote/plugin-sdk";
+import { pluginEntrypointConditions } from "./plugin-build-conditions";
 import { pluginSdkModulePath, pluginSdkSourceCommit } from "./plugin-sdk-provenance";
 import { containsPluginRuntimeImport } from "./plugin-runtime-imports";
 
@@ -31,6 +32,11 @@ const entry: PluginCatalogEntry = {
 };
 
 describe("plugin SDK build provenance", () => {
+  it("uses worker package exports only for isolated activation bundles", () => {
+    expect(pluginEntrypointConditions("worker")).toEqual(["worker"]);
+    expect(pluginEntrypointConditions("diagram-renderer")).toEqual([]);
+  });
+
   it("resolves native and Vite-normalized paths on every platform", () => {
     expect(pluginSdkModulePath("/synthetic/sdk", "/synthetic/sdk/src/index.ts"))
       .toBe("packages/plugin-sdk/src/index.ts");

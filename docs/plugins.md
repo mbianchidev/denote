@@ -157,6 +157,10 @@ DOM or Tauri API object; its private `MessagePort` exposes only approved service
 plugin-scoped state, keychain access, and registered contributions. Worker crashes
 trigger termination and package removal. Enabled workers restart from verified
 installed packages when Denote starts.
+Activation bundles resolve conditional package exports with the `worker`
+condition, so dependencies cannot silently select browser-only DOM
+implementations. Separately declared diagram-renderer bundles retain browser
+resolution for their reviewed opaque iframe.
 
 Host messages reach a plugin one at a time, so activation, commands, note
 events, and source-control actions never interleave. Two message kinds are

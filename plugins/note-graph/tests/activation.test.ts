@@ -33,7 +33,7 @@ describe("Note graph plugin activation", () => {
     expect(plugin.manifest).toMatchObject({
       id: "denote.note-graph",
       name: "Note graph",
-      version: "0.1.1",
+      version: "0.1.2",
       license: "MIT",
       category: "knowledge-management",
       compatibility: {
