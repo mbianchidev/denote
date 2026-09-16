@@ -9,7 +9,7 @@ import {
   type PluginNoteGraphDocument,
   type PluginNoteGraphIndexRequest,
 } from "@denote/plugin-sdk";
-import type { DocumentBatch } from "../types";
+import type { DocumentBatch, EditorTab } from "../types";
 
 const SAFE_GRAPH_TEXT =
   /^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]*$/u;
@@ -21,10 +21,36 @@ export interface NoteGraphSnapshot {
   truncated: boolean;
 }
 
+export function noteGraphTabPath(
+  pluginId: string,
+  providerId: string,
+): string {
+  return `denote-note-graph:${pluginId}:${providerId}`;
+}
+
+export function rekeyNoteGraphTab(
+  tab: EditorTab,
+  rekey: (path: string) => string,
+): EditorTab {
+  if (tab.transient !== "note-graph" || !tab.noteGraph?.notePath) {
+    return tab;
+  }
+  const notePath = rekey(tab.noteGraph.notePath);
+  return notePath === tab.noteGraph.notePath
+    ? tab
+    : {
+        ...tab,
+        noteGraph: {
+          ...tab.noteGraph,
+          notePath,
+        },
+      };
+}
+
 export function createNoteGraphSnapshot(
   workspaceKey: string,
   batch: DocumentBatch | null,
-  activePath: string | null,
+  priorityPaths: string[],
 ): NoteGraphSnapshot | null {
   if (!batch) {
     return null;
@@ -51,9 +77,14 @@ export function createNoteGraphSnapshot(
       invalidSkipped += 1;
     }
   }
+  const priorities = new Map(
+    priorityPaths.map((path, index) => [path, index] as const),
+  );
   const ordered = [...documents.values()].sort((left, right) => {
-    const leftRank = left.path === activePath ? 0 : 1;
-    const rightRank = right.path === activePath ? 0 : 1;
+    const leftRank =
+      priorities.get(left.path) ?? Number.MAX_SAFE_INTEGER;
+    const rightRank =
+      priorities.get(right.path) ?? Number.MAX_SAFE_INTEGER;
     return leftRank - rightRank || left.path.localeCompare(right.path);
   });
   const bounded: PluginNoteGraphDocument[] = [];

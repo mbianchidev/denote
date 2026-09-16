@@ -1,13 +1,45 @@
 import { describe, expect, it } from "vitest";
-import type { DocumentBatch, SearchDocument } from "../types";
+import type { DocumentBatch, EditorTab, SearchDocument } from "../types";
 import {
   createNoteGraphSnapshot,
   noteGraphFolders,
   noteGraphIndexRequests,
+  noteGraphTabPath,
+  rekeyNoteGraphTab,
   noteGraphTags,
 } from "./noteGraphs";
 
 describe("note graph host snapshots", () => {
+  it("uses a stable non-vault path for a provider graph tab", () => {
+    expect(
+      noteGraphTabPath("denote.note-graph", "denote.note-graph.graph"),
+    ).toBe(
+      "denote-note-graph:denote.note-graph:denote.note-graph.graph",
+    );
+  });
+
+  it("rekeys only a graph tab's Local note anchor", () => {
+    const graphTab: EditorTab = {
+      ...tab("denote-note-graph:denote.note-graph:denote.note-graph.graph"),
+      title: "Note graph",
+      transient: "note-graph",
+      noteGraph: {
+        pluginId: "denote.note-graph",
+        providerId: "denote.note-graph.graph",
+        notePath: "projects/Alpha.md",
+      },
+    };
+    const rekeyed = rekeyNoteGraphTab(graphTab, (path) =>
+      path.replace(/^projects\//, "archive/"),
+    );
+
+    expect(rekeyed).toMatchObject({
+      path: graphTab.path,
+      title: "Note graph",
+      noteGraph: { notePath: "archive/Alpha.md" },
+    });
+  });
+
   it("keeps Markdown only and prioritizes the active note", () => {
     const batch: DocumentBatch = {
       documents: [
@@ -18,11 +50,10 @@ describe("note graph host snapshots", () => {
       skippedCount: 1,
       truncated: false,
     };
-    const snapshot = createNoteGraphSnapshot(
-      "vault-one",
-      batch,
+    const snapshot = createNoteGraphSnapshot("vault-one", batch, [
       "notes/Beta.md",
-    );
+      "notes/Alpha.md",
+    ]);
 
     expect(snapshot).toEqual({
       workspaceKey: "vault-one",
@@ -45,6 +76,28 @@ describe("note graph host snapshots", () => {
     });
   });
 
+  it("keeps every live graph anchor ahead of the snapshot note limit", () => {
+    const documents = Array.from({ length: 5_001 }, (_, index) =>
+      document(`${index}.md`, `# Note ${index}`),
+    );
+    const snapshot = createNoteGraphSnapshot(
+      "vault-one",
+      {
+        documents,
+        skippedCount: 0,
+        truncated: false,
+      },
+      ["5000.md", "4999.md"],
+    );
+
+    expect(snapshot?.documents).toHaveLength(5_000);
+    expect(snapshot?.documents.slice(0, 2).map(({ path }) => path)).toEqual([
+      "5000.md",
+      "4999.md",
+    ]);
+    expect(snapshot?.truncated).toBe(true);
+  });
+
   it("produces a replace followed by changed and removed deltas", () => {
     const first = createNoteGraphSnapshot(
       "vault-one",
@@ -56,7 +109,7 @@ describe("note graph host snapshots", () => {
         skippedCount: 0,
         truncated: false,
       },
-      "Alpha.md",
+      ["Alpha.md"],
     );
     const second = createNoteGraphSnapshot(
       "vault-one",
@@ -68,7 +121,7 @@ describe("note graph host snapshots", () => {
         skippedCount: 0,
         truncated: false,
       },
-      "Alpha.md",
+      ["Alpha.md"],
     );
     expect(first).not.toBeNull();
     expect(second).not.toBeNull();
@@ -204,5 +257,24 @@ function document(
     kind,
     bookmarked: false,
     lastOpenedAt: null,
+  };
+}
+
+function tab(path: string): EditorTab {
+  return {
+    path,
+    title: path,
+    kind: "text",
+    content: "",
+    savedContent: "",
+    encoding: "utf8",
+    lineEnding: "lf",
+    placeholder: false,
+    groupId: null,
+    rawEditing: false,
+    readOnly: true,
+    editorRevision: 0,
+    editRecorded: false,
+    saveState: "saved",
   };
 }

@@ -74,7 +74,12 @@ export function placeOpenedTab(
       },
     ]);
   }
-  const navigation = pushTabNavigation(tabs[activeIndex], opened.path);
+  const navigation = tabs[activeIndex].transient
+    ? {
+        navigationHistory: [opened.path],
+        navigationIndex: 0,
+      }
+    : pushTabNavigation(tabs[activeIndex], opened.path);
   const next = [...tabs];
   if (preserveUnsaved && tabHasUnsavedChanges(next[activeIndex])) {
     next.splice(activeIndex + 1, 0, {

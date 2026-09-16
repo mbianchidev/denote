@@ -250,6 +250,13 @@ shows notes within one, two, or three incoming or outgoing connections. If the
 active file is not in the graph, Local explains that no neighborhood is
 available instead of changing files or filters.
 
+Use **Open Note graph in a tab** in the graph header, or run that command from
+the command palette, to give the graph a complete editor pane. The graph tab can
+be reordered, grouped, moved between panes, and docked like other tabs. It is
+temporary: Denote never saves it into the vault or restores it next launch.
+Choosing a node opens or focuses a separate note tab, so the graph remains
+available when you return. That note becomes the Local starting point.
+
 Use the filters to limit the result:
 
 - **Folder** includes that folder and its descendants. **Vault root** selects
@@ -262,7 +269,8 @@ Use the filters to limit the result:
 
 The graph view uses a stable local constellation. Select a node to open that
 note through Denote's ordinary navigation. Zoom controls change only the visual
-plot. Choose **Show keyboard note list** for the equivalent searchable list.
+plot; the full tab offers a wider zoom range and shows more labels. Choose
+**Show keyboard note list** for the equivalent searchable list.
 Tab enters the list once; Up/Down move one note, Home/End move to the first or
 last visible note, and Enter opens it. Every row states its title, relative
 path, and incoming/outgoing connection counts.

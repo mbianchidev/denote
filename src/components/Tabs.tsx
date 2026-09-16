@@ -5,6 +5,7 @@ import {
   FileImage,
   FileText,
   FolderPlus,
+  Network,
   Pencil,
   Plus,
   X,
@@ -240,7 +241,12 @@ export function Tabs({
     const index = visibleTabs.findIndex(
       (candidate) => candidate.path === tab.path,
     );
-    const Icon = tab.kind === "image" ? FileImage : FileText;
+    const Icon =
+      tab.transient === "note-graph"
+        ? Network
+        : tab.kind === "image"
+          ? FileImage
+          : FileText;
     return (
       <div
         className="tab"

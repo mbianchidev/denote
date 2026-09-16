@@ -1,5 +1,6 @@
 import {
   List,
+  Maximize2,
   Network,
   RotateCcw,
   Search,
@@ -8,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -21,9 +23,9 @@ import type {
   PluginNoteGraphQuery,
 } from "@denote/plugin-sdk";
 import type { PluginNoteGraphContribution } from "../plugins/workerRuntime";
+import { NoteGraphCoordinator } from "../plugins/noteGraphCoordinator";
 import {
   noteGraphFolders,
-  noteGraphIndexRequests,
   noteGraphTags,
   type NoteGraphSnapshot,
 } from "../plugins/noteGraphs";
@@ -44,6 +46,9 @@ interface NoteGraphPanelProps {
   ) => Promise<PluginNoteGraphModel>;
   onOpenFile: (path: string) => void;
   onError: (error: unknown) => void;
+  surface?: "sidebar" | "tab";
+  onOpenInTab?: () => void;
+  coordinator?: NoteGraphCoordinator;
 }
 
 type Presentation = "graph" | "list";
@@ -56,7 +61,13 @@ export function NoteGraphPanel({
   queryNoteGraph,
   onOpenFile,
   onError,
+  surface = "sidebar",
+  onOpenInTab,
+  coordinator,
 }: NoteGraphPanelProps) {
+  const headingId = useId();
+  const [localCoordinator] = useState(() => new NoteGraphCoordinator());
+  const graphCoordinator = coordinator ?? localCoordinator;
   const [scope, setScope] = useState<PluginNoteGraphQuery["scope"]>("global");
   const [presentation, setPresentation] = useState<Presentation>("graph");
   const [folder, setFolder] = useState<string | null>(null);
@@ -70,13 +81,7 @@ export function NoteGraphPanel({
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [listQuery, setListQuery] = useState("");
   const [zoom, setZoom] = useState(1);
-  const [retryToken, setRetryToken] = useState(0);
-  const sequence = useRef<Promise<void>>(Promise.resolve());
   const generation = useRef(0);
-  const retryCount = useRef(0);
-  const retryTimer = useRef<number | null>(null);
-  const previousSnapshot = useRef<NoteGraphSnapshot | null>(null);
-  const previousProvider = useRef<string | null>(null);
   const providerKey = `${provider.pluginId}:${provider.id}`;
   const folders = useMemo(
     () => noteGraphFolders(snapshot?.documents ?? []),
@@ -104,14 +109,22 @@ export function NoteGraphPanel({
   );
 
   useEffect(() => {
-    if (retryTimer.current !== null) {
-      window.clearTimeout(retryTimer.current);
-      retryTimer.current = null;
+    if (!coordinator) {
+      localCoordinator.invalidateWorkspace();
     }
-    retryCount.current = 0;
+  }, [coordinator, localCoordinator, snapshot?.workspaceKey]);
+
+  useEffect(
+    () => () => {
+      if (!coordinator) {
+        localCoordinator.clear();
+      }
+    },
+    [coordinator, localCoordinator],
+  );
+
+  useEffect(() => {
     generation.current += 1;
-    previousProvider.current = providerKey;
-    previousSnapshot.current = null;
     setModel(null);
     setSelectedNodeId(null);
     setStatus("Waiting for the local note index.");
@@ -131,73 +144,24 @@ export function NoteGraphPanel({
 
   useEffect(() => {
     const requestGeneration = ++generation.current;
-    let indexAttempted = false;
-    let indexCompleted = false;
-    let appliedIndexChunks = 0;
-    const isCurrent = () => requestGeneration === generation.current;
-    const run = async () => {
-      try {
-        if (!isCurrent()) {
-          return;
-        }
-        if (!snapshot) {
-          if (isCurrent()) {
-            setModel(null);
-            setLoading(false);
-            setStatus("Waiting for the local note index.");
-          }
-          return;
-        }
-        if (previousProvider.current !== providerKey) {
-          previousProvider.current = providerKey;
-          previousSnapshot.current = null;
-        }
-        if (!isCurrent()) {
-          return;
-        }
-        setLoading(true);
-        const indexRequests = noteGraphIndexRequests(
-          previousSnapshot.current,
-          snapshot,
-        );
-        if (indexRequests.length > 0) {
-          if (retryTimer.current !== null) {
-            window.clearTimeout(retryTimer.current);
-            retryTimer.current = null;
-          }
-          indexAttempted = true;
-          setStatus(
-            indexRequests[0].mode === "replace"
-              ? "Indexing note connections…"
-              : "Updating changed note connections…",
-          );
-          for (const indexRequest of indexRequests) {
-            if (!isCurrent()) {
-              if (appliedIndexChunks > 0) {
-                previousSnapshot.current = null;
-              }
-              return;
-            }
-            await indexNoteGraph(provider.pluginId, provider.id, indexRequest);
-            appliedIndexChunks += 1;
-            if (!isCurrent()) {
-              previousSnapshot.current = null;
-              return;
-            }
-          }
-          indexCompleted = true;
-          retryCount.current = 0;
-          previousSnapshot.current = snapshot;
-        }
-        if (!isCurrent()) {
-          return;
-        }
-        const nextModel = await queryNoteGraph(
-          provider.pluginId,
-          provider.id,
-          query,
-        );
-        if (!isCurrent()) {
+    if (!snapshot) {
+      setModel(null);
+      setLoading(false);
+      setStatus("Waiting for the local note index.");
+      return;
+    }
+    setLoading(true);
+    setStatus("Updating note connections…");
+    void graphCoordinator
+      .run(
+        provider,
+        snapshot,
+        query,
+        indexNoteGraph,
+        queryNoteGraph,
+      )
+      .then(({ model: nextModel }) => {
+        if (requestGeneration !== generation.current) {
           return;
         }
         setModel(nextModel);
@@ -209,69 +173,30 @@ export function NoteGraphPanel({
               }.`
             : `${nextModel.matchingNotes} of ${nextModel.totalNotes} indexed notes match.`,
         );
-      } catch (error) {
-        if (indexAttempted && !indexCompleted) {
-          previousSnapshot.current = null;
-        }
-        throw error;
-      }
-    };
-    const operation = sequence.current.then(run, run);
-    sequence.current = operation.then(
-      () => {},
-      () => {},
-    );
-    void operation.catch((error) => {
+      })
+      .catch((error) => {
       if (requestGeneration !== generation.current) {
         return;
       }
       setLoading(false);
       setModel(null);
-      const shouldRetry =
-        indexAttempted &&
-        !indexCompleted &&
-        snapshot !== null &&
-        retryCount.current < 1;
-      setStatus(
-        shouldRetry
-          ? "The note graph update failed. Retrying from a clean snapshot…"
-          : "The note graph could not be updated.",
-      );
-      if (shouldRetry) {
-        retryCount.current += 1;
-        retryTimer.current = window.setTimeout(() => {
-          retryTimer.current = null;
-          setRetryToken((current) => current + 1);
-        }, 250);
-      } else {
-        onError(error);
-      }
-    });
+      setStatus("The note graph could not be updated.");
+      onError(error);
+      });
     return () => {
       if (generation.current === requestGeneration) {
         generation.current += 1;
       }
     };
   }, [
+    graphCoordinator,
     indexNoteGraph,
     onError,
-    provider.id,
-    provider.pluginId,
-    providerKey,
+    provider,
     query,
     queryNoteGraph,
-    retryToken,
     snapshot,
   ]);
-
-  useEffect(
-    () => () => {
-      if (retryTimer.current !== null) {
-        window.clearTimeout(retryTimer.current);
-      }
-    },
-    [],
-  );
 
   useEffect(() => {
     if (!model || model.nodes.length === 0) {
@@ -303,10 +228,32 @@ export function NoteGraphPanel({
   }, [listQuery, model]);
 
   return (
-    <section className="note-graph-panel" aria-labelledby="note-graph-title">
-      <div className="sidebar-view__title">
-        <h2 id="note-graph-title">{provider.title}</h2>
-        {loading ? <span className="note-graph-panel__busy">Updating</span> : null}
+    <section
+      className={`note-graph-panel note-graph-panel--${surface}`}
+      aria-labelledby={headingId}
+    >
+      <div
+        className={`note-graph-panel__header${
+          surface === "sidebar" ? " sidebar-view__title" : ""
+        }`}
+      >
+        <h2 id={headingId}>{provider.title}</h2>
+        <div className="note-graph-panel__header-actions">
+          {loading ? (
+            <span className="note-graph-panel__busy">Updating</span>
+          ) : null}
+          {onOpenInTab ? (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={`Open ${provider.title} in a tab`}
+              title={`Open ${provider.title} in a tab`}
+              onClick={onOpenInTab}
+            >
+              <Maximize2 aria-hidden="true" size={14} />
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="note-graph-panel__body">
         <div className="note-graph-panel__switches">
@@ -451,6 +398,7 @@ export function NoteGraphPanel({
           </div>
         ) : presentation === "graph" ? (
           <GraphPlot
+            large={surface === "tab"}
             model={model}
             selectedNodeId={selectedNodeId}
             zoom={zoom}
@@ -486,6 +434,7 @@ export function NoteGraphPanel({
 }
 
 function GraphPlot({
+  large,
   model,
   selectedNodeId,
   zoom,
@@ -493,6 +442,7 @@ function GraphPlot({
   onOpenFile,
   onZoomChange,
 }: {
+  large: boolean;
   model: PluginNoteGraphModel | null;
   selectedNodeId: string | null;
   zoom: number;
@@ -502,6 +452,8 @@ function GraphPlot({
 }) {
   const layout = useMemo(() => graphLayout(model), [model]);
   const positions = new Map(layout.map((entry) => [entry.node.id, entry]));
+  const minimumZoom = large ? 0.45 : 0.7;
+  const maximumZoom = large ? 2.5 : 1.75;
   return (
     <div className="note-graph-plot">
       <div className="note-graph-plot__toolbar" aria-label="Graph zoom">
@@ -509,8 +461,10 @@ function GraphPlot({
           type="button"
           aria-label="Zoom out"
           title="Zoom out"
-          disabled={zoom <= 0.7}
-          onClick={() => onZoomChange(Math.max(0.7, zoom - 0.15))}
+          disabled={zoom <= minimumZoom}
+          onClick={() =>
+            onZoomChange(Math.max(minimumZoom, zoom - 0.15))
+          }
         >
           <ZoomOut aria-hidden="true" size={14} />
         </button>
@@ -519,8 +473,10 @@ function GraphPlot({
           type="button"
           aria-label="Zoom in"
           title="Zoom in"
-          disabled={zoom >= 1.75}
-          onClick={() => onZoomChange(Math.min(1.75, zoom + 0.15))}
+          disabled={zoom >= maximumZoom}
+          onClick={() =>
+            onZoomChange(Math.min(maximumZoom, zoom + 0.15))
+          }
         >
           <ZoomIn aria-hidden="true" size={14} />
         </button>
@@ -560,7 +516,10 @@ function GraphPlot({
                 const selected = node.id === selectedNodeId;
                 const active = node.id === model.activeNodeId;
                 const showLabel =
-                  model.nodes.length <= 42 || selected || active || index < 8;
+                  model.nodes.length <= (large ? 120 : 42) ||
+                  selected ||
+                  active ||
+                  index < (large ? 16 : 8);
                 return (
                   <g
                     className="note-graph-plot__node"

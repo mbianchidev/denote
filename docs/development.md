@@ -486,6 +486,7 @@ Run focused coverage with:
 ```bash
 npx vitest run \
   packages/plugin-sdk/src/noteGraph.test.ts \
+  src/plugins/noteGraphCoordinator.test.ts \
   src/plugins/noteGraphs.test.ts \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
@@ -502,7 +503,9 @@ root-relative and extensionless paths, ambiguous case, external schemes,
 malformed source, path additions/removals, changed-note-only reparsing,
 incoming/outgoing counts, orphans, global/local depth, every filter, node/edge
 limits, stale requests, lock/unlock, disable/re-enable, visual selection, the
-roving keyboard list, announcements, and host-owned navigation.
+roving keyboard list, announcements, host-owned navigation, sidebar-to-tab
+launch, transient-session exclusion, graph-tab pane movement, and opening notes
+without replacing the graph.
 
 Stage the source-only archive with
 `npm run package:plugin -- denote.note-graph`. Commit source, SDK, host, tests,

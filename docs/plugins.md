@@ -397,6 +397,9 @@ at 256 documents, 512 KiB of source, and 512 removed paths. The complete host
 snapshot is capped at 5,000 notes, 256 KiB per note, and 8 MiB total source,
 then sent as one `replace` request followed by ordered `update` batches. The
 active saved note takes priority when the input cap is reached.
+A host coordinator persists one completed snapshot and serialized operation
+queue per workspace/provider, so sidebar and full-tab mounts share the same
+index instead of racing or rebuilding it.
 
 A query chooses global or local scope, an optional active note, folder and tag
 filters, orphan selection, and local depth 1–3. The worker returns at most 500
@@ -412,6 +415,13 @@ The visual SVG is hidden from assistive technology because the list exposes the
 same notes and actions with one roving Tab stop, Arrow/Home/End movement, and
 native button activation. A provider returns only vault-relative paths, and the
 host opens them through its ordinary current-vault flow.
+
+The compact sidebar can open one host-owned transient graph tab for the same
+provider. The tab stores only provider identity and its current Local anchor,
+uses no plugin markup, is excluded from vault/session persistence, and keeps
+ordinary tab ordering, grouping, pane movement, docking, and close behavior.
+Selecting a node from the full canvas opens or focuses an ordinary note tab
+without replacing the graph and updates the graph tab's Local anchor.
 
 `denote.note-graph` parses inline and reference Markdown links in the isolated
 worker. It ignores images, external schemes, fragment-only links, malformed

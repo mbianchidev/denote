@@ -678,6 +678,13 @@ models, never markup or executable UI. Denote owns the activity-rail control,
 filters, local/global switch, deterministic layout, file navigation, focus,
 status announcements, and teardown.
 
+The activity rail first opens a compact graph sidebar with an explicit
+**Open in tab** icon action. The full transient tab moves the same controls into
+the editor canvas: one quiet title row, compact scope and presentation controls,
+an auto-fitting filter row, then a graph that owns the remaining pane height.
+It uses the ordinary tab strip, graph icon, close action, reordering, groups,
+pane moves, and docking instead of inventing a separate full-screen shell.
+
 The visual signature is one restrained notebook constellation: faint graphite
 connections sit on the editor tone, ordinary notes use muted ink, and the active
 or selected note becomes the single moss focus. Node size may reflect connection
@@ -688,14 +695,17 @@ radial layout stays stable while filters change.
 Compact native controls precede the plot. **Global** / **Local** and graph/list
 switches use visible `aria-pressed` state. Folder, tag, connection status, and
 local depth use labelled native selects. Zoom controls affect only the visual
-plot and retain exact accessible names.
+plot and retain exact accessible names. The tab canvas permits a wider zoom
+range and more visible node labels than the compact sidebar.
 
 The equivalent note list is a first-class presentation, not hidden fallback.
 It exposes note title, vault-relative path, and written incoming/outgoing counts.
 Only one row is in the Tab order; Up/Down, Home, and End move among rows, and
 Enter opens the focused note through the host. Search remains a separate native
 field. Focus stays visible, filter/query updates do not steal it, and a note
-that disappears moves selection to the first surviving result.
+that disappears moves selection to the first surviving result. Opening a note
+from the full graph uses or creates another ordinary tab, preserving the graph
+for continued exploration.
 
 Empty, local-note-unavailable, input-bound, output-bound, and indexing states
 use written guidance plus one polite status region. The plot is hidden from the

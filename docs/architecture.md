@@ -903,6 +903,11 @@ The first request for a provider or workspace is `replace`; later requests are
 compares source, title, and tags, then serializes requests through the existing
 worker message queue. A failed delta leaves the previous snapshot current and is
 retried rather than being reported as indexed. Vault changes force replacement.
+A workspace/provider-scoped host coordinator owns that queue and last completed
+snapshot independently from mounted React surfaces. Switching between the
+sidebar and full graph tab, or temporarily opening a note over the graph tab,
+therefore reuses the completed worker index and cannot interleave partial
+replacement chunks from separate panels.
 
 Queries contain only a global/local scope, optional active vault-relative path,
 optional folder and tag filters, `all` / `only` / `connected` orphan selection,
@@ -918,6 +923,16 @@ announcements, and host file opening. The SVG plot is presentation-only and
 hidden from assistive technology; the searchable list exposes the same notes
 with one roving Tab stop, Arrow/Home/End movement, and native button activation.
 No graph model can name an absolute path or navigate outside the current vault.
+
+The sidebar contributes an explicit host action that creates or focuses one
+`note-graph` transient `EditorTab` per provider. Its host-only metadata contains
+the plugin/provider IDs and the current Local anchor. The virtual path is never
+resolved as a vault file. Like transient diff tabs, graph tabs are excluded from
+autosave, file references, search/recent statistics, and persisted tab sessions,
+while ordinary tab reordering, grouping, pane movement, docking, and close
+behavior continue to apply. The full tab renders the same bounded provider and
+snapshot in the editor pane. Choosing a node updates its Local anchor and opens
+or focuses the note through the host's new-tab flow, leaving the graph tab open.
 
 `denote.note-graph` keeps its parsed note map only in the isolated worker.
 Replace parses every supplied note; update reparses only supplied changes and
@@ -942,7 +957,7 @@ encrypted vault is locked, then restarted from the verified installed package
 after unlock. A vault switch or lock withdraws the contribution and
 force-terminates the graph worker instead of queueing deactivation behind an
 index operation; an enabled plugin then starts cleanly for the current
-workspace. Closing the graph view releases its host model; plugin
+workspace. Closing the sidebar or graph tab releases that host model; plugin
 disable/update/removal/crash and application teardown release the worker index
 and every derived layout. The capability exposes no edit operation, so enabling,
 using, disabling, or removing it cannot change Markdown.

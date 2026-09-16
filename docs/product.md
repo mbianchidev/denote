@@ -455,6 +455,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   status, and one-to-three connection-depth filters update the model without
   changing Markdown. Selecting a visual node or its list row opens that note
   through Denote's ordinary file-navigation flow.
+- The compact rail view can open the same graph as a full transient editor tab.
+  The graph tab participates in ordinary tab focus, ordering, grouping, pane
+  moves, and docking, but is never saved to the vault or restored next launch.
+  Opening a node from it opens or focuses an ordinary note tab without replacing
+  the graph, and makes that note the tab's later Local anchor.
 - The graph uses a bounded deterministic constellation plus an equivalent
   searchable keyboard list with one roving tab stop, Arrow/Home/End movement,
   visible focus, and Enter activation. Input is capped at 5,000 UTF-8 Markdown

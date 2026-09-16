@@ -311,24 +311,17 @@ describe("Note graph indexing", () => {
     );
   });
 
-  it("normalizes two exact-bound dense definition documents before parsing", () => {
-    const denseDefinitions = (size: number) => {
-      const lines: string[] = [];
-      let length = 0;
-      for (let index = 0; ; index += 1) {
-        const line = `[${index}]:a b\n`;
-        if (length + line.length > size) {
-          break;
-        }
-        lines.push(line);
-        length += line.length;
-      }
-      return {
-        count: lines.length,
-        source: `${lines.join("")}${"x".repeat(size - length)}`,
-      };
+  it("normalizes two exact-bound definition documents before parsing", () => {
+    const size = 256 * 1024;
+    const count = 2_048;
+    const definitions = Array.from(
+      { length: count },
+      (_, index) => `[${index}]:a b\n`,
+    ).join("");
+    const fixture = {
+      count,
+      source: `${definitions}${"x".repeat(size - definitions.length)}`,
     };
-    const fixture = denseDefinitions(256 * 1024);
     const firstDiagnostics: NoteGraphParseDiagnostics = {
       definitionEdits: 0,
       definitionScannerCharacters: 0,

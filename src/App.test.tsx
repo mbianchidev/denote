@@ -1263,7 +1263,22 @@ describe("App initial file-tree expansion", () => {
       skippedCount: 0,
       truncated: false,
     });
-    mockPluginController.plugins = [noteGraphPluginView()];
+    const noteEventObserver = syntheticEmojiPluginView();
+    noteEventObserver.catalog = {
+      ...noteEventObserver.catalog,
+      manifest: {
+        ...noteEventObserver.catalog.manifest,
+        id: "denote.note-event-observer",
+        permissions: [{ capability: "note-events" }],
+      },
+    };
+    noteEventObserver.approvedPermissions = [
+      { capability: "note-events" },
+    ];
+    mockPluginController.plugins = [
+      noteGraphPluginView(),
+      noteEventObserver,
+    ];
     mockPluginController.noteGraphs = [noteGraphContribution()];
     mockPluginController.queryNoteGraph.mockResolvedValue({
       nodes: [
@@ -1300,6 +1315,9 @@ describe("App initial file-tree expansion", () => {
     render(<App />);
 
     await user.click(
+      await screen.findByRole("button", { name: "Open Alpha.md" }),
+    );
+    await user.click(
       await screen.findByRole("button", { name: "Note graph" }),
     );
     await waitFor(() =>
@@ -1309,15 +1327,47 @@ describe("App initial file-tree expansion", () => {
         expect.objectContaining({ mode: "replace" }),
       ),
     );
+    mockPluginController.emitNoteEvent.mockClear();
     await user.click(
-      screen.getByRole("button", { name: "Show keyboard note list" }),
+      screen.getByRole("button", { name: "Open Note graph in a tab" }),
     );
-    await user.click(
-      await screen.findByRole("button", {
-        name: /Beta, Beta\.md, 1 backlink, 0 outgoing links/,
+    const graphTab = await screen.findByRole("tab", {
+      name: "Note graph",
+    });
+    await waitFor(() => expect(graphTab).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(mockPluginController.emitNoteEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: expect.stringContaining("denote-note-graph:"),
       }),
     );
+    await user.click(screen.getByRole("button", { name: "Note graph" }));
+    expect(graphTab).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.queryByRole("button", {
+        name: "Open Note graph in a tab",
+      }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Show keyboard note list",
+      }),
+    );
+    const beta = await screen.findByRole("button", {
+      name: /Beta, Beta\.md, 1 backlink, 0 outgoing links/,
+    });
+    beta.focus();
+    await user.keyboard("{Enter}");
     expect(mockApi.readNote).toHaveBeenCalledWith("Beta.md");
+    expect(
+      screen.getByRole("tab", { name: "Note graph" }),
+    ).toBeInTheDocument();
+    const betaTab = await screen.findByRole("tab", { name: /Beta\.md/ });
+    expect(betaTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(betaTab).toHaveFocus());
   });
 
   it("routes enabled JSON and YAML viewers without changing exact Raw source", async () => {

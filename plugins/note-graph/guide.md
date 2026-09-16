@@ -25,6 +25,15 @@ incomplete.
 
 Open **Note graph** from the activity rail after enabling the plugin.
 
+Choose **Open Note graph in a tab** in the graph header, or run that command
+from the command palette, to use the full editor pane. The temporary graph tab
+can be reordered, grouped, moved between panes, and docked like other tabs, but
+it is never written into the vault or restored next launch. Choosing a node
+opens or focuses a separate note tab, keeps the graph available, and makes that
+note the graph tab's later Local starting point. Switching between the compact
+sidebar and the full tab reuses the completed local index instead of rebuilding
+it.
+
 **Global** mode ranks all matching notes by their total incoming and outgoing
 connections. **Local** mode starts at the active note and follows incoming and
 outgoing connections as an undirected neighborhood. Choose depth 1, 2, or 3 to
@@ -40,7 +49,9 @@ Use the folder, tag, and connection filters together:
   **Connected only** excludes those notes.
 
 Choose a node in the visual graph to open that note through Denote's normal
-navigation. The visual graph is pointer-operated. Its complete keyboard
+navigation. The full tab uses more pane space, a wider zoom range, and more
+visible labels than the compact sidebar. The visual graph is pointer-operated.
+Its complete keyboard
 equivalent is **Show keyboard note list**: use the search field to filter the
 visible result, Arrow Up and Arrow Down to move, Home and End to jump, and Enter
 or Space to open the focused note. The list also states each note's backlink and

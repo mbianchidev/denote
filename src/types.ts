@@ -423,7 +423,12 @@ export interface EditorTab {
   editorRevision: number;
   editRecorded: boolean;
   saveState: "saved" | "dirty" | "saving" | "error";
-  transient?: "diff";
+  transient?: "diff" | "note-graph";
+  noteGraph?: {
+    pluginId: string;
+    providerId: string;
+    notePath: string | null;
+  };
   sourceControlDiff?: {
     pluginId: string;
     providerId: string;

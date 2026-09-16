@@ -17,6 +17,10 @@ describe("Note graph guide", () => {
     expect(guide).not.toContain("active and open notes");
     expect(guide).toContain("first 100,000 local link occurrences");
     expect(guide).toContain("at most 500 nodes and 2,000 edges");
+    expect(guide).toContain("Open Note graph in a tab");
+    expect(guide).toContain("never written into the vault or restored");
+    expect(guide).toContain("keeps the graph available");
+    expect(guide).toContain("reuses the completed local index");
     expect(guide).not.toContain("1 MiB of source per document");
     expect(guide).not.toContain("8 MiB per index request");
   });

@@ -53,6 +53,50 @@ const model: PluginNoteGraphModel = {
 };
 
 describe("NoteGraphPanel", () => {
+  it("launches the graph into a full tab and adapts its layout", async () => {
+    const user = userEvent.setup();
+    const onOpenInTab = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+        onOpenInTab={onOpenInTab}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Open Note graph in a tab" }),
+    );
+    expect(onOpenInTab).toHaveBeenCalledOnce();
+    expect(
+      rendered.container.querySelector(".note-graph-panel--sidebar"),
+    ).toBeInTheDocument();
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+        surface="tab"
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Open Note graph in a tab" }),
+    ).not.toBeInTheDocument();
+    expect(
+      rendered.container.querySelector(".note-graph-panel--tab"),
+    ).toBeInTheDocument();
+  });
+
   it("indexes locally, exposes an equivalent keyboard list, and opens notes", async () => {
     const user = userEvent.setup();
     const indexNoteGraph = vi.fn(async () => {});
@@ -487,7 +531,7 @@ describe("NoteGraphPanel", () => {
     second.unmount();
   });
 
-  it("replaces after a generation interrupts a partially applied batch", async () => {
+  it("completes a shared batch before applying the latest snapshot", async () => {
     let finishPartial: (() => void) | undefined;
     const indexNoteGraph = vi.fn(
       async (
@@ -557,12 +601,15 @@ describe("NoteGraphPanel", () => {
       await Promise.resolve();
     });
 
-    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(3));
-    expect(indexNoteGraph.mock.calls[2]?.[2]).toMatchObject({
-      mode: "replace",
-      documents: expect.arrayContaining([
-        expect.objectContaining({ path: "notes/Alpha.md" }),
-        expect.objectContaining({ path: "notes/Beta.md" }),
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(4));
+    expect(
+      indexNoteGraph.mock.calls.map((call) => call[2].mode),
+    ).toEqual(["replace", "update", "update", "update"]);
+    expect(indexNoteGraph.mock.calls[3]?.[2]).toMatchObject({
+      documents: [],
+      removedPaths: expect.arrayContaining([
+        "notes/Added-0.md",
+        "notes/Added-256.md",
       ]),
     });
   });
