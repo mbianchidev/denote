@@ -3378,6 +3378,8 @@ button.tag-chip:active,
   width: 100%;
   height: 100%;
   min-height: 310px;
+  touch-action: none;
+  user-select: none;
 }
 
 .note-graph-plot__edge {
@@ -3388,7 +3390,12 @@ button.tag-chip:active,
 }
 
 .note-graph-plot__node {
-  cursor: pointer;
+  cursor: grab;
+}
+
+.note-graph-plot__node[data-dragging="true"],
+.note-graph-plot[data-dragging="true"] .note-graph-plot__node:hover {
+  cursor: grabbing;
 }
 
 .note-graph-plot__node circle {
@@ -3411,6 +3418,12 @@ button.tag-chip:active,
 .note-graph-plot__node[data-selected="true"] circle {
   fill: var(--accent-strong);
   stroke: var(--accent-contrast);
+}
+
+.note-graph-plot__node[data-dragging="true"] circle {
+  fill: var(--accent-strong);
+  stroke: var(--focus);
+  stroke-width: 3;
 }
 
 .note-graph-plot__node[data-active="true"] circle {

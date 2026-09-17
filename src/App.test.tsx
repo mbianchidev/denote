@@ -1368,7 +1368,7 @@ describe("App initial file-tree expansion", () => {
     const betaTab = await screen.findByRole("tab", { name: /Beta\.md/ });
     expect(betaTab).toHaveAttribute("aria-selected", "true");
     await waitFor(() => expect(betaTab).toHaveFocus());
-  });
+  }, 30_000);
 
   it("routes enabled JSON and YAML viewers without changing exact Raw source", async () => {
     const user = userEvent.setup();

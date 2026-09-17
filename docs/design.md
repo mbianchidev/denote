@@ -688,9 +688,16 @@ pane moves, and docking instead of inventing a separate full-screen shell.
 The visual signature is one restrained notebook constellation: faint graphite
 connections sit on the editor tone, ordinary notes use muted ink, and the active
 or selected note becomes the single moss focus. Node size may reflect connection
-count, but color never carries that meaning alone. The plot has no force
-simulation, decorative motion, glow, or unrelated cluster colors; a deterministic
-radial layout stays stable while filters change.
+count, but color never carries that meaning alone. The plot uses a bounded
+force-directed layout seeded from a deterministic radial constellation. It has
+no decorative bounce, glow, unrelated cluster colors, or perpetual drift.
+
+Dragging a node is direct manipulation: the node remains under the pointer,
+connected nodes respond through restrained spring motion, nearby nodes make
+space, and release eases the constellation to rest. The pointer uses grab and
+grabbing cursors, suppresses note opening after meaningful movement, and keeps
+click-to-open for an unmoved press. Model/filter updates retain surviving node
+positions rather than restarting the whole graph.
 
 Compact native controls precede the plot. **Global** / **Local** and graph/list
 switches use visible `aria-pressed` state. Folder, tag, connection status, and
@@ -711,7 +718,8 @@ Empty, local-note-unavailable, input-bound, output-bound, and indexing states
 use written guidance plus one polite status region. The plot is hidden from the
 accessibility tree because the semantic list exposes the same nodes and actions.
 Forced colors use system canvas, text, highlight, and focus colors. Reduced
-motion needs no override because the graph does not animate.
+motion keeps direct dragging but applies neighbor movement and the final layout
+without a continuing animation.
 
 ### Optional Mermaid diagrams
 

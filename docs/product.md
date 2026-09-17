@@ -469,6 +469,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Changed notes are reparsed individually, path-set changes
   re-resolve existing targets without reparsing unchanged source, and omitted
   input or output is reported.
+- The visual constellation is force-directed rather than fixed. Dragging a node
+  pins it under the pointer while connected nodes follow through bounded springs
+  and nearby nodes make space; releasing it lets the graph settle without
+  changing graph data. A click without drag still opens the note. Reduced-motion
+  environments apply the same spatial result without animated settling.
 - Graph source, parsed links, filters, layout, and derived models remain local
   and in memory. Locking or switching a vault, disabling/updating/removing the
   plugin, a worker crash, and application teardown release them. Disabling or

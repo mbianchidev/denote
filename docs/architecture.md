@@ -924,6 +924,24 @@ hidden from assistive technology; the searchable list exposes the same notes
 with one roving Tab stop, Arrow/Home/End movement, and native button activation.
 No graph model can name an absolute path or navigate outside the current vault.
 
+Each mounted visual graph reconciles the declarative model into a host-only
+mutable force state. Surviving node positions and velocities remain through
+filter/model updates; new nodes use deterministic local-ring or global
+golden-angle seeds. Directed edges become deduplicated physical springs.
+Per-frame work is bounded by nodes, edges, and local spatial-grid pairs rather
+than all node pairs. Center/ring attraction, spring distance, collision,
+repulsion, damping, cooling, and view-bound forces cannot modify the provider
+model or vault.
+
+Pointer capture converts client coordinates through the SVG's letterboxed
+640×520 viewBox and current center zoom. A dragged node is fixed to that graph
+coordinate while the solver continues, so its neighbors follow; movement above
+the click threshold suppresses file opening. Release reheats a short settling
+phase. The solver publishes at a bounded frame cadence and stops when its energy
+cools. With `prefers-reduced-motion`, bounded steps are applied synchronously on
+model/drag changes and no post-action animation continues. The semantic note
+list remains the equivalent non-spatial navigation surface.
+
 The sidebar contributes an explicit host action that creates or focuses one
 `note-graph` transient `EditorTab` per provider. Its host-only metadata contains
 the plugin/provider IDs and the current Local anchor. The virtual path is never

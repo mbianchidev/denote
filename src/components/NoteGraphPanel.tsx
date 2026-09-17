@@ -14,6 +14,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent,
 } from "react";
 import type {
   PluginNoteGraphIndexRequest,
@@ -25,10 +26,16 @@ import type {
 import type { PluginNoteGraphContribution } from "../plugins/workerRuntime";
 import { NoteGraphCoordinator } from "../plugins/noteGraphCoordinator";
 import {
+  NOTE_GRAPH_VIEW_HEIGHT,
+  NOTE_GRAPH_VIEW_WIDTH,
+  noteGraphPointFromClient,
+} from "../lib/noteGraphForce";
+import {
   noteGraphFolders,
   noteGraphTags,
   type NoteGraphSnapshot,
 } from "../plugins/noteGraphs";
+import { useNoteGraphForceLayout } from "./useNoteGraphForceLayout";
 
 interface NoteGraphPanelProps {
   provider: PluginNoteGraphContribution;
@@ -405,6 +412,11 @@ export function NoteGraphPanel({
             onSelectedNodeChange={setSelectedNodeId}
             onOpenFile={onOpenFile}
             onZoomChange={setZoom}
+            onNodeMoved={(node) =>
+              setStatus(
+                `Moved ${node.title}; connected notes followed.`,
+              )
+            }
           />
         ) : (
           <GraphList
@@ -441,6 +453,7 @@ function GraphPlot({
   onSelectedNodeChange,
   onOpenFile,
   onZoomChange,
+  onNodeMoved,
 }: {
   large: boolean;
   model: PluginNoteGraphModel | null;
@@ -449,13 +462,135 @@ function GraphPlot({
   onSelectedNodeChange: (id: string) => void;
   onOpenFile: (path: string) => void;
   onZoomChange: (zoom: number) => void;
+  onNodeMoved: (node: PluginNoteGraphNode) => void;
 }) {
-  const layout = useMemo(() => graphLayout(model), [model]);
-  const positions = new Map(layout.map((entry) => [entry.node.id, entry]));
+  const svg = useRef<SVGSVGElement>(null);
+  const gesture = useRef<{
+    nodeId: string;
+    pointerId: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null>(null);
+  const {
+    nodes: layout,
+    draggingNodeId,
+    beginDrag,
+    moveDrag,
+    endDrag,
+    cancelDrag,
+  } = useNoteGraphForceLayout(model);
+  const modelNodes = new Map(
+    model?.nodes.map((node) => [node.id, node] as const) ?? [],
+  );
+  useEffect(() => {
+    if (
+      gesture.current &&
+      !model?.nodes.some(
+        (node) => node.id === gesture.current?.nodeId,
+      )
+    ) {
+      gesture.current = null;
+    }
+  }, [model]);
+  const positions = new Map(layout.map((entry) => [entry.id, entry]));
   const minimumZoom = large ? 0.45 : 0.7;
   const maximumZoom = large ? 2.5 : 1.75;
+  const graphPoint = (clientX: number, clientY: number) => {
+    const bounds = svg.current?.getBoundingClientRect();
+    return bounds
+      ? noteGraphPointFromClient(clientX, clientY, bounds, zoom)
+      : null;
+  };
+  const pointerDown = (
+    event: PointerEvent<SVGGElement>,
+    node: PluginNoteGraphNode,
+  ) => {
+    if (
+      event.button !== 0 ||
+      gesture.current !== null
+    ) {
+      return;
+    }
+    const point = graphPoint(event.clientX, event.clientY);
+    if (!point) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    gesture.current = {
+      nodeId: node.id,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+    };
+    onSelectedNodeChange(node.id);
+  };
+  const pointerMove = (
+    event: PointerEvent<SVGGElement>,
+    node: PluginNoteGraphNode,
+  ) => {
+    const current = gesture.current;
+    if (
+      !current ||
+      current.nodeId !== node.id ||
+      current.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+    if (
+      !current.moved &&
+      Math.hypot(
+        event.clientX - current.startX,
+        event.clientY - current.startY,
+      ) >= 4
+    ) {
+      current.moved = true;
+    }
+    const point = graphPoint(event.clientX, event.clientY);
+    if (point && current.moved) {
+      if (draggingNodeId !== node.id) {
+        beginDrag({ id: node.id, ...point });
+        return;
+      }
+      moveDrag({ id: node.id, ...point });
+    }
+  };
+  const pointerEnd = (
+    event: PointerEvent<SVGGElement>,
+    node: PluginNoteGraphNode,
+    cancelled: boolean,
+  ) => {
+    const current = gesture.current;
+    if (
+      !current ||
+      current.nodeId !== node.id ||
+      current.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+    gesture.current = null;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (cancelled) {
+      if (current.moved) {
+        cancelDrag();
+      }
+      return;
+    }
+    if (current.moved) {
+      endDrag();
+      onNodeMoved(node);
+    } else {
+      onOpenFile(node.path);
+    }
+  };
   return (
-    <div className="note-graph-plot">
+    <div
+      className="note-graph-plot"
+      data-dragging={draggingNodeId !== null}
+    >
       <div className="note-graph-plot__toolbar" aria-label="Graph zoom">
         <button
           type="button"
@@ -495,9 +630,16 @@ function GraphPlot({
           <svg
             aria-hidden="true"
             className="note-graph-plot__canvas"
-            viewBox="0 0 640 520"
+            ref={svg}
+            viewBox={`0 0 ${NOTE_GRAPH_VIEW_WIDTH} ${NOTE_GRAPH_VIEW_HEIGHT}`}
           >
-            <g transform={`translate(320 260) scale(${zoom}) translate(-320 -260)`}>
+            <g
+              transform={`translate(${NOTE_GRAPH_VIEW_WIDTH / 2} ${
+                NOTE_GRAPH_VIEW_HEIGHT / 2
+              }) scale(${zoom}) translate(${-NOTE_GRAPH_VIEW_WIDTH / 2} ${
+                -NOTE_GRAPH_VIEW_HEIGHT / 2
+              })`}
+            >
               {model.edges.map((edge) => {
                 const source = positions.get(edge.sourceId);
                 const target = positions.get(edge.targetId);
@@ -512,7 +654,11 @@ function GraphPlot({
                   />
                 ) : null;
               })}
-              {layout.map(({ node, x, y, radius }, index) => {
+              {layout.map(({ id, x, y, radius }, index) => {
+                const node = modelNodes.get(id);
+                if (!node) {
+                  return null;
+                }
                 const selected = node.id === selectedNodeId;
                 const active = node.id === model.activeNodeId;
                 const showLabel =
@@ -525,12 +671,25 @@ function GraphPlot({
                     className="note-graph-plot__node"
                     data-active={active}
                     data-selected={selected}
+                    data-dragging={draggingNodeId === node.id}
                     key={node.id}
-                    onClick={() => onOpenFile(node.path)}
                     onMouseEnter={() => onSelectedNodeChange(node.id)}
+                    onPointerDown={(event) => pointerDown(event, node)}
+                    onPointerMove={(event) => pointerMove(event, node)}
+                    onPointerUp={(event) =>
+                      pointerEnd(event, node, false)
+                    }
+                    onPointerCancel={(event) =>
+                      pointerEnd(event, node, true)
+                    }
+                    onLostPointerCapture={(event) =>
+                      pointerEnd(event, node, true)
+                    }
                     transform={`translate(${x} ${y})`}
                   >
-                    <title>{`${node.title} — ${connectionLabel(node)}`}</title>
+                    <title>{`${node.title} — ${connectionLabel(
+                      node,
+                    )}. Drag to rearrange; click to open.`}</title>
                     <circle r={radius} />
                     {showLabel ? (
                       <text x={radius + 5} y={4}>
@@ -543,8 +702,8 @@ function GraphPlot({
             </g>
           </svg>
           <p className="sr-only">
-            The visual graph is pointer operated. Use Show keyboard note list to
-            inspect and open every visible note without a pointer.
+            The visual graph supports pointer dragging. Use Show keyboard note
+            list to inspect and open every visible note without a pointer.
           </p>
         </>
       ) : (
@@ -684,91 +843,6 @@ function GraphList({
       )}
     </div>
   );
-}
-
-interface PositionedNode {
-  node: PluginNoteGraphNode;
-  x: number;
-  y: number;
-  radius: number;
-}
-
-function graphLayout(model: PluginNoteGraphModel | null): PositionedNode[] {
-  if (!model || model.nodes.length === 0) {
-    return [];
-  }
-  const centerX = 320;
-  const centerY = 260;
-  const local = model.nodes.some((node) => node.distance !== null);
-  if (local) {
-    const byDistance = new Map<number, PluginNoteGraphNode[]>();
-    for (const node of model.nodes) {
-      const distance = node.distance ?? 3;
-      byDistance.set(distance, [...(byDistance.get(distance) ?? []), node]);
-    }
-    const positioned: PositionedNode[] = [];
-    for (const [distance, nodes] of [...byDistance.entries()].sort(
-      (left, right) => left[0] - right[0],
-    )) {
-      nodes.forEach((node, index) => {
-        const progress =
-          nodes.length <= 1 ? 0 : index / Math.max(1, nodes.length - 1);
-        const radius =
-          distance === 0
-            ? 0
-            : Math.min(232, 54 + distance * 54 + progress * 34);
-        const angle =
-          -Math.PI / 2 +
-          index * GOLDEN_ANGLE +
-          stableAngle(node.path) * 0.04;
-        positioned.push({
-          node,
-          x: centerX + Math.cos(angle) * radius,
-          y: centerY + Math.sin(angle) * radius,
-          radius: nodeRadius(node),
-        });
-      });
-    }
-    return positioned;
-  }
-
-  return model.nodes.map((node, index) => {
-    if (index === 0) {
-      return {
-        node,
-        x: centerX,
-        y: centerY,
-        radius: nodeRadius(node),
-      };
-    }
-    const progress = Math.sqrt(index / Math.max(1, model.nodes.length - 1));
-    const angle =
-      -Math.PI / 2 +
-      index * GOLDEN_ANGLE +
-      stableAngle(node.path) * 0.035;
-    const radius = 34 + progress * 198;
-    return {
-      node,
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
-      radius: nodeRadius(node),
-    };
-  });
-}
-
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
-
-function nodeRadius(node: PluginNoteGraphNode): number {
-  return 5 + Math.min(5, Math.log2(node.incoming + node.outgoing + 1) * 1.6);
-}
-
-function stableAngle(value: string): number {
-  let hash = 2166136261;
-  for (const character of value) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  return ((hash >>> 0) / 0xffffffff) * Math.PI * 2;
 }
 
 function truncateLabel(value: string): string {

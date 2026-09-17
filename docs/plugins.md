@@ -416,6 +416,14 @@ same notes and actions with one roving Tab stop, Arrow/Home/End movement, and
 native button activation. A provider returns only vault-relative paths, and the
 host opens them through its ordinary current-vault flow.
 
+The host turns that bounded model into a force-directed visual layout. Dragging
+pins one node under the pointer while bounded springs, collision, local
+repulsion, and center/ring forces move the surrounding constellation. Release
+settles and cools; no position is returned to the plugin or written to a note.
+The solver preserves surviving positions across model changes, uses no
+all-pairs force pass, and respects reduced motion with synchronous spatial
+updates instead of continuing animation.
+
 The compact sidebar can open one host-owned transient graph tab for the same
 provider. The tab stores only provider identity and its current Local anchor,
 uses no plugin markup, is excluded from vault/session persistence, and keeps

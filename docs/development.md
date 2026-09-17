@@ -505,7 +505,11 @@ incoming/outgoing counts, orphans, global/local depth, every filter, node/edge
 limits, stale requests, lock/unlock, disable/re-enable, visual selection, the
 roving keyboard list, announcements, host-owned navigation, sidebar-to-tab
 launch, transient-session exclusion, graph-tab pane movement, and opening notes
-without replacing the graph.
+without replacing the graph. Force-layout coverage must prove deterministic
+seeding, surviving-position preservation, bounded spatial-grid work, connected
+response to dragging, pointer coordinate conversion through zoom/letterboxing,
+click-versus-drag behavior, release settling, and reduced-motion behavior
+without machine-timing assertions.
 
 Stage the source-only archive with
 `npm run package:plugin -- denote.note-graph`. Commit source, SDK, host, tests,

@@ -275,6 +275,13 @@ Tab enters the list once; Up/Down move one note, Home/End move to the first or
 last visible note, and Enter opens it. Every row states its title, relative
 path, and incoming/outgoing connection counts.
 
+Drag any visual node to rearrange the constellation. The dragged note stays
+under the pointer, linked notes follow naturally, and nearby notes move aside.
+Release to let the graph settle. A press that does not move still opens the
+note. These positions are temporary view state and never change links or
+Markdown. When reduced motion is enabled, dragging remains direct but the graph
+updates without animated settling.
+
 The worker indexes standard inline links plus full, collapsed, and shortcut
 reference links. Relative paths, vault-root paths, percent-encoded names, and
 extensionless `.md` / `.markdown` targets are supported. Images, browser links,

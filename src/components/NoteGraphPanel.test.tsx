@@ -140,6 +140,275 @@ describe("NoteGraphPanel", () => {
     expect(onOpenFile).toHaveBeenCalledWith("notes/Beta.md");
   });
 
+  it("drags one node while connected nodes follow without opening the note", async () => {
+    const onOpenFile = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+        surface="tab"
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    const beta = graphNode(rendered.container, "Beta");
+    alpha.setPointerCapture = vi.fn();
+    alpha.releasePointerCapture = vi.fn();
+    const betaBefore = beta.getAttribute("transform");
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 7,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 7,
+      clientX: 440,
+      clientY: 300,
+    });
+
+    expect(alpha).toHaveAttribute("data-dragging", "true");
+    expect(alpha.getAttribute("transform")).toContain("440");
+    expect(beta.getAttribute("transform")).not.toBe(betaBefore);
+    fireEvent.pointerUp(alpha, {
+      pointerId: 7,
+      clientX: 440,
+      clientY: 300,
+    });
+
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Moved Alpha; connected notes followed.",
+    );
+  });
+
+  it("keeps click-to-open when a graph node does not move", async () => {
+    const onOpenFile = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    alpha.setPointerCapture = vi.fn();
+    alpha.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 8,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerUp(alpha, {
+      pointerId: 8,
+      clientX: 320,
+      clientY: 260,
+    });
+
+    expect(onOpenFile).toHaveBeenCalledWith("notes/Alpha.md");
+  });
+
+  it("cancels dragging when pointer capture is lost", async () => {
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    alpha.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 9,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 9,
+      clientX: 400,
+      clientY: 280,
+    });
+    expect(alpha).toHaveAttribute("data-dragging", "true");
+
+    fireEvent.lostPointerCapture(alpha, { pointerId: 9 });
+
+    expect(alpha).toHaveAttribute("data-dragging", "false");
+  });
+
+  it("ignores a second pointer while one node is being dragged", async () => {
+    const onOpenFile = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    const beta = graphNode(rendered.container, "Beta");
+    alpha.setPointerCapture = vi.fn();
+    alpha.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 11,
+      isPrimary: true,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 11,
+      isPrimary: true,
+      clientX: 400,
+      clientY: 280,
+    });
+    fireEvent.pointerDown(beta, {
+      button: 0,
+      pointerId: 12,
+      isPrimary: false,
+      clientX: 250,
+      clientY: 250,
+    });
+    fireEvent.pointerUp(beta, {
+      pointerId: 12,
+      isPrimary: false,
+      clientX: 250,
+      clientY: 250,
+    });
+
+    expect(alpha).toHaveAttribute("data-dragging", "true");
+    expect(onOpenFile).not.toHaveBeenCalled();
+    fireEvent.pointerUp(alpha, {
+      pointerId: 11,
+      isPrimary: true,
+      clientX: 400,
+      clientY: 280,
+    });
+    expect(alpha).toHaveAttribute("data-dragging", "false");
+  });
+
+  it("cancels dragging when a filter removes the dragged node", async () => {
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    alpha.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 10,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 10,
+      clientX: 400,
+      clientY: 280,
+    });
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={{
+          ...snapshot(),
+          documents: [snapshot().documents[1]],
+        }}
+        activePath="notes/Beta.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => ({
+          ...model,
+          nodes: [model.nodes[1]],
+          edges: [],
+          totalNotes: 1,
+          matchingNotes: 1,
+          totalEdges: 0,
+          activeNodeId: "notes/Beta.md",
+        }))}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector(".note-graph-plot"),
+      ).toHaveAttribute("data-dragging", "false"),
+    );
+    expect(
+      rendered.container.querySelectorAll(".note-graph-plot__node"),
+    ).toHaveLength(1);
+    mockGraphBounds(rendered.container);
+    const beta = graphNode(rendered.container, "Beta");
+    beta.setPointerCapture = vi.fn();
+    beta.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(beta, {
+      button: 0,
+      pointerId: 13,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(beta, {
+      pointerId: 13,
+      clientX: 380,
+      clientY: 280,
+    });
+    expect(beta).toHaveAttribute("data-dragging", "true");
+    fireEvent.pointerUp(beta, {
+      pointerId: 13,
+      clientX: 380,
+      clientY: 280,
+    });
+    expect(beta).toHaveAttribute("data-dragging", "false");
+  });
+
   it("sends local depth and folder, tag, and orphan filters", async () => {
     const user = userEvent.setup();
     const queryNoteGraph = vi.fn(
@@ -635,4 +904,34 @@ function snapshot(): NoteGraphSnapshot {
     skippedCount: 0,
     truncated: false,
   };
+}
+
+function graphNode(container: HTMLElement, title: string): SVGGElement {
+  const node = [...container.querySelectorAll<SVGGElement>(
+    ".note-graph-plot__node",
+  )].find((candidate) =>
+    candidate.querySelector("title")?.textContent?.startsWith(title),
+  );
+  if (!node) {
+    throw new Error(`Missing graph node ${title}.`);
+  }
+  return node;
+}
+
+function mockGraphBounds(container: HTMLElement) {
+  const svg = container.querySelector<SVGSVGElement>(
+    ".note-graph-plot__canvas",
+  )!;
+  svg.getBoundingClientRect = () =>
+    ({
+      left: 0,
+      top: 0,
+      right: 640,
+      bottom: 520,
+      width: 640,
+      height: 520,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
 }

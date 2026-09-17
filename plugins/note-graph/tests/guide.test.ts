@@ -21,6 +21,9 @@ describe("Note graph guide", () => {
     expect(guide).toContain("never written into the vault or restored");
     expect(guide).toContain("keeps the graph available");
     expect(guide).toContain("reuses the completed local index");
+    expect(guide).toContain("Drag a visual node");
+    expect(guide).toContain("connected notes follow");
+    expect(guide).toContain("With reduced motion");
     expect(guide).not.toContain("1 MiB of source per document");
     expect(guide).not.toContain("8 MiB per index request");
   });

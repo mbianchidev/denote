@@ -57,6 +57,14 @@ visible result, Arrow Up and Arrow Down to move, Home and End to jump, and Enter
 or Space to open the focused note. The list also states each note's backlink and
 outgoing-link counts.
 
+Drag a visual node to rearrange the graph. The note stays under the pointer
+while connected notes follow and nearby notes make space, then the
+constellation settles after release. A press without meaningful movement still
+opens the note. Layout positions are temporary host view state; the plugin does
+not receive or save them, and Markdown never changes. With reduced motion,
+dragging remains direct but neighbor and final positions update without a
+continuing animation.
+
 The worker reparses only documents supplied by Denote as changed. Removed paths
 are deleted from the in-memory index. Link targets are resolved against the
 current path set at query time, so adding or removing a target can fix or remove
