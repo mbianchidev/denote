@@ -14,6 +14,7 @@ import type {
   PluginAutomaticLocalCommitContribution,
   PluginDiagramRendererContribution,
   PluginKanbanBoardContribution,
+  PluginNoteGraphContribution,
   PluginSourceControlContribution,
   PluginStructuredViewerContribution,
 } from "./plugins/workerRuntime";
@@ -61,6 +62,7 @@ const mockPluginController = vi.hoisted(() => ({
   emojiPickers: [] as PluginEmojiPickerContribution[],
   structuredViewers: [] as PluginStructuredViewerContribution[],
   kanbanBoards: [] as PluginKanbanBoardContribution[],
+  noteGraphs: [] as PluginNoteGraphContribution[],
   diagramRenderers: [] as PluginDiagramRendererContribution[],
   saveEmojiPreferences: vi.fn().mockResolvedValue(undefined),
   loading: false,
@@ -78,6 +80,8 @@ const mockPluginController = vi.hoisted(() => ({
   parseStructuredView: vi.fn(),
   parseKanbanBoard: vi.fn(),
   editKanbanBoard: vi.fn(),
+  indexNoteGraph: vi.fn(),
+  queryNoteGraph: vi.fn(),
   renderDiagram: vi.fn(),
   releaseDiagramScope: vi.fn(),
   emitNoteEvent: vi.fn(),
@@ -381,6 +385,7 @@ describe("App initial file-tree expansion", () => {
     mockPluginController.emojiPickers = [];
     mockPluginController.structuredViewers = [];
     mockPluginController.kanbanBoards = [];
+    mockPluginController.noteGraphs = [];
     mockPluginController.plugins = [];
     mockPluginController.busyPluginIds = new Set();
     mockApi.listKnownVaultFiles.mockResolvedValue({ files: [], truncated: false });
@@ -408,6 +413,17 @@ describe("App initial file-tree expansion", () => {
         notices: [],
         canInitialize: false,
       },
+    });
+    mockPluginController.indexNoteGraph.mockResolvedValue(undefined);
+    mockPluginController.queryNoteGraph.mockResolvedValue({
+      nodes: [],
+      edges: [],
+      totalNotes: 0,
+      matchingNotes: 0,
+      totalEdges: 0,
+      activeNodeId: null,
+      truncated: false,
+      notices: [],
     });
     mockApi.pluginAutomaticCommit.mockResolvedValue({
       status: "committed",
@@ -1208,6 +1224,151 @@ describe("App initial file-tree expansion", () => {
       expect.anything(),
     );
   });
+
+  it("opens an enabled note graph, indexes Markdown locally, and navigates from its list", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("Alpha.md", "markdown"),
+        fileNode("Beta.md", "markdown"),
+      ]),
+    );
+    mockApi.listSearchDocuments.mockResolvedValue({
+      documents: [
+        {
+          path: "Alpha.md",
+          title: "Alpha",
+          content: "# Alpha\n[Beta](Beta.md)",
+          contentHash: "alpha-hash",
+          encoding: "utf8",
+          lineEnding: "lf",
+          tags: ["planning"],
+          kind: "markdown",
+          bookmarked: false,
+          lastOpenedAt: null,
+        },
+        {
+          path: "Beta.md",
+          title: "Beta",
+          content: "# Beta",
+          contentHash: "beta-hash",
+          encoding: "utf8",
+          lineEnding: "lf",
+          tags: [],
+          kind: "markdown",
+          bookmarked: false,
+          lastOpenedAt: null,
+        },
+      ],
+      skippedCount: 0,
+      truncated: false,
+    });
+    const noteEventObserver = syntheticEmojiPluginView();
+    noteEventObserver.catalog = {
+      ...noteEventObserver.catalog,
+      manifest: {
+        ...noteEventObserver.catalog.manifest,
+        id: "denote.note-event-observer",
+        permissions: [{ capability: "note-events" }],
+      },
+    };
+    noteEventObserver.approvedPermissions = [
+      { capability: "note-events" },
+    ];
+    mockPluginController.plugins = [
+      noteGraphPluginView(),
+      noteEventObserver,
+    ];
+    mockPluginController.noteGraphs = [noteGraphContribution()];
+    mockPluginController.queryNoteGraph.mockResolvedValue({
+      nodes: [
+        {
+          id: "Alpha.md",
+          path: "Alpha.md",
+          title: "Alpha",
+          tags: ["planning"],
+          incoming: 0,
+          outgoing: 1,
+          orphan: false,
+          distance: null,
+        },
+        {
+          id: "Beta.md",
+          path: "Beta.md",
+          title: "Beta",
+          tags: [],
+          incoming: 1,
+          outgoing: 0,
+          orphan: false,
+          distance: null,
+        },
+      ],
+      edges: [{ sourceId: "Alpha.md", targetId: "Beta.md" }],
+      totalNotes: 2,
+      matchingNotes: 2,
+      totalEdges: 1,
+      activeNodeId: null,
+      truncated: false,
+      notices: [],
+    });
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open Alpha.md" }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: "Note graph" }),
+    );
+    await waitFor(() =>
+      expect(mockPluginController.indexNoteGraph).toHaveBeenCalledWith(
+        "denote.note-graph",
+        "denote.note-graph.graph",
+        expect.objectContaining({ mode: "replace" }),
+      ),
+    );
+    mockPluginController.emitNoteEvent.mockClear();
+    await user.click(
+      screen.getByRole("button", { name: "Open Note graph in a tab" }),
+    );
+    const graphTab = await screen.findByRole("tab", {
+      name: "Note graph",
+    });
+    await waitFor(() => expect(graphTab).toHaveFocus());
+    expect(screen.getByRole("button", { name: "Files" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(mockPluginController.emitNoteEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: expect.stringContaining("denote-note-graph:"),
+      }),
+    );
+    await user.click(screen.getByRole("button", { name: "Note graph" }));
+    expect(graphTab).toHaveAttribute("aria-selected", "true");
+    expect(
+      screen.queryByRole("button", {
+        name: "Open Note graph in a tab",
+      }),
+    ).not.toBeInTheDocument();
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Show keyboard note list",
+      }),
+    );
+    const beta = await screen.findByRole("button", {
+      name: /Beta, Beta\.md, 1 backlink, 0 outgoing links/,
+    });
+    beta.focus();
+    await user.keyboard("{Enter}");
+    expect(mockApi.readNote).toHaveBeenCalledWith("Beta.md");
+    expect(
+      screen.getByRole("tab", { name: "Note graph" }),
+    ).toBeInTheDocument();
+    const betaTab = await screen.findByRole("tab", { name: /Beta\.md/ });
+    expect(betaTab).toHaveAttribute("aria-selected", "true");
+    await waitFor(() => expect(betaTab).toHaveFocus());
+  }, 30_000);
 
   it("routes enabled JSON and YAML viewers without changing exact Raw source", async () => {
     const user = userEvent.setup();
@@ -3273,6 +3434,33 @@ function kanbanBoardContribution(): PluginKanbanBoardContribution {
     title: "Kanban boards",
     fileSuffixes: [".kanban.md", ".kanban.markdown"],
     defaultFileName: "Board.kanban.md",
+  };
+}
+
+function noteGraphContribution(): PluginNoteGraphContribution {
+  return {
+    pluginId: "denote.note-graph",
+    id: "denote.note-graph.graph",
+    title: "Note graph",
+  };
+}
+
+function noteGraphPluginView(): PluginView {
+  const plugin = syntheticEmojiPluginView();
+  return {
+    ...plugin,
+    enabled: true,
+    status: "enabled",
+    approvedPermissions: [{ capability: "note-graph" }],
+    catalog: {
+      ...plugin.catalog,
+      manifest: {
+        ...plugin.catalog.manifest,
+        id: "denote.note-graph",
+        name: "Note graph",
+        permissions: [{ capability: "note-graph" }],
+      },
+    },
   };
 }
 

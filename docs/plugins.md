@@ -157,6 +157,10 @@ DOM or Tauri API object; its private `MessagePort` exposes only approved service
 plugin-scoped state, keychain access, and registered contributions. Worker crashes
 trigger termination and package removal. Enabled workers restart from verified
 installed packages when Denote starts.
+Activation bundles resolve conditional package exports with the `worker`
+condition, so dependencies cannot silently select browser-only DOM
+implementations. Separately declared diagram-renderer bundles retain browser
+resolution for their reviewed opaque iframe.
 
 Host messages reach a plugin one at a time, so activation, commands, note
 events, and source-control actions never interleave. Two message kinds are
@@ -189,7 +193,9 @@ concurrent.
   allowlisted HTTPS, clipboard access, notifications, platform-qualified
   allowlisted process groups, and the typed hardened Git transport. The
   separately bounded `kanban-board` surface can transform only the matching
-  already-open tab after a host-rendered board action. Static
+  already-open tab after a host-rendered board action. The separately bounded
+  `note-graph` surface receives local Markdown snapshots and returns declarative
+  graph models without general workspace or editor access. Static
   status items and literal source-editor
   decorations use disposable contribution handles like commands and sidebars.
   Privileged action leases expire when the command settles, the worker starts
@@ -229,8 +235,8 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, and diagram-renderer registrations. Approved plugins may also
-observe `project-context`. Sensitive
+`kanban-board`, note-graph, and diagram-renderer registrations. Approved plugins
+may also observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations exist only
 inside an explicit command action.
 
@@ -373,6 +379,77 @@ stable IDs plus ordinary level-two and level-three headings. Card details remain
 ordinary Markdown. Initialization appends the managed block after existing
 content. Reordering moves an original marked slice byte-for-byte, so unknown
 Markdown inside it and all content outside the board remain unchanged.
+
+### Note graph
+
+The additive API version 1 `note-graph` permission exposes only
+`context.capabilities.noteGraph.register(provider)`. One provider per plugin
+registers a namespaced ID, title, an `index` callback, and a `query` callback.
+It cannot provide markup, styles, an editor object, a renderer callback, an
+absolute vault path, a native API, or a general workspace service.
+
+When the graph view opens, the host sends an initial `replace` index request and
+later `update` deltas while that view remains active.
+Each bounded document contains only a vault-relative Markdown path, display
+title, current source, and normalized tags. Updates carry only changed documents
+and removed paths plus the current skipped/truncated status. Requests are capped
+at 256 documents, 512 KiB of source, and 512 removed paths. The complete host
+snapshot is capped at 5,000 notes, 256 KiB per note, and 8 MiB total source,
+then sent as one `replace` request followed by ordered `update` batches. The
+active saved note takes priority when the input cap is reached.
+A host coordinator persists one completed snapshot and serialized operation
+queue per workspace/provider, so sidebar and full-tab mounts share the same
+index instead of racing or rebuilding it.
+
+A query chooses global or local scope, an optional active note, folder and tag
+filters, orphan selection, and local depth 1–3. The worker returns at most 500
+nodes and 2,000 directed edges, total/matching counts, incoming and outgoing
+counts, local distance, active identity, bounded notices, and an explicit
+truncation flag. Both sides validate every request and model; edges must refer
+only to unique returned nodes. Malformed registration, messages, or output
+terminate the runtime.
+
+Denote owns the activity-rail entry, filter controls, stable radial plot, zoom,
+equivalent searchable keyboard list, status announcements, and file navigation.
+The visual SVG is hidden from assistive technology because the list exposes the
+same notes and actions with one roving Tab stop, Arrow/Home/End movement, and
+native button activation. A provider returns only vault-relative paths, and the
+host opens them through its ordinary current-vault flow.
+
+The host turns that bounded model into a force-directed visual layout. Dragging
+pins one node under the pointer while bounded springs, collision, local
+repulsion, and center/ring forces move the surrounding constellation. Release
+settles and cools; no position is returned to the plugin or written to a note.
+The solver preserves surviving positions across model changes, uses no
+all-pairs force pass, and respects reduced motion with synchronous spatial
+updates instead of continuing animation.
+
+The compact sidebar can open one host-owned transient graph tab for the same
+provider. The tab stores only provider identity and its current Local anchor,
+uses no plugin markup, is excluded from vault/session persistence, and keeps
+ordinary tab ordering, grouping, pane movement, docking, and close behavior.
+Selecting a node from the full canvas opens or focuses an ordinary note tab
+without replacing the graph and updates the graph tab's Local anchor.
+
+`denote.note-graph` parses inline and reference Markdown links in the isolated
+worker. It ignores images, external schemes, fragment-only links, malformed
+percent encoding, vault escapes, and self-links. Relative, root-relative,
+extensionless, exact-case, and uniquely case-folded targets resolve against the
+current bounded note set. Update requests reparse only changed notes; queries
+resolve stored targets against the current path set, so a newly added or removed
+note can change connections without reparsing unchanged source.
+Resolved paths, degrees, and adjacency are cached between filter queries and
+invalidated by index changes. At most 100,000 resolved links enter that cache;
+later links are omitted with an explicit bounded notice.
+
+The plugin requests no commands, note events, workspace reads/writes, network,
+process, clipboard, notification, or credential permission. Its complete graph
+state is local, transient, and derived. Closing the view releases the host
+model. Locking or switching the vault immediately withdraws and force-terminates
+the stateful worker rather than waiting behind a queued index operation; an
+enabled plugin restarts empty for the current workspace. Disabling/updating/
+removing the plugin, a worker crash, or application teardown also releases the
+worker index. No operation can edit or delete Markdown.
 
 ### Sandboxed diagram renderer
 

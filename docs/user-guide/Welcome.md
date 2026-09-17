@@ -40,6 +40,7 @@ other regular file. Your files remain the source of truth.
 - [ ] Use the table of contents above to jump between headings
 - [ ] Edit this checklist and wait for autosave
 - [ ] Open **History** and restore an earlier revision
+- [ ] Enable **Note graph** and inspect this note's local connections
 - [ ] Enable **Mermaid diagrams** and open the diagram example
 - [ ] Enable **Kanban boards** and open the board example
 - [ ] Open the PDF, JSON, YAML, and a few files in `code`
@@ -53,6 +54,7 @@ other regular file. Your files remain the source of truth.
 | Images | The orbit above |
 | Callouts | The information and warning boxes |
 | Code themes | The block below |
+| Optional note graph | Enable **Note graph**, then choose this note in **Local** mode |
 | Optional diagrams | [Mermaid diagram example](<examples/Mermaid diagram.md>) |
 | Optional boards | [Kanban board example](<plugins/Kanban board.kanban.md>) |
 | PDF reader | [Synthetic PDF](<examples/Hello document.pdf>) |

@@ -53,6 +53,23 @@ describe("tab placement", () => {
     ]);
   });
 
+  it("starts clean navigation when replacing a transient tool tab", () => {
+    const graph = {
+      ...tab("denote-note-graph:denote.note-graph:denote.note-graph.graph"),
+      transient: "note-graph" as const,
+      noteGraph: {
+        pluginId: "denote.note-graph",
+        providerId: "denote.note-graph.graph",
+        notePath: "Alpha.md",
+      },
+    };
+    const [placed] = placeOpenedTab([graph], graph.path, tab("Beta.md"));
+
+    expect(placed.path).toBe("Beta.md");
+    expect(placed.navigationHistory).toEqual(["Beta.md"]);
+    expect(placed.navigationIndex).toBe(0);
+  });
+
   it("preserves the active tab group during ordinary file navigation", () => {
     expect(
       placeOpenedTab(

@@ -671,6 +671,56 @@ drag handle. Forced colors retain borders, visible focus, and selected toggle
 state; reduced motion adds no special case because board operations use no
 decorative animation.
 
+### Optional note graph
+
+The Note graph plugin contributes indexed relationships and bounded graph
+models, never markup or executable UI. Denote owns the activity-rail control,
+filters, local/global switch, deterministic layout, file navigation, focus,
+status announcements, and teardown.
+
+The activity rail first opens a compact graph sidebar with an explicit
+**Open in tab** icon action. The full transient tab moves the same controls into
+the editor canvas: one quiet title row, compact scope and presentation controls,
+an auto-fitting filter row, then a graph that owns the remaining pane height.
+It uses the ordinary tab strip, graph icon, close action, reordering, groups,
+pane moves, and docking instead of inventing a separate full-screen shell.
+
+The visual signature is one restrained notebook constellation: faint graphite
+connections sit on the editor tone, ordinary notes use muted ink, and the active
+or selected note becomes the single moss focus. Node size may reflect connection
+count, but color never carries that meaning alone. The plot uses a bounded
+force-directed layout seeded from a deterministic radial constellation. It has
+no decorative bounce, glow, unrelated cluster colors, or perpetual drift.
+
+Dragging a node is direct manipulation: the node remains under the pointer,
+connected nodes respond through restrained spring motion, nearby nodes make
+space, and release eases the constellation to rest. The pointer uses grab and
+grabbing cursors, suppresses note opening after meaningful movement, and keeps
+click-to-open for an unmoved press. Model/filter updates retain surviving node
+positions rather than restarting the whole graph.
+
+Compact native controls precede the plot. **Global** / **Local** and graph/list
+switches use visible `aria-pressed` state. Folder, tag, connection status, and
+local depth use labelled native selects. Zoom controls affect only the visual
+plot and retain exact accessible names. The tab canvas permits a wider zoom
+range and more visible node labels than the compact sidebar.
+
+The equivalent note list is a first-class presentation, not hidden fallback.
+It exposes note title, vault-relative path, and written incoming/outgoing counts.
+Only one row is in the Tab order; Up/Down, Home, and End move among rows, and
+Enter opens the focused note through the host. Search remains a separate native
+field. Focus stays visible, filter/query updates do not steal it, and a note
+that disappears moves selection to the first surviving result. Opening a note
+from the full graph uses or creates another ordinary tab, preserving the graph
+for continued exploration.
+
+Empty, local-note-unavailable, input-bound, output-bound, and indexing states
+use written guidance plus one polite status region. The plot is hidden from the
+accessibility tree because the semantic list exposes the same nodes and actions.
+Forced colors use system canvas, text, highlight, and focus colors. Reduced
+motion keeps direct dragging but applies neighbor movement and the final layout
+without a continuing animation.
+
 ### Optional Mermaid diagrams
 
 The Mermaid plugin contributes only a renderer registration and a separately

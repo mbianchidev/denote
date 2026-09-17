@@ -6,6 +6,7 @@ import {
   type PluginKanbanEditResult,
   type PluginGitResult,
   type PluginEmojiPicker,
+  type PluginNoteGraphModel,
   type PluginSourceControlViewModel,
   type PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
@@ -138,6 +139,27 @@ const kanbanEditResult: PluginKanbanEditResult = {
   source: "updated Kanban source",
   model: kanbanBoardModel,
 };
+const noteGraphModel: PluginNoteGraphModel = {
+  nodes: [
+    {
+      id: "Alpha.md",
+      path: "Alpha.md",
+      title: "Alpha",
+      tags: [],
+      incoming: 0,
+      outgoing: 0,
+      orphan: true,
+      distance: null,
+    },
+  ],
+  edges: [],
+  totalNotes: 1,
+  matchingNotes: 1,
+  totalEdges: 0,
+  activeNodeId: null,
+  truncated: false,
+  notices: [],
+};
 
 class FakePort extends EventTarget {
   peer: FakePort | null = null;
@@ -201,6 +223,12 @@ class FakeWorker extends EventTarget {
   } | null = null;
   static kanbanBoardModel: PluginKanbanBoardModel = kanbanBoardModel;
   static kanbanEditResult: PluginKanbanEditResult = kanbanEditResult;
+  static noteGraphOnActivate: {
+    id: string;
+    title: string;
+  } | null = null;
+  static noteGraphModel: PluginNoteGraphModel = noteGraphModel;
+  static completeNoteGraphIndexes = true;
   static sourceControlActionResultType:
     | "source-control-action-result"
     | "command-result" = "source-control-action-result";
@@ -266,6 +294,12 @@ class FakeWorker extends EventTarget {
             ...FakeWorker.kanbanBoardOnActivate,
           });
         }
+        if (FakeWorker.noteGraphOnActivate) {
+          port.postMessage({
+            type: "register-note-graph",
+            ...FakeWorker.noteGraphOnActivate,
+          });
+        }
         if (FakeWorker.failActivationAfterSourceControl) {
           port.postMessage({
             type: "activation-error",
@@ -318,6 +352,24 @@ class FakeWorker extends EventTarget {
           type: "kanban-edit-result",
           requestId: data.requestId,
           result: FakeWorker.kanbanEditResult,
+        });
+      } else if (
+        data.type === "index-note-graph" &&
+        typeof data.requestId === "string" &&
+        FakeWorker.completeNoteGraphIndexes
+      ) {
+        port.postMessage({
+          type: "note-graph-index-result",
+          requestId: data.requestId,
+        });
+      } else if (
+        data.type === "query-note-graph" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "note-graph-query-result",
+          requestId: data.requestId,
+          model: FakeWorker.noteGraphModel,
         });
       } else if (
         data.type === "deactivate" &&
@@ -503,6 +555,17 @@ function pluginWithKanbanBoard(): PluginView {
   };
 }
 
+function pluginWithNoteGraph(): PluginView {
+  const source = plugin();
+  return {
+    ...source,
+    approvedPermissions: [
+      ...source.approvedPermissions,
+      { capability: "note-graph" },
+    ],
+  };
+}
+
 function pluginWithDiagramRenderer(): PluginView {
   const source = plugin();
   const manifest = {
@@ -560,6 +623,9 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.kanbanBoardOnActivate = null;
     FakeWorker.kanbanBoardModel = kanbanBoardModel;
     FakeWorker.kanbanEditResult = kanbanEditResult;
+    FakeWorker.noteGraphOnActivate = null;
+    FakeWorker.noteGraphModel = noteGraphModel;
+    FakeWorker.completeNoteGraphIndexes = true;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
     vi.stubGlobal("Worker", FakeWorker);
@@ -750,6 +816,129 @@ describe("PluginWorkerRuntime", () => {
       }),
     );
     await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("registers, incrementally indexes, queries, and removes a note graph", async () => {
+    const changed = vi.fn();
+    const registration = {
+      id: "denote.reference.graph",
+      title: "Note graph",
+    };
+    FakeWorker.noteGraphOnActivate = registration;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(pluginWithNoteGraph());
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+
+    const indexRequest = {
+      mode: "replace" as const,
+      documents: [
+        {
+          path: "Alpha.md",
+          title: "Alpha",
+          source: "# Alpha",
+          tags: [],
+        },
+      ],
+      removedPaths: [],
+      skippedCount: 0,
+      truncated: false,
+    };
+    await expect(
+      runtime.indexNoteGraph(
+        "denote.reference",
+        registration.id,
+        indexRequest,
+      ),
+    ).resolves.toBeUndefined();
+    const query = {
+      scope: "global" as const,
+      activePath: "Alpha.md",
+      folder: null,
+      tag: null,
+      orphanFilter: "all" as const,
+      depth: 2 as const,
+    };
+    await expect(
+      runtime.queryNoteGraph("denote.reference", registration.id, query),
+    ).resolves.toEqual(noteGraphModel);
+    expect(FakeWorker.instances[0].received).toContainEqual(
+      expect.objectContaining({
+        type: "index-note-graph",
+        providerId: registration.id,
+        request: indexRequest,
+      }),
+    );
+
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("force stops a note graph without waiting for queued deactivation", async () => {
+    const changed = vi.fn();
+    const registration = {
+      id: "denote.reference.graph",
+      title: "Note graph",
+    };
+    FakeWorker.noteGraphOnActivate = registration;
+    FakeWorker.completeNoteGraphIndexes = false;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+    await runtime.start(pluginWithNoteGraph());
+
+    const indexing = runtime.indexNoteGraph(
+      "denote.reference",
+      registration.id,
+      {
+        mode: "replace",
+        documents: [
+          {
+            path: "Alpha.md",
+            title: "Alpha",
+            source: "# Alpha",
+            tags: [],
+          },
+        ],
+        removedPaths: [],
+        skippedCount: 0,
+        truncated: false,
+      },
+    );
+    const rejected = expect(indexing).rejects.toThrow(/stopped/i);
+    await runtime.forceStop("denote.reference");
+
+    await rejected;
+    expect(FakeWorker.instances[0].terminated).toBe(true);
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 

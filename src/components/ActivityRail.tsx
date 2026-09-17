@@ -13,6 +13,7 @@ import {
   GripVertical,
   Info,
   Moon,
+  Network,
   Plug,
   Search,
   Sun,
@@ -21,7 +22,10 @@ import {
 import { memo, useEffect, useMemo, useState } from "react";
 import type { SidebarView } from "../types";
 import type { Theme } from "../lib/theme";
-import type { PluginSourceControlContribution } from "../plugins/workerRuntime";
+import type {
+  PluginNoteGraphContribution,
+  PluginSourceControlContribution,
+} from "../plugins/workerRuntime";
 
 interface ActivityRailProps {
   activeView: SidebarView;
@@ -30,8 +34,13 @@ interface ActivityRailProps {
     pluginId: string;
     providerId: string;
   } | null;
+  activeNoteGraph: {
+    pluginId: string;
+    providerId: string;
+  } | null;
   pluginViews: Array<{ id: string; title: string }>;
   sourceControlProviders: PluginSourceControlContribution[];
+  noteGraphs: PluginNoteGraphContribution[];
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
   onPluginViewChange: (viewId: string) => void;
@@ -39,6 +48,7 @@ interface ActivityRailProps {
     pluginId: string,
     providerId: string,
   ) => void;
+  onNoteGraphChange: (pluginId: string, providerId: string) => void;
   onAbout: () => void;
   onThemeToggle: () => void;
 }
@@ -54,7 +64,7 @@ interface PluginRailItem {
   key: string;
   title: string;
   selected: boolean;
-  kind: "view" | "source-control";
+  kind: "view" | "source-control" | "note-graph";
   onSelect: () => void;
 }
 
@@ -77,12 +87,15 @@ function ActivityRailComponent({
   activeView,
   activePluginView,
   activeSourceControlProvider,
+  activeNoteGraph,
   pluginViews,
   sourceControlProviders,
+  noteGraphs,
   theme,
   onViewChange,
   onPluginViewChange,
   onSourceControlProviderChange,
+  onNoteGraphChange,
   onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
@@ -125,7 +138,16 @@ function ActivityRailComponent({
           onSourceControlProviderChange(provider.pluginId, provider.id),
       };
     });
-    const available = [...sidebarItems, ...sourceItems];
+    const graphItems = noteGraphs.map((provider) => ({
+      key: `graph:${provider.pluginId}:${provider.id}`,
+      title: provider.title,
+      selected:
+        activeNoteGraph?.pluginId === provider.pluginId &&
+        activeNoteGraph.providerId === provider.id,
+      kind: "note-graph" as const,
+      onSelect: () => onNoteGraphChange(provider.pluginId, provider.id),
+    }));
+    const available = [...sidebarItems, ...sourceItems, ...graphItems];
     const rank = new Map(
       preferences.order.map((key, index) => [key, index] as const),
     );
@@ -137,7 +159,10 @@ function ActivityRailComponent({
     );
   }, [
     activePluginView,
+    activeNoteGraph,
     activeSourceControlProvider,
+    noteGraphs,
+    onNoteGraphChange,
     onPluginViewChange,
     onSourceControlProviderChange,
     pluginViews,
@@ -190,6 +215,7 @@ function ActivityRailComponent({
             aria-pressed={
               activePluginView === null &&
               activeSourceControlProvider === null &&
+              activeNoteGraph === null &&
               activeView === id
             }
             title={
@@ -257,6 +283,8 @@ function ActivityRailComponent({
                     >
                       {item.kind === "source-control" ? (
                         <GitBranch aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "note-graph" ? (
+                        <Network aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : (
                         <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
                       )}

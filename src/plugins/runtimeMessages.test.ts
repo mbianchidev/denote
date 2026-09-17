@@ -6,6 +6,7 @@ import {
 } from "./runtimeMessages";
 import type {
   PluginKanbanBoardModel,
+  PluginNoteGraphModel,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
 
@@ -74,6 +75,28 @@ const kanbanModel: PluginKanbanBoardModel = {
   error: null,
   notices: [],
   canInitialize: false,
+};
+
+const noteGraphModel: PluginNoteGraphModel = {
+  nodes: [
+    {
+      id: "Alpha.md",
+      path: "Alpha.md",
+      title: "Alpha",
+      tags: [],
+      incoming: 0,
+      outgoing: 0,
+      orphan: true,
+      distance: null,
+    },
+  ],
+  edges: [],
+  totalNotes: 1,
+  matchingNotes: 1,
+  totalEdges: 0,
+  activeNodeId: null,
+  truncated: false,
+  notices: [],
 };
 
 describe("plugin runtime source control messages", () => {
@@ -276,6 +299,102 @@ describe("plugin runtime source control messages", () => {
           }),
         ).toBe(false);
       }
+    });
+  });
+
+  describe("plugin runtime note graph messages", () => {
+    it("accepts bounded registration, indexing, querying, and removal", () => {
+      expect(
+        isPluginRuntimeMessage({
+          type: "register-note-graph",
+          id: "denote.synthetic.graph",
+          title: "Note graph",
+        }),
+      ).toBe(true);
+      expect(
+        isPluginHostMessage({
+          type: "index-note-graph",
+          providerId: "denote.synthetic.graph",
+          requestId: "request-1",
+          request: {
+            mode: "replace",
+            documents: [
+              {
+                path: "Alpha.md",
+                title: "Alpha",
+                source: "# Alpha",
+                tags: [],
+              },
+            ],
+            removedPaths: [],
+            skippedCount: 0,
+            truncated: false,
+          },
+        }),
+      ).toBe(true);
+      expect(
+        isPluginHostMessage({
+          type: "query-note-graph",
+          providerId: "denote.synthetic.graph",
+          requestId: "request-2",
+          request: {
+            scope: "global",
+            activePath: null,
+            folder: null,
+            tag: null,
+            orphanFilter: "all",
+            depth: 2,
+          },
+        }),
+      ).toBe(true);
+      expect(
+        isPluginRuntimeMessage({
+          type: "note-graph-index-result",
+          requestId: "request-1",
+        }),
+      ).toBe(true);
+      expect(
+        isPluginRuntimeMessage({
+          type: "note-graph-query-result",
+          requestId: "request-2",
+          model: noteGraphModel,
+        }),
+      ).toBe(true);
+      expect(
+        isPluginRuntimeMessage({
+          type: "unregister-note-graph",
+          id: "denote.synthetic.graph",
+        }),
+      ).toBe(true);
+    });
+
+    it("rejects malformed graph requests and dangling edges", () => {
+      expect(
+        isPluginHostMessage({
+          type: "query-note-graph",
+          providerId: "denote.synthetic.graph",
+          requestId: "request-2",
+          request: {
+            scope: "global",
+            activePath: null,
+            folder: null,
+            tag: null,
+            orphanFilter: "all",
+            depth: 8,
+          },
+        }),
+      ).toBe(false);
+      expect(
+        isPluginRuntimeMessage({
+          type: "note-graph-query-result",
+          requestId: "request-2",
+          model: {
+            ...noteGraphModel,
+            edges: [{ sourceId: "Alpha.md", targetId: "Missing.md" }],
+            totalEdges: 1,
+          },
+        }),
+      ).toBe(false);
     });
   });
 

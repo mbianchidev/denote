@@ -8,6 +8,9 @@ import type {
   PluginKanbanBoardRequest,
   PluginKanbanEditRequest,
   PluginKanbanEditResult,
+  PluginNoteGraphIndexRequest,
+  PluginNoteGraphModel,
+  PluginNoteGraphQuery,
   PluginNoteEvent,
   PluginEmojiPreferences,
   PluginPermissionRequest,
@@ -30,6 +33,7 @@ import {
   type PluginDiagramRendererContribution,
   type PluginEmojiPickerContribution,
   type PluginKanbanBoardContribution,
+  type PluginNoteGraphContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
 } from "./workerRuntime";
@@ -82,6 +86,7 @@ function permissionRequestEqual(
     case "emoji-picker":
     case "structured-viewer":
     case "kanban-board":
+    case "note-graph":
     case "diagram-renderer":
     case "note-events":
     case "project-context":
@@ -139,6 +144,7 @@ export interface PluginController {
   emojiPickers: PluginEmojiPickerContribution[];
   structuredViewers: PluginStructuredViewerContribution[];
   kanbanBoards: PluginKanbanBoardContribution[];
+  noteGraphs: PluginNoteGraphContribution[];
   diagramRenderers: PluginDiagramRendererContribution[];
   saveEmojiPreferences: (
     pluginId: string,
@@ -199,6 +205,16 @@ export interface PluginController {
     providerId: string,
     request: PluginKanbanEditRequest,
   ) => Promise<PluginKanbanEditResult>;
+  indexNoteGraph: (
+    pluginId: string,
+    providerId: string,
+    request: PluginNoteGraphIndexRequest,
+  ) => Promise<void>;
+  queryNoteGraph: (
+    pluginId: string,
+    providerId: string,
+    request: PluginNoteGraphQuery,
+  ) => Promise<PluginNoteGraphModel>;
   renderDiagram: (
     renderer: PluginDiagramRendererContribution,
     request: PluginDiagramRenderRequest,
@@ -230,6 +246,8 @@ export function usePlugins(
   contentAvailable = true,
 ): PluginController {
   const [plugins, setPlugins] = useState<PluginView[]>([]);
+  const pluginsRef = useRef(plugins);
+  pluginsRef.current = plugins;
   const [bundles, setBundles] = useState<PluginBundleMetadata[]>([]);
   const [commands, setCommands] = useState<PluginCommandContribution[]>([]);
   const [sidebarViews, setSidebarViews] = useState<
@@ -246,6 +264,7 @@ export function usePlugins(
   const [kanbanBoards, setKanbanBoards] = useState<
     PluginKanbanBoardContribution[]
   >([]);
+  const [noteGraphs, setNoteGraphs] = useState<PluginNoteGraphContribution[]>([]);
   const [diagramRenderers, setDiagramRenderers] = useState<
     PluginDiagramRendererContribution[]
   >([]);
@@ -283,6 +302,7 @@ export function usePlugins(
   workspaceIdentityRef.current = workspaceIdentity;
   const contentAvailableRef = useRef(contentAvailable);
   contentAvailableRef.current = contentAvailable;
+  const contentRuntimeWorkspaceRef = useRef(workspaceIdentity);
 
   const refresh = useCallback(async () => {
     setPlugins(await api.listPlugins());
@@ -324,6 +344,7 @@ export function usePlugins(
       setStructuredViewers,
       setDiagramRenderers,
       setKanbanBoards,
+      setNoteGraphs,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -402,21 +423,59 @@ export function usePlugins(
     if (!runtime) {
       return;
     }
+    const workspaceChanged =
+      contentRuntimeWorkspaceRef.current !== workspaceIdentity;
+    contentRuntimeWorkspaceRef.current = workspaceIdentity;
     let cancelled = false;
     void (async () => {
       for (const plugin of plugins) {
         if (
           cancelled ||
           !plugin.enabled ||
-          !requiresContent(plugin)
+          !requiresContent(plugin) ||
+          busyPluginIds.has(plugin.catalog.manifest.id) ||
+          pluginOperationsRef.current.has(plugin.catalog.manifest.id)
         ) {
           continue;
         }
         const pluginId = plugin.catalog.manifest.id;
         try {
+          const noteGraph = plugin.approvedPermissions.some(
+            (permission) => permission.capability === "note-graph",
+          );
+          const resetForWorkspace =
+            workspaceChanged && noteGraph;
+          if (
+            noteGraph &&
+            runtime.isRunning(pluginId) &&
+            (resetForWorkspace || !contentAvailable)
+          ) {
+            await runtime.forceStop(pluginId);
+          }
+          if (
+            cancelled ||
+            workspaceIdentityRef.current !== workspaceIdentity ||
+            contentAvailableRef.current !== contentAvailable ||
+            pluginOperationsRef.current.has(pluginId)
+          ) {
+            return;
+          }
           if (contentAvailable) {
             if (!runtime.isRunning(pluginId) && startsAllowedRef.current) {
-              await runtime.start(plugin);
+              const currentPlugin = pluginsRef.current.find(
+                (candidate) =>
+                  candidate.catalog.manifest.id === pluginId,
+              );
+              if (
+                !currentPlugin?.enabled ||
+                pluginOperationsRef.current.has(pluginId) ||
+                workspaceIdentityRef.current !== workspaceIdentity ||
+                contentAvailableRef.current !== contentAvailable ||
+                cancelled
+              ) {
+                continue;
+              }
+              await runtime.start(currentPlugin);
             }
           } else if (runtime.isRunning(pluginId)) {
             await runtime.stop(pluginId);
@@ -431,7 +490,13 @@ export function usePlugins(
     return () => {
       cancelled = true;
     };
-  }, [contentAvailable, plugins, reportError]);
+  }, [
+    busyPluginIds,
+    contentAvailable,
+    plugins,
+    reportError,
+    workspaceIdentity,
+  ]);
 
   const withBusy = useCallback(
     async (pluginId: string, operation: () => Promise<void>) => {
@@ -946,6 +1011,36 @@ export function usePlugins(
     [],
   );
 
+  const indexNoteGraph = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginNoteGraphIndexRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.indexNoteGraph(pluginId, providerId, request);
+    },
+    [],
+  );
+
+  const queryNoteGraph = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginNoteGraphQuery,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.queryNoteGraph(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const renderDiagram = useCallback(
     (
       renderer: PluginDiagramRendererContribution,
@@ -992,6 +1087,7 @@ export function usePlugins(
     emojiPickers,
     structuredViewers,
     kanbanBoards,
+    noteGraphs,
     diagramRenderers,
     saveEmojiPreferences,
     sourceControlProviders,
@@ -1016,6 +1112,8 @@ export function usePlugins(
     parseStructuredView,
     parseKanbanBoard,
     editKanbanBoard,
+    indexNoteGraph,
+    queryNoteGraph,
     renderDiagram,
     releaseDiagramScope,
     emitNoteEvent,
@@ -1026,7 +1124,7 @@ export function usePlugins(
 
 function requiresContent(plugin: PluginView): boolean {
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "kanban-board", "diagram-renderer"].includes(
+    ["structured-viewer", "kanban-board", "note-graph", "diagram-renderer"].includes(
       permission.capability,
     ),
   );

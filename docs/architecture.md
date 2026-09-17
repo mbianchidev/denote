@@ -320,8 +320,8 @@ not invoke any workspace mutation. Plugin API version 1 intentionally exposes
 command registration, static sidebar views, note events, plugin-scoped
 state/settings, optional secure storage, status items, literal source-editor
 decorations, typed source-control view models, typed automatic local commit
-schedules, bounded Kanban board models and open-tab edits, and explicit
-user-action services.
+schedules, bounded Kanban board models and open-tab edits, bounded note-graph
+indexes and queries, and explicit user-action services.
 Source-control providers contribute host-rendered repository, resource, branch,
 remote, history, diff, conflict, operation, and recovery data; they cannot render
 HTML or execute Git directly. A provider describes an advanced operation as a
@@ -880,6 +880,106 @@ range, preserving unknown Markdown byte-for-byte. Disabling or removing the
 plugin leaves the file unchanged. Locking an encrypted vault stops the worker
 and clears its contribution until unlock.
 
+### Note graphs
+
+The additive API version 1 `note-graph` permission accepts one stateful
+declarative provider per plugin. Its registration contains a namespaced ID,
+title, an `index` callback, and a `query` callback. It contains no React
+component, HTML, CSS, editor object, absolute path, native capability, network
+handle, or write service.
+
+While the graph view is active, the host builds a local graph snapshot from the
+same bounded vault documents used by search. Each document sent to the worker contains only its
+vault-relative path, display title, current saved source, and normalized tags.
+MDX, binary content, PDFs, and non-Markdown files are excluded. Transfer is
+capped at 5,000 documents, 256 KiB per source, and 8 MiB of source in total;
+the active note takes priority when the cap is reached. Index work is split into
+requests of at most 256 documents and 512 KiB of source so accepted worker
+operations remain below their timeout; removal-only batches carry at most 512
+paths. The request also reports skipped or truncated input.
+
+The first request for a provider or workspace is `replace`; later requests are
+`update` deltas containing only changed documents and removed paths. The host
+compares source, title, and tags, then serializes requests through the existing
+worker message queue. A failed delta leaves the previous snapshot current and is
+retried rather than being reported as indexed. Vault changes force replacement.
+A workspace/provider-scoped host coordinator owns that queue and last completed
+snapshot independently from mounted React surfaces. Switching between the
+sidebar and full graph tab, or temporarily opening a note over the graph tab,
+therefore reuses the completed worker index and cannot interleave partial
+replacement chunks from separate panels.
+
+Queries contain only a global/local scope, optional active vault-relative path,
+optional folder and tag filters, `all` / `only` / `connected` orphan selection,
+and local depth 1–3. The returned model is capped at 500 unique note nodes and
+2,000 unique directed edges. Every edge must reference returned nodes; paths and
+IDs must be unique and display-safe; counts, distances, orphan state, active
+identity, notices, and truncation are validated independently in both worker and
+host. Invalid registration, request, or output terminates the runtime.
+
+The renderer owns the activity-rail entry, labelled filters, Global/Local and
+graph/list controls, deterministic radial layout, zoom, keyboard list,
+announcements, and host file opening. The SVG plot is presentation-only and
+hidden from assistive technology; the searchable list exposes the same notes
+with one roving Tab stop, Arrow/Home/End movement, and native button activation.
+No graph model can name an absolute path or navigate outside the current vault.
+
+Each mounted visual graph reconciles the declarative model into a host-only
+mutable force state. Surviving node positions and velocities remain through
+filter/model updates; new nodes use deterministic local-ring or global
+golden-angle seeds. Directed edges become deduplicated physical springs.
+Per-frame work is bounded by nodes, edges, and local spatial-grid pairs rather
+than all node pairs. Center/ring attraction, spring distance, collision,
+repulsion, damping, cooling, and view-bound forces cannot modify the provider
+model or vault.
+
+Pointer capture converts client coordinates through the SVG's letterboxed
+640×520 viewBox and current center zoom. A dragged node is fixed to that graph
+coordinate while the solver continues, so its neighbors follow; movement above
+the click threshold suppresses file opening. Release reheats a short settling
+phase. The solver publishes at a bounded frame cadence and stops when its energy
+cools. With `prefers-reduced-motion`, bounded steps are applied synchronously on
+model/drag changes and no post-action animation continues. The semantic note
+list remains the equivalent non-spatial navigation surface.
+
+The sidebar contributes an explicit host action that creates or focuses one
+`note-graph` transient `EditorTab` per provider. Its host-only metadata contains
+the plugin/provider IDs and the current Local anchor. The virtual path is never
+resolved as a vault file. Like transient diff tabs, graph tabs are excluded from
+autosave, file references, search/recent statistics, and persisted tab sessions,
+while ordinary tab reordering, grouping, pane movement, docking, and close
+behavior continue to apply. The full tab renders the same bounded provider and
+snapshot in the editor pane. Choosing a node updates its Local anchor and opens
+or focuses the note through the host's new-tab flow, leaving the graph tab open.
+
+`denote.note-graph` keeps its parsed note map only in the isolated worker.
+Replace parses every supplied note; update reparses only supplied changes and
+removes named paths. Inline links plus full, collapsed, and shortcut reference
+links use first-definition-wins semantics. Relative and root-relative targets
+are percent-decoded and resolved against the current indexed path set with exact
+case first and an unambiguous case-fold fallback. External schemes, images,
+fragment-only targets, vault escapes, malformed encoding, and self-links are
+ignored. Existing raw targets are resolved at query time, so adding or removing
+a note can connect or disconnect unchanged source without reparsing it.
+
+Global queries rank bounded output by connection count. Local queries use an
+undirected breadth-first neighborhood of the active note and rank by distance
+before connection count. Incoming and outgoing counts and orphan status are
+computed across the complete bounded index before presentation filters and
+output limits are applied. Resolution is cached between queries and rebuilt only
+after an index change, with at most 100,000 resolved links retained for degree,
+adjacency, and filtering work. Exhausting that analysis budget is explicit.
+
+Note-graph workers are stopped while no workspace content is available or an
+encrypted vault is locked, then restarted from the verified installed package
+after unlock. A vault switch or lock withdraws the contribution and
+force-terminates the graph worker instead of queueing deactivation behind an
+index operation; an enabled plugin then starts cleanly for the current
+workspace. Closing the sidebar or graph tab releases that host model; plugin
+disable/update/removal/crash and application teardown release the worker index
+and every derived layout. The capability exposes no edit operation, so enabling,
+using, disabling, or removing it cannot change Markdown.
+
 ### Sandboxed diagram renderers
 
 The additive API version 1 `diagram-renderer` permission accepts one declarative
@@ -1016,6 +1116,10 @@ DOM or direct Tauri bindings; the CSP denies direct network connections, and the
 host terminates the worker on invalid protocol messages or timeouts. Messages are
 scoped to the plugin ID by the host, so plugin code cannot choose the ID used for
 native storage or keychain calls.
+Activation bundles resolve conditional package exports with the `worker`
+condition, preventing a dependency from selecting a browser-only DOM build.
+Separately declared diagram-renderer bundles retain browser resolution for
+their reviewed opaque iframe runtime.
 Command and source-control contributions require the plugin ID prefix, remain
 staged until activation succeeds, and disappear when the worker terminates.
 Source-control model updates use the original registration handle and do not

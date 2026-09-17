@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parsePluginManifest, type PluginCatalogEntry } from "@denote/plugin-sdk";
+import { pluginEntrypointConditions } from "./plugin-build-conditions";
 import { pluginSdkModulePath, pluginSdkSourceCommit } from "./plugin-sdk-provenance";
+import { containsPluginRuntimeImport } from "./plugin-runtime-imports";
 
 const manifest = parsePluginManifest({
   schemaVersion: 1,
@@ -30,6 +32,11 @@ const entry: PluginCatalogEntry = {
 };
 
 describe("plugin SDK build provenance", () => {
+  it("uses worker package exports only for isolated activation bundles", () => {
+    expect(pluginEntrypointConditions("worker")).toEqual(["worker"]);
+    expect(pluginEntrypointConditions("diagram-renderer")).toEqual([]);
+  });
+
   it("resolves native and Vite-normalized paths on every platform", () => {
     expect(pluginSdkModulePath("/synthetic/sdk", "/synthetic/sdk/src/index.ts"))
       .toBe("packages/plugin-sdk/src/index.ts");
@@ -39,6 +46,35 @@ describe("plugin SDK build provenance", () => {
       .toBe("packages/plugin-sdk/src/index.ts");
     expect(pluginSdkModulePath("/synthetic/sdk", "/synthetic/sdk-other/index.ts")).toBeNull();
     expect(() => pluginSdkModulePath("/synthetic/sdk", "/synthetic/sdk/../private.ts")).toThrow();
+  });
+
+  describe("plugin runtime import detection", () => {
+    it("rejects executable runtime loaders", () => {
+      expect(containsPluginRuntimeImport('import "./chunk.js"')).toBe(true);
+      expect(containsPluginRuntimeImport('export * from "./chunk.js"')).toBe(true);
+      expect(containsPluginRuntimeImport('await import("./chunk.js")')).toBe(true);
+      expect(containsPluginRuntimeImport('importScripts("./chunk.js")')).toBe(true);
+      expect(containsPluginRuntimeImport('self.importScripts("./chunk.js")')).toBe(
+        true,
+      );
+      expect(
+        containsPluginRuntimeImport('self["importScripts"]("./chunk.js")'),
+      ).toBe(true);
+    });
+
+    it("ignores import-shaped text in comments and strings", () => {
+      expect(
+        containsPluginRuntimeImport(
+          '/** @typedef {import("./types.js").Thing} Thing */',
+        ),
+      ).toBe(false);
+      expect(
+        containsPluginRuntimeImport('const example = "import(\\"./chunk.js\\")";'),
+      ).toBe(false);
+      expect(
+        containsPluginRuntimeImport("const value = 1; export { value };"),
+      ).toBe(false);
+    });
   });
   it("rebuilds an immutable plugin with its original shared SDK", () => {
     expect(pluginSdkSourceCommit(manifest, [entry])).toBe("b".repeat(40));

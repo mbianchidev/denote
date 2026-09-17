@@ -236,6 +236,76 @@ Denote Welcome vault. Older copies receive only the missing `plugins` sample
 once, including as ciphertext after an encrypted Welcome vault is unlocked.
 Existing matching paths are never overwritten.
 
+## Note graph
+
+Enable **Note graph** under **Knowledge management** to see how Markdown notes
+link to one another. The plugin is disabled by default and its executable code
+is downloaded only after you approve **Index and visualize bounded local note
+connections**. It has no network, process, clipboard, credential, or note-write
+permission.
+
+Choose **Note graph** in the activity rail. **Global** shows the bounded
+connection map for the vault. **Local** starts from the active Markdown note and
+shows notes within one, two, or three incoming or outgoing connections. If the
+active file is not in the graph, Local explains that no neighborhood is
+available instead of changing files or filters.
+
+Use **Open Note graph in a tab** in the graph header, or run that command from
+the command palette, to give the graph a complete editor pane. The graph tab can
+be reordered, grouped, moved between panes, and docked like other tabs. It is
+temporary: Denote never saves it into the vault or restores it next launch.
+Choosing a node opens or focuses a separate note tab, so the graph remains
+available when you return. That note becomes the Local starting point.
+
+Use the filters to limit the result:
+
+- **Folder** includes that folder and its descendants. **Vault root** selects
+  only root-level notes.
+- **Tag** matches the normalized hashtags already present in each note.
+- **Connections** shows every note, only orphans with no incoming or outgoing
+  link, or only connected notes.
+- **Depth** appears in Local mode and limits the neighborhood to one, two, or
+  three connections.
+
+The graph view uses a stable local constellation. Select a node to open that
+note through Denote's ordinary navigation. Zoom controls change only the visual
+plot; the full tab offers a wider zoom range and shows more labels. Choose
+**Show keyboard note list** for the equivalent searchable list.
+Tab enters the list once; Up/Down move one note, Home/End move to the first or
+last visible note, and Enter opens it. Every row states its title, relative
+path, and incoming/outgoing connection counts.
+
+Drag any visual node to rearrange the constellation. The dragged note stays
+under the pointer, linked notes follow naturally, and nearby notes move aside.
+Release to let the graph settle. A press that does not move still opens the
+note. These positions are temporary view state and never change links or
+Markdown. When reduced motion is enabled, dragging remains direct but the graph
+updates without animated settling.
+
+The worker indexes standard inline links plus full, collapsed, and shortcut
+reference links. Relative paths, vault-root paths, percent-encoded names, and
+extensionless `.md` / `.markdown` targets are supported. Images, browser links,
+other URI schemes, fragment-only links, links that escape the vault, malformed
+targets, and links back to the same note are not graph edges.
+
+Indexing and filtering stay entirely local. The first view receives a bounded
+snapshot; later note changes send only changed or removed paths. Adding or
+removing a note can resolve links already present in unchanged notes without
+reparsing their Markdown. Autosaves and external-file refreshes feed the same
+incremental path.
+
+Input is limited to 5,000 UTF-8 Markdown notes, 256 KiB per note, and 8 MiB in
+total. Indexing sends at most 256 notes and 512 KiB to the worker at once.
+Removal batches carry at most 512 paths. Connection analysis keeps at most
+100,000 resolved links, and the visible model is limited to 500 nodes and 2,000
+edges. Notes or connections beyond a limit are omitted with a written notice so
+large vaults remain responsive.
+
+Closing the view releases its rendered model. Locking or switching a vault,
+disabling or updating the plugin, a crash, or application exit releases the
+worker's derived index. Disabling or removing Note graph never edits, reformats,
+or deletes Markdown.
+
 ## Mermaid diagrams
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
@@ -297,7 +367,6 @@ matching paths are not overwritten.
 
 These capabilities are planned as separately enabled plugins:
 
-- graph view;
 - task lists and reminders;
 - note comments and highlighting;
 - text-to-speech and dictation;

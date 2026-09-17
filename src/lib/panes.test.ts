@@ -441,7 +441,7 @@ describe("pane session state", () => {
     expect(session.layout).toEqual({ kind: "vertical", sizes: [0.6, 0.4] });
   });
 
-  it("omits placeholder and temporary diff tabs from the session", () => {
+  it("omits placeholder and transient tool tabs from the session", () => {
     const placeholder: EditorTab = {
       ...tab("denote:new-tab:1"),
       placeholder: true,
@@ -451,12 +451,23 @@ describe("pane session state", () => {
       transient: "diff",
       readOnly: true,
     };
+    const noteGraph: EditorTab = {
+      ...tab("denote-note-graph:denote.note-graph:denote.note-graph.graph"),
+      title: "Note graph",
+      transient: "note-graph",
+      readOnly: true,
+      noteGraph: {
+        pluginId: "denote.note-graph",
+        providerId: "denote.note-graph.graph",
+        notePath: "Alpha.md",
+      },
+    };
     const session = buildPaneSessionState(
       workspace([
         {
           id: "pane-1",
-          tabs: [placeholder, temporaryDiff],
-          activePath: temporaryDiff.path,
+          tabs: [placeholder, temporaryDiff, noteGraph],
+          activePath: noteGraph.path,
         },
       ]),
     );

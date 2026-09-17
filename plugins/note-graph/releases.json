@@ -1,0 +1,57 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "e759dccd3536d472ab5ad26ae056da7adc5e0727",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.0.tgz",
+      "sha256": "bb6400326bfe599b5b6434873d60be249d4e0ccb5c07aebbd938b8c7d12b0441",
+      "sizeBytes": 61346
+    }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "664094bdd0fe731eeb7d6ba4dbf629a3596f61f4",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.1.tgz",
+      "sha256": "674f93b3cc34042846f4e2f5d946d9d8f974ba5b254f4dc84e792841f6a4bcb3",
+      "sizeBytes": 61332
+    }
+  },
+  {
+    "version": "0.1.2",
+    "sourceCommit": "b843e7fbddef5e3acfd14f92bb9cbe268b602940",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.2.tgz",
+      "sha256": "d6a7c0576797a0d1737175fcaffcc15203f2f25fdd3fe388424f4d4c48d4fe7a",
+      "sizeBytes": 73850
+    }
+  },
+  {
+    "version": "0.1.3",
+    "sourceCommit": "1d724b3d46f88a6deca07ddd082e986a5351d320",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.3.tgz",
+      "sha256": "0a5ce2eab03069c32bed432a677281abfb7d1a30e633781600678979727c6f56",
+      "sizeBytes": 74158
+    }
+  },
+  {
+    "version": "0.1.4",
+    "sourceCommit": "1554aceb744743ac4d4895bf5bfd66cfc2b0b3a2",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.4.1/denote.note-graph-0.1.4.tgz",
+      "sha256": "8a86259b050b837932ab5d7e7ab4bec0165d6dd6739e3ea3fe5a59c3f8f3a4f1",
+      "sizeBytes": 74349
+    }
+  }
+]

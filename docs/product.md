@@ -445,6 +445,39 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   keyboard-named source, copy, and export controls. Tab close, vault switch or
   lock, plugin disable/update/removal/crash, and teardown clear every derived
   render and restore ordinary fenced code without changing Markdown.
+- The independently installable **Note graph** plugin is disabled by default
+  and requests only `note-graph`. Its isolated worker incrementally indexes
+  standard inline and reference Markdown links from bounded local note
+  snapshots. It receives no absolute vault path, editor object, network
+  capability, general workspace read/write access, or encryption key.
+- A host-rendered activity-rail view switches between a global vault graph and
+  an undirected local neighborhood for the active note. Folder, tag, orphan
+  status, and one-to-three connection-depth filters update the model without
+  changing Markdown. Selecting a visual node or its list row opens that note
+  through Denote's ordinary file-navigation flow.
+- The compact rail view can open the same graph as a full transient editor tab.
+  The graph tab participates in ordinary tab focus, ordering, grouping, pane
+  moves, and docking, but is never saved to the vault or restored next launch.
+  Opening a node from it opens or focuses an ordinary note tab without replacing
+  the graph, and makes that note the tab's later Local anchor.
+- The graph uses a bounded deterministic constellation plus an equivalent
+  searchable keyboard list with one roving tab stop, Arrow/Home/End movement,
+  visible focus, and Enter activation. Input is capped at 5,000 UTF-8 Markdown
+  notes, 256 KiB per note, and 8 MiB total, processed in bounded 512 KiB /
+  256-note worker requests with at most 512 removals. Connection analysis is
+  capped at 100,000 resolved links, and output at 500 nodes and 2,000 edges.
+  Changed notes are reparsed individually, path-set changes
+  re-resolve existing targets without reparsing unchanged source, and omitted
+  input or output is reported.
+- The visual constellation is force-directed rather than fixed. Dragging a node
+  pins it under the pointer while connected nodes follow through bounded springs
+  and nearby nodes make space; releasing it lets the graph settle without
+  changing graph data. A click without drag still opens the note. Reduced-motion
+  environments apply the same spatial result without animated settling.
+- Graph source, parsed links, filters, layout, and derived models remain local
+  and in memory. Locking or switching a vault, disabling/updating/removing the
+  plugin, a worker crash, and application teardown release them. Disabling or
+  removing the plugin leaves every note byte unchanged.
 - Development builds use a separate application identity and can explicitly
   load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
   untrusted, pass the ordinary package/runtime safety checks, and are

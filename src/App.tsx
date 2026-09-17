@@ -25,6 +25,7 @@ import {
   History,
   Image as ImageIcon,
   ListTree,
+  Network,
   Pencil,
   Paperclip,
   Pin,
@@ -88,12 +89,18 @@ import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
 import { StructuredDataViewer } from "./components/StructuredDataViewer";
 import { KanbanBoardEditor } from "./components/KanbanBoardEditor";
+import { NoteGraphPanel } from "./components/NoteGraphPanel";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
 import { readEmojiPreferences } from "./plugins/emojiPickers";
 import { structuredViewerForPath } from "./plugins/structuredViewers";
 import { kanbanBoardForPath } from "./plugins/kanbanBoards";
+import {
+  createNoteGraphSnapshot,
+  noteGraphTabPath,
+  rekeyNoteGraphTab,
+} from "./plugins/noteGraphs";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
@@ -279,9 +286,13 @@ import {
   type ThemePreference,
 } from "./lib/theme";
 import { usePlugins } from "./plugins/usePlugins";
+import { NoteGraphCoordinator } from "./plugins/noteGraphCoordinator";
 import { useAutomaticLocalCommits } from "./plugins/useAutomaticLocalCommits";
 import { resolveCommitMessage } from "./plugins/commitMessages";
-import type { PluginAutomaticLocalCommitContribution } from "./plugins/workerRuntime";
+import type {
+  PluginAutomaticLocalCommitContribution,
+  PluginNoteGraphContribution,
+} from "./plugins/workerRuntime";
 import { getOutlineWidth, saveOutlineWidth } from "./lib/outlineWidth";
 import { getSidebarWidth, saveSidebarWidth } from "./lib/sidebarWidth";
 import {
@@ -326,6 +337,7 @@ import type {
 import type {
   EditorSearchNavigation,
   EditorTab,
+  DocumentBatch,
   FileNode,
   GitignoreStatusUpdate,
   HeadingItem,
@@ -800,9 +812,14 @@ function App() {
       pluginId: string;
       providerId: string;
     } | null>(null);
+  const [activeNoteGraph, setActiveNoteGraph] = useState<{
+    pluginId: string;
+    providerId: string;
+  } | null>(null);
   const showSidebarView = useCallback((view: SidebarView) => {
     setActiveSourceControlProvider(null);
     setActivePluginSidebar(null);
+    setActiveNoteGraph(null);
     setSidebarView(view);
   }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -821,6 +838,10 @@ function App() {
   );
   const [searchQueryFocusRequest, setSearchQueryFocusRequest] = useState(0);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [searchDocumentBatch, setSearchDocumentBatch] = useState<{
+    generation: number;
+    batch: DocumentBatch;
+  } | null>(null);
   const [searchNavigation, setSearchNavigation] = useState<
     (EditorSearchNavigation & { path: string }) | null
   >(null);
@@ -1565,6 +1586,13 @@ function App() {
     workspace !== null &&
       (!workspace.encryption.enabled || workspace.encryption.unlocked),
   );
+  const [noteGraphCoordinator] = useState(
+    () => new NoteGraphCoordinator(),
+  );
+  useEffect(
+    () => () => noteGraphCoordinator.clear(),
+    [noteGraphCoordinator],
+  );
   const [emojiHost] = useState(() => new EmojiHost());
   const emojiPickerOpen = useSyncExternalStore(emojiHost.subscribe, emojiHost.isPickerOpen);
   const contributedEmojiPickers = useMemo(() => pluginController.emojiPickers.filter((picker) =>
@@ -1601,6 +1629,97 @@ function App() {
       pluginController.busyPluginIds,
       pluginController.kanbanBoards,
       pluginController.plugins,
+    ],
+  );
+  const noteGraphs = useMemo(
+    () =>
+      pluginController.noteGraphs.filter(
+        (graph) =>
+          !pluginController.busyPluginIds.has(graph.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.catalog.manifest.id === graph.pluginId && plugin.enabled,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.noteGraphs,
+      pluginController.plugins,
+    ],
+  );
+  const availableNoteGraphKeys = useMemo(
+    () =>
+      new Set(
+        noteGraphs.map(
+          (graph) => `${graph.pluginId}\u0000${graph.id}`,
+        ),
+      ),
+    [noteGraphs],
+  );
+  useEffect(() => {
+    noteGraphCoordinator.retainProviders(availableNoteGraphKeys);
+  }, [availableNoteGraphKeys, noteGraphCoordinator]);
+  const noteGraphSurfaceState = useMemo(() => {
+    const graphTabs = panes
+      .flatMap((pane) => pane.tabs)
+      .filter(
+        (tab) =>
+          tab.transient === "note-graph" &&
+          tab.noteGraph &&
+          availableNoteGraphKeys.has(
+            `${tab.noteGraph.pluginId}\u0000${tab.noteGraph.providerId}`,
+          ),
+      );
+    const priorityPaths = [
+      ...new Set(
+        [
+          activeNoteGraph
+            ? (activeFileTab?.path ??
+              activeTab?.noteGraph?.notePath ??
+              null)
+            : activeTab?.noteGraph?.notePath,
+          ...graphTabs.map((tab) => tab.noteGraph?.notePath ?? null),
+        ].filter((path): path is string => path !== null && path !== undefined),
+      ),
+    ];
+    return {
+      openTabCount: graphTabs.length,
+      prioritySignature: priorityPaths.join("\u0000"),
+    };
+  }, [
+    activeFileTab?.path,
+    activeNoteGraph,
+    activeTab?.noteGraph?.notePath,
+    availableNoteGraphKeys,
+    panes,
+  ]);
+  const noteGraphPriorityPaths = useMemo(
+    () =>
+      noteGraphSurfaceState.prioritySignature
+        ? noteGraphSurfaceState.prioritySignature.split("\u0000")
+        : [],
+    [noteGraphSurfaceState.prioritySignature],
+  );
+  const noteGraphSnapshot = useMemo(
+    () =>
+      workspace &&
+      noteGraphs.length > 0 &&
+      (activeNoteGraph || noteGraphSurfaceState.openTabCount > 0)
+        ? createNoteGraphSnapshot(
+            `${workspace.vaultPath}\u0000${searchDocumentBatch?.generation ?? -1}`,
+            searchDocumentBatch?.generation === vaultGeneration.current
+              ? searchDocumentBatch.batch
+              : null,
+            noteGraphPriorityPaths,
+          )
+        : null,
+    [
+      activeNoteGraph,
+      noteGraphPriorityPaths,
+      noteGraphs.length,
+      noteGraphSurfaceState.openTabCount,
+      searchDocumentBatch,
+      workspace?.vaultPath,
     ],
   );
   const diagramRenderers = useMemo(
@@ -1764,7 +1883,7 @@ function App() {
     >();
     for (const pane of panes) {
       for (const tab of pane.tabs) {
-        if (tab.placeholder) {
+        if (tab.placeholder || tab.transient) {
           continue;
         }
         current.set(tab.path, {
@@ -2053,6 +2172,7 @@ function App() {
         }
         searchIndex.current = nextIndex;
         searchIndexReady.current = true;
+        setSearchDocumentBatch({ generation, batch });
         const searchRequest = searchRequestRef.current;
         const results = await nextIndex.query(searchRequest);
         if (
@@ -2146,6 +2266,7 @@ function App() {
       queryRequest.current += 1;
       searchIndex.current = new VaultSearchIndex();
       searchIndexReady.current = false;
+      setSearchDocumentBatch(null);
       setSearchResults([]);
       setSearchNavigation(null);
       if (resetTabs || vaultLocked) {
@@ -4160,6 +4281,169 @@ function App() {
     [activateTab, createNewTab, openFile],
   );
 
+  const focusTabControl = useCallback((path: string) => {
+    window.setTimeout(() => {
+      document
+        .querySelector<HTMLButtonElement>(
+          `[data-tab-path="${CSS.escape(path)}"]`,
+        )
+        ?.focus();
+    }, 0);
+  }, []);
+
+  const openNoteGraphInTab = useCallback(
+    (
+      provider: PluginNoteGraphContribution,
+      notePath: string | null,
+    ) => {
+      const path = noteGraphTabPath(provider.pluginId, provider.id);
+      const current = paneStateRef.current;
+      const existingPane = findPaneByPath(current.panes, path);
+      if (existingPane) {
+        nextOpenRequest(existingPane.id);
+        commitPaneState((state) => ({
+          ...state,
+          focusedPaneId: existingPane.id,
+          panes: updatePane(state.panes, existingPane.id, (pane) => ({
+            ...pane,
+            tabs: pane.tabs.map((tab) =>
+              tab.path === path && tab.noteGraph
+                ? {
+                    ...tab,
+                    noteGraph: {
+                      ...tab.noteGraph,
+                      notePath: notePath ?? tab.noteGraph.notePath,
+                    },
+                  }
+                : tab,
+            ),
+            activePath: path,
+          })),
+        }));
+      } else {
+        const targetPane = focusedPaneOf(current);
+        const active = targetPane.tabs.find(
+          (tab) => tab.path === targetPane.activePath,
+        );
+        const replacePlaceholder = active?.placeholder === true;
+        if (
+          !replacePlaceholder &&
+          tabsRef.current.length >= MAX_TAB_SESSION_TABS
+        ) {
+          showError(
+            `Close a tab before opening ${provider.title}; the ${MAX_TAB_SESSION_TABS}-tab limit is reached.`,
+          );
+          return;
+        }
+        const tab: EditorTab = {
+          path,
+          title: provider.title,
+          kind: "text",
+          content: "",
+          savedContent: "",
+          encoding: "utf8",
+          lineEnding: "lf",
+          placeholder: false,
+          groupId: null,
+          navigationHistory: [path],
+          navigationIndex: 0,
+          rawEditing: false,
+          readOnly: true,
+          editorRevision: 0,
+          editRecorded: false,
+          saveState: "saved",
+          transient: "note-graph",
+          noteGraph: {
+            pluginId: provider.pluginId,
+            providerId: provider.id,
+            notePath,
+          },
+        };
+        nextOpenRequest(targetPane.id);
+        commitPaneState((state) => ({
+          ...state,
+          focusedPaneId: targetPane.id,
+          panes: updatePane(state.panes, targetPane.id, (pane) => ({
+            ...pane,
+            tabs: replacePlaceholder
+              ? pane.tabs.map((candidate) =>
+                  candidate.path === pane.activePath ? tab : candidate,
+                )
+              : [...pane.tabs, tab],
+            activePath: path,
+          })),
+        }));
+      }
+      showSidebarView("files");
+      setSelectedPath(null);
+      setStatus(`Opened ${provider.title} in a tab`);
+      focusTabControl(path);
+    },
+    [
+      commitPaneState,
+      focusTabControl,
+      nextOpenRequest,
+      showError,
+      showSidebarView,
+    ],
+  );
+
+  const openNoteFromGraphTab = useCallback(
+    async (graphPath: string, notePath: string) => {
+      const existing = tabsRef.current.find((tab) => tab.path === notePath);
+      if (
+        !existing &&
+        tabsRef.current.length >= MAX_TAB_SESSION_TABS
+      ) {
+        showError(
+          `Close a tab before opening ${notePath}; the ${MAX_TAB_SESSION_TABS}-tab limit is reached.`,
+        );
+        return;
+      }
+      commitPaneState((state) => ({
+        ...state,
+        panes: state.panes.map((pane) => ({
+          ...pane,
+          tabs: pane.tabs.map((tab) =>
+            tab.path === graphPath && tab.noteGraph
+              ? {
+                  ...tab,
+                  noteGraph: {
+                    ...tab.noteGraph,
+                    notePath,
+                  },
+                }
+              : tab,
+          ),
+        })),
+      }));
+      await openFileInNewTab(notePath);
+      focusTabControl(notePath);
+    },
+    [
+      commitPaneState,
+      focusTabControl,
+      openFileInNewTab,
+      showError,
+    ],
+  );
+
+  const showNoteGraph = useCallback(
+    (pluginId: string, providerId: string) => {
+      const path = noteGraphTabPath(pluginId, providerId);
+      if (findPaneByPath(paneStateRef.current.panes, path)) {
+        showSidebarView("files");
+        activateTab(path);
+        focusTabControl(path);
+        return;
+      }
+      setActivePluginSidebar(null);
+      setActiveSourceControlProvider(null);
+      setActiveNoteGraph({ pluginId, providerId });
+    },
+    [activateTab, focusTabControl, showSidebarView],
+  );
+
   const navigateTabHistory = useCallback(
     (direction: -1 | 1): Promise<void> => {
       const paneId = paneStateRef.current.focusedPaneId;
@@ -5917,6 +6201,9 @@ function App() {
       }
       commitTabs((current) =>
         current.map((tab) => {
+          if (tab.transient) {
+            return rekeyNoteGraphTab(tab, replacePrefix);
+          }
           if (tab.placeholder) {
             return tab;
           }
@@ -6120,6 +6407,9 @@ function App() {
         }
         commitTabs((current) =>
           current.map((tab) => {
+            if (tab.transient) {
+              return rekeyNoteGraphTab(tab, replacePrefix);
+            }
             if (tab.placeholder) {
               return tab;
             }
@@ -7947,6 +8237,7 @@ function App() {
     onDelete: (node) => void trashNode(node),
   };
   const primaryKanbanBoard = kanbanBoards[0] ?? null;
+  const primaryNoteGraph = noteGraphs[0] ?? null;
   const commandPaletteCommands: CommandPaletteCommand[] = [
     {
       id: "file.find",
@@ -8054,6 +8345,26 @@ function App() {
       disabled: !workspaceReady,
       run: () => showSidebarView("trash"),
     },
+    ...(primaryNoteGraph
+      ? [
+          {
+            id: "note-graph.open-tab",
+            title: "Open Note graph in tab",
+            description:
+              "Open the vault graph as a full editor tab without replacing a note.",
+            category: "View",
+            keywords: ["graph", "links", "connections", "local"],
+            disabled: !workspaceReady,
+            run: () =>
+              openNoteGraphInTab(
+                primaryNoteGraph,
+                activeFileTab?.kind === "markdown"
+                  ? activeFileTab.path
+                  : null,
+              ),
+          } satisfies CommandPaletteCommand,
+        ]
+      : []),
     ...(primaryKanbanBoard
       ? [
           {
@@ -8738,6 +9049,12 @@ function App() {
         provider.pluginId === activeSourceControlProvider?.pluginId &&
         provider.id === activeSourceControlProvider.providerId,
     ) ?? null;
+  const activeNoteGraphContribution =
+    noteGraphs.find(
+      (graph) =>
+        graph.pluginId === activeNoteGraph?.pluginId &&
+        graph.id === activeNoteGraph.providerId,
+    ) ?? null;
   const activeSourceControlAction = useCallback(
     (
       action: PluginSourceControlAction,
@@ -8781,9 +9098,19 @@ function App() {
     if (activeSourceControlProvider && !activeSourceControlContribution) {
       setActiveSourceControlProvider(null);
       setActivePluginSidebar(null);
+      setActiveNoteGraph(null);
       setSidebarView("files");
     }
   }, [activeSourceControlContribution, activeSourceControlProvider]);
+
+  useEffect(() => {
+    if (activeNoteGraph && !activeNoteGraphContribution) {
+      setActiveNoteGraph(null);
+      setActiveSourceControlProvider(null);
+      setActivePluginSidebar(null);
+      setSidebarView("files");
+    }
+  }, [activeNoteGraph, activeNoteGraphContribution]);
 
   if (!workspace) {
     return (
@@ -8846,6 +9173,40 @@ function App() {
           <h2>New tab</h2>
           <p>Choose a file from the sidebar to open it in this tab.</p>
         </div>
+      );
+    }
+    if (paneTab?.transient === "note-graph" && paneTab.noteGraph) {
+      const detail = paneTab.noteGraph;
+      const provider =
+        noteGraphs.find(
+          (candidate) =>
+            candidate.pluginId === detail.pluginId &&
+            candidate.id === detail.providerId,
+        ) ?? null;
+      if (!provider) {
+        return (
+          <div className="editor-empty">
+            <Network aria-hidden="true" size={28} />
+            <h2>Note graph is unavailable.</h2>
+            <p>Enable the graph plugin to restore this temporary tab.</p>
+          </div>
+        );
+      }
+      return (
+        <NoteGraphPanel
+          key={`${provider.pluginId}:${provider.id}:${workspace.vaultPath}:${paneTab.path}`}
+          provider={provider}
+          snapshot={noteGraphSnapshot}
+          activePath={detail.notePath}
+          indexNoteGraph={pluginController.indexNoteGraph}
+          queryNoteGraph={pluginController.queryNoteGraph}
+          onOpenFile={(path) =>
+            void openNoteFromGraphTab(paneTab.path, path)
+          }
+          onError={showError}
+          surface="tab"
+          coordinator={noteGraphCoordinator}
+        />
       );
     }
     if (paneTab?.transient === "diff" && paneTab.sourceControlDiff) {
@@ -9213,23 +9574,28 @@ function App() {
         activeView={sidebarView}
         activePluginView={activePluginSidebarView?.id ?? null}
         activeSourceControlProvider={activeSourceControlProvider}
+        activeNoteGraph={activeNoteGraph}
         pluginViews={pluginController.sidebarViews}
         sourceControlProviders={pluginController.sourceControlProviders}
+        noteGraphs={noteGraphs}
         theme={theme}
         onViewChange={(view) => {
           showSidebarView(view);
         }}
         onPluginViewChange={(viewId) => {
           setActiveSourceControlProvider(null);
+          setActiveNoteGraph(null);
           setActivePluginSidebar(viewId);
         }}
         onSourceControlProviderChange={(pluginId, providerId) => {
           setActivePluginSidebar(null);
+          setActiveNoteGraph(null);
           setActiveSourceControlProvider({ pluginId, providerId });
           void runSourceControlAction(pluginId, providerId, {
             id: "refresh",
           });
         }}
+        onNoteGraphChange={showNoteGraph}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={toggleTheme}
       />
@@ -9264,7 +9630,27 @@ function App() {
             </button>
           </div>
         </header>
-        {activeSourceControlContribution ? (
+        {activeNoteGraphContribution ? (
+          <NoteGraphPanel
+            key={`${activeNoteGraphContribution.pluginId}:${activeNoteGraphContribution.id}:${workspace.vaultPath}`}
+            provider={activeNoteGraphContribution}
+            snapshot={noteGraphSnapshot}
+            activePath={activePath}
+            indexNoteGraph={pluginController.indexNoteGraph}
+            queryNoteGraph={pluginController.queryNoteGraph}
+            onOpenFile={(path) => void openFile(path)}
+            onError={showError}
+            coordinator={noteGraphCoordinator}
+            onOpenInTab={() =>
+              openNoteGraphInTab(
+                activeNoteGraphContribution,
+                activeFileTab?.kind === "markdown"
+                  ? activeFileTab.path
+                  : null,
+              )
+            }
+          />
+        ) : activeSourceControlContribution ? (
           <SourceControlPanel
             key={`${activeSourceControlContribution.pluginId}:${activeSourceControlContribution.id}`}
             title={activeSourceControlContribution.title}

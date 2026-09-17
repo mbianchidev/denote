@@ -7,20 +7,26 @@ import {
   type PluginEmojiPreferences,
 } from "@denote/plugin-sdk";
 import type { PluginEmojiPickerContribution } from "./emojiPickers";
-import type { PluginKanbanBoardContribution } from "./workerRuntime";
+import type {
+  PluginKanbanBoardContribution,
+  PluginNoteGraphContribution,
+} from "./workerRuntime";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
 import { usePlugins } from "./usePlugins";
 
 interface MockRuntimeInstance {
+  running: boolean;
   onCommandsChanged: unknown;
   onSourceControlProvidersChanged?: unknown;
   onAutomaticLocalCommitsChanged?: unknown;
   onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void;
   onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void;
+  onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void;
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
+  forceStop: ReturnType<typeof vi.fn>;
   stopAll: ReturnType<typeof vi.fn>;
   isRunning: ReturnType<typeof vi.fn>;
   runCommand: ReturnType<typeof vi.fn>;
@@ -28,6 +34,8 @@ interface MockRuntimeInstance {
   parseStructuredView: ReturnType<typeof vi.fn>;
   parseKanbanBoard: ReturnType<typeof vi.fn>;
   editKanbanBoard: ReturnType<typeof vi.fn>;
+  indexNoteGraph: ReturnType<typeof vi.fn>;
+  queryNoteGraph: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
   setWorkspaceIdentity: ReturnType<typeof vi.fn>;
@@ -69,6 +77,10 @@ vi.mock("./workerRuntime", () => {
       this.running = false;
       callOrder.push("stop");
     });
+    forceStop = vi.fn(async () => {
+      this.running = false;
+      callOrder.push("forceStop");
+    });
     stopAll = vi.fn(async () => {
       callOrder.push("stopAll");
     });
@@ -99,6 +111,17 @@ vi.mock("./workerRuntime", () => {
         canInitialize: false,
       },
     }));
+    indexNoteGraph = vi.fn(async () => {});
+    queryNoteGraph = vi.fn(async () => ({
+      nodes: [],
+      edges: [],
+      totalNotes: 0,
+      matchingNotes: 0,
+      totalEdges: 0,
+      activeNodeId: null,
+      truncated: false,
+      notices: [],
+    }));
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
@@ -118,6 +141,7 @@ vi.mock("./workerRuntime", () => {
       public onStructuredViewersChanged?: unknown,
       public onDiagramRenderersChanged?: unknown,
       public onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void,
+      public onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -235,7 +259,12 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
-  it.each(["structured-viewer", "kanban-board", "diagram-renderer"] as const)(
+  it.each([
+    "structured-viewer",
+    "kanban-board",
+    "note-graph",
+    "diagram-renderer",
+  ] as const)(
     "stops %s workers while content is unavailable and restarts them after unlock",
     async (capability) => {
     const enabled = makePlugin({
@@ -263,9 +292,43 @@ describe("usePlugins", () => {
       currentWorkspaceIdentity: "/synthetic/encrypted-vault",
       currentContentAvailable: false,
     });
-    await waitFor(() => expect(runtime.stop).toHaveBeenCalledWith(pluginId));
+    await waitFor(() => {
+      if (capability === "note-graph") {
+        expect(runtime.forceStop).toHaveBeenCalledWith(pluginId);
+      } else {
+        expect(runtime.stop).toHaveBeenCalledWith(pluginId);
+      }
+    });
     },
   );
+
+  it("restarts note graph workers when the host switches vaults", async () => {
+    const enabled = makePlugin({
+      enabled: true,
+      approvedPermissions: [{ capability: "note-graph" }],
+    });
+    const rendered = await mountReady(
+      [enabled],
+      null,
+      "/synthetic/vault-alpha",
+      true,
+    );
+    const runtime = runtimeInstances[0];
+    runtime.start.mockClear();
+    runtime.stop.mockClear();
+    runtime.forceStop.mockClear();
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+      currentContentAvailable: true,
+    });
+
+    await waitFor(() =>
+      expect(runtime.forceStop).toHaveBeenCalledWith(pluginId),
+    );
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
+  });
 
   it("reactivates after settings import so shortcode enablement and lists take effect", async () => {
     const enabled = makePlugin({ enabled: true });
@@ -358,6 +421,54 @@ describe("usePlugins", () => {
       pluginId,
       board.id,
       editRequest,
+    );
+  });
+
+  it("publishes note graph contributions and forwards index and query requests", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const runtime = runtimeInstances[0];
+    const graph: PluginNoteGraphContribution = {
+      pluginId,
+      id: `${pluginId}.graph`,
+      title: "Note graph",
+    };
+    await act(async () => runtime.onNoteGraphsChanged?.([graph]));
+    expect(result.current.noteGraphs).toEqual([graph]);
+
+    const indexRequest = {
+      mode: "replace" as const,
+      documents: [
+        {
+          path: "Alpha.md",
+          title: "Alpha",
+          source: "# Alpha",
+          tags: [],
+        },
+      ],
+      removedPaths: [],
+      skippedCount: 0,
+      truncated: false,
+    };
+    await result.current.indexNoteGraph(pluginId, graph.id, indexRequest);
+    expect(runtime.indexNoteGraph).toHaveBeenCalledWith(
+      pluginId,
+      graph.id,
+      indexRequest,
+    );
+
+    const query = {
+      scope: "global" as const,
+      activePath: "Alpha.md",
+      folder: null,
+      tag: null,
+      orphanFilter: "all" as const,
+      depth: 2 as const,
+    };
+    await result.current.queryNoteGraph(pluginId, graph.id, query);
+    expect(runtime.queryNoteGraph).toHaveBeenCalledWith(
+      pluginId,
+      graph.id,
+      query,
     );
   });
 
@@ -822,6 +933,51 @@ describe("usePlugins", () => {
     });
 
     expect(callOrder).toEqual(["stop", "disablePlugin", "listPlugins"]);
+    expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
+  });
+
+  it("does not resurrect a graph runtime during a workspace switch and disable", async () => {
+    const enabled = makePlugin({
+      enabled: true,
+      approvedPermissions: [{ capability: "note-graph" }],
+    });
+    const rendered = await mountReady(
+      [enabled],
+      null,
+      "/synthetic/vault-alpha",
+      true,
+    );
+    const runtime = runtimeInstances[0];
+    runtime.start.mockClear();
+    let finishStop: (() => void) | undefined;
+    runtime.stop.mockImplementationOnce(async () => {
+      runtime.running = false;
+      callOrder.push("stop");
+      await new Promise<void>((resolve) => {
+        finishStop = resolve;
+      });
+    });
+    queueListPlugins([makePlugin({ enabled: false })]);
+
+    let disabling: Promise<void> | undefined;
+    act(() => {
+      disabling = rendered.result.current.disable(pluginId);
+    });
+    await waitFor(() => expect(runtime.stop).toHaveBeenCalledWith(pluginId));
+
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+      currentContentAvailable: true,
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(runtime.start).not.toHaveBeenCalled();
+
+    finishStop?.();
+    await act(async () => {
+      await disabling;
+    });
+    expect(runtime.start).not.toHaveBeenCalled();
     expect(api.disablePlugin).toHaveBeenCalledWith(pluginId);
   });
 

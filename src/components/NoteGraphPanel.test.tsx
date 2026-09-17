@@ -1,0 +1,937 @@
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+import type {
+  PluginNoteGraphIndexRequest,
+  PluginNoteGraphModel,
+  PluginNoteGraphQuery,
+} from "@denote/plugin-sdk";
+import type { NoteGraphSnapshot } from "../plugins/noteGraphs";
+import { NoteGraphPanel } from "./NoteGraphPanel";
+
+const provider = {
+  pluginId: "denote.note-graph",
+  id: "denote.note-graph.graph",
+  title: "Note graph",
+};
+
+const model: PluginNoteGraphModel = {
+  nodes: [
+    {
+      id: "notes/Alpha.md",
+      path: "notes/Alpha.md",
+      title: "Alpha",
+      tags: ["planning"],
+      incoming: 0,
+      outgoing: 1,
+      orphan: false,
+      distance: 0,
+    },
+    {
+      id: "notes/Beta.md",
+      path: "notes/Beta.md",
+      title: "Beta",
+      tags: ["planning"],
+      incoming: 1,
+      outgoing: 0,
+      orphan: false,
+      distance: 1,
+    },
+  ],
+  edges: [
+    {
+      sourceId: "notes/Alpha.md",
+      targetId: "notes/Beta.md",
+    },
+  ],
+  totalNotes: 2,
+  matchingNotes: 2,
+  totalEdges: 1,
+  activeNodeId: "notes/Alpha.md",
+  truncated: false,
+  notices: [],
+};
+
+describe("NoteGraphPanel", () => {
+  it("launches the graph into a full tab and adapts its layout", async () => {
+    const user = userEvent.setup();
+    const onOpenInTab = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+        onOpenInTab={onOpenInTab}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Open Note graph in a tab" }),
+    );
+    expect(onOpenInTab).toHaveBeenCalledOnce();
+    expect(
+      rendered.container.querySelector(".note-graph-panel--sidebar"),
+    ).toBeInTheDocument();
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+        surface="tab"
+      />,
+    );
+    expect(
+      screen.queryByRole("button", { name: "Open Note graph in a tab" }),
+    ).not.toBeInTheDocument();
+    expect(
+      rendered.container.querySelector(".note-graph-panel--tab"),
+    ).toBeInTheDocument();
+  });
+
+  it("indexes locally, exposes an equivalent keyboard list, and opens notes", async () => {
+    const user = userEvent.setup();
+    const indexNoteGraph = vi.fn(async () => {});
+    const queryNoteGraph = vi.fn(async () => model);
+    const onOpenFile = vi.fn();
+    render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={queryNoteGraph}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledOnce());
+    expect(indexNoteGraph).toHaveBeenCalledWith(
+      provider.pluginId,
+      provider.id,
+      expect.objectContaining({ mode: "replace" }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "2 indexed notes",
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Show keyboard note list" }),
+    );
+    const alpha = screen.getByRole("button", {
+      name: /Alpha, notes\/Alpha\.md, 0 backlinks, 1 outgoing link/,
+    });
+    alpha.focus();
+    fireEvent.keyDown(alpha, { key: "ArrowDown" });
+    const beta = screen.getByRole("button", {
+      name: /Beta, notes\/Beta\.md, 1 backlink, 0 outgoing links/,
+    });
+    expect(beta).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onOpenFile).toHaveBeenCalledWith("notes/Beta.md");
+  });
+
+  it("drags one node while connected nodes follow without opening the note", async () => {
+    const onOpenFile = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+        surface="tab"
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    const beta = graphNode(rendered.container, "Beta");
+    alpha.setPointerCapture = vi.fn();
+    alpha.releasePointerCapture = vi.fn();
+    const betaBefore = beta.getAttribute("transform");
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 7,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 7,
+      clientX: 440,
+      clientY: 300,
+    });
+
+    expect(alpha).toHaveAttribute("data-dragging", "true");
+    expect(alpha.getAttribute("transform")).toContain("440");
+    expect(beta.getAttribute("transform")).not.toBe(betaBefore);
+    fireEvent.pointerUp(alpha, {
+      pointerId: 7,
+      clientX: 440,
+      clientY: 300,
+    });
+
+    expect(onOpenFile).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Moved Alpha; connected notes followed.",
+    );
+  });
+
+  it("keeps click-to-open when a graph node does not move", async () => {
+    const onOpenFile = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    alpha.setPointerCapture = vi.fn();
+    alpha.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 8,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerUp(alpha, {
+      pointerId: 8,
+      clientX: 320,
+      clientY: 260,
+    });
+
+    expect(onOpenFile).toHaveBeenCalledWith("notes/Alpha.md");
+  });
+
+  it("cancels dragging when pointer capture is lost", async () => {
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    alpha.setPointerCapture = vi.fn();
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 9,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 9,
+      clientX: 400,
+      clientY: 280,
+    });
+    expect(alpha).toHaveAttribute("data-dragging", "true");
+
+    fireEvent.lostPointerCapture(alpha, { pointerId: 9 });
+
+    expect(alpha).toHaveAttribute("data-dragging", "false");
+  });
+
+  it("ignores a second pointer while one node is being dragged", async () => {
+    const onOpenFile = vi.fn();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={onOpenFile}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    const beta = graphNode(rendered.container, "Beta");
+    alpha.setPointerCapture = vi.fn();
+    alpha.releasePointerCapture = vi.fn();
+
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 11,
+      isPrimary: true,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 11,
+      isPrimary: true,
+      clientX: 400,
+      clientY: 280,
+    });
+    fireEvent.pointerDown(beta, {
+      button: 0,
+      pointerId: 12,
+      isPrimary: false,
+      clientX: 250,
+      clientY: 250,
+    });
+    fireEvent.pointerUp(beta, {
+      pointerId: 12,
+      isPrimary: false,
+      clientX: 250,
+      clientY: 250,
+    });
+
+    expect(alpha).toHaveAttribute("data-dragging", "true");
+    expect(onOpenFile).not.toHaveBeenCalled();
+    fireEvent.pointerUp(alpha, {
+      pointerId: 11,
+      isPrimary: true,
+      clientX: 400,
+      clientY: 280,
+    });
+    expect(alpha).toHaveAttribute("data-dragging", "false");
+  });
+
+  it("cancels dragging when a filter removes the dragged node", async () => {
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+    mockGraphBounds(rendered.container);
+    const alpha = await waitFor(() =>
+      graphNode(rendered.container, "Alpha"),
+    );
+    alpha.setPointerCapture = vi.fn();
+    fireEvent.pointerDown(alpha, {
+      button: 0,
+      pointerId: 10,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(alpha, {
+      pointerId: 10,
+      clientX: 400,
+      clientY: 280,
+    });
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={{
+          ...snapshot(),
+          documents: [snapshot().documents[1]],
+        }}
+        activePath="notes/Beta.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => ({
+          ...model,
+          nodes: [model.nodes[1]],
+          edges: [],
+          totalNotes: 1,
+          matchingNotes: 1,
+          totalEdges: 0,
+          activeNodeId: "notes/Beta.md",
+        }))}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(
+        rendered.container.querySelector(".note-graph-plot"),
+      ).toHaveAttribute("data-dragging", "false"),
+    );
+    expect(
+      rendered.container.querySelectorAll(".note-graph-plot__node"),
+    ).toHaveLength(1);
+    mockGraphBounds(rendered.container);
+    const beta = graphNode(rendered.container, "Beta");
+    beta.setPointerCapture = vi.fn();
+    beta.releasePointerCapture = vi.fn();
+    fireEvent.pointerDown(beta, {
+      button: 0,
+      pointerId: 13,
+      clientX: 320,
+      clientY: 260,
+    });
+    fireEvent.pointerMove(beta, {
+      pointerId: 13,
+      clientX: 380,
+      clientY: 280,
+    });
+    expect(beta).toHaveAttribute("data-dragging", "true");
+    fireEvent.pointerUp(beta, {
+      pointerId: 13,
+      clientX: 380,
+      clientY: 280,
+    });
+    expect(beta).toHaveAttribute("data-dragging", "false");
+  });
+
+  it("sends local depth and folder, tag, and orphan filters", async () => {
+    const user = userEvent.setup();
+    const queryNoteGraph = vi.fn(
+      async (_pluginId: string, _providerId: string, _query: PluginNoteGraphQuery) =>
+        model,
+    );
+    render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={queryNoteGraph}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByText("2 indexed notes.");
+
+    await user.click(screen.getByRole("button", { name: "Local" }));
+    await user.selectOptions(screen.getByLabelText("Folder"), "notes");
+    await user.selectOptions(screen.getByLabelText("Tag"), "planning");
+    await user.selectOptions(screen.getByLabelText("Connections"), "connected");
+    await user.selectOptions(screen.getByLabelText("Depth"), "3");
+
+    await waitFor(() =>
+      expect(queryNoteGraph).toHaveBeenLastCalledWith(
+        provider.pluginId,
+        provider.id,
+        {
+          scope: "local",
+          activePath: "notes/Alpha.md",
+          folder: "notes",
+          tag: "planning",
+          orphanFilter: "connected",
+          depth: 3,
+        },
+      ),
+    );
+  });
+
+  it("indexes only changed and removed notes after the initial snapshot", async () => {
+    const indexNoteGraph = vi.fn(
+      async (
+        _pluginId: string,
+        _providerId: string,
+        _request: PluginNoteGraphIndexRequest,
+      ) => {},
+    );
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(1));
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={{
+          ...snapshot(),
+          documents: [
+            {
+              path: "notes/Alpha.md",
+              title: "Alpha revised",
+              source: "# Alpha revised",
+              tags: [],
+            },
+          ],
+        }}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(2));
+    expect(indexNoteGraph.mock.calls[1]?.[2]).toEqual({
+      mode: "update",
+      documents: [
+        {
+          path: "notes/Alpha.md",
+          title: "Alpha revised",
+          source: "# Alpha revised",
+          tags: [],
+        },
+      ],
+      removedPaths: ["notes/Beta.md"],
+      skippedCount: 0,
+      truncated: false,
+    });
+  });
+
+  it("retries an uncertain failed index from a full replacement", async () => {
+    const indexNoteGraph = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Synthetic index timeout"))
+      .mockResolvedValue(undefined);
+    const onError = vi.fn();
+    render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={onError}
+      />,
+    );
+
+    await waitFor(
+      () => expect(indexNoteGraph).toHaveBeenCalledTimes(2),
+      { timeout: 2_000 },
+    );
+    expect(indexNoteGraph.mock.calls[0]?.[2]).toMatchObject({
+      mode: "replace",
+    });
+    expect(indexNoteGraph.mock.calls[1]?.[2]).toMatchObject({
+      mode: "replace",
+    });
+    expect(onError).not.toHaveBeenCalled();
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "2 indexed notes",
+    );
+  });
+
+  it("restarts a partially applied batch sequence with replace", async () => {
+    const source = "x".repeat(200_000);
+    const batchedSnapshot: NoteGraphSnapshot = {
+      workspaceKey: "synthetic-vault",
+      documents: ["Alpha", "Beta", "Gamma"].map((title) => ({
+        path: `${title}.md`,
+        title,
+        source,
+        tags: [],
+      })),
+      skippedCount: 0,
+      truncated: false,
+    };
+    const indexNoteGraph = vi.fn(
+      async (
+        _pluginId: string,
+        _providerId: string,
+        _request: PluginNoteGraphIndexRequest,
+      ) => {
+        if (indexNoteGraph.mock.calls.length === 2) {
+          throw new Error("Synthetic second batch timeout");
+        }
+      },
+    );
+    render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={batchedSnapshot}
+        activePath="Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await waitFor(
+      () => expect(indexNoteGraph).toHaveBeenCalledTimes(4),
+      { timeout: 2_000 },
+    );
+    expect(
+      indexNoteGraph.mock.calls.map((call) => call[2].mode),
+    ).toEqual(["replace", "update", "replace", "update"]);
+  });
+
+  it("keeps focus in the list search while filtering removes a selected row", async () => {
+    const user = userEvent.setup();
+    const narrowingModel: PluginNoteGraphModel = {
+      ...model,
+      nodes: [
+        model.nodes[0],
+        {
+          ...model.nodes[1],
+          id: "notes/Abx.md",
+          path: "notes/Abx.md",
+          title: "Abx",
+        },
+        {
+          ...model.nodes[1],
+          id: "notes/Aby.md",
+          path: "notes/Aby.md",
+          title: "Aby",
+        },
+      ],
+      edges: [],
+      totalNotes: 3,
+      matchingNotes: 3,
+      totalEdges: 0,
+    };
+    render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={vi.fn(async () => {})}
+        queryNoteGraph={vi.fn(async () => narrowingModel)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Show keyboard note list",
+      }),
+    );
+    screen
+      .getByRole("button", {
+        name: /Alpha, notes\/Alpha\.md/,
+      })
+      .focus();
+    const search = screen.getByRole("searchbox", {
+      name: "Filter graph notes",
+    });
+    await user.click(search);
+    await user.type(search, "b");
+
+    expect(search).toHaveFocus();
+    expect(
+      screen.getByRole("button", {
+        name: /Abx, notes\/Abx\.md/,
+      }),
+    ).toBeInTheDocument();
+    await user.type(search, "y");
+    expect(search).toHaveFocus();
+    expect(
+      screen.getByRole("button", {
+        name: /Aby, notes\/Aby\.md/,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("clears the previous vault model before a replacement finishes", async () => {
+    const indexNoteGraph = vi
+      .fn()
+      .mockResolvedValueOnce(undefined)
+      .mockImplementationOnce(() => new Promise<void>(() => {}));
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    expect(await screen.findByText("notes/Alpha.md")).toBeInTheDocument();
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={{
+          workspaceKey: "synthetic-vault-two",
+          documents: [
+            {
+              path: "Gamma.md",
+              title: "Gamma",
+              source: "# Gamma",
+              tags: [],
+            },
+          ],
+          skippedCount: 0,
+          truncated: false,
+        }}
+        activePath="Gamma.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText("notes/Alpha.md")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("Building the local note graph…")).toBeInTheDocument();
+  });
+
+  it("drops queued stale updates after the panel unmounts", async () => {
+    let finishFirst: (() => void) | undefined;
+    const indexNoteGraph = vi.fn(
+      async (
+        _pluginId: string,
+        _providerId: string,
+        _request: PluginNoteGraphIndexRequest,
+      ) => {
+        if (indexNoteGraph.mock.calls.length === 1) {
+          await new Promise<void>((resolve) => {
+            finishFirst = resolve;
+          });
+        }
+      },
+    );
+    const first = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={snapshot()}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(1));
+    first.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={{
+          ...snapshot(),
+          documents: [
+            ...snapshot().documents,
+            {
+              path: "notes/Queued.md",
+              title: "Queued",
+              source: "# Queued",
+              tags: [],
+            },
+          ],
+        }}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    first.unmount();
+
+    const second = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={{
+          workspaceKey: "synthetic-vault-two",
+          documents: [
+            {
+              path: "Gamma.md",
+              title: "Gamma",
+              source: "# Gamma",
+              tags: [],
+            },
+          ],
+          skippedCount: 0,
+          truncated: false,
+        }}
+        activePath="Gamma.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => ({
+          ...model,
+          nodes: [],
+          edges: [],
+          totalNotes: 0,
+          matchingNotes: 0,
+          totalEdges: 0,
+          activeNodeId: null,
+        }))}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(2));
+    expect(indexNoteGraph.mock.calls[1]?.[2]).toMatchObject({
+      mode: "replace",
+      documents: [expect.objectContaining({ path: "Gamma.md" })],
+    });
+
+    await act(async () => {
+      finishFirst?.();
+      await Promise.resolve();
+    });
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    expect(indexNoteGraph).toHaveBeenCalledTimes(2);
+    second.unmount();
+  });
+
+  it("completes a shared batch before applying the latest snapshot", async () => {
+    let finishPartial: (() => void) | undefined;
+    const indexNoteGraph = vi.fn(
+      async (
+        _pluginId: string,
+        _providerId: string,
+        _request: PluginNoteGraphIndexRequest,
+      ) => {
+        if (indexNoteGraph.mock.calls.length === 2) {
+          await new Promise<void>((resolve) => {
+            finishPartial = resolve;
+          });
+        }
+      },
+    );
+    const baseSnapshot = snapshot();
+    const rendered = render(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={baseSnapshot}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(1));
+
+    const expandedSnapshot: NoteGraphSnapshot = {
+      ...baseSnapshot,
+      documents: [
+        ...baseSnapshot.documents,
+        ...Array.from({ length: 257 }, (_, index) => ({
+          path: `notes/Added-${index}.md`,
+          title: `Added ${index}`,
+          source: "",
+          tags: [],
+        })),
+      ],
+    };
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={expandedSnapshot}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(2));
+
+    rendered.rerender(
+      <NoteGraphPanel
+        provider={provider}
+        snapshot={baseSnapshot}
+        activePath="notes/Alpha.md"
+        indexNoteGraph={indexNoteGraph}
+        queryNoteGraph={vi.fn(async () => model)}
+        onOpenFile={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      finishPartial?.();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(indexNoteGraph).toHaveBeenCalledTimes(4));
+    expect(
+      indexNoteGraph.mock.calls.map((call) => call[2].mode),
+    ).toEqual(["replace", "update", "update", "update"]);
+    expect(indexNoteGraph.mock.calls[3]?.[2]).toMatchObject({
+      documents: [],
+      removedPaths: expect.arrayContaining([
+        "notes/Added-0.md",
+        "notes/Added-256.md",
+      ]),
+    });
+  });
+});
+
+function snapshot(): NoteGraphSnapshot {
+  return {
+    workspaceKey: "synthetic-vault",
+    documents: [
+      {
+        path: "notes/Alpha.md",
+        title: "Alpha",
+        source: "# Alpha\n[Beta](Beta.md)",
+        tags: ["planning"],
+      },
+      {
+        path: "notes/Beta.md",
+        title: "Beta",
+        source: "# Beta",
+        tags: ["planning"],
+      },
+    ],
+    skippedCount: 0,
+    truncated: false,
+  };
+}
+
+function graphNode(container: HTMLElement, title: string): SVGGElement {
+  const node = [...container.querySelectorAll<SVGGElement>(
+    ".note-graph-plot__node",
+  )].find((candidate) =>
+    candidate.querySelector("title")?.textContent?.startsWith(title),
+  );
+  if (!node) {
+    throw new Error(`Missing graph node ${title}.`);
+  }
+  return node;
+}
+
+function mockGraphBounds(container: HTMLElement) {
+  const svg = container.querySelector<SVGSVGElement>(
+    ".note-graph-plot__canvas",
+  )!;
+  svg.getBoundingClientRect = () =>
+    ({
+      left: 0,
+      top: 0,
+      right: 640,
+      bottom: 520,
+      width: 640,
+      height: 520,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }) as DOMRect;
+}
