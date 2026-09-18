@@ -518,15 +518,16 @@ export const MarkdownEditor = forwardRef<
   if (thematicBreaksRef.current === null) {
     thematicBreaksRef.current = captureThematicBreaks(markdown);
   }
+  const diagramRenderers = diagrams?.renderers;
   const codeBlockEditorDescriptors = useMemo<CodeBlockEditorDescriptor[]>(
     () => [
-      ...(diagrams
+      ...(diagramRenderers
         ? [
             {
               priority: 200,
               match: (language: string | null | undefined) =>
                 typeof language === "string" &&
-                diagrams.renderers.some((renderer) =>
+                diagramRenderers.some((renderer) =>
                   renderer.languages.includes(
                     language.trim().toLocaleLowerCase(),
                   ),
@@ -537,7 +538,7 @@ export const MarkdownEditor = forwardRef<
         : []),
       denoteCodeBlockEditorDescriptor,
     ],
-    [diagrams],
+    [diagramRenderers],
   );
   const plugins = useMemo(
     () => [

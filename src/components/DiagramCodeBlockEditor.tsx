@@ -45,6 +45,8 @@ export function DiagramCodeBlockSettingsProvider({
 
 export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
   const binding = useContext(DiagramBindingContext);
+  const renderDiagram = binding?.renderDiagram;
+  const scopeId = binding?.scopeId;
   const renderer = binding?.renderers.find((candidate) =>
     candidate.languages.includes(props.language.trim().toLocaleLowerCase()),
   );
@@ -57,7 +59,7 @@ export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    if (!binding || !renderer) {
+    if (!renderDiagram || !renderer || scopeId === undefined) {
       setResult(null);
       setLoading(false);
       return;
@@ -66,13 +68,12 @@ export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
     let active = true;
     setLoading(true);
     setStatus("");
-    void binding
-      .renderDiagram(
-        renderer,
-        { source: props.code, theme },
-        binding.scopeId,
-        controller.signal,
-      )
+    void renderDiagram(
+      renderer,
+      { source: props.code, theme },
+      scopeId,
+      controller.signal,
+    )
       .then((next) => {
         if (!active) {
           return;
@@ -106,11 +107,11 @@ export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
       controller.abort();
     };
   }, [
-    binding,
-    binding?.scopeId,
     props.code,
     props.language,
+    renderDiagram,
     renderer,
+    scopeId,
     theme,
   ]);
 
