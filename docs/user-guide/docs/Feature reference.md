@@ -24,7 +24,7 @@ more detail and examples.
 - Preserve LF, CRLF, or CR endings when saving.
 - Preview images or switch them to raw Base64 editing.
 - Read PDFs locally in ordinary tabs and panes with multi-page navigation,
-  25–400% zoom, fit width/page, rotation, text selection/copy, and
+  editable 25–400% zoom, fit width/page, rotation, text selection/copy, and
   in-document search when a permitted text layer exists.
 - Unlock password-protected PDFs through a local retry/cancel prompt without
   storing or transmitting the password.

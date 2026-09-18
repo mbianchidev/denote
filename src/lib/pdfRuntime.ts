@@ -37,6 +37,54 @@ export const createPdfJsRuntime: PdfRuntimeFactory = ({
   callbacks,
 }) => new PdfJsRuntime(container, viewer, callbacks);
 
+class PaneScopedPdfFindController extends PDFFindController {
+  constructor(
+    options: ConstructorParameters<typeof PDFFindController>[0],
+    private readonly container: HTMLDivElement,
+  ) {
+    super(options);
+  }
+
+  override scrollMatchIntoView({
+    element,
+    pageIndex,
+    matchIndex,
+  }: {
+    element: HTMLElement;
+    pageIndex: number;
+    matchIndex: number;
+  }): void {
+    const selected = this.selected;
+    if (
+      !this._scrollMatches ||
+      !selected ||
+      matchIndex !== selected.matchIdx ||
+      pageIndex !== selected.pageIdx
+    ) {
+      return;
+    }
+    this._scrollMatches = false;
+    if (!this.container.contains(element)) {
+      return;
+    }
+
+    const containerBounds = this.container.getBoundingClientRect();
+    const matchBounds = element.getBoundingClientRect();
+    // PDF.js uses Element.scrollIntoView here, which also moves outer workspace containers.
+    this.container.scrollTop = Math.max(
+      0,
+      this.container.scrollTop + matchBounds.top - containerBounds.top,
+    );
+    this.container.scrollLeft = Math.max(
+      0,
+      this.container.scrollLeft +
+        matchBounds.left -
+        containerBounds.left -
+        (this.container.clientWidth - matchBounds.width) / 2,
+    );
+  }
+}
+
 class PdfJsRuntime implements PdfRuntime {
   private readonly abortController = new AbortController();
   private readonly eventBus = new EventBus();
@@ -44,11 +92,7 @@ class PdfJsRuntime implements PdfRuntime {
     eventBus: this.eventBus,
     ignoreDestinationZoom: true,
   });
-  private readonly findController = new PDFFindController({
-    eventBus: this.eventBus,
-    linkService: this.linkService,
-    updateMatchesCountOnProgress: true,
-  });
+  private readonly findController: PDFFindController;
   private readonly pdfViewer: PDFViewer;
   private loadingTask: PDFDocumentLoadingTask | null = null;
   private pdfDocument: PDFDocumentProxy | null = null;
@@ -62,6 +106,14 @@ class PdfJsRuntime implements PdfRuntime {
     private readonly callbacks: Parameters<PdfRuntimeFactory>[0]["callbacks"],
   ) {
     this.linkService.externalLinkEnabled = false;
+    this.findController = new PaneScopedPdfFindController(
+      {
+        eventBus: this.eventBus,
+        linkService: this.linkService,
+        updateMatchesCountOnProgress: true,
+      },
+      container,
+    );
     this.pdfViewer = new PDFViewer({
       container,
       viewer,

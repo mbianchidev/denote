@@ -2629,12 +2629,26 @@ button:disabled {
   border-radius: 4px;
 }
 
-.pdf-reader__zoom {
-  min-width: 44px;
+.pdf-reader__zoom-field {
+  display: flex;
+  align-items: center;
+  gap: 2px;
   color: var(--text-secondary);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
-  text-align: center;
+}
+
+.pdf-reader__zoom-field input {
+  width: 52px;
+  height: 28px;
+  padding: 3px 4px;
+  color: var(--text-primary);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
 }
 
 .pdf-reader__text-button {

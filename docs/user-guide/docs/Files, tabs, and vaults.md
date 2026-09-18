@@ -19,7 +19,8 @@ cleared when the tab closes or the viewer unregisters.
 - Open a `.pdf` from the tree, recent files, command palette, restored tabs, or
   either pane.
 - Use the previous/next buttons or page-number field to navigate.
-- Zoom from 25% to 400%, or choose **Fit width** or **Fit page**.
+- Type an exact zoom percentage from 25% to 400%, use the zoom buttons, or
+  choose **Fit width** or **Fit page**.
 - Rotate every displayed page clockwise without changing the file.
 - Select and copy text when the PDF provides a text layer and permits copying.
 - Use the reader search field to highlight matches. Enter moves to the next

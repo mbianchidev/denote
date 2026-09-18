@@ -96,9 +96,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Valid UTF-8 content edits as text. Invalid UTF-8 content edits as reversible
   Base64 so unchanged bytes round-trip exactly.
 - PDF files open in ordinary tabs and any pane. The bundled local reader
-  provides multi-page navigation, 25–400% zoom, fit-to-width, fit-to-page,
-  clockwise rotation, selectable text, copying, and in-document search when the
-  document exposes a permitted text layer.
+  provides multi-page navigation, 25–400% zoom with an editable exact
+  percentage, fit-to-width, fit-to-page, clockwise rotation, selectable text,
+  copying, and in-document search when the document exposes a permitted text
+  layer.
 - Command-F / Control-F focuses PDF search while a PDF is active. Enter and
   Shift-Enter move forward and backward through matches. Command/Control `+`,
   `-`, and `0` zoom or reset the active PDF instead of changing editor text.
