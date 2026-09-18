@@ -96,6 +96,20 @@ npm run prepare:bundled-tools -- --target aarch64-apple-darwin
 npm run verify:bundled-tools -- --target aarch64-apple-darwin
 ```
 
+Apple target preparation resolves both the active macOS SDK and clang with
+absolute `/usr/bin/xcrun --sdk macosx`. It ignores an inherited `SDKROOT`,
+preserves `DEVELOPER_DIR` when selecting a specific Xcode installation, and
+does not pin an SDK version: local builds and `macos-latest` use the `macosx`
+SDK exposed by their selected Xcode. Preparation fails before configure when
+xcrun fails, the SDK result is not an existing directory, or the clang result
+is not an existing file. Reproduce the stale launcher environment check with:
+
+```bash
+SDKROOT=/removed/macos-sdk \
+  npm run prepare:bundled-tools -- --target aarch64-apple-darwin
+npm run verify:bundled-tools -- --target aarch64-apple-darwin
+```
+
 The immutable inputs live in `bundled-tools.lock.json`. Preparation never
 resolves `latest`; it verifies bounded downloads, release provenance, archive
 paths, the installed tree, executable permissions, and exact Git/gh versions.

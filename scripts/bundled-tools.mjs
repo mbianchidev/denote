@@ -18,6 +18,7 @@ import {
 import {
   basename,
   dirname,
+  isAbsolute,
   join,
   posix,
   relative,
@@ -41,6 +42,7 @@ const MAX_REDIRECTS = 4;
 const MAX_EXPANDED_BYTES = 512 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 30_000;
 const MAX_PACKAGED_TOOL_BYTES = 96 * 1024 * 1024;
+const XCRUN_PATH = "/usr/bin/xcrun";
 
 export function currentTarget(platform = process.platform, arch = process.arch) {
   const key = `${platform}:${arch}`;
@@ -198,6 +200,10 @@ export function assertPackagedSize(sizes) {
 export function gitBuildEnvironment(
   targetName,
   environment = process.env,
+  {
+    spawn = spawnSync,
+    stat = statSync,
+  } = {},
 ) {
   const buildEnvironment = {
     ...environment,
@@ -206,9 +212,70 @@ export function gitBuildEnvironment(
     LC_ALL: "C",
   };
   if (targetName.endsWith("apple-darwin")) {
-    delete buildEnvironment.SDKROOT;
+    const resolutionEnvironment = { ...buildEnvironment };
+    delete resolutionEnvironment.SDKROOT;
+    const sdkRoot = xcrunOutput(
+      "macOS SDK",
+      ["--sdk", "macosx", "--show-sdk-path"],
+      resolutionEnvironment,
+      spawn,
+    );
+    const sdkMetadata = resolvedPathMetadata("macOS SDK", sdkRoot, stat);
+    if (!sdkMetadata.isDirectory()) {
+      throw new Error(`The resolved macOS SDK path is not a directory: ${sdkRoot}`);
+    }
+    const clang = xcrunOutput(
+      "macOS clang",
+      ["--sdk", "macosx", "--find", "clang"],
+      resolutionEnvironment,
+      spawn,
+    );
+    const clangMetadata = resolvedPathMetadata("macOS clang", clang, stat);
+    if (!clangMetadata.isFile()) {
+      throw new Error(`The resolved macOS clang path is not a file: ${clang}`);
+    }
+    buildEnvironment.SDKROOT = sdkRoot;
+    buildEnvironment.CC = clang;
   }
   return buildEnvironment;
+}
+
+function xcrunOutput(label, args, environment, spawn) {
+  const outcome = spawn(XCRUN_PATH, args, {
+    encoding: "utf8",
+    env: environment,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (outcome.error) {
+    throw new Error(
+      `Unable to resolve the active ${label} with ${XCRUN_PATH}: ${outcome.error.message}`,
+    );
+  }
+  if (outcome.status !== 0) {
+    const detail = outcome.stderr?.trim();
+    throw new Error(
+      `Unable to resolve the active ${label} with ${XCRUN_PATH} ${args.join(" ")}: exit code ${outcome.status}${detail ? `: ${detail}` : "."}`,
+    );
+  }
+  const path = outcome.stdout?.trim() ?? "";
+  if (!path) {
+    throw new Error(
+      `Unable to resolve the active ${label} with ${XCRUN_PATH}: the command returned no path.`,
+    );
+  }
+  return path;
+}
+
+function resolvedPathMetadata(label, path, stat) {
+  if (!isAbsolute(path)) {
+    throw new Error(`The resolved ${label} path is not absolute: ${path}`);
+  }
+  try {
+    return stat(path);
+  } catch (error) {
+    const detail = error instanceof Error ? ` ${error.message}` : "";
+    throw new Error(`The resolved ${label} path does not exist: ${path}.${detail}`);
+  }
 }
 
 async function downloadExact(artifact, allowlist, destination) {

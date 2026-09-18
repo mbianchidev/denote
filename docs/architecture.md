@@ -1062,11 +1062,16 @@ and ARM64, and Windows x64.
 `scripts/bundled-tools.mjs` performs bounded HTTPS downloads without `latest`,
 validates signed tag metadata or GitHub artifact attestations, rejects unsafe
 tar/ZIP paths and entry types, enforces expanded-size limits, builds upstream
-Git with deterministic locale/time inputs on Linux and macOS, and discards an
-inherited macOS `SDKROOT` so a removed or foreign SDK cannot poison the
-standalone source build. It installs MinGit on Windows, normalizes permissions,
-checks the expected tree, and version-probes both programs. It then stores each
-target tool tree as a deterministic
+Git with deterministic locale/time inputs on Linux and macOS. Apple builds
+discard inherited `SDKROOT` while resolving the active SDK and clang through
+absolute `/usr/bin/xcrun --sdk macosx`, preserving an intentional
+`DEVELOPER_DIR`. No SDK version is pinned: the selected Xcode installation on
+the build host supplies its active `macosx` SDK. The resolved SDK must be an
+existing directory and clang must be an existing file; both are then passed
+explicitly as `SDKROOT` and `CC` to configure and make so a stale launcher
+environment cannot select or poison the toolchain. It installs MinGit on
+Windows, normalizes permissions, checks the expected tree, and version-probes
+both programs. It then stores each target tool tree as a deterministic
 gzip-compressed release asset, preserving Git's symlink aliases instead of
 expanding each built-in into another multi-megabyte copy. The installer receives
 only the target integrity manifest and legal material. That manifest pins exact
