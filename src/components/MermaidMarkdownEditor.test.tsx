@@ -8,20 +8,20 @@ import { MarkdownEditor } from "./MarkdownEditor";
 const source =
   "Before\n\n```mermaid\nflowchart LR\n  Draft --> Done\n```\n\nAfter";
 
+const renderer: DiagramEditorBinding["renderers"][number] = {
+  pluginId: "denote.mermaid",
+  id: "denote.mermaid.renderer",
+  title: "Mermaid diagrams",
+  languages: ["mermaid"],
+};
+
 function binding(
   renderDiagram: DiagramEditorBinding["renderDiagram"],
   exportSvg: DiagramEditorBinding["exportSvg"] = vi.fn(async () => true),
 ): DiagramEditorBinding {
   return {
     scopeId: "pane-a:diagram.md",
-    renderers: [
-      {
-        pluginId: "denote.mermaid",
-        id: "denote.mermaid.renderer",
-        title: "Mermaid diagrams",
-        languages: ["mermaid"],
-      },
-    ],
+    renderers: [renderer],
     renderDiagram,
     releaseScope: vi.fn(),
     exportSvg,
@@ -72,6 +72,25 @@ describe("Mermaid rich Markdown blocks", () => {
       "flowchart LR",
     );
     expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps an unchanged diagram mounted across a settled parent update", async () => {
+    const renderDiagram = vi.fn(async () => ({
+      status: "success" as const,
+      svg: '<svg viewBox="0 0 10 10"><path d="M0 0h10"/></svg>',
+      accessibleName: "Mermaid diagram",
+      diagramType: "flowchart-v2",
+    }));
+    const diagrams = binding(renderDiagram);
+    const rendered = render(editor(diagrams));
+
+    expect(await screen.findByRole("figure", { name: "Mermaid diagram" }))
+      .toBeInTheDocument();
+    expect(renderDiagram).toHaveBeenCalledTimes(1);
+
+    rendered.rerender(editor({ ...diagrams }));
+
+    expect(renderDiagram).toHaveBeenCalledTimes(1);
   });
 
   it("isolates a located parse error and leaves the rest of the note usable", async () => {
