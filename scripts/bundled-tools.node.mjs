@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   assertPackagedSize,
   currentTarget,
+  gitBuildEnvironment,
   githubApiToken,
   githubApiUrlAllowed,
   parseZipEntries,
@@ -75,4 +76,23 @@ test("caps the combined installer payload for bundled tools", () => {
     () => assertPackagedSize([80 * 1024 * 1024, 20 * 1024 * 1024]),
     /package limit/,
   );
+});
+
+test("isolates macOS Git builds from an inherited SDK root", () => {
+  const environment = gitBuildEnvironment("aarch64-apple-darwin", {
+    PATH: "/usr/bin",
+    SDKROOT: "/removed/macos-sdk",
+  });
+  assert.equal(environment.PATH, "/usr/bin");
+  assert.equal(environment.SDKROOT, undefined);
+  assert.equal(environment.LC_ALL, "C");
+  assert.equal(environment.TZ, "UTC");
+  assert.equal(environment.SOURCE_DATE_EPOCH, "1782745159");
+});
+
+test("preserves non-macOS build environment values", () => {
+  const environment = gitBuildEnvironment("x86_64-unknown-linux-gnu", {
+    SDKROOT: "/custom/sdk",
+  });
+  assert.equal(environment.SDKROOT, "/custom/sdk");
 });
