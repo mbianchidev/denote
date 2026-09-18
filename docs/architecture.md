@@ -1062,9 +1062,11 @@ and ARM64, and Windows x64.
 `scripts/bundled-tools.mjs` performs bounded HTTPS downloads without `latest`,
 validates signed tag metadata or GitHub artifact attestations, rejects unsafe
 tar/ZIP paths and entry types, enforces expanded-size limits, builds upstream
-Git with deterministic locale/time inputs on Linux and macOS, installs MinGit
-on Windows, normalizes permissions, checks the expected tree, and version-probes
-both programs. It then stores each target tool tree as a deterministic
+Git with deterministic locale/time inputs on Linux and macOS, and discards an
+inherited macOS `SDKROOT` so a removed or foreign SDK cannot poison the
+standalone source build. It installs MinGit on Windows, normalizes permissions,
+checks the expected tree, and version-probes both programs. It then stores each
+target tool tree as a deterministic
 gzip-compressed release asset, preserving Git's symlink aliases instead of
 expanding each built-in into another multi-megabyte copy. The installer receives
 only the target integrity manifest and legal material. That manifest pins exact

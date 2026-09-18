@@ -195,6 +195,22 @@ export function assertPackagedSize(sizes) {
   }
 }
 
+export function gitBuildEnvironment(
+  targetName,
+  environment = process.env,
+) {
+  const buildEnvironment = {
+    ...environment,
+    SOURCE_DATE_EPOCH: "1782745159",
+    TZ: "UTC",
+    LC_ALL: "C",
+  };
+  if (targetName.endsWith("apple-darwin")) {
+    delete buildEnvironment.SDKROOT;
+  }
+  return buildEnvironment;
+}
+
 async function downloadExact(artifact, allowlist, destination) {
   mkdirSync(dirname(destination), { recursive: true });
   if (existsSync(destination)) {
@@ -457,12 +473,7 @@ async function prepareGit(lock, targetName, target, staging, temporary) {
     await extractTar(source, extracted);
     const sourceRoot = archiveRoot(extracted);
     mkdirSync(output, { recursive: true });
-    const environment = {
-      ...process.env,
-      SOURCE_DATE_EPOCH: "1782745159",
-      TZ: "UTC",
-      LC_ALL: "C",
-    };
+    const environment = gitBuildEnvironment(targetName);
     run("./configure", [`--prefix=${output}`, "--without-tcltk"], {
       cwd: sourceRoot,
       env: environment,
