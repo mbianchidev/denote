@@ -567,10 +567,10 @@ validation.
 
 PDFs use the full pane as a calm read-only document surface. One compact toolbar
 keeps controls in this focus order: previous page, page number, next page, zoom
-out, zoom value, zoom in, fit width, fit page, rotate, search field, previous
-result, next result, and clear search. Native buttons and inputs provide the
-semantics; fit controls expose `aria-pressed`, unavailable actions remain
-disabled, and the page canvas follows the toolbar in the tab order.
+out, editable zoom percentage, zoom in, fit width, fit page, rotate, search
+field, previous result, next result, and clear search. Native buttons and inputs
+provide the semantics; fit controls expose `aria-pressed`, unavailable actions
+remain disabled, and the page canvas follows the toolbar in the tab order.
 
 The viewport uses the editor background around paper-white pages with the
 existing restrained shadow. Search highlights use the moss accent, selected

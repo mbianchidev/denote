@@ -73,6 +73,7 @@ export function PdfReader({
   const passwordInputRef = useRef<HTMLInputElement>(null);
   const passwordDialogRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const zoomInputRef = useRef<HTMLInputElement>(null);
   const handledCommand = useRef(0);
   const [loadState, setLoadState] = useState<LoadState>({
     kind: "loading",
@@ -185,6 +186,7 @@ export function PdfReader({
         setPageCount(loadedPageCount);
         setCurrentPage(normalized.pageNumber);
         setScale(normalized.scale);
+        syncZoomInput(normalized.scale);
         setScaleMode(normalized.scaleMode);
         setRotation(normalized.rotation);
         setLoadState({ kind: "ready" });
@@ -201,6 +203,7 @@ export function PdfReader({
           return;
         }
         setScale(value.scale);
+        syncZoomInput(value.scale);
         setScaleMode(value.scaleMode);
         publishViewState(value);
       },
@@ -313,7 +316,22 @@ export function PdfReader({
   };
 
   const setCustomScale = (nextScale: number) => {
-    runtimeRef.current?.setScale(clampPdfScale(nextScale));
+    const normalized = clampPdfScale(nextScale);
+    syncZoomInput(normalized);
+    runtimeRef.current?.setScale(normalized);
+  };
+
+  const commitCustomScale = () => {
+    const input = zoomInputRef.current;
+    if (!input) {
+      return;
+    }
+    const percentage = Number(input.value);
+    if (!Number.isFinite(percentage)) {
+      syncZoomInput(scale);
+      return;
+    }
+    setCustomScale(percentage / 100);
   };
 
   const submitPassword = (event: FormEvent) => {
@@ -441,9 +459,30 @@ export function PdfReader({
           >
             <ZoomOut aria-hidden="true" size={16} />
           </button>
-          <span className="pdf-reader__zoom" aria-label="PDF zoom">
-            {Math.round(scale * 100)}%
-          </span>
+          <label className="pdf-reader__zoom-field">
+            <span className="sr-only">PDF zoom percentage</span>
+            <input
+              ref={zoomInputRef}
+              type="number"
+              min={MIN_PDF_SCALE * 100}
+              max={MAX_PDF_SCALE * 100}
+              step={1}
+              defaultValue={Math.round(scale * 100)}
+              disabled={!ready}
+              aria-label="PDF zoom percentage"
+              onBlur={commitCustomScale}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  commitCustomScale();
+                } else if (event.key === "Escape") {
+                  syncZoomInput(scale);
+                  event.currentTarget.select();
+                }
+              }}
+            />
+            <span aria-hidden="true">%</span>
+          </label>
           <button
             type="button"
             className="icon-button"
@@ -650,4 +689,10 @@ export function PdfReader({
       </p>
     </section>
   );
+
+  function syncZoomInput(nextScale: number) {
+    if (zoomInputRef.current) {
+      zoomInputRef.current.value = String(Math.round(nextScale * 100));
+    }
+  }
 }

@@ -16,6 +16,7 @@ const runtimeMock = vi.hoisted(() => {
     handlers,
     task,
     getDocument: vi.fn(() => task),
+    findControllers: [] as unknown[],
   };
 });
 
@@ -47,6 +48,14 @@ vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => {
     setDocument() {}
   }
   class PDFFindController {
+    _scrollMatches = false;
+    _selected = { pageIdx: -1, matchIdx: -1 };
+    constructor() {
+      runtimeMock.findControllers.push(this);
+    }
+    get selected() {
+      return this._selected;
+    }
     setDocument() {}
   }
   class PDFViewer {
@@ -75,6 +84,7 @@ describe("PdfJsRuntime", () => {
     runtimeMock.task.destroy.mockClear();
     runtimeMock.task.onProgress = null;
     runtimeMock.task.onPassword = null;
+    runtimeMock.findControllers.length = 0;
   });
 
   it("uses real PDF.js event shapes and destroys fatal loading tasks", async () => {
@@ -115,6 +125,74 @@ describe("PdfJsRuntime", () => {
     expect(callbacks.onFatalError).toHaveBeenCalledWith(
       expect.objectContaining({ name: "InvalidPDFException" }),
     );
+  });
+
+  it("scrolls search matches only inside the PDF viewport", async () => {
+    const outer = document.createElement("div");
+    const container = document.createElement("div");
+    const viewer = document.createElement("div");
+    const match = document.createElement("span");
+    outer.append(container);
+    container.append(viewer);
+    viewer.append(match);
+    document.body.append(outer);
+
+    Object.defineProperty(container, "clientWidth", {
+      configurable: true,
+      value: 400,
+    });
+    container.getBoundingClientRect = () =>
+      ({
+        top: 100,
+        left: 200,
+        width: 400,
+        height: 300,
+      }) as DOMRect;
+    match.getBoundingClientRect = () =>
+      ({
+        top: 250,
+        left: 500,
+        width: 50,
+        height: 20,
+      }) as DOMRect;
+    outer.scrollTop = 42;
+    outer.scrollLeft = 7;
+    container.scrollTop = 10;
+    container.scrollLeft = 20;
+
+    const runtime = createPdfJsRuntime({
+      container,
+      viewer,
+      callbacks: callbackMocks(),
+    });
+    const controller = runtimeMock.findControllers[
+      runtimeMock.findControllers.length - 1
+    ] as {
+      _scrollMatches: boolean;
+      _selected: { pageIdx: number; matchIdx: number };
+      scrollMatchIntoView: (value: {
+        element: HTMLElement;
+        pageIndex: number;
+        matchIndex: number;
+      }) => void;
+    };
+    controller._scrollMatches = true;
+    controller._selected = { pageIdx: 0, matchIdx: 0 };
+
+    controller.scrollMatchIntoView({
+      element: match,
+      pageIndex: 0,
+      matchIndex: 0,
+    });
+
+    expect(container.scrollTop).toBe(160);
+    expect(container.scrollLeft).toBe(145);
+    expect(outer.scrollTop).toBe(42);
+    expect(outer.scrollLeft).toBe(7);
+    expect(controller._scrollMatches).toBe(false);
+
+    await runtime.destroy();
+    outer.remove();
   });
 });
 

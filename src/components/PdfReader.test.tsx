@@ -53,6 +53,13 @@ describe("PdfReader", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Zoom PDF in" }));
     expect(harness.runtime.setScale).toHaveBeenCalledWith(1.1);
+    const zoom = screen.getByRole("spinbutton", {
+      name: "PDF zoom percentage",
+    });
+    await userEvent.clear(zoom);
+    await userEvent.type(zoom, "175{Enter}");
+    expect(harness.runtime.setScale).toHaveBeenCalledWith(1.75);
+    expect(zoom).toHaveValue(175);
     fireEvent.click(screen.getByRole("button", { name: "Fit PDF to width" }));
     expect(harness.runtime.setScaleMode).toHaveBeenCalledWith("page-width");
     fireEvent.click(screen.getByRole("button", { name: "Fit PDF to page" }));
