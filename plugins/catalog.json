@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.1/denote.reference-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.2/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
@@ -306,7 +306,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.1/denote.git-0.7.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.2/denote.git-0.7.0.tgz",
       "sha256": "aeae024b0425781f9b256a3bb1ca7fb3237b66cb31da3d2de92f872a8acffcc7",
       "sizeBytes": 68516
     },
@@ -376,7 +376,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.1/denote.emoji-picker-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.2/denote.emoji-picker-0.1.1.tgz",
       "sha256": "501acb6a911f2aa85fd47adc8709fd867d3482b495209dc490cd4b54aca0dbf6",
       "sizeBytes": 105317
     },
@@ -503,7 +503,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.1/denote.kanban-0.1.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.2/denote.kanban-0.1.3.tgz",
       "sha256": "24ff948143ec0e930c082da3cdac036f63a731d4888caab972c69e0e1336c244",
       "sizeBytes": 20814
     },
@@ -543,7 +543,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.1/denote.note-graph-0.1.4.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.5.2/denote.note-graph-0.1.4.tgz",
       "sha256": "8a86259b050b837932ab5d7e7ab4bec0165d6dd6739e3ea3fe5a59c3f8f3a4f1",
       "sizeBytes": 74349
     },
