@@ -497,7 +497,11 @@ function configuration(
     forceLegacyMathML: false,
     logLevel: "fatal" as const,
     secure: [...SECURE_CONFIGURATION_KEYS],
-    flowchart: { htmlLabels: false },
+    flowchart: { htmlLabels: false, layout: "dagre" },
+    class: { layout: "dagre" },
+    state: { layout: "dagre" },
+    er: { layout: "dagre" },
+    requirement: { layout: "dagre" },
     ...(displayMode ? { gantt: { displayMode } } : {}),
   };
 }

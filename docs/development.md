@@ -191,9 +191,15 @@ outputs. `plugin.json` declares the normal worker `entrypoint` and a distinct
 entrypoint registers metadata only. The renderer entrypoint runs only in the
 host's opaque no-network sandbox after enablement and must export
 `renderDiagram(request)`. Both outputs are package-relative, independently
-bounded to 5 MiB, included in the deterministic archive, and independently
+bounded to 10 MiB, included in the deterministic archive, and independently
 hashed by the native installer. `npm run build:plugin -- denote.mermaid` builds
 both files without runtime imports.
+
+The 10 MiB per-entrypoint limit applies to every plugin's activation worker and
+optional diagram renderer. Packaging, native installation, startup validation,
+hashing, and runtime reads enforce the same limit. Compressed and expanded
+packages remain bounded to 25 MiB in total. Plugins requiring the larger
+entrypoint allowance must declare a minimum Denote version of 0.5.2.
 
 The host-side `src/plugins/diagramSandboxBootstrap.js` is imported as raw text
 and inserted as a static inline module in the opaque renderer frame. Its exact
@@ -211,6 +217,7 @@ npm audit --audit-level=high
 npm ls mermaid dompurify
 npx vitest run \
   packages/plugin-sdk/src/diagramRenderer.test.ts \
+  plugins/mermaid/tests/compatibility.test.ts \
   plugins/mermaid/tests/renderer.test.ts \
   src/plugins/diagramRenderers.test.ts \
   src/plugins/runtimeMessages.test.ts \
@@ -219,6 +226,15 @@ npx vitest run \
   src/components/MermaidMarkdownEditor.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml diagram_renderer
 ```
+
+The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
+dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
+until upstream removes those pins. After dependency updates, verify both
+`npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
+Changes to a plugin's own dependencies require an explicitly approved new
+plugin version and committed source pin before `check:plugins` can succeed.
+Never replace a released version's bytes or provenance; its ledger entry
+remains tied to the original source commit.
 
 ### Prepare an immutable plugin version
 
@@ -256,7 +272,7 @@ metadata commit.
 The source commit must be an ancestor of `HEAD`, so pushing the branch also
 publishes the source needed for reproduction. Archive text uses LF endings and
 fixed file modes regardless of checkout line endings or the author's umask.
-Archive compression uses the exact build-only `pako@3.0.1` implementation with
+Archive compression uses the exact build-only `pako@3.0.2` implementation with
 its legacy hash mode, fixed gzip parameters, and a normalized portable OS byte,
 not the Node runtime's native zlib. Different native zlib builds can compress
 identical tar input differently. The pinned compatibility settings preserve
@@ -680,9 +696,12 @@ search aliases, explicit extensions or filenames, and a bundled asynchronous
 CodeMirror loader.
 
 Add synthetic table-driven coverage in `src/lib/syntaxLanguages.test.ts`, plus
-editor or combobox coverage when behavior changes. Update the product,
-architecture, design, and canonical user guide language lists together. New
-grammar dependencies must be direct dependencies, lazy-loaded, included in
+editor or combobox coverage when behavior changes. Force complete parsing with
+`ensureSyntaxTree` before asserting tokens or tree length: `EditorState.create`
+only spends a small initial parsing budget and may leave a partial tree.
+Update the product, architecture, design, and canonical user guide language
+lists together. New grammar dependencies must be direct dependencies,
+lazy-loaded, included in
 `package-lock.json`, and pass `npm audit`; Denote never downloads grammars at
 runtime. Specialized plugin grammar support requires a separately approved typed
 host contract and is not part of plugin API version 1.

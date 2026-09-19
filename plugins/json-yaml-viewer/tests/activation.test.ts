@@ -84,7 +84,7 @@ describe("JSON and YAML viewer activation", () => {
     expect(plugin.manifest.permissions).toHaveLength(1);
     expect(packageJson.dependencies).toEqual({
       "@denote/plugin-sdk": "0.1.0",
-      yaml: "2.9.0",
+      yaml: "2.9.1",
     });
     expect(packageJson).not.toHaveProperty("scripts");
     expect(packageJson).not.toHaveProperty("bin");

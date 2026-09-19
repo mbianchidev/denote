@@ -5,7 +5,10 @@ use tar::Builder;
 use tempfile::TempDir;
 
 use super::{
-    PluginCatalogEntry, PluginManager, catalog::validate_catalog, commands::validate_export_svg,
+    PluginCatalogEntry, PluginManager,
+    catalog::validate_catalog,
+    commands::validate_export_svg,
+    package::{sha256_file, validate_extracted_package, validate_installed_package},
     tests::manager,
 };
 
@@ -56,6 +59,18 @@ fn append(builder: &mut Builder<GzEncoder<Vec<u8>>>, path: &str, content: &[u8])
 }
 
 fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
+    package_bytes_with_entrypoints(
+        catalog,
+        b"export default {};",
+        b"export async function renderDiagram() { return {}; }",
+    )
+}
+
+fn package_bytes_with_entrypoints(
+    catalog: &PluginCatalogEntry,
+    worker: &[u8],
+    renderer: &[u8],
+) -> Vec<u8> {
     let encoder = GzEncoder::new(Vec::new(), Compression::default());
     let mut builder = Builder::new(encoder);
     append(
@@ -63,11 +78,7 @@ fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
         "plugin.json",
         &serde_json::to_vec(&catalog.manifest).expect("manifest"),
     );
-    append(
-        &mut builder,
-        &catalog.manifest.entrypoint,
-        b"export default {};",
-    );
+    append(&mut builder, &catalog.manifest.entrypoint, worker);
     append(
         &mut builder,
         &catalog
@@ -76,7 +87,7 @@ fn package_bytes(catalog: &PluginCatalogEntry) -> Vec<u8> {
             .as_ref()
             .expect("renderer")
             .entrypoint,
-        b"export async function renderDiagram() { return {}; }",
+        renderer,
     );
     append(
         &mut builder,
@@ -146,6 +157,69 @@ fn diagram_renderer_is_additive_bounded_and_integrity_checked() {
     manager.disable(PLUGIN_ID, false, false).expect("disable");
     assert!(!manager.plugin_root(PLUGIN_ID).exists());
     assert!(manager.read_diagram_renderer(PLUGIN_ID).is_err());
+}
+
+#[test]
+fn plugin_executables_accept_ten_mib_and_reject_one_byte_more() {
+    let catalog = catalog();
+    let (data, _cache, manager) = fixture(catalog.clone());
+    let limit = 10 * 1024 * 1024;
+    let prefix = "export default {}; export async function renderDiagram() { return {}; }\n";
+    let source = format!("{prefix}{}", " ".repeat(limit - prefix.len()));
+    let archive = data.path().join("bounded-executables.tgz");
+    std::fs::write(
+        &archive,
+        package_bytes_with_entrypoints(&catalog, source.as_bytes(), source.as_bytes()),
+    )
+    .expect("archive");
+
+    manager
+        .load_development_archive(&archive)
+        .expect("10 MiB executables pass extraction");
+    let installed = manager
+        .prepare(PLUGIN_ID, catalog.manifest.permissions.clone())
+        .expect("10 MiB executables pass installation and hashing");
+    manager
+        .commit_enable(&installed.transaction_id)
+        .expect("commit");
+    assert_eq!(
+        manager.read_entrypoint(PLUGIN_ID).expect("worker").len(),
+        limit
+    );
+    assert_eq!(
+        manager
+            .read_diagram_renderer(PLUGIN_ID)
+            .expect("renderer")
+            .len(),
+        limit
+    );
+    let package_dir = manager.install_dir(&catalog);
+    validate_installed_package(&catalog.manifest, &package_dir)
+        .expect("10 MiB executables pass startup validation");
+
+    for path in ["dist/index.js", "dist/renderer.js"] {
+        let entrypoint = package_dir.join(path);
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&entrypoint)
+            .expect("entrypoint");
+        file.set_len(limit as u64 + 1).expect("grow entrypoint");
+
+        assert!(validate_extracted_package(&catalog, &package_dir).is_err());
+        assert!(validate_installed_package(&catalog.manifest, &package_dir).is_err());
+        assert!(sha256_file(&entrypoint).is_err());
+        let read = if path == "dist/index.js" {
+            manager.read_entrypoint(PLUGIN_ID)
+        } else {
+            manager.read_diagram_renderer(PLUGIN_ID)
+        };
+        assert!(
+            read.expect_err("oversized executable")
+                .to_string()
+                .contains("too large")
+        );
+        file.set_len(limit as u64).expect("restore entrypoint");
+    }
 }
 
 #[test]

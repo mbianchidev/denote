@@ -78,7 +78,7 @@ vaults never expose decrypted content to the plugin.
 - If the viewer stops responding, disable and re-enable the plugin. Denote
   removes a crashed package automatically without changing open files.
 
-The plugin bundles `yaml` 2.9.0 under the ISC license. It uses the YAML 1.2 core
+The plugin bundles `yaml` 2.9.1 under the ISC license. It uses the YAML 1.2 core
 schema with merge keys, known YAML 1.1 tags, and custom tags disabled. No parser
 component loads schemas, scripts, constructors, or content from the network.
 

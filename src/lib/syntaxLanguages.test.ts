@@ -1,6 +1,6 @@
 import { EditorState } from "@codemirror/state";
-import { syntaxTree } from "@codemirror/language";
-import { describe, expect, it } from "vitest";
+import { ensureSyntaxTree } from "@codemirror/language";
+import { assert, describe, expect, it } from "vitest";
 import {
   AUTOMATIC_LANGUAGE,
   CORE_SYNTAX_LANGUAGES,
@@ -13,6 +13,13 @@ import {
   loadSyntaxLanguage,
   resolveSourceLanguage,
 } from "./syntaxLanguages";
+
+function fullSyntaxTree(state: EditorState) {
+  const tree = ensureSyntaxTree(state, state.doc.length, 1_000);
+  assert.isNotNull(tree, "Syntax parsing did not finish within 1,000 ms.");
+  expect(tree.length).toBe(state.doc.length);
+  return tree;
+}
 
 const requiredLanguages = [
   "JavaScript",
@@ -361,12 +368,12 @@ describe("core syntax language registry", () => {
     const goNodes: string[] = [];
     const makeNodes: string[] = [];
 
-    syntaxTree(goState).iterate({
+    fullSyntaxTree(goState).iterate({
       enter: (node) => {
         goNodes.push(node.name);
       },
     });
-    syntaxTree(makeState).iterate({
+    fullSyntaxTree(makeState).iterate({
       enter: (node) => {
         makeNodes.push(node.name);
       },
@@ -430,13 +437,13 @@ describe("core syntax language registry", () => {
     });
     const helmNodes: string[] = [];
 
-    syntaxTree(helmState).iterate({
+    fullSyntaxTree(helmState).iterate({
       enter: (node) => {
         helmNodes.push(node.name);
       },
     });
 
-    expect(syntaxTree(terraformState).length).toBe(terraformState.doc.length);
+    expect(fullSyntaxTree(terraformState).length).toBe(terraformState.doc.length);
     expect(helmNodes).toEqual(
       expect.arrayContaining([
         "propertyName",
@@ -455,7 +462,7 @@ describe("core syntax language registry", () => {
     const state = EditorState.create({ doc, extensions: [helm] });
     const tokens: Array<{ name: string; text: string }> = [];
 
-    syntaxTree(state).iterate({
+    fullSyntaxTree(state).iterate({
       enter: (node) => {
         if (node.name !== "Document") {
           tokens.push({

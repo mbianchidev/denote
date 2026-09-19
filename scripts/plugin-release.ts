@@ -16,6 +16,7 @@ import { verifyRemoteArtifact } from "./plugin-downloads.mjs";
 
 const REPOSITORY = "https://github.com/mbianchidev/denote";
 const MAX_BYTES = 25 * 1024 * 1024;
+const MAX_PLUGIN_ENTRYPOINT_BYTES = 10 * 1024 * 1024;
 const SHA = /^[0-9a-f]{40}$/;
 const DIGEST = /^[0-9a-f]{64}$/;
 export const RELEASE_TAG = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
@@ -260,7 +261,7 @@ export async function verifyArchiveContents(path: string, directory: string, man
           ? [manifest.diagramRenderer.entrypoint]
           : []),
       ]);
-      if (expanded > MAX_BYTES || (executablePaths.has(entry.path) && entry.size > 5 * 1024 * 1024)) {
+      if (expanded > MAX_BYTES || (executablePaths.has(entry.path) && entry.size > MAX_PLUGIN_ENTRYPOINT_BYTES)) {
         failure ??= new Error("Plugin archive exceeds expanded size limits.");
       }
       const chunks: Buffer[] = [];

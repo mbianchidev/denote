@@ -28,7 +28,7 @@ const requestedSamples = [
   ["timeline", "timeline\n2026 : Launch"],
 ] as const;
 
-describe("Mermaid 11.17 detector compatibility", () => {
+describe("Mermaid detector compatibility", () => {
   beforeAll(() => {
     mermaid.initialize({
       startOnLoad: false,
