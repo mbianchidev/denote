@@ -466,6 +466,12 @@ read validation treat both files as independently bounded executable inputs
 with separate SHA-256 digests. The renderer file is unavailable before a
 matching prepared or enabled permission and is deleted with the package.
 
+Every plugin's worker and optional diagram-renderer entrypoints are each
+limited to 10 MiB. Packaging and native installation, startup validation,
+hashing, and runtime reads enforce that bound; compressed and expanded
+packages remain limited to 25 MiB in total. A package requiring the larger
+entrypoint allowance must require Denote 0.5.2 or newer.
+
 The host loads the renderer once per active editor scope into an opaque
 `sandbox="allow-scripts"` iframe with a fixed SHA-256-authorized inline
 bootstrap and no network, image, font, storage, nested worker, Tauri, or

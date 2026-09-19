@@ -6,7 +6,7 @@ use serde_json::Value;
 pub(crate) const CATALOG_JSON: &str = include_str!("../../../plugins/catalog.json");
 pub(crate) const BUNDLES_JSON: &str = include_str!("../../../plugins/bundles.json");
 pub(crate) const MAX_PLUGIN_PACKAGE_BYTES: usize = 25 * 1024 * 1024;
-pub(crate) const MAX_PLUGIN_ENTRYPOINT_BYTES: u64 = 5 * 1024 * 1024;
+pub(crate) const MAX_PLUGIN_ENTRYPOINT_BYTES: u64 = 10 * 1024 * 1024;
 pub(crate) const MAX_PLUGIN_SETTINGS_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_PLUGIN_STORAGE_VALUE_BYTES: usize = 256 * 1024;
 pub(crate) const MAX_PLUGIN_STORAGE_BYTES: usize = 2 * 1024 * 1024;

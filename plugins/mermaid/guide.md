@@ -7,7 +7,8 @@ view while keeping the exact portable fence source available for editing.
 
 ## Enablement and permissions
 
-This plugin is disabled by default. Enabling it asks only for **Diagram
+This version requires Denote 0.5.2 or newer and is disabled by default.
+Enabling it asks only for **Diagram
 renderer**. Denote downloads and verifies the executable package after approval,
 runs its renderer in an opaque no-network sandbox, and independently sanitizes
 the returned SVG before display, copy, or export.

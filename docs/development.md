@@ -191,9 +191,15 @@ outputs. `plugin.json` declares the normal worker `entrypoint` and a distinct
 entrypoint registers metadata only. The renderer entrypoint runs only in the
 host's opaque no-network sandbox after enablement and must export
 `renderDiagram(request)`. Both outputs are package-relative, independently
-bounded to 5 MiB, included in the deterministic archive, and independently
+bounded to 10 MiB, included in the deterministic archive, and independently
 hashed by the native installer. `npm run build:plugin -- denote.mermaid` builds
 both files without runtime imports.
+
+The 10 MiB per-entrypoint limit applies to every plugin's activation worker and
+optional diagram renderer. Packaging, native installation, startup validation,
+hashing, and runtime reads enforce the same limit. Compressed and expanded
+packages remain bounded to 25 MiB in total. Plugins requiring the larger
+entrypoint allowance must declare a minimum Denote version of 0.5.2.
 
 The host-side `src/plugins/diagramSandboxBootstrap.js` is imported as raw text
 and inserted as a static inline module in the opaque renderer frame. Its exact

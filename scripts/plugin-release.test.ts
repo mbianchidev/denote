@@ -102,6 +102,36 @@ describe("release-only plugin packages", () => {
     expect(readFileSync(output, "utf8")).toBe("synthetic existing output");
   });
 
+  it.each(["worker", "diagram renderer"])(
+    "accepts a 10 MiB %s entrypoint and rejects one byte more",
+    async (kind) => {
+      const { root, directory, manifest } = fixture();
+      if (kind === "diagram renderer") {
+        manifest.permissions = [{ capability: "diagram-renderer" }];
+        manifest.diagramRenderer = { entrypoint: "dist/renderer.js" };
+        writeFileSync(join(directory, "plugin.json"), JSON.stringify(manifest));
+      }
+      const entrypoint = join(
+        directory,
+        manifest.diagramRenderer?.entrypoint ?? manifest.entrypoint,
+      );
+      const path = join(root, "bounded.tgz");
+      const limit = 10 * 1024 * 1024;
+
+      writeFileSync(entrypoint, Buffer.alloc(limit, " "));
+      await writePluginArchive(directory, manifest, path);
+      await expect(
+        verifyArchiveContents(path, directory, manifest),
+      ).resolves.toBeUndefined();
+
+      writeFileSync(entrypoint, Buffer.alloc(limit + 1, " "));
+      await writePluginArchive(directory, manifest, path);
+      await expect(
+        verifyArchiveContents(path, directory, manifest),
+      ).rejects.toThrow("expanded size limits");
+    },
+  );
+
   it("serializes catalog pins and surfaces interrupted lock recovery", () => {
     const { root } = fixture();
     const unlock = acquirePinLock(root);

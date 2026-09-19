@@ -991,6 +991,11 @@ both executables. A registration without permission or a declared module,
 duplicate language ownership, malformed output, or post-install modification
 terminates and removes the plugin.
 
+All plugin worker and diagram-renderer entrypoints are individually limited
+to 10 MiB during packaging, native installation, startup validation, hashing,
+and runtime reads. Compressed and expanded packages retain their separate
+25 MiB total limits.
+
 The activation entrypoint remains in the ordinary DOM-free plugin worker and
 registers metadata only. It does not import Mermaid. When a matching fenced
 block needs rendering, the host reads the separately verified module and loads
@@ -1007,6 +1012,7 @@ the sandbox before another request can use it. Tab close destroys its scope's
 sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
+Its larger renderer requires Denote 0.5.2 or newer.
 Both Mermaid's dependency graph and the independent host sanitizer pin
 DOMPurify 3.4.15; Chevrotain's transitive `lodash-es` is overridden to patched
 4.18.1. The renderer fixes Mermaid to strict security, disables
