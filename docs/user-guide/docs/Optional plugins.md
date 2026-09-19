@@ -310,7 +310,7 @@ or deletes Markdown.
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
 fenced `mermaid` blocks in Markdown Rich view. The plugin is disabled by
-default. Its executable package, including Mermaid 11.17.2, is downloaded only
+default. Its executable package, including Mermaid 12.0.0, is downloaded only
 after you approve **Diagram renderer**.
 
 Denote owns the block controls and display. **Show diagram source** opens the

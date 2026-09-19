@@ -801,7 +801,7 @@ content and restored tab-session JSON. Unregistration clears it. A path-keyed
 component instance and monotonic parse request guard prevent state and late
 worker responses from crossing files.
 
-`denote.json-yaml-viewer` bundles `yaml` 2.9.0 in its separately downloaded
+`denote.json-yaml-viewer` bundles `yaml` 2.9.1 in its separately downloaded
 archive. JSON uses the native parser after the host source bound and reports
 available error offsets. YAML uses `parseAllDocuments` with YAML 1.2 core,
 strict unique string keys, merge keys off, known YAML 1.1 tags off, no custom
@@ -1006,17 +1006,22 @@ diagram keeps a separate five-second watchdog; timeout or cancellation destroys
 the sandbox before another request can use it. Tab close destroys its scope's
 sandbox immediately, including while initialization is still pending.
 
-`denote.mermaid` bundles Mermaid 11.17.2 in the downloaded renderer package.
+`denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
 Both Mermaid's dependency graph and the independent host sanitizer pin
-DOMPurify 3.4.15. The renderer fixes Mermaid to strict security, disables
+DOMPurify 3.4.15; Chevrotain's transitive `lodash-es` is overridden to patched
+4.18.1. The renderer fixes Mermaid to strict security, disables
 start-on-load, HTML labels, callback binding, and error diagrams, expands the
 secure configuration list, fixes themes and deterministic IDs, and never calls
 returned bind functions. Preflight accepts YAML frontmatter only when it contains a bounded scalar
 `title` and optional Gantt `displayMode: compact`; nested configuration,
 unknown keys, tags, anchors, and aliases are rejected. Init directives, links,
 callbacks, HTML labels, images/icons/custom shapes, external or scriptable
-protocols, and custom style directives are rejected. Every public Mermaid
-11.17.2 detector family except internal info/error diagrams is accepted.
+protocols, and custom style directives are rejected. The existing detector-family
+allowlist is retained; new upstream diagram families are not enabled
+automatically, and internal info/error diagrams remain unsupported.
+Flowchart, class, state, ER, and requirement diagrams explicitly retain Dagre
+instead of Mermaid 12's new ELK default. Specialty diagram layouts keep their
+own defaults, and Denote retains its base palette and classic appearance.
 
 The sandbox returns only a bounded result union. Errors contain a fixed code,
 bounded message, and optional positive line/column. Success contains SVG,

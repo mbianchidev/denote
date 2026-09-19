@@ -334,7 +334,7 @@ registrations.
 
 `denote.json-yaml-viewer` is the first implementation. It requests no workspace,
 network, process, clipboard, notification, or secure-storage permission. Its
-bundled `yaml` 2.9.0 parser uses strict YAML 1.2 core with merge keys, known YAML
+bundled `yaml` 2.9.1 parser uses strict YAML 1.2 core with merge keys, known YAML
 1.1 tags, and custom tags disabled. It traverses parser nodes iteratively and
 shows aliases as terminal references, with separate 100-document, 128-level,
 500-alias, and 50,000-node limits.
@@ -484,8 +484,9 @@ pins DOMPurify. Source preflight and fixed strict configuration reject configura
 directives, HTML labels, links/callbacks, custom styles, images/icons, resources,
 and unsafe protocols. Simple YAML frontmatter permits only a bounded title and
 Gantt `displayMode: compact`; nested configuration, tags, anchors, aliases, and
-unknown keys are rejected. All Mermaid 11.17.2 detector families except its
-internal info/error diagrams are supported within fixed source, line,
+unknown keys are rejected. Mermaid 12.0.0 keeps the existing detector-family
+allowlist; new upstream families and internal info/error diagrams are not
+enabled. Supported diagrams stay within fixed source, line,
 statement, edge, time, queue, element, SVG, and cache limits.
 
 The host keeps exact fenced source in the ordinary Markdown node. Theme changes

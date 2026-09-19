@@ -225,9 +225,10 @@ The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
-Dependency refreshes do not repin or replace immutable plugin releases;
-published catalog recipes and their guides remain tied to their original
-source commits.
+Changes to a plugin's own dependencies require an explicitly approved new
+plugin version and committed source pin before `check:plugins` can succeed.
+Never replace a released version's bytes or provenance; its ledger entry
+remains tied to the original source commit.
 
 ### Prepare an immutable plugin version
 
@@ -693,8 +694,8 @@ editor or combobox coverage when behavior changes. Force complete parsing with
 `ensureSyntaxTree` before asserting tokens or tree length: `EditorState.create`
 only spends a small initial parsing budget and may leave a partial tree.
 Update the product, architecture, design, and canonical user guide language
-lists together. New
-grammar dependencies must be direct dependencies, lazy-loaded, included in
+lists together. New grammar dependencies must be direct dependencies,
+lazy-loaded, included in
 `package-lock.json`, and pass `npm audit`; Denote never downloads grammars at
 runtime. Specialized plugin grammar support requires a separately approved typed
 host contract and is not part of plugin API version 1.

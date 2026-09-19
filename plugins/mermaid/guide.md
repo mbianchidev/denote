@@ -15,7 +15,7 @@ the returned SVG before display, copy, or export.
 ## Usage
 
 Create a fenced block whose language is `mermaid`. The plugin accepts Mermaid
-11.17.2's C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY
+12.0.0's C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY
 chart, requirement, sequence, class, state, journey, timeline, mindmap, Kanban,
 Sankey, packet, radar, block, tree-view, architecture, event-modeling,
 Ishikawa, Venn, treemap, Wardley, Cynefin, and railroad detector families.
@@ -57,6 +57,6 @@ unlock.
 
 ## Third-party licenses
 
-The downloaded renderer bundles Mermaid 11.17.2 under the MIT License and
+The downloaded renderer bundles Mermaid 12.0.0 under the MIT License and
 DOMPurify 3.4.15 under its Apache License 2.0 option. Source notices and license
 texts ship in the verified archive under `legal/`.

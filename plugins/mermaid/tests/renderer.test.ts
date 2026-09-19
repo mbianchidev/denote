@@ -57,6 +57,25 @@ describe("Mermaid renderer", () => {
     },
   );
 
+  it("keeps Dagre for existing diagrams without overriding specialty layouts", async () => {
+    await renderDiagram({ source: "flowchart LR\nA-->B", theme: "light" });
+
+    expect(initialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        look: "classic",
+        theme: "base",
+        flowchart: { htmlLabels: false, layout: "dagre" },
+        class: { layout: "dagre" },
+        state: { layout: "dagre" },
+        er: { layout: "dagre" },
+        requirement: { layout: "dagre" },
+      }),
+    );
+    expect(initialize).not.toHaveBeenCalledWith(
+      expect.objectContaining({ layout: expect.any(String) }),
+    );
+  });
+
   it.each([
     ["Gantt", "gantt\ntitle Launch\nsection Build\nRelease :done, 2026-01-01, 1d"],
     ["pie", 'pie title Pets\n"Dogs" : 4\n"Cats" : 3'],
