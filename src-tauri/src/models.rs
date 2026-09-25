@@ -95,6 +95,8 @@ pub struct FileNode {
     pub kind: FileKind,
     pub children: Vec<FileNode>,
     pub size: u64,
+    #[serde(default)]
+    pub created_at: Option<i64>,
     pub modified_at: Option<i64>,
     pub bookmarked: bool,
     pub pinned: bool,
@@ -105,6 +107,10 @@ pub struct FileNode {
 #[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteStats {
+    #[serde(skip)]
+    pub file_created_at: Option<i64>,
+    #[serde(skip)]
+    pub file_birth_at: Option<i64>,
     pub open_count: i64,
     pub edit_count: i64,
     pub save_count: i64,
@@ -412,6 +418,8 @@ pub struct SearchDocument {
     pub kind: FileKind,
     pub bookmarked: bool,
     pub last_opened_at: Option<String>,
+    pub created_at: Option<i64>,
+    pub modified_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

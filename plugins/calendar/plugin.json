@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "denote.calendar",
   "name": "Calendar and daily notes",
-  "version": "0.1.0",
-  "description": "Browse a local calendar and agenda, and create or open ordinary Markdown daily notes.",
+  "version": "0.2.0",
+  "description": "Browse daily notes and separate calendars for ordinary notes created or last updated.",
   "publisher": {
     "name": "Denote",
     "url": "https://github.com/mbianchidev/denote"

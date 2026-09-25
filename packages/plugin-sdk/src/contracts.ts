@@ -524,9 +524,16 @@ export interface PluginCalendarDocument {
   path: string;
   title: string;
   frontmatter: string;
+  metadataAvailable?: boolean;
+  createdAt?: number | null;
+  modifiedAt?: number | null;
 }
 
+export type PluginCalendarView = "dated" | "created" | "updated";
+
 export interface PluginCalendarRequest {
+  view?: PluginCalendarView;
+  timeZone?: string;
   startDate: string;
   endDate: string;
   documents: PluginCalendarDocument[];
@@ -541,6 +548,7 @@ export interface PluginCalendarDay {
 }
 
 export interface PluginCalendarModel {
+  view?: PluginCalendarView;
   days: PluginCalendarDay[];
   notices: string[];
   truncated: boolean;
@@ -549,6 +557,7 @@ export interface PluginCalendarModel {
 export interface PluginCalendarProvider {
   id: string;
   title: string;
+  views?: PluginCalendarView[];
   query: (
     request: PluginCalendarRequest,
   ) => PluginCalendarModel | Promise<PluginCalendarModel>;

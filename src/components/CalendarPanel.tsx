@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { isCalendarDate, type PluginCalendarDay, type PluginCalendarModel, type PluginCalendarRequest } from "@denote/plugin-sdk";
+import { isCalendarDate, type PluginCalendarDay, type PluginCalendarModel, type PluginCalendarRequest, type PluginCalendarView } from "@denote/plugin-sdk";
 import {
   calendarDateValue,
   calendarMonthDates,
@@ -25,6 +25,18 @@ interface CalendarPanelProps {
   locale?: string;
 }
 
+const DATE_VIEWS: Record<PluginCalendarView, string> = {
+  dated: "Daily and dated",
+  created: "Created",
+  updated: "Last updated",
+};
+const LEGACY_VIEWS: PluginCalendarView[] = ["dated"];
+
+function activityCount(count: number, view: PluginCalendarView): string {
+  const suffix = view === "created" ? " created" : view === "updated" ? " last updated" : "";
+  return `${count} note${count === 1 ? "" : "s"}${suffix}`;
+}
+
 export function CalendarPanel({
   provider, snapshot, queryCalendar, onOpenDailyNote, onOpenFile, onError,
   disabled = false, locale = navigator.language,
@@ -33,7 +45,11 @@ export function CalendarPanel({
   const helpId = useId();
   const [selected, setSelected] = useState(calendarToday);
   const [today, setToday] = useState(calendarToday);
-  const [view, setView] = useState<"month" | "agenda">("month");
+  const [presentation, setPresentation] = useState<"month" | "agenda">("month");
+  const [requestedView, setRequestedView] = useState<PluginCalendarView>("dated");
+  const availableViews = provider.views ?? LEGACY_VIEWS;
+  const calendarView = availableViews.includes(requestedView) ? requestedView : "dated";
+  const [timeZone, setTimeZone] = useState(() => new Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [retry, setRetry] = useState(0);
   const [working, setWorking] = useState(false);
   const workingRef = useRef(false);
@@ -49,8 +65,8 @@ export function CalendarPanel({
   const weekStart = useMemo(() => calendarWeekStart(locale), [locale]);
   const dates = useMemo(() => calendarMonthDates(month, weekStart), [month, weekStart]);
   const request = useMemo<PluginCalendarRequest>(() => ({
-    ...snapshot, startDate: dates[0], endDate: dates[dates.length - 1],
-  }), [dates, snapshot]);
+    ...snapshot, startDate: dates[0], endDate: dates[dates.length - 1], view: calendarView, timeZone,
+  }), [calendarView, dates, snapshot, timeZone]);
   const current = result?.request === request && result.provider === provider ? result : null;
   const model = current?.model ?? null;
   const days = new Map(model?.days.map((day) => [day.date, day]));
@@ -62,7 +78,10 @@ export function CalendarPanel({
   const nextMonth = moveCalendarMonth(selected, 1);
 
   useEffect(() => {
-    const update = () => setToday(calendarToday());
+    const update = () => {
+      setToday(calendarToday());
+      setTimeZone(new Intl.DateTimeFormat().resolvedOptions().timeZone);
+    };
     const interval = window.setInterval(update, 60_000);
     window.addEventListener("focus", update);
     return () => {
@@ -91,7 +110,7 @@ export function CalendarPanel({
       dateButtons.current.get(selected)?.focus();
       pendingFocus.current = false;
     }
-  }, [selected, view]);
+  }, [selected, presentation]);
 
   const selectDate = (date: string | null, focus = false) => {
     if (date && isCalendarDate(date)) {
@@ -149,12 +168,24 @@ export function CalendarPanel({
   while (cells.length % 7) cells.push(null);
 
   return (
-    <section className="sidebar-view calendar-panel" aria-labelledby={headingId}>
+    <section className="sidebar-view calendar-panel" aria-labelledby={headingId} aria-busy={!model && !current?.error}>
       <div className="sidebar-view__title"><h2 id={headingId}>{provider.title}</h2></div>
+      {availableViews.length > 1 ? (
+        <label className="calendar-date-source">Dates
+          <select aria-label="Calendar dates" value={calendarView} disabled={disabled || working}
+            onChange={(event) => {
+              const next = availableViews.find((value) => value === event.currentTarget.value);
+              if (next) setRequestedView(next);
+            }}>
+            {availableViews.map((value) => <option key={value} value={value}>{DATE_VIEWS[value]}</option>)}
+          </select>
+        </label>
+      ) : null}
       <div className="calendar-view-controls" role="group" aria-label="Calendar view">
-        <button type="button" aria-pressed={view === "month"} onClick={() => setView("month")}>Month</button>
-        <button type="button" aria-pressed={view === "agenda"} onClick={() => setView("agenda")}>Agenda</button>
+        <button type="button" aria-pressed={presentation === "month"} onClick={() => setPresentation("month")}>Month</button>
+        <button type="button" aria-pressed={presentation === "agenda"} onClick={() => setPresentation("agenda")}>Agenda</button>
       </div>
+      {calendarView !== "dated" ? <p className="calendar-help">Daily notes are excluded. Filesystem dates use your current time zone.</p> : null}
       <div className="calendar-navigation">
         <button type="button" className="icon-button" aria-label="Previous month"
           disabled={!previousMonth || disabled} onClick={() => selectDate(previousMonth)}>
@@ -176,7 +207,7 @@ export function CalendarPanel({
           selectDate(date);
         }}>Today</button>
       </div>
-      {view === "month" ? (
+      {presentation === "month" ? (
         <>
           <table className="calendar-grid" role="grid" aria-label={monthLabel} aria-describedby={helpId}>
             <thead><tr>
@@ -198,7 +229,7 @@ export function CalendarPanel({
                         ref={(element) => { if (element) dateButtons.current.set(date, element); else dateButtons.current.delete(date); }}
                         className={`calendar-day${date.startsWith(month) ? "" : " calendar-day--outside"}`}
                         aria-current={date === today ? "date" : undefined}
-                        aria-label={`${formatCalendarDate(date, locale)}; ${count} note${count === 1 ? "" : "s"}`}
+                        aria-label={`${formatCalendarDate(date, locale)}; ${activityCount(count, calendarView)}`}
                         disabled={disabled} onClick={() => selectDate(date)}
                         onKeyDown={(event) => navigateDate(event, date)}>
                         <span>{new Intl.NumberFormat(locale).format(calendarDateValue(date).getUTCDate())}</span>
@@ -214,7 +245,9 @@ export function CalendarPanel({
         </>
       ) : (
         <div className="calendar-agenda" aria-label="Monthly agenda">
-          {model && monthDays.length === 0 ? <p>No dated notes this month. Choose a date below to create a daily note.</p> : null}
+          {model && monthDays.length === 0 ? <p>{calendarView === "dated"
+            ? "No dated notes this month. Choose a date below to create a daily note."
+            : `No ordinary notes ${calendarView === "created" ? "created" : "last updated"} this month.`}</p> : null}
           {monthDays.map((day) => <section key={day.date}>
             <h4>{formatCalendarDate(day.date, locale, { weekday: "short", month: "short", day: "numeric" })}</h4>
             {noteList(day)}
@@ -224,15 +257,21 @@ export function CalendarPanel({
       <div className="calendar-selected">
         <label>Selected date<input type="date" value={selected} min="0001-01-01" max="9999-12-31"
           disabled={disabled} onChange={(event) => selectDate(event.currentTarget.value)} /></label>
-        <button type="button" className="primary-button" disabled={!selectedDay || disabled || working}
-          onClick={() => { if (selectedDay) void runAction(() => onOpenDailyNote(selectedDay)); }}>
-          {working ? "Opening daily note..." : selectedDay?.notes.some((note) => note.path === selectedDay.dailyNotePath) ? "Open daily note" : "Create daily note"}
-        </button>
-        {selectedDay ? <code className="calendar-daily-path">{selectedDay.dailyNotePath}</code> : null}
-        {view === "month" && selectedDay && selectedDay.notes.length > 0 ? noteList(selectedDay) : null}
+        {calendarView === "dated" ? <>
+          <button type="button" className="primary-button" disabled={!selectedDay || disabled || working}
+            onClick={() => { if (selectedDay) void runAction(() => onOpenDailyNote(selectedDay)); }}>
+            {working ? "Opening daily note..." : selectedDay?.notes.some((note) => note.path === selectedDay.dailyNotePath) ? "Open daily note" : "Create daily note"}
+          </button>
+          {selectedDay ? <code className="calendar-daily-path">{selectedDay.dailyNotePath}</code> : null}
+        </> : null}
+        {presentation === "month" && selectedDay && selectedDay.notes.length > 0 ? noteList(selectedDay) : null}
+        {presentation === "month" && selectedDay && selectedDay.notes.length === 0 && calendarView !== "dated"
+          ? <p className="calendar-help">No ordinary notes {calendarView === "created" ? "created" : "last updated"} on this date.</p> : null}
       </div>
       <p role="status" className="calendar-status">
-        {current?.error ?? (model ? `${monthLabel}. ${noteCount} dated note${noteCount === 1 ? "" : "s"}.` : `Loading ${monthLabel}...`)}
+        {current?.error ?? (model ? `${monthLabel}. ${calendarView === "dated"
+          ? `${noteCount} dated note${noteCount === 1 ? "" : "s"}`
+          : activityCount(noteCount, calendarView)}.` : `Loading ${monthLabel}...`)}
       </p>
       {current?.error ? <button type="button" onClick={() => setRetry((value) => value + 1)}>Retry calendar</button> : null}
       {model?.notices.map((notice) => <p className="calendar-notice" key={notice}>{notice}</p>)}

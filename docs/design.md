@@ -673,7 +673,11 @@ decorative animation.
 
 ### Optional calendar and daily notes
 
-Calendar is a host-rendered sidebar, not executable plugin UI. A compact
+Calendar is a host-rendered sidebar, not executable plugin UI. A labelled Dates
+select offers Daily and dated, Created, and Last updated when the installed
+provider supports them. Created/Last updated visibly exclude daily notes and
+omit the daily-note creation button and destination; selecting a date lists
+ordinary notes for that event. A compact
 Month/Agenda switch, named previous/next month controls, native month input,
 and Today action precede the calendar. Month uses a semantic date grid with
 one roving Tab stop, localized full accessible names, written note counts, a

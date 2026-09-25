@@ -2,6 +2,7 @@ import type {
   PluginCalendarDocument,
   PluginCalendarModel,
   PluginCalendarRequest,
+  PluginCalendarView,
 } from "./contracts";
 
 export const MAX_PLUGIN_CALENDAR_DAYS = 42;
@@ -66,8 +67,33 @@ function isCalendarPathSegment(value: string): boolean {
 
 export function isPluginCalendarRegistration(
   value: unknown,
-): value is { id: string; title: string } {
-  return isRecord(value) && safeLabel(value.id, 160) && safeLabel(value.title, 160);
+): value is { id: string; title: string; views?: PluginCalendarView[] } {
+  return isRecord(value) && safeLabel(value.id, 160) && safeLabel(value.title, 160) &&
+    (value.views === undefined || (
+      Array.isArray(value.views) && value.views.length <= 3 &&
+      value.views.includes("dated") && value.views.every(isCalendarView) &&
+      new Set(value.views).size === value.views.length
+    ));
+}
+
+function isCalendarView(value: unknown): value is PluginCalendarView {
+  return value === "dated" || value === "created" || value === "updated";
+}
+
+function isCalendarTimeZone(value: unknown): value is string {
+  if (typeof value !== "string" || value.length > 80) return false;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: value });
+    return true;
+  } catch (error) {
+    if (error instanceof RangeError) return false;
+    throw error;
+  }
+}
+
+function isOptionalTimestamp(value: unknown): value is number | null | undefined {
+  return value === undefined || value === null ||
+    (typeof value === "number" && Number.isSafeInteger(value) && Math.abs(value) <= 8_640_000_000_000_000);
 }
 
 export function calendarDocumentBytes(document: PluginCalendarDocument): number {
@@ -77,6 +103,9 @@ export function calendarDocumentBytes(document: PluginCalendarDocument): number 
 export function isPluginCalendarRequest(value: unknown): value is PluginCalendarRequest {
   if (
     !isRecord(value) ||
+    (value.view !== undefined && !isCalendarView(value.view)) ||
+    (value.timeZone !== undefined && !isCalendarTimeZone(value.timeZone)) ||
+    ((value.view === "created" || value.view === "updated") && value.timeZone === undefined) ||
     typeof value.startDate !== "string" ||
     typeof value.endDate !== "string" ||
     calendarDates(value.startDate, value.endDate).length === 0 ||
@@ -97,6 +126,9 @@ export function isPluginCalendarRequest(value: unknown): value is PluginCalendar
       paths.has(document.path) ||
       !safeLabel(document.title, 200) ||
       typeof document.frontmatter !== "string" ||
+      (document.metadataAvailable !== undefined && typeof document.metadataAvailable !== "boolean") ||
+      !isOptionalTimestamp(document.createdAt) ||
+      !isOptionalTimestamp(document.modifiedAt) ||
       new TextEncoder().encode(document.frontmatter).byteLength > MAX_PLUGIN_CALENDAR_FRONTMATTER_BYTES
     ) {
       return false;
@@ -106,6 +138,9 @@ export function isPluginCalendarRequest(value: unknown): value is PluginCalendar
       path: document.path,
       title: document.title,
       frontmatter: document.frontmatter,
+      metadataAvailable: document.metadataAvailable,
+      createdAt: document.createdAt,
+      modifiedAt: document.modifiedAt,
     });
     if (bytes > MAX_PLUGIN_CALENDAR_INPUT_BYTES) {
       return false;
@@ -120,6 +155,8 @@ export function isPluginCalendarModel(
 ): value is PluginCalendarModel {
   if (
     !isRecord(value) ||
+    (value.view !== undefined && !isCalendarView(value.view)) ||
+    (request && (value.view ?? "dated") !== (request.view ?? "dated")) ||
     !Array.isArray(value.days) ||
     value.days.length === 0 ||
     value.days.length > MAX_PLUGIN_CALENDAR_DAYS ||

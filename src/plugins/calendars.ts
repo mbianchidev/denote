@@ -7,7 +7,7 @@ import {
   type PluginCalendarDocument,
   type PluginCalendarRequest,
 } from "@denote/plugin-sdk";
-import type { DocumentBatch } from "../types";
+import type { DocumentBatch, FileNode } from "../types";
 
 export type CalendarSnapshot = Pick<
   PluginCalendarRequest,
@@ -15,7 +15,7 @@ export type CalendarSnapshot = Pick<
 >;
 
 export function createCalendarSnapshot(
-  paths: string[],
+  files: Pick<FileNode, "path" | "createdAt" | "modifiedAt">[],
   batch: DocumentBatch | null,
 ): CalendarSnapshot {
   const indexed = new Map(batch?.documents.map((document) => [document.path, document]));
@@ -23,7 +23,8 @@ export function createCalendarSnapshot(
   let bytes = 0;
   let skippedCount = 0;
   let truncated = batch?.truncated ?? false;
-  for (const path of [...new Set(paths)].sort()) {
+  const uniqueFiles = new Map(files.map((file) => [file.path, file]));
+  for (const [path, file] of [...uniqueFiles].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)) {
     if (!/\.(?:md|markdown)$/i.test(path)) continue;
     if (!isCalendarNotePath(path)) {
       skippedCount += 1;
@@ -37,7 +38,12 @@ export function createCalendarSnapshot(
       .trim().slice(0, 200) || "Markdown note";
     const metadata = available ? leadingFrontmatter(source.content) : { frontmatter: "", truncated: false };
     truncated ||= metadata.truncated;
-    const document = { path, title, frontmatter: metadata.frontmatter };
+    const document = {
+      path, title, frontmatter: metadata.frontmatter,
+      metadataAvailable: available && !metadata.truncated,
+      createdAt: timestamp(source?.createdAt === undefined ? file.createdAt : source.createdAt),
+      modifiedAt: timestamp(source?.modifiedAt === undefined ? file.modifiedAt : source.modifiedAt),
+    };
     const size = calendarDocumentBytes(document);
     if (
       documents.length >= MAX_PLUGIN_CALENDAR_DOCUMENTS ||
@@ -51,6 +57,11 @@ export function createCalendarSnapshot(
     bytes += size;
   }
   return { documents, skippedCount, truncated };
+}
+
+function timestamp(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && Math.abs(value) <= 8_640_000_000_000_000
+    ? value : null;
 }
 
 function leadingFrontmatter(content: string): { frontmatter: string; truncated: boolean } {

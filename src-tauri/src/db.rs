@@ -181,6 +181,8 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           last_saved_at TEXT,
           is_bookmarked INTEGER NOT NULL DEFAULT 0,
           view_mode TEXT CHECK (view_mode IN ('rich-text', 'source')),
+          file_created_at INTEGER,
+          file_birth_at INTEGER,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           PRIMARY KEY (vault_id, path),
@@ -364,6 +366,14 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    for column in ["file_created_at", "file_birth_at"] {
+        if !column_exists(&migration, "note_stats", column)? {
+            migration.execute(
+                &format!("ALTER TABLE note_stats ADD COLUMN {column} INTEGER"),
+                [],
+            )?;
+        }
+    }
     let added_vault_view_mode = !column_exists(&migration, "vaults", "markdown_view_mode")?;
     if added_vault_view_mode {
         migration.execute(
@@ -432,6 +442,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
     )?;
     migration.execute(
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (15, CURRENT_TIMESTAMP)",
+        [],
+    )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (16, CURRENT_TIMESTAMP)",
         [],
     )?;
     if added_encoding || added_line_ending {
@@ -1056,7 +1070,7 @@ pub fn stats_map(connection: &Connection, vault_id: i64) -> AppResult<HashMap<St
     let mut statement = connection.prepare(
         r#"
         SELECT path, open_count, edit_count, save_count, last_opened_at,
-               last_edited_at, last_saved_at, is_bookmarked
+               last_edited_at, last_saved_at, is_bookmarked, file_created_at, file_birth_at
         FROM note_stats
         WHERE vault_id = ?1
         "#,
@@ -1072,6 +1086,8 @@ pub fn stats_map(connection: &Connection, vault_id: i64) -> AppResult<HashMap<St
                 last_edited_at: row.get(5)?,
                 last_saved_at: row.get(6)?,
                 bookmarked: row.get::<_, i64>(7)? != 0,
+                file_created_at: row.get(8)?,
+                file_birth_at: row.get(9)?,
             },
         ))
     })?;
@@ -1089,7 +1105,7 @@ pub fn get_stats(connection: &Connection, vault_id: i64, path: &str) -> AppResul
         .query_row(
             r#"
             SELECT open_count, edit_count, save_count, last_opened_at,
-                   last_edited_at, last_saved_at, is_bookmarked
+                   last_edited_at, last_saved_at, is_bookmarked, file_created_at, file_birth_at
             FROM note_stats
             WHERE vault_id = ?1 AND path = ?2
             "#,
@@ -1103,11 +1119,33 @@ pub fn get_stats(connection: &Connection, vault_id: i64, path: &str) -> AppResul
                     last_edited_at: row.get(4)?,
                     last_saved_at: row.get(5)?,
                     bookmarked: row.get::<_, i64>(6)? != 0,
+                    file_created_at: row.get(7)?,
+                    file_birth_at: row.get(8)?,
                 })
             },
         )
         .optional()?
         .unwrap_or_default())
+}
+
+pub fn record_file_creation(
+    connection: &Connection,
+    vault_id: i64,
+    path: &str,
+    created_at: Option<i64>,
+    birth_at: Option<i64>,
+) -> AppResult<()> {
+    connection.execute(
+        r#"
+        INSERT INTO note_stats(vault_id, path, file_created_at, file_birth_at, created_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        ON CONFLICT(vault_id, path) DO UPDATE SET
+          file_created_at = excluded.file_created_at,
+          file_birth_at = excluded.file_birth_at
+        "#,
+        params![vault_id, path, created_at, birth_at, now()],
+    )?;
+    Ok(())
 }
 
 pub fn record_open(connection: &Connection, vault_id: i64, path: &str) -> AppResult<()> {
@@ -2099,6 +2137,63 @@ mod tests {
     use super::*;
 
     #[test]
+    fn calendar_file_date_migration_preserves_legacy_stats_and_path_lifecycle() {
+        let directory = tempdir().unwrap();
+        let database = directory.path().join("metadata.sqlite3");
+        initialize(&database).unwrap();
+        let mut connection = open(&database).unwrap();
+        let vault = ensure_vault(&connection, "/synthetic/vault", "Synthetic").unwrap();
+        record_open(&connection, vault, "Alpha.md").unwrap();
+        connection
+            .execute_batch(
+                "ALTER TABLE note_stats DROP COLUMN file_created_at;
+             ALTER TABLE note_stats DROP COLUMN file_birth_at;
+             DELETE FROM schema_migrations WHERE version = 16;",
+            )
+            .unwrap();
+        initialize(&database).unwrap();
+        let legacy = get_stats(&connection, vault, "Alpha.md").unwrap();
+        assert_eq!(legacy.open_count, 1);
+        assert_eq!(legacy.file_created_at, None);
+        assert_eq!(legacy.file_birth_at, None);
+        record_file_creation(
+            &connection,
+            vault,
+            "Alpha.md",
+            Some(1_700_000_000_000),
+            Some(1_710_000_000_000),
+        )
+        .unwrap();
+        initialize(&database).unwrap();
+        let transaction = connection.transaction().unwrap();
+        rekey_content_metadata_tx(&transaction, vault, "Alpha.md", "Moved.md").unwrap();
+        transaction.commit().unwrap();
+        let moved = get_stats(&connection, vault, "Moved.md").unwrap();
+        assert_eq!(moved.open_count, 1);
+        assert_eq!(moved.file_created_at, Some(1_700_000_000_000));
+        assert_eq!(moved.file_birth_at, Some(1_710_000_000_000));
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 16",
+                    [],
+                    |row| row.get::<_, i64>(0)
+                )
+                .unwrap(),
+            1
+        );
+        let transaction = connection.transaction().unwrap();
+        delete_content_metadata_tx(&transaction, vault, "Moved.md").unwrap();
+        transaction.commit().unwrap();
+        assert_eq!(
+            get_stats(&connection, vault, "Moved.md")
+                .unwrap()
+                .file_created_at,
+            None
+        );
+    }
+
+    #[test]
     fn history_keeps_only_ten_distinct_revisions() {
         let directory = tempdir().expect("temp directory");
         let db_path = directory.path().join("test.sqlite3");
@@ -2251,6 +2346,7 @@ mod tests {
             children: Vec::new(),
             size: 0,
             modified_at: None,
+            created_at: None,
             bookmarked: false,
             pinned: false,
             position: None,
@@ -2262,6 +2358,7 @@ mod tests {
             children: Vec::new(),
             size: 0,
             modified_at: None,
+            created_at: None,
             bookmarked: false,
             pinned: false,
             position: None,

@@ -454,7 +454,10 @@ function runtimeContext(): PluginActivationContext {
   if (permissions.has("calendar")) {
     capabilities.calendar = {
       register(provider) {
-        const registration = { id: provider?.id, title: provider?.title };
+        const registration = {
+          id: provider?.id, title: provider?.title,
+          ...(provider?.views !== undefined ? { views: provider.views } : {}),
+        };
         if (
           cleaned ||
           !isPluginCalendarRegistration(registration) ||

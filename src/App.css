@@ -3236,7 +3236,12 @@ button.tag-chip:active,
   flex: 1;
 }
 
-.calendar-panel input {
+.calendar-date-source {
+  margin-bottom: 10px;
+}
+
+.calendar-panel input,
+.calendar-panel select {
   width: 100%;
   min-width: 0;
   min-height: 30px;
@@ -3311,7 +3316,7 @@ button.tag-chip:active,
   line-height: 1.1;
 }
 
-.calendar-panel :is(button, input):focus-visible {
+.calendar-panel :is(button, input, select):focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
@@ -3387,7 +3392,7 @@ button.tag-chip:active,
     border-color: CanvasText;
   }
 
-  .calendar-panel :is(button, input):focus-visible {
+  .calendar-panel :is(button, input, select):focus-visible {
     outline-color: Highlight;
   }
 }

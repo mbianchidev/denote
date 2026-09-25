@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarDates, type PluginCalendarModel, type PluginCalendarRequest } from "@denote/plugin-sdk";
 import { CalendarPanel } from "./CalendarPanel";
+import type { PluginCalendarContribution } from "../plugins/workerRuntime";
 
 const provider = { pluginId: "denote.calendar", id: "denote.calendar.main", title: "Calendar" };
 const snapshot = {
@@ -27,6 +28,36 @@ describe("CalendarPanel", () => {
     vi.setSystemTime(new Date(2026, 8, 1, 12));
   });
   afterEach(() => vi.useRealTimers());
+
+  it("offers separate created and updated calendars without daily-note creation controls", async () => {
+    const user = userEvent.setup();
+    const activityProvider: PluginCalendarContribution = { ...provider, views: ["dated", "created", "updated"] };
+    const onOpenDailyNote = vi.fn();
+    const onOpenFile = vi.fn().mockResolvedValue(undefined);
+    const queryCalendar = vi.fn(async (_plugin: string, _id: string, request: PluginCalendarRequest): Promise<PluginCalendarModel> => ({
+      ...modelFor(request),
+      view: request.view,
+      days: modelFor(request).days.map((day) => ({
+        ...day,
+        notes: day.date === (request.view === "updated" ? "2026-09-02" : "2026-09-01")
+          ? [{ path: "notes/Alpha.md", title: "Alpha" }] : [],
+      })),
+    }));
+    render(<CalendarPanel provider={activityProvider} snapshot={snapshot} locale="en-US"
+      queryCalendar={queryCalendar} onOpenDailyNote={onOpenDailyNote} onOpenFile={onOpenFile} onError={vi.fn()} />);
+    await user.selectOptions(screen.getByRole("combobox", { name: "Calendar dates" }), "created");
+    expect(await screen.findByRole("button", { name: /September 1, 2026.*1 note created/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Create daily note|Open daily note/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/Daily notes are excluded/)).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole("combobox", { name: "Calendar dates" }), "updated");
+    await user.click(await screen.findByRole("button", { name: /September 2, 2026.*1 note last updated/ }));
+    await user.click(screen.getByRole("button", { name: /Alpha.*notes\/Alpha.md/ }));
+    expect(onOpenFile).toHaveBeenCalledWith("notes/Alpha.md");
+    expect(onOpenDailyNote).not.toHaveBeenCalled();
+    expect(queryCalendar).toHaveBeenLastCalledWith(provider.pluginId, provider.id, expect.objectContaining({
+      view: "updated", timeZone: expect.any(String),
+    }));
+  });
 
   it("navigates a single-tab-stop month grid without writing and opens notes through explicit actions", async () => {
     const user = userEvent.setup();

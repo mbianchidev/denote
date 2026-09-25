@@ -1,6 +1,7 @@
 import type {
   PluginCalendarModel,
   PluginCalendarRequest,
+  PluginCalendarView,
   PluginCapability,
   PluginDiagramRenderer,
   PluginEmojiPicker,
@@ -108,6 +109,7 @@ export interface PluginCalendarContribution {
   pluginId: string;
   id: string;
   title: string;
+  views?: PluginCalendarView[];
 }
 
 export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
@@ -185,7 +187,7 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
-  | { type: "register-calendar"; id: string; title: string }
+  | { type: "register-calendar"; id: string; title: string; views?: PluginCalendarView[] }
   | { type: "unregister-calendar"; id: string }
   | {
       type: "calendar-result";

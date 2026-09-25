@@ -316,6 +316,9 @@ fn transform_vault_encryption_with_mode(
 ) -> AppResult<usize> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
+    let mut connection = db::open(db_path)?;
+    let (vault_id, _) = ensure_vault(&connection, &root)?;
+    let stats = db::stats_map(&connection, vault_id)?;
     if encrypting {
         // Repository metadata written by an older build may still be
         // ciphertext, and Git cannot read it. It is recovered with the active
@@ -380,7 +383,27 @@ fn transform_vault_encryption_with_mode(
             }
         };
         if encrypting != encrypted {
-            if let Err(error) = transform_file_encryption(entry.path(), vault_key, encrypting) {
+            let transform = || -> AppResult<()> {
+                let relative = relative_internal_string(&root, entry.path())?;
+                let preserve_creation = kind_for_path(entry.path()) == FileKind::Markdown
+                    && !is_internal_relative_path(&relative)
+                    && !relative
+                        .split('/')
+                        .any(|part| part.eq_ignore_ascii_case(".git"));
+                let created_at = file_created_at(&metadata, stats.get(&relative));
+                transform_file_encryption(entry.path(), vault_key, encrypting)?;
+                if preserve_creation {
+                    db::record_file_creation(
+                        &connection,
+                        vault_id,
+                        &relative,
+                        created_at,
+                        file_birth_at(&fs::metadata(entry.path())?),
+                    )?;
+                }
+                Ok(())
+            };
+            if let Err(error) = transform() {
                 if strict {
                     return Err(error);
                 }
@@ -393,8 +416,6 @@ fn transform_vault_encryption_with_mode(
         }
     }
 
-    let mut connection = db::open(db_path)?;
-    let (vault_id, _) = ensure_vault(&connection, &root)?;
     let mut last_id = 0;
     loop {
         let rows = db::history_rows_after(&connection, vault_id, last_id, 100)?;
@@ -687,8 +708,20 @@ pub fn save_note(
     )?;
     history_transaction.commit()?;
     let stored_bytes = encode_file_at_rest(&root, &next_bytes, vault_key)?;
+    let created_at = file_created_at(
+        &fs::metadata(&path)?,
+        Some(&db::get_stats(&connection, vault_id, relative_path)?),
+    );
     atomic_write(&path, &stored_bytes)?;
+    let birth_at = file_birth_at(&fs::metadata(&path)?);
     let save_transaction = connection.transaction()?;
+    db::record_file_creation(
+        &save_transaction,
+        vault_id,
+        relative_path,
+        created_at,
+        birth_at,
+    )?;
     db::record_save(&save_transaction, vault_id, relative_path)?;
     save_transaction.commit()?;
 
@@ -803,7 +836,11 @@ pub fn open_or_create_daily_note(
     }
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, true)?;
-    let stored = encode_file_at_rest(&root, format!("# {date}\n\n").as_bytes(), vault_key)?;
+    let stored = encode_file_at_rest(
+        &root,
+        format!("---\ntype: daily\ndate: {date}\n---\n\n# {date}\n\n").as_bytes(),
+        vault_key,
+    )?;
     let destination = root.join(relative);
     let mut created_folders = Vec::new();
     let result = (|| {
@@ -1635,8 +1672,20 @@ pub fn restore_revision(
     )?;
     history_transaction.commit()?;
     let stored_bytes = encode_file_at_rest(&root, &restored_bytes, vault_key)?;
+    let created_at = file_created_at(
+        &fs::metadata(&path)?,
+        Some(&db::get_stats(&connection, vault_id, relative_path)?),
+    );
     atomic_write(&path, &stored_bytes)?;
+    let birth_at = file_birth_at(&fs::metadata(&path)?);
     let save_transaction = connection.transaction()?;
+    db::record_file_creation(
+        &save_transaction,
+        vault_id,
+        relative_path,
+        created_at,
+        birth_at,
+    )?;
     db::record_save(&save_transaction, vault_id, relative_path)?;
     save_transaction.commit()?;
     Ok(NoteDocument {
@@ -1957,6 +2006,11 @@ fn list_documents(
         };
         let stored = stats.get(&relative).cloned().unwrap_or_default();
         documents.push(SearchDocument {
+            created_at: file_created_at(&symlink_metadata, Some(&stored)),
+            modified_at: symlink_metadata
+                .modified()
+                .ok()
+                .and_then(system_time_millis),
             path: relative.clone(),
             title,
             tags,
@@ -2634,6 +2688,33 @@ fn scan_directory(
     Ok(nodes)
 }
 
+fn system_time_millis(time: std::time::SystemTime) -> Option<i64> {
+    match time.duration_since(UNIX_EPOCH) {
+        Ok(duration) => i64::try_from(duration.as_millis()).ok(),
+        Err(error) => {
+            let duration = error.duration();
+            let millis =
+                duration.as_millis() + u128::from(duration.subsec_nanos() % 1_000_000 != 0);
+            i64::try_from(millis).ok().map(|value| -value)
+        }
+    }
+}
+
+fn file_birth_at(metadata: &fs::Metadata) -> Option<i64> {
+    metadata.created().ok().and_then(system_time_millis)
+}
+
+fn file_created_at(
+    metadata: &fs::Metadata,
+    stored: Option<&crate::models::NoteStats>,
+) -> Option<i64> {
+    let birth = file_birth_at(metadata)?;
+    match stored {
+        Some(stored) if stored.file_birth_at == Some(birth) => stored.file_created_at,
+        _ => Some(birth),
+    }
+}
+
 fn scan_path(
     root: &Path,
     path: &Path,
@@ -2643,11 +2724,8 @@ fn scan_path(
 ) -> AppResult<FileNode> {
     let relative = relative_string(root, path)?;
     let metadata = fs::metadata(path)?;
-    let modified_at = metadata
-        .modified()
-        .ok()
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|value| value.as_millis() as i64);
+    let modified_at = metadata.modified().ok().and_then(system_time_millis);
+    let created_at = file_created_at(&metadata, stats.get(&relative));
     let name = path
         .file_name()
         .map(|value| value.to_string_lossy().into_owned())
@@ -2663,6 +2741,7 @@ fn scan_path(
             children: scan_directory(root, path, stats, placements, depth + 1)?,
             size: 0,
             modified_at,
+            created_at,
             bookmarked: false,
             pinned,
             position,
@@ -2675,6 +2754,7 @@ fn scan_path(
             children: Vec::new(),
             size: metadata.len(),
             modified_at,
+            created_at,
             bookmarked: stats
                 .get(&relative)
                 .map(|value| value.bookmarked)
@@ -3426,14 +3506,21 @@ fn file_plaintext_len(path: &Path) -> AppResult<u64> {
 
 fn transform_file_encryption(path: &Path, vault_key: &[u8; 32], encrypting: bool) -> AppResult<()> {
     let mut reader = fs::File::open(path)?;
-    let source_len = reader.metadata()?.len();
+    let metadata = reader.metadata()?;
+    let source_len = metadata.len();
+    let modified = metadata.modified()?;
     atomic_write_with(path, move |writer| {
         if encrypting {
             crypto::encrypt_file_stream(vault_key, &mut reader, source_len, writer)
         } else {
             crypto::decrypt_file_stream(vault_key, &mut reader, writer)
         }
-    })
+    })?;
+    fs::File::options()
+        .write(true)
+        .open(path)?
+        .set_modified(modified)?;
+    Ok(())
 }
 
 fn create_file_no_replace(path: &Path, data: &[u8]) -> AppResult<()> {
@@ -3802,6 +3889,103 @@ mod tests {
     use crate::models::{PaneLayout, PaneLayoutKind, TabSessionPane};
 
     #[test]
+    fn calendar_file_dates_preserve_creation_across_saves_and_track_modifications() {
+        let directory = tempdir().unwrap();
+        let root = directory.path().join("vault");
+        fs::create_dir(&root).unwrap();
+        let database = directory.path().join("metadata.sqlite3");
+        db::initialize(&database).unwrap();
+        let path = root.join("Alpha.md");
+        fs::write(&path, "# Alpha\n").unwrap();
+        let connection = db::open(&database).unwrap();
+        let (vault_id, _) = ensure_vault(&connection, &fs::canonicalize(&root).unwrap()).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&path)
+            .unwrap()
+            .set_modified(UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000))
+            .unwrap();
+        let birth = fs::metadata(&path)
+            .unwrap()
+            .created()
+            .ok()
+            .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+            .map(|time| time.as_millis() as i64);
+        let original = birth.map(|time| time - 172_800_000);
+        db::record_file_creation(&connection, vault_id, "Alpha.md", original, birth).unwrap();
+        let before = fs::metadata(&path).unwrap().modified().unwrap();
+        super::save_note(
+            &database,
+            root.to_str().unwrap(),
+            "Alpha.md",
+            "# Changed\n",
+            FileEncoding::Utf8,
+            FileLineEnding::Lf,
+            "synthetic edit",
+            None,
+            None,
+        )
+        .unwrap();
+        let batch = super::list_search_documents(&database, root.to_str().unwrap(), None).unwrap();
+        let document = serde_json::to_value(&batch.documents[0]).unwrap();
+        assert_eq!(document["createdAt"], serde_json::json!(original));
+        assert!(document["modifiedAt"].as_i64().unwrap() > 1_700_000_000_000);
+        assert!(fs::metadata(&path).unwrap().modified().unwrap() > before);
+        let stats = db::stats_map(&connection, vault_id).unwrap();
+        let node = scan_path(
+            &fs::canonicalize(&root).unwrap(),
+            &fs::canonicalize(&path).unwrap(),
+            &stats,
+            &HashMap::new(),
+            0,
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(node).unwrap()["createdAt"],
+            serde_json::json!(original)
+        );
+        let revision = list_history(&database, root.to_str().unwrap(), "Alpha.md").unwrap()[0].id;
+        super::restore_revision(
+            &database,
+            root.to_str().unwrap(),
+            "Alpha.md",
+            revision,
+            None,
+        )
+        .unwrap();
+        let batch = super::list_search_documents(&database, root.to_str().unwrap(), None).unwrap();
+        assert_eq!(
+            serde_json::to_value(&batch.documents[0]).unwrap()["createdAt"],
+            serde_json::json!(original)
+        );
+        let metadata = fs::metadata(&path).unwrap();
+        let unrelated = crate::models::NoteStats {
+            file_created_at: Some(123),
+            file_birth_at: file_birth_at(&metadata).map(|birth| birth + 1000),
+            ..Default::default()
+        };
+        assert_eq!(
+            file_created_at(&metadata, Some(&unrelated)),
+            file_birth_at(&metadata)
+        );
+        let modified = fs::metadata(&path).unwrap().modified().unwrap();
+        let (manifest, vault_key, _) =
+            crypto::create_manifest("synthetic activity password").unwrap();
+        crypto::save_manifest(&root, &manifest).unwrap();
+        let key = vault_key.copy_bytes();
+        encrypt_vault_contents(&database, root.to_str().unwrap(), &key).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+        let batch =
+            super::list_search_documents(&database, root.to_str().unwrap(), Some(&key)).unwrap();
+        assert_eq!(
+            serde_json::to_value(&batch.documents[0]).unwrap()["createdAt"],
+            serde_json::json!(original)
+        );
+        decrypt_vault_contents(&database, root.to_str().unwrap(), &key).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().modified().unwrap(), modified);
+    }
+
+    #[test]
     fn calendar_daily_notes_encrypt_new_content_and_leave_locked_vaults_untouched() {
         let directory = tempdir().expect("fixture");
         let root = directory.path().join("vault");
@@ -3826,7 +4010,7 @@ mod tests {
         assert!(crypto::is_encrypted_file(&ciphertext));
         assert_eq!(super::read_note_without_recording(
             &database, root.to_str().unwrap(), path, Some(&key),
-        ).unwrap().content, "# 2026-09-01\n\n");
+        ).unwrap().content,         "---\ntype: daily\ndate: 2026-09-01\n---\n\n# 2026-09-01\n\n");
         super::open_or_create_daily_note(
             &database,
             root.to_str().unwrap(),
@@ -3901,7 +4085,7 @@ mod tests {
         assert_eq!(node.path, path);
         assert_eq!(
             fs::read_to_string(root.join(path)).unwrap(),
-            "# 2024-02-29\n\n"
+            "---\ntype: daily\ndate: 2024-02-29\n---\n\n# 2024-02-29\n\n"
         );
         fs::write(root.join(path), b"Existing synthetic text\r\n").expect("edit note");
         super::open_or_create_daily_note(
@@ -6648,6 +6832,7 @@ mod tests {
             children: Vec::new(),
             size: 12,
             modified_at: None,
+            created_at: None,
             bookmarked: false,
             pinned: false,
             position: None,

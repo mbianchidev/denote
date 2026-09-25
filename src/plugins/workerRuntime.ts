@@ -596,23 +596,27 @@ export class PluginWorkerRuntime {
     request: PluginCalendarRequest,
   ): Promise<PluginCalendarModel> {
     const runtime = this.requireRuntime(pluginId);
+    const provider = runtime.calendars.get(providerId);
     if (
       runtime.phase !== "active" ||
       runtime.workspaceIdentity !== this.workspaceIdentity ||
       !runtime.permissions.has("calendar") ||
-      !runtime.calendars.has(providerId)
+      !provider
     ) {
       throw new Error(`Plugin calendar ${providerId} is not registered.`);
     }
     if (!isPluginCalendarRequest(request)) {
       throw new Error("Invalid calendar request.");
     }
+    if (!(provider.views ?? ["dated"]).includes(request.view ?? "dated")) {
+      throw new Error(`Calendar ${providerId} does not support the requested date view.`);
+    }
     const requestId = crypto.randomUUID();
     const result = this.waitForRequest(runtime, requestId, 15_000, "calendar-result");
     runtime.port.postMessage({ type: "query-calendar", providerId, request, requestId });
     const model = await result;
     if (!isPluginCalendarModel(model, request)) {
-      const error = new Error("Plugin returned a calendar model that does not match the requested dates or notes.");
+      const error = new Error("Plugin returned a calendar model that does not match the requested view, dates, or notes.");
       await this.failRuntime(pluginId, error);
       throw error;
     }
@@ -1180,7 +1184,10 @@ export class PluginWorkerRuntime {
         this.publishKanbanBoards();
         return;
       case "register-calendar": {
-        const registration = { id: message.id, title: message.title };
+        const registration = {
+          id: message.id, title: message.title,
+          ...(message.views !== undefined ? { views: message.views } : {}),
+        };
         if (
           (runtime.phase !== "activating" && runtime.phase !== "active") ||
           !runtime.permissions.has("calendar") ||

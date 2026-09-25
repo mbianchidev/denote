@@ -555,6 +555,12 @@ isolated development application. Calendar targets Denote 0.6.0 and requests onl
 the `calendar` capability. Filename mapping, settings interpretation, and YAML
 date parsing belong to `plugins/calendar/`; the host owns its UI, bounded
 snapshots, worker protocol, and the native no-replace file creation adapter.
+Calendar 0.2.0 adds advertised Created/Last updated views; preserve the immutable
+0.1.0 ledger entry when pinning it. Cover both explicit `type: daily` markers and
+legacy filenames, unknown timestamps, filesystem-date changes, stale tree data,
+time-zone projection, and older dated-only providers. Native migration 16
+retains filesystem creation times across atomic note replacements without using
+the note-statistics row's creation/opened timestamps as file dates.
 
 ```bash
 npx vitest run \

@@ -3,6 +3,51 @@ import { isPluginCalendarModel, MAX_PLUGIN_CALENDAR_NOTES_PER_DAY } from "@denot
 import { calendarQuery, readCalendarSettings } from "../src/calendar";
 
 describe("Calendar and daily notes", () => {
+  it("separates creation and latest modification dates while excluding marked and legacy daily notes", () => {
+    const documents = [
+      { path: "Alpha.md", title: "Alpha", frontmatter: "---\ndate: 2026-12-01\n---", createdAt: Date.parse("2026-08-31T22:30:00Z"), modifiedAt: Date.parse("2026-09-03T09:00:00Z") },
+      { path: "Beta.md", title: "Beta", frontmatter: "", createdAt: Date.parse("2026-09-02T09:00:00Z"), modifiedAt: Date.parse("2026-09-04T09:00:00Z") },
+      { path: "Archive/Entry.md", title: "Moved daily", frontmatter: "---\ntype: daily\ndate: 2026-09-01\n---", createdAt: Date.parse("2026-09-01T09:00:00Z"), modifiedAt: Date.parse("2026-09-03T09:00:00Z") },
+      { path: "Daily/2026-09-01.md", title: "Legacy daily", frontmatter: "", createdAt: Date.parse("2026-09-01T09:00:00Z"), modifiedAt: Date.parse("2026-09-03T09:00:00Z") },
+      { path: "Unknown.md", title: "Unknown birth", frontmatter: "", createdAt: null, modifiedAt: Date.parse("2026-09-02T09:00:00Z") },
+      { path: "Unindexed.md", title: "Unindexed", frontmatter: "", metadataAvailable: false, createdAt: Date.parse("2026-09-01T09:00:00Z"), modifiedAt: Date.parse("2026-09-03T09:00:00Z") },
+    ];
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-04",
+      documents, skippedCount: 0, truncated: false, timeZone: "Europe/Rome",
+    };
+    const settings = readCalendarSettings({});
+    const created = calendarQuery({ ...request, view: "created" }, settings);
+    expect(created.view).toBe("created");
+    expect(created.days.map((day) => day.notes.map((note) => note.path))).toEqual([
+      ["Alpha.md"], ["Beta.md"], [], [],
+    ]);
+    expect(created.notices.join(" ")).toMatch(/creation time.*unavailable/i);
+    const updated = calendarQuery({ ...request, view: "updated" }, settings);
+    expect(updated.days.map((day) => day.notes.map((note) => note.path))).toEqual([
+      [], ["Unknown.md"], ["Alpha.md"], ["Beta.md"],
+    ]);
+    const losAngeles = calendarQuery({ ...request, view: "created", timeZone: "America/Los_Angeles" }, settings);
+    expect(losAngeles.days[0].notes).toEqual([]);
+    const movedDaily = calendarQuery({ ...request, view: "dated" }, readCalendarSettings({ dateMetadata: false }));
+    expect(movedDaily.days[0].notes.map((note) => note.path)).toContain("Archive/Entry.md");
+  });
+
+  it("does not classify merged metadata as ordinary or silently omit a daily note with no date", () => {
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-01", timeZone: "UTC",
+      documents: [
+        { path: "Merged.md", title: "Merged", frontmatter: "---\nbase: &base {type: daily}\n<<: *base\n---", createdAt: Date.parse("2026-09-01T12:00:00Z") },
+        { path: "Missing-date.md", title: "Missing date", frontmatter: "---\ntype: daily\n---", createdAt: Date.parse("2026-09-01T12:00:00Z") },
+      ],
+      skippedCount: 0, truncated: false,
+    };
+    const created = calendarQuery({ ...request, view: "created" }, readCalendarSettings({}));
+    expect(created.days[0].notes).toEqual([]);
+    const dated = calendarQuery({ ...request, view: "dated" }, readCalendarSettings({}));
+    expect(dated.notices.join(" ")).toMatch(/2 notes have invalid date metadata/);
+  });
+
   it("maps deterministic filenames and optional date metadata without altering notes", () => {
     const documents = [
       { path: "Daily/2024-02-29.md", title: "Daily entry", frontmatter: "" },

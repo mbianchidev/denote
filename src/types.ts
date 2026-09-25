@@ -31,6 +31,7 @@ export interface FileNode {
   children: FileNode[];
   size: number;
   modifiedAt: number | null;
+  createdAt?: number | null;
   bookmarked: boolean;
   pinned: boolean;
   position?: number | null;
@@ -287,6 +288,8 @@ export interface SearchDocument {
   kind: Exclude<FileKind, "folder">;
   bookmarked: boolean;
   lastOpenedAt: string | null;
+  createdAt?: number | null;
+  modifiedAt?: number | null;
 }
 
 export interface DocumentBatch {

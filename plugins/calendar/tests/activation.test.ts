@@ -19,6 +19,7 @@ describe("Calendar activation", () => {
     expect(plugin.manifest.compatibility.minimumDenoteVersion).toBe("0.6.0");
     expect(register).toHaveBeenCalledExactlyOnceWith({
       id: "denote.calendar.main", title: "Calendar", query: expect.any(Function),
+      views: ["dated", "created", "updated"],
     });
     expect(context.subscriptions.add).toHaveBeenCalledWith({ dispose });
     const model = await register.mock.calls[0][0].query({

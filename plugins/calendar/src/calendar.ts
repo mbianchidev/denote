@@ -87,19 +87,38 @@ export function calendarQuery(
     ]),
   );
   let invalidMetadata = 0;
+  let missingTimestamp = 0;
   let notes = 0;
   let truncated = request.truncated;
+  const view = request.view ?? "dated";
+  const timestampFormatter = view === "dated" ? null : new Intl.DateTimeFormat("en-US", {
+    timeZone: request.timeZone, calendar: "gregory", numberingSystem: "latn",
+    year: "numeric", month: "2-digit", day: "2-digit", era: "short",
+  });
   const dailyMatches = new Set<string>();
   for (const document of [...request.documents].sort((a, b) => compare(a.path, b.path))) {
     const dailyDate = dateFromPath(document.path, settings);
-    const metadata = !dailyDate && settings.dateMetadata
-      ? dateFromMetadata(document.frontmatter)
-      : null;
-    if (metadata === "invalid") invalidMetadata += 1;
-    const date = dailyDate ?? (metadata === "invalid" ? null : metadata);
+    const metadata = calendarMetadata(document.frontmatter, document.metadataAvailable !== false);
+    let date: string | null;
+    if (view === "dated") {
+      const useMetadata = metadata.daily || settings.dateMetadata;
+      if (!dailyDate && useMetadata && (!metadata.valid || metadata.invalidDate)) invalidMetadata += 1;
+      date = dailyDate ?? (useMetadata && metadata.valid ? metadata.date : null);
+    } else {
+      if (dailyDate || metadata.daily) continue;
+      if (!metadata.valid) {
+        invalidMetadata += 1;
+        continue;
+      }
+      date = timestampDate(view === "created" ? document.createdAt : document.modifiedAt, timestampFormatter!);
+      if (!date) {
+        missingTimestamp += 1;
+        continue;
+      }
+    }
     const day = date ? days.get(date) : undefined;
     if (!day) continue;
-    if (dailyDate && (
+    if (view === "dated" && dailyDate && (
       !dailyMatches.has(dailyDate) ||
       document.path === dailyPath(day.date, settings)
     )) {
@@ -121,7 +140,12 @@ export function calendarQuery(
   }
   const notices: string[] = [];
   if (invalidMetadata) {
-    notices.push(`${invalidMetadata} note${invalidMetadata === 1 ? " has" : "s have"} invalid date metadata. Use a top-level date: YYYY-MM-DD scalar.`);
+    notices.push(view === "dated"
+      ? `${invalidMetadata} note${invalidMetadata === 1 ? " has" : "s have"} invalid date metadata. Use a top-level date: YYYY-MM-DD scalar.`
+      : `${invalidMetadata} note${invalidMetadata === 1 ? " was" : "s were"} excluded because daily-note metadata is unavailable or invalid.`);
+  }
+  if (missingTimestamp) {
+    notices.push(`Filesystem ${view === "created" ? "creation time" : "modification time"} is unavailable for ${missingTimestamp} ordinary note${missingTimestamp === 1 ? "" : "s"}; no date was guessed.`);
   }
   if (request.skippedCount) {
     notices.push(`${request.skippedCount} note${request.skippedCount === 1 ? " was" : "s were"} skipped or had unavailable date metadata. Daily filenames remain discoverable within the input limit.`);
@@ -129,7 +153,7 @@ export function calendarQuery(
   if (truncated) {
     notices.push("Calendar limits were reached; some notes are not shown. Existing daily notes are still opened without replacement.");
   }
-  return { days: [...days.values()], notices, truncated };
+  return { view, days: [...days.values()], notices, truncated };
 }
 
 function dailyPath(date: string, settings: CalendarSettings): string {
@@ -145,11 +169,21 @@ function dateFromPath(path: string, settings: CalendarSettings): string | null {
   return isCalendarDate(date) ? date : null;
 }
 
-function dateFromMetadata(frontmatter: string): string | null {
-  if (!frontmatter) return null;
+interface CalendarMetadata {
+  valid: boolean;
+  daily: boolean;
+  date: string | null;
+  invalidDate: boolean;
+}
+
+function calendarMetadata(frontmatter: string, available: boolean): CalendarMetadata {
+  const empty = { valid: true, daily: false, date: null, invalidDate: false };
+  const invalid = { ...empty, valid: false };
+  if (!available) return invalid;
+  if (!frontmatter) return empty;
   const lines = frontmatter.split(/\r?\n/);
   const end = lines.findIndex((line, index) => index > 0 && /^(?:---|\.\.\.)[ \t]*$/.test(line));
-  if (lines[0] !== "---" || end < 0) return "invalid";
+  if (lines[0] !== "---" || end < 0) return invalid;
   const document = parseDocument(lines.slice(1, end).join("\n"), {
     version: "1.2",
     schema: "core",
@@ -160,11 +194,24 @@ function dateFromMetadata(frontmatter: string): string | null {
     stringKeys: true,
     uniqueKeys: true,
   });
-  if (document.errors.length || document.warnings.length) return "invalid";
-  if (!isMap(document.contents)) return document.contents === null ? null : "invalid";
+  if (document.errors.length || document.warnings.length) return invalid;
+  if (!isMap(document.contents)) return document.contents === null ? empty : invalid;
+  if (document.contents.items.some(({ key }) => isScalar(key) && key.value === "<<")) return invalid;
+  const type = document.contents.items.find(({ key }) => isScalar(key) && key.value === "type");
+  if (type && !isScalar(type.value)) return invalid;
+  const daily = !!type && isScalar(type.value) && type.value.value === "daily";
   const pair = document.contents.items.find(({ key }) => isScalar(key) && key.value === "date");
-  if (!pair) return null;
-  return isScalar(pair.value) && isCalendarDate(pair.value.value) ? pair.value.value : "invalid";
+  const date = pair && isScalar(pair.value) && isCalendarDate(pair.value.value) ? pair.value.value : null;
+  return { valid: true, daily, date, invalidDate: (!!pair || daily) && date === null };
+}
+
+function timestampDate(value: number | null | undefined, formatter: Intl.DateTimeFormat): string | null {
+  if (value === null || value === undefined) return null;
+  const parts = formatter.formatToParts(new Date(value));
+  if (parts.find((part) => part.type === "era")?.value !== "AD") return null;
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((entry) => entry.type === type)?.value ?? "";
+  const date = `${part("year").padStart(4, "0")}-${part("month")}-${part("day")}`;
+  return isCalendarDate(date) ? date : null;
 }
 
 function escapeRegex(value: string): string {

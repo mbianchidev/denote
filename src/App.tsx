@@ -1677,7 +1677,7 @@ function App() {
   calendarsRef.current = calendars;
   const buildCalendarSnapshot = useCallback(
     () => createCalendarSnapshot(
-      allFiles.filter((file) => file.kind === "markdown").map((file) => file.path),
+      allFiles.filter((file) => file.kind === "markdown"),
       searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
     ),
     [allFiles, searchDocumentBatch],

@@ -412,6 +412,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   lock/switch teardown, bounded local parsing, and native no-overwrite creation
   preserve the ordinary Markdown workflow. Enablement and calendar navigation
   never create notes; disabling never deletes them.
+- Calendar also offers separate **Created** and **Last updated** views of ordinary
+  Markdown notes, using filesystem birth/modification times rather than opened
+  dates or frontmatter dates. Both exclude explicit `type: daily` notes and
+  legacy daily filenames. New daily notes include their type and date in
+  frontmatter; existing notes are never annotated automatically. Unknown creation
+  dates remain unmarked. Denote preserves observed creation times through atomic
+  saves and revision restores, and encryption alone does not mark a note updated.
 - The independently installable **Kanban boards** plugin is disabled by default
   and requests only `kanban-board`. Files ending in `.kanban.md` or
   `.kanban.markdown` switch between exact Markdown source and a host-rendered

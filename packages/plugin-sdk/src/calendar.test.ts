@@ -9,6 +9,36 @@ import {
 } from "./calendar";
 
 describe("calendar date identities", () => {
+  it("validates activity views and filesystem timestamps without breaking dated-only providers", () => {
+    const registration = {
+      id: "denote.calendar.main", title: "Calendar", views: ["dated", "created", "updated"],
+    };
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-01", view: "created" as const, timeZone: "Europe/Rome",
+      documents: [{
+        path: "Alpha.md", title: "Alpha", frontmatter: "", metadataAvailable: true,
+        createdAt: 1788213600000, modifiedAt: 1788300000000,
+      }],
+      skippedCount: 0, truncated: false,
+    };
+    const model = {
+      view: "created",
+      days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
+      notices: [], truncated: false,
+    };
+    expect(isPluginCalendarRegistration(registration)).toBe(true);
+    expect(isPluginCalendarRegistration({ ...registration, views: ["dated", "invented"] })).toBe(false);
+    expect(isPluginCalendarRequest(request)).toBe(true);
+    expect(isPluginCalendarRequest({ ...request, view: "invented" })).toBe(false);
+    expect(isPluginCalendarRequest({ ...request, timeZone: "Unknown/Zone" })).toBe(false);
+    expect(isPluginCalendarRequest({
+      ...request, documents: [{ ...request.documents[0], createdAt: Number.NaN }],
+    })).toBe(false);
+    expect(isPluginCalendarModel(model, request)).toBe(true);
+    expect(isPluginCalendarModel({ ...model, view: "updated" }, request)).toBe(false);
+    expect(isPluginCalendarModel({ ...model, view: undefined }, request)).toBe(false);
+  });
+
   it("uses strict Gregorian date-only keys across leap days and year boundaries", () => {
     expect(calendarDates("2024-02-28", "2024-03-01")).toEqual([
       "2024-02-28",

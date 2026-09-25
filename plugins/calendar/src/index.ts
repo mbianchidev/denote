@@ -17,6 +17,7 @@ const plugin: DenotePlugin = {
       calendar.register({
         id: "denote.calendar.main",
         title: "Calendar",
+        views: ["dated", "created", "updated"],
         query: (request) => calendarQuery(request, settings),
       }),
     );
