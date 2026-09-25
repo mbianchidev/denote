@@ -153,6 +153,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "structured-viewer"
             | "kanban-board"
             | "note-graph"
+            | "calendar"
             | "diagram-renderer"
             | "note-events"
             | "project-context"

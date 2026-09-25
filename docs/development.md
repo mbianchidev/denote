@@ -548,6 +548,48 @@ docs, dependency manifests, and lockfile first; pin that full commit with
 --release <Denote-tag>`, then commit only its catalog and release-ledger
 metadata. Never commit the generated `.tgz`.
 
+### Calendar plugin development
+
+Use `npm run dev:plugin -- denote.calendar` and load the ignored archive in the
+isolated development application. Calendar targets Denote 0.6.0 and requests only
+the `calendar` capability. Filename mapping, settings interpretation, and YAML
+date parsing belong to `plugins/calendar/`; the host owns its UI, bounded
+snapshots, worker protocol, and the native no-replace file creation adapter.
+Calendar 0.2.0 adds advertised Created/Last updated views; preserve the immutable
+0.1.0 ledger entry when pinning it. Cover both explicit `type: daily` markers and
+legacy filenames, unknown timestamps, filesystem-date changes, stale tree data,
+time-zone projection, and older dated-only providers. Native migration 16
+retains filesystem creation times across atomic note replacements without using
+the note-statistics row's creation/opened timestamps as file dates.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/calendar.test.ts \
+  plugins/calendar/tests \
+  src/lib/calendar.test.ts \
+  src/plugins/calendars.test.ts \
+  src/components/CalendarPanel.test.tsx \
+  src/plugins/runtimeMessages.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/ActivityRail.test.tsx \
+  src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml calendar
+```
+
+Exercise leap dates, month/year boundaries, different `TZ` values, localized
+labels, keyboard focus, optional/invalid metadata, configured paths, truncation,
+stale results, disablement, vault switching and locking, encrypted creation, and
+existing-file byte preservation with synthetic fixtures only. On constrained
+machines, use Vitest `--maxWorkers=1` and Cargo `--jobs 2` rather than increasing
+timeouts or changing application behavior.
+
+Stage with `npm run package:plugin -- denote.calendar`. Commit the complete
+source/build inputs before pinning with
+`npm run pin:plugin -- denote.calendar --ref "$(git rev-parse HEAD)" --release v0.6.0`.
+Commit the resulting catalog and release ledger separately; archives stay
+ignored and are published only by the ordinary release workflow.
+
 ## Build a desktop bundle
 
 ```bash
@@ -556,6 +598,28 @@ npm run tauri build
 
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
+
+### Preview an unpublished plugin on macOS
+
+The production DMG cannot download a plugin asset until its intended release is
+published. To test a staged plugin without publishing or changing the production
+downloader, build the separate development application:
+
+```bash
+CI=true NODE_ENV=development CARGO_BUILD_JOBS=2 \
+  npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles dmg
+npm run dev:plugin -- denote.calendar --once
+```
+
+Open the DMG in `src-tauri/target/debug/bundle/dmg/`. **Denote Development** uses
+its own application identity, state, plugin storage, and keychain namespace.
+Choose **Settings → Plugins → Load local plugin archive** and select
+`.plugin-dev/denote.calendar.tgz`.
+
+Both development flags matter: `NODE_ENV=development` retains the frontend's
+local-archive control, while `--debug` includes the native development-only
+adapter. This bundle is a local preview, not a production release artifact.
+The plugin archive remains separate from either DMG.
 
 ### Provision signed application updates
 

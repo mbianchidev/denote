@@ -90,6 +90,11 @@ import { PdfReader } from "./components/PdfReader";
 import { StructuredDataViewer } from "./components/StructuredDataViewer";
 import { KanbanBoardEditor } from "./components/KanbanBoardEditor";
 import { NoteGraphPanel } from "./components/NoteGraphPanel";
+import { CalendarPanel } from "./components/CalendarPanel";
+import { createCalendarSnapshot } from "./plugins/calendars";
+import { calendarToday } from "./lib/calendar";
+import { isCalendarDate, isCalendarNotePath, type PluginCalendarDay } from "@denote/plugin-sdk";
+import type { PluginCalendarContribution } from "./plugins/workerRuntime";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
@@ -816,10 +821,15 @@ function App() {
     pluginId: string;
     providerId: string;
   } | null>(null);
+  const [activeCalendar, setActiveCalendar] = useState<{
+    pluginId: string;
+    providerId: string;
+  } | null>(null);
   const showSidebarView = useCallback((view: SidebarView) => {
     setActiveSourceControlProvider(null);
     setActivePluginSidebar(null);
     setActiveNoteGraph(null);
+    setActiveCalendar(null);
     setSidebarView(view);
   }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -1655,6 +1665,26 @@ function App() {
         ),
       ),
     [noteGraphs],
+  );
+  const calendars = useMemo(
+    () => pluginController.calendars.filter((calendar) =>
+      !pluginController.busyPluginIds.has(calendar.pluginId) &&
+      pluginController.plugins.some((plugin) =>
+        plugin.enabled && plugin.catalog.manifest.id === calendar.pluginId)),
+    [pluginController.calendars, pluginController.busyPluginIds, pluginController.plugins],
+  );
+  const calendarsRef = useRef(calendars);
+  calendarsRef.current = calendars;
+  const buildCalendarSnapshot = useCallback(
+    () => createCalendarSnapshot(
+      allFiles.filter((file) => file.kind === "markdown"),
+      searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
+    ),
+    [allFiles, searchDocumentBatch],
+  );
+  const calendarSnapshot = useMemo(
+    () => workspace && activeCalendar ? buildCalendarSnapshot() : null,
+    [activeCalendar, buildCalendarSnapshot, workspace?.vaultPath],
   );
   useEffect(() => {
     noteGraphCoordinator.retainProviders(availableNoteGraphKeys);
@@ -4439,10 +4469,18 @@ function App() {
       }
       setActivePluginSidebar(null);
       setActiveSourceControlProvider(null);
+      setActiveCalendar(null);
       setActiveNoteGraph({ pluginId, providerId });
     },
     [activateTab, focusTabControl, showSidebarView],
   );
+
+  const showCalendar = useCallback((pluginId: string, providerId: string) => {
+    setActivePluginSidebar(null);
+    setActiveSourceControlProvider(null);
+    setActiveNoteGraph(null);
+    setActiveCalendar({ pluginId, providerId });
+  }, []);
 
   const navigateTabHistory = useCallback(
     (direction: -1 | 1): Promise<void> => {
@@ -6117,6 +6155,58 @@ function App() {
       workspace,
     ],
   );
+
+  const openCalendarDailyNote = useCallback(async (
+    provider: PluginCalendarContribution,
+    day: PluginCalendarDay,
+  ) => {
+    if (!workspace || workspaceLockedRef.current || !calendarsRef.current.includes(provider)) {
+      throw new Error("Calendar is unavailable while the vault or plugin is changing.");
+    }
+    if (!isCalendarDate(day.date) || !isCalendarNotePath(day.dailyNotePath)) {
+      throw new Error("Calendar returned an invalid daily-note date or path.");
+    }
+    const generation = vaultGeneration.current;
+    const vaultPath = workspace.vaultPath;
+    let mutationStarted = false;
+    try {
+      if (!(await beginEntryMutation(generation, () => false))) {
+        throw new Error("Calendar action expired while the vault was changing.");
+      }
+      mutationStarted = true;
+      if (workspaceVaultPathRef.current !== vaultPath || !calendarsRef.current.includes(provider)) {
+        throw new Error("Calendar action expired after a vault or plugin change.");
+      }
+      await api.pluginCalendarOpenDailyNote(provider.pluginId, vaultPath, day.dailyNotePath, day.date);
+      if (!(await refreshWorkspace(true))) {
+        throw new Error("The daily note is available, but the vault could not be refreshed. Refresh the vault before retrying.");
+      }
+    } finally {
+      if (mutationStarted) setWorkspaceLock(false);
+    }
+    if (generation === vaultGeneration.current && workspaceVaultPathRef.current === vaultPath) {
+      await openFile(day.dailyNotePath);
+    }
+  }, [beginEntryMutation, openFile, refreshWorkspace, setWorkspaceLock, workspace]);
+
+  const openTodayDailyNote = useCallback(async (provider: PluginCalendarContribution) => {
+    if (
+      !workspace || workspaceLockedRef.current ||
+      workspaceVaultPathRef.current !== workspace.vaultPath ||
+      !calendarsRef.current.includes(provider)
+    ) {
+      throw new Error("Calendar is unavailable while the vault or plugin is changing.");
+    }
+    const generation = vaultGeneration.current;
+    const date = calendarToday();
+    const model = await pluginController.queryCalendar(provider.pluginId, provider.id, {
+      ...buildCalendarSnapshot(), startDate: date, endDate: date,
+    });
+    if (generation !== vaultGeneration.current || !calendarsRef.current.includes(provider)) {
+      throw new Error("Calendar action expired after a vault or plugin change.");
+    }
+    await openCalendarDailyNote(provider, model.days[0]);
+  }, [buildCalendarSnapshot, openCalendarDailyNote, pluginController.queryCalendar, workspace]);
 
   const renameNode = useCallback(async (node: FileNode) => {
     if (!workspace || workspaceLockedRef.current) {
@@ -8238,6 +8328,7 @@ function App() {
   };
   const primaryKanbanBoard = kanbanBoards[0] ?? null;
   const primaryNoteGraph = noteGraphs[0] ?? null;
+  const primaryCalendar = calendars[0] ?? null;
   const commandPaletteCommands: CommandPaletteCommand[] = [
     {
       id: "file.find",
@@ -8305,6 +8396,26 @@ function App() {
       },
     },
     ...projectCommands,
+    ...(primaryCalendar ? [
+      {
+        id: "calendar.open",
+        title: "Show calendar",
+        description: "Browse month and agenda views of dated Markdown notes.",
+        category: "View",
+        keywords: ["daily", "journal", "date", "agenda"],
+        disabled: !workspaceReady,
+        run: () => showCalendar(primaryCalendar.pluginId, primaryCalendar.id),
+      },
+      {
+        id: "calendar.today",
+        title: "Open today's daily note",
+        description: "Create or open today's Markdown note without replacing existing content.",
+        category: "File",
+        keywords: ["calendar", "journal", "date"],
+        disabled: !workspaceReady,
+        run: () => openTodayDailyNote(primaryCalendar).catch(showError),
+      },
+    ] satisfies CommandPaletteCommand[] : []),
     {
       id: "view.files",
       title: "Show files",
@@ -9055,6 +9166,8 @@ function App() {
         graph.pluginId === activeNoteGraph?.pluginId &&
         graph.id === activeNoteGraph.providerId,
     ) ?? null;
+  const activeCalendarContribution = calendars.find((calendar) =>
+    calendar.pluginId === activeCalendar?.pluginId && calendar.id === activeCalendar.providerId) ?? null;
   const activeSourceControlAction = useCallback(
     (
       action: PluginSourceControlAction,
@@ -9111,6 +9224,10 @@ function App() {
       setSidebarView("files");
     }
   }, [activeNoteGraph, activeNoteGraphContribution]);
+
+  useEffect(() => {
+    if (activeCalendar && !activeCalendarContribution) showSidebarView("files");
+  }, [activeCalendar, activeCalendarContribution, showSidebarView]);
 
   if (!workspace) {
     return (
@@ -9571,6 +9688,9 @@ function App() {
         Skip to editor
       </a>
       <ActivityRail
+        calendars={calendars}
+        activeCalendar={activeCalendar}
+        onCalendarChange={showCalendar}
         activeView={sidebarView}
         activePluginView={activePluginSidebarView?.id ?? null}
         activeSourceControlProvider={activeSourceControlProvider}
@@ -9585,11 +9705,13 @@ function App() {
         onPluginViewChange={(viewId) => {
           setActiveSourceControlProvider(null);
           setActiveNoteGraph(null);
+          setActiveCalendar(null);
           setActivePluginSidebar(viewId);
         }}
         onSourceControlProviderChange={(pluginId, providerId) => {
           setActivePluginSidebar(null);
           setActiveNoteGraph(null);
+          setActiveCalendar(null);
           setActiveSourceControlProvider({ pluginId, providerId });
           void runSourceControlAction(pluginId, providerId, {
             id: "refresh",
@@ -9630,7 +9752,23 @@ function App() {
             </button>
           </div>
         </header>
-        {activeNoteGraphContribution ? (
+        {activeCalendarContribution && calendarSnapshot ? (
+          <CalendarPanel
+            key={`${activeCalendarContribution.pluginId}:${activeCalendarContribution.id}:${workspace.vaultPath}`}
+            provider={activeCalendarContribution}
+            snapshot={calendarSnapshot}
+            queryCalendar={pluginController.queryCalendar}
+            disabled={workspaceLocked}
+            onOpenDailyNote={(day) => openCalendarDailyNote(activeCalendarContribution, day)}
+            onOpenFile={async (path) => {
+              if (!calendarsRef.current.includes(activeCalendarContribution)) {
+                throw new Error("Calendar is no longer available.");
+              }
+              await openFile(path);
+            }}
+            onError={showError}
+          />
+        ) : activeNoteGraphContribution ? (
           <NoteGraphPanel
             key={`${activeNoteGraphContribution.pluginId}:${activeNoteGraphContribution.id}:${workspace.vaultPath}`}
             provider={activeNoteGraphContribution}

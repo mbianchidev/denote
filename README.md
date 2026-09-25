@@ -19,6 +19,8 @@ on your device.
   writes.
 - Encrypt a vault with a password and one-time recovery codes.
 - Opt into isolated plugins for Git workflows and a local Unicode emoji picker.
+- Browse daily, created, and last-updated calendars with the optional Calendar
+  plugin. Create Markdown daily notes without overwriting existing files.
 - Use persistent Light, Dark, or System appearance on macOS, Windows, and Linux.
 
 Your vault remains a normal folder. Denote does not require an account, cloud

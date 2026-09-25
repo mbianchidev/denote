@@ -3171,6 +3171,232 @@ button.tag-chip:active,
   white-space: pre-wrap;
 }
 
+.calendar-panel {
+  min-width: 0;
+  padding: 0 12px 16px;
+  overflow-y: auto;
+}
+
+.calendar-panel .sidebar-view__title {
+  padding-inline: 0;
+}
+
+.calendar-view-controls,
+.calendar-navigation,
+.calendar-jump {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-view-controls button,
+.calendar-jump button,
+.calendar-panel > button {
+  min-height: 30px;
+  padding: 4px 10px;
+  color: var(--text-secondary);
+  background: var(--app-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.calendar-view-controls button[aria-pressed="true"] {
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border-color: var(--border-strong);
+}
+
+.calendar-navigation {
+  justify-content: space-between;
+  margin: 14px 0 10px;
+}
+
+.calendar-navigation h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.calendar-jump {
+  align-items: end;
+  margin-bottom: 12px;
+}
+
+.calendar-panel label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.calendar-jump label {
+  flex: 1;
+}
+
+.calendar-date-source {
+  margin-bottom: 10px;
+}
+
+.calendar-panel input,
+.calendar-panel select {
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  font: inherit;
+}
+
+.calendar-grid {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 2px;
+}
+
+.calendar-grid th {
+  overflow: hidden;
+  padding: 4px 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  text-align: center;
+}
+
+.calendar-grid abbr {
+  text-decoration: none;
+}
+
+.calendar-grid td {
+  padding: 0;
+}
+
+.calendar-day {
+  display: flex;
+  width: 100%;
+  min-height: 39px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 3px 0;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.calendar-day--outside {
+  color: var(--text-secondary);
+}
+
+.calendar-day[aria-current="date"] {
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.calendar-grid [aria-selected="true"] .calendar-day {
+  color: var(--accent-contrast);
+  background: var(--accent);
+}
+
+.calendar-day:hover:not(:disabled) {
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+}
+
+.calendar-day__count {
+  font-size: 9px;
+  line-height: 1.1;
+}
+
+.calendar-panel :is(button, input, select):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.calendar-help,
+.calendar-status,
+.calendar-notice,
+.calendar-agenda > p {
+  margin: 10px 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.calendar-selected {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.calendar-daily-path {
+  color: var(--text-secondary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.calendar-agenda h4 {
+  margin: 14px 0 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.calendar-notes {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.calendar-notes button {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 8px 6px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: start;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.calendar-notes button:hover:not(:disabled) {
+  background: var(--panel-bg);
+}
+
+.calendar-notes small {
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+@media (forced-colors: active) {
+  .calendar-grid [aria-selected="true"] .calendar-day {
+    color: HighlightText;
+    background: Highlight;
+    forced-color-adjust: none;
+  }
+
+  .calendar-day[aria-current="date"] {
+    border-color: CanvasText;
+  }
+
+  .calendar-panel :is(button, input, select):focus-visible {
+    outline-color: Highlight;
+  }
+}
+
 .note-graph-panel {
   display: flex;
   min-height: 0;
