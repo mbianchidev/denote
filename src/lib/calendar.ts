@@ -40,8 +40,9 @@ export function moveCalendarMonth(date: string, months: number): string | null {
 export function calendarMonthDates(month: string, weekStart: number): string[] {
   const first = calendarDateValue(`${month}-01`);
   const offset = (first.getUTCDay() - weekStart + 7) % 7;
-  const start = moveCalendarDate(`${month}-01`, -offset) ?? "0001-01-01";
-  const end = moveCalendarDate(start, 41) ?? "9999-12-31";
+  const gridStart = first.getTime() - offset * DAY_MS;
+  const start = dateKey(new Date(gridStart)) ?? "0001-01-01";
+  const end = dateKey(new Date(gridStart + 41 * DAY_MS)) ?? "9999-12-31";
   return calendarDates(start, end);
 }
 

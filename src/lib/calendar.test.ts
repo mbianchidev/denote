@@ -8,6 +8,13 @@ import {
 } from "./calendar";
 
 describe("calendar civil dates", () => {
+  it("clips the earliest supported month without adding a seventh grid row", () => {
+    const dates = calendarMonthDates("0001-01", 0);
+    expect(dates).toHaveLength(41);
+    expect(dates[0]).toBe("0001-01-01");
+    expect(dates[dates.length - 1]).toBe("0001-02-10");
+  });
+
   it("keeps selected days independent of display locale and daylight-saving boundaries", () => {
     expect(moveCalendarDate("2026-03-28", 1)).toBe("2026-03-29");
     expect(moveCalendarDate("2026-03-29", 1)).toBe("2026-03-30");
