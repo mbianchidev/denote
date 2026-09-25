@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "efb6566889b8e0276dcb14cbf91c0ad170d70d6a",
+    "kind": "source",
+    "sourcePath": "plugins/calendar",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.6.0/denote.calendar-0.1.0.tgz",
+      "sha256": "7dab0be18966e9bd99bd6feff641eb8f2fe74f178f7ef7ba9c1ed399dc8d8c63",
+      "sizeBytes": 66889
+    }
+  }
+]
