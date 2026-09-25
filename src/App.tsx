@@ -1675,14 +1675,16 @@ function App() {
   );
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
+  const buildCalendarSnapshot = useCallback(
+    () => createCalendarSnapshot(
+      allFiles.filter((file) => file.kind === "markdown").map((file) => file.path),
+      searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
+    ),
+    [allFiles, searchDocumentBatch],
+  );
   const calendarSnapshot = useMemo(
-    () => workspace && activeCalendar
-      ? createCalendarSnapshot(
-          allFiles.filter((file) => file.kind === "markdown").map((file) => file.path),
-          searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
-        )
-      : null,
-    [activeCalendar, allFiles, searchDocumentBatch, workspace?.vaultPath],
+    () => workspace && activeCalendar ? buildCalendarSnapshot() : null,
+    [activeCalendar, buildCalendarSnapshot, workspace?.vaultPath],
   );
   useEffect(() => {
     noteGraphCoordinator.retainProviders(availableNoteGraphKeys);
@@ -6188,16 +6190,23 @@ function App() {
   }, [beginEntryMutation, openFile, refreshWorkspace, setWorkspaceLock, workspace]);
 
   const openTodayDailyNote = useCallback(async (provider: PluginCalendarContribution) => {
+    if (
+      !workspace || workspaceLockedRef.current ||
+      workspaceVaultPathRef.current !== workspace.vaultPath ||
+      !calendarsRef.current.includes(provider)
+    ) {
+      throw new Error("Calendar is unavailable while the vault or plugin is changing.");
+    }
     const generation = vaultGeneration.current;
     const date = calendarToday();
     const model = await pluginController.queryCalendar(provider.pluginId, provider.id, {
-      startDate: date, endDate: date, documents: [], skippedCount: 0, truncated: false,
+      ...buildCalendarSnapshot(), startDate: date, endDate: date,
     });
     if (generation !== vaultGeneration.current || !calendarsRef.current.includes(provider)) {
       throw new Error("Calendar action expired after a vault or plugin change.");
     }
     await openCalendarDailyNote(provider, model.days[0]);
-  }, [openCalendarDailyNote, pluginController.queryCalendar]);
+  }, [buildCalendarSnapshot, openCalendarDailyNote, pluginController.queryCalendar, workspace]);
 
   const renameNode = useCallback(async (node: FileNode) => {
     if (!workspace || workspaceLockedRef.current) {

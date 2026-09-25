@@ -1272,6 +1272,50 @@ describe("App initial file-tree expansion", () => {
     expect(screen.queryByRole("button", { name: "Calendar" })).not.toBeInTheDocument();
   });
 
+  it("uses the same existing-note snapshot for today's command and the calendar view", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 8, 1, 12));
+    try {
+      const path = "daily/2026-09-01.MD";
+      const snapshot = workspaceSnapshot([fileNode(path)]);
+      mockApi.getLastVault.mockResolvedValue(snapshot);
+      mockApi.refreshVault.mockResolvedValue(snapshot);
+      mockApi.pluginCalendarOpenDailyNote.mockResolvedValue(fileNode(path));
+      const base = syntheticEmojiPluginView();
+      mockPluginController.plugins = [{
+        ...base, enabled: true, status: "enabled",
+        approvedPermissions: [{ capability: "calendar" }],
+        catalog: { ...base.catalog, manifest: {
+          ...base.catalog.manifest, id: "denote.calendar", permissions: [{ capability: "calendar" }],
+        } },
+      }];
+      mockPluginController.calendars = [{
+        pluginId: "denote.calendar", id: "denote.calendar.main", title: "Calendar",
+      }];
+      mockPluginController.queryCalendar.mockImplementation(async (_plugin: string, _provider: string, request: PluginCalendarRequest) => ({
+        days: [{
+          date: request.startDate,
+          dailyNotePath: request.documents.some((document) => document.path === path) ? path : `Daily/${request.startDate}.md`,
+          notes: [],
+        }],
+        notices: [], truncated: false,
+      }));
+      render(<App />);
+      await screen.findByRole("button", { name: "Calendar" });
+      fireEvent.keyDown(window, { key: "p", code: "KeyP", ctrlKey: true });
+      const palette = await screen.findByRole("dialog", { name: "Command palette" });
+      fireEvent.change(within(palette).getByRole("combobox"), {
+        target: { value: "Open today's daily note" },
+      });
+      fireEvent.keyDown(within(palette).getByRole("combobox"), { key: "Enter" });
+      await waitFor(() => expect(mockApi.pluginCalendarOpenDailyNote).toHaveBeenCalledExactlyOnceWith(
+        "denote.calendar", snapshot.vaultPath, path, "2026-09-01",
+      ));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("opens an enabled note graph, indexes Markdown locally, and navigates from its list", async () => {
     const user = userEvent.setup();
     mockApi.getLastVault.mockResolvedValue(

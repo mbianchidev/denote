@@ -593,6 +593,28 @@ npm run tauri build
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
 
+### Preview an unpublished plugin on macOS
+
+The production DMG cannot download a plugin asset until its intended release is
+published. To test a staged plugin without publishing or changing the production
+downloader, build the separate development application:
+
+```bash
+CI=true NODE_ENV=development CARGO_BUILD_JOBS=2 \
+  npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles dmg
+npm run dev:plugin -- denote.calendar --once
+```
+
+Open the DMG in `src-tauri/target/debug/bundle/dmg/`. **Denote Development** uses
+its own application identity, state, plugin storage, and keychain namespace.
+Choose **Settings → Plugins → Load local plugin archive** and select
+`.plugin-dev/denote.calendar.tgz`.
+
+Both development flags matter: `NODE_ENV=development` retains the frontend's
+local-archive control, while `--debug` includes the native development-only
+adapter. This bundle is a local preview, not a production release artifact.
+The plugin archive remains separate from either DMG.
+
 ### Provision signed application updates
 
 Application updater signatures are independent from Apple Developer ID
