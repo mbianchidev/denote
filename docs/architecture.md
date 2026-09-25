@@ -880,6 +880,45 @@ range, preserving unknown Markdown byte-for-byte. Disabling or removing the
 plugin leaves the file unchanged. Locking an encrypted vault stops the worker
 and clears its contribution until unlock.
 
+### Calendars and daily notes
+
+The additive API-v1 `calendar` permission registers one namespaced provider with
+an isolated `query` callback. Its input is a date-only range of at most 42 days
+plus up to 5,000 vault-relative Markdown paths, titles, and leading YAML
+frontmatter. The host sends no note body, absolute path, encryption key, DOM, or
+write service. Metadata is bounded to 8 KiB per note and 2 MiB of document data
+overall. Filenames remain discoverable when content indexing is incomplete.
+
+`plugins/calendar/` owns configurable deterministic filename mapping and the
+strict YAML 1.2 date parser. Ordinary notes need no metadata; configured daily
+filenames take precedence over an optional top-level date-only scalar.
+The provider returns contiguous date rows, daily-note paths, known note
+references, and notices. Both boundaries validate dates, portable paths, unique
+identities, counts, and request/model correspondence. Results are capped at 100
+notes per date and 1,000 overall. Malformed output stops the runtime.
+
+`CalendarPanel` owns month/agenda presentation, locale display, date-grid
+keyboard behavior, focus, and explicit user actions. Selected dates are
+Gregorian strings, never local-midnight instants. UTC arithmetic and explicitly
+UTC locale formatting preserve civil dates across DST and time-zone changes;
+only Today reads the current local clock. Late responses are discarded.
+
+`plugin_calendar_open_daily_note` is a host-only native command, not a worker
+service. It verifies current `calendar` permission, the originating vault scope,
+and unlocked encryption state. Under the existing exclusive vault file lock,
+`vault::open_or_create_daily_note` validates a portable Markdown path, refuses
+internal paths and symlinks, creates missing parent folders, encodes the date
+heading at rest, and uses the existing atomic no-replace primitive. A concurrent
+or existing file is opened without changing its bytes. Failed operations remove
+only newly created empty folders. The renderer holds its normal mutation barrier,
+refreshes the vault/index, and opens through ordinary tab navigation without
+replacing unsaved content.
+
+Runtime registrations are workspace-scoped. Locking or switching vaults
+immediately withdraws the calendar and force-stops its worker; enabled plugins
+restart cleanly for unlocked content. Disable/update/crash/teardown removes
+contributions and derived models, never Markdown or user folders.
+
 ### Note graphs
 
 The additive API version 1 `note-graph` permission accepts one stateful

@@ -548,6 +548,42 @@ docs, dependency manifests, and lockfile first; pin that full commit with
 --release <Denote-tag>`, then commit only its catalog and release-ledger
 metadata. Never commit the generated `.tgz`.
 
+### Calendar plugin development
+
+Use `npm run dev:plugin -- denote.calendar` and load the ignored archive in the
+isolated development application. Calendar targets Denote 0.6.0 and requests only
+the `calendar` capability. Filename mapping, settings interpretation, and YAML
+date parsing belong to `plugins/calendar/`; the host owns its UI, bounded
+snapshots, worker protocol, and the native no-replace file creation adapter.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/calendar.test.ts \
+  plugins/calendar/tests \
+  src/lib/calendar.test.ts \
+  src/plugins/calendars.test.ts \
+  src/components/CalendarPanel.test.tsx \
+  src/plugins/runtimeMessages.test.ts \
+  src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx \
+  src/components/ActivityRail.test.tsx \
+  src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml calendar
+```
+
+Exercise leap dates, month/year boundaries, different `TZ` values, localized
+labels, keyboard focus, optional/invalid metadata, configured paths, truncation,
+stale results, disablement, vault switching and locking, encrypted creation, and
+existing-file byte preservation with synthetic fixtures only. On constrained
+machines, use Vitest `--maxWorkers=1` and Cargo `--jobs 2` rather than increasing
+timeouts or changing application behavior.
+
+Stage with `npm run package:plugin -- denote.calendar`. Commit the complete
+source/build inputs before pinning with
+`npm run pin:plugin -- denote.calendar --ref "$(git rev-parse HEAD)" --release v0.6.0`.
+Commit the resulting catalog and release ledger separately; archives stay
+ignored and are published only by the ordinary release workflow.
+
 ## Build a desktop bundle
 
 ```bash

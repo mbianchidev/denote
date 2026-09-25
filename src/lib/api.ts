@@ -343,6 +343,14 @@ export const api = {
       path,
       writePermission,
     }),
+  pluginCalendarOpenDailyNote: (
+    pluginId: string,
+    workspaceScope: string,
+    path: string,
+    date: string,
+  ) => invoke<FileNode>("plugin_calendar_open_daily_note", {
+    pluginId, workspaceScope, path, date,
+  }),
   pluginWorkspaceWrite: (
     pluginId: string,
     workspaceScope: string,

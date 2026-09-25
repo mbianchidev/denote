@@ -747,6 +747,127 @@ pub fn create_entry(
     Ok(node)
 }
 
+pub fn open_or_create_daily_note(
+    db_path: &Path,
+    vault_path: &str,
+    relative_path: &str,
+    date: &str,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<FileNode> {
+    let parsed = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d")
+        .map_err(|_| AppError::InvalidData("Daily notes require a valid YYYY-MM-DD date".into()))?;
+    if date.len() != 10 || date.starts_with("0000") || parsed.format("%Y-%m-%d").to_string() != date
+    {
+        return Err(AppError::InvalidData(
+            "Daily notes require a valid YYYY-MM-DD date".into(),
+        ));
+    }
+    let relative = normalized_relative(relative_path, false)?;
+    let segments: Vec<_> = relative_path.split('/').collect();
+    if relative_path.len() > 1024
+        || !matches!(
+            relative
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(str::to_ascii_lowercase)
+                .as_deref(),
+            Some("md" | "markdown")
+        )
+    {
+        return Err(AppError::InvalidPath(
+            "Daily notes require a bounded Markdown path".into(),
+        ));
+    }
+    for segment in &segments {
+        let name = validate_name(segment)?;
+        let stem = name.split('.').next().unwrap_or("").to_ascii_lowercase();
+        let numbered_device = stem.len() == 4
+            && (stem.starts_with("com") || stem.starts_with("lpt"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9');
+        if name != *segment
+            || name.len() > 255
+            || name.ends_with('.')
+            || name.eq_ignore_ascii_case(".git")
+            || name.chars().any(|character| {
+                character.is_control()
+                    || matches!(character, ':' | '*' | '?' | '"' | '<' | '>' | '|')
+                    || matches!(character, '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+            })
+            || ["con", "prn", "aux", "nul"].contains(&stem.as_str())
+            || numbered_device
+        {
+            return Err(AppError::InvalidPath(
+                "Daily-note paths must use portable folder and file names".into(),
+            ));
+        }
+    }
+    let root = canonical_vault(vault_path)?;
+    let _vault_lock = acquire_vault_lock(&root, true)?;
+    let stored = encode_file_at_rest(&root, format!("# {date}\n\n").as_bytes(), vault_key)?;
+    let destination = root.join(relative);
+    let mut created_folders = Vec::new();
+    let result = (|| {
+        let mut parent = root.clone();
+        for segment in &segments[..segments.len() - 1] {
+            parent.push(segment);
+            ensure_no_symlinks(&root, &parent, true)?;
+            match fs::symlink_metadata(&parent) {
+                Ok(metadata) if metadata.is_dir() => {}
+                Ok(_) => {
+                    return Err(AppError::InvalidPath(
+                        "A daily-note parent is not a folder".into(),
+                    ));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    fs::create_dir(&parent)?;
+                    created_folders.push(parent.clone());
+                }
+                Err(error) => return Err(error.into()),
+            }
+            ensure_no_symlinks(&root, &parent, false)?;
+        }
+        ensure_no_symlinks(&root, &destination, true)?;
+        match fs::symlink_metadata(&destination) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match create_file_no_replace(&destination, &stored) {
+                    Ok(()) => {}
+                    Err(AppError::Io(error))
+                        if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(error),
+                }
+            }
+            Err(error) => return Err(error.into()),
+        }
+        ensure_no_symlinks(&root, &destination, false)?;
+        if !fs::symlink_metadata(&destination)?.is_file() {
+            return Err(AppError::InvalidPath(
+                "The daily-note path is not a regular file".into(),
+            ));
+        }
+        let mut connection = db::open(db_path)?;
+        let (vault_id, _) = ensure_vault(&connection, &root)?;
+        let stats = db::stats_map(&connection, vault_id)?;
+        let placements = db::entry_placement_map(&connection, vault_id)?;
+        let node = scan_path(&root, &destination, &stats, &placements, 0)?;
+        update_cached_tree(&mut connection, vault_id, |tree| {
+            refresh_cached_tree_metadata(tree, &stats, &placements);
+            insert_cached_node(tree, node.clone())
+        });
+        Ok(node)
+    })();
+    if result.is_err() {
+        for folder in created_folders.iter().rev() {
+            if let Err(error) = fs::remove_dir(folder)
+                && error.kind() != std::io::ErrorKind::DirectoryNotEmpty
+            {
+                eprintln!("Unable to remove an empty daily-note staging folder: {error}");
+            }
+        }
+    }
+    result
+}
+
 pub fn duplicate_file(
     db_path: &Path,
     vault_path: &str,
@@ -3679,6 +3800,156 @@ mod tests {
 
     use super::*;
     use crate::models::{PaneLayout, PaneLayoutKind, TabSessionPane};
+
+    #[test]
+    fn calendar_daily_notes_encrypt_new_content_and_leave_locked_vaults_untouched() {
+        let directory = tempdir().expect("fixture");
+        let root = directory.path().join("vault");
+        fs::create_dir(&root).unwrap();
+        let database = directory.path().join("metadata.sqlite3");
+        db::initialize(&database).unwrap();
+        let (manifest, vault_key, _) =
+            crypto::create_manifest("synthetic calendar password").unwrap();
+        crypto::save_manifest(&root, &manifest).unwrap();
+        let key = vault_key.copy_bytes();
+        encrypt_vault_contents(&database, root.to_str().unwrap(), &key).unwrap();
+        let path = "Daily/2026-09-01.md";
+        super::open_or_create_daily_note(
+            &database,
+            root.to_str().unwrap(),
+            path,
+            "2026-09-01",
+            Some(&key),
+        )
+        .unwrap();
+        let ciphertext = fs::read(root.join(path)).unwrap();
+        assert!(crypto::is_encrypted_file(&ciphertext));
+        assert_eq!(super::read_note_without_recording(
+            &database, root.to_str().unwrap(), path, Some(&key),
+        ).unwrap().content, "# 2026-09-01\n\n");
+        super::open_or_create_daily_note(
+            &database,
+            root.to_str().unwrap(),
+            path,
+            "2026-09-01",
+            Some(&key),
+        )
+        .unwrap();
+        assert_eq!(fs::read(root.join(path)).unwrap(), ciphertext);
+        assert!(matches!(
+            super::open_or_create_daily_note(
+                &database,
+                root.to_str().unwrap(),
+                "Uncreated/2026-09-02.md",
+                "2026-09-02",
+                None,
+            ),
+            Err(AppError::Locked)
+        ));
+        assert!(!root.join("Uncreated").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn calendar_daily_notes_refuse_symlinked_folders_and_files() {
+        use std::os::unix::fs::symlink;
+        let directory = tempdir().expect("fixture");
+        let root = directory.path().join("vault");
+        let outside = directory.path().join("outside");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&outside).unwrap();
+        fs::write(outside.join("note.md"), b"Synthetic original").unwrap();
+        let database = directory.path().join("metadata.sqlite3");
+        db::initialize(&database).unwrap();
+        symlink(&outside, root.join("Linked")).unwrap();
+        symlink(outside.join("note.md"), root.join("Linked.md")).unwrap();
+        for path in ["Linked/2026-09-01.md", "Linked.md"] {
+            assert!(
+                super::open_or_create_daily_note(
+                    &database,
+                    root.to_str().unwrap(),
+                    path,
+                    "2026-09-01",
+                    None,
+                )
+                .is_err()
+            );
+        }
+        assert!(!outside.join("2026-09-01.md").exists());
+        assert_eq!(
+            fs::read(outside.join("note.md")).unwrap(),
+            b"Synthetic original"
+        );
+    }
+
+    #[test]
+    fn calendar_daily_notes_create_nested_markdown_without_replacing_existing_bytes() {
+        let directory = tempdir().expect("temporary fixture");
+        let root = directory.path().join("vault");
+        fs::create_dir(&root).expect("vault");
+        let database = directory.path().join("metadata.sqlite3");
+        db::initialize(&database).expect("database");
+        let path = "Journal/Days/2024-02-29.md";
+        let node = super::open_or_create_daily_note(
+            &database,
+            root.to_str().unwrap(),
+            path,
+            "2024-02-29",
+            None,
+        )
+        .expect("create daily note");
+        assert_eq!(node.path, path);
+        assert_eq!(
+            fs::read_to_string(root.join(path)).unwrap(),
+            "# 2024-02-29\n\n"
+        );
+        fs::write(root.join(path), b"Existing synthetic text\r\n").expect("edit note");
+        super::open_or_create_daily_note(
+            &database,
+            root.to_str().unwrap(),
+            path,
+            "2024-02-29",
+            None,
+        )
+        .expect("open existing daily note");
+        assert_eq!(
+            fs::read(root.join(path)).unwrap(),
+            b"Existing synthetic text\r\n"
+        );
+        for unsafe_path in [
+            "../escape.md",
+            ".denote/hidden.md",
+            ".git/hooks/note.md",
+            "/absolute.md",
+            "C:/note.md",
+            "daily/CON.md",
+            "daily\\note.md",
+            "note.html",
+        ] {
+            assert!(
+                super::open_or_create_daily_note(
+                    &database,
+                    root.to_str().unwrap(),
+                    unsafe_path,
+                    "2024-02-29",
+                    None,
+                )
+                .is_err(),
+                "{unsafe_path}"
+            );
+        }
+        assert!(
+            super::open_or_create_daily_note(
+                &database,
+                root.to_str().unwrap(),
+                "Absent/invalid.md",
+                "2025-02-29",
+                None,
+            )
+            .is_err()
+        );
+        assert!(!root.join("Absent").exists());
+    }
 
     #[test]
     fn validates_and_normalizes_tag_color_metadata() {

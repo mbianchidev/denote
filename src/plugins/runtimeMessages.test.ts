@@ -10,6 +10,26 @@ import type {
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
 
+describe("calendar runtime messages", () => {
+  it("validates registrations, bounded requests, models, and error alternatives", () => {
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-01",
+      documents: [], skippedCount: 0, truncated: false,
+    };
+    const model = {
+      days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
+      notices: [], truncated: false,
+    };
+    expect(isPluginRuntimeMessage({ type: "register-calendar", id: "denote.calendar.main", title: "Calendar" })).toBe(true);
+    expect(isPluginHostMessage({ type: "query-calendar", providerId: "denote.calendar.main", requestId: "query", request })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "calendar-result", requestId: "query", model })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "calendar-result", requestId: "query", error: "Could not read date settings." })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "calendar-result", requestId: "query", error: "Failure", model })).toBe(false);
+    expect(isPluginRuntimeMessage({ type: "calendar-result", requestId: "query", model: { ...model, days: [{ ...model.days[0], dailyNotePath: "../Outside.md" }] } })).toBe(false);
+    expect(isPluginHostMessage({ type: "query-calendar", providerId: "denote.calendar.main", requestId: "query", request: { ...request, endDate: "2026-09-00" } })).toBe(false);
+  });
+});
+
 const model: PluginSourceControlViewModel = {
   selectedTab: "changes",
   selectedView: { kind: "repository" },

@@ -236,6 +236,60 @@ Denote Welcome vault. Older copies receive only the missing `plugins` sample
 once, including as ciphertext after an encrypted Welcome vault is unlocked.
 Existing matching paths are never overwritten.
 
+## Calendar and daily notes
+
+Enable **Calendar and daily notes** under **Productivity** in Denote 0.6.0 or
+newer. It is off by default and asks only for **Calendar**. Open **Calendar** in
+the activity rail or run **Show calendar** from the command palette.
+
+**Month** shows a calendar with written counts on dates that have notes.
+**Agenda** lists dated notes in the displayed month; choose one to open it.
+Select a date, then choose **Create daily note** or **Open daily note**. The path
+is shown before the action. **Open today's daily note** is also available in the
+command palette. Existing files are always opened, never replaced.
+
+Daily notes default to `Daily/YYYY-MM-DD.md` with a plain date heading. In plugin
+settings, change **Daily-note folder** or **Filename format**. Use `YYYY`, `MM`,
+and `DD` exactly once, omit `.md`, and put literal text in brackets, for example
+`[Day-]DD.MM.YYYY`. An empty folder means the vault root. Missing folders are
+created only when you explicitly create a note. Settings changes do not move or
+rename old notes.
+
+Month labels and weekday names follow your locale. Week order follows the
+locale where supported, otherwise Monday comes first. Filenames remain
+deterministic Gregorian dates. A selected date does not shift when your time
+zone changes; **Today** uses your current local date when selected.
+
+In the month grid, use arrows for days/weeks, Home/End for the current week,
+Page Up/Down for months, and Shift-Page Up/Down for years. Tab leaves the grid.
+Month and selected-date fields are also keyboard accessible. Navigation alone
+does not create notes.
+
+To include another Markdown note, optionally add YAML frontmatter:
+
+```markdown
+---
+date: 2026-09-01
+---
+# Planning
+```
+
+Only a valid top-level date-only scalar is used; quoted dates work. Timestamps,
+aliases, custom tags, duplicate keys, and invalid dates are not interpreted.
+The configured daily filename wins over metadata. Disable **Include date
+metadata** to use filenames alone. Ordinary notes need no metadata.
+
+All parsing stays local. Queries are limited to 5,000 paths, 8 KiB of frontmatter
+per note, and 2 MiB of document data. Views show at most 100 notes per date and
+1,000 overall, with notices for limits or unavailable metadata. Refresh the
+vault after external file changes or choose **Retry calendar** after a query
+failure.
+
+Locked vaults cannot expose or create notes. New notes in an unlocked encrypted
+vault are written directly as ciphertext. Switching or locking vaults discards
+calendar data. Disabling removes the worker, calendar, commands, and downloaded
+package, but never changes or deletes daily notes or folders.
+
 ## Note graph
 
 Enable **Note graph** under **Knowledge management** to see how Markdown notes

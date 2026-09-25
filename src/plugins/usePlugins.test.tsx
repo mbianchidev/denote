@@ -8,6 +8,7 @@ import {
 } from "@denote/plugin-sdk";
 import type { PluginEmojiPickerContribution } from "./emojiPickers";
 import type {
+  PluginCalendarContribution,
   PluginKanbanBoardContribution,
   PluginNoteGraphContribution,
 } from "./workerRuntime";
@@ -23,6 +24,8 @@ interface MockRuntimeInstance {
   onEmojiPickersChanged?: (pickers: PluginEmojiPickerContribution[]) => void;
   onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void;
   onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void;
+  onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void;
+  queryCalendar: ReturnType<typeof vi.fn>;
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
   stop: ReturnType<typeof vi.fn>;
@@ -112,6 +115,10 @@ vi.mock("./workerRuntime", () => {
       },
     }));
     indexNoteGraph = vi.fn(async () => {});
+    queryCalendar = vi.fn(async () => ({
+      days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
+      notices: [], truncated: false,
+    }));
     queryNoteGraph = vi.fn(async () => ({
       nodes: [],
       edges: [],
@@ -142,6 +149,7 @@ vi.mock("./workerRuntime", () => {
       public onDiagramRenderersChanged?: unknown,
       public onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void,
       public onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void,
+      public onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -263,6 +271,7 @@ describe("usePlugins", () => {
     "structured-viewer",
     "kanban-board",
     "note-graph",
+    "calendar",
     "diagram-renderer",
   ] as const)(
     "stops %s workers while content is unavailable and restarts them after unlock",
@@ -293,7 +302,7 @@ describe("usePlugins", () => {
       currentContentAvailable: false,
     });
     await waitFor(() => {
-      if (capability === "note-graph") {
+      if (capability === "note-graph" || capability === "calendar") {
         expect(runtime.forceStop).toHaveBeenCalledWith(pluginId);
       } else {
         expect(runtime.stop).toHaveBeenCalledWith(pluginId);
@@ -302,10 +311,10 @@ describe("usePlugins", () => {
     },
   );
 
-  it("restarts note graph workers when the host switches vaults", async () => {
+  it.each(["note-graph", "calendar"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
     const enabled = makePlugin({
       enabled: true,
-      approvedPermissions: [{ capability: "note-graph" }],
+      approvedPermissions: [{ capability }],
     });
     const rendered = await mountReady(
       [enabled],
@@ -328,6 +337,30 @@ describe("usePlugins", () => {
       expect(runtime.forceStop).toHaveBeenCalledWith(pluginId),
     );
     await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
+  });
+
+  it("withdraws calendar models immediately on a vault switch or lock", async () => {
+    const enabled = makePlugin({ enabled: true, approvedPermissions: [{ capability: "calendar" }] });
+    const rendered = await mountReady([enabled], null, "/synthetic/vault-alpha", true);
+    const runtime = runtimeInstances[0];
+    const calendar = { pluginId, id: `${pluginId}.calendar`, title: "Calendar" };
+    act(() => runtime.onCalendarsChanged?.([calendar]));
+    expect(rendered.result.current.calendars).toEqual([calendar]);
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: true,
+    });
+    expect(rendered.result.current.calendars).toEqual([]);
+    await waitFor(() => expect(runtime.forceStop).toHaveBeenCalledWith(pluginId));
+    act(() => runtime.onCalendarsChanged?.([calendar]));
+    expect(rendered.result.current.calendars).toEqual([calendar]);
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: false,
+    });
+    expect(rendered.result.current.calendars).toEqual([]);
+    await expect(rendered.result.current.queryCalendar(pluginId, calendar.id, {
+      startDate: "2026-09-01", endDate: "2026-09-01", documents: [], skippedCount: 0, truncated: false,
+    })).rejects.toThrow(/unavailable/);
+    expect(runtime.queryCalendar).not.toHaveBeenCalled();
   });
 
   it("reactivates after settings import so shortcode enablement and lists take effect", async () => {

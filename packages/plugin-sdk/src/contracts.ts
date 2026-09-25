@@ -24,6 +24,7 @@ export const PLUGIN_CAPABILITIES = [
   "structured-viewer",
   "kanban-board",
   "note-graph",
+  "calendar",
   "diagram-renderer",
   "note-events",
   "project-context",
@@ -517,6 +518,44 @@ export interface PluginNoteGraphProvider {
 
 export interface PluginNoteGraphCapability {
   register: (provider: PluginNoteGraphProvider) => PluginDisposable;
+}
+
+export interface PluginCalendarDocument {
+  path: string;
+  title: string;
+  frontmatter: string;
+}
+
+export interface PluginCalendarRequest {
+  startDate: string;
+  endDate: string;
+  documents: PluginCalendarDocument[];
+  skippedCount: number;
+  truncated: boolean;
+}
+
+export interface PluginCalendarDay {
+  date: string;
+  dailyNotePath: string;
+  notes: Array<{ path: string; title: string }>;
+}
+
+export interface PluginCalendarModel {
+  days: PluginCalendarDay[];
+  notices: string[];
+  truncated: boolean;
+}
+
+export interface PluginCalendarProvider {
+  id: string;
+  title: string;
+  query: (
+    request: PluginCalendarRequest,
+  ) => PluginCalendarModel | Promise<PluginCalendarModel>;
+}
+
+export interface PluginCalendarCapability {
+  register: (provider: PluginCalendarProvider) => PluginDisposable;
 }
 
 export type PluginDiagramTheme = "light" | "dark" | "high-contrast";
@@ -1737,6 +1776,7 @@ export interface PluginCapabilities {
   structuredViewer?: PluginStructuredViewerCapability;
   kanbanBoard?: PluginKanbanBoardCapability;
   noteGraph?: PluginNoteGraphCapability;
+  calendar?: PluginCalendarCapability;
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;

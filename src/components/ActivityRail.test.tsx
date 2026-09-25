@@ -13,6 +13,9 @@ describe("ActivityRail", () => {
     const onAbout = vi.fn();
     render(
       <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
@@ -39,6 +42,9 @@ describe("ActivityRail", () => {
     const onPluginViewChange = vi.fn();
     render(
       <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
@@ -70,6 +76,9 @@ describe("ActivityRail", () => {
     const onSourceControlProviderChange = vi.fn();
     render(
       <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={{
@@ -129,6 +138,9 @@ describe("ActivityRail", () => {
     const onNoteGraphChange = vi.fn();
     render(
       <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
@@ -167,6 +179,9 @@ describe("ActivityRail", () => {
   it("disambiguates providers with duplicate titles from the same plugin", () => {
     render(
       <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
@@ -213,6 +228,9 @@ describe("ActivityRail", () => {
     const user = userEvent.setup();
     render(
       <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
         activeView="files"
         activePluginView={null}
         activeSourceControlProvider={null}
