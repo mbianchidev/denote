@@ -360,14 +360,21 @@ Git executable settings use one compact status block per tool: selected source,
 resolved path, locked or detected version, validation state, and prerequisite
 guidance. Bundled mode shows **not downloaded** until an action first needs it;
 opening settings never starts a download. The native path picker appears only
-for Custom mode. While **Use system Git settings** is active, a warning asks the
-user to verify the selected Git's `user.signingKey`,
-`gpg.openpgp.program`, or legacy `gpg.program` before relying on a system GPG
-key, including the possibility of separate Windows GPG keyrings.
+for Custom mode. The signing inspector helps users verify the selected Git's
+`user.signingKey`, `gpg.openpgp.program`, or legacy `gpg.program`,
+including the possibility of separate Windows GPG keyrings.
+The Git settings include a **Signing credentials** section with explicit
+**Detect signing key**, the resolved format/program/key, a password-style
+**Save passphrase for this key** field, and **Save passphrase** / **Delete saved
+passphrase** actions. Saving uses only the OS credential store, never settings
+JSON. The field clears on submission, errors, settings changes, repository
+changes, or unmount. Pending operations cannot repopulate a stale key selection.
+Platform-labeled native disclosures provide Windows PowerShell and macOS/Linux
+key-location commands, distinguishing OpenPGP fingerprints from SSH file paths.
 The source-control commit form places an enabled-by-default **Sign commit**
 control after the commit message. Its native password input exists only while
-signing is selected, explains that it is one-shot and SSH-signing-only, and
-clears after submission or repository change. Commit and Commit and push are
+signing is selected, explains that it overrides saved OpenPGP/SSH credentials
+once, and clears after submission or repository change. Commit and Commit and push are
 adjacent primary actions. The message may be blank; its placeholder previews the
 timestamped manual default.
 Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions

@@ -781,7 +781,7 @@ function PendingBranchSwitch({
         </label>
         {sign ? (
           <label className="source-control__field">
-            <span>Signing passphrase (SSH keys only, optional)</span>
+            <span>Signing passphrase (OpenPGP or SSH, optional)</span>
             <input
               type="password"
               value={signingPassphrase}
@@ -2145,7 +2145,7 @@ function SourceControlPanelComponent({
                     </label>
                     {signCommit ? (
                       <label className="source-control__field">
-                        <span>Signing passphrase (SSH keys only, optional)</span>
+                        <span>Signing passphrase (OpenPGP or SSH, optional)</span>
                         <input
                           type="password"
                           value={signingPassphrase}
@@ -2158,8 +2158,9 @@ function SourceControlPanelComponent({
                           }
                         />
                         <small>
-                          Used once. OpenPGP and X.509 use the system agent or
-                          pinentry.
+                          Used once and overrides a saved passphrase. Leave blank
+                          to use saved credentials or your system agent. X.509
+                          uses system pinentry.
                         </small>
                       </label>
                     ) : null}

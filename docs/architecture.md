@@ -569,22 +569,28 @@ typed operation after the hardening overrides. The later global scope wins for
 single-valued settings and an empty higher-precedence credential helper clears
 earlier helpers exactly as Git does. Credential helpers are enabled only for
 the `system` authentication mode. GPG programs and signing values are enabled
-only for a manual commit whose signing policy requires them. A masked key
-setting can override `user.signingKey`; the passphrase remains entirely in the
-system GPG agent or pinentry. Automatic commits keep the isolated unsigned
-path.
+only for a manual commit whose signing policy requires them. The Signing key
+setting can override `user.signingKey`. Signed commits and explicit key
+detection evaluate trusted global conditional includes from the selected
+repository, then overlay only safe local format, key, signing-default, and email
+values. Repository-local executable settings remain forbidden. Automatic and
+explicitly unsigned commits never load a signing credential.
 
 Hardening pins every GPG program to an empty value before operation-specific
 settings are applied. A signed manual commit therefore always restores one
 explicit program after that pin. OpenPGP honors both the modern
 `gpg.openpgp.program` setting and the legacy `gpg.program` alias in Git's
 original system-to-global order, so the later effective setting wins; otherwise
-the format default is used (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures,
-or `gpgsm` for X.509). This keeps a configured Windows Gpg4win installation
-from being replaced by Git for Windows' bundled GPG while still preventing an
-empty program from being executed on unsigned operations.
+the format default is resolved (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures,
+or `gpgsm` for X.509). Resolution uses absolute entries in the application's PATH
+and known installation directories before Git's portable PATH is applied. Both
+the format and canonical executable are pinned per signed commit, so Git for
+Windows cannot shadow a selected Gpg4win executable. Missing explicitly configured
+programs fail without fallback. OpenPGP discovery reads bounded colon-delimited
+secret-key metadata, selects one matching usable fingerprint, and refuses
+ambiguous keys rather than silently choosing another identity.
 
-An SSH signing passphrase never enters plugin code. `SourceControlPanel` passes
+A signing passphrase never enters plugin code. `SourceControlPanel` passes
 it as host-only metadata beside the typed commit action;
 `PluginWorkerRuntime` keeps it only in the in-memory action lease and posts the
 ordinary commit action to the worker. When the plugin invokes `git.run`,
@@ -593,9 +599,31 @@ layer validates and zeroizes the received string, writes it to an owner-only
 one-shot askpass file, and sets `SSH_ASKPASS` to Denote's early-exit helper with
 `SSH_ASKPASS_REQUIRE=force` for that signed commit only. A separate signing
 context answers only passphrase/PIN prompts, never GitHub credential prompts.
-The file is overwritten and removed with the operation scope on success,
-failure, cancellation, timeout, disable, or shutdown. OpenPGP/X.509 signing
-continues to use the system GPG agent or pinentry.
+OpenPGP instead points Git at Denote's early-exit signing bridge, which accepts
+only Git's signing argument shape and launches the pinned GPG executable with
+batch loopback pinentry. It sends the passphrase as the first line of a private
+stdin pipe and then the exact commit bytes, never a password argument or
+environment value. Git still receives GPG's signature and status output.
+The temporary channel is owner-only on Unix and has a protected owner/SYSTEM DACL
+on Windows; link reads are refused. Creation rolls back on failure, and operation
+teardown overwrites/removes the channel. Existing startup cleanup handles crash
+residue. Without a supplied or saved passphrase, the system agent/pinentry remains
+in charge. X.509 always uses system pinentry.
+
+Host-only Settings commands detect a signing key and save/delete its optional
+passphrase in the existing OS credential store. The identifier binds format,
+canonical signing program, key fingerprint and keyring context, or SSH canonical
+path and file digest. An SSH file replacement invalidates its saved credential.
+Settings revalidates the identifier before saving, serializes saves/deletes with
+plugin lifecycle operations, and returns only metadata plus a saved/not-saved
+flag. The private `host-git-signing.` namespace is denied by the plugin secret
+API, even to a plugin approved for secure storage. The existing credential
+journal records cleanup identifiers, never passwords. Explicit credential
+cleanup removes these entries; ordinary disablement retains them. A one-shot
+passphrase overrides the saved one. Saved credentials are loaded only for the
+host-authorized signed commit, not a second commit on a reused plugin action.
+Failure never retries an unsigned commit,
+and bounded multi-line signing diagnostics retain the reason behind exit 128.
 The per-commit sign choice and optional passphrase are consumed by the first
 commit host request in the action lease, including commit-before-switch and
 commit-and-push. A second request cannot reuse either value. Explicit Always or

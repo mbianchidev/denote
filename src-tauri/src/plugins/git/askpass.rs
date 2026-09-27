@@ -14,13 +14,12 @@ use std::{
     env,
     ffi::OsStr,
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     process::Command,
 };
 
-use uuid::Uuid;
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::{AppError, AppResult};
 
@@ -195,11 +194,52 @@ fn read_secret_file(path: &Path) -> Option<String> {
 }
 
 fn read_secret_file_exact(path: &Path) -> Option<String> {
-    let metadata = fs::symlink_metadata(path).ok()?;
-    if !metadata.is_file() || metadata.len() > MAX_ASKPASS_FILE_BYTES {
-        return None;
+    read_signing_secret(path)
+        .ok()
+        .map(|value| value.to_string())
+}
+
+pub(super) fn read_signing_secret(path: &Path) -> AppResult<Zeroizing<String>> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW);
     }
-    fs::read_to_string(path).ok()
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes()
+            & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT
+            != 0
+        {
+            return Err(AppError::Plugin(
+                "The signing passphrase channel cannot be a link.".to_string(),
+            ));
+        }
+    }
+    if !metadata.is_file() || metadata.len() > MAX_ASKPASS_FILE_BYTES {
+        return Err(AppError::Plugin(
+            "Invalid signing passphrase channel.".to_string(),
+        ));
+    }
+    let mut secret = Zeroizing::new(String::new());
+    file.take(MAX_ASKPASS_FILE_BYTES + 1)
+        .read_to_string(&mut secret)?;
+    if secret.len() as u64 > MAX_ASKPASS_FILE_BYTES {
+        return Err(AppError::Plugin(
+            "The signing passphrase channel exceeds its limit.".to_string(),
+        ));
+    }
+    Ok(secret)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -219,6 +259,7 @@ pub(crate) struct AskpassMaterial {
     file: PathBuf,
     program: PathBuf,
     context: AskpassContext,
+    gpg_program: Option<PathBuf>,
 }
 
 impl AskpassMaterial {
@@ -229,17 +270,19 @@ impl AskpassMaterial {
         program: PathBuf,
         secret: &str,
     ) -> AppResult<Self> {
-        let directory =
-            support_directory.join(format!("{ASKPASS_DIRECTORY_PREFIX}{}", Uuid::new_v4()));
-        fs::create_dir_all(&directory)?;
-        restrict_directory(&directory)?;
-        let file = directory.join(ASKPASS_SECRET_FILE);
+        fs::create_dir_all(support_directory)?;
+        let directory = tempfile::Builder::new()
+            .prefix(ASKPASS_DIRECTORY_PREFIX)
+            .tempdir_in(support_directory)?;
+        restrict_directory(directory.path())?;
+        let file = directory.path().join(ASKPASS_SECRET_FILE);
         write_secret(&file, secret)?;
         Ok(Self {
-            directory,
+            directory: directory.keep(),
             file,
             program,
             context: AskpassContext::Github,
+            gpg_program: None,
         })
     }
 
@@ -250,6 +293,17 @@ impl AskpassMaterial {
     ) -> AppResult<Self> {
         let mut material = Self::create(support_directory, program, secret)?;
         material.context = AskpassContext::Signing;
+        Ok(material)
+    }
+
+    pub(crate) fn create_openpgp(
+        support_directory: &Path,
+        program: PathBuf,
+        gpg_program: PathBuf,
+        secret: &str,
+    ) -> AppResult<Self> {
+        let mut material = Self::create_signing(support_directory, program, secret)?;
+        material.gpg_program = Some(gpg_program);
         Ok(material)
     }
 
@@ -312,9 +366,46 @@ fn restrict_directory(path: &Path) -> AppResult<()> {
     fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(Into::into)
 }
 
-#[cfg(not(unix))]
-fn restrict_directory(_path: &Path) -> AppResult<()> {
-    Ok(())
+#[cfg(windows)]
+fn restrict_directory(path: &Path) -> AppResult<()> {
+    use std::{os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        Foundation::LocalFree,
+        Security::{
+            Authorization::{
+                ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+            },
+            DACL_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, SetFileSecurityW,
+        },
+    };
+    let descriptor_text: Vec<u16> = "D:P(A;OICI;FA;;;OW)(A;OICI;FA;;;SY)"
+        .encode_utf16()
+        .chain(Some(0))
+        .collect();
+    let path: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut descriptor = ptr::null_mut();
+    unsafe {
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            descriptor_text.as_ptr(),
+            SDDL_REVISION_1,
+            &mut descriptor,
+            ptr::null_mut(),
+        ) == 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let result = SetFileSecurityW(
+            path.as_ptr(),
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            descriptor,
+        );
+        let error = (result == 0).then(std::io::Error::last_os_error);
+        LocalFree(descriptor);
+        match error {
+            Some(error) => Err(error.into()),
+            None => Ok(()),
+        }
+    }
 }
 
 /// Removes askpass material a previous run left behind.
@@ -437,6 +528,13 @@ pub(crate) fn apply_askpass_environment(command: &mut Command, material: &Askpas
         .env_remove("LANGUAGE")
         .env(ASKPASS_MODE_ENV, ASKPASS_MODE_VALUE)
         .env(ASKPASS_FILE_ENV, material.file());
+    if let Some(gpg_program) = &material.gpg_program {
+        command
+            .env_remove(ASKPASS_MODE_ENV)
+            .env(super::gpg_signer::GPG_SIGNER_MODE_ENV, "1")
+            .env(super::gpg_signer::GPG_SIGNER_PROGRAM_ENV, gpg_program);
+        return;
+    }
     match material.context {
         AskpassContext::Github => {
             command

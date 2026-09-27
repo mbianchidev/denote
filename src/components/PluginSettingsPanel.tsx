@@ -24,6 +24,7 @@ import type {
   ProjectRoot,
 } from "../types";
 import { systemPathForDisplay } from "../lib/systemPath";
+import { GitSigningSettings, type GitSigningActions } from "./GitSigningSettings";
 
 const CATEGORY_LABELS: Record<PluginCategory, string> = {
   code: "Code",
@@ -95,6 +96,7 @@ interface PluginSettingsPanelProps {
   ) => Promise<void>;
   onInspectTools?: (pluginId: string) => Promise<PluginToolStatus[]>;
   onPickExecutable?: (tool: "git" | "github-cli") => Promise<string | null>;
+  gitSigningActions?: GitSigningActions;
   onError: (error: unknown) => void;
 }
 
@@ -118,6 +120,7 @@ export function PluginSettingsPanel({
   onImportSettings,
   onInspectTools = async () => [],
   onPickExecutable = async () => null,
+  gitSigningActions,
   onError,
 }: PluginSettingsPanelProps) {
   const [query, setQuery] = useState("");
@@ -547,27 +550,15 @@ export function PluginSettingsPanel({
                             disabled={busy}
                           >
                             <legend>Settings</legend>
-                            {pluginId === "denote.git" &&
-                            draft.useSystemGitSettings !== false ? (
-                              <div className="notice-block notice-block--warning plugin-card__signing-warning">
-                                <AlertTriangle
-                                  aria-hidden="true"
-                                  size={15}
-                                />
-                                <div>
-                                  <strong>
-                                    Check your system Git signing configuration
-                                  </strong>
-                                  <p>
-                                    Before signing with a system GPG key, verify
-                                    that user.signingKey and
-                                    gpg.openpgp.program (or gpg.program) point
-                                    to the intended secret key and GPG
-                                    installation. On Windows, Git may otherwise
-                                    use a different bundled GPG and keyring.
-                                  </p>
-                                </div>
-                              </div>
+                            {pluginId === "denote.git" && gitSigningActions ? (
+                              <GitSigningSettings
+                                {...gitSigningActions}
+                                settings={plugin.settings}
+                                hasCredentials={plugin.hasCredentials}
+                                disabled={busy}
+                                dirty={dirtyPluginIds.has(pluginId)}
+                                onError={onError}
+                              />
                             ) : null}
                           {Object.entries(settingDefinitions).map(
                             ([key, definition]) =>

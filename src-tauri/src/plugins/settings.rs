@@ -321,10 +321,10 @@ impl PluginManager {
             .filter(|value| !value.is_empty())
             .map(str::to_string);
         if signing_key.as_ref().is_some_and(|value| {
-            value.len() > 255 || value.starts_with('-') || value.chars().any(char::is_control)
+            value.len() > 4096 || value.starts_with('-') || value.chars().any(char::is_control)
         }) {
             return Err(AppError::Plugin(
-                "The configured GPG signing key is invalid".to_string(),
+                "The configured signing fingerprint or SSH key path is invalid".to_string(),
             ));
         }
         Ok(GitSettingsPolicy {

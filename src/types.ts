@@ -332,6 +332,16 @@ export interface PluginToolStatus {
   guidance: string;
 }
 
+export interface GitSigningStatus {
+  format: "openpgp" | "ssh" | "x509";
+  program: string;
+  key: string | null;
+  keySource: string;
+  credentialId: string | null;
+  hasSavedPassphrase: boolean;
+  guidance: string;
+}
+
 /**
  * One host-scheduled automatic local commit. The renderer supplies the vault
  * scope and the project separately, so nothing here identifies a repository.

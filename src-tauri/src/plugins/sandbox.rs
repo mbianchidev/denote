@@ -27,10 +27,26 @@ use super::{
     },
 };
 
+pub(crate) const HOST_GIT_SIGNING_SECRET_PREFIX: &str = "host-git-signing.";
+
+fn validate_plugin_secret_key(key: &str) -> AppResult<()> {
+    validate_storage_key(key)?;
+    if key.starts_with(HOST_GIT_SIGNING_SECRET_PREFIX) {
+        return Err(AppError::Plugin(
+            "Signing credentials are host-owned and unavailable to plugins.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 impl PluginManager {
     pub(crate) fn secret_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<String>> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
-        validate_storage_key(key)?;
+        validate_plugin_secret_key(key)?;
+        self.host_secret_get(plugin_id, key)
+    }
+
+    pub(super) fn host_secret_get(&self, plugin_id: &str, key: &str) -> AppResult<Option<String>> {
         let entry = keychain_entry(&self.inner.keychain_service, plugin_id, key)?;
         match entry.get_password() {
             Ok(value) => Ok(Some(value)),
@@ -43,7 +59,28 @@ impl PluginManager {
 
     pub(crate) fn secret_set(&self, plugin_id: &str, key: &str, value: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
-        validate_storage_key(key)?;
+        validate_plugin_secret_key(key)?;
+        self.host_secret_set(plugin_id, key, value)
+    }
+
+    pub(super) fn host_secret_set(&self, plugin_id: &str, key: &str, value: &str) -> AppResult<()> {
+        self.write_tracked_secret(plugin_id, key, || {
+            keychain_entry(&self.inner.keychain_service, plugin_id, key)?
+                .set_password(value)
+                .map_err(|error| {
+                    AppError::Plugin(format!(
+                        "Unable to save keychain entry for {plugin_id}: {error}"
+                    ))
+                })
+        })
+    }
+
+    pub(super) fn write_tracked_secret(
+        &self,
+        plugin_id: &str,
+        key: &str,
+        write: impl FnOnce() -> AppResult<()>,
+    ) -> AppResult<()> {
         let was_tracked = self
             .state()?
             .credential_keys
@@ -59,13 +96,7 @@ impl PluginManager {
                 Ok(())
             })?;
         }
-        keychain_entry(&self.inner.keychain_service, plugin_id, key)?
-            .set_password(value)
-            .map_err(|error| {
-                AppError::Plugin(format!(
-                    "Unable to save keychain entry for {plugin_id}: {error}"
-                ))
-            })?;
+        write()?;
         if !was_tracked {
             self.update_credential_state(|state| {
                 state
@@ -84,7 +115,11 @@ impl PluginManager {
 
     pub(crate) fn secret_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
         self.authorize_runtime(plugin_id, Some("secure-storage"))?;
-        validate_storage_key(key)?;
+        validate_plugin_secret_key(key)?;
+        self.host_secret_delete(plugin_id, key)
+    }
+
+    pub(super) fn host_secret_delete(&self, plugin_id: &str, key: &str) -> AppResult<()> {
         delete_keychain_entry(&self.inner.keychain_service, plugin_id, key)?;
         self.update_credential_state(|state| {
             if let Some(keys) = state.credential_keys.get_mut(plugin_id) {

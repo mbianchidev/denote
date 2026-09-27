@@ -43,6 +43,23 @@ const REFRESH_SEQUENCE = [
 const WORKTREE_REFRESH_SEQUENCE = ["status", "diff", "diff", "operation-state"];
 
 describe("GitRepositoryController", () => {
+  it("retains the actionable GPG diagnostic after the generic signing failure", async () => {
+    const { controller, reports } = harness();
+    const git = new FakeGit(repositoryResponder({
+      commit: {
+        exitCode: 128,
+        stderr: "error: gpg failed to sign the data:\ngpg: signing failed: No secret key\nfatal: failed to write commit object",
+      },
+    }));
+    await controller.runAction({ id: "refresh" }, git);
+    await controller.runAction({ id: "commit", values: { message: "Synthetic change" } }, git);
+    expect(controller.model.recovery).toMatchObject({
+      state: "failed",
+      message: expect.stringContaining("No secret key"),
+    });
+    expect(reports.join(" ")).not.toContain("No secret key");
+  });
+
   it("starts by asking for a refresh instead of describing a repository", () => {
     const { controller } = harness();
 

@@ -12,6 +12,7 @@ mod updater;
 mod vault;
 
 use db::AppState;
+pub use plugins::git::gpg_signer::run_gpg_signer_if_requested;
 use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
@@ -367,6 +368,9 @@ pub fn run() {
             plugins::set_plugin_settings,
             plugins::import_plugin_settings,
             plugins::get_plugin_tool_statuses,
+            plugins::get_git_signing_status,
+            plugins::save_git_signing_passphrase,
+            plugins::delete_git_signing_passphrase,
             plugins::choose_plugin_executable,
             plugins::plugin_storage_get,
             plugins::plugin_storage_set,

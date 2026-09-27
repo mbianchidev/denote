@@ -23,6 +23,7 @@ import type {
   PluginCloneVaultResponse,
   PluginView,
   PluginToolStatus,
+  GitSigningStatus,
   PluginBundleMetadata,
   ProjectConfiguration,
   RecoveryCodesResult,
@@ -52,6 +53,12 @@ import type {
 import { systemPathForDisplay } from "./systemPath";
 
 export const api = {
+  getGitSigningStatus: (workspaceScope: string | null, projectId: string | null) =>
+    invoke<GitSigningStatus>("get_git_signing_status", { workspaceScope, projectId }),
+  saveGitSigningPassphrase: (credentialId: string, passphrase: string, workspaceScope: string | null, projectId: string | null) =>
+    invoke<GitSigningStatus>("save_git_signing_passphrase", { credentialId, passphrase, workspaceScope, projectId }),
+  deleteGitSigningPassphrase: (credentialId: string) =>
+    invoke<void>("delete_git_signing_passphrase", { credentialId }),
   getRuntimeInfo: () => invoke<RuntimeInfo>("get_runtime_info"),
   checkForUpdate: () => invoke<AvailableUpdate | null>("check_for_update"),
   downloadUpdate: (

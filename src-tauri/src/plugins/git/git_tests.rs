@@ -633,6 +633,40 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
 }
 
 #[test]
+fn signed_commits_pin_the_default_format_and_reject_unknown_formats() {
+    let request = PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Synthetic signed commit".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    };
+    let policy = GitSettingsPolicy {
+        use_system_settings: true,
+        signing: GitCommitSigningMode::Always,
+        signing_key: None,
+    };
+    let mut steps = plan_git_request(&request).expect("plan");
+    apply_system_git_settings(&mut steps, &request, &policy, &SystemGitSettings::default())
+        .expect("settings");
+    let GitPlanStep::Command { args, .. } = &steps[0] else {
+        panic!("expected command");
+    };
+    assert!(args.iter().any(|arg| arg == "gpg.format=openpgp"));
+    let mut steps = plan_git_request(&request).expect("plan");
+    assert!(
+        apply_system_git_settings(
+            &mut steps,
+            &request,
+            &policy,
+            &SystemGitSettings::from_pairs([("gpg.format", "unknown")]),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn applies_the_modern_openpgp_program_from_system_settings() {
     let request = PluginGitRequest::Commit {
         scope: PluginGitScope::Vault,

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.git",
   "name": "Git vault versioning",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
   "publisher": {
     "name": "Denote",
@@ -206,10 +206,10 @@
       },
       "gpgSigningKey": {
         "type": "string",
-        "title": "GPG signing key",
-        "description": "Optional GPG key ID, fingerprint, or identity for signed manual commits. The value is masked here. Your system GPG agent or pinentry asks for the passphrase; Denote never stores it.",
+        "title": "Signing key",
+        "description": "Optional OpenPGP fingerprint or SSH private-key path. Leave empty to use the selected Git's signing key and format. OpenPGP keys must already be imported into GnuPG; a key export path is not a fingerprint. Use Signing credentials below to detect the key and optionally save its passphrase in the OS credential store.",
         "default": "",
-        "sensitive": true
+        "sensitive": false
       },
       "autoCommitIntervalMinutes": {
         "type": "number",

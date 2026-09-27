@@ -146,7 +146,7 @@ describe("Git plugin activation", () => {
     expect(capabilities).not.toContain("workspace-write");
     expect(plugin.manifest.category).toBe("code");
     expect(plugin.manifest.compatibility.apiVersion).toBe(1);
-    expect(plugin.manifest.version).toBe("0.8.0");
+    expect(plugin.manifest.version).toBe("0.9.0");
     expect(plugin.manifest.compatibility.minimumDenoteVersion).toBe("0.7.1");
     expect(plugin.manifest.settings?.version).toBe(3);
     expect(

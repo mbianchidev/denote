@@ -647,27 +647,69 @@ to enable and configure it.
 **Use system Git settings** is on by default. Denote
 imports only bounded allowlisted identity, credential-helper, line-ending, and
 GPG values into its hardened Git process. Manual commits can follow the system
-signing default, always sign, or never sign. The optional GPG key field is masked;
-your system GPG agent or pinentry asks for the passphrase, which Denote never
-stores. Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`
-in Git's normal order, including a Gpg4win path on Windows. Automatic commits
-remain unsigned.
+signing default, always sign, or never sign. Leave **Signing key** empty to use
+Git configuration, or supply an imported OpenPGP fingerprint or SSH private-key
+path. Git plugin 0.9.0 uses the configured signing format and pins the resolved
+program, so Git for Windows cannot shadow Gpg4win with a different bundled GPG.
+Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`.
+Automatic commits remain unsigned.
 
-Before relying on a system GPG key, verify that your selected Git's system or
-global configuration points `user.signingKey` and `gpg.openpgp.program` (or the
-legacy `gpg.program`) at the intended secret key and GPG installation. This is
-especially important on Windows, where Git for Windows and Gpg4win can use
-different GPG executables and keyrings.
+Save plugin settings, then choose **Signing credentials → Detect signing key**.
+This reads the focused project's Git configuration, or the vault repository
+when no project is focused. It shows the actual format, program, key, and where
+the selection came from. Without a configured OpenPGP key, Denote looks for one
+usable key matching the commit identity; an ambiguous result asks you to choose
+a fingerprint instead of silently signing as someone else.
+
+To remember a key's password, enter it in **Save passphrase for this key** and
+choose **Save passphrase**. This is optional and separate from plugin settings:
+the password lives in macOS Keychain, Windows Credential Manager, or Linux
+Secret Service, not settings JSON, exports, logs, or plugin code. It survives
+restarts until **Delete saved passphrase** or **Clear credentials**. The field
+clears immediately after submission, including errors. Anyone with access to
+your unlocked operating-system account may be able to use saved credentials.
+Without a saved password, the system agent or pinentry remains available.
+
+**Find your signing key** provides platform-specific commands. Run these in your
+repository; a Git query with no output means that setting is absent:
+
+```bash
+git config --show-origin --get user.signingKey
+git config --show-origin --get gpg.format
+gpg --list-secret-keys --keyid-format=long
+ssh-add -L
+```
+
+On macOS/Linux, `command -v gpg` locates GPG and `ls -l ~/.ssh/*.pub` lists SSH
+public-key files. In Windows PowerShell, use
+`Get-Command gpg | Select-Object -ExpandProperty Source` and
+`Get-ChildItem "$env:USERPROFILE\.ssh" -Filter *.pub`.
+If GPG is not on PATH, invoke your installed executable directly, for example:
+
+```powershell
+& 'C:\Program Files (x86)\GnuPG\bin\gpg.exe' --list-secret-keys --keyid-format=long
+```
+
+Use the OpenPGP fingerprint shown beneath the secret key, not the path to an
+exported private-key file. For SSH file signing, use the matching private-key
+path without `.pub`; an SSH public key uses the agent instead. Never paste
+private-key contents or passwords into commands or bug reports.
+
+If Git reports **exit 128 / cannot sign the data**, the details now retain GPG's
+reason, such as a missing secret key or a bad passphrase. Check the detected
+program and keyring first, especially when both Git for Windows and Gpg4win are
+installed. Replace or delete a wrong saved password. Denote keeps your staged
+work and never retries without a signature.
 
 The manual commit form provides **Sign commit**, enabled by default for each
 submission, plus **Commit** and **Commit and push**. Turn signing off for an
 unsigned commit. If you leave the message blank, Denote uses
 `Denote manual commit {timestamp}` and resolves the placeholder to the current
 local time in `yyyy-mm-dd hh:mm` format. For an encrypted SSH signing key, enter its passphrase in the
-password-style field that appears while signing is selected. Denote uses it for
-that commit only and clears it immediately; the plugin never receives it. Leave
-it empty when your SSH agent already has the key, or when OpenPGP/X.509 signing
-uses the system GPG agent or pinentry.
+password-style field that appears while signing is selected. It also supports
+OpenPGP: Denote uses it once instead of a saved passphrase and clears it
+immediately; the plugin never receives it. Leave it empty to use a saved
+password or your system agent. X.509 always uses system pinentry.
 
 Plugin icons in the activity rail can be reordered by dragging. **Organize
 plugins** also provides keyboard move controls, optional group names, group

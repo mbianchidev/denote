@@ -3663,7 +3663,9 @@ export class GitRepositoryController {
         throw new GitFailure(
           request.operation,
           result.exitCode,
-          firstLine(result.stderr),
+          request.operation === "commit"
+            ? commitErrorDetail(result.stderr)
+            : firstLine(result.stderr),
         );
       }
       return result;
@@ -4240,6 +4242,11 @@ function firstLine(value: string): string {
   return characters.length > MAX_REPORTED_ERROR_LENGTH
     ? `${characters.slice(0, MAX_REPORTED_ERROR_LENGTH).join("")}…`
     : line;
+}
+
+function commitErrorDetail(value: string): string {
+  const lines = value.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.slice(0, 6).map(firstLine).join(" ");
 }
 
 function describe(error: unknown): string {

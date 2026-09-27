@@ -4383,6 +4383,36 @@ button.tag-chip:active,
   font-size: 11px;
 }
 
+.plugin-signing {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.plugin-signing p,
+.plugin-signing dl,
+.plugin-signing h6 {
+  margin: 0;
+}
+
+.plugin-signing dd {
+  margin: 3px 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.plugin-signing pre {
+  overflow-x: auto;
+  padding: 8px;
+  background: var(--code-bg);
+  font-size: 11px;
+}
+
+.plugin-signing [role="alert"] {
+  color: var(--danger);
+}
+
 .source-control__file-stats caption {
   padding-bottom: 6px;
   color: var(--text-primary);

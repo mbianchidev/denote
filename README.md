@@ -21,6 +21,8 @@ on your device.
 - Opt into isolated plugins for Git workflows and a local Unicode emoji picker.
 - Review staged and unstaged Git line counts, plus per-file change reports
   after pulling from a remote.
+- Sign commits with system OpenPGP or SSH keys and optionally save each key's
+  passphrase in the operating-system credential store.
 - Browse daily, created, and last-updated calendars with the optional Calendar
   plugin. Create Markdown daily notes without overwriting existing files.
 - Use persistent Light, Dark, or System appearance on macOS, Windows, and Linux.

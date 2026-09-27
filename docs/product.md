@@ -575,23 +575,27 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   path, version, validation result, prerequisite guidance, and a native path
   picker. Existing path-only settings migrate to explicit System or Custom
   modes without changing the executable previously used.
-- Manual commits can follow the system and user-global Git signing default,
-  always sign, or never sign. An optional masked GPG key setting selects the
-  key, and modern or legacy OpenPGP program settings keep Git's normal
-  precedence. The system GPG agent or pinentry owns any passphrase; Denote never
-  stores or receives it. While system Git settings are enabled, the settings
-  surface warns that `user.signingKey`, `gpg.openpgp.program`, and the legacy
-  `gpg.program` must identify the intended secret key and GPG installation,
-  especially on Windows where separate GPG installations can use different
-  keyrings. Automatic commits remain unsigned and unattended.
+- Manual commits can follow Git's signing default, always sign, or never sign.
+  An optional Signing key selects an imported OpenPGP fingerprint or SSH key
+  path; leaving it empty uses Git configuration or an unambiguous detected GPG
+  key. The selected program is resolved before Git for Windows changes PATH,
+  preserving Gpg4win and legacy/modern program precedence.
+- **Signing credentials** can explicitly detect the effective format, program,
+  and key, and optionally save/delete that key's passphrase in macOS Keychain,
+  Windows Credential Manager, or Linux Secret Service. Passphrases never enter
+  plugin code, settings exports, logs, or argument lists. Saving is opt-in and
+  stays until deleted or credential cleanup is requested. Key-location commands
+  cover Windows PowerShell and macOS/Linux. Without saved credentials, existing
+  system agents remain available. Automatic commits remain unsigned.
 - The manual commit form offers Commit and Commit and push. Its per-commit
   signing control defaults on and can explicitly request an unsigned commit.
   Leaving the message empty uses `Denote manual commit {timestamp}`, with the
   placeholder resolved in the current timezone as `yyyy-mm-dd hh:mm`.
   The password-style **Signing passphrase** appears only while signing is
-  requested, is used once for encrypted SSH signing keys, is cleared
-  immediately, and never enters the plugin worker. OpenPGP and X.509 continue
-  to use the system GPG agent or pinentry.
+  requested, overrides a saved OpenPGP/SSH passphrase once, is cleared
+  immediately, and never enters the plugin worker. X.509 continues to use
+  system pinentry. A signing failure preserves staged work, explains the GPG
+  cause behind exit 128, and never silently retries without a signature.
 - **Clone repo as vault** lives in the Switch vault dialog beside **Open another
   folder**. It asks you to choose an empty folder, clones into it, checks the result,
   and only then opens it as a vault, so an encrypted clone shows the usual

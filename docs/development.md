@@ -96,7 +96,15 @@ npx vitest run plugins/git/tests \
   src/plugins/gitRequests.test.ts src/plugins/runtimeMessages.test.ts \
   src/components/SourceControlPanel.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
+cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
 ```
+
+The signing integration tests require Git, GnuPG (including `gpgconf`), and
+OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary
+keyrings, exercise Denote's early-exit OpenPGP/SSH helpers, verify the resulting
+commits, and reject a wrong password without creating an unsigned commit.
+They never read, import, or modify a developer's own keys. Windows searches the
+ordinary Git for Windows and GnuPG installation directories as well as PATH.
 
 Bundled tool preparation accepts an explicit release target:
 

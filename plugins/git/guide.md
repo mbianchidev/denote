@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Version 0.8.0 requires Denote 0.7.1 or newer.
+Version 0.9.0 requires Denote 0.7.1 or newer.
 
 This plugin keeps a Git history of your vault and configured projects without
 leaving Denote. It adds one source control view that lists every safe detected
@@ -90,9 +90,8 @@ Open the Git view from the activity rail, select a repository under
   `Denote manual commit {timestamp}` and resolves the placeholder to local
   `yyyy-mm-dd hh:mm` time. The
   per-commit **Sign commit** control is enabled by default and can be turned off.
-  Its password field is shown only while signing is requested, applies only to
-  encrypted SSH signing keys, is consumed once, and is never stored or sent to
-  this plugin.
+  Its password field is shown only while signing is requested, overrides a
+  saved OpenPGP or SSH passphrase once, and is never stored or sent to this plugin.
 - The current branch opens one inline, searchable local-and-remote list. Choose a
   local branch to switch, choose a remote branch to create its local tracking
   branch, or type a missing name to create and switch from any listed start
@@ -459,11 +458,19 @@ than done quietly; **Discard result** puts the merge Denote derived back.
   rather than in the Git view. No remote token or password is stored in plugin
   settings or plugin storage.
 - **Commit signing** follows the system default, always signs manual commits, or
-  never signs them. **GPG signing key** is an optional masked key ID,
-  fingerprint, or identity. The system GPG agent or pinentry owns the
-  passphrase; Denote never stores it. Automatic commits are always unsigned.
-  SSH-format signing can instead use the one-shot password field beside the
-  manual commit message.
+  never signs them. **Signing key** is an optional OpenPGP fingerprint or SSH
+  private-key path. Leave it empty to use Git's configured key and format.
+  **Signing credentials → Detect signing key** checks the selected Git and
+  focused project/vault, including safe local key settings. It resolves the
+  signing program before Git for Windows can shadow it with bundled GPG.
+  Automatic commits remain unsigned.
+- **Save passphrase** is optional and stores the selected key's password in
+  macOS Keychain, Windows Credential Manager, or Linux Secret Service. The
+  password never enters plugin settings, exports, plugin code, or command
+  arguments. It remains until **Delete saved passphrase** or **Clear
+  credentials**. A one-shot password beside the commit message overrides it.
+  System agents still work without a saved password; X.509 uses system pinentry.
+  Access to your unlocked OS account may allow use of saved credentials.
 - **Pull strategy** is `Fast-forward only`, `Merge`, or `Rebase`. Fast-forward
   only never creates a merge commit and never rewrites history, so it is the
   default.
@@ -505,6 +512,26 @@ restores them.
 
 ## Troubleshooting
 
+- **Exit 128 / cannot sign the data** now retains the GPG reason. Use **Detect
+  signing key** and verify the format, executable, and keyring. On Windows,
+  Gpg4win and Git's bundled GPG may have different keys; an explicit
+  `gpg.openpgp.program` or legacy `gpg.program` is respected. Replace or delete
+  a wrong saved password. Denote never retries an unsigned commit.
+- **Locate an OpenPGP key** with `gpg --list-secret-keys --keyid-format=long`.
+  Use the fingerprint below the key, not the path of an exported key file.
+  Run `Get-Command gpg | Select-Object -ExpandProperty Source` in Windows
+  PowerShell, or `command -v gpg` on macOS/Linux, to find the program. A quoted
+  executable path in PowerShell needs a leading `&`.
+- **Locate the configured signing identity** with
+  `git config --show-origin --get user.signingKey` and
+  `git config --show-origin --get gpg.format` from your repository. No output
+  means no setting. `ssh-add -L` lists SSH agent public keys. To locate SSH
+  public-key files, use `Get-ChildItem "$env:USERPROFILE\\.ssh" -Filter *.pub`
+  in PowerShell or `ls -l ~/.ssh/*.pub` on macOS/Linux. For file-based SSH
+  signing, set the matching private-key path, not its `.pub` path.
+- **A saved password disappeared from the selected key** can mean the key,
+  signing program, keyring context, or SSH file bytes changed. Detect again
+  and save for the new identity; use credential cleanup to remove old entries.
 - **"refresh required" beside the repository name** appears only until the
   latest read-only open refresh finishes. Use Refresh to retry a failed read.
 - **An automatic push was skipped** means the commit was created locally but

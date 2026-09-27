@@ -439,6 +439,81 @@ pub fn get_plugin_tool_statuses(
 }
 
 #[tauri::command]
+pub async fn get_git_signing_status(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    workspace_scope: Option<String>,
+    project_id: Option<String>,
+) -> AppResult<super::git::signing::GitSigningStatus> {
+    let manager = state.inner().clone();
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        with_signing_repository(
+            &app_state,
+            workspace_scope.as_deref(),
+            project_id.as_deref(),
+            |root| manager.git_signing_status(root),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn save_git_signing_passphrase(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    credential_id: String,
+    passphrase: String,
+    workspace_scope: Option<String>,
+    project_id: Option<String>,
+) -> AppResult<super::git::signing::GitSigningStatus> {
+    let manager = state.inner().clone();
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        with_signing_repository(
+            &app_state,
+            workspace_scope.as_deref(),
+            project_id.as_deref(),
+            |root| manager.save_git_signing_passphrase(&credential_id, &passphrase, root),
+        )
+    })
+    .await
+}
+
+fn with_signing_repository<T>(
+    state: &AppState,
+    workspace_scope: Option<&str>,
+    project_id: Option<&str>,
+    run: impl FnOnce(Option<&Path>) -> AppResult<T>,
+) -> AppResult<T> {
+    let Some(scope) = workspace_scope else {
+        if project_id.is_some() {
+            return Err(AppError::Plugin(
+                "Signing key detection needs an active vault for project scope.".to_string(),
+            ));
+        }
+        return run(None);
+    };
+    let _access = state.read_vault_access()?;
+    let vault_root = active_vault_for_scope(state, scope)?;
+    let root = match project_id {
+        Some(id) => vault::resolve_project_root(&state.db_path, &vault_root.to_string_lossy(), id)?,
+        None => vault_root,
+    };
+    run(Some(&root))
+}
+
+#[tauri::command]
+pub async fn delete_git_signing_passphrase(
+    state: State<'_, PluginManager>,
+    credential_id: String,
+) -> AppResult<()> {
+    let manager = state.inner().clone();
+    run_blocking(move || manager.delete_git_signing_passphrase(&credential_id)).await
+}
+
+#[tauri::command]
 pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Option<String>> {
     let kind = match tool.as_str() {
         "git" => ToolKind::Git,

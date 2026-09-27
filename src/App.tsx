@@ -10902,6 +10902,21 @@ function App() {
         onUpdatePluginSettings={pluginController.updateSettings}
         onImportPluginSettings={pluginController.importSettings}
         onInspectPluginTools={api.getPluginToolStatuses}
+        gitSigningActions={{
+          contextKey: `${workspace?.vaultPath ?? ""}:${activeProject?.id ?? ""}`,
+          onInspect: () => api.getGitSigningStatus(workspace?.vaultPath ?? null, activeProject?.id ?? null),
+          onSave: async (credentialId, passphrase) => {
+            const status = await api.saveGitSigningPassphrase(
+              credentialId, passphrase, workspace?.vaultPath ?? null, activeProject?.id ?? null,
+            );
+            void pluginController.refresh().catch(showError);
+            return status;
+          },
+          onDelete: async (credentialId) => {
+            await api.deleteGitSigningPassphrase(credentialId);
+            void pluginController.refresh().catch(showError);
+          },
+        }}
         onPickPluginExecutable={api.choosePluginExecutable}
         onPluginError={showError}
         onClose={() => setEditorSettingsOpen(false)}

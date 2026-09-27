@@ -115,7 +115,7 @@ describe("PluginSettingsPanel", () => {
     ).not.toBeNull();
   });
 
-  it("warns when the Git plugin uses system signing configuration", async () => {
+  it("offers host-owned signing discovery and cross-platform key guidance", async () => {
     const user = userEvent.setup();
     const gitCatalog = {
       ...catalog,
@@ -144,6 +144,11 @@ describe("PluginSettingsPanel", () => {
     render(
       <PluginSettingsPanel
         {...props({
+          gitSigningActions: {
+            onInspect: vi.fn(),
+            onSave: vi.fn(),
+            onDelete: vi.fn(),
+          },
           plugins: [
             plugin({
               catalog: gitCatalog,
@@ -160,10 +165,10 @@ describe("PluginSettingsPanel", () => {
     await expandPlugin(user, "Git vault versioning");
 
     expect(
-      screen.getByText("Check your system Git signing configuration"),
+      screen.getByText("Signing credentials"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/user\.signingKey.*gpg\.openpgp\.program.*gpg\.program/i),
+      screen.getByRole("button", { name: "Detect signing key" }),
     ).toBeInTheDocument();
   });
 

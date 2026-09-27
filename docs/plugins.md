@@ -579,13 +579,22 @@ against the build-anchored integrity manifest. The archive itself is downloaded
 only when Bundled mode is selected and a Git or GitHub-specific operation first
 needs it. System, Custom, and Disabled never use the downloader.
 
-Host-rendered source control may attach an SSH signing passphrase to a manual
+Host-rendered source control may attach an OpenPGP or SSH passphrase to a manual
 commit action as host-only metadata. It is not part of
 `PluginSourceControlAction`, `PluginGitRequest`, any worker message, settings,
 storage, or logs. The native host consumes it through a private one-shot
-`SSH_ASKPASS` file only when the fixed commit plan is signed. The host also
+`SSH_ASKPASS` channel or GPG loopback stdin bridge only when the fixed commit plan is signed. The host also
 consumes the per-commit signing override on that first commit request, so a
 reusable action lease cannot sign a second commit with either value.
+
+Host Settings can separately persist a passphrase for a detected key in the OS
+credential store. The `host-git-signing.` namespace is reserved and unavailable
+through plugin secret APIs; no new plugin capability exposes saved passwords.
+The existing cleanup journal tracks identifiers only, and **Clear credentials**
+removes saved signing entries. A saved entry is bound to signing format, program,
+and key identity, including SSH file content. Host save/delete commands are
+serialized with enable/disable operations, and stale key selections cannot save
+under a different identity.
 
 Beyond `run` and `cancel`, the Git capability exposes three host-owned
 operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,
@@ -706,8 +715,8 @@ configuration and then its user-global configuration, preserving Git's
 precedence and credential-helper reset semantics, and reapplies only bounded
 allowlisted identity, credential-helper, line-ending, and GPG signing values
 after those hardening pins. Credential helpers are restored only for `system`
-authentication, and GPG programs only for signed manual commits; passphrases
-remain in system pinentry. The host still rejects dangerous repository-local
+authentication, and GPG programs only for signed manual commits. System pinentry
+remains available unless a saved or one-shot passphrase is supplied. The host still rejects dangerous repository-local
 configuration before running. Operations use process groups, suppress console
 windows on Windows, bound output at 8 MiB and fail rather than truncate, enforce
 a ten minute hard timeout, and use a native per-plugin cancellation registry
@@ -719,9 +728,12 @@ and quotes them back in a hunk request.
 For OpenPGP signing, both the modern `gpg.openpgp.program` setting and the
 legacy `gpg.program` alias retain Git's system-to-global order, so a configured
 Windows Gpg4win installation is not replaced by Git for Windows' bundled GPG.
-When system Git settings are active, the host settings surface warns users to
+When system Git settings are active, the host settings surface helps users to
 verify those program values and `user.signingKey` before relying on a system
 GPG key, because separate Windows GPG installations may use separate keyrings.
+The host resolves and pins the executable before portable Git adjusts PATH,
+detects an unambiguous OpenPGP key when no override exists, and offers the
+effective key plus cross-platform discovery commands in **Signing credentials**.
 
 ### Remote authentication
 
