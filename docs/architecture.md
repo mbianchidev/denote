@@ -1593,7 +1593,9 @@ Core Markdown feature checks first look for the syntax they need. Ordinary
 prose, inline links, and reference links without angle syntax do not trigger a
 host-side full-document parse on each keystroke. Reference snapshots are lazy:
 importing reference nodes or explicitly requesting a source snapshot computes
-the latest document, rather than reparsing every edit. Syntax that needs
+the latest document, rather than reparsing every edit. An edit drops the previous
+snapshot immediately, so deleting a large document does not retain its old tree
+while waiting for another snapshot request. Syntax that needs
 validation still uses the complete parser and existing safety rules.
 Each analysis or serialization operation shares parsed trees for identical
 source variants, including masked HTML and restored TOCs. Those caches live only

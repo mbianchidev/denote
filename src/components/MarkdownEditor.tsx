@@ -376,17 +376,23 @@ export const MarkdownEditor = forwardRef<
     }, [markdown]);
   const editorSourceRef = useRef(editorSource);
   editorSourceRef.current = editorSource;
-  const referenceSnapshotRef = useMemo(() => {
-    let snapshot: ReferenceMarkdownSnapshot | null = null;
-    return {
+  const referenceSnapshotCache = useRef<ReferenceMarkdownSnapshot | null>(null);
+  if (referenceSnapshotCache.current?.source !== editorSource) {
+    referenceSnapshotCache.current = null;
+  }
+  const referenceSnapshotRef = useMemo(
+    () => ({
       get current(): ReferenceMarkdownSnapshot {
-        if (snapshot?.source !== editorSourceRef.current) {
-          snapshot = captureReferenceMarkdown(editorSourceRef.current);
+        if (!referenceSnapshotCache.current) {
+          referenceSnapshotCache.current = captureReferenceMarkdown(
+            editorSourceRef.current,
+          );
         }
-        return snapshot;
+        return referenceSnapshotCache.current;
       },
-    };
-  }, []);
+    }),
+    [],
+  );
   const shellRef = useRef<HTMLDivElement>(null);
   const emojiRef = useRef(emoji);
   const emojiSourceRef = useRef(markdown);

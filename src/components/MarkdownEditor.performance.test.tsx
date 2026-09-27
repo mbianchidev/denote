@@ -10,7 +10,6 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
-import type { MarkdownViewMode } from "../lib/markdownView";
 import { MarkdownEditor } from "./MarkdownEditor";
 
 vi.mock("mdast-util-from-markdown", async (importOriginal) => {
@@ -19,13 +18,24 @@ vi.mock("mdast-util-from-markdown", async (importOriginal) => {
 });
 
 describe("MarkdownEditor typing work", () => {
-  it.each<MarkdownViewMode>(["rich-text", "source"])(
-    "does not reparse a linked document for each %s keystroke",
-    async (mode) => {
+  it.each(
+    (["rich-text", "source"] as const).flatMap((mode) =>
+      (["inline", "reference"] as const).map((kind) => ({ mode, kind })),
+    ),
+  )(
+    "does not reparse $kind links for each $mode keystroke",
+    async ({ mode, kind }) => {
       const changed = vi.fn();
+      const link = kind === "inline"
+        ? "[the guide](https://example.test/guide)"
+        : "[the guide][guide]";
+      const definitions = kind === "reference"
+        ? "[guide]: https://example.test/guide\n\n"
+        : "";
       const source =
         "# Synthetic document\n\n" +
-        "Read [the guide](https://example.test/guide) and keep writing.\n\n".repeat(100) +
+        `Read ${link} and keep writing.\n\n`.repeat(100) +
+        definitions +
         "Edit here";
       function Editor() {
         const [markdown, setMarkdown] = useState(source);
@@ -87,11 +97,11 @@ describe("MarkdownEditor typing work", () => {
 
       await type();
       await waitFor(() => expect(changed).toHaveBeenCalled());
+      await type();
 
-      expect(changed.mock.lastCall?.[0]).toContain("Edit herex");
-      expect(changed.mock.lastCall?.[0]).toContain(
-        "[the guide](https://example.test/guide)",
-      );
+      expect(changed.mock.lastCall?.[0]).toContain("Edit herexx");
+      expect(changed.mock.lastCall?.[0]).toContain(link);
+      if (definitions) expect(changed.mock.lastCall?.[0]).toContain(definitions);
       expect(fromMarkdown).not.toHaveBeenCalled();
     },
   );
