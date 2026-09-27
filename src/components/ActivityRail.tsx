@@ -13,6 +13,7 @@ import {
   GitBranch,
   GripVertical,
   Info,
+  ListChecks,
   Moon,
   Network,
   Plug,
@@ -27,6 +28,7 @@ import type {
   PluginCalendarContribution,
   PluginNoteGraphContribution,
   PluginSourceControlContribution,
+  PluginTaskListContribution,
 } from "../plugins/workerRuntime";
 
 interface ActivityRailProps {
@@ -43,9 +45,14 @@ interface ActivityRailProps {
     pluginId: string;
     providerId: string;
   } | null;
+  activeTaskList: {
+    pluginId: string;
+    providerId: string;
+  } | null;
   pluginViews: Array<{ id: string; title: string }>;
   sourceControlProviders: PluginSourceControlContribution[];
   noteGraphs: PluginNoteGraphContribution[];
+  taskLists: PluginTaskListContribution[];
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
   onPluginViewChange: (viewId: string) => void;
@@ -54,6 +61,7 @@ interface ActivityRailProps {
     providerId: string,
   ) => void;
   onNoteGraphChange: (pluginId: string, providerId: string) => void;
+  onTaskListChange: (pluginId: string, providerId: string) => void;
   onAbout: () => void;
   onThemeToggle: () => void;
 }
@@ -69,7 +77,7 @@ interface PluginRailItem {
   key: string;
   title: string;
   selected: boolean;
-  kind: "view" | "source-control" | "note-graph" | "calendar";
+  kind: "view" | "source-control" | "note-graph" | "task-list" | "calendar";
   onSelect: () => void;
 }
 
@@ -96,14 +104,17 @@ function ActivityRailComponent({
   activePluginView,
   activeSourceControlProvider,
   activeNoteGraph,
+  activeTaskList,
   pluginViews,
   sourceControlProviders,
   noteGraphs,
+  taskLists,
   theme,
   onViewChange,
   onPluginViewChange,
   onSourceControlProviderChange,
   onNoteGraphChange,
+  onTaskListChange,
   onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
@@ -155,6 +166,15 @@ function ActivityRailComponent({
       kind: "note-graph" as const,
       onSelect: () => onNoteGraphChange(provider.pluginId, provider.id),
     }));
+    const taskItems = taskLists.map((provider) => ({
+      key: `tasks:${provider.pluginId}:${provider.id}`,
+      title: provider.title,
+      selected:
+        activeTaskList?.pluginId === provider.pluginId &&
+        activeTaskList.providerId === provider.id,
+      kind: "task-list" as const,
+      onSelect: () => onTaskListChange(provider.pluginId, provider.id),
+    }));
     const calendarItems = calendars.map((provider) => ({
       key: `calendar:${provider.pluginId}:${provider.id}`,
       title: provider.title,
@@ -162,7 +182,13 @@ function ActivityRailComponent({
       kind: "calendar" as const,
       onSelect: () => onCalendarChange(provider.pluginId, provider.id),
     }));
-    const available = [...sidebarItems, ...sourceItems, ...graphItems, ...calendarItems];
+    const available = [
+      ...sidebarItems,
+      ...sourceItems,
+      ...graphItems,
+      ...taskItems,
+      ...calendarItems,
+    ];
     const rank = new Map(
       preferences.order.map((key, index) => [key, index] as const),
     );
@@ -178,9 +204,12 @@ function ActivityRailComponent({
     onCalendarChange,
     activePluginView,
     activeNoteGraph,
+    activeTaskList,
     activeSourceControlProvider,
     noteGraphs,
+    taskLists,
     onNoteGraphChange,
+    onTaskListChange,
     onPluginViewChange,
     onSourceControlProviderChange,
     pluginViews,
@@ -234,6 +263,7 @@ function ActivityRailComponent({
               activePluginView === null &&
               activeSourceControlProvider === null &&
               activeNoteGraph === null &&
+              activeTaskList === null &&
               activeCalendar === null &&
               activeView === id
             }
@@ -304,6 +334,8 @@ function ActivityRailComponent({
                         <GitBranch aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "note-graph" ? (
                         <Network aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "task-list" ? (
+                        <ListChecks aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "calendar" ? (
                         <CalendarDays aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : (

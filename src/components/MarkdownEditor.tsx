@@ -117,6 +117,7 @@ import {
   normalizeBareSpaceLinkDestinations,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
+  restoreRichTextLiteralPunctuation,
   restoreMarkdownBoundaryWhitespace,
   restoreThematicBreaks,
 } from "../lib/markdown";
@@ -140,6 +141,7 @@ import { createEmojiSourceExtension, createEmojiSourceHistoryExtension } from ".
 import { EmojiRichContext, emojiRichPlugin, type EmojiRichBinding } from "../lib/emojiRich";
 import {
   denotePlainTextPastePlugin,
+  denoteTaskListShortcutPlugin,
   denoteThematicBreakShortcutPlugin,
 } from "../lib/richTextInputPlugin";
 import { EmojiToolbarActions } from "./EmojiPicker";
@@ -557,6 +559,7 @@ export const MarkdownEditor = forwardRef<
           thematicBreaksRef.current?.delimiters.splice(index, 0, "---");
         },
       }),
+      denoteTaskListShortcutPlugin(),
       denoteHashtagPlugin(),
       emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
@@ -1020,10 +1023,17 @@ export const MarkdownEditor = forwardRef<
                   thematicBreaksRef.current =
                     captureThematicBreaks(restoredMarkdown);
                 }
-                const markerUpdate = applyTocMarkerViewChange(
+                const normalizedMarkdown =
                   activeViewModeRef.current === "rich-text"
-                    ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
-                    : restoredMarkdown,
+                    ? restoreRichTextLiteralPunctuation(
+                        restoreStandardMarkdownAngles(
+                          restoredMarkdown,
+                          markdown,
+                        ),
+                      )
+                    : restoredMarkdown;
+                const markerUpdate = applyTocMarkerViewChange(
+                  normalizedMarkdown,
                   tocMarkersRef.current!,
                   activeViewModeRef.current,
                 );

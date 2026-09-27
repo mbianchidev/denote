@@ -6,6 +6,11 @@ import {
   $isHorizontalRuleNode,
 } from "@lexical/react/LexicalHorizontalRuleNode";
 import {
+  $createListNode,
+  $isListItemNode,
+  $isListNode,
+} from "@lexical/list";
+import {
   addComposerChild$,
   addNestedEditorChild$,
   addTableCellEditorChild$,
@@ -556,6 +561,95 @@ function DenoteThematicBreakShortcut({
   return null;
 }
 
+function DenoteTaskListShortcut() {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(
+    () =>
+      editor.registerCommand(
+        KEY_DOWN_COMMAND,
+        (event) => {
+          if (
+            event.key !== " " ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.altKey ||
+            event.isComposing
+          ) {
+            return false;
+          }
+          const selection = $getSelection();
+          if (
+            !$isRangeSelection(selection) ||
+            !selection.isCollapsed() ||
+            selection.anchor.type !== "text"
+          ) {
+            return false;
+          }
+          const anchor = selection.anchor.getNode();
+          const listItem = anchor.getParent();
+          const list = listItem?.getParent();
+          const match = /^\[([ xX])\]$/u.exec(
+            listItem?.getTextContent() ?? "",
+          );
+          if (
+            !match ||
+            !$isTextNode(anchor) ||
+            !$isListItemNode(listItem) ||
+            !$isListNode(list) ||
+            list.getListType() !== "bullet" ||
+            !listItem.getFirstChild()?.is(anchor) ||
+            listItem.getChildrenSize() !== 1 ||
+            anchor.getFormat() !== 0 ||
+            anchor.getStyle() !== "" ||
+            anchor.getMode() !== "normal" ||
+            selection.anchor.offset !== anchor.getTextContentSize()
+          ) {
+            return false;
+          }
+          event.preventDefault();
+          const listItemKey = listItem.getKey();
+          const checked = match[1].toLocaleLowerCase() === "x";
+          queueMicrotask(() => {
+            editor.update(
+              () => {
+                const currentItem = $getNodeByKey(listItemKey);
+                const currentList = currentItem?.getParent();
+                if (
+                  !$isListItemNode(currentItem) ||
+                  !$isListNode(currentList) ||
+                  currentList.getListType() !== "bullet" ||
+                  !/^\[[ xX]\]$/u.test(currentItem.getTextContent())
+                ) {
+                  return;
+                }
+                const currentText = currentItem.getFirstChild();
+                if (!$isTextNode(currentText)) {
+                  return;
+                }
+                const checkList = $createListNode(
+                  "check",
+                  currentList.getStart(),
+                );
+                checkList.append(...currentList.getChildren());
+                currentList.replace(checkList);
+                currentItem.setChecked(checked);
+                currentText.setTextContent("");
+                currentText.select();
+              },
+              { discrete: true },
+            );
+          });
+          return true;
+        },
+        COMMAND_PRIORITY_CRITICAL,
+      ),
+    [editor],
+  );
+
+  return null;
+}
+
 function countHorizontalRules(node: LexicalNode): number {
   if ($isHorizontalRuleNode(node)) {
     return 1;
@@ -619,5 +713,14 @@ export const denoteThematicBreakShortcutPlugin = realmPlugin<{
     realm.pub(addComposerChild$, () => (
       <DenoteThematicBreakShortcut onInsert={onInsert} />
     ));
+  },
+});
+
+export const denoteTaskListShortcutPlugin = realmPlugin({
+  init(realm) {
+    realm.pubIn({
+      [addComposerChild$]: DenoteTaskListShortcut,
+      [addNestedEditorChild$]: DenoteTaskListShortcut,
+    });
   },
 });

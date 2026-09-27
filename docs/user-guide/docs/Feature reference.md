@@ -127,6 +127,14 @@ more detail and examples.
 - Keep the previous ten changed revisions.
 - Render headings, emphasis, lists, task lists, quotes, tables, thematic breaks,
   frontmatter, links, images, code, and callouts.
+- In Rich mode, typing `- [ ] ` or `- [x] ` creates an unchecked or checked
+  task-list item immediately. Denote keeps standard task Markdown instead of
+  escaping the brackets as ordinary bullet text, whether or not Advanced task
+  lists is enabled.
+- Rich edits preserve safe literal `~`, `&`, and comparison-operator sequences
+  without introducing backslashes or numeric character references. Denote
+  retains an escape only when removing it would change Markdown meaning, such
+  as a real line-leading blockquote.
 - Treat angle-bracket comparisons, hearts, and placeholders in `.md` as standard
   Markdown text; keep `.mdx` and `.jsx` as non-executing JSX-highlighted source.
 - Render canonical `<!-- toc -->` / `<!-- /toc -->` link lists as tables of

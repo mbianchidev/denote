@@ -11,6 +11,7 @@ import type {
   PluginCalendarContribution,
   PluginKanbanBoardContribution,
   PluginNoteGraphContribution,
+  PluginTaskListContribution,
 } from "./workerRuntime";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
@@ -25,6 +26,7 @@ interface MockRuntimeInstance {
   onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void;
   onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void;
   onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void;
+  onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void;
   queryCalendar: ReturnType<typeof vi.fn>;
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
@@ -39,6 +41,9 @@ interface MockRuntimeInstance {
   editKanbanBoard: ReturnType<typeof vi.fn>;
   indexNoteGraph: ReturnType<typeof vi.fn>;
   queryNoteGraph: ReturnType<typeof vi.fn>;
+  indexTaskList: ReturnType<typeof vi.fn>;
+  queryTaskList: ReturnType<typeof vi.fn>;
+  toggleTaskListItem: ReturnType<typeof vi.fn>;
   broadcastNoteEvent: ReturnType<typeof vi.fn>;
   setProjectContext: ReturnType<typeof vi.fn>;
   setWorkspaceIdentity: ReturnType<typeof vi.fn>;
@@ -129,6 +134,19 @@ vi.mock("./workerRuntime", () => {
       truncated: false,
       notices: [],
     }));
+    indexTaskList = vi.fn(async () => {});
+    queryTaskList = vi.fn(async () => ({
+      tasks: [],
+      totalTasks: 0,
+      matchingTasks: 0,
+      availableTags: [],
+      truncated: false,
+      notices: [],
+    }));
+    toggleTaskListItem = vi.fn(async () => ({
+      status: "applied" as const,
+      source: "- [x] Synthetic",
+    }));
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
@@ -150,6 +168,7 @@ vi.mock("./workerRuntime", () => {
       public onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void,
       public onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void,
       public onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void,
+      public onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -270,6 +289,7 @@ describe("usePlugins", () => {
   it.each([
     "structured-viewer",
     "kanban-board",
+    "task-list",
     "note-graph",
     "calendar",
     "diagram-renderer",
@@ -302,7 +322,11 @@ describe("usePlugins", () => {
       currentContentAvailable: false,
     });
     await waitFor(() => {
-      if (capability === "note-graph" || capability === "calendar") {
+      if (
+        capability === "note-graph" ||
+        capability === "calendar" ||
+        capability === "task-list"
+      ) {
         expect(runtime.forceStop).toHaveBeenCalledWith(pluginId);
       } else {
         expect(runtime.stop).toHaveBeenCalledWith(pluginId);
@@ -311,7 +335,7 @@ describe("usePlugins", () => {
     },
   );
 
-  it.each(["note-graph", "calendar"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
+  it.each(["note-graph", "calendar", "task-list"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
     const enabled = makePlugin({
       enabled: true,
       approvedPermissions: [{ capability }],
@@ -502,6 +526,74 @@ describe("usePlugins", () => {
       pluginId,
       graph.id,
       query,
+    );
+  });
+
+  it("publishes task list contributions and forwards index, query, and toggle requests", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const runtime = runtimeInstances[0];
+    const taskList: PluginTaskListContribution = {
+      pluginId,
+      id: `${pluginId}.tasks`,
+      title: "Advanced task lists",
+    };
+    await act(async () => runtime.onTaskListsChanged?.([taskList]));
+    expect(result.current.taskLists).toEqual([taskList]);
+    const indexRequest = {
+      mode: "replace" as const,
+      documents: [
+        {
+          path: "Plan.md",
+          title: "Plan",
+          source: "- [ ] Synthetic",
+        },
+      ],
+      removedPaths: [],
+      skippedCount: 0,
+      truncated: false,
+    };
+    await result.current.indexTaskList(pluginId, taskList.id, indexRequest);
+    expect(runtime.indexTaskList).toHaveBeenCalledWith(
+      pluginId,
+      taskList.id,
+      indexRequest,
+    );
+    const query = {
+      status: "open" as const,
+      tag: null,
+      path: "",
+      due: "all" as const,
+      today: "2026-09-27",
+      timeZone: "UTC",
+    };
+    await result.current.queryTaskList(pluginId, taskList.id, query);
+    expect(runtime.queryTaskList).toHaveBeenCalledWith(
+      pluginId,
+      taskList.id,
+      query,
+    );
+    const toggleRequest = {
+      path: "Plan.md",
+      source: "- [ ] Synthetic",
+      locator: {
+        path: "Plan.md",
+        sourceLine: "- [ ] Synthetic",
+        headingPath: [],
+        occurrence: 1,
+        matchCount: 1,
+        checked: false,
+      },
+      checked: true,
+    };
+    await result.current.toggleTaskListItem(
+      pluginId,
+      taskList.id,
+      toggleRequest,
+    );
+    expect(runtime.toggleTaskListItem).toHaveBeenCalledWith(
+      pluginId,
+      taskList.id,
+      toggleRequest,
     );
   });
 

@@ -21,6 +21,11 @@ import type {
   PluginSourceControlAction,
   PluginStructuredViewerParseRequest,
   PluginStructuredViewModel,
+  PluginTaskListIndexRequest,
+  PluginTaskListModel,
+  PluginTaskListQuery,
+  PluginTaskListToggleRequest,
+  PluginTaskListToggleResult,
 } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
@@ -39,6 +44,7 @@ import {
   type PluginNoteGraphContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
+  type PluginTaskListContribution,
 } from "./workerRuntime";
 import { emojiPreferenceSettings } from "./emojiPickers";
 import {
@@ -48,6 +54,7 @@ import {
 
 const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 const EMPTY_CALENDARS: PluginCalendarContribution[] = [];
+const EMPTY_TASK_LISTS: PluginTaskListContribution[] = [];
 
 /**
  * Compares two permission requests for exact equality, independent of key
@@ -90,6 +97,7 @@ function permissionRequestEqual(
     case "emoji-picker":
     case "structured-viewer":
     case "kanban-board":
+    case "task-list":
     case "note-graph":
     case "calendar":
     case "diagram-renderer":
@@ -150,6 +158,22 @@ export interface PluginController {
   structuredViewers: PluginStructuredViewerContribution[];
   kanbanBoards: PluginKanbanBoardContribution[];
   noteGraphs: PluginNoteGraphContribution[];
+  taskLists: PluginTaskListContribution[];
+  indexTaskList: (
+    pluginId: string,
+    providerId: string,
+    request: PluginTaskListIndexRequest,
+  ) => Promise<void>;
+  queryTaskList: (
+    pluginId: string,
+    providerId: string,
+    request: PluginTaskListQuery,
+  ) => Promise<PluginTaskListModel>;
+  toggleTaskListItem: (
+    pluginId: string,
+    providerId: string,
+    request: PluginTaskListToggleRequest,
+  ) => Promise<PluginTaskListToggleResult>;
   calendars: PluginCalendarContribution[];
   queryCalendar: (
     pluginId: string,
@@ -276,6 +300,15 @@ export function usePlugins(
     PluginKanbanBoardContribution[]
   >([]);
   const [noteGraphs, setNoteGraphs] = useState<PluginNoteGraphContribution[]>([]);
+  const [taskListState, setTaskListState] = useState<{
+    workspaceIdentity: string | null;
+    contributions: PluginTaskListContribution[];
+  }>({ workspaceIdentity, contributions: [] });
+  const taskLists =
+    contentAvailable &&
+    taskListState.workspaceIdentity === workspaceIdentity
+      ? taskListState.contributions
+      : EMPTY_TASK_LISTS;
   const [calendarState, setCalendarState] = useState<{
     workspaceIdentity: string | null;
     contributions: PluginCalendarContribution[];
@@ -363,6 +396,10 @@ export function usePlugins(
       setKanbanBoards,
       setNoteGraphs,
       (contributions) => setCalendarState({
+        workspaceIdentity: workspaceIdentityRef.current,
+        contributions,
+      }),
+      (contributions) => setTaskListState({
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
       }),
@@ -462,7 +499,10 @@ export function usePlugins(
         const pluginId = plugin.catalog.manifest.id;
         try {
           const retainsWorkspaceContent = plugin.approvedPermissions.some(
-            (permission) => ["note-graph", "calendar"].includes(permission.capability),
+            (permission) =>
+              ["note-graph", "calendar", "task-list"].includes(
+                permission.capability,
+              ),
           );
           const resetForWorkspace =
             workspaceChanged && retainsWorkspaceContent;
@@ -1062,6 +1102,75 @@ export function usePlugins(
     [],
   );
 
+  const indexTaskList = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginTaskListIndexRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      if (
+        !contentAvailableRef.current ||
+        contentRuntimeWorkspaceRef.current !== workspaceIdentityRef.current
+      ) {
+        throw new Error(
+          "Task list content is unavailable after a vault switch or lock.",
+        );
+      }
+      return runtime.indexTaskList(pluginId, providerId, request);
+    },
+    [],
+  );
+
+  const queryTaskList = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginTaskListQuery,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      if (
+        !contentAvailableRef.current ||
+        contentRuntimeWorkspaceRef.current !== workspaceIdentityRef.current
+      ) {
+        throw new Error(
+          "Task list content is unavailable after a vault switch or lock.",
+        );
+      }
+      return runtime.queryTaskList(pluginId, providerId, request);
+    },
+    [],
+  );
+
+  const toggleTaskListItem = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginTaskListToggleRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      if (
+        !contentAvailableRef.current ||
+        contentRuntimeWorkspaceRef.current !== workspaceIdentityRef.current
+      ) {
+        throw new Error(
+          "Task list content is unavailable after a vault switch or lock.",
+        );
+      }
+      return runtime.toggleTaskListItem(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const queryCalendar = useCallback(
     async (pluginId: string, providerId: string, request: PluginCalendarRequest) => {
       const runtime = runtimeRef.current;
@@ -1121,6 +1230,10 @@ export function usePlugins(
     structuredViewers,
     kanbanBoards,
     noteGraphs,
+    taskLists,
+    indexTaskList,
+    queryTaskList,
+    toggleTaskListItem,
     calendars,
     queryCalendar,
     diagramRenderers,
@@ -1159,7 +1272,7 @@ export function usePlugins(
 
 function requiresContent(plugin: PluginView): boolean {
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "kanban-board", "note-graph", "calendar", "diagram-renderer"].includes(
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer"].includes(
       permission.capability,
     ),
   );
