@@ -66,6 +66,101 @@ vi.mock("@tauri-apps/api/menu", () => ({
   },
 }));
 
+describe("MarkdownEditor task lists", () => {
+  it("upgrades a typed task marker into a Rich-mode checklist item", async () => {
+    const user = userEvent.setup();
+    render(
+      <MarkdownEditor
+        notePath="tasks.md"
+        markdown={"* \\[ ]"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={vi.fn()}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+    const marker = await screen.findByText("[ ]");
+    await user.click(marker);
+    placeCaretAtEnd(marker);
+    await user.keyboard(" ");
+
+    const checkbox = await screen.findByRole("checkbox");
+    expect(checkbox).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("renders and preserves standard Markdown task items in Rich mode", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="tasks.md"
+        markdown={"- [ ] todo\n\nEdit here"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    expect(
+      await screen.findByRole("checkbox", { name: "todo" }),
+    ).toHaveAttribute("aria-checked", "false");
+
+    const paragraph = await screen.findByText("Edit here");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const output = onChange.mock.lastCall?.[0] as string;
+    expect(output).toMatch(/^[*+-] \[ \] todo/mu);
+    expect(output).not.toContain("* \\[ ] todo");
+  });
+});
+
+describe("MarkdownEditor literal punctuation", () => {
+  it("does not escape safe literal tildes or ampersands typed in Rich mode", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="note.md"
+        markdown={"~ &\n\nEdit here"}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    const paragraph = await screen.findByText("Edit here");
+    await user.click(paragraph);
+    placeCaretAtEnd(paragraph);
+    await user.keyboard("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.lastCall?.[0]).toContain("~ &");
+    expect(onChange.mock.lastCall?.[0]).not.toContain("\\~");
+  });
+});
+
 describe("MarkdownEditor links", () => {
   it("renders full, collapsed, and shortcut references without processing errors", async () => {
     const onMarkdownError = vi.fn();

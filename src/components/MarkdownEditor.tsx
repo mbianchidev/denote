@@ -117,6 +117,7 @@ import {
   normalizeBareSpaceLinkDestinations,
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
+  restoreRichTextLiteralPunctuation,
   restoreMarkdownBoundaryWhitespace,
   restoreThematicBreaks,
 } from "../lib/markdown";
@@ -140,6 +141,7 @@ import { createEmojiSourceExtension, createEmojiSourceHistoryExtension } from ".
 import { EmojiRichContext, emojiRichPlugin, type EmojiRichBinding } from "../lib/emojiRich";
 import {
   denotePlainTextPastePlugin,
+  denoteTaskListShortcutPlugin,
   denoteThematicBreakShortcutPlugin,
 } from "../lib/richTextInputPlugin";
 import { EmojiToolbarActions } from "./EmojiPicker";
@@ -557,6 +559,7 @@ export const MarkdownEditor = forwardRef<
           thematicBreaksRef.current?.delimiters.splice(index, 0, "---");
         },
       }),
+      denoteTaskListShortcutPlugin(),
       denoteHashtagPlugin(),
       emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
@@ -1012,6 +1015,8 @@ export const MarkdownEditor = forwardRef<
                   directivesToCallouts(value),
                 );
                 if (activeViewModeRef.current === "rich-text") {
+                  restoredMarkdown =
+                    restoreRichTextLiteralPunctuation(restoredMarkdown);
                   restoredMarkdown = restoreThematicBreaks(
                     restoredMarkdown,
                     thematicBreaksRef.current!,

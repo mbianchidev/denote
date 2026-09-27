@@ -148,6 +148,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Markdown thematic breaks render as consistent full-width document separators.
 - In Rich mode, typing a third dash after `--` converts that paragraph to a
   thematic break and leaves the caret in a new paragraph.
+- In Rich mode, typing `- [ ] ` or `- [x] ` creates an unchecked or checked
+  task-list item immediately instead of escaping the brackets as ordinary
+  bullet text. This standard Markdown behavior does not depend on an optional
+  plugin.
+- Rich edits keep safe literal punctuation such as isolated `~` and `&`
+  characters without adding backslashes or numeric character references.
+  Escaping remains only where removing it would change Markdown meaning.
 - Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
   clipboard text without carrying rich formatting into the note. The Rich
   editor context menu exposes the same **Paste without formatting** action.

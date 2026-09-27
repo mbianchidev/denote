@@ -261,6 +261,27 @@ export function restoreRichTextTagSyntax(markdown: string): string {
   );
 }
 
+export function restoreRichTextLiteralPunctuation(markdown: string): string {
+  return markdown
+    .split("\n")
+    .map((line) => {
+      let restored = line;
+      if ((restored.match(/~/gu)?.length ?? 0) === 1) {
+        restored = restored.replace(/(^|[^\\])\\~/u, "$1~");
+      }
+      return restored.replace(
+        /(?:&#x26;|&#38;|&amp;)/giu,
+        (entity, offset: number, source: string) => {
+          const following = source.slice(offset + entity.length);
+          return /^(?:#\d+|#x[\da-f]+|[a-z][a-z\d]+);/iu.test(following)
+            ? entity
+            : "&";
+        },
+      );
+    })
+    .join("\n");
+}
+
 function isTagCharacter(character: string): boolean {
   return TAG_CHARACTER.test(character);
 }

@@ -20,6 +20,7 @@ import {
   hasSupportedDetailsMarkdown,
   markdownEditorSource,
   recoverMarkdownLinkTarget,
+  restoreRichTextLiteralPunctuation,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   restoreTocMarkers,
@@ -114,6 +115,17 @@ describe("markdown utilities", () => {
       "#guide\n\nText",
     );
     expect(hasUnsupportedRichMarkdown("\\#literal")).toBe(true);
+  });
+
+  it("restores only safe literal punctuation emitted by Rich mode", () => {
+    expect(restoreRichTextLiteralPunctuation("\\~ &")).toBe("~ &");
+    expect(restoreRichTextLiteralPunctuation("AT&#x26;T")).toBe("AT&T");
+    expect(restoreRichTextLiteralPunctuation("&#x26;copy;")).toBe(
+      "&#x26;copy;",
+    );
+    expect(
+      restoreRichTextLiteralPunctuation("\\~strike\\~ and \\~literal"),
+    ).toBe("\\~strike\\~ and \\~literal");
   });
 
   it("allows Markdown references and generated definition destinations in rich mode", () => {
