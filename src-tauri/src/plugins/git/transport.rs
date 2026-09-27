@@ -3061,6 +3061,13 @@ pub(crate) fn run_git_command_with_input(
         .stdout(Stdio::from(stdout_file.try_clone()?))
         .stderr(Stdio::from(stderr_file.try_clone()?));
     apply_environment(&mut command, execution);
+    if let Some(program) = args.iter().rev().find_map(|argument| {
+        argument
+            .strip_prefix("gpg.openpgp.program=")
+            .filter(|value| !value.is_empty())
+    }) {
+        super::gpg_paths::configure_gpg_home(&mut command, Path::new(program));
+    }
     let mut child = spawn_background_group(&mut command)
         .map_err(|error| AppError::Plugin(format!("Unable to start Git: {error}")))?;
     // The payload is written from its own thread and the pipe is closed when

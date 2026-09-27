@@ -594,6 +594,11 @@ Windows cannot shadow a selected Gpg4win executable. Missing explicitly configur
 programs fail without fallback. OpenPGP discovery reads bounded colon-delimited
 secret-key metadata, selects one matching usable fingerprint, and refuses
 ambiguous keys rather than silently choosing another identity.
+When the selected GPG uses Git for Windows' MSYS runtime, an explicit native
+`GNUPGHOME` is translated to its MSYS drive/UNC form for detection and signing.
+Native Gpg4win retains native paths. This avoids treating a `C:\...` keyring as a
+relative folder without changing the selected keyring or the application's
+environment.
 
 A signing passphrase never enters plugin code. `SourceControlPanel` passes
 it as host-only metadata beside the typed commit action;

@@ -74,8 +74,9 @@ pub(crate) fn signer_command(program: &Path, args: &[String]) -> AppResult<Comma
             "Invalid OpenPGP signing invocation.".to_string(),
         ));
     }
-    let mut command = background_command(program);
+    let mut command = background_command(super::transport::git_cli_path(program));
     super::transport::remove_inherited_environment(&mut command);
+    super::gpg_paths::configure_gpg_home(&mut command, program);
     command
         .args([
             "--batch",

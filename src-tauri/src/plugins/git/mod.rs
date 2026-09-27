@@ -6,6 +6,7 @@ pub(crate) mod askpass;
 pub(super) mod auto_commit;
 pub(super) mod clone;
 pub(super) mod github;
+mod gpg_paths;
 pub(crate) mod gpg_signer;
 pub(super) mod signing;
 pub(super) mod tools;

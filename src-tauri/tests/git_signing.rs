@@ -8,6 +8,9 @@ use std::{
 const PASSWORD: &str = " synthetic signing password ";
 const AUTHOR: &str = "Synthetic Signer <signer@example.invalid>";
 
+#[path = "../src/plugins/git/gpg_paths.rs"]
+mod gpg_paths;
+
 fn tool(name: &str) -> PathBuf {
     let mut directories: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|value| std::env::split_paths(&value).collect())
@@ -51,6 +54,7 @@ fn command(program: &Path, root: &Path) -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    gpg_paths::configure_gpg_home(&mut command, &tool("gpg"));
     command
 }
 
@@ -86,7 +90,10 @@ fn openpgp_sign(root: &Path, gpg: &Path) -> Command {
     );
     command
         .env("DENOTE_GPG_SIGNER_MODE", "1")
-        .env("DENOTE_GPG_SIGNER_PROGRAM", gpg)
+        .env(
+            "DENOTE_GPG_SIGNER_PROGRAM",
+            fs::canonicalize(gpg).expect("canonical GPG"),
+        )
         .env("DENOTE_GIT_ASKPASS_FILE", root.join("passphrase"));
     command
 }

@@ -135,7 +135,7 @@ pub(crate) fn resolve_signer(
                 ));
             }
             let selector = configured_key.or(author_email).or(settings.last("user.email"));
-            let mut command = background_command(&program);
+            let mut command = background_command(super::transport::git_cli_path(&program));
             command.args([
                 "--batch", "--no-tty", "--with-colons", "--with-fingerprint",
                 "--list-secret-keys",
@@ -432,6 +432,8 @@ pub(crate) fn signing_credential_id(
 
 pub(crate) fn probe(mut command: Command, token: &GitOperationToken) -> AppResult<String> {
     remove_inherited_environment(&mut command);
+    let program = PathBuf::from(command.get_program());
+    super::gpg_paths::configure_gpg_home(&mut command, &program);
     let mut stdout = tempfile::tempfile()?;
     let mut stderr = tempfile::tempfile()?;
     command
