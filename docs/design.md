@@ -328,6 +328,12 @@ read in progress. A selected commit is a definition list of its own metadata
 followed by its changed files, and its diff carries no hunk action. Opening a
 file is a named button on the row or the changed file it belongs to, absent
 where the file was deleted. Plugin data never supplies arbitrary markup.
+Changed-file rows show independently measured staged and unstaged counts;
+unavailable counts say so rather than displaying zero. A completed pull keeps a
+compact native table in **Last remote operation**, with a caption, file row
+headers, added/removed columns, previous names for renames, and a written Binary
+label instead of numeric counts. The existing polite status region announces
+the file count without reading the entire table aloud.
 The always-visible branch button expands a searchable picker inside the plugin
 sidebar. One compact list labels local and remote branches, exposes
 create-and-switch with an explicit start-point selector when search has no exact

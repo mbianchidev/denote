@@ -636,6 +636,25 @@ NUL into an author name, a subject, a ref, or a path, so no text read out of a
 repository can shift a field or split a record the way a tab or a newline
 could.
 
+Git `diff` requests can select the additive `numstat` format; omitted format
+retains the existing patch behavior. Native code maps this enum to fixed
+`--numstat -z` arguments with the same revision, path, output, cancellation,
+and hardening boundaries. The plugin parses exact NUL-delimited paths, including
+the two separate names in rename records, without reading file content. Reports
+are capped at 5,000 files and invalid or oversized output is refused, not
+truncated. Status refresh reads the index and worktree separately; an opened
+patch updates only its matching resource group. Untracked, conflicted, or
+otherwise unmeasured resources explicitly mark their line counts unknown.
+
+Pull reporting reads fresh full commit IDs before and after the successful
+operation and compares those immutable trees, not a cached history selection,
+`ORIG_HEAD`, or the dirty worktree. An unborn repository uses Git's matching
+SHA-1 or SHA-256 empty tree. A bounded optional file-stat array in the operation
+review feeds the host's semantic table and survives ordinary refreshes, but is
+cleared on repository or vault switches. A report or refresh failure preserves
+the fact that the pull completed, reports the failing follow-up separately, and
+never retries the pull.
+
 Repository-local configuration that defines filters, includes, credential
 helpers, URL rewrites, protocol overrides, command-bearing `remote` keys, or
 executable `core`, `diff`, `merge`, `gpg`, and hook keys is rejected before any

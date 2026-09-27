@@ -278,6 +278,14 @@ pub enum PluginGitDiffTarget {
     },
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginGitDiffFormat {
+    #[default]
+    Patch,
+    Numstat,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 #[serde(
     tag = "kind",
@@ -401,6 +409,8 @@ pub enum PluginGitRequest {
         target: PluginGitDiffTarget,
         #[serde(default)]
         paths: Option<Vec<String>>,
+        #[serde(default)]
+        format: PluginGitDiffFormat,
     },
     Fetch {
         scope: PluginGitScope,
@@ -913,7 +923,12 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
             }
             vec![read_only(args)]
         }
-        PluginGitRequest::Diff { target, paths, .. } => {
+        PluginGitRequest::Diff {
+            target,
+            paths,
+            format,
+            ..
+        } => {
             let mut args = match target {
                 PluginGitDiffTarget::Worktree => vec!["diff".into()],
                 PluginGitDiffTarget::Index => vec!["diff".into(), "--cached".into()],
@@ -947,8 +962,11 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                 "--no-ext-diff".into(),
                 "--no-textconv".into(),
                 "--find-renames".into(),
-                "--patch".into(),
             ];
+            match format {
+                PluginGitDiffFormat::Patch => full.push("--patch".into()),
+                PluginGitDiffFormat::Numstat => full.extend(["--numstat".into(), "-z".into()]),
+            }
             full.extend(args);
             if let Some(paths) = paths {
                 full.push("--".into());

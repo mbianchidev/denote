@@ -221,7 +221,9 @@ function ResourceGroup({
                 {resource.status}
                 {resource.binary
                   ? " · binary"
-                  : ` · +${resource.additions} −${resource.deletions}`}
+                  : resource.lineCountsKnown === false
+                    ? " · line counts unavailable"
+                    : ` · +${resource.additions} −${resource.deletions}`}
               </span>
             </div>
             <div className="source-control__row-actions">
@@ -1680,6 +1682,36 @@ function OperationReview({
         {review.operation}: {review.summary}
       </p>
       {review.detail ? <p>{review.detail}</p> : null}
+      {review.files && review.files.length > 0 ? (
+        <table className="source-control__file-stats">
+          <caption>Files changed by {review.operation.toLowerCase()}</caption>
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              <th scope="col">Added</th>
+              <th scope="col">Removed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {review.files.map((file) => (
+              <tr key={file.path}>
+                <th scope="row">
+                  {file.path}
+                  {file.previousPath ? <span>Renamed from {file.previousPath}</span> : null}
+                </th>
+                {file.binary ? (
+                  <td colSpan={2}>Binary</td>
+                ) : (
+                  <>
+                    <td>+{file.additions}</td>
+                    <td>−{file.deletions}</td>
+                  </>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : null}
       <div className="source-control__actions">
         {review.retryActionId ? (
           <button

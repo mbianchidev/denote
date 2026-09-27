@@ -535,6 +535,26 @@ current upstream version; **Restore from remote** does the same for all tracked
 staged and unstaged changes. Both require a dangerous confirmation and never
 delete untracked files.
 
+Git plugin 0.8.0 requires Denote 0.7.1 or newer. **Refresh** shows added and
+removed lines for every staged and unstaged file without opening a diff.
+When a file has both kinds of changes, each row measures its own side of the
+staging area. Binary and encrypted files are labeled binary. Untracked files,
+conflicts, or other changes without measured statistics say **line counts
+unavailable**, not `+0 / -0`; stage a new text file to see its line counts.
+
+After a successful **Pull**, **Last remote operation** lists the files changed,
+added and removed lines per text file, renamed files' previous paths, and binary
+changes. It measures the net difference between the commits before and after
+the pull, including merge and rebase pulls, without counting unrelated unsaved
+or uncommitted edits. A pull with no file changes says so. The report stays
+available through refreshes until dismissed or replaced by another remote
+operation; switching repositories clears it.
+
+Reports can list up to 5,000 files. If Git cannot supply a complete report or the
+following refresh fails, Denote says that the pull already completed and reports
+the follow-up problem separately. **Refresh** rereads local state; it never
+repeats the pull. Use your own Git tooling to inspect a report beyond the limit.
+
 Select the current branch button to open the branch picker inside the Git view.
 It is one searchable list with explicit Local and Remote labels. Select a local
 branch to switch, choose a remote branch to create its proposed local tracking

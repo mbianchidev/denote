@@ -89,6 +89,15 @@ editor/plugin import boundaries separately with:
 npm run check:plugins
 ```
 
+Git status and pull-report checks are:
+
+```bash
+npx vitest run plugins/git/tests \
+  src/plugins/gitRequests.test.ts src/plugins/runtimeMessages.test.ts \
+  src/components/SourceControlPanel.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
+```
+
 Bundled tool preparation accepts an explicit release target:
 
 ```bash

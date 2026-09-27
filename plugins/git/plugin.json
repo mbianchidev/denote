@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.git",
   "name": "Git vault versioning",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Tracks a vault or project with local Git commits in a host-rendered source control view.",
   "publisher": {
     "name": "Denote",
@@ -14,7 +14,7 @@
   "category": "code",
   "compatibility": {
     "apiVersion": 1,
-    "minimumDenoteVersion": "0.3.4",
+    "minimumDenoteVersion": "0.7.1",
     "maximumDenoteVersion": "1.0.0"
   },
   "permissions": [

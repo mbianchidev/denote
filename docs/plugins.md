@@ -657,6 +657,21 @@ message suppressed, so the report is the patch alone: a repository that sets
 one-parent patch, so a surface reads it as the range against its first parent
 rather than parsing Git's combined diff.
 
+The optional `diff.format` enum accepts `patch` (the default) or `numstat`.
+Numstat uses fixed `--numstat -z` arguments and returns per-file additions,
+deletions, binary markers, and unquoted paths without patch content. It shares
+the same validated targets, path rules, exact-output handling, and 8 MiB native
+output ceiling. The Git plugin and host validate file-stat reports up to 5,000
+entries; incomplete or larger reports fail explicitly.
+
+Source-control resources may set `lineCountsKnown: false` when statistics are
+unavailable. The Git provider reads staged and unstaged statistics independently
+on refresh rather than deriving every row from one opened patch. An operation
+review may include a bounded `files` array for a completed pull's exact
+before/after commit comparison. This is host-rendered data only, never markup or
+a new write capability. Git plugin 0.8.0 requires Denote 0.7.1 for these additive
+API version 1 fields.
+
 The host presents a loaded diff as a transient read-only `.diff` editor tab.
 `@pierre/diffs/react` renders the host-serialized patch, while file and hunk
 buttons continue to send the original typed action IDs and indexes. The

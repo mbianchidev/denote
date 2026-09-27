@@ -3,6 +3,7 @@ import type {
   PluginGitCloneVaultRequest,
   PluginGitConflictResolution,
   PluginGitConflictStage,
+  PluginGitDiffFormat,
   PluginGitDiffTarget,
   PluginGitHunk,
   PluginGitHunkLine,
@@ -48,6 +49,7 @@ const HUNK_LINE_KINDS: PluginGitHunkLineKind[] = [
   "addition",
   "deletion",
 ];
+const DIFF_FORMATS: PluginGitDiffFormat[] = ["patch", "numstat"];
 const MAX_GITHUB_REPOSITORY_LIMIT = 200;
 
 const OPERATION_ID_PATTERN =
@@ -126,7 +128,10 @@ export function parsePluginGitRequest(value: unknown): PluginGitRequest {
     case "diff":
       return withOptional(
         { operation: "diff", scope, target: diffTarget(value.target) },
-        { paths: optionalTextArray(value, "paths") },
+        {
+          paths: optionalTextArray(value, "paths"),
+          format: optionalLiteral(value, "format", DIFF_FORMATS),
+        },
       );
     case "fetch":
       return withOptional(

@@ -120,6 +120,46 @@ const noteGraphModel: PluginNoteGraphModel = {
 };
 
 describe("plugin runtime source control messages", () => {
+  it("validates bounded file reports and optional unknown line-count flags", () => {
+    const file = { path: "notes/edited.md", previousPath: null, additions: 3, deletions: 1, binary: false };
+    const review = {
+      operation: "Pull",
+      outcome: "succeeded",
+      summary: "Pulled main from origin.",
+      detail: null,
+      files: [file],
+    };
+    const message = (files: unknown) => ({
+      type: "update-source-control",
+      id: "denote.synthetic.git",
+      model: { ...model, remoteAccess: { ...model.remoteAccess, review: { ...review, files } } },
+    });
+    expect(isPluginRuntimeMessage(message([file]))).toBe(true);
+    expect(isPluginRuntimeMessage(message([]))).toBe(true);
+    for (const files of [
+      null,
+      [{ ...file, additions: -1 }],
+      [{ ...file, deletions: 1.5 }],
+      [{ ...file, previousPath: 3 }],
+      [{ ...file, path: "" }],
+      Array.from({ length: 5001 }, () => file),
+    ]) {
+      expect(isPluginRuntimeMessage(message(files))).toBe(false);
+    }
+    expect(isPluginRuntimeMessage({
+      type: "update-source-control",
+      id: "denote.synthetic.git",
+      model: {
+        ...model,
+        resourceGroups: [{
+          kind: "unstaged",
+          label: "Changes",
+          resources: [{ ...file, status: "modified", lineCountsKnown: "yes" }],
+        }],
+      },
+    })).toBe(false);
+  });
+
   it("accepts serializable registration, update, and action results", () => {
     const messages: PluginRuntimeMessage[] = [
       {

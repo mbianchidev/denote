@@ -173,6 +173,27 @@ const accepted: PluginGitRequest[] = [
 ];
 
 describe("parsePluginGitRequest", () => {
+  it("preserves the bounded numstat format without accepting arbitrary flags", () => {
+    expect(parsePluginGitRequest({
+      operation: "diff",
+      scope: "vault",
+      target: { kind: "index" },
+      format: "numstat",
+      arguments: ["--output=unexpected"],
+    })).toEqual({
+      operation: "diff",
+      scope: "vault",
+      target: { kind: "index" },
+      format: "numstat",
+    });
+    expect(() => parsePluginGitRequest({
+      operation: "diff",
+      scope: "vault",
+      target: { kind: "worktree" },
+      format: "--output=unexpected",
+    })).toThrow(/format/);
+  });
+
   it("accepts every supported structured operation", () => {
     for (const request of accepted) {
       expect(parsePluginGitRequest(request)).toEqual(request);

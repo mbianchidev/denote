@@ -590,6 +590,15 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   history or branch management. A tracked file, or all tracked changes, can be
   restored from the current upstream only after a dangerous confirmation.
   Untracked files are never removed.
+- Git refresh reads additions and deletions for every staged and unstaged file
+  independently, without opening a patch. Unknown counts are labeled unavailable,
+  not zero; binary and encrypted changes have no text-line counts.
+- A successful pull leaves a per-file report in **Last remote operation** with
+  added and removed line counts, rename paths, and binary labels. It compares
+  the commits immediately before and after the pull, including merge and rebase
+  strategies, and explicitly reports when no files changed. A reporting or
+  refresh failure does not misrepresent an already-completed pull as failed or
+  repeat it.
 - The branch control opens one searchable picker. It switches local branches,
   checks out remote branches with a proposed local name, or creates and switches
   to a new branch from any listed local or remote branch. The existing

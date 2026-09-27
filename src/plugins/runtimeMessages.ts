@@ -22,6 +22,7 @@ import type {
   PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
 import {
+  PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS,
   isPluginCalendarModel,
   isPluginCalendarRequest,
   isPluginCalendarRegistration,
@@ -674,7 +675,8 @@ function isResource(value: unknown): boolean {
     isResourceStatus(value.status) &&
     isNonNegativeInteger(value.additions) &&
     isNonNegativeInteger(value.deletions) &&
-    typeof value.binary === "boolean"
+    typeof value.binary === "boolean" &&
+    (value.lineCountsKnown === undefined || typeof value.lineCountsKnown === "boolean")
   );
 }
 
@@ -732,8 +734,25 @@ function isOperationReview(value: unknown): boolean {
     ["succeeded", "failed", "cancelled"].includes(value.outcome) &&
     typeof value.summary === "string" &&
     isNullableString(value.detail) &&
+    (value.files === undefined ||
+      (Array.isArray(value.files) &&
+        value.files.length <= PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS &&
+        value.files.every(isFileStat))) &&
     (value.retryActionId === undefined ||
       typeof value.retryActionId === "string")
+  );
+}
+
+function isFileStat(value: unknown): boolean {
+  const isPath = (path: unknown) =>
+    typeof path === "string" && path.length > 0 && path.length <= 4096;
+  return (
+    isRecord(value) &&
+    isPath(value.path) &&
+    (value.previousPath === null || isPath(value.previousPath)) &&
+    isNonNegativeInteger(value.additions) &&
+    isNonNegativeInteger(value.deletions) &&
+    typeof value.binary === "boolean"
   );
 }
 

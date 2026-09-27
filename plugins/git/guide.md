@@ -2,6 +2,8 @@
 
 ## Purpose
 
+Version 0.8.0 requires Denote 0.7.1 or newer.
+
 This plugin keeps a Git history of your vault and configured projects without
 leaving Denote. It adds one source control view that lists every safe detected
 repository, then shows the selected repository's working tree changes, branches, remotes, and commit
@@ -59,8 +61,11 @@ Open the Git view from the activity rail, select a repository under
 **Repositories**, or run `Git: Refresh repository`.
 
 - **Refresh** discovers whether the scope is a repository and, when it is, reads
-  status, branches, remotes, the recoverable operation state, and the latest
-  commits.
+  status, separate staged and unstaged line counts, branches, remotes, the
+  recoverable operation state, and the latest commits. You do not need to open a
+  diff to see counts. Binary and encrypted files are labeled binary; untracked,
+  conflicted, or otherwise unmeasured files say **line counts unavailable**,
+  never invented zeros. Stage a new text file to see its counts.
 - **Initialize repository** creates a repository in the current scope using the
   configured default branch, then refreshes. Nothing is created until you use
   this action.
@@ -104,6 +109,8 @@ Open the Git view from the activity rail, select a repository under
   appearing to do nothing.
 - **Last remote operation** reviews what the previous fetch, pull, push, remote
   change, or clone did, and offers Retry where retrying makes sense.
+  Successful pulls include a per-file table of additions and deletions, previous
+  rename paths, and binary labels, or explicitly say no files changed.
 
 ### Remotes
 
@@ -132,6 +139,16 @@ unstage, and restore refresh only the working tree and operation state; branch,
 remote, history, and diff data are retained unless that action could change
 them. When an operation fails, the last known good state stays on screen and the
 failure is reported with Git's own message.
+
+A pull report compares the commits immediately before and after the pull, for
+fast-forward, merge, and rebase strategies alike. It excludes unrelated dirty
+worktree edits and lists up to 5,000 files without loading their patches. The
+report survives ordinary refreshes until dismissed or replaced by another remote
+operation, and clears when switching repositories or vaults. Invalid or larger
+reports fail explicitly instead of showing partial totals. If reporting or the
+following refresh fails after the pull completed, Denote keeps that successful
+pull distinct from the follow-up error; Refresh rereads local state and never
+repeats the remote operation.
 
 ### Signing in to a remote
 

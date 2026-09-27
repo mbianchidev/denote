@@ -5,6 +5,51 @@ import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import { CloneOnboarding, SourceControlPanel } from "./SourceControlPanel";
 
 describe("SourceControlPanel", () => {
+  it("shows per-file pull statistics in an accessible report, including renames and binary files", () => {
+    const model = changesModel();
+    const review = {
+      operation: "Pull",
+      outcome: "succeeded" as const,
+      summary: "Pulled main from origin. 3 files changed.",
+      detail: "Net changes between the commits before and after the pull.",
+      files: [
+        { path: "notes/edited.md", previousPath: null, additions: 3, deletions: 1, binary: false },
+        { path: "notes/new.md", previousPath: "notes/old.md", additions: 0, deletions: 0, binary: false },
+        { path: "image.bin", previousPath: null, additions: 0, deletions: 0, binary: true },
+      ],
+    };
+    model.remoteAccess.review = review;
+    render(<SourceControlPanel title="Git" model={model} onAction={vi.fn()} />);
+    const table = screen.getByRole("table", { name: "Files changed by pull" });
+    expect(within(table).getAllByRole("row")).toHaveLength(4);
+    const edited = within(table).getByRole("row", { name: /notes\/edited.md/ });
+    expect(within(edited).getByRole("cell", { name: "+3" })).toBeInTheDocument();
+    expect(within(edited).getByRole("cell", { name: "−1" })).toBeInTheDocument();
+    expect(within(table).getByText("Renamed from notes/old.md")).toBeInTheDocument();
+    const binary = within(table).getByRole("row", { name: /image.bin/ });
+    expect(within(binary).getByRole("cell", { name: "Binary" })).toBeInTheDocument();
+    expect(within(binary).queryByText("+0")).not.toBeInTheDocument();
+  });
+
+  it("does not present unknown line counts as zero", () => {
+    const model = changesModel();
+    model.resourceGroups = [{
+      kind: "untracked",
+      label: "Untracked",
+      resources: [{
+        path: "notes/new.md",
+        status: "added",
+        additions: 0,
+        deletions: 0,
+        binary: false,
+        lineCountsKnown: false,
+      }],
+    }];
+    render(<SourceControlPanel title="Git" model={model} onAction={vi.fn()} />);
+    expect(screen.getByText("added · line counts unavailable")).toBeInTheDocument();
+    expect(screen.queryByText(/added · \+0/)).not.toBeInTheDocument();
+  });
+
   it("lists detected repositories and selects one explicitly", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();

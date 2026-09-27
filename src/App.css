@@ -4206,6 +4206,47 @@ button.tag-chip:active,
   border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
 }
 
+.source-control__file-stats {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.source-control__file-stats caption {
+  padding-bottom: 6px;
+  color: var(--text-primary);
+  text-align: left;
+  font-weight: 600;
+}
+
+.source-control__file-stats th,
+.source-control__file-stats td {
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.source-control__file-stats th:first-child {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.source-control__file-stats th[scope="row"] {
+  width: 100%;
+  font-weight: 500;
+}
+
+.source-control__file-stats th span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
 .source-control__tabs {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
