@@ -313,5 +313,6 @@ describe("Welcome vault example inventory", () => {
 });
 
 function pluginSource(name: string): string {
-  return readFileSync(join(pluginRoot, name), "utf8");
+  // Native UTF-8 reads normalize line endings before creating plugin snapshots.
+  return readFileSync(join(pluginRoot, name), "utf8").replace(/\r\n?/g, "\n");
 }
