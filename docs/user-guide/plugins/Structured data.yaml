@@ -1,0 +1,16 @@
+# Compare this comment and the alias with the read-only Structured tree.
+model: Paper glider
+ready: false
+wingspan: 18.5
+nextTrial: null
+materials:
+  - item: square sheet
+    count: 2
+  - item: paper clip
+    count: 1
+trial: &indoor
+  location: practice room
+  distances: [3, 4, 5]
+repeat: *indoor
+untried: []
+notes: {}

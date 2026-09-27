@@ -494,6 +494,11 @@ Older Welcome vaults receive only missing `examples`, `code`, and optional
 workflow `plugins` paths once through separate collection markers. Existing
 matching paths and user-added content keep their bytes. Encrypted copies wait
 for unlock and receive encrypted files before the workspace refreshes.
+The `plugins/README.md` index links concise, editable examples rather than
+duplicating the plugin guides. Each user-facing plugin has a suitable file or
+manual exercise; the SDK-only Reference fixture is excluded. Git practice
+explicitly uses a separate vault, never an automatically initialized Welcome
+repository.
 
 ### Callouts
 

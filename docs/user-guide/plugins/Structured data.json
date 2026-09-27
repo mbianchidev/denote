@@ -1,0 +1,15 @@
+{
+  "model": "Paper glider",
+  "ready": false,
+  "wingspan": 18.5,
+  "nextTrial": null,
+  "materials": [
+    { "item": "square sheet", "count": 2 },
+    { "item": "paper clip", "count": 1 }
+  ],
+  "trials": {
+    "indoor": [3, 4, 5],
+    "outdoor": []
+  },
+  "notes": {}
+}

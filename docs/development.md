@@ -784,8 +784,21 @@ forms, annotations, attachments, or external links.
 addition for older Welcome vaults. Tests must prove exact source inventory,
 missing-file addition, existing-file preservation, one-time behavior, symlink
 refusal, encrypted deferral, and ciphertext creation after unlock.
-The separate `plugins-v1` addition owns the same guarantees for `plugins/`
-samples and must never broaden the older `examples-v1` prefix set.
+The separate `plugins-v1` addition owns only the original Kanban sample.
+`plugins-v2` owns the fixed new inventory listed in
+`PLUGIN_EXAMPLE_V2_PATHS`: the plugin index and each suitable user-facing
+workflow. Do not broaden an applied version's inventory or remove its marker;
+future additions need a new version so deleted earlier samples stay deleted.
+Neither plugin migration broadens the older `examples-v1` prefix set.
+Keep the plugin index, native seed inventory, and synthetic catalog-coverage
+test aligned. The Reference SDK fixture is intentionally excluded.
+
+Focused Welcome checks are:
+
+```bash
+npx vitest run src/lib/welcomeSamples.test.ts --maxWorkers=1
+cargo test --manifest-path src-tauri/Cargo.toml --jobs 2 default_vault::tests -- --test-threads=2
+```
 
 Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
 maintained package, so its small core stream tokenizer stays in

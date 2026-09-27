@@ -13,6 +13,22 @@ const DEFAULT_VAULT_NAME: &str = "Denote Welcome";
 const TEST_FIXTURE_MARKER: &str = ".denote/fixtures/test-v1";
 const EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/examples-v1";
 const PLUGIN_EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v1";
+const PLUGIN_EXAMPLE_V2_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v2";
+const PLUGIN_EXAMPLE_V1_PATH: &str = "plugins/Kanban board.kanban.md";
+const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
+    "plugins/README.md",
+    "plugins/Calendar daily note.md",
+    "plugins/Calendar dated note.md",
+    "plugins/Emoji practice.md",
+    "plugins/Git workflow.md",
+    "plugins/Structured data.json",
+    "plugins/Structured data.yaml",
+    "plugins/Mermaid flow.md",
+    "plugins/Note graph.md",
+    "plugins/Graph sketch.md",
+    "plugins/Graph supplies.md",
+    "plugins/Advanced tasks.md",
+];
 const SEED_FILES: &[(&str, &[u8])] = &[
     (
         ".denote.md",
@@ -83,8 +99,56 @@ const SEED_FILES: &[(&str, &[u8])] = &[
         include_bytes!("../../docs/user-guide/examples/Sample data.yaml"),
     ),
     (
-        "plugins/Kanban board.kanban.md",
+        PLUGIN_EXAMPLE_V1_PATH,
         include_bytes!("../../docs/user-guide/plugins/Kanban board.kanban.md"),
+    ),
+    (
+        "plugins/README.md",
+        include_bytes!("../../docs/user-guide/plugins/README.md"),
+    ),
+    (
+        "plugins/Calendar daily note.md",
+        include_bytes!("../../docs/user-guide/plugins/Calendar daily note.md"),
+    ),
+    (
+        "plugins/Calendar dated note.md",
+        include_bytes!("../../docs/user-guide/plugins/Calendar dated note.md"),
+    ),
+    (
+        "plugins/Emoji practice.md",
+        include_bytes!("../../docs/user-guide/plugins/Emoji practice.md"),
+    ),
+    (
+        "plugins/Git workflow.md",
+        include_bytes!("../../docs/user-guide/plugins/Git workflow.md"),
+    ),
+    (
+        "plugins/Structured data.json",
+        include_bytes!("../../docs/user-guide/plugins/Structured data.json"),
+    ),
+    (
+        "plugins/Structured data.yaml",
+        include_bytes!("../../docs/user-guide/plugins/Structured data.yaml"),
+    ),
+    (
+        "plugins/Mermaid flow.md",
+        include_bytes!("../../docs/user-guide/plugins/Mermaid flow.md"),
+    ),
+    (
+        "plugins/Note graph.md",
+        include_bytes!("../../docs/user-guide/plugins/Note graph.md"),
+    ),
+    (
+        "plugins/Graph sketch.md",
+        include_bytes!("../../docs/user-guide/plugins/Graph sketch.md"),
+    ),
+    (
+        "plugins/Graph supplies.md",
+        include_bytes!("../../docs/user-guide/plugins/Graph supplies.md"),
+    ),
+    (
+        "plugins/Advanced tasks.md",
+        include_bytes!("../../docs/user-guide/plugins/Advanced tasks.md"),
     ),
     (
         "code/README.md",
@@ -450,7 +514,7 @@ pub fn ensure(app_data_dir: &Path) -> AppResult<PathBuf> {
         }
     }
     write_example_fixture_marker(&target, None)?;
-    write_plugin_example_fixture_marker(&target, None)?;
+    write_plugin_example_fixture_markers(&target, None)?;
     write_test_fixture_marker(&target)?;
     Ok(fs::canonicalize(target)?)
 }
@@ -542,7 +606,7 @@ fn add_missing_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -> AppRe
         root,
         vault_key,
         EXAMPLE_FIXTURE_MARKER,
-        &["examples/", "code/"],
+        |path| path.starts_with("examples/") || path.starts_with("code/"),
         "example",
     )
 }
@@ -552,8 +616,15 @@ fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -
         root,
         vault_key,
         PLUGIN_EXAMPLE_FIXTURE_MARKER,
-        &["plugins/"],
+        |path| path == PLUGIN_EXAMPLE_V1_PATH,
         "plugin example",
+    )?;
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+        |path| PLUGIN_EXAMPLE_V2_PATHS.contains(&path),
+        "plugin example v2",
     )
 }
 
@@ -561,7 +632,7 @@ fn add_missing_seed_collection_once(
     root: &Path,
     vault_key: Option<&[u8; 32]>,
     marker_path: &str,
-    prefixes: &[&str],
+    matches_path: impl Fn(&str) -> bool,
     label: &str,
 ) -> AppResult<()> {
     let metadata = root.join(".denote");
@@ -601,10 +672,7 @@ fn add_missing_seed_collection_once(
     if encrypted && vault_key.is_none() {
         return Ok(());
     }
-    for (relative_path, content) in SEED_FILES
-        .iter()
-        .filter(|(path, _)| prefixes.iter().any(|prefix| path.starts_with(prefix)))
-    {
+    for (relative_path, content) in SEED_FILES.iter().filter(|(path, _)| matches_path(path)) {
         let path = root.join(relative_path);
         let parent = path
             .parent()
@@ -648,12 +716,21 @@ fn write_example_fixture_marker(root: &Path, vault_key: Option<&[u8; 32]>) -> Ap
     write_seed_collection_marker(root, vault_key, EXAMPLE_FIXTURE_MARKER, "example")
 }
 
-fn write_plugin_example_fixture_marker(root: &Path, vault_key: Option<&[u8; 32]>) -> AppResult<()> {
+fn write_plugin_example_fixture_markers(
+    root: &Path,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<()> {
     write_seed_collection_marker(
         root,
         vault_key,
         PLUGIN_EXAMPLE_FIXTURE_MARKER,
         "plugin example",
+    )?;
+    write_seed_collection_marker(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+        "plugin example v2",
     )
 }
 
@@ -835,6 +912,12 @@ mod tests {
         assert!(vault.join("code/hello.pp").is_file());
         assert!(vault.join("test/日本語 ノート.md").is_file());
         assert!(vault.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).is_file());
+        assert_eq!(
+            fs::read(vault.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER)).expect("plugin v2 marker"),
+            b"applied\n"
+        );
+        assert!(!vault.join(".git").exists());
+        assert!(!vault.join("plugins/.git").exists());
 
         fs::write(&welcome, "My edited welcome").expect("edit welcome");
         let diagram = vault.join("examples/Mermaid diagram.md");
@@ -868,6 +951,82 @@ mod tests {
             .collect::<BTreeSet<_>>();
 
         assert_eq!(seeded_files, source_files);
+    }
+
+    #[test]
+    fn plugin_examples_cover_every_user_facing_catalog_entry() {
+        let examples: &[(&str, &[&str])] = &[
+            (
+                "denote.calendar",
+                &[
+                    "plugins/Calendar daily note.md",
+                    "plugins/Calendar dated note.md",
+                ],
+            ),
+            ("denote.emoji-picker", &["plugins/Emoji practice.md"]),
+            ("denote.git", &["plugins/Git workflow.md"]),
+            (
+                "denote.json-yaml-viewer",
+                &[
+                    "plugins/Structured data.json",
+                    "plugins/Structured data.yaml",
+                ],
+            ),
+            ("denote.kanban", &["plugins/Kanban board.kanban.md"]),
+            ("denote.mermaid", &["plugins/Mermaid flow.md"]),
+            (
+                "denote.note-graph",
+                &[
+                    "plugins/Note graph.md",
+                    "plugins/Graph sketch.md",
+                    "plugins/Graph supplies.md",
+                ],
+            ),
+            ("denote.task-lists", &["plugins/Advanced tasks.md"]),
+        ];
+        let catalog: serde_json::Value =
+            serde_json::from_slice(include_bytes!("../../plugins/catalog.json"))
+                .expect("plugin catalog");
+        let catalog_ids = catalog
+            .as_array()
+            .expect("catalog entries")
+            .iter()
+            .map(|entry| entry["manifest"]["id"].as_str().expect("plugin ID"))
+            .collect::<BTreeSet<_>>();
+        assert!(catalog_ids.contains("denote.reference"));
+        assert_eq!(
+            catalog_ids
+                .into_iter()
+                .filter(|id| *id != "denote.reference")
+                .collect::<BTreeSet<_>>(),
+            examples.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>()
+        );
+        let expected_paths = examples
+            .iter()
+            .flat_map(|(_, paths)| paths.iter().copied())
+            .chain(["plugins/README.md"])
+            .collect::<BTreeSet<_>>();
+        let seeded_paths = SEED_FILES
+            .iter()
+            .map(|(path, _)| *path)
+            .filter(|path| path.starts_with("plugins/"))
+            .collect::<Vec<_>>();
+        assert_eq!(seeded_paths.len(), expected_paths.len());
+        assert_eq!(
+            seeded_paths.into_iter().collect::<BTreeSet<_>>(),
+            expected_paths
+        );
+        assert_eq!(PLUGIN_EXAMPLE_V2_PATHS.len(), expected_paths.len() - 1);
+        assert_eq!(
+            PLUGIN_EXAMPLE_V2_PATHS
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>(),
+            expected_paths
+                .into_iter()
+                .filter(|path| *path != PLUGIN_EXAMPLE_V1_PATH)
+                .collect::<BTreeSet<_>>()
+        );
     }
 
     #[test]
@@ -944,10 +1103,118 @@ mod tests {
             "Existing Kanban board"
         );
         assert!(resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).is_file());
+        assert!(resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).is_file());
 
         fs::remove_dir_all(resolved.join("plugins")).expect("remove migrated plugins");
         assert_eq!(ensure(directory.path()).expect("existing vault"), resolved);
         assert!(!resolved.join("plugins").exists());
+    }
+
+    #[test]
+    fn adds_new_plugin_examples_after_v1_without_overwriting_existing_paths() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join(".denote/fixtures")).expect("fixture folder");
+        fs::create_dir(vault.join("plugins")).expect("plugins folder");
+        fs::create_dir(vault.join("docs")).expect("docs folder");
+        let preserved = [
+            (TEST_FIXTURE_MARKER, "Original test marker\n"),
+            (EXAMPLE_FIXTURE_MARKER, "Original examples marker\n"),
+            (
+                PLUGIN_EXAMPLE_FIXTURE_MARKER,
+                "Original plugins-v1 marker\n",
+            ),
+            ("Welcome.md", "Edited welcome\n"),
+            ("docs/Optional plugins.md", "Edited plugin guide\n"),
+            ("plugins/Kanban board.kanban.md", "Edited board\n"),
+            ("plugins/Mermaid flow.md", "An existing diagram note\n"),
+            ("plugins/Extra practice.md", "Keep this extra note\n"),
+        ];
+        for (path, content) in preserved {
+            fs::write(vault.join(path), content).expect("existing file");
+        }
+
+        let resolved = ensure(directory.path()).expect("updated default vault");
+
+        for (path, content) in preserved {
+            assert_eq!(
+                fs::read(resolved.join(path)).expect(path),
+                content.as_bytes()
+            );
+        }
+        for (path, content) in SEED_FILES.iter().filter(|(path, _)| {
+            path.starts_with("plugins/") && !preserved.iter().any(|(old, _)| path == old)
+        }) {
+            assert_eq!(fs::read(resolved.join(path)).expect(path), *content);
+        }
+        assert_eq!(
+            fs::read(resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER)).expect("v2 marker"),
+            b"applied\n"
+        );
+        assert!(!resolved.join(".denote.md").exists());
+        assert!(!resolved.join("examples").exists());
+        assert!(!resolved.join("code").exists());
+        assert!(!resolved.join("test").exists());
+        assert!(!resolved.join(".git").exists());
+        assert!(!resolved.join("plugins/.git").exists());
+    }
+
+    #[test]
+    fn plugin_v2_does_not_restore_deleted_v1_examples_or_repeat() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir(&vault).expect("old default vault");
+        write_fixture_marker(
+            &vault,
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            b"Original plugins-v1 marker\n",
+            "test marker",
+        )
+        .expect("previous migration");
+
+        add_missing_plugin_examples_once(&vault, None).expect("new plugin examples");
+        assert!(vault.join("plugins/README.md").is_file());
+        assert!(!vault.join("plugins/Kanban board.kanban.md").exists());
+        fs::remove_dir_all(vault.join("plugins")).expect("remove migrated plugin examples");
+
+        add_missing_plugin_examples_once(&vault, None).expect("already migrated");
+        assert!(!vault.join("plugins").exists());
+        assert_eq!(
+            fs::read(vault.join(PLUGIN_EXAMPLE_FIXTURE_MARKER)).expect("legacy marker"),
+            b"Original plugins-v1 marker\n"
+        );
+        assert!(vault.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).is_file());
+    }
+
+    #[test]
+    fn retries_an_incomplete_plugin_v2_without_replacing_completed_files() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir(&vault).expect("old default vault");
+        write_fixture_marker(
+            &vault,
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            b"v1\n",
+            "test marker",
+        )
+        .expect("previous migration");
+        let conflicting_path = vault.join("plugins/Mermaid flow.md");
+        fs::create_dir_all(&conflicting_path).expect("directory occupying sample path");
+
+        assert!(add_missing_plugin_examples_once(&vault, None).is_err());
+        assert!(conflicting_path.is_dir());
+        assert!(!vault.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).exists());
+        let existing_note = vault.join("plugins/README.md");
+        fs::write(&existing_note, "Edited during recovery\n").expect("edit completed file");
+        fs::remove_dir(&conflicting_path).expect("remove empty conflicting directory");
+
+        add_missing_plugin_examples_once(&vault, None).expect("retry incomplete migration");
+        assert!(conflicting_path.is_file());
+        assert_eq!(
+            fs::read(existing_note).expect("preserved completed file"),
+            b"Edited during recovery\n"
+        );
+        assert!(vault.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).is_file());
     }
 
     #[test]
@@ -1017,6 +1284,7 @@ mod tests {
         let resolved = ensure(directory.path()).expect("locked default vault");
         assert!(!resolved.join("plugins").exists());
         assert!(!resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).exists());
+        assert!(!resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).exists());
 
         let key = vault_key.copy_bytes();
         add_missing_plugin_examples_after_unlock(
@@ -1025,17 +1293,131 @@ mod tests {
             &key,
         )
         .expect("add encrypted plugin examples");
-        let encrypted = fs::read(resolved.join("plugins/Kanban board.kanban.md"))
-            .expect("encrypted Kanban board");
-        assert_ne!(
-            encrypted,
-            include_bytes!("../../docs/user-guide/plugins/Kanban board.kanban.md")
-        );
+        for (path, content) in SEED_FILES
+            .iter()
+            .filter(|(path, _)| path.starts_with("plugins/"))
+        {
+            let encrypted = fs::read(resolved.join(path)).expect(path);
+            assert_ne!(&encrypted, content);
+            assert_eq!(
+                crate::crypto::decrypt_file_content(&key, &encrypted).expect("decrypt example"),
+                *content
+            );
+        }
+        for marker in [
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+        ] {
+            let encrypted = fs::read(resolved.join(marker)).expect("encrypted marker");
+            assert_ne!(encrypted, b"applied\n");
+            assert_eq!(
+                crate::crypto::decrypt_file_content(&key, &encrypted).expect("decrypt marker"),
+                b"applied\n"
+            );
+        }
+    }
+
+    #[test]
+    fn defers_plugin_v2_until_unlock_and_preserves_existing_ciphertext() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join(".denote/fixtures")).expect("fixture folder");
+        fs::create_dir(vault.join("plugins")).expect("plugins folder");
+        let (mut manifest, vault_key, _) =
+            crate::crypto::create_manifest("synthetic upgrade password").expect("manifest");
+        manifest.phase = crate::crypto::EncryptionPhase::Encrypted;
+        crate::crypto::save_manifest(&vault, &manifest).expect("save manifest");
+        let key = vault_key.copy_bytes();
+        let preserved = [
+            (TEST_FIXTURE_MARKER, "Original test marker\n"),
+            (EXAMPLE_FIXTURE_MARKER, "Original examples marker\n"),
+            (
+                PLUGIN_EXAMPLE_FIXTURE_MARKER,
+                "Original plugins-v1 marker\n",
+            ),
+            ("Welcome.md", "Edited welcome\n"),
+            ("plugins/Kanban board.kanban.md", "Edited board\n"),
+            ("plugins/Mermaid flow.md", "Edited diagram\n"),
+            ("plugins/Extra practice.md", "Keep this extra note\n"),
+        ]
+        .map(|(path, content)| {
+            let encrypted =
+                crate::crypto::encrypt_file_content(&key, content.as_bytes()).expect("encrypt");
+            fs::write(vault.join(path), &encrypted).expect("existing ciphertext");
+            (path, encrypted)
+        });
+        let mut before = BTreeSet::new();
+        collect_files(&vault, &vault, &mut before);
+
+        let resolved = ensure(directory.path()).expect("locked default vault");
+        let mut after = BTreeSet::new();
+        collect_files(&resolved, &resolved, &mut after);
+        assert_eq!(after, before);
+        assert!(!resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).exists());
+
+        let db_path = directory.path().join("denote.sqlite3");
+        add_missing_plugin_examples_after_unlock(&db_path, &resolved, &key)
+            .expect("add encrypted plugin v2 examples");
+        for (path, content) in SEED_FILES.iter().filter(|(path, _)| {
+            path.starts_with("plugins/") && !preserved.iter().any(|(old, _)| path == old)
+        }) {
+            let encrypted = fs::read(resolved.join(path)).expect(path);
+            assert_ne!(&encrypted, content);
+            assert_eq!(
+                crate::crypto::decrypt_file_content(&key, &encrypted).expect("decrypt example"),
+                *content
+            );
+        }
+        let marker =
+            fs::read(resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER)).expect("encrypted v2 marker");
         assert_eq!(
-            crate::crypto::decrypt_file_content(&key, &encrypted).expect("decrypt Kanban board"),
-            include_bytes!("../../docs/user-guide/plugins/Kanban board.kanban.md")
+            crate::crypto::decrypt_file_content(&key, &marker).expect("decrypt v2 marker"),
+            b"applied\n"
         );
-        assert!(resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).is_file());
+        fs::remove_file(resolved.join("plugins/Emoji practice.md")).expect("remove new example");
+        add_missing_plugin_examples_after_unlock(&db_path, &resolved, &key)
+            .expect("already migrated after unlock");
+        assert!(!resolved.join("plugins/Emoji practice.md").exists());
+        assert_eq!(
+            fs::read(resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER)).expect("same v2 marker"),
+            marker
+        );
+        for (path, encrypted) in preserved {
+            assert_eq!(fs::read(resolved.join(path)).expect(path), encrypted);
+        }
+        assert!(!resolved.join(".git").exists());
+    }
+
+    #[test]
+    fn plugin_example_unlock_does_not_change_another_vault() {
+        let directory = tempdir().expect("temp directory");
+        fs::create_dir(directory.path().join(DEFAULT_VAULT_NAME)).expect("default vault");
+        let other = directory.path().join("Other synthetic vault");
+        fs::create_dir(&other).expect("other vault");
+        fs::write(other.join("Keep.md"), "Keep this note\n").expect("other note");
+
+        add_missing_plugin_examples_after_unlock(
+            &directory.path().join("denote.sqlite3"),
+            &other,
+            &[7; 32],
+        )
+        .expect("unrelated vault unlock");
+
+        let mut files = BTreeSet::new();
+        collect_files(&other, &other, &mut files);
+        assert_eq!(files, BTreeSet::from(["Keep.md".to_string()]));
+        assert_eq!(
+            fs::read(other.join("Keep.md")).expect("other note"),
+            b"Keep this note\n"
+        );
+        assert!(!other.join(".denote").exists());
+        assert!(
+            !directory
+                .path()
+                .join(DEFAULT_VAULT_NAME)
+                .join("plugins")
+                .exists()
+        );
     }
 
     #[cfg(unix)]
@@ -1119,6 +1501,59 @@ mod tests {
                 .count(),
             0
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn plugin_v2_rejects_links_after_v1_without_writing_through_them() {
+        use std::os::unix::fs::symlink;
+
+        for relative_path in [
+            "plugins",
+            "plugins/Mermaid flow.md",
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+            ".denote/encryption.json",
+        ] {
+            for target_exists in [false, true] {
+                let directory = tempdir().expect("temp directory");
+                let outside = tempdir().expect("outside directory");
+                let target = outside.path().join("target");
+                if target_exists {
+                    fs::create_dir(&target).expect("outside target");
+                    fs::write(target.join("Keep.md"), "Outside note\n").expect("outside note");
+                }
+                let vault = directory.path().join(DEFAULT_VAULT_NAME);
+                fs::create_dir(&vault).expect("old default vault");
+                write_fixture_marker(
+                    &vault,
+                    PLUGIN_EXAMPLE_FIXTURE_MARKER,
+                    b"v1\n",
+                    "test marker",
+                )
+                .expect("previous migration");
+                if relative_path.starts_with("plugins/") {
+                    fs::create_dir(vault.join("plugins")).expect("plugins folder");
+                }
+                symlink(&target, vault.join(relative_path)).expect("unsafe symlink");
+
+                assert!(add_missing_plugin_examples_once(&vault, None).is_err());
+
+                let marker = fs::symlink_metadata(vault.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER));
+                assert!(!marker.is_ok_and(|metadata| metadata.is_file()));
+                assert_eq!(
+                    fs::read(vault.join(PLUGIN_EXAMPLE_FIXTURE_MARKER)).expect("legacy marker"),
+                    b"v1\n"
+                );
+                assert_eq!(target.exists(), target_exists);
+                if target_exists {
+                    assert_eq!(fs::read_dir(&target).expect("outside folder").count(), 1);
+                    assert_eq!(
+                        fs::read(target.join("Keep.md")).expect("outside note"),
+                        b"Outside note\n"
+                    );
+                }
+            }
+        }
     }
 
     #[cfg(unix)]

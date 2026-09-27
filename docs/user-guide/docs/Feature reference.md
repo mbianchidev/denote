@@ -300,9 +300,12 @@ more detail and examples.
   content on tab, vault-lock, plugin, crash, update, and teardown boundaries.
 - The Welcome vault includes a Mermaid note, deterministic synthetic PDF,
   nested JSON and YAML examples, and a `code` folder covering every distinct
-  core syntax mode plus filename-only and ambiguous detection cases.
-- Older Welcome vaults receive only missing `examples` and `code` files once;
-  existing paths remain untouched, and encrypted copies wait for unlock.
+  core syntax mode plus filename-only and ambiguous detection cases. Its
+  [plugin examples](<../plugins/README.md>) cover every user-facing plugin
+  without installing packages or initializing a Git repository.
+- Older Welcome vaults receive only missing `examples`, `code`, and new
+  `plugins` example sets once; existing paths and earlier markers remain
+  untouched, and encrypted copies wait for unlock to receive ciphertext.
 - Graph view, Kanban, task enhancements, reminders, comments,
   highlighting, TTS/dictation, calendar, time tracking, and colorful text remain
   optional rather than built into the minimal core.
