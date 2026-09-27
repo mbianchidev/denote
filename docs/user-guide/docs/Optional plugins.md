@@ -321,7 +321,7 @@ Markdown checkboxes from the current vault. The plugin is disabled by default
 and its executable code is downloaded only after you approve **Index Markdown
 checkboxes and update one verified task marker after an explicit action**. It
 has no network, process, clipboard, credential, or general workspace-write
-permission.
+permission. This version requires Denote 0.7.0 or newer.
 
 Choose **Advanced task lists** in the activity rail or run **Show advanced task
 lists** from the command palette. The consolidated view shows each task's note,

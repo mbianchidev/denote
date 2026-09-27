@@ -40,9 +40,9 @@ describe("Advanced task lists activation", () => {
 
     expect(plugin.manifest).toMatchObject({
       id: "denote.task-lists",
-      version: "0.1.0",
+      version: "0.1.1",
       category: "productivity",
-      compatibility: { apiVersion: 1, minimumDenoteVersion: "0.6.0" },
+      compatibility: { apiVersion: 1, minimumDenoteVersion: "0.7.0" },
       permissions: [{ capability: "task-list" }],
     });
     expect(register).toHaveBeenCalledExactlyOnceWith({

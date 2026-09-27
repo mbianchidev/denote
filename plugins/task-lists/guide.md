@@ -4,7 +4,7 @@
 
 Collect standard Markdown checkboxes from the current vault into one local task
 view. Tasks remain ordinary portable Markdown and continue to work when the
-plugin is disabled.
+plugin is disabled. Requires Denote 0.7.0 or newer.
 
 ## Enablement and permissions
 

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.task-lists",
   "name": "Advanced task lists",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Query and safely update Markdown checkboxes across the current vault.",
   "publisher": {
     "name": "Denote",
@@ -14,7 +14,7 @@
   "category": "productivity",
   "compatibility": {
     "apiVersion": 1,
-    "minimumDenoteVersion": "0.6.0",
+    "minimumDenoteVersion": "0.7.0",
     "maximumDenoteVersion": "1.0.0"
   },
   "permissions": [
