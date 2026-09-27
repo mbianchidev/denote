@@ -5,6 +5,7 @@ import { maskSafeRichHtml } from "./safeRichHtml";
 import { maskReferenceDefinitions } from "./referenceMarkdown";
 import { normalizeTag } from "./tagColors";
 import type { MarkdownViewMode } from "./markdownView";
+import { createMarkdownParser, type MarkdownParser } from "./markdownParser";
 
 const CALLOUT_TYPES = "warning|info|danger|note|tip|caution";
 
@@ -63,9 +64,12 @@ export function calloutsToDirectives(markdown: string): string {
   return output.join("\n");
 }
 
-export function markdownEditorSource(markdown: string): string {
+export function markdownEditorSource(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): string {
   return protectRichTextComparisonOperators(
-    calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown)),
+    calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown, parse)),
   );
 }
 
@@ -77,17 +81,23 @@ export interface ThematicBreakSnapshot {
   delimiters: string[];
 }
 
-export function captureThematicBreaks(markdown: string): ThematicBreakSnapshot {
+export function captureThematicBreaks(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): ThematicBreakSnapshot {
   return {
-    delimiters: thematicBreakRanges(markdown).map(({ delimiter }) => delimiter),
+    delimiters: thematicBreakRanges(markdown, parse).map(
+      ({ delimiter }) => delimiter,
+    ),
   };
 }
 
 export function restoreThematicBreaks(
   markdown: string,
   snapshot: ThematicBreakSnapshot,
+  parse: MarkdownParser = fromMarkdown,
 ): string {
-  const ranges = thematicBreakRanges(markdown);
+  const ranges = thematicBreakRanges(markdown, parse);
   if (ranges.length !== snapshot.delimiters.length) {
     return markdown;
   }
@@ -104,9 +114,10 @@ export function restoreThematicBreaks(
 
 function thematicBreakRanges(
   markdown: string,
+  parse: MarkdownParser,
 ): Array<{ start: number; end: number; delimiter: string }> {
   if (!/[-*_][ \t]*[-*_][ \t]*[-*_]/.test(markdown)) return [];
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (!root) {
     return [];
   }
@@ -313,8 +324,11 @@ function isTagBoundary(characters: string[], index: number): boolean {
   return cursor < 0 || TAG_BOUNDARY.test(characters[cursor]);
 }
 
-export function extractHeadings(markdown: string): HeadingItem[] {
-  return markdownHeadingRecords(markdown).map(({ heading }) => heading);
+export function extractHeadings(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): HeadingItem[] {
+  return markdownHeadingRecords(markdown, parse).map(({ heading }) => heading);
 }
 
 export function findMarkdownHeadingLine(
@@ -348,12 +362,13 @@ export function findMarkdownHeadingLine(
 
 function markdownHeadingRecords(
   markdown: string,
+  parse: MarkdownParser = fromMarkdown,
 ): Array<{ heading: HeadingItem; line: number }> {
   try {
     const headings: Array<{ heading: HeadingItem; line: number }> = [];
     const usedSlugs = new Set<string>();
     visitHeadingNodes(
-      fromMarkdown(markdown) as unknown as HeadingAstNode,
+      parse(markdown) as unknown as HeadingAstNode,
       (heading) => {
         const text = markdownNodeText(heading).trim();
         if (!text) {
@@ -531,11 +546,14 @@ export function recoverMarkdownLinkTarget(
     : null;
 }
 
-export function normalizeBareSpaceLinkDestinations(markdown: string): string {
+export function normalizeBareSpaceLinkDestinations(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): string {
   if (!/\[[^\]\n]+\]\([^()\n]*\s+[^()\n]*\)/.test(markdown)) {
     return markdown;
   }
-  const ranges = protectedMarkdownRanges(markdown);
+  const ranges = protectedMarkdownRanges(markdown, parse);
   let normalized = "";
   let cursor = 0;
   for (const [start, end] of ranges) {
@@ -571,7 +589,10 @@ function normalizeBareSpaceLinks(value: string): string {
   );
 }
 
-function protectedMarkdownRanges(markdown: string): Array<[number, number]> {
+function protectedMarkdownRanges(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   const frontmatter = markdown.match(
     /^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1(?=\r?\n|$)/,
@@ -579,7 +600,7 @@ function protectedMarkdownRanges(markdown: string): Array<[number, number]> {
   if (frontmatter) {
     ranges.push([0, frontmatter[0].length]);
   }
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (root) {
     visitMarkdownAst(root, (node) => {
       if (!["code", "inlineCode", "html"].includes(node.type)) {
@@ -715,13 +736,17 @@ export interface TocMarkerSnapshot {
   }>;
 }
 
-export function captureTocMarkers(markdown: string): TocMarkerSnapshot {
-  return { blocks: validTocBlocks(markdown).map((block) => block.snapshot) };
+export function captureTocMarkers(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): TocMarkerSnapshot {
+  return { blocks: validTocBlocks(markdown, parse).map((block) => block.snapshot) };
 }
 
 export function restoreTocMarkers(
   markdown: string,
   snapshot: TocMarkerSnapshot,
+  parse: MarkdownParser = fromMarkdown,
 ): string {
   if (
     snapshot.blocks.length === 0 ||
@@ -729,7 +754,7 @@ export function restoreTocMarkers(
   ) {
     return markdown;
   }
-  const lists = rootMarkdownLists(markdown);
+  const lists = rootMarkdownLists(markdown, markdownRoot(markdown, parse));
   const claimed: ClaimedListRange[] = [];
   const insertions: Array<{ start: number; end: number }> = [];
   for (const block of snapshot.blocks) {
@@ -829,26 +854,36 @@ export function applyTocMarkerViewChange(
   markdown: string,
   snapshot: TocMarkerSnapshot,
   viewMode: MarkdownViewMode,
+  parse: MarkdownParser = createMarkdownParser(),
 ): { markdown: string; snapshot: TocMarkerSnapshot } {
   if (viewMode === "source") {
-    return { markdown, snapshot: captureTocMarkers(markdown) };
+    return { markdown, snapshot: captureTocMarkers(markdown, parse) };
   }
-  const restored = restoreTocMarkers(markdown, snapshot);
-  return { markdown: restored, snapshot: captureTocMarkers(restored) };
+  const restored = restoreTocMarkers(markdown, snapshot, parse);
+  return { markdown: restored, snapshot: captureTocMarkers(restored, parse) };
 }
 
-export function hasUnsupportedRichMarkdown(markdown: string): boolean {
-  const referenceSafeMarkdown = maskReferenceDefinitions(markdown);
+export function hasUnsupportedRichMarkdown(
+  markdown: string,
+  parse: MarkdownParser = createMarkdownParser(),
+): boolean {
+  const referenceSafeMarkdown = markdown.includes("<")
+    ? maskReferenceDefinitions(markdown, parse)
+    : markdown;
   return (
     /(^|\n)\[\^[^\]]+\]:/m.test(markdown) ||
     /\[\^[^\]]+\]/.test(markdown) ||
-    containsUnsupportedHtmlComment(markdown) ||
-    containsEscapedAngleSyntax(referenceSafeMarkdown) ||
-    containsDetailsMdxIncompatibleAngles(referenceSafeMarkdown) ||
-    containsDetailsMdxIncompatibleMarkdown(referenceSafeMarkdown) ||
-    containsUnsupportedReferenceImages(markdown) ||
+    containsUnsupportedHtmlComment(markdown, parse) ||
+    containsEscapedAngleSyntax(referenceSafeMarkdown, parse) ||
+    containsDetailsMdxIncompatibleAngles(referenceSafeMarkdown, parse) ||
+    containsDetailsMdxIncompatibleMarkdown(referenceSafeMarkdown, parse) ||
+    containsUnsupportedReferenceImages(markdown, parse) ||
     containsUnsafeAngleSyntax(
-      maskSafeRichHtml(maskSupportedDetailsTags(referenceSafeMarkdown)),
+      maskSafeRichHtml(
+        maskSupportedDetailsTags(referenceSafeMarkdown, parse),
+        parse,
+      ),
+      parse,
     ) ||
     /(^|\n)\s*\$\$[\s\S]*?\$\$/m.test(markdown) ||
     /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]/.test(markdown) ||
@@ -856,9 +891,12 @@ export function hasUnsupportedRichMarkdown(markdown: string): boolean {
   );
 }
 
-function containsUnsupportedReferenceImages(markdown: string): boolean {
+function containsUnsupportedReferenceImages(
+  markdown: string,
+  parse: MarkdownParser,
+): boolean {
   if (!markdown.includes("![")) return false;
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (!root) {
     return false;
   }
@@ -871,17 +909,23 @@ function containsUnsupportedReferenceImages(markdown: string): boolean {
   return found;
 }
 
-export function hasSupportedDetailsMarkdown(markdown: string): boolean {
-  return richDetailsBlocks(markdown).length > 0;
+export function hasSupportedDetailsMarkdown(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): boolean {
+  return richDetailsBlocks(markdown, parse).length > 0;
 }
 
-function containsDetailsMdxIncompatibleAngles(markdown: string): boolean {
-  if (!hasSupportedDetailsMarkdown(markdown)) {
+function containsDetailsMdxIncompatibleAngles(
+  markdown: string,
+  parse: MarkdownParser,
+): boolean {
+  if (!hasSupportedDetailsMarkdown(markdown, parse)) {
     return false;
   }
-  const masked = maskSupportedDetailsTags(markdown);
+  const masked = maskSupportedDetailsTags(markdown, parse);
   const protectedRanges: Array<[number, number]> = [];
-  visitMarkdownAst(fromMarkdown(masked), (node) => {
+  visitMarkdownAst(parse(masked), (node) => {
     const start = node.position?.start.offset;
     const end = node.position?.end.offset;
     if (start === undefined || end === undefined) {
@@ -910,11 +954,14 @@ function containsDetailsMdxIncompatibleAngles(markdown: string): boolean {
   return false;
 }
 
-function containsDetailsMdxIncompatibleMarkdown(markdown: string): boolean {
-  if (!hasSupportedDetailsMarkdown(markdown)) {
+function containsDetailsMdxIncompatibleMarkdown(
+  markdown: string,
+  parse: MarkdownParser,
+): boolean {
+  if (!hasSupportedDetailsMarkdown(markdown, parse)) {
     return false;
   }
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (!root) {
     return true;
   }
@@ -934,11 +981,17 @@ function containsDetailsMdxIncompatibleMarkdown(markdown: string): boolean {
   return incompatible;
 }
 
-function maskSupportedDetailsTags(markdown: string): string {
-  return replaceRichDetailsBlocks(markdown, (block) =>
-    block.replace(/<\/?(?:details|summary)(?: open)?>/g, (tag) =>
-      " ".repeat(tag.length),
-    ),
+function maskSupportedDetailsTags(
+  markdown: string,
+  parse: MarkdownParser,
+): string {
+  return replaceRichDetailsBlocks(
+    markdown,
+    (block) =>
+      block.replace(/<\/?(?:details|summary)(?: open)?>/g, (tag) =>
+        " ".repeat(tag.length),
+      ),
+    parse,
   );
 }
 
@@ -948,11 +1001,14 @@ interface RichDetailsBlock {
   value: string;
 }
 
-function richDetailsBlocks(markdown: string): RichDetailsBlock[] {
+function richDetailsBlocks(
+  markdown: string,
+  parse: MarkdownParser,
+): RichDetailsBlock[] {
   if (!markdown.includes("<details")) return [];
   const blocks: RichDetailsBlock[] = [];
   const codeRanges: Array<[number, number]> = [];
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (root) {
     visitMarkdownAst(root, (node) => {
       if (node.type !== "code" && node.type !== "inlineCode") {
@@ -1030,8 +1086,9 @@ function richDetailsBlocks(markdown: string): RichDetailsBlock[] {
 function replaceRichDetailsBlocks(
   markdown: string,
   replace: (block: string) => string,
+  parse: MarkdownParser,
 ): string {
-  const blocks = richDetailsBlocks(markdown);
+  const blocks = richDetailsBlocks(markdown, parse);
   let output = "";
   let cursor = 0;
   for (const block of blocks) {
@@ -1042,16 +1099,19 @@ function replaceRichDetailsBlocks(
   return output + markdown.slice(cursor);
 }
 
-function containsUnsupportedHtmlComment(markdown: string): boolean {
+function containsUnsupportedHtmlComment(
+  markdown: string,
+  parse: MarkdownParser,
+): boolean {
   if (!markdown.includes("<!--")) {
     return false;
   }
   const allowedMarkers = new Set(
-    validTocBlocks(markdown).flatMap((block) =>
+    validTocBlocks(markdown, parse).flatMap((block) =>
       block.markerRanges.map(([start, end]) => `${start}:${end}`),
     ),
   );
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (!root) {
     return /<!--/.test(markdown);
   }
@@ -1086,9 +1146,9 @@ interface RootMarkdownList {
   nextContext: string | null;
 }
 
-function validTocBlocks(markdown: string): TocBlock[] {
+function validTocBlocks(markdown: string, parse: MarkdownParser): TocBlock[] {
   if (!markdown.includes("<!-- toc -->")) return [];
-  const root = markdownRoot(markdown);
+  const root = markdownRoot(markdown, parse);
   if (!root) {
     return [];
   }
@@ -1097,7 +1157,7 @@ function validTocBlocks(markdown: string): TocBlock[] {
   const markerPattern =
     /^<!-- toc -->\r?\n([\s\S]*?)^<!-- \/toc -->\r?(?=\n|$)/gm;
   for (const match of markdown.matchAll(markerPattern)) {
-    const bodyRoot = markdownRoot(match[1]);
+    const bodyRoot = markdownRoot(match[1], parse);
     const bodyChildren = bodyRoot?.children ?? [];
     if (bodyChildren.length !== 1 || bodyChildren[0].type !== "list") {
       continue;
@@ -1155,9 +1215,12 @@ function validTocBlocks(markdown: string): TocBlock[] {
   return blocks;
 }
 
-function markdownRoot(markdown: string): MarkdownAstNode | null {
+function markdownRoot(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): MarkdownAstNode | null {
   try {
-    return fromMarkdown(markdown) as MarkdownAstNode;
+    return parse(markdown) as MarkdownAstNode;
   } catch {
     return null;
   }
@@ -1412,7 +1475,10 @@ interface MarkdownAstNode {
   };
 }
 
-function containsUnsafeAngleSyntax(markdown: string): boolean {
+function containsUnsafeAngleSyntax(
+  markdown: string,
+  parse: MarkdownParser,
+): boolean {
   if (!markdown.includes("<")) return false;
   const matches = [
     ...markdown.matchAll(/<\/?[a-z][^<>]*>/gi),
@@ -1430,7 +1496,7 @@ function containsUnsafeAngleSyntax(markdown: string): boolean {
     const codeRanges: Array<[number, number]> = [];
     const literalHtmlOpenTags = new Set<string>();
     let unsafeHtml = false;
-    visitMarkdownAst(fromMarkdown(markdown), (node) => {
+    visitMarkdownAst(parse(markdown), (node) => {
       const start = node.position?.start.offset;
       const end = node.position?.end.offset;
       if (start === undefined || end === undefined) {
@@ -1556,11 +1622,16 @@ function isTagNameStartCode(code: number): boolean {
   );
 }
 
-function containsEscapedAngleSyntax(markdown: string): boolean {
+function containsEscapedAngleSyntax(
+  markdown: string,
+  parse: MarkdownParser,
+): boolean {
   if (!/\\+</.test(markdown)) {
     return false;
   }
-  const protectedIndex = createRangeIndex(protectedMarkdownRanges(markdown));
+  const protectedIndex = createRangeIndex(
+    protectedMarkdownRanges(markdown, parse),
+  );
   return [...markdown.matchAll(/\\+</g)].some((match) => {
     const angleOffset = (match.index ?? 0) + match[0].length - 1;
     return !rangeContains(protectedIndex, angleOffset, angleOffset + 1);

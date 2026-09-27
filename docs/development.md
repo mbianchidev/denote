@@ -82,6 +82,22 @@ customer, production, or downloaded documents. The Node renderer contract uses
 PDF.js's legacy Node build only to validate bytes and errors in tests; the
 desktop application bundles the modern browser build and module worker.
 
+Core typing and memory-allocation regressions use synthetic documents and real
+editor transactions:
+
+```bash
+npx vitest run \
+  src/components/MarkdownEditor.performance.test.tsx \
+  src/components/MarkdownEditor.test.tsx \
+  src/components/PlainTextEditor.test.tsx \
+  src/lib/documentStatistics.test.ts \
+  src/lib/markdown.test.ts \
+  src/App.test.tsx
+```
+
+These checks enforce parser-call budgets and streaming word segmentation rather
+than hardware-dependent wall-clock thresholds. No optional plugin is required.
+
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:
 

@@ -1,5 +1,6 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
 import type { Definition, LinkReference, Root } from "mdast";
+import type { MarkdownParser } from "./markdownParser";
 
 const GENERATED_REFERENCE_ATTRIBUTES = new Set([
   "kind",
@@ -35,11 +36,12 @@ export interface ReferenceMarkdownSnapshot {
 
 export function captureReferenceMarkdown(
   markdown: string,
+  parse: MarkdownParser = fromMarkdown,
 ): ReferenceMarkdownSnapshot {
   if (!markdown.includes("[")) return emptyReferenceSnapshot(markdown);
   let root: Root;
   try {
-    root = fromMarkdown(markdown);
+    root = parse(markdown);
   } catch {
     return emptyReferenceSnapshot(markdown);
   }
@@ -130,9 +132,12 @@ export function rawDefinitionGroupSource(
   );
 }
 
-export function maskReferenceDefinitions(markdown: string): string {
+export function maskReferenceDefinitions(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): string {
   if (!markdown.includes("[")) return markdown;
-  const snapshot = captureReferenceMarkdown(markdown);
+  const snapshot = captureReferenceMarkdown(markdown, parse);
   if (snapshot.definitions.length === 0) {
     return markdown;
   }
