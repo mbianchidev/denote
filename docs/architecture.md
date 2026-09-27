@@ -169,12 +169,17 @@ the registered default and writes every missing file plus the marker directly
 as authenticated ciphertext. Symlinked/reparse-point folders, files, or markers
 are refused without following them.
 
-A separate `plugins-v1` marker applies the same non-destructive and encrypted
-write rules only to canonical `plugins/` workflow examples. Its first file is
-`plugins/Kanban board.kanban.md`. The marker is independent from `examples-v1`,
-so an older Welcome vault that already received document and code examples can
-still receive the new plugin sample exactly once without changing any existing
-path.
+The independent `plugins-v1` marker applies those rules to the original
+`plugins/Kanban board.kanban.md` only. `plugins-v2` adds a fixed inventory of
+new `plugins/` examples: a local index, daily/dated notes, emoji practice, a
+manual Git exercise, JSON/YAML data, a Mermaid flow, three linked graph notes,
+and advanced tasks. The developer-only Reference plugin has no user exercise.
+Fresh Welcome vaults record both markers. Older vaults apply only pending
+versions, so a completed `plugins-v1` never recreates a deleted Kanban sample.
+Neither version broadens `examples-v1`, modifies existing files or marker
+bytes, enables a plugin, or creates a Git repository. Both password and
+recovery-code unlock paths use the same registered-default-vault guard and
+write missing samples and their new marker as authenticated ciphertext.
 
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every

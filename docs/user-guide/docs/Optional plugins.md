@@ -92,6 +92,13 @@ Diff highlighting and interactive diff presentation are intentionally not core
 language entries; the optional Git plugin provides them through its
 host-rendered source-control view.
 
+The Welcome vault's [plugin examples](<../plugins/README.md>) provide small,
+invented files for every user-facing plugin. New example sets add only their
+missing paths once, including after unlock as ciphertext in encrypted Welcome
+vaults. Existing files and earlier migration markers stay untouched; samples
+deleted after their set was applied are not restored on later launches.
+Opening an example never installs a plugin or initializes Git.
+
 ## Emoji picker
 
 Enable **Emoji picker** under **Editor and writing** to find and insert standard
@@ -124,6 +131,8 @@ and favorite lists plus your tone choice live in plugin settings, not notes.
 Settings reset clears the lists; disabling alone retains them for reinstall.
 The plugin has no direct filesystem, encryption-key, or network access. It
 does not replace the operating system's emoji picker.
+
+Try the editable [emoji practice note](<../plugins/Emoji practice.md>).
 
 ## JSON and YAML viewer
 
@@ -161,6 +170,10 @@ updating the plugin, a crash, vault switch, or application teardown releases
 the parsed model. Locking an encrypted vault stops the viewer worker and clears
 decrypted derived state; it restarts after unlock. Disabling or removing the
 plugin never changes open files.
+
+Try the [JSON](<../plugins/Structured data.json>) and
+[YAML](<../plugins/Structured data.yaml>) examples, including an unexpanded YAML
+alias. Compare Structured with the unchanged Raw source.
 
 ## Kanban boards
 
@@ -232,9 +245,8 @@ until unlock. Disabling or removing the plugin never changes or deletes board
 files; they continue to open in the exact Markdown source editor.
 
 Open [the Kanban board example](<../plugins/Kanban board.kanban.md>) in the
-Denote Welcome vault. Older copies receive only the missing `plugins` sample
-once, including as ciphertext after an encrypted Welcome vault is unlocked.
-Existing matching paths are never overwritten.
+Denote Welcome vault. The original board is kept alongside the newer plugin
+examples; an older copy you edited or deleted is never replaced.
 
 ## Calendar and daily notes
 
@@ -314,6 +326,10 @@ vault are written directly as ciphertext. Switching or locking vaults discards
 calendar data. Disabling removes the worker, calendar, commands, and downloaded
 package, but never changes or deletes daily notes or folders.
 
+The [daily note](<../plugins/Calendar daily note.md>) and
+[ordinary dated note](<../plugins/Calendar dated note.md>) both use October 14,
+2026. Open them from the calendar's note list without creating another file.
+
 ## Advanced task lists
 
 Enable **Advanced task lists** under **Productivity** to collect standard
@@ -378,6 +394,9 @@ external edit.
 Locking or switching vaults clears the derived index and stops the worker.
 Disabling removes the view, worker, downloaded code, and cached archives, but
 never changes or deletes task Markdown.
+
+Try [Advanced tasks](<../plugins/Advanced tasks.md>) for open/completed items,
+headings, hashtags, due dates, and a fenced checkbox that is not indexed.
 
 ## Note graph
 
@@ -449,6 +468,9 @@ disabling or updating the plugin, a crash, or application exit releases the
 worker's derived index. Disabling or removing Note graph never edits, reformats,
 or deletes Markdown.
 
+Open [the three-note graph example](<../plugins/Note graph.md>) and use its tag
+filter to isolate the sample chain from the rest of the Welcome guide.
+
 ## Mermaid diagrams
 
 Enable **Mermaid diagrams** under **Diagrams and visualization** to render
@@ -502,10 +524,9 @@ crashing the plugin, and application teardown cancel stale work, destroy
 sandboxes, clear derived SVG, unregister the contribution, and restore ordinary
 fenced-code rendering. Markdown is never rewritten.
 
-Open [the Mermaid example](<../examples/Mermaid diagram.md>) in the Denote
-Welcome vault. Older copies receive only missing `examples` and `code` files on
-the next startup, or after unlock when the Welcome vault is encrypted. Existing
-matching paths are not overwritten.
+Open [the Mermaid decision loop](<../plugins/Mermaid flow.md>) in the Denote
+Welcome vault. The earlier [simple diagram](<../examples/Mermaid diagram.md>)
+remains available at its original path too.
 
 ## Other optional features
 
@@ -528,6 +549,10 @@ run Git or change your vault, and it asks for no network, process, or
 note-writing permission. Switching projects, or switching vaults, resets the
 view and asks for a refresh, so it never shows one repository's state as if it
 belonged to another.
+
+The [Git workflow exercise](<../plugins/Git workflow.md>) uses a separate empty
+practice vault and manual local commits. It never initializes the Welcome vault
+or configures a remote.
 
 Set **Automatic commit interval** above zero to let Denote commit for you on a
 timer. Denote saves your open notes first, then commits only tracked files that
@@ -746,7 +771,8 @@ and must run an encryption sweep before committing.
 The current catalog also includes a development reference plugin that proves
 download, verification, isolated activation, command registration, disablement,
 sidebar and status contributions, note events, source-editor decorations,
-keychain isolation, restart restoration, and package removal. Remaining
+keychain isolation, restart restoration, and package removal. It has no Welcome
+example because it is an SDK/lifecycle fixture, not a user workflow. Remaining
 production feature plugins are tracked separately.
 
 [Back to Welcome](<../Welcome.md>)

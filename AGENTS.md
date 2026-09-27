@@ -108,8 +108,11 @@ changes affect new Welcome vaults unless a separate non-destructive migration is
 implemented. The versioned `examples-v1` addition may add only missing
 `examples/` and `code/` files to older Welcome vaults; it preserves existing
 paths, defers while encrypted, and writes ciphertext after unlock. The separate
-`plugins-v1` addition applies the same guarantees only to canonical `plugins/`
-workflow examples.
+`plugins-v1` addition applies the same guarantees only to the original Kanban
+sample. `plugins-v2` adds its fixed new `plugins/` example inventory, including
+to vaults that already applied v1. Preserve earlier marker bytes and inventories;
+do not restore samples deleted after their version was applied or enable
+plugins or initialize Git as part of seeding.
 
 Tests and test fixtures must use synthetic mock data. Never copy filenames,
 paths, note text, customer data, personal data, or production data from a real

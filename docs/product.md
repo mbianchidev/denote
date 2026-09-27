@@ -76,6 +76,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and user-added content are preserved. Each collection has its own versioned
   marker. Locked encrypted Welcome vaults defer additions until unlock, when new
   files are written as ciphertext.
+- The Welcome `plugins` collection includes small synthetic examples for every
+  user-facing catalog plugin; the developer-only Reference plugin is omitted.
+  Opening samples never enables plugins or initializes Git. New example-set
+  versions retain earlier markers and do not restore previously applied samples
+  that the user deleted.
 - Up to 50 recently opened vault folders are available from a quick switcher,
   while the native folder picker adds new vaults.
 - Installed desktop builds handle `denote:///absolute/path/to/file` app links.
