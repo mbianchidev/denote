@@ -1,8 +1,10 @@
 use std::{
     fs,
-    io::Write,
+    io::{self, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command, Output, Stdio},
+    thread,
+    time::{Duration, Instant},
 };
 
 const PASSWORD: &str = " synthetic signing password ";
@@ -58,8 +60,68 @@ fn command(program: &Path, root: &Path) -> Command {
     command
 }
 
-fn run(mut command: Command) -> Output {
-    let output = command.output().expect("synthetic command");
+fn capture(mut command: Command, input: Option<&[u8]>) -> io::Result<Output> {
+    let mut stdout = tempfile::tempfile()?;
+    let mut stderr = tempfile::tempfile()?;
+    command
+        .stdout(Stdio::from(stdout.try_clone()?))
+        .stderr(Stdio::from(stderr.try_clone()?))
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
+    let mut child = command.spawn()?;
+    if let Some(input) = input {
+        let result = child
+            .stdin
+            .take()
+            .expect("synthetic input pipe")
+            .write_all(input);
+        if let Err(error) = result {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(error);
+        }
+    }
+    let deadline = Instant::now() + Duration::from_secs(90);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline
+            || stdout.metadata()?.len() > 1024 * 1024
+            || stderr.metadata()?.len() > 1024 * 1024
+        {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Synthetic signing command exceeded its time/output limit.",
+            ));
+        }
+        thread::sleep(Duration::from_millis(20));
+    };
+    if stdout.metadata()?.len() > 1024 * 1024 || stderr.metadata()?.len() > 1024 * 1024 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Synthetic signing output exceeded its limit.",
+        ));
+    }
+    let mut output = Output {
+        status,
+        stdout: Vec::new(),
+        stderr: Vec::new(),
+    };
+    stdout.seek(SeekFrom::Start(0))?;
+    stderr.seek(SeekFrom::Start(0))?;
+    stdout.take(1024 * 1024).read_to_end(&mut output.stdout)?;
+    stderr.take(1024 * 1024).read_to_end(&mut output.stderr)?;
+    Ok(output)
+}
+
+fn run(command: Command) -> Output {
+    let output = capture(command, None).expect("synthetic command");
     assert!(
         output.status.success(),
         "synthetic command failed: {}",
@@ -122,9 +184,9 @@ struct AgentCleanup(PathBuf);
 impl Drop for AgentCleanup {
     fn drop(&mut self) {
         let root = &self.0;
-        let output = command(&tool("gpgconf"), root)
-            .args(["--kill", "gpg-agent"])
-            .output();
+        let mut cleanup = command(&tool("gpgconf"), root);
+        cleanup.args(["--kill", "gpg-agent"]);
+        let output = capture(cleanup, None);
         if !output.is_ok_and(|output| output.status.success()) {
             eprintln!("Could not stop the synthetic GPG agent in its temporary GNUPGHOME.");
         }
@@ -137,22 +199,20 @@ fn encrypted_openpgp_commits_use_the_native_pipe_and_verify() {
     let root = fixture.path();
     let _agent = AgentCleanup(root.to_path_buf());
     let gpg = tool("gpg");
+    eprintln!("Generating the temporary encrypted OpenPGP key.");
     let mut generate = command(&gpg, root);
-    generate
-        .args([
-            "--batch",
-            "--pinentry-mode=loopback",
-            "--passphrase-fd=0",
-            "--quick-generate-key",
-            AUTHOR,
-            "ed25519",
-            "sign",
-            "0",
-        ])
-        .stdin(Stdio::piped());
-    let mut child = generate.spawn().expect("generate synthetic GPG key");
-    writeln!(child.stdin.take().expect("password pipe"), "{PASSWORD}").expect("password");
-    let output = child.wait_with_output().expect("key generation");
+    generate.args([
+        "--batch",
+        "--pinentry-mode=loopback",
+        "--passphrase-fd=0",
+        "--quick-generate-key",
+        AUTHOR,
+        "ed25519",
+        "sign",
+        "0",
+    ]);
+    let output =
+        capture(generate, Some(format!("{PASSWORD}\n").as_bytes())).expect("key generation");
     assert!(
         output.status.success(),
         "{}",
@@ -164,9 +224,11 @@ fn encrypted_openpgp_commits_use_the_native_pipe_and_verify() {
         command.args(["--kill", "gpg-agent"]);
         command
     });
+    eprintln!("Signing through Denote's OpenPGP bridge.");
     let output = run(openpgp_sign(root, &gpg));
     assert!(!String::from_utf8_lossy(&output.stdout).contains(PASSWORD));
     assert!(!String::from_utf8_lossy(&output.stderr).contains(PASSWORD));
+    eprintln!("Verifying the recorded OpenPGP signature.");
     run(git(
         root,
         &[
@@ -187,9 +249,8 @@ fn encrypted_openpgp_commits_use_the_native_pipe_and_verify() {
     fs::write(root.join("note.md"), "Another synthetic edit\n").expect("edit");
     fs::write(root.join("passphrase"), "wrong synthetic password").expect("wrong password");
     run(git(root, &["add", "note.md"]));
-    let failed = openpgp_sign(root, &gpg)
-        .output()
-        .expect("sign with wrong password");
+    eprintln!("Rejecting a wrong signing password.");
+    let failed = capture(openpgp_sign(root, &gpg), None).expect("sign with wrong password");
     assert!(
         !failed.status.success(),
         "wrong password must not create an unsigned commit"
