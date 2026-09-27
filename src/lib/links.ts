@@ -1,4 +1,5 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
+import type { MarkdownParser } from "./markdownParser";
 
 const WEB_SCHEME = /^(?:https?:)/i;
 const EXTERNAL_SCHEME = /^(?:https?:|mailto:|tel:)/i;
@@ -85,14 +86,17 @@ export function isLocalFileUrl(href: string): boolean {
   }
 }
 
-export function extractWebLinks(markdown: string): string[] {
+export function extractWebLinks(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): string[] {
   const links = new Set<string>();
   try {
     const definitions = new Map<string, string>();
     const candidates: Array<
       { kind: "url"; value: string } | { kind: "reference"; value: string }
     > = [];
-    visitMarkdown(fromMarkdown(markdown), (node) => {
+    visitMarkdown(parse(markdown), (node) => {
       if (node.type === "link" && node.url && isWebLink(node.url)) {
         candidates.push({ kind: "url", value: node.url });
       } else if (node.type === "definition" && node.identifier && node.url) {

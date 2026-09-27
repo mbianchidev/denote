@@ -82,6 +82,22 @@ customer, production, or downloaded documents. The Node renderer contract uses
 PDF.js's legacy Node build only to validate bytes and errors in tests; the
 desktop application bundles the modern browser build and module worker.
 
+Core typing and memory-allocation regressions use synthetic documents and real
+editor transactions:
+
+```bash
+npx vitest run \
+  src/components/MarkdownEditor.performance.test.tsx \
+  src/components/MarkdownEditor.test.tsx \
+  src/components/PlainTextEditor.test.tsx \
+  src/lib/documentStatistics.test.ts \
+  src/lib/markdown.test.ts \
+  src/App.test.tsx
+```
+
+These checks enforce parser-call budgets and streaming word segmentation rather
+than hardware-dependent wall-clock thresholds. No optional plugin is required.
+
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:
 
@@ -801,8 +817,21 @@ forms, annotations, attachments, or external links.
 addition for older Welcome vaults. Tests must prove exact source inventory,
 missing-file addition, existing-file preservation, one-time behavior, symlink
 refusal, encrypted deferral, and ciphertext creation after unlock.
-The separate `plugins-v1` addition owns the same guarantees for `plugins/`
-samples and must never broaden the older `examples-v1` prefix set.
+The separate `plugins-v1` addition owns only the original Kanban sample.
+`plugins-v2` owns the fixed new inventory listed in
+`PLUGIN_EXAMPLE_V2_PATHS`: the plugin index and each suitable user-facing
+workflow. Do not broaden an applied version's inventory or remove its marker;
+future additions need a new version so deleted earlier samples stay deleted.
+Neither plugin migration broadens the older `examples-v1` prefix set.
+Keep the plugin index, native seed inventory, and synthetic catalog-coverage
+test aligned. The Reference SDK fixture is intentionally excluded.
+
+Focused Welcome checks are:
+
+```bash
+npx vitest run src/lib/welcomeSamples.test.ts --maxWorkers=1
+cargo test --manifest-path src-tauri/Cargo.toml --jobs 2 default_vault::tests -- --test-threads=2
+```
 
 Terraform/HCL uses the direct `codemirror-lang-hcl` dependency. Helm has no
 maintained package, so its small core stream tokenizer stays in

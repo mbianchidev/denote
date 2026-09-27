@@ -169,12 +169,17 @@ the registered default and writes every missing file plus the marker directly
 as authenticated ciphertext. Symlinked/reparse-point folders, files, or markers
 are refused without following them.
 
-A separate `plugins-v1` marker applies the same non-destructive and encrypted
-write rules only to canonical `plugins/` workflow examples. Its first file is
-`plugins/Kanban board.kanban.md`. The marker is independent from `examples-v1`,
-so an older Welcome vault that already received document and code examples can
-still receive the new plugin sample exactly once without changing any existing
-path.
+The independent `plugins-v1` marker applies those rules to the original
+`plugins/Kanban board.kanban.md` only. `plugins-v2` adds a fixed inventory of
+new `plugins/` examples: a local index, daily/dated notes, emoji practice, a
+manual Git exercise, JSON/YAML data, a Mermaid flow, three linked graph notes,
+and advanced tasks. The developer-only Reference plugin has no user exercise.
+Fresh Welcome vaults record both markers. Older vaults apply only pending
+versions, so a completed `plugins-v1` never recreates a deleted Kanban sample.
+Neither version broadens `examples-v1`, modifies existing files or marker
+bytes, enables a plugin, or creates a Git repository. Both password and
+recovery-code unlock paths use the same registered-default-vault guard and
+write missing samples and their new marker as authenticated ciphertext.
 
 The native folder picker establishes the active vault inside Rust. Later IPC
 commands do not accept arbitrary vault roots. The Rust core canonicalizes every
@@ -1636,19 +1641,37 @@ announces the number of replaced instances.
 
 ## Editing
 
-Core Markdown feature checks first look for the syntax they need. Notes without
-reference brackets, HTML angles, disclosure tags, TOC markers, or thematic-break
-delimiters do not get parsed merely to prove those features absent. The ordinary
-prose typing path performs no host-side full-document Markdown parses; matching
-syntax still uses the complete parser and existing safety rules.
+Core Markdown feature checks first look for the syntax they need. Ordinary
+prose, inline links, and reference links without angle syntax do not trigger a
+host-side full-document parse on each keystroke. Reference snapshots are lazy:
+importing reference nodes or explicitly requesting a source snapshot computes
+the latest document, rather than reparsing every edit. An edit drops the previous
+snapshot immediately, so deleting a large document does not retain its old tree
+while waiting for another snapshot request. Syntax that needs
+validation still uses the complete parser and existing safety rules.
+Each analysis or serialization operation shares parsed trees for identical
+source variants, including masked HTML and restored TOCs. Those caches live only
+for that operation, never globally or across an editor's history.
 
 Rich/source eligibility is memoized by content, and stable callback bridges keep
 MDXEditor plugin configuration from being rebuilt when only parent callback
 identities change. Starting debounced outline analysis does not publish an
 unchanged cache entry or force a second workspace render per keystroke.
+Project line-number overlays retain a stable settings object, so ordinary edits
+do not reconfigure CodeMirror. Error-source normalization runs only when that
+file has a diagnostic to match.
 Unmount cancels deferred autosave, tab-session, and indexing timers and
 invalidates stale background requests; normal window closing still flushes
 through the existing safe-exit barrier.
+
+Word counting runs in the existing 200 ms-debounced document-analysis worker,
+not during workspace rendering. It consumes `Intl.Segmenter` results one at a
+time rather than retaining an array of every segment and its source reference;
+the existing 200,000-character counting limit remains. The status bar retains
+the last count for the same vault/file while typing, never another vault's
+count, and reports an unavailable count if analysis fails. Character counts,
+live tab content, dirty state, and save barriers remain synchronous. Link and
+heading analysis share one parsed tree inside that worker.
 
 Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.

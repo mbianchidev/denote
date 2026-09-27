@@ -950,6 +950,94 @@ describe("App initial file-tree expansion", () => {
     unmount();
   });
 
+  it("keeps whole-document word segmentation off the typing path", async () => {
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("synthetic.txt", "text")]),
+    );
+    const { unmount } = render(<App />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Open synthetic.txt" }),
+    );
+    const change = await screen.findByRole("button", {
+      name: "Change Edit synthetic.txt",
+    });
+    const segment = vi.spyOn(Intl.Segmenter.prototype, "segment");
+    try {
+      fireEvent.click(change);
+
+      expect(screen.getByLabelText("Content of Edit synthetic.txt"))
+        .toHaveTextContent("synthetic.txt content changed");
+      expect(segment).not.toHaveBeenCalled();
+    } finally {
+      segment.mockRestore();
+      unmount();
+    }
+  });
+
+  it("updates word counts after analysis and rejects stale results while keeping edits live", async () => {
+    const originalWorker = globalThis.Worker;
+    const workers: AnalysisWorker[] = [];
+    class AnalysisWorker extends EventTarget {
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      postMessage = vi.fn();
+      terminate = vi.fn();
+      constructor() {
+        super();
+        workers.push(this);
+      }
+      complete(wordCount: string) {
+        this.onmessage?.(new MessageEvent("message", {
+          data: {
+            wordCount,
+            links: [],
+            headings: [],
+            symbols: [],
+            minimap: [],
+            incompleteHeading: false,
+          },
+        }));
+      }
+    }
+    vi.stubGlobal("Worker", AnalysisWorker);
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([
+        fileNode("synthetic.txt", "text"),
+        fileNode("another.txt", "text"),
+      ]),
+    );
+    const { unmount } = render(<App />);
+    try {
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open synthetic.txt" }),
+      );
+      expect(await screen.findByText("counting words")).toBeInTheDocument();
+      await waitFor(() => expect(workers).toHaveLength(1));
+      act(() => workers[0].complete("2 words"));
+      expect(screen.getByText("2 words")).toBeInTheDocument();
+      expect(workers[0].terminate).toHaveBeenCalledOnce();
+
+      fireEvent.click(screen.getByRole("button", {
+        name: "Change Edit synthetic.txt",
+      }));
+      expect(screen.getByLabelText("Content of Edit synthetic.txt"))
+        .toHaveTextContent("synthetic.txt content changed");
+      expect(screen.getByText("2 words")).toBeInTheDocument();
+      act(() => workers[0].complete("999 words"));
+      expect(screen.queryByText("999 words")).not.toBeInTheDocument();
+      await waitFor(() => expect(workers).toHaveLength(2));
+      act(() => workers[1].complete("3 words"));
+      expect(screen.getByText("3 words")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Open another.txt" }));
+      await screen.findByLabelText("Content of Edit another.txt");
+      expect(screen.queryByText("3 words")).not.toBeInTheDocument();
+      expect(screen.getByText("counting words")).toBeInTheDocument();
+    } finally {
+      unmount();
+      vi.stubGlobal("Worker", originalWorker);
+    }
+  });
+
   it("keeps note-event bookkeeping off ordinary edits when no enabled plugin requests it", async () => {
     const user = userEvent.setup();
     mockPluginController.plugins = [syntheticEmojiPluginView()];

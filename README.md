@@ -50,7 +50,9 @@ checksum before using the documented quarantine workaround in the
    preferences.
 
 The included **Denote Welcome** vault is an editable offline guide. Denote seeds
-it once and never overwrites your changes.
+it once and never overwrites your changes. Its
+[plugin examples](docs/user-guide/plugins/README.md) cover optional workflows
+without enabling plugins or initializing a Git repository.
 
 ## Privacy and safety
 

@@ -1,4 +1,5 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
+import type { MarkdownParser } from "./markdownParser";
 
 const BLOCK_TAGS = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6"]);
 const INLINE_TAGS = new Set(["a", "strong", "img"]);
@@ -85,11 +86,14 @@ export function parseSafeRichHtml(raw: string): SafeRichHtmlModel | null {
   return parseBlock(roots[0]);
 }
 
-export function safeRichHtmlRanges(markdown: string): SafeRichHtmlRange[] {
+export function safeRichHtmlRanges(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): SafeRichHtmlRange[] {
   if (!markdown.includes("<")) return [];
   let root: MarkdownNode;
   try {
-    root = fromMarkdown(markdown) as MarkdownNode;
+    root = parse(markdown) as MarkdownNode;
   } catch {
     return [];
   }
@@ -111,8 +115,11 @@ export function safeRichHtmlRanges(markdown: string): SafeRichHtmlRange[] {
   return ranges;
 }
 
-export function maskSafeRichHtml(markdown: string): string {
-  const ranges = safeRichHtmlRanges(markdown);
+export function maskSafeRichHtml(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): string {
+  const ranges = safeRichHtmlRanges(markdown, parse);
   if (ranges.length === 0) {
     return markdown;
   }

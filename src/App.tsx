@@ -139,6 +139,8 @@ import {
   type AppError,
 } from "./lib/appErrors";
 import { BUILD_INFO } from "./lib/buildInfo";
+import { MAX_WORD_COUNT_CHARACTERS } from "./lib/documentStatistics";
+import type { LinkExtractionResponse } from "./workers/linkExtraction.worker";
 import {
   appendDiagnostic,
   buildBugReportUrl,
@@ -345,8 +347,6 @@ import {
 } from "./lib/sourceControlDiff";
 import type {
   SourceEditorNavigation,
-  SourceMinimapLine,
-  SourceSymbol,
   SourceViewport,
 } from "./lib/sourceOutline";
 import type {
@@ -903,9 +903,11 @@ function App() {
     failed: number;
   } | null>(null);
   const [activeDocumentAnalysis, setActiveDocumentAnalysis] = useState<{
+    vaultPath: string;
     path: string;
     content: string;
     links: string[];
+    wordCount: string;
   } | null>(null);
   const outlineCache = useRef(new Map<string, OutlineCacheEntry>());
   const outlineGeneration = useRef(new Map<string, number>());
@@ -1261,7 +1263,8 @@ function App() {
   const activeMarkdownSource =
     activeProject === null &&
     activeFileTab?.kind === "markdown" &&
-    activeFileTab.encoding === "utf8"
+    activeFileTab.encoding === "utf8" &&
+    errors.markdownByPath[activeFileTab.path]
       ? markdownErrorSourceIdentity(
           markdownEditorSource(activeFileTab.content),
         )
@@ -1342,8 +1345,16 @@ function App() {
   const outlineLoading = activeOutlineEntry?.ready !== true;
   const analysisMatchesActiveFile =
     activeFileTab &&
+    activeDocumentAnalysis?.vaultPath === workspace?.vaultPath &&
     activeDocumentAnalysis?.path === activeFileTab.path &&
     activeDocumentAnalysis.content === activeFileTab.content;
+  const activeWordCount =
+    (activeFileTab?.content.length ?? 0) > MAX_WORD_COUNT_CHARACTERS
+      ? "word count paused"
+      : activeDocumentAnalysis?.vaultPath === workspace?.vaultPath &&
+          activeDocumentAnalysis?.path === activeFileTab?.path
+        ? activeDocumentAnalysis?.wordCount ?? "counting words"
+        : "counting words";
   const headings =
     activeFileTab?.kind === "markdown"
       ? (stableOutline?.headings ?? [])
@@ -1363,6 +1374,7 @@ function App() {
     if (
       !activeFileTab ||
       activeFileTab.encoding !== "utf8" ||
+      !workspace ||
       !activeOutlineKey
     ) {
       return;
@@ -1376,6 +1388,27 @@ function App() {
 
     let worker: Worker | null = null;
     let settleTimer: number | null = null;
+    const failAnalysis = (error: unknown) => {
+      worker?.terminate();
+      worker = null;
+      if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
+        return;
+      }
+      console.error(`Unable to analyze ${activeFileTab.path}:`, error);
+      setActiveDocumentAnalysis({
+        vaultPath: workspace.vaultPath,
+        path: activeFileTab.path,
+        content: activeFileTab.content,
+        links: [],
+        wordCount: "word count unavailable",
+      });
+      const failedEntry = outlineCache.current.get(activeOutlineKey);
+      outlineCache.current.set(activeOutlineKey, {
+        ready: failedEntry?.ready ?? false,
+        snapshot: failedEntry?.snapshot ?? null,
+      });
+      setOutlineRevision((current) => current + 1);
+    };
     const timer = window.setTimeout(() => {
       try {
         worker = new Worker(
@@ -1383,41 +1416,28 @@ function App() {
           { type: "module" },
         );
         worker.onmessage = (
-          event: MessageEvent<{
-            links?: string[];
-            headings?: HeadingItem[];
-            symbols?: SourceSymbol[];
-            minimap?: SourceMinimapLine[];
-            incompleteHeading?: boolean;
-            error?: string;
-          }>,
+          event: MessageEvent<LinkExtractionResponse>,
         ) => {
           worker?.terminate();
           worker = null;
           if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
             return;
           }
-          if (event.data.error) {
-            console.error(
-              `Unable to analyze ${activeFileTab.path}: ${event.data.error}`,
-            );
-            const failedEntry = outlineCache.current.get(activeOutlineKey);
-            outlineCache.current.set(activeOutlineKey, {
-              ready: failedEntry?.ready ?? false,
-              snapshot: failedEntry?.snapshot ?? null,
-            });
-            setOutlineRevision((current) => current + 1);
+          if ("error" in event.data) {
+            failAnalysis(event.data.error);
             return;
           }
           setActiveDocumentAnalysis({
+            vaultPath: workspace.vaultPath,
             path: activeFileTab.path,
             content: activeFileTab.content,
-            links: event.data.links ?? [],
+            links: event.data.links,
+            wordCount: event.data.wordCount,
           });
           const candidate: StableOutlineSnapshot = {
-            headings: event.data.headings ?? [],
-            symbols: event.data.symbols ?? [],
-            minimap: event.data.minimap ?? [],
+            headings: event.data.headings,
+            symbols: event.data.symbols,
+            minimap: event.data.minimap,
           };
           const publish = () => {
             if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
@@ -1451,20 +1471,7 @@ function App() {
           }
         };
         worker.onerror = (event) => {
-          worker?.terminate();
-          worker = null;
-          if (outlineGeneration.current.get(activeOutlineKey) !== generation) {
-            return;
-          }
-          console.error(
-            `Unable to analyze ${activeFileTab.path}: ${event.message}`,
-          );
-          const failedEntry = outlineCache.current.get(activeOutlineKey);
-          outlineCache.current.set(activeOutlineKey, {
-            ready: failedEntry?.ready ?? false,
-            snapshot: failedEntry?.snapshot ?? null,
-          });
-          setOutlineRevision((current) => current + 1);
+          failAnalysis(event.message);
         };
         worker.postMessage({
           markdown: activeFileTab.content,
@@ -1472,10 +1479,7 @@ function App() {
           includeSourceOutline: activeSourceOutlineAvailable,
         });
       } catch (caught) {
-        console.error(
-          `Unable to analyze ${activeFileTab.path}:`,
-          caught,
-        );
+        failAnalysis(caught);
       }
     }, 200);
 
@@ -1496,6 +1500,7 @@ function App() {
     activeOutlineKey,
     activeSourceOutlineAvailable,
     activeSourceLanguageId,
+    workspace?.vaultPath,
   ]);
   const tagColorMap = useMemo<TagColorMap>(
     () =>
@@ -1505,6 +1510,10 @@ function App() {
     [workspace?.tagColors],
   );
   const editorDisplayKey = editorDisplaySettingsKey(editorDisplaySettings);
+  const projectDisplaySettings = useMemo(
+    () => ({ ...editorDisplaySettings, showLineNumbers: true }),
+    [editorDisplaySettings],
+  );
 
   const showError = useCallback((value: unknown) => {
     const message = errorMessage(value);
@@ -9619,9 +9628,7 @@ function App() {
     }
     const paneReadOnly = workspaceLocked || (paneTab.readOnly ?? false);
     const paneDisplaySettings =
-      paneProject && !editorDisplaySettings.showLineNumbers
-        ? { ...editorDisplaySettings, showLineNumbers: true }
-        : editorDisplaySettings;
+      paneProject ? projectDisplaySettings : editorDisplaySettings;
     const paneKanbanBoard =
       paneTab.encoding === "utf8" && !paneTab.transient
         ? kanbanBoardForPath(kanbanBoards, paneTab.path)
@@ -9630,7 +9637,7 @@ function App() {
       usesRichMarkdownEditor(paneTab, paneProject) &&
       !(paneKanbanBoard && paneTab.rawEditing);
     const paneMarkdownError =
-      paneUsesRichMarkdown
+      paneUsesRichMarkdown && errors.markdownByPath[paneTab.path]
         ? markdownAppErrorForPath(
             errors,
             paneTab.path,
@@ -10818,7 +10825,7 @@ function App() {
                 {activeFileTab.kind === "pdf"
                   ? "PDF"
                   : activeFileTab.encoding === "utf8"
-                    ? wordCountLabel(activeFileTab.content)
+                    ? activeWordCount
                     : "Base64"}
               </span>
               <span>
@@ -11143,23 +11150,6 @@ function findSiblings(nodes: FileNode[], path: string): FileNode[] {
     }
   }
   return [];
-}
-
-function wordCountLabel(content: string): string {
-  if (content.length > 200_000) {
-    return "word count paused";
-  }
-  if (!content.trim()) {
-    return "0 words";
-  }
-  if ("Segmenter" in Intl) {
-    const segmenter = new Intl.Segmenter(undefined, { granularity: "word" });
-    const count = [...segmenter.segment(content)].filter(
-      (segment) => segment.isWordLike,
-    ).length;
-    return `${count} words`;
-  }
-  return `${content.trim().split(/\s+/u).length} words`;
 }
 
 function kindFromPath(path: string): Exclude<FileNode["kind"], "folder"> {

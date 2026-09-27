@@ -1,4 +1,5 @@
 import { fromMarkdown } from "mdast-util-from-markdown";
+import type { MarkdownParser } from "./markdownParser";
 
 const HTML_TAG_NAMES = new Set(
   "a abbr acronym address applet area article aside audio b base basefont bdi bdo bgsound big blink blockquote body br button canvas caption center cite code col colgroup command content data datalist dd del details dfn dialog dir div dl dt element em embed fencedframe fieldset figcaption figure font footer form frame frameset h1 h2 h3 h4 h5 h6 head header hgroup hr html i iframe image img input ins kbd keygen label legend li link listing main map mark marquee math menu menuitem meta meter multicol nav nextid nobr noembed noframes noscript object ol optgroup option output p param picture plaintext portal pre progress q rb rp rt rtc ruby s samp script search section select shadow slot small source spacer span strike strong style sub summary sup svg table tbody td template textarea tfoot th thead time title tr track tt u ul var video wbr xmp".split(
@@ -53,16 +54,17 @@ export function hasIncompleteStandardMarkdownAngle(
 export function restoreStandardMarkdownAngles(
   markdown: string,
   originalMarkdown: string,
+  parse: MarkdownParser = fromMarkdown,
 ): string {
   const originalCounts = new Map<string, number[]>();
-  for (const occurrence of markdownAngleOccurrences(originalMarkdown)) {
+  for (const occurrence of markdownAngleOccurrences(originalMarkdown, parse)) {
     const counts = originalCounts.get(occurrence.token) ?? [];
     counts.push(occurrence.slashCount);
     originalCounts.set(occurrence.token, counts);
   }
   let restored = "";
   let cursor = 0;
-  for (const occurrence of markdownAngleOccurrences(markdown)) {
+  for (const occurrence of markdownAngleOccurrences(markdown, parse)) {
     const counts = originalCounts.get(occurrence.token);
     let slashCount: number;
     if (counts && counts.length > 0) {
@@ -94,9 +96,12 @@ interface MarkdownAngleOccurrence {
   token: string;
 }
 
-function markdownAngleOccurrences(markdown: string): MarkdownAngleOccurrence[] {
+function markdownAngleOccurrences(
+  markdown: string,
+  parse: MarkdownParser,
+): MarkdownAngleOccurrence[] {
   if (!markdown.includes("<")) return [];
-  const protectedRanges = markdownCodeRanges(markdown);
+  const protectedRanges = markdownCodeRanges(markdown, parse);
   const protectedRangeIndex = createRangeIndex(protectedRanges);
   const occurrences: MarkdownAngleOccurrence[] = [];
   let lineStart = 0;
@@ -215,7 +220,10 @@ function isNameStart(code: number): boolean {
   );
 }
 
-function markdownCodeRanges(markdown: string): Array<[number, number]> {
+function markdownCodeRanges(
+  markdown: string,
+  parse: MarkdownParser = fromMarkdown,
+): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
   const frontmatter = markdown.match(
     /^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1(?=\r?\n|$)/,
@@ -223,7 +231,7 @@ function markdownCodeRanges(markdown: string): Array<[number, number]> {
   if (frontmatter) {
     ranges.push([0, frontmatter[0].length]);
   }
-  visitMarkdown(fromMarkdown(markdown), (node) => {
+  visitMarkdown(parse(markdown), (node) => {
     if (node.type !== "code" && node.type !== "inlineCode") {
       return;
     }

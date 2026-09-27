@@ -57,6 +57,7 @@ other regular file. Your files remain the source of truth.
 | Optional note graph | Enable **Note graph**, then choose this note in **Local** mode |
 | Optional diagrams | [Mermaid diagram example](<examples/Mermaid diagram.md>) |
 | Optional boards | [Kanban board example](<plugins/Kanban board.kanban.md>) |
+| More optional workflows | [Plugin examples](plugins/README.md) |
 | PDF reader | [Synthetic PDF](<examples/Hello document.pdf>) |
 | Structured data | [JSON](<examples/Sample data.json>) and [YAML](<examples/Sample data.yaml>) |
 | Source languages | The `code` folder |
@@ -101,10 +102,11 @@ one-page synthetic PDF, and nested JSON and YAML files. The JSON and YAML viewer
 plugin can show the data as collapsible trees; Raw view always keeps the exact
 source.
 
-The `plugins` folder contains portable files for optional plugin workflows.
-Enable **Kanban boards** and open
-[the board example](<plugins/Kanban board.kanban.md>) to try three columns,
-Markdown card details, note links, tags, dragging, and keyboard move controls.
+The `plugins` folder contains [examples for each user-facing plugin](plugins/README.md):
+daily and dated notes, emoji practice, a manual Git exercise, structured data,
+the Kanban board, a Mermaid flow, linked graph notes, and advanced tasks.
+Enable only the plugin you want to try. Opening these files never installs
+anything or initializes a Git repository.
 
 The `code` folder contains tiny invented files covering every distinct core
 syntax-highlighting mode plus filename-only formats. Read
