@@ -18,6 +18,7 @@ import type {
   PluginNoteGraphContribution,
   PluginSourceControlContribution,
   PluginStructuredViewerContribution,
+  PluginTaskListContribution,
 } from "./plugins/workerRuntime";
 import type { FileNode, PluginView, WorkspaceSnapshot } from "./types";
 import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type LexicalEditor } from "lexical";
@@ -65,6 +66,10 @@ const mockPluginController = vi.hoisted(() => ({
   structuredViewers: [] as PluginStructuredViewerContribution[],
   kanbanBoards: [] as PluginKanbanBoardContribution[],
   noteGraphs: [] as PluginNoteGraphContribution[],
+  taskLists: [] as PluginTaskListContribution[],
+  indexTaskList: vi.fn(),
+  queryTaskList: vi.fn(),
+  toggleTaskListItem: vi.fn(),
   calendars: [] as PluginCalendarContribution[],
   queryCalendar: vi.fn(),
   diagramRenderers: [] as PluginDiagramRendererContribution[],
@@ -390,6 +395,10 @@ describe("App initial file-tree expansion", () => {
     mockPluginController.structuredViewers = [];
     mockPluginController.kanbanBoards = [];
     mockPluginController.noteGraphs = [];
+    mockPluginController.taskLists = [];
+    mockPluginController.indexTaskList.mockReset().mockResolvedValue(undefined);
+    mockPluginController.queryTaskList.mockReset();
+    mockPluginController.toggleTaskListItem.mockReset();
     mockPluginController.calendars = [];
     mockPluginController.queryCalendar.mockReset();
     mockApi.pluginCalendarOpenDailyNote.mockReset();
@@ -1314,6 +1323,93 @@ describe("App initial file-tree expansion", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("toggles a closed Markdown task through a verified hash-preserving save", async () => {
+    const user = userEvent.setup();
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("Plan.md", "markdown")]),
+    );
+    mockApi.listSearchDocuments.mockResolvedValue({
+      documents: [
+        {
+          path: "Plan.md",
+          title: "Plan",
+          content: "# Release\n- [ ] Ship",
+          contentHash: "plan-hash",
+          encoding: "utf8",
+          lineEnding: "lf",
+          tags: [],
+          kind: "markdown",
+          bookmarked: false,
+          lastOpenedAt: null,
+        },
+      ],
+      skippedCount: 0,
+      truncated: false,
+    });
+    mockApi.readNote.mockResolvedValue({
+      path: "Plan.md",
+      content: "# Release\n- [ ] Ship",
+      contentHash: "plan-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockPluginController.plugins = [taskListPluginView()];
+    mockPluginController.taskLists = [taskListContribution()];
+    mockPluginController.queryTaskList.mockResolvedValue({
+      tasks: [
+        {
+          id: "Plan.md:2:1",
+          path: "Plan.md",
+          noteTitle: "Plan",
+          line: 2,
+          text: "Ship",
+          checked: false,
+          headingPath: ["Release"],
+          tags: [],
+          dueDate: null,
+          locator: {
+            path: "Plan.md",
+            sourceLine: "- [ ] Ship",
+            headingPath: ["Release"],
+            occurrence: 1,
+            matchCount: 1,
+            checked: false,
+          },
+        },
+      ],
+      totalTasks: 1,
+      matchingTasks: 1,
+      availableTags: [],
+      truncated: false,
+      notices: [],
+    });
+    mockPluginController.toggleTaskListItem.mockResolvedValue({
+      status: "applied",
+      source: "# Release\n- [x] Ship",
+    });
+
+    render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Advanced task lists" }),
+    );
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Complete Ship" }),
+    );
+
+    await waitFor(() =>
+      expect(mockApi.saveNote).toHaveBeenCalledWith(
+        "Plan.md",
+        "# Release\n- [x] Ship",
+        "utf8",
+        "lf",
+        "task toggle",
+        "plan-hash",
+      ),
+    );
   });
 
   it("opens an enabled note graph, indexes Markdown locally, and navigates from its list", async () => {
@@ -3533,6 +3629,33 @@ function noteGraphContribution(): PluginNoteGraphContribution {
     pluginId: "denote.note-graph",
     id: "denote.note-graph.graph",
     title: "Note graph",
+  };
+}
+
+function taskListContribution(): PluginTaskListContribution {
+  return {
+    pluginId: "denote.task-lists",
+    id: "denote.task-lists.tasks",
+    title: "Advanced task lists",
+  };
+}
+
+function taskListPluginView(): PluginView {
+  const plugin = syntheticEmojiPluginView();
+  return {
+    ...plugin,
+    enabled: true,
+    status: "enabled",
+    approvedPermissions: [{ capability: "task-list" }],
+    catalog: {
+      ...plugin.catalog,
+      manifest: {
+        ...plugin.catalog.manifest,
+        id: "denote.task-lists",
+        name: "Advanced task lists",
+        permissions: [{ capability: "task-list" }],
+      },
+    },
   };
 }
 

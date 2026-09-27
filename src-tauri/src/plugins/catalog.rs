@@ -152,6 +152,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "emoji-picker"
             | "structured-viewer"
             | "kanban-board"
+            | "task-list"
             | "note-graph"
             | "calendar"
             | "diagram-renderer"

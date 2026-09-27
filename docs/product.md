@@ -148,6 +148,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Markdown thematic breaks render as consistent full-width document separators.
 - In Rich mode, typing a third dash after `--` converts that paragraph to a
   thematic break and leaves the caret in a new paragraph.
+- In Rich mode, typing `- [ ] ` or `- [x] ` creates an unchecked or checked
+  task-list item immediately instead of escaping the brackets as ordinary
+  bullet text. This standard Markdown behavior does not depend on an optional
+  plugin.
+- Rich edits keep safe literal punctuation such as isolated `~`, `&`, and
+  comparison-operator sequences without adding backslashes or numeric character
+  references. Escaping remains only where removing it would change Markdown
+  meaning, such as a real line-leading blockquote.
 - Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
   clipboard text without carrying rich formatting into the note. The Rich
   editor context menu exposes the same **Paste without formatting** action.
@@ -419,6 +427,21 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   frontmatter; existing notes are never annotated automatically. Unknown creation
   dates remain unmarked. Denote preserves observed creation times through atomic
   saves and revision restores, and encryption alone does not mark a note updated.
+- The independently installable **Advanced task lists** plugin is disabled by
+  default and requests only `task-list`. Its host-rendered activity-rail view
+  incrementally indexes standard Markdown checkboxes from bounded local
+  snapshots and filters them by open/completed state, hashtag, path fragment,
+  and portable `due:YYYY-MM-DD` tokens. Each row shows its note, source line,
+  and enclosing heading path; opening a row uses ordinary file navigation.
+- Task toggles use native checkboxes and remain keyboard operable with visible
+  focus and polite status. Identity combines the exact source line, heading
+  path, duplicate occurrence, and duplicate count rather than trusting a stale
+  line number. The worker can propose only one marker change, and the host
+  independently verifies that every other byte is unchanged. Open notes update
+  their current editor buffer; closed notes save with their current content
+  hash, encoding, line endings, revision history, and vault-generation guards.
+  Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
+  uninterpreted Markdown.
 - The independently installable **Kanban boards** plugin is disabled by default
   and requests only `kanban-board`. Files ending in `.kanban.md` or
   `.kanban.markdown` switch between exact Markdown source and a host-rendered

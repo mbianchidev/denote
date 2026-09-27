@@ -194,6 +194,9 @@ concurrent.
   allowlisted process groups, and the typed hardened Git transport. The
   separately bounded `kanban-board` surface can transform only the matching
   already-open tab after a host-rendered board action. The separately bounded
+  `task-list` surface receives saved Markdown snapshots and may propose only one
+  checkbox-marker change after a host-rendered task action; the host validates
+  that delta and owns the save. The separately bounded
   `note-graph` surface receives local Markdown snapshots and returns declarative
   graph models without general workspace or editor access. Static
   status items and literal source-editor
@@ -212,7 +215,9 @@ concurrent.
   settings, logs, caches, packages, or telemetry.
 - Enabling a plugin cannot mutate vault content. General workspace writes exist
   only in command action context; Kanban source replacement exists only after a
-  host-rendered operation in the matching open tab. The host validates the
+  host-rendered operation in the matching open tab. Task-list writes exist only
+  after a host-rendered checkbox action and must change exactly one verified
+  `[ ]`, `[x]`, or `[X]` marker. The host validates the
   current plugin permission before every read, write, network, clipboard,
   notification, process, or Kanban operation.
 - Plugin command leases capture project identity as well as vault scope. Existing
@@ -235,7 +240,8 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, calendar, note-graph, and diagram-renderer registrations. Approved plugins
+`kanban-board`, task-list, calendar, note-graph, and diagram-renderer
+registrations. Approved plugins
 may also observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations exist only
 inside an explicit command action.

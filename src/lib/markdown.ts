@@ -64,7 +64,13 @@ export function calloutsToDirectives(markdown: string): string {
 }
 
 export function markdownEditorSource(markdown: string): string {
-  return calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown));
+  return protectRichTextComparisonOperators(
+    calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown)),
+  );
+}
+
+export function protectRichTextComparisonOperators(markdown: string): string {
+  return markdown.replace(/(^|\n)>(?=[<=>])/gu, "$1\\>");
 }
 
 export interface ThematicBreakSnapshot {
@@ -259,6 +265,30 @@ export function restoreRichTextTagSyntax(markdown: string): string {
     /(^|[\s([{'"*~])\\#(?=[\p{L}\p{N}\p{M}_/-])/gmu,
     "$1#",
   );
+}
+
+export function restoreRichTextLiteralPunctuation(markdown: string): string {
+  return markdown
+    .split("\n")
+    .map((line) => {
+      let restored = line;
+      if ((restored.match(/~/gu)?.length ?? 0) === 1) {
+        restored = restored.replace(/(^|[^\\])\\~/u, "$1~");
+      }
+      restored = restored
+        .replace(/(^|[^\\])\\>(?=[<=>])/gu, "$1>")
+        .replace(/([<>])\\=/gu, "$1=");
+      return restored.replace(
+        /(?:&#x26;|&#38;|&amp;)/giu,
+        (entity, offset: number, source: string) => {
+          const following = source.slice(offset + entity.length);
+          return /^(?:#\d+|#x[\da-f]+|[a-z][a-z\d]+);/iu.test(following)
+            ? entity
+            : "&";
+        },
+      );
+    })
+    .join("\n");
 }
 
 function isTagCharacter(character: string): boolean {

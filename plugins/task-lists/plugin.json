@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.task-lists",
+  "name": "Advanced task lists",
+  "version": "0.1.1",
+  "description": "Query and safely update Markdown checkboxes across the current vault.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "productivity",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.7.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "task-list"
+    }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

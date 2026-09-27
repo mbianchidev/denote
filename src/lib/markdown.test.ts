@@ -19,7 +19,9 @@ import {
   hasUnsupportedRichMarkdown,
   hasSupportedDetailsMarkdown,
   markdownEditorSource,
+  protectRichTextComparisonOperators,
   recoverMarkdownLinkTarget,
+  restoreRichTextLiteralPunctuation,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   restoreTocMarkers,
@@ -114,6 +116,22 @@ describe("markdown utilities", () => {
       "#guide\n\nText",
     );
     expect(hasUnsupportedRichMarkdown("\\#literal")).toBe(true);
+  });
+
+  it("restores only safe literal punctuation emitted by Rich mode", () => {
+    expect(restoreRichTextLiteralPunctuation("\\~ &")).toBe("~ &");
+    expect(restoreRichTextLiteralPunctuation("AT&#x26;T")).toBe("AT&T");
+    expect(restoreRichTextLiteralPunctuation("&#x26;copy;")).toBe(
+      "&#x26;copy;",
+    );
+    expect(
+      restoreRichTextLiteralPunctuation("\\~strike\\~ and \\~literal"),
+    ).toBe("\\~strike\\~ and \\~literal");
+    expect(restoreRichTextLiteralPunctuation("\\><\\=")).toBe("><=");
+    expect(restoreRichTextLiteralPunctuation("\\> quote")).toBe("\\> quote");
+    expect(protectRichTextComparisonOperators("><=\n> quote")).toBe(
+      "\\><=\n> quote",
+    );
   });
 
   it("allows Markdown references and generated definition destinations in rich mode", () => {

@@ -964,6 +964,62 @@ immediately withdraws the calendar and force-stops its worker; enabled plugins
 restart cleanly for unlocked content. Disable/update/crash/teardown removes
 contributions and derived models, never Markdown or user folders.
 
+### Advanced task lists
+
+The additive API version 1 `task-list` permission accepts one stateful
+declarative provider per plugin. Its registration contains a namespaced ID,
+title, incremental `index`, filtered `query`, and source-transforming `toggle`
+callback. It contains no React component, DOM/CSS handle, absolute path,
+encryption key, native API, general workspace service, or arbitrary write
+permission.
+
+The active task view builds snapshots from the same saved UTF-8 Markdown
+documents used by search. MDX, PDFs, binary content, and non-Markdown files are
+excluded. Input is capped at 5,000 documents, 256 KiB per complete note, and
+8 MiB total; a note is skipped whole rather than truncated. Initial `replace`
+and later `update` requests are serialized through a workspace/provider
+coordinator in chunks of at most 256 documents, 512 KiB, or 512 removed paths.
+Switching or locking vaults withdraws the contribution, invalidates the
+coordinator, and force-stops the worker before another vault can reuse its
+derived index.
+
+`denote.task-lists` parses GFM task-list items locally with Markdown positions,
+ignoring YAML frontmatter, fenced code, and indented code. Each task contains a
+vault-relative path, display title, one-based source line, task text, checked
+state, enclosing top-level heading path, bounded hashtags, and an optional
+valid Gregorian `due:YYYY-MM-DD` token. Query filters are closed unions for
+status and due state plus bounded tag and path values. Today and the current
+IANA time zone come from the host; the worker never reads its own clock.
+Models expose at most 1,000 tasks and 256 tags with explicit total/matching
+counts, notices, and truncation.
+
+A locator stores the exact source line, heading path, checked state, and
+one-based occurrence plus count among identical lines under that heading. Line
+numbers are display metadata only. Toggle reparses the current complete source,
+requires the duplicate count to remain unchanged, selects that occurrence, and
+returns either a typed `missing`, `ambiguous`, or `changed` conflict or a source
+of identical length with one checkbox marker changed.
+
+The returned source is still untrusted. Before any editor or filesystem update,
+the host verifies that exactly one character differs, that the original line is
+the locator line, that the character is its checkbox marker, and that the
+replacement is only the requested space or lowercase `x`. A malformed broader
+delta is refused without saving. An already-open note changes through
+`changeTabContent`, preserving the current buffer and ordinary edit/autosave
+queue. A closed note waits for the same per-path save queue, re-reads the note,
+uses its encoding and line-ending metadata, and calls `save_note` with the
+current content hash and `task toggle` revision reason. Vault generation,
+workspace identity, lock state, provider availability, and a note opening
+during the closed-note action are checked before mutation.
+
+`TaskListPanel` owns the activity-rail view, labelled native filters, note-open
+buttons, native checkboxes, visible focus, loading/error/empty states, and a
+polite status region. When a successful toggle leaves the active status filter,
+focus moves to the nearest remaining checkbox or back to the Status filter;
+conflicts leave the original row focused and unchanged. Disabling or removing
+the plugin clears code and the in-memory index but never edits, deletes, or
+reformats task Markdown. Recurring syntax is deliberately uninterpreted.
+
 ### Note graphs
 
 The additive API version 1 `note-graph` permission accepts one stateful
