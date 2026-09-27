@@ -631,7 +631,7 @@ describe("MarkdownEditor links", () => {
       '[contenteditable="true"]',
     );
     expect(contentEditable).not.toBeNull();
-    contentEditable!.focus();
+    await user.click(paragraph);
     const selection = window.getSelection();
     const range = document.createRange();
     range.setStart(paragraph.firstChild as Text, 0);
