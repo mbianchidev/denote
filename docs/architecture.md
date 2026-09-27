@@ -614,6 +614,9 @@ only Git's signing argument shape and launches the pinned GPG executable with
 batch loopback pinentry. It sends the passphrase as the first line of a private
 stdin pipe and then the exact commit bytes, never a password argument or
 environment value. Git still receives GPG's signature and status output.
+The bridge captures bounded GPG output in private temporary files and forwards
+it after GPG exits, so a Windows GPG agent cannot inherit and keep Git's output
+pipes open after signing.
 The temporary channel is owner-only on Unix and has a protected owner/SYSTEM DACL
 on Windows; link reads are refused. Creation rolls back on failure, and operation
 teardown overwrites/removes the channel. Existing startup cleanup handles crash
