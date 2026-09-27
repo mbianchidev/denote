@@ -152,9 +152,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   task-list item immediately instead of escaping the brackets as ordinary
   bullet text. This standard Markdown behavior does not depend on an optional
   plugin.
-- Rich edits keep safe literal punctuation such as isolated `~` and `&`
-  characters without adding backslashes or numeric character references.
-  Escaping remains only where removing it would change Markdown meaning.
+- Rich edits keep safe literal punctuation such as isolated `~`, `&`, and
+  comparison-operator sequences without adding backslashes or numeric character
+  references. Escaping remains only where removing it would change Markdown
+  meaning, such as a real line-leading blockquote.
 - Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
   clipboard text without carrying rich formatting into the note. The Rich
   editor context menu exposes the same **Paste without formatting** action.

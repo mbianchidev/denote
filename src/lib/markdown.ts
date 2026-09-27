@@ -64,7 +64,13 @@ export function calloutsToDirectives(markdown: string): string {
 }
 
 export function markdownEditorSource(markdown: string): string {
-  return calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown));
+  return protectRichTextComparisonOperators(
+    calloutsToDirectives(normalizeBareSpaceLinkDestinations(markdown)),
+  );
+}
+
+export function protectRichTextComparisonOperators(markdown: string): string {
+  return markdown.replace(/(^|\n)>(?=[<=>])/gu, "$1\\>");
 }
 
 export interface ThematicBreakSnapshot {
@@ -269,6 +275,9 @@ export function restoreRichTextLiteralPunctuation(markdown: string): string {
       if ((restored.match(/~/gu)?.length ?? 0) === 1) {
         restored = restored.replace(/(^|[^\\])\\~/u, "$1~");
       }
+      restored = restored
+        .replace(/(^|[^\\])\\>(?=[<=>])/gu, "$1>")
+        .replace(/([<>])\\=/gu, "$1=");
       return restored.replace(
         /(?:&#x26;|&#38;|&amp;)/giu,
         (entity, offset: number, source: string) => {

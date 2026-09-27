@@ -19,6 +19,7 @@ import {
   hasUnsupportedRichMarkdown,
   hasSupportedDetailsMarkdown,
   markdownEditorSource,
+  protectRichTextComparisonOperators,
   recoverMarkdownLinkTarget,
   restoreRichTextLiteralPunctuation,
   restoreRichTextTagSyntax,
@@ -126,6 +127,11 @@ describe("markdown utilities", () => {
     expect(
       restoreRichTextLiteralPunctuation("\\~strike\\~ and \\~literal"),
     ).toBe("\\~strike\\~ and \\~literal");
+    expect(restoreRichTextLiteralPunctuation("\\><\\=")).toBe("><=");
+    expect(restoreRichTextLiteralPunctuation("\\> quote")).toBe("\\> quote");
+    expect(protectRichTextComparisonOperators("><=\n> quote")).toBe(
+      "\\><=\n> quote",
+    );
   });
 
   it("allows Markdown references and generated definition destinations in rich mode", () => {

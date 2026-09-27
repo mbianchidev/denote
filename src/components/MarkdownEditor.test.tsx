@@ -137,7 +137,7 @@ describe("MarkdownEditor literal punctuation", () => {
     render(
       <MarkdownEditor
         notePath="note.md"
-        markdown={"~ &\n\nEdit here"}
+        markdown={"~ &\n\n><=\n\nEdit here"}
         lineEnding="lf"
         displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
         preferredViewMode="rich-text"
@@ -158,6 +158,8 @@ describe("MarkdownEditor literal punctuation", () => {
     await waitFor(() => expect(onChange).toHaveBeenCalled());
     expect(onChange.mock.lastCall?.[0]).toContain("~ &");
     expect(onChange.mock.lastCall?.[0]).not.toContain("\\~");
+    expect(onChange.mock.lastCall?.[0]).toContain("><=");
+    expect(onChange.mock.lastCall?.[0]).not.toContain("\\>");
   });
 });
 

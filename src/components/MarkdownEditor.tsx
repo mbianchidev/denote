@@ -1015,8 +1015,6 @@ export const MarkdownEditor = forwardRef<
                   directivesToCallouts(value),
                 );
                 if (activeViewModeRef.current === "rich-text") {
-                  restoredMarkdown =
-                    restoreRichTextLiteralPunctuation(restoredMarkdown);
                   restoredMarkdown = restoreThematicBreaks(
                     restoredMarkdown,
                     thematicBreaksRef.current!,
@@ -1025,10 +1023,17 @@ export const MarkdownEditor = forwardRef<
                   thematicBreaksRef.current =
                     captureThematicBreaks(restoredMarkdown);
                 }
-                const markerUpdate = applyTocMarkerViewChange(
+                const normalizedMarkdown =
                   activeViewModeRef.current === "rich-text"
-                    ? restoreStandardMarkdownAngles(restoredMarkdown, markdown)
-                    : restoredMarkdown,
+                    ? restoreRichTextLiteralPunctuation(
+                        restoreStandardMarkdownAngles(
+                          restoredMarkdown,
+                          markdown,
+                        ),
+                      )
+                    : restoredMarkdown;
+                const markerUpdate = applyTocMarkerViewChange(
+                  normalizedMarkdown,
                   tocMarkersRef.current!,
                   activeViewModeRef.current,
                 );
