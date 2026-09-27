@@ -565,6 +565,33 @@ pub fn authorize_plugin_capability(
 }
 
 #[tauri::command]
+pub fn plugin_calendar_open_daily_note(
+    state: State<'_, PluginManager>,
+    app_state: State<'_, AppState>,
+    plugin_id: String,
+    workspace_scope: String,
+    path: String,
+    date: String,
+) -> AppResult<crate::models::FileNode> {
+    let _vault_access = app_state.read_vault_access()?;
+    state.enabled_permission(&plugin_id, "calendar")?;
+    let root = app_state.active_vault()?;
+    if fs::canonicalize(workspace_scope)? != root {
+        return Err(AppError::Plugin(
+            "Calendar action expired after a vault switch".into(),
+        ));
+    }
+    let key = commands::active_key(&app_state, &root)?;
+    vault::open_or_create_daily_note(
+        &app_state.db_path,
+        &root.to_string_lossy(),
+        &path,
+        &date,
+        key.as_deref(),
+    )
+}
+
+#[tauri::command]
 pub fn plugin_workspace_read(
     state: State<'_, PluginManager>,
     app_state: State<'_, AppState>,

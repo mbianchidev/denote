@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type {
+  PluginCalendarProvider,
   DenotePlugin,
   PluginActivationContext,
   PluginCapabilities,
@@ -40,6 +41,9 @@ import {
 import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
 import {
+  isPluginCalendarModel,
+  isPluginCalendarRequest,
+  isPluginCalendarRegistration,
   emojiPickerMatchesManifest,
   isPluginEmojiPicker,
   isPluginDiagramRendererRegistration,
@@ -91,6 +95,7 @@ const noteGraphQueryHandlers = new Map<
   string,
   PluginNoteGraphProvider["query"]
 >();
+const calendarHandlers = new Map<string, PluginCalendarProvider["query"]>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
@@ -446,6 +451,34 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("calendar")) {
+    capabilities.calendar = {
+      register(provider) {
+        const registration = {
+          id: provider?.id, title: provider?.title,
+          ...(provider?.views !== undefined ? { views: provider.views } : {}),
+        };
+        if (
+          cleaned ||
+          !isPluginCalendarRegistration(registration) ||
+          typeof provider.query !== "function" ||
+          calendarHandlers.size > 0
+        ) {
+          throw new Error("Invalid or duplicate calendar registration.");
+        }
+        validateContributionId(provider.id, "calendar");
+        calendarHandlers.set(provider.id, provider.query);
+        send({ type: "register-calendar", ...registration });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) return;
+          disposed = true;
+          calendarHandlers.delete(provider.id);
+          send({ type: "unregister-calendar", id: provider.id });
+        });
+      },
+    };
+  }
   if (permissions.has("note-graph")) {
     capabilities.noteGraph = {
       register(provider) {
@@ -767,6 +800,7 @@ async function cleanup(): Promise<unknown[]> {
   kanbanEditHandlers.clear();
   noteGraphIndexHandlers.clear();
   noteGraphQueryHandlers.clear();
+  calendarHandlers.clear();
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
@@ -941,6 +975,23 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
         requestId: message.requestId,
         error: errorMessage(error),
       });
+    }
+    return;
+  }
+  if (message.type === "query-calendar") {
+    try {
+      const query = calendarHandlers.get(message.providerId);
+      if (!query || !isPluginCalendarRequest(message.request)) {
+        throw new Error("Calendar is no longer registered or its request is invalid.");
+      }
+      const model = await query(message.request);
+      if (!isPluginCalendarModel(model, message.request)) {
+        send({ type: "runtime-error", error: "Calendar provider returned an invalid model." });
+        return;
+      }
+      send({ type: "calendar-result", requestId: message.requestId, model });
+    } catch (error) {
+      send({ type: "calendar-result", requestId: message.requestId, error: errorMessage(error) });
     }
     return;
   }

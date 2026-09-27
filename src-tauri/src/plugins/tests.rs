@@ -1069,6 +1069,19 @@ fn catalog_accepts_unconstrained_structured_viewer_capability() {
 }
 
 #[test]
+fn catalog_accepts_only_unconstrained_calendar_permission() {
+    let mut entry = catalog();
+    entry.manifest.permissions.push(PluginPermission {
+        capability: "calendar".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::new(),
+    });
+    assert!(validate_catalog(&[entry.clone()]).is_ok());
+    entry.manifest.permissions.last_mut().unwrap().hosts = vec!["example.test".to_string()];
+    assert!(validate_catalog(&[entry]).is_err());
+}
+
+#[test]
 fn catalog_accepts_unconstrained_note_graph_capability() {
     let mut catalog = catalog();
     catalog.manifest.permissions.push(PluginPermission {

@@ -46,6 +46,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "structured-viewer": "Render bounded structured views for matching source files",
   "kanban-board": "Edit matching Markdown boards through host-rendered controls",
   "note-graph": "Index and visualize bounded local note connections",
+  calendar: "Read filesystem dates and bounded frontmatter; create daily Markdown after an explicit action, without overwriting existing notes",
   "diagram-renderer": "Render bounded diagrams in an isolated local sandbox",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",

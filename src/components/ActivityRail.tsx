@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   Bookmark,
+  CalendarDays,
   ChevronDown,
   ChevronRight,
   Clock3,
@@ -23,11 +24,15 @@ import { memo, useEffect, useMemo, useState } from "react";
 import type { SidebarView } from "../types";
 import type { Theme } from "../lib/theme";
 import type {
+  PluginCalendarContribution,
   PluginNoteGraphContribution,
   PluginSourceControlContribution,
 } from "../plugins/workerRuntime";
 
 interface ActivityRailProps {
+  activeCalendar: { pluginId: string; providerId: string } | null;
+  calendars: PluginCalendarContribution[];
+  onCalendarChange: (pluginId: string, providerId: string) => void;
   activeView: SidebarView;
   activePluginView: string | null;
   activeSourceControlProvider: {
@@ -64,7 +69,7 @@ interface PluginRailItem {
   key: string;
   title: string;
   selected: boolean;
-  kind: "view" | "source-control" | "note-graph";
+  kind: "view" | "source-control" | "note-graph" | "calendar";
   onSelect: () => void;
 }
 
@@ -84,6 +89,9 @@ const views: Array<{
 ];
 
 function ActivityRailComponent({
+  activeCalendar,
+  calendars,
+  onCalendarChange,
   activeView,
   activePluginView,
   activeSourceControlProvider,
@@ -147,7 +155,14 @@ function ActivityRailComponent({
       kind: "note-graph" as const,
       onSelect: () => onNoteGraphChange(provider.pluginId, provider.id),
     }));
-    const available = [...sidebarItems, ...sourceItems, ...graphItems];
+    const calendarItems = calendars.map((provider) => ({
+      key: `calendar:${provider.pluginId}:${provider.id}`,
+      title: provider.title,
+      selected: activeCalendar?.pluginId === provider.pluginId && activeCalendar.providerId === provider.id,
+      kind: "calendar" as const,
+      onSelect: () => onCalendarChange(provider.pluginId, provider.id),
+    }));
+    const available = [...sidebarItems, ...sourceItems, ...graphItems, ...calendarItems];
     const rank = new Map(
       preferences.order.map((key, index) => [key, index] as const),
     );
@@ -158,6 +173,9 @@ function ActivityRailComponent({
         left.title.localeCompare(right.title),
     );
   }, [
+    activeCalendar,
+    calendars,
+    onCalendarChange,
     activePluginView,
     activeNoteGraph,
     activeSourceControlProvider,
@@ -216,6 +234,7 @@ function ActivityRailComponent({
               activePluginView === null &&
               activeSourceControlProvider === null &&
               activeNoteGraph === null &&
+              activeCalendar === null &&
               activeView === id
             }
             title={
@@ -285,6 +304,8 @@ function ActivityRailComponent({
                         <GitBranch aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "note-graph" ? (
                         <Network aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "calendar" ? (
+                        <CalendarDays aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : (
                         <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
                       )}

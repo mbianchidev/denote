@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
+  PluginCalendarModel,
+  PluginCalendarRequest,
   PluginDiagramRenderRequest,
   PluginDiagramRenderResult,
   PluginKanbanBoardModel,
@@ -22,6 +24,7 @@ import type {
 } from "@denote/plugin-sdk";
 import {
   PluginWorkerRuntime,
+  type PluginCalendarContribution,
   type PluginActionLeaseScope,
   type PluginActionHostSecrets,
   type PluginVaultClonedHandler,
@@ -44,6 +47,7 @@ import {
 } from "../lib/pluginAutoUpdate";
 
 const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
+const EMPTY_CALENDARS: PluginCalendarContribution[] = [];
 
 /**
  * Compares two permission requests for exact equality, independent of key
@@ -87,6 +91,7 @@ function permissionRequestEqual(
     case "structured-viewer":
     case "kanban-board":
     case "note-graph":
+    case "calendar":
     case "diagram-renderer":
     case "note-events":
     case "project-context":
@@ -145,6 +150,12 @@ export interface PluginController {
   structuredViewers: PluginStructuredViewerContribution[];
   kanbanBoards: PluginKanbanBoardContribution[];
   noteGraphs: PluginNoteGraphContribution[];
+  calendars: PluginCalendarContribution[];
+  queryCalendar: (
+    pluginId: string,
+    providerId: string,
+    request: PluginCalendarRequest,
+  ) => Promise<PluginCalendarModel>;
   diagramRenderers: PluginDiagramRendererContribution[];
   saveEmojiPreferences: (
     pluginId: string,
@@ -265,6 +276,12 @@ export function usePlugins(
     PluginKanbanBoardContribution[]
   >([]);
   const [noteGraphs, setNoteGraphs] = useState<PluginNoteGraphContribution[]>([]);
+  const [calendarState, setCalendarState] = useState<{
+    workspaceIdentity: string | null;
+    contributions: PluginCalendarContribution[];
+  }>({ workspaceIdentity, contributions: [] });
+  const calendars = contentAvailable && calendarState.workspaceIdentity === workspaceIdentity
+    ? calendarState.contributions : EMPTY_CALENDARS;
   const [diagramRenderers, setDiagramRenderers] = useState<
     PluginDiagramRendererContribution[]
   >([]);
@@ -345,6 +362,10 @@ export function usePlugins(
       setDiagramRenderers,
       setKanbanBoards,
       setNoteGraphs,
+      (contributions) => setCalendarState({
+        workspaceIdentity: workspaceIdentityRef.current,
+        contributions,
+      }),
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -440,13 +461,13 @@ export function usePlugins(
         }
         const pluginId = plugin.catalog.manifest.id;
         try {
-          const noteGraph = plugin.approvedPermissions.some(
-            (permission) => permission.capability === "note-graph",
+          const retainsWorkspaceContent = plugin.approvedPermissions.some(
+            (permission) => ["note-graph", "calendar"].includes(permission.capability),
           );
           const resetForWorkspace =
-            workspaceChanged && noteGraph;
+            workspaceChanged && retainsWorkspaceContent;
           if (
-            noteGraph &&
+            retainsWorkspaceContent &&
             runtime.isRunning(pluginId) &&
             (resetForWorkspace || !contentAvailable)
           ) {
@@ -1041,6 +1062,18 @@ export function usePlugins(
     [],
   );
 
+  const queryCalendar = useCallback(
+    async (pluginId: string, providerId: string, request: PluginCalendarRequest) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) throw new Error("Plugin runtime is unavailable.");
+      if (!contentAvailableRef.current || contentRuntimeWorkspaceRef.current !== workspaceIdentityRef.current) {
+        throw new Error("Calendar content is unavailable after a vault switch or lock.");
+      }
+      return runtime.queryCalendar(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const renderDiagram = useCallback(
     (
       renderer: PluginDiagramRendererContribution,
@@ -1088,6 +1121,8 @@ export function usePlugins(
     structuredViewers,
     kanbanBoards,
     noteGraphs,
+    calendars,
+    queryCalendar,
     diagramRenderers,
     saveEmojiPreferences,
     sourceControlProviders,
@@ -1124,7 +1159,7 @@ export function usePlugins(
 
 function requiresContent(plugin: PluginView): boolean {
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "kanban-board", "note-graph", "diagram-renderer"].includes(
+    ["structured-viewer", "kanban-board", "note-graph", "calendar", "diagram-renderer"].includes(
       permission.capability,
     ),
   );

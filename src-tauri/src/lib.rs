@@ -376,6 +376,7 @@ pub fn run() {
             plugins::plugin_secret_set,
             plugins::plugin_secret_delete,
             plugins::authorize_plugin_capability,
+            plugins::plugin_calendar_open_daily_note,
             plugins::plugin_workspace_read,
             plugins::plugin_workspace_write,
             plugins::plugin_network_request,

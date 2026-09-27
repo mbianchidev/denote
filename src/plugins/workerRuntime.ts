@@ -1,6 +1,8 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
 import type {
+  PluginCalendarModel,
+  PluginCalendarRequest,
   PluginDiagramRenderRequest,
   PluginDiagramRenderResult,
   PluginKanbanBoardModel,
@@ -20,6 +22,9 @@ import type {
   PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
 import {
+  isPluginCalendarModel,
+  isPluginCalendarRequest,
+  isPluginCalendarRegistration,
   emojiPickerMatchesManifest,
   isPluginDiagramRendererRegistration,
   isPluginKanbanRegistration,
@@ -38,6 +43,7 @@ import {
 } from "./hostOperations";
 import {
   isPluginRuntimeMessage,
+  type PluginCalendarContribution,
   type PluginAutomaticLocalCommitContribution,
   type PluginCommandContribution,
   type PluginDecorationContribution,
@@ -55,6 +61,7 @@ import {
 import { DiagramRendererHost } from "./diagramRenderers";
 
 export type {
+  PluginCalendarContribution,
   PluginAutomaticLocalCommitContribution,
   PluginCommandContribution,
   PluginDecorationContribution,
@@ -95,6 +102,7 @@ interface PendingRequest {
     | "kanban-edit-result"
     | "note-graph-index-result"
     | "note-graph-query-result"
+    | "calendar-result"
     | "deactivated";
 }
 
@@ -104,6 +112,7 @@ interface PendingHandshake {
 }
 
 interface Runtime {
+  workspaceIdentity: string | null;
   manifest: PluginManifest;
   worker: Worker;
   port: MessagePort;
@@ -123,6 +132,8 @@ interface Runtime {
   stagedKanbanBoards: Map<string, PluginKanbanBoardContribution>;
   noteGraphs: Map<string, PluginNoteGraphContribution>;
   stagedNoteGraphs: Map<string, PluginNoteGraphContribution>;
+  calendars: Map<string, PluginCalendarContribution>;
+  stagedCalendars: Map<string, PluginCalendarContribution>;
   diagramRenderers: Map<string, PluginDiagramRendererContribution>;
   stagedDiagramRenderers: Map<string, PluginDiagramRendererContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
@@ -200,6 +211,9 @@ export class PluginWorkerRuntime {
     private readonly onNoteGraphsChanged: (
       graphs: PluginNoteGraphContribution[],
     ) => void = () => {},
+    private readonly onCalendarsChanged: (
+      calendars: PluginCalendarContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -267,6 +281,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishCalendars();
     this.publishDiagramRenderers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
@@ -575,6 +590,39 @@ export class PluginWorkerRuntime {
     return (await result) as PluginNoteGraphModel;
   }
 
+  async queryCalendar(
+    pluginId: string,
+    providerId: string,
+    request: PluginCalendarRequest,
+  ): Promise<PluginCalendarModel> {
+    const runtime = this.requireRuntime(pluginId);
+    const provider = runtime.calendars.get(providerId);
+    if (
+      runtime.phase !== "active" ||
+      runtime.workspaceIdentity !== this.workspaceIdentity ||
+      !runtime.permissions.has("calendar") ||
+      !provider
+    ) {
+      throw new Error(`Plugin calendar ${providerId} is not registered.`);
+    }
+    if (!isPluginCalendarRequest(request)) {
+      throw new Error("Invalid calendar request.");
+    }
+    if (!(provider.views ?? ["dated"]).includes(request.view ?? "dated")) {
+      throw new Error(`Calendar ${providerId} does not support the requested date view.`);
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(runtime, requestId, 15_000, "calendar-result");
+    runtime.port.postMessage({ type: "query-calendar", providerId, request, requestId });
+    const model = await result;
+    if (!isPluginCalendarModel(model, request)) {
+      const error = new Error("Plugin returned a calendar model that does not match the requested view, dates, or notes.");
+      await this.failRuntime(pluginId, error);
+      throw error;
+    }
+    return model;
+  }
+
   renderDiagram(
     renderer: PluginDiagramRendererContribution,
     request: PluginDiagramRenderRequest,
@@ -659,6 +707,7 @@ export class PluginWorkerRuntime {
       return;
     }
     this.workspaceIdentity = identity;
+    this.publishCalendars();
     this.diagramHost.clearDerivedContent();
     // Every lease was granted against the previous workspace, so an action
     // still in flight must not be allowed to land on the new one. Unlike a
@@ -713,6 +762,7 @@ export class PluginWorkerRuntime {
     });
     const channel = new MessageChannel();
     const runtime: Runtime = {
+      workspaceIdentity: this.workspaceIdentity,
       manifest,
       worker,
       port: channel.port1,
@@ -732,6 +782,8 @@ export class PluginWorkerRuntime {
       stagedKanbanBoards: new Map(),
       noteGraphs: new Map(),
       stagedNoteGraphs: new Map(),
+      calendars: new Map(),
+      stagedCalendars: new Map(),
       diagramRenderers: new Map(),
       stagedDiagramRenderers: new Map(),
       sourceControlProviders: new Map(),
@@ -846,6 +898,10 @@ export class PluginWorkerRuntime {
         runtime.noteGraphs.set(id, graph);
       }
       runtime.stagedNoteGraphs.clear();
+      for (const [id, calendar] of runtime.stagedCalendars) {
+        runtime.calendars.set(id, calendar);
+      }
+      runtime.stagedCalendars.clear();
       for (const [id, renderer] of runtime.stagedDiagramRenderers) {
         runtime.diagramRenderers.set(id, renderer);
       }
@@ -868,6 +924,7 @@ export class PluginWorkerRuntime {
       this.publishStructuredViewers();
       this.publishKanbanBoards();
       this.publishNoteGraphs();
+      this.publishCalendars();
       this.publishDiagramRenderers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
@@ -1126,6 +1183,31 @@ export class PluginWorkerRuntime {
         runtime.stagedKanbanBoards.delete(message.id);
         this.publishKanbanBoards();
         return;
+      case "register-calendar": {
+        const registration = {
+          id: message.id, title: message.title,
+          ...(message.views !== undefined ? { views: message.views } : {}),
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("calendar") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginCalendarRegistration(registration) ||
+          runtime.calendars.size + runtime.stagedCalendars.size > 0
+        ) {
+          this.protocolViolation(pluginId, "unauthorized or duplicate calendar registration");
+          return;
+        }
+        const calendars = runtime.activated ? runtime.calendars : runtime.stagedCalendars;
+        calendars.set(message.id, { pluginId, ...registration });
+        if (runtime.activated) this.publishCalendars();
+        return;
+      }
+      case "unregister-calendar":
+        runtime.calendars.delete(message.id);
+        runtime.stagedCalendars.delete(message.id);
+        this.publishCalendars();
+        return;
       case "register-note-graph": {
         const registration = {
           id: message.id,
@@ -1364,6 +1446,7 @@ export class PluginWorkerRuntime {
       case "kanban-board-result":
       case "kanban-edit-result":
       case "note-graph-index-result":
+      case "calendar-result":
       case "note-graph-query-result": {
         if (
           !this.settle(
@@ -1377,7 +1460,7 @@ export class PluginWorkerRuntime {
                 ? message.model
                 : message.type === "kanban-edit-result"
                   ? message.result
-                  : message.type === "note-graph-query-result"
+                  : message.type === "note-graph-query-result" || message.type === "calendar-result"
                     ? message.model
               : undefined,
           )
@@ -1631,6 +1714,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishCalendars();
     this.publishDiagramRenderers();
   }
 
@@ -1657,6 +1741,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishCalendars();
     this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
@@ -1732,6 +1817,15 @@ export class PluginWorkerRuntime {
     this.onNoteGraphsChanged(
       [...this.runtimes.values()].flatMap((runtime) =>
         runtime.phase === "active" ? [...runtime.noteGraphs.values()] : [],
+      ),
+    );
+  }
+
+  private publishCalendars(): void {
+    this.onCalendarsChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
+          ? [...runtime.calendars.values()] : [],
       ),
     );
   }

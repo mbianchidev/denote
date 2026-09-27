@@ -1,4 +1,7 @@
 import type {
+  PluginCalendarModel,
+  PluginCalendarRequest,
+  PluginCalendarView,
   PluginCapability,
   PluginDiagramRenderer,
   PluginEmojiPicker,
@@ -19,6 +22,9 @@ import type {
   PluginStructuredViewModel,
 } from "@denote/plugin-sdk";
 import {
+  isPluginCalendarModel,
+  isPluginCalendarRequest,
+  isPluginCalendarRegistration,
   isPluginEmojiPicker,
   isPluginDiagramRendererRegistration,
   isPluginKanbanBoardModel,
@@ -99,6 +105,13 @@ export interface PluginNoteGraphContribution {
   title: string;
 }
 
+export interface PluginCalendarContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+  views?: PluginCalendarView[];
+}
+
 export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
   pluginId: string;
 }
@@ -112,6 +125,12 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
+  | {
+      type: "query-calendar";
+      providerId: string;
+      request: PluginCalendarRequest;
+      requestId: string;
+    }
   | {
       type: "activate";
       projectContext?: PluginProjectContext | null;
@@ -168,6 +187,14 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | { type: "register-calendar"; id: string; title: string; views?: PluginCalendarView[] }
+  | { type: "unregister-calendar"; id: string }
+  | {
+      type: "calendar-result";
+      requestId: string;
+      model?: PluginCalendarModel;
+      error?: string;
+    }
   | { type: "ready" }
   | { type: "activated" }
   | { type: "deactivated"; requestId: string; error?: string }
@@ -342,6 +369,16 @@ export function isPluginRuntimeMessage(
         ((value.error !== undefined && value.model === undefined) ||
           (value.error === undefined && isPluginNoteGraphModel(value.model)))
       );
+    case "calendar-result":
+      return (
+        typeof value.requestId === "string" &&
+        ((typeof value.error === "string" && value.model === undefined) ||
+          (value.error === undefined && isPluginCalendarModel(value.model)))
+      );
+    case "register-calendar":
+      return isPluginCalendarRegistration(value);
+    case "unregister-calendar":
+      return typeof value.id === "string";
     case "register-command":
       return typeof value.id === "string" && typeof value.title === "string";
     case "unregister-command":
@@ -477,6 +514,12 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.providerId === "string" &&
         typeof value.requestId === "string" &&
         isPluginNoteGraphQuery(value.request)
+      );
+    case "query-calendar":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginCalendarRequest(value.request)
       );
     case "note-event":
       return (

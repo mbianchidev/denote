@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.calendar",
+  "name": "Calendar and daily notes",
+  "version": "0.2.0",
+  "description": "Browse daily notes and separate calendars for ordinary notes created or last updated.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "productivity",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.6.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [{ "capability": "calendar" }],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md",
+  "legal": ["THIRD_PARTY_NOTICES.txt"],
+  "settings": {
+    "version": 1,
+    "properties": {
+      "dailyFolder": {
+        "type": "string",
+        "title": "Daily-note folder",
+        "description": "Vault-relative folder, created only when you create a daily note. Leave empty for the vault root.",
+        "default": "Daily"
+      },
+      "filenameFormat": {
+        "type": "string",
+        "title": "Filename format",
+        "description": "Include YYYY, MM, and DD exactly once. Use -, _, . or spaces as separators and [brackets] for literal text. Omit .md.",
+        "default": "YYYY-MM-DD"
+      },
+      "dateMetadata": {
+        "type": "boolean",
+        "title": "Include date metadata",
+        "description": "Show other Markdown notes with a top-level date: YYYY-MM-DD in YAML frontmatter. Daily filenames take precedence.",
+        "default": true
+      }
+    }
+  }
+}

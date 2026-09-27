@@ -235,7 +235,7 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, note-graph, and diagram-renderer registrations. Approved plugins
+`kanban-board`, calendar, note-graph, and diagram-renderer registrations. Approved plugins
 may also observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations exist only
 inside an explicit command action.
@@ -379,6 +379,46 @@ stable IDs plus ordinary level-two and level-three headings. Card details remain
 ordinary Markdown. Initialization appends the managed block after existing
 content. Reordering moves an original marked slice byte-for-byte, so unknown
 Markdown inside it and all content outside the board remain unchanged.
+
+### Calendar and daily notes
+
+The additive API version 1 `calendar` permission exposes only
+`context.capabilities.calendar.register(provider)`. One provider registers its
+namespaced ID, title, and a query callback. Optional `views` advertise `dated`,
+`created`, and `updated`; dated is required, and legacy providers remain
+dated-only. It receives a date-only range and a
+bounded snapshot of relative Markdown paths, titles, leading frontmatter,
+metadata availability, and nullable filesystem creation/modification timestamps:
+at most 42 dates, 5,000 documents, 8 KiB of metadata per document, and 2 MiB of
+document data. Note bodies and absolute vault paths are not supplied.
+
+Models contain contiguous dates, safe daily-note destinations, and known note
+references. The worker and host independently validate the range, request/model
+correspondence (including the selected view), unique paths, and at most 100 notes per date / 1,000 overall.
+Limits and invalid optional date metadata produce visible notices.
+
+`denote.calendar` maps configurable daily folders and `YYYY`, `MM`, `DD` filename
+tokens, and optionally reads strict YAML 1.2 `date: YYYY-MM-DD` scalars in other
+notes. Explicit `type: daily` notes remain daily after moving or renaming;
+configured filenames recognize legacy daily notes. Both activity views exclude
+daily notes, use filesystem timestamps projected into the request's time zone,
+and omit missing dates or unclassifiable metadata with notices. Date-only daily
+identities are never interpreted as timestamps. It requests no general workspace,
+network, process, clipboard, or credential service.
+
+The host owns month/agenda UI, localized date labels, keyboard navigation,
+selection, and create/open actions. Only an explicit host action can reach the
+native daily-note command. That command rechecks permission, vault scope,
+encryption, paths, and links, then atomically creates a missing Markdown file
+without replacing an existing file. The worker cannot invoke it.
+New daily files contain `type: daily` and their date in frontmatter; existing
+files are never rewritten. Creation dates survive native atomic saves/revision
+restores in ordinary host metadata, and encryption-only rewrites preserve
+modification dates. Opening an activity result never creates or edits a note.
+
+Calendar workers and models are withdrawn on vault switch/lock and discarded on
+disable/update/crash. Enabled workers restart for the current unlocked vault.
+Disabling deletes package code and archives but never dates, notes, or folders.
 
 ### Note graph
 

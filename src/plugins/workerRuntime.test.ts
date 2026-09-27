@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import catalogJson from "../../plugins/catalog.json";
 import {
   assertValidPluginCatalogEntry,
+  type PluginCalendarModel,
+  type PluginCalendarView,
   type PluginKanbanBoardModel,
   type PluginKanbanEditResult,
   type PluginGitResult,
@@ -228,6 +230,11 @@ class FakeWorker extends EventTarget {
     title: string;
   } | null = null;
   static noteGraphModel: PluginNoteGraphModel = noteGraphModel;
+  static calendarOnActivate: { id: string; title: string; views?: PluginCalendarView[] } | null = null;
+  static calendarModel: PluginCalendarModel = {
+    days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
+    notices: [], truncated: false,
+  };
   static completeNoteGraphIndexes = true;
   static sourceControlActionResultType:
     | "source-control-action-result"
@@ -300,6 +307,9 @@ class FakeWorker extends EventTarget {
             ...FakeWorker.noteGraphOnActivate,
           });
         }
+        if (FakeWorker.calendarOnActivate) {
+          port.postMessage({ type: "register-calendar", ...FakeWorker.calendarOnActivate });
+        }
         if (FakeWorker.failActivationAfterSourceControl) {
           port.postMessage({
             type: "activation-error",
@@ -370,6 +380,15 @@ class FakeWorker extends EventTarget {
           type: "note-graph-query-result",
           requestId: data.requestId,
           model: FakeWorker.noteGraphModel,
+        });
+      } else if (
+        data.type === "query-calendar" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "calendar-result",
+          requestId: data.requestId,
+          model: FakeWorker.calendarModel,
         });
       } else if (
         data.type === "deactivate" &&
@@ -624,6 +643,11 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.kanbanBoardModel = kanbanBoardModel;
     FakeWorker.kanbanEditResult = kanbanEditResult;
     FakeWorker.noteGraphOnActivate = null;
+    FakeWorker.calendarOnActivate = null;
+    FakeWorker.calendarModel = {
+      days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
+      notices: [], truncated: false,
+    };
     FakeWorker.noteGraphModel = noteGraphModel;
     FakeWorker.completeNoteGraphIndexes = true;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
@@ -817,6 +841,120 @@ describe("PluginWorkerRuntime", () => {
     );
     await runtime.stop("denote.reference");
     expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("queries an approved calendar and rejects models for a different selected date", async () => {
+    const changed = vi.fn();
+    const failed = vi.fn();
+    const registration = { id: "denote.reference.calendar", title: "Calendar" };
+    FakeWorker.calendarOnActivate = registration;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(), failed, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, changed,
+    );
+    const source = plugin();
+    await runtime.start({
+      ...source,
+      approvedPermissions: [...source.approvedPermissions, { capability: "calendar" }],
+    });
+    expect(changed).toHaveBeenLastCalledWith([{ pluginId: "denote.reference", ...registration }]);
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-01",
+      documents: [], skippedCount: 0, truncated: false,
+    };
+    await expect(runtime.queryCalendar("denote.reference", registration.id, request)).resolves.toEqual(FakeWorker.calendarModel);
+    await expect(runtime.queryCalendar("denote.reference", registration.id, { ...request, startDate: "2026-08-31" })).rejects.toThrow(/calendar model/i);
+    expect(failed).toHaveBeenCalled();
+    expect(FakeWorker.instances[0].terminated).toBe(true);
+    expect(changed).toHaveBeenLastCalledWith([]);
+    await expect(runtime.queryCalendar("denote.reference", registration.id, request)).rejects.toThrow();
+  });
+
+  it("uses the actual isolated calendar capability and refuses queries after the vault changes", async () => {
+    await bridgeRealPluginWorker();
+    const source = plugin();
+    source.approvedPermissions = [{ capability: "calendar" }];
+    source.catalog = {
+      ...source.catalog,
+      manifest: { ...source.catalog.manifest, permissions: source.approvedPermissions },
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          if (context.capabilities.workspaceWrite || context.capabilities.network) throw Error("Unexpected privilege");
+          context.subscriptions.add(context.capabilities.calendar.register({
+            id: "denote.reference.calendar",
+            title: "Calendar",
+            views: ["dated", "created", "updated"],
+            query(request) { return { ...${JSON.stringify(FakeWorker.calendarModel)}, view: request.view ?? "dated" }; },
+          }));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(), vi.fn(), undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, changed,
+    );
+    await runtime.start(source);
+    expect(changed).toHaveBeenLastCalledWith([{
+      pluginId: "denote.reference", id: "denote.reference.calendar", title: "Calendar",
+      views: ["dated", "created", "updated"],
+    }]);
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-01",
+      view: "created" as const, timeZone: "UTC",
+      documents: [], skippedCount: 0, truncated: false,
+    };
+    await expect(runtime.queryCalendar("denote.reference", "denote.reference.calendar", request))
+      .resolves.toEqual({ ...FakeWorker.calendarModel, view: "created" });
+    runtime.setWorkspaceIdentity("/synthetic/vault-beta");
+    expect(changed).toHaveBeenLastCalledWith([]);
+    await expect(runtime.queryCalendar("denote.reference", "denote.reference.calendar", request))
+      .rejects.toThrow(/not registered/);
+    await runtime.stop("denote.reference");
+    expect(BridgedWorker.instances[0].terminated).toBe(true);
+  });
+
+  it("refuses a calendar registration without its approved permission", async () => {
+    FakeWorker.calendarOnActivate = { id: "denote.reference.calendar", title: "Calendar" };
+    const failed = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), failed);
+    await expect(runtime.start(plugin())).rejects.toThrow();
+    expect(failed).toHaveBeenCalledWith("denote.reference", expect.any(Error));
+    expect(FakeWorker.instances[0].terminated).toBe(true);
+  });
+
+  it("gates activity requests on the views declared by the installed provider", async () => {
+    const registration = { id: "denote.reference.calendar", title: "Calendar" };
+    FakeWorker.calendarOnActivate = registration;
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(), vi.fn(), undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, changed,
+    );
+    const source = plugin();
+    source.approvedPermissions = [...source.approvedPermissions, { capability: "calendar" }];
+    const request = {
+      startDate: "2026-09-01", endDate: "2026-09-01", view: "created" as const,
+      timeZone: "UTC", documents: [], skippedCount: 0, truncated: false,
+    };
+    await runtime.start(source);
+    await expect(runtime.queryCalendar("denote.reference", registration.id, request))
+      .rejects.toThrow(/does not support/);
+    expect(FakeWorker.instances[0].received).not.toContainEqual(expect.objectContaining({ type: "query-calendar" }));
+    await runtime.stop("denote.reference");
+    FakeWorker.calendarOnActivate = { ...registration, views: ["dated", "created", "updated"] };
+    FakeWorker.calendarModel = { ...FakeWorker.calendarModel, view: "created" };
+    await runtime.start(source);
+    expect(changed).toHaveBeenLastCalledWith([{
+      pluginId: "denote.reference", ...registration, views: ["dated", "created", "updated"],
+    }]);
+    await expect(runtime.queryCalendar("denote.reference", registration.id, request))
+      .resolves.toMatchObject({ view: "created" });
+    await runtime.stop("denote.reference");
   });
 
   it("registers, incrementally indexes, queries, and removes a note graph", async () => {

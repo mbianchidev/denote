@@ -671,6 +671,30 @@ drag handle. Forced colors retain borders, visible focus, and selected toggle
 state; reduced motion adds no special case because board operations use no
 decorative animation.
 
+### Optional calendar and daily notes
+
+Calendar is a host-rendered sidebar, not executable plugin UI. A labelled Dates
+select offers Daily and dated, Created, and Last updated when the installed
+provider supports them. Created/Last updated visibly exclude daily notes and
+omit the daily-note creation button and destination; selecting a date lists
+ordinary notes for that event. A compact
+Month/Agenda switch, named previous/next month controls, native month input,
+and Today action precede the calendar. Month uses a semantic date grid with
+one roving Tab stop, localized full accessible names, written note counts, a
+border for Today, and the single moss accent for selection.
+
+Arrow keys move by day/week, Home/End within the locale's week, Page Up/Down by
+month, and Shift-Page Up/Down by year. Navigation restores focus to the new date
+without writing a note. A separate selected-date field and explicit
+Create/Open daily note action show the destination path before creation.
+Agenda uses date headings and ordinary named note buttons with relative paths.
+
+Loading, failure, empty agenda, and truncation remain written states. One polite
+status region reports the displayed month and note count. Stale results cannot
+replace the current month or enable an old create action. Existing semantic
+theme tokens, visible focus rings, and system forced colors apply without
+animation or new color palettes.
+
 ### Optional note graph
 
 The Note graph plugin contributes indexed relationships and bounded graph
