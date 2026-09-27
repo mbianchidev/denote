@@ -26,6 +26,9 @@ import type {
   PluginSourceControlViewModel,
   PluginStructuredViewer,
   PluginStructuredViewModel,
+  PluginTaskListModel,
+  PluginTaskListProvider,
+  PluginTaskListToggleResult,
   PluginTextDocument,
   PluginUserActionContext,
 } from "@denote/plugin-sdk";
@@ -56,6 +59,12 @@ import {
   isPluginNoteGraphRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
+  isPluginTaskListIndexRequest,
+  isPluginTaskListModel,
+  isPluginTaskListQuery,
+  isPluginTaskListRegistration,
+  isPluginTaskListToggleRequest,
+  isPluginTaskListToggleResult,
 } from "@denote/plugin-sdk";
 
 interface PendingRequest {
@@ -95,6 +104,18 @@ const noteGraphQueryHandlers = new Map<
   string,
   PluginNoteGraphProvider["query"]
 >();
+const taskListIndexHandlers = new Map<
+  string,
+  PluginTaskListProvider["index"]
+>();
+const taskListQueryHandlers = new Map<
+  string,
+  PluginTaskListProvider["query"]
+>();
+const taskListToggleHandlers = new Map<
+  string,
+  PluginTaskListProvider["toggle"]
+>();
 const calendarHandlers = new Map<string, PluginCalendarProvider["query"]>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
@@ -104,6 +125,7 @@ const emojiPickers = new Set<string>();
 const structuredViewers = new Set<string>();
 const kanbanBoards = new Set<string>();
 const noteGraphs = new Set<string>();
+const taskLists = new Set<string>();
 const diagramRenderers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
@@ -514,6 +536,44 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("task-list")) {
+    capabilities.taskList = {
+      register(provider) {
+        const registration = {
+          id: provider?.id,
+          title: provider?.title,
+        };
+        if (
+          cleaned ||
+          !isPluginTaskListRegistration(registration) ||
+          typeof provider.index !== "function" ||
+          typeof provider.query !== "function" ||
+          typeof provider.toggle !== "function" ||
+          taskLists.size > 0
+        ) {
+          throw new Error("Invalid or duplicate task list registration.");
+        }
+        validateContributionId(provider.id, "task list");
+        taskLists.add(provider.id);
+        taskListIndexHandlers.set(provider.id, provider.index);
+        taskListQueryHandlers.set(provider.id, provider.query);
+        taskListToggleHandlers.set(provider.id, provider.toggle);
+        send({ type: "register-task-list", ...registration });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          taskLists.delete(provider.id);
+          taskListIndexHandlers.delete(provider.id);
+          taskListQueryHandlers.delete(provider.id);
+          taskListToggleHandlers.delete(provider.id);
+          send({ type: "unregister-task-list", id: provider.id });
+        });
+      },
+    };
+  }
   if (permissions.has("diagram-renderer")) {
     capabilities.diagramRenderer = {
       register(renderer: PluginDiagramRenderer) {
@@ -800,12 +860,16 @@ async function cleanup(): Promise<unknown[]> {
   kanbanEditHandlers.clear();
   noteGraphIndexHandlers.clear();
   noteGraphQueryHandlers.clear();
+  taskListIndexHandlers.clear();
+  taskListQueryHandlers.clear();
+  taskListToggleHandlers.clear();
   calendarHandlers.clear();
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
   kanbanBoards.clear();
   noteGraphs.clear();
+  taskLists.clear();
   diagramRenderers.clear();
   return failures;
 }
@@ -1039,6 +1103,80 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
     } catch (error) {
       send({
         type: "note-graph-query-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "index-task-list") {
+    try {
+      const index = taskListIndexHandlers.get(message.providerId);
+      if (!index || !isPluginTaskListIndexRequest(message.request)) {
+        throw new Error(
+          "Task list provider is no longer registered or its index request is invalid.",
+        );
+      }
+      await index(message.request);
+      send({
+        type: "task-list-index-result",
+        requestId: message.requestId,
+      });
+    } catch (error) {
+      send({
+        type: "task-list-index-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "query-task-list") {
+    try {
+      const query = taskListQueryHandlers.get(message.providerId);
+      if (!query || !isPluginTaskListQuery(message.request)) {
+        throw new Error(
+          "Task list provider is no longer registered or its query is invalid.",
+        );
+      }
+      const model: PluginTaskListModel = await query(message.request);
+      if (!isPluginTaskListModel(model)) {
+        throw new Error("Task list provider returned an invalid model.");
+      }
+      send({
+        type: "task-list-query-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "task-list-query-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "toggle-task-list-item") {
+    try {
+      const toggle = taskListToggleHandlers.get(message.providerId);
+      if (!toggle || !isPluginTaskListToggleRequest(message.request)) {
+        throw new Error(
+          "Task list provider is no longer registered or its toggle request is invalid.",
+        );
+      }
+      const result: PluginTaskListToggleResult = await toggle(message.request);
+      if (!isPluginTaskListToggleResult(result)) {
+        throw new Error("Task list provider returned an invalid toggle result.");
+      }
+      send({
+        type: "task-list-toggle-result",
+        requestId: message.requestId,
+        result,
+      });
+    } catch (error) {
+      send({
+        type: "task-list-toggle-result",
         requestId: message.requestId,
         error: errorMessage(error),
       });

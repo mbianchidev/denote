@@ -1094,6 +1094,17 @@ fn catalog_accepts_unconstrained_note_graph_capability() {
 }
 
 #[test]
+fn catalog_accepts_unconstrained_task_list_capability() {
+    let mut catalog = catalog();
+    catalog.manifest.permissions.push(PluginPermission {
+        capability: "task-list".to_string(),
+        hosts: vec![],
+        executables: BTreeMap::new(),
+    });
+    validate_catalog(&[catalog]).expect("task-list capability");
+}
+
+#[test]
 fn catalog_rejects_project_context_constraints() {
     let mut catalog = catalog();
     catalog.manifest.permissions.push(PluginPermission {

@@ -314,6 +314,71 @@ vault are written directly as ciphertext. Switching or locking vaults discards
 calendar data. Disabling removes the worker, calendar, commands, and downloaded
 package, but never changes or deletes daily notes or folders.
 
+## Advanced task lists
+
+Enable **Advanced task lists** under **Productivity** to collect standard
+Markdown checkboxes from the current vault. The plugin is disabled by default
+and its executable code is downloaded only after you approve **Index Markdown
+checkboxes and update one verified task marker after an explicit action**. It
+has no network, process, clipboard, credential, or general workspace-write
+permission.
+
+Choose **Advanced task lists** in the activity rail or run **Show advanced task
+lists** from the command palette. The consolidated view shows each task's note,
+vault-relative path, source line, and enclosing heading path. Choose the note
+title to open its Markdown source normally.
+
+Use the labelled filters together:
+
+- **Status** shows Open, Completed, or All tasks.
+- **Tag** matches hashtags in the task text, such as `#work`.
+- **Path** matches a case-insensitive folder or filename fragment.
+- **Due** shows overdue, due today, upcoming, undated, or every task.
+
+Due dates use one portable plain-text token:
+
+```markdown
+## Release
+
+- [ ] Ship the installer #work due:2026-10-01
+- [x] Publish the notes #docs
+```
+
+No custom task file is required. Standard `-`, `*`, and `+` GFM checkbox items
+remain ordinary Markdown and continue to render and edit normally without the
+plugin. YAML frontmatter, fenced examples, and indented code are not tasks.
+Recurring-task syntax is intentionally left uninterpreted so disabling Denote
+never changes its meaning or recreates completed items unexpectedly.
+
+Each checkbox is a native keyboard control: Tab reaches filters, note links,
+and tasks in reading order; Space toggles the focused task; focus always remains
+visible. If a completed or reopened task leaves the active Status filter, focus
+moves to the nearest remaining task or back to Status. Progress and conflicts
+are announced politely.
+
+The source line number is only a label. To survive nearby edits, the plugin
+relocates the exact task line under the same heading and checks its occurrence
+and duplicate count. Denote then independently verifies that the plugin changed
+exactly one `[ ]`, `[x]`, or `[X]` marker and no other byte. Missing, changed, or
+ambiguous tasks report a conflict instead of overwriting the note.
+
+For an open note, the checkbox changes in its current editor buffer and follows
+ordinary autosave behavior, preserving other unsaved edits. For a closed note,
+Denote re-reads the current file and saves with its content hash, original
+encoding, line endings, revision history, encryption rules, and vault identity.
+A note that opens, changes externally, or moves to another vault during the
+action is refused safely.
+
+Indexing remains local and is limited to 5,000 UTF-8 Markdown notes, 256 KiB per
+complete note, and 8 MiB total. Requests are chunked, and a query shows at most
+1,000 tasks and 256 tags. Skipped files, malformed Markdown, invalid due tokens,
+and reached limits are shown as notices. Use **Refresh current vault** after an
+external edit.
+
+Locking or switching vaults clears the derived index and stops the worker.
+Disabling removes the view, worker, downloaded code, and cached archives, but
+never changes or deletes task Markdown.
+
 ## Note graph
 
 Enable **Note graph** under **Knowledge management** to see how Markdown notes
@@ -446,7 +511,6 @@ matching paths are not overwritten.
 
 These capabilities are planned as separately enabled plugins:
 
-- task lists and reminders;
 - note comments and highlighting;
 - text-to-speech and dictation;
 - calendar and time tracking;

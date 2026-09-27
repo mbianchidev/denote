@@ -55,6 +55,7 @@ import type {
   PluginSourceControlAction,
   PluginSourceControlDiffFile,
   PluginSourceControlDiffSource,
+  PluginTaskListItem,
 } from "@denote/plugin-sdk";
 import { ActivityRail } from "./components/ActivityRail";
 import {
@@ -91,10 +92,14 @@ import { StructuredDataViewer } from "./components/StructuredDataViewer";
 import { KanbanBoardEditor } from "./components/KanbanBoardEditor";
 import { NoteGraphPanel } from "./components/NoteGraphPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
+import { TaskListPanel } from "./components/TaskListPanel";
 import { createCalendarSnapshot } from "./plugins/calendars";
 import { calendarToday } from "./lib/calendar";
 import { isCalendarDate, isCalendarNotePath, type PluginCalendarDay } from "@denote/plugin-sdk";
-import type { PluginCalendarContribution } from "./plugins/workerRuntime";
+import type {
+  PluginCalendarContribution,
+  PluginTaskListContribution,
+} from "./plugins/workerRuntime";
 import { EmojiHostSurface, EmojiToolbar } from "./components/EmojiPicker";
 import { EmojiHost, isEmojiPickerShortcut } from "./lib/emojiHost";
 import { emojiIndex, type EmojiContribution } from "./lib/emoji";
@@ -106,6 +111,11 @@ import {
   noteGraphTabPath,
   rekeyNoteGraphTab,
 } from "./plugins/noteGraphs";
+import {
+  createTaskListSnapshot,
+  verifyTaskToggleDelta,
+} from "./plugins/taskLists";
+import { TaskListCoordinator } from "./plugins/taskListCoordinator";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
 import { SourceControlPanel } from "./components/SourceControlPanel";
@@ -825,11 +835,16 @@ function App() {
     pluginId: string;
     providerId: string;
   } | null>(null);
+  const [activeTaskList, setActiveTaskList] = useState<{
+    pluginId: string;
+    providerId: string;
+  } | null>(null);
   const showSidebarView = useCallback((view: SidebarView) => {
     setActiveSourceControlProvider(null);
     setActivePluginSidebar(null);
     setActiveNoteGraph(null);
     setActiveCalendar(null);
+    setActiveTaskList(null);
     setSidebarView(view);
   }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -1599,9 +1614,15 @@ function App() {
   const [noteGraphCoordinator] = useState(
     () => new NoteGraphCoordinator(),
   );
+  const [taskListCoordinator] = useState(
+    () => new TaskListCoordinator(),
+  );
   useEffect(
-    () => () => noteGraphCoordinator.clear(),
-    [noteGraphCoordinator],
+    () => () => {
+      noteGraphCoordinator.clear();
+      taskListCoordinator.clear();
+    },
+    [noteGraphCoordinator, taskListCoordinator],
   );
   const [emojiHost] = useState(() => new EmojiHost());
   const emojiPickerOpen = useSyncExternalStore(emojiHost.subscribe, emojiHost.isPickerOpen);
@@ -1657,6 +1678,34 @@ function App() {
       pluginController.plugins,
     ],
   );
+  const taskLists = useMemo(
+    () =>
+      pluginController.taskLists.filter(
+        (taskList) =>
+          !pluginController.busyPluginIds.has(taskList.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.catalog.manifest.id === taskList.pluginId &&
+              plugin.enabled,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.plugins,
+      pluginController.taskLists,
+    ],
+  );
+  const taskListsRef = useRef(taskLists);
+  taskListsRef.current = taskLists;
+  const availableTaskListKeys = useMemo(
+    () =>
+      new Set(
+        taskLists.map(
+          (taskList) => `${taskList.pluginId}\u0000${taskList.id}`,
+        ),
+      ),
+    [taskLists],
+  );
   const availableNoteGraphKeys = useMemo(
     () =>
       new Set(
@@ -1689,6 +1738,9 @@ function App() {
   useEffect(() => {
     noteGraphCoordinator.retainProviders(availableNoteGraphKeys);
   }, [availableNoteGraphKeys, noteGraphCoordinator]);
+  useEffect(() => {
+    taskListCoordinator.retainProviders(availableTaskListKeys);
+  }, [availableTaskListKeys, taskListCoordinator]);
   const noteGraphSurfaceState = useMemo(() => {
     const graphTabs = panes
       .flatMap((pane) => pane.tabs)
@@ -1749,6 +1801,26 @@ function App() {
       noteGraphs.length,
       noteGraphSurfaceState.openTabCount,
       searchDocumentBatch,
+      workspace?.vaultPath,
+    ],
+  );
+  const taskListSnapshot = useMemo(
+    () =>
+      workspace && taskLists.length > 0 && activeTaskList
+        ? createTaskListSnapshot(
+            `${workspace.vaultPath}\u0000${searchDocumentBatch?.generation ?? -1}`,
+            searchDocumentBatch?.generation === vaultGeneration.current
+              ? searchDocumentBatch.batch
+              : null,
+            activeFileTab?.kind === "markdown" ? activeFileTab.path : null,
+          )
+        : null,
+    [
+      activeFileTab?.kind,
+      activeFileTab?.path,
+      activeTaskList,
+      searchDocumentBatch,
+      taskLists.length,
       workspace?.vaultPath,
     ],
   );
@@ -4470,6 +4542,7 @@ function App() {
       setActivePluginSidebar(null);
       setActiveSourceControlProvider(null);
       setActiveCalendar(null);
+      setActiveTaskList(null);
       setActiveNoteGraph({ pluginId, providerId });
     },
     [activateTab, focusTabControl, showSidebarView],
@@ -4479,7 +4552,16 @@ function App() {
     setActivePluginSidebar(null);
     setActiveSourceControlProvider(null);
     setActiveNoteGraph(null);
+    setActiveTaskList(null);
     setActiveCalendar({ pluginId, providerId });
+  }, []);
+
+  const showTaskList = useCallback((pluginId: string, providerId: string) => {
+    setActivePluginSidebar(null);
+    setActiveSourceControlProvider(null);
+    setActiveNoteGraph(null);
+    setActiveCalendar(null);
+    setActiveTaskList({ pluginId, providerId });
   }, []);
 
   const navigateTabHistory = useCallback(
@@ -4926,6 +5008,136 @@ function App() {
       saveTimers.current.set(path, timer);
     },
     [commitTabs, saveTab, showError],
+  );
+
+  const toggleTaskListItem = useCallback(
+    (
+      provider: PluginTaskListContribution,
+      task: PluginTaskListItem,
+      checked: boolean,
+    ): Promise<void> => {
+      if (!workspace) {
+        return Promise.reject(new Error("No vault is open."));
+      }
+      const expectedVaultPath = workspace.vaultPath;
+      const expectedGeneration = vaultGeneration.current;
+      const providerAvailable = () =>
+        taskListsRef.current.some(
+          (candidate) =>
+            candidate.pluginId === provider.pluginId &&
+            candidate.id === provider.id,
+        );
+      const assertCurrent = () => {
+        if (
+          vaultGeneration.current !== expectedGeneration ||
+          workspaceVaultPathRef.current !== expectedVaultPath ||
+          workspaceLockedRef.current ||
+          !providerAvailable()
+        ) {
+          throw new Error(
+            "The task action expired after a vault or plugin change.",
+          );
+        }
+      };
+      const previous = saveQueues.current.get(task.path) ?? Promise.resolve(true);
+      const operation = previous.then(async (settled) => {
+        if (!settled) {
+          throw new Error(
+            `Save ${task.path} before changing its task checkbox.`,
+          );
+        }
+        assertCurrent();
+        let openTab: EditorTab | null =
+          tabsRef.current.find(
+            (candidate) => candidate.path === task.path,
+          ) ?? null;
+        if (
+          openTab &&
+          (openTab.kind !== "markdown" || openTab.encoding !== "utf8")
+        ) {
+          throw new Error(
+            `${task.path} is no longer an editable UTF-8 Markdown note.`,
+          );
+        }
+        const document = openTab ? null : await api.readNote(task.path);
+        assertCurrent();
+        openTab =
+          tabsRef.current.find((candidate) => candidate.path === task.path) ??
+          null;
+        const source = openTab?.content ?? document?.content;
+        if (source === undefined) {
+          throw new Error(`Unable to read ${task.path}.`);
+        }
+        const result = await pluginController.toggleTaskListItem(
+          provider.pluginId,
+          provider.id,
+          {
+            path: task.path,
+            source,
+            locator: task.locator,
+            checked,
+          },
+        );
+        assertCurrent();
+        if (result.status === "conflict") {
+          throw taskToggleConflict(task.path, result.reason);
+        }
+        if (
+          !verifyTaskToggleDelta(
+            source,
+            result.source,
+            task.locator,
+            checked,
+          )
+        ) {
+          throw new Error(
+            "The task plugin proposed more than one checkbox-marker change. No file was changed.",
+          );
+        }
+        if (openTab) {
+          changeTabContent(task.path, result.source);
+          return;
+        }
+        if (!document) {
+          throw new Error(`Unable to prepare ${task.path} for saving.`);
+        }
+        if (
+          tabsRef.current.some((candidate) => candidate.path === task.path)
+        ) {
+          throw new Error(
+            `${task.path} opened while the task was changing. Try again.`,
+          );
+        }
+        const outcome = await api.saveNote(
+          task.path,
+          result.source,
+          document.encoding,
+          document.lineEnding,
+          "task toggle",
+          document.contentHash,
+        );
+        assertCurrent();
+        setStatus(outcome.changed ? "Task updated" : "No changes");
+        scheduleIndexRebuild();
+      });
+      const queue = operation.then(
+        () => true,
+        () => false,
+      );
+      saveQueues.current.set(task.path, queue);
+      void queue.finally(() => {
+        if (saveQueues.current.get(task.path) === queue) {
+          saveQueues.current.delete(task.path);
+        }
+      });
+      return operation;
+    },
+    [
+      changeTabContent,
+      pluginController.toggleTaskListItem,
+      scheduleIndexRebuild,
+      workspace,
+    ],
   );
 
   const updateTabLanguageOverride = useCallback(
@@ -8328,6 +8540,7 @@ function App() {
   };
   const primaryKanbanBoard = kanbanBoards[0] ?? null;
   const primaryNoteGraph = noteGraphs[0] ?? null;
+  const primaryTaskList = taskLists[0] ?? null;
   const primaryCalendar = calendars[0] ?? null;
   const commandPaletteCommands: CommandPaletteCommand[] = [
     {
@@ -8416,6 +8629,21 @@ function App() {
         run: () => openTodayDailyNote(primaryCalendar).catch(showError),
       },
     ] satisfies CommandPaletteCommand[] : []),
+    ...(primaryTaskList
+      ? [
+          {
+            id: "task-list.open",
+            title: "Show advanced task lists",
+            description:
+              "Query and safely update Markdown checkboxes across the vault.",
+            category: "View",
+            keywords: ["tasks", "checkbox", "todo", "due"],
+            disabled: !workspaceReady,
+            run: () =>
+              showTaskList(primaryTaskList.pluginId, primaryTaskList.id),
+          } satisfies CommandPaletteCommand,
+        ]
+      : []),
     {
       id: "view.files",
       title: "Show files",
@@ -9166,6 +9394,12 @@ function App() {
         graph.pluginId === activeNoteGraph?.pluginId &&
         graph.id === activeNoteGraph.providerId,
     ) ?? null;
+  const activeTaskListContribution =
+    taskLists.find(
+      (taskList) =>
+        taskList.pluginId === activeTaskList?.pluginId &&
+        taskList.id === activeTaskList.providerId,
+    ) ?? null;
   const activeCalendarContribution = calendars.find((calendar) =>
     calendar.pluginId === activeCalendar?.pluginId && calendar.id === activeCalendar.providerId) ?? null;
   const activeSourceControlAction = useCallback(
@@ -9212,6 +9446,7 @@ function App() {
       setActiveSourceControlProvider(null);
       setActivePluginSidebar(null);
       setActiveNoteGraph(null);
+      setActiveTaskList(null);
       setSidebarView("files");
     }
   }, [activeSourceControlContribution, activeSourceControlProvider]);
@@ -9221,6 +9456,7 @@ function App() {
       setActiveNoteGraph(null);
       setActiveSourceControlProvider(null);
       setActivePluginSidebar(null);
+      setActiveTaskList(null);
       setSidebarView("files");
     }
   }, [activeNoteGraph, activeNoteGraphContribution]);
@@ -9228,6 +9464,12 @@ function App() {
   useEffect(() => {
     if (activeCalendar && !activeCalendarContribution) showSidebarView("files");
   }, [activeCalendar, activeCalendarContribution, showSidebarView]);
+
+  useEffect(() => {
+    if (activeTaskList && !activeTaskListContribution) {
+      showSidebarView("files");
+    }
+  }, [activeTaskList, activeTaskListContribution, showSidebarView]);
 
   if (!workspace) {
     return (
@@ -9695,9 +9937,11 @@ function App() {
         activePluginView={activePluginSidebarView?.id ?? null}
         activeSourceControlProvider={activeSourceControlProvider}
         activeNoteGraph={activeNoteGraph}
+        activeTaskList={activeTaskList}
         pluginViews={pluginController.sidebarViews}
         sourceControlProviders={pluginController.sourceControlProviders}
         noteGraphs={noteGraphs}
+        taskLists={taskLists}
         theme={theme}
         onViewChange={(view) => {
           showSidebarView(view);
@@ -9706,18 +9950,21 @@ function App() {
           setActiveSourceControlProvider(null);
           setActiveNoteGraph(null);
           setActiveCalendar(null);
+          setActiveTaskList(null);
           setActivePluginSidebar(viewId);
         }}
         onSourceControlProviderChange={(pluginId, providerId) => {
           setActivePluginSidebar(null);
           setActiveNoteGraph(null);
           setActiveCalendar(null);
+          setActiveTaskList(null);
           setActiveSourceControlProvider({ pluginId, providerId });
           void runSourceControlAction(pluginId, providerId, {
             id: "refresh",
           });
         }}
         onNoteGraphChange={showNoteGraph}
+        onTaskListChange={showTaskList}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={toggleTheme}
       />
@@ -9767,6 +10014,36 @@ function App() {
               await openFile(path);
             }}
             onError={showError}
+          />
+        ) : activeTaskListContribution ? (
+          <TaskListPanel
+            key={`${activeTaskListContribution.pluginId}:${activeTaskListContribution.id}:${workspace.vaultPath}`}
+            provider={activeTaskListContribution}
+            snapshot={taskListSnapshot}
+            indexTaskList={pluginController.indexTaskList}
+            queryTaskList={pluginController.queryTaskList}
+            onToggle={(task, checked) =>
+              toggleTaskListItem(
+                activeTaskListContribution,
+                task,
+                checked,
+              )
+            }
+            onOpenFile={async (path) => {
+              if (
+                !taskListsRef.current.some(
+                  (candidate) =>
+                    candidate.pluginId ===
+                      activeTaskListContribution.pluginId &&
+                    candidate.id === activeTaskListContribution.id,
+                )
+              ) {
+                throw new Error("Advanced task lists is no longer available.");
+              }
+              await openFile(path);
+            }}
+            onError={showError}
+            coordinator={taskListCoordinator}
           />
         ) : activeNoteGraphContribution ? (
           <NoteGraphPanel
@@ -10670,6 +10947,25 @@ function App() {
 function upsertTagColor(colors: TagColor[], next: TagColor): TagColor[] {
   return [...colors.filter(({ tag }) => tag !== next.tag), next].sort(
     (left, right) => left.tag.localeCompare(right.tag),
+  );
+}
+
+function taskToggleConflict(
+  path: string,
+  reason: "missing" | "ambiguous" | "changed",
+): Error {
+  if (reason === "ambiguous") {
+    return new Error(
+      `${path} now has a different number of identical tasks under that heading. Refresh the task list and try again.`,
+    );
+  }
+  if (reason === "changed") {
+    return new Error(
+      `${path} changed since this task was indexed. Refresh the task list and try again.`,
+    );
+  }
+  return new Error(
+    `The indexed task no longer exists in ${path}. Refresh the task list and try again.`,
   );
 }
 

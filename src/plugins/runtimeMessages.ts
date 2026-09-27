@@ -20,6 +20,11 @@ import type {
   PluginSourceControlViewModel,
   PluginStructuredViewerParseRequest,
   PluginStructuredViewModel,
+  PluginTaskListIndexRequest,
+  PluginTaskListModel,
+  PluginTaskListQuery,
+  PluginTaskListToggleRequest,
+  PluginTaskListToggleResult,
 } from "@denote/plugin-sdk";
 import {
   isPluginCalendarModel,
@@ -38,6 +43,12 @@ import {
   isPluginNoteGraphRegistration,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
+  isPluginTaskListIndexRequest,
+  isPluginTaskListModel,
+  isPluginTaskListQuery,
+  isPluginTaskListRegistration,
+  isPluginTaskListToggleRequest,
+  isPluginTaskListToggleResult,
 } from "@denote/plugin-sdk";
 export type { PluginEmojiPickerContribution } from "./emojiPickers";
 import {
@@ -100,6 +111,12 @@ export interface PluginKanbanBoardContribution {
 }
 
 export interface PluginNoteGraphContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+}
+
+export interface PluginTaskListContribution {
   pluginId: string;
   id: string;
   title: string;
@@ -173,6 +190,24 @@ export type PluginHostMessage =
       request: PluginNoteGraphQuery;
       requestId: string;
     }
+  | {
+      type: "index-task-list";
+      providerId: string;
+      request: PluginTaskListIndexRequest;
+      requestId: string;
+    }
+  | {
+      type: "query-task-list";
+      providerId: string;
+      request: PluginTaskListQuery;
+      requestId: string;
+    }
+  | {
+      type: "toggle-task-list-item";
+      providerId: string;
+      request: PluginTaskListToggleRequest;
+      requestId: string;
+    }
   | { type: "note-event"; event: PluginNoteEvent }
   | {
       type: "project-context-change";
@@ -237,6 +272,12 @@ export type PluginRuntimeMessage =
       title: string;
     }
   | { type: "unregister-note-graph"; id: string }
+  | {
+      type: "register-task-list";
+      id: string;
+      title: string;
+    }
+  | { type: "unregister-task-list"; id: string }
   | {
       type: "register-diagram-renderer";
       id: string;
@@ -311,6 +352,23 @@ export type PluginRuntimeMessage =
       error?: string;
     }
   | {
+      type: "task-list-index-result";
+      requestId: string;
+      error?: string;
+    }
+  | {
+      type: "task-list-query-result";
+      requestId: string;
+      model?: PluginTaskListModel;
+      error?: string;
+    }
+  | {
+      type: "task-list-toggle-result";
+      requestId: string;
+      result?: PluginTaskListToggleResult;
+      error?: string;
+    }
+  | {
       type: "log";
       level: "debug" | "info" | "warn" | "error";
       message: string;
@@ -334,6 +392,7 @@ export function isPluginRuntimeMessage(
     case "command-result":
     case "source-control-action-result":
     case "note-graph-index-result":
+    case "task-list-index-result":
       return (
         typeof value.requestId === "string" &&
         (value.error === undefined || typeof value.error === "string")
@@ -368,6 +427,21 @@ export function isPluginRuntimeMessage(
         (value.error === undefined || typeof value.error === "string") &&
         ((value.error !== undefined && value.model === undefined) ||
           (value.error === undefined && isPluginNoteGraphModel(value.model)))
+      );
+    case "task-list-query-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.model === undefined) ||
+          (value.error === undefined && isPluginTaskListModel(value.model)))
+      );
+    case "task-list-toggle-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.result === undefined) ||
+          (value.error === undefined &&
+            isPluginTaskListToggleResult(value.result)))
       );
     case "calendar-result":
       return (
@@ -419,6 +493,10 @@ export function isPluginRuntimeMessage(
     case "register-note-graph":
       return isPluginNoteGraphRegistration(value);
     case "unregister-note-graph":
+      return typeof value.id === "string";
+    case "register-task-list":
+      return isPluginTaskListRegistration(value);
+    case "unregister-task-list":
       return typeof value.id === "string";
     case "register-diagram-renderer":
       return isPluginDiagramRendererRegistration(value);
@@ -514,6 +592,24 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.providerId === "string" &&
         typeof value.requestId === "string" &&
         isPluginNoteGraphQuery(value.request)
+      );
+    case "index-task-list":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginTaskListIndexRequest(value.request)
+      );
+    case "query-task-list":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginTaskListQuery(value.request)
+      );
+    case "toggle-task-list-item":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginTaskListToggleRequest(value.request)
       );
     case "query-calendar":
       return (

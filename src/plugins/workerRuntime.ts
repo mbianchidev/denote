@@ -20,6 +20,11 @@ import type {
   PluginSourceControlAction,
   PluginStructuredViewerParseRequest,
   PluginStructuredViewModel,
+  PluginTaskListIndexRequest,
+  PluginTaskListModel,
+  PluginTaskListQuery,
+  PluginTaskListToggleRequest,
+  PluginTaskListToggleResult,
 } from "@denote/plugin-sdk";
 import {
   isPluginCalendarModel,
@@ -32,6 +37,10 @@ import {
   isPluginNoteGraphQuery,
   isPluginNoteGraphRegistration,
   isPluginStructuredViewerRegistration,
+  isPluginTaskListIndexRequest,
+  isPluginTaskListQuery,
+  isPluginTaskListRegistration,
+  isPluginTaskListToggleRequest,
   MAX_PLUGIN_KANBAN_SOURCE_BYTES,
   MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES,
 } from "@denote/plugin-sdk";
@@ -56,6 +65,7 @@ import {
   type PluginSourceControlContribution,
   type PluginStatusContribution,
   type PluginStructuredViewerContribution,
+  type PluginTaskListContribution,
   type PluginWorkerConnectMessage,
 } from "./runtimeMessages";
 import { DiagramRendererHost } from "./diagramRenderers";
@@ -73,6 +83,7 @@ export type {
   PluginSourceControlContribution,
   PluginStatusContribution,
   PluginStructuredViewerContribution,
+  PluginTaskListContribution,
 } from "./runtimeMessages";
 export type {
   PluginActionHostSecrets,
@@ -89,6 +100,7 @@ const SOURCE_CONTROL_ACTION_TIMEOUT_MS = 600_000;
 const STRUCTURED_VIEW_TIMEOUT_MS = 15_000;
 const KANBAN_OPERATION_TIMEOUT_MS = 15_000;
 const NOTE_GRAPH_OPERATION_TIMEOUT_MS = 30_000;
+const TASK_LIST_OPERATION_TIMEOUT_MS = 30_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -102,6 +114,9 @@ interface PendingRequest {
     | "kanban-edit-result"
     | "note-graph-index-result"
     | "note-graph-query-result"
+    | "task-list-index-result"
+    | "task-list-query-result"
+    | "task-list-toggle-result"
     | "calendar-result"
     | "deactivated";
 }
@@ -132,6 +147,8 @@ interface Runtime {
   stagedKanbanBoards: Map<string, PluginKanbanBoardContribution>;
   noteGraphs: Map<string, PluginNoteGraphContribution>;
   stagedNoteGraphs: Map<string, PluginNoteGraphContribution>;
+  taskLists: Map<string, PluginTaskListContribution>;
+  stagedTaskLists: Map<string, PluginTaskListContribution>;
   calendars: Map<string, PluginCalendarContribution>;
   stagedCalendars: Map<string, PluginCalendarContribution>;
   diagramRenderers: Map<string, PluginDiagramRendererContribution>;
@@ -214,6 +231,9 @@ export class PluginWorkerRuntime {
     private readonly onCalendarsChanged: (
       calendars: PluginCalendarContribution[],
     ) => void = () => {},
+    private readonly onTaskListsChanged: (
+      taskLists: PluginTaskListContribution[],
+    ) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -281,6 +301,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishTaskLists();
     this.publishCalendars();
     this.publishDiagramRenderers();
     runtime.activeActions.clear();
@@ -590,6 +611,90 @@ export class PluginWorkerRuntime {
     return (await result) as PluginNoteGraphModel;
   }
 
+  async indexTaskList(
+    pluginId: string,
+    providerId: string,
+    request: PluginTaskListIndexRequest,
+  ): Promise<void> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.taskLists.has(providerId)) {
+      throw new Error(`Plugin task list ${providerId} is not registered.`);
+    }
+    if (!isPluginTaskListIndexRequest(request)) {
+      throw new Error("Invalid task list index request.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      TASK_LIST_OPERATION_TIMEOUT_MS,
+      "task-list-index-result",
+    );
+    runtime.port.postMessage({
+      type: "index-task-list",
+      providerId,
+      request,
+      requestId,
+    });
+    await result;
+  }
+
+  async queryTaskList(
+    pluginId: string,
+    providerId: string,
+    request: PluginTaskListQuery,
+  ): Promise<PluginTaskListModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.taskLists.has(providerId)) {
+      throw new Error(`Plugin task list ${providerId} is not registered.`);
+    }
+    if (!isPluginTaskListQuery(request)) {
+      throw new Error("Invalid task list query.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      TASK_LIST_OPERATION_TIMEOUT_MS,
+      "task-list-query-result",
+    );
+    runtime.port.postMessage({
+      type: "query-task-list",
+      providerId,
+      request,
+      requestId,
+    });
+    return (await result) as PluginTaskListModel;
+  }
+
+  async toggleTaskListItem(
+    pluginId: string,
+    providerId: string,
+    request: PluginTaskListToggleRequest,
+  ): Promise<PluginTaskListToggleResult> {
+    const runtime = this.requireRuntime(pluginId);
+    if (!runtime.activated || !runtime.taskLists.has(providerId)) {
+      throw new Error(`Plugin task list ${providerId} is not registered.`);
+    }
+    if (!isPluginTaskListToggleRequest(request)) {
+      throw new Error("Invalid task list toggle request.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      TASK_LIST_OPERATION_TIMEOUT_MS,
+      "task-list-toggle-result",
+    );
+    runtime.port.postMessage({
+      type: "toggle-task-list-item",
+      providerId,
+      request,
+      requestId,
+    });
+    return (await result) as PluginTaskListToggleResult;
+  }
+
   async queryCalendar(
     pluginId: string,
     providerId: string,
@@ -782,6 +887,8 @@ export class PluginWorkerRuntime {
       stagedKanbanBoards: new Map(),
       noteGraphs: new Map(),
       stagedNoteGraphs: new Map(),
+      taskLists: new Map(),
+      stagedTaskLists: new Map(),
       calendars: new Map(),
       stagedCalendars: new Map(),
       diagramRenderers: new Map(),
@@ -898,6 +1005,10 @@ export class PluginWorkerRuntime {
         runtime.noteGraphs.set(id, graph);
       }
       runtime.stagedNoteGraphs.clear();
+      for (const [id, taskList] of runtime.stagedTaskLists) {
+        runtime.taskLists.set(id, taskList);
+      }
+      runtime.stagedTaskLists.clear();
       for (const [id, calendar] of runtime.stagedCalendars) {
         runtime.calendars.set(id, calendar);
       }
@@ -924,6 +1035,7 @@ export class PluginWorkerRuntime {
       this.publishStructuredViewers();
       this.publishKanbanBoards();
       this.publishNoteGraphs();
+      this.publishTaskLists();
       this.publishCalendars();
       this.publishDiagramRenderers();
     } catch (error) {
@@ -1247,6 +1359,45 @@ export class PluginWorkerRuntime {
         runtime.stagedNoteGraphs.delete(message.id);
         this.publishNoteGraphs();
         return;
+      case "register-task-list": {
+        const registration = {
+          id: message.id,
+          title: message.title,
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("task-list") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginTaskListRegistration(registration) ||
+          runtime.taskLists.size + runtime.stagedTaskLists.size > 0 ||
+          this.taskListProviderIdRegistered(message.id)
+        ) {
+          void this.failRuntime(
+            pluginId,
+            new Error(
+              `Plugin ${pluginId} attempted an unauthorized task list registration.`,
+            ),
+          );
+          return;
+        }
+        const contribution: PluginTaskListContribution = {
+          pluginId,
+          ...registration,
+        };
+        const taskLists = runtime.activated
+          ? runtime.taskLists
+          : runtime.stagedTaskLists;
+        taskLists.set(message.id, contribution);
+        if (runtime.activated) {
+          this.publishTaskLists();
+        }
+        return;
+      }
+      case "unregister-task-list":
+        runtime.taskLists.delete(message.id);
+        runtime.stagedTaskLists.delete(message.id);
+        this.publishTaskLists();
+        return;
       case "register-diagram-renderer": {
         const registration = {
           id: message.id,
@@ -1446,8 +1597,11 @@ export class PluginWorkerRuntime {
       case "kanban-board-result":
       case "kanban-edit-result":
       case "note-graph-index-result":
+      case "task-list-index-result":
       case "calendar-result":
-      case "note-graph-query-result": {
+      case "note-graph-query-result":
+      case "task-list-query-result":
+      case "task-list-toggle-result": {
         if (
           !this.settle(
             runtime,
@@ -1460,7 +1614,11 @@ export class PluginWorkerRuntime {
                 ? message.model
                 : message.type === "kanban-edit-result"
                   ? message.result
-                  : message.type === "note-graph-query-result" || message.type === "calendar-result"
+                  : message.type === "task-list-toggle-result"
+                    ? message.result
+                  : message.type === "note-graph-query-result" ||
+                        message.type === "task-list-query-result" ||
+                        message.type === "calendar-result"
                     ? message.model
               : undefined,
           )
@@ -1661,6 +1819,15 @@ export class PluginWorkerRuntime {
     return false;
   }
 
+  private taskListProviderIdRegistered(id: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.taskLists.has(id) || runtime.stagedTaskLists.has(id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private kanbanFileSuffixRegistered(suffix: string): boolean {
     for (const runtime of this.runtimes.values()) {
       for (const board of [
@@ -1714,6 +1881,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishTaskLists();
     this.publishCalendars();
     this.publishDiagramRenderers();
   }
@@ -1741,6 +1909,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishTaskLists();
     this.publishCalendars();
     this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
@@ -1817,6 +1986,17 @@ export class PluginWorkerRuntime {
     this.onNoteGraphsChanged(
       [...this.runtimes.values()].flatMap((runtime) =>
         runtime.phase === "active" ? [...runtime.noteGraphs.values()] : [],
+      ),
+    );
+  }
+
+  private publishTaskLists(): void {
+    this.onTaskListsChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active" &&
+        runtime.workspaceIdentity === this.workspaceIdentity
+          ? [...runtime.taskLists.values()]
+          : [],
       ),
     );
   }

@@ -45,6 +45,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "emoji-picker": "Offer local emoji insertion and save picker preferences",
   "structured-viewer": "Render bounded structured views for matching source files",
   "kanban-board": "Edit matching Markdown boards through host-rendered controls",
+  "task-list": "Index Markdown checkboxes and update one verified task marker after an explicit action",
   "note-graph": "Index and visualize bounded local note connections",
   calendar: "Read filesystem dates and bounded frontmatter; create daily Markdown after an explicit action, without overwriting existing notes",
   "diagram-renderer": "Render bounded diagrams in an isolated local sandbox",

@@ -419,6 +419,21 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   frontmatter; existing notes are never annotated automatically. Unknown creation
   dates remain unmarked. Denote preserves observed creation times through atomic
   saves and revision restores, and encryption alone does not mark a note updated.
+- The independently installable **Advanced task lists** plugin is disabled by
+  default and requests only `task-list`. Its host-rendered activity-rail view
+  incrementally indexes standard Markdown checkboxes from bounded local
+  snapshots and filters them by open/completed state, hashtag, path fragment,
+  and portable `due:YYYY-MM-DD` tokens. Each row shows its note, source line,
+  and enclosing heading path; opening a row uses ordinary file navigation.
+- Task toggles use native checkboxes and remain keyboard operable with visible
+  focus and polite status. Identity combines the exact source line, heading
+  path, duplicate occurrence, and duplicate count rather than trusting a stale
+  line number. The worker can propose only one marker change, and the host
+  independently verifies that every other byte is unchanged. Open notes update
+  their current editor buffer; closed notes save with their current content
+  hash, encoding, line endings, revision history, and vault-generation guards.
+  Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
+  uninterpreted Markdown.
 - The independently installable **Kanban boards** plugin is disabled by default
   and requests only `kanban-board`. Files ending in `.kanban.md` or
   `.kanban.markdown` switch between exact Markdown source and a host-rendered

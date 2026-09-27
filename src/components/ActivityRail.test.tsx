@@ -20,14 +20,17 @@ describe("ActivityRail", () => {
         activePluginView={null}
         activeSourceControlProvider={null}
         activeNoteGraph={null}
+        activeTaskList={null}
         pluginViews={[]}
         sourceControlProviders={[]}
         noteGraphs={[]}
+        taskLists={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
         onNoteGraphChange={vi.fn()}
+        onTaskListChange={vi.fn()}
         onAbout={onAbout}
         onThemeToggle={vi.fn()}
       />,
@@ -49,14 +52,17 @@ describe("ActivityRail", () => {
         activePluginView={null}
         activeSourceControlProvider={null}
         activeNoteGraph={null}
+        activeTaskList={null}
         pluginViews={[{ id: "denote.reference.status", title: "Plugin reference" }]}
         sourceControlProviders={[]}
         noteGraphs={[]}
+        taskLists={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={onPluginViewChange}
         onSourceControlProviderChange={vi.fn()}
         onNoteGraphChange={vi.fn()}
+        onTaskListChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -86,6 +92,7 @@ describe("ActivityRail", () => {
           providerId: "git",
         }}
         activeNoteGraph={null}
+        activeTaskList={null}
         pluginViews={[]}
         sourceControlProviders={[
           {
@@ -102,11 +109,13 @@ describe("ActivityRail", () => {
           },
         ]}
         noteGraphs={[]}
+        taskLists={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={onSourceControlProviderChange}
         onNoteGraphChange={vi.fn()}
+        onTaskListChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -148,6 +157,7 @@ describe("ActivityRail", () => {
           pluginId: "denote.note-graph",
           providerId: "denote.note-graph.graph",
         }}
+        activeTaskList={null}
         pluginViews={[]}
         sourceControlProviders={[]}
         noteGraphs={[
@@ -157,11 +167,13 @@ describe("ActivityRail", () => {
             title: "Note graph",
           },
         ]}
+        taskLists={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
         onNoteGraphChange={onNoteGraphChange}
+        onTaskListChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -176,6 +188,55 @@ describe("ActivityRail", () => {
     );
   });
 
+  it("opens a registered task list with a keyboard-operable rail control", async () => {
+    const user = userEvent.setup();
+    const onTaskListChange = vi.fn();
+    render(
+      <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
+        activeView="files"
+        activePluginView={null}
+        activeSourceControlProvider={null}
+        activeNoteGraph={null}
+        activeTaskList={{
+          pluginId: "denote.task-lists",
+          providerId: "denote.task-lists.tasks",
+        }}
+        pluginViews={[]}
+        sourceControlProviders={[]}
+        noteGraphs={[]}
+        taskLists={[
+          {
+            pluginId: "denote.task-lists",
+            id: "denote.task-lists.tasks",
+            title: "Advanced task lists",
+          },
+        ]}
+        theme="dark"
+        onViewChange={vi.fn()}
+        onPluginViewChange={vi.fn()}
+        onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={vi.fn()}
+        onTaskListChange={onTaskListChange}
+        onAbout={vi.fn()}
+        onThemeToggle={vi.fn()}
+      />,
+    );
+
+    const taskList = screen.getByRole("button", {
+      name: "Advanced task lists",
+    });
+    expect(taskList).toHaveAttribute("aria-pressed", "true");
+    taskList.focus();
+    await user.keyboard("{Enter}");
+    expect(onTaskListChange).toHaveBeenCalledWith(
+      "denote.task-lists",
+      "denote.task-lists.tasks",
+    );
+  });
+
   it("disambiguates providers with duplicate titles from the same plugin", () => {
     render(
       <ActivityRail
@@ -186,6 +247,7 @@ describe("ActivityRail", () => {
         activePluginView={null}
         activeSourceControlProvider={null}
         activeNoteGraph={null}
+        activeTaskList={null}
         pluginViews={[]}
         sourceControlProviders={[
           {
@@ -202,11 +264,13 @@ describe("ActivityRail", () => {
           },
         ]}
         noteGraphs={[]}
+        taskLists={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
         onNoteGraphChange={vi.fn()}
+        onTaskListChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,
@@ -235,17 +299,20 @@ describe("ActivityRail", () => {
         activePluginView={null}
         activeSourceControlProvider={null}
         activeNoteGraph={null}
+        activeTaskList={null}
         pluginViews={[
           { id: "denote.alpha.view", title: "Alpha" },
           { id: "denote.beta.view", title: "Beta" },
         ]}
         sourceControlProviders={[]}
         noteGraphs={[]}
+        taskLists={[]}
         theme="dark"
         onViewChange={vi.fn()}
         onPluginViewChange={vi.fn()}
         onSourceControlProviderChange={vi.fn()}
         onNoteGraphChange={vi.fn()}
+        onTaskListChange={vi.fn()}
         onAbout={vi.fn()}
         onThemeToggle={vi.fn()}
       />,

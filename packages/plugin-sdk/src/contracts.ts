@@ -23,6 +23,7 @@ export const PLUGIN_CAPABILITIES = [
   "emoji-picker",
   "structured-viewer",
   "kanban-board",
+  "task-list",
   "note-graph",
   "calendar",
   "diagram-renderer",
@@ -450,6 +451,101 @@ export interface PluginKanbanBoardProvider {
 
 export interface PluginKanbanBoardCapability {
   register: (provider: PluginKanbanBoardProvider) => PluginDisposable;
+}
+
+export interface PluginTaskListDocument {
+  path: string;
+  title: string;
+  source: string;
+}
+
+export interface PluginTaskListIndexRequest {
+  mode: "replace" | "update";
+  documents: PluginTaskListDocument[];
+  removedPaths: string[];
+  skippedCount: number;
+  truncated: boolean;
+}
+
+export type PluginTaskListStatusFilter = "all" | "open" | "completed";
+export type PluginTaskListDueFilter =
+  | "all"
+  | "overdue"
+  | "today"
+  | "upcoming"
+  | "undated";
+
+export interface PluginTaskListQuery {
+  status: PluginTaskListStatusFilter;
+  tag: string | null;
+  path: string;
+  due: PluginTaskListDueFilter;
+  today: string;
+  timeZone: string;
+}
+
+export interface PluginTaskListLocator {
+  path: string;
+  sourceLine: string;
+  headingPath: string[];
+  occurrence: number;
+  matchCount: number;
+  checked: boolean;
+}
+
+export interface PluginTaskListItem {
+  id: string;
+  path: string;
+  noteTitle: string;
+  line: number;
+  text: string;
+  checked: boolean;
+  headingPath: string[];
+  tags: string[];
+  dueDate: string | null;
+  locator: PluginTaskListLocator;
+}
+
+export interface PluginTaskListModel {
+  tasks: PluginTaskListItem[];
+  totalTasks: number;
+  matchingTasks: number;
+  availableTags: string[];
+  truncated: boolean;
+  notices: string[];
+}
+
+export interface PluginTaskListToggleRequest {
+  path: string;
+  source: string;
+  locator: PluginTaskListLocator;
+  checked: boolean;
+}
+
+export type PluginTaskListToggleResult =
+  | {
+      status: "applied";
+      source: string;
+    }
+  | {
+      status: "conflict";
+      reason: "missing" | "ambiguous" | "changed";
+    };
+
+export interface PluginTaskListProvider {
+  id: string;
+  title: string;
+  index: (request: PluginTaskListIndexRequest) => void | Promise<void>;
+  query: (
+    request: PluginTaskListQuery,
+  ) => PluginTaskListModel | Promise<PluginTaskListModel>;
+  toggle: (
+    request: PluginTaskListToggleRequest,
+  ) => PluginTaskListToggleResult | Promise<PluginTaskListToggleResult>;
+}
+
+export interface PluginTaskListCapability {
+  register: (provider: PluginTaskListProvider) => PluginDisposable;
 }
 
 export interface PluginNoteGraphDocument {
@@ -1784,6 +1880,7 @@ export interface PluginCapabilities {
   emojiPicker?: PluginEmojiPickerCapability;
   structuredViewer?: PluginStructuredViewerCapability;
   kanbanBoard?: PluginKanbanBoardCapability;
+  taskList?: PluginTaskListCapability;
   noteGraph?: PluginNoteGraphCapability;
   calendar?: PluginCalendarCapability;
   diagramRenderer?: PluginDiagramRendererCapability;

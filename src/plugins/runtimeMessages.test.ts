@@ -8,6 +8,7 @@ import type {
   PluginKanbanBoardModel,
   PluginNoteGraphModel,
   PluginSourceControlViewModel,
+  PluginTaskListModel,
 } from "@denote/plugin-sdk";
 
 describe("calendar runtime messages", () => {
@@ -115,6 +116,35 @@ const noteGraphModel: PluginNoteGraphModel = {
   matchingNotes: 1,
   totalEdges: 0,
   activeNodeId: null,
+  truncated: false,
+  notices: [],
+};
+
+const taskListModel: PluginTaskListModel = {
+  tasks: [
+    {
+      id: "Plan.md:1:1",
+      path: "Plan.md",
+      noteTitle: "Plan",
+      line: 1,
+      text: "Synthetic",
+      checked: false,
+      headingPath: [],
+      tags: [],
+      dueDate: null,
+      locator: {
+        path: "Plan.md",
+        sourceLine: "- [ ] Synthetic",
+        headingPath: [],
+        occurrence: 1,
+        matchCount: 1,
+        checked: false,
+      },
+    },
+  ],
+  totalTasks: 1,
+  matchingTasks: 1,
+  availableTags: [],
   truncated: false,
   notices: [],
 };
@@ -386,6 +416,111 @@ describe("plugin runtime source control messages", () => {
           id: "denote.synthetic.graph",
         }),
       ).toBe(true);
+    });
+
+    describe("plugin runtime task list messages", () => {
+      it("accepts bounded registration, index, query, toggle, and removal messages", () => {
+        expect(
+          isPluginRuntimeMessage({
+            type: "register-task-list",
+            id: "denote.synthetic.tasks",
+            title: "Advanced task lists",
+          }),
+        ).toBe(true);
+        expect(
+          isPluginHostMessage({
+            type: "index-task-list",
+            providerId: "denote.synthetic.tasks",
+            requestId: "index",
+            request: {
+              mode: "replace",
+              documents: [
+                {
+                  path: "Plan.md",
+                  title: "Plan",
+                  source: "- [ ] Synthetic",
+                },
+              ],
+              removedPaths: [],
+              skippedCount: 0,
+              truncated: false,
+            },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginHostMessage({
+            type: "query-task-list",
+            providerId: "denote.synthetic.tasks",
+            requestId: "query",
+            request: {
+              status: "open",
+              tag: null,
+              path: "",
+              due: "all",
+              today: "2026-09-27",
+              timeZone: "UTC",
+            },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginHostMessage({
+            type: "toggle-task-list-item",
+            providerId: "denote.synthetic.tasks",
+            requestId: "toggle",
+            request: {
+              path: "Plan.md",
+              source: "- [ ] Synthetic",
+              locator: taskListModel.tasks[0].locator,
+              checked: true,
+            },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginRuntimeMessage({
+            type: "task-list-query-result",
+            requestId: "query",
+            model: taskListModel,
+          }),
+        ).toBe(true);
+        expect(
+          isPluginRuntimeMessage({
+            type: "task-list-toggle-result",
+            requestId: "toggle",
+            result: { status: "conflict", reason: "changed" },
+          }),
+        ).toBe(true);
+        expect(
+          isPluginRuntimeMessage({
+            type: "unregister-task-list",
+            id: "denote.synthetic.tasks",
+          }),
+        ).toBe(true);
+      });
+
+      it("rejects invalid dates and unvalidated toggle results", () => {
+        expect(
+          isPluginHostMessage({
+            type: "query-task-list",
+            providerId: "denote.synthetic.tasks",
+            requestId: "query",
+            request: {
+              status: "open",
+              tag: null,
+              path: "",
+              due: "today",
+              today: "2026-09-00",
+              timeZone: "UTC",
+            },
+          }),
+        ).toBe(false);
+        expect(
+          isPluginRuntimeMessage({
+            type: "task-list-toggle-result",
+            requestId: "toggle",
+            result: { status: "applied", source: 42 },
+          }),
+        ).toBe(false);
+      });
     });
 
     it("rejects malformed graph requests and dangling edges", () => {

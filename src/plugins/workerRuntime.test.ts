@@ -11,6 +11,8 @@ import {
   type PluginNoteGraphModel,
   type PluginSourceControlViewModel,
   type PluginStructuredViewModel,
+  type PluginTaskListModel,
+  type PluginTaskListToggleResult,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
@@ -162,6 +164,38 @@ const noteGraphModel: PluginNoteGraphModel = {
   truncated: false,
   notices: [],
 };
+const taskListModel: PluginTaskListModel = {
+  tasks: [
+    {
+      id: "Plan.md:1:1",
+      path: "Plan.md",
+      noteTitle: "Plan",
+      line: 1,
+      text: "Synthetic",
+      checked: false,
+      headingPath: [],
+      tags: [],
+      dueDate: null,
+      locator: {
+        path: "Plan.md",
+        sourceLine: "- [ ] Synthetic",
+        headingPath: [],
+        occurrence: 1,
+        matchCount: 1,
+        checked: false,
+      },
+    },
+  ],
+  totalTasks: 1,
+  matchingTasks: 1,
+  availableTags: [],
+  truncated: false,
+  notices: [],
+};
+const taskListToggleResult: PluginTaskListToggleResult = {
+  status: "applied",
+  source: "- [x] Synthetic",
+};
 
 class FakePort extends EventTarget {
   peer: FakePort | null = null;
@@ -230,6 +264,13 @@ class FakeWorker extends EventTarget {
     title: string;
   } | null = null;
   static noteGraphModel: PluginNoteGraphModel = noteGraphModel;
+  static taskListOnActivate: {
+    id: string;
+    title: string;
+  } | null = null;
+  static taskListModel: PluginTaskListModel = taskListModel;
+  static taskListToggleResult: PluginTaskListToggleResult =
+    taskListToggleResult;
   static calendarOnActivate: { id: string; title: string; views?: PluginCalendarView[] } | null = null;
   static calendarModel: PluginCalendarModel = {
     days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
@@ -307,6 +348,12 @@ class FakeWorker extends EventTarget {
             ...FakeWorker.noteGraphOnActivate,
           });
         }
+        if (FakeWorker.taskListOnActivate) {
+          port.postMessage({
+            type: "register-task-list",
+            ...FakeWorker.taskListOnActivate,
+          });
+        }
         if (FakeWorker.calendarOnActivate) {
           port.postMessage({ type: "register-calendar", ...FakeWorker.calendarOnActivate });
         }
@@ -380,6 +427,32 @@ class FakeWorker extends EventTarget {
           type: "note-graph-query-result",
           requestId: data.requestId,
           model: FakeWorker.noteGraphModel,
+        });
+      } else if (
+        data.type === "index-task-list" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "task-list-index-result",
+          requestId: data.requestId,
+        });
+      } else if (
+        data.type === "query-task-list" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "task-list-query-result",
+          requestId: data.requestId,
+          model: FakeWorker.taskListModel,
+        });
+      } else if (
+        data.type === "toggle-task-list-item" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "task-list-toggle-result",
+          requestId: data.requestId,
+          result: FakeWorker.taskListToggleResult,
         });
       } else if (
         data.type === "query-calendar" &&
@@ -585,6 +658,17 @@ function pluginWithNoteGraph(): PluginView {
   };
 }
 
+function pluginWithTaskList(): PluginView {
+  const source = plugin();
+  return {
+    ...source,
+    approvedPermissions: [
+      ...source.approvedPermissions,
+      { capability: "task-list" },
+    ],
+  };
+}
+
 function pluginWithDiagramRenderer(): PluginView {
   const source = plugin();
   const manifest = {
@@ -643,12 +727,15 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.kanbanBoardModel = kanbanBoardModel;
     FakeWorker.kanbanEditResult = kanbanEditResult;
     FakeWorker.noteGraphOnActivate = null;
+    FakeWorker.taskListOnActivate = null;
     FakeWorker.calendarOnActivate = null;
     FakeWorker.calendarModel = {
       days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
       notices: [], truncated: false,
     };
     FakeWorker.noteGraphModel = noteGraphModel;
+    FakeWorker.taskListModel = taskListModel;
+    FakeWorker.taskListToggleResult = taskListToggleResult;
     FakeWorker.completeNoteGraphIndexes = true;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
@@ -1022,6 +1109,91 @@ describe("PluginWorkerRuntime", () => {
         type: "index-note-graph",
         providerId: registration.id,
         request: indexRequest,
+      }),
+    );
+
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("registers, indexes, queries, toggles, and removes a task list", async () => {
+    const changed = vi.fn();
+    const registration = {
+      id: "denote.reference.tasks",
+      title: "Advanced task lists",
+    };
+    FakeWorker.taskListOnActivate = registration;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(pluginWithTaskList());
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    const indexRequest = {
+      mode: "replace" as const,
+      documents: [
+        {
+          path: "Plan.md",
+          title: "Plan",
+          source: "- [ ] Synthetic",
+        },
+      ],
+      removedPaths: [],
+      skippedCount: 0,
+      truncated: false,
+    };
+    await expect(
+      runtime.indexTaskList(
+        "denote.reference",
+        registration.id,
+        indexRequest,
+      ),
+    ).resolves.toBeUndefined();
+    const query = {
+      status: "open" as const,
+      tag: null,
+      path: "",
+      due: "all" as const,
+      today: "2026-09-27",
+      timeZone: "UTC",
+    };
+    await expect(
+      runtime.queryTaskList("denote.reference", registration.id, query),
+    ).resolves.toEqual(taskListModel);
+    const toggleRequest = {
+      path: "Plan.md",
+      source: "- [ ] Synthetic",
+      locator: taskListModel.tasks[0].locator,
+      checked: true,
+    };
+    await expect(
+      runtime.toggleTaskListItem(
+        "denote.reference",
+        registration.id,
+        toggleRequest,
+      ),
+    ).resolves.toEqual(taskListToggleResult);
+    expect(FakeWorker.instances[0].received).toContainEqual(
+      expect.objectContaining({
+        type: "toggle-task-list-item",
+        providerId: registration.id,
+        request: toggleRequest,
       }),
     );
 
