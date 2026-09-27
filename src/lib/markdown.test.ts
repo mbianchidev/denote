@@ -5,6 +5,8 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { hasIncompleteStandardMarkdownAngle, restoreStandardMarkdownAngles } from "./mdxCompatibility";
 import { maskReferenceDefinitions } from "./referenceMarkdown";
 import { maskSafeRichHtml } from "./safeRichHtml";
+import { extractWebLinks } from "./links";
+import { createMarkdownParser } from "./markdownParser";
 import {
   applyTocMarkerViewChange,
   calloutsToDirectives,
@@ -50,6 +52,41 @@ describe("markdown utilities", () => {
     expect(captureThematicBreaks(source).delimiters).toEqual([]);
     expect(restoreStandardMarkdownAngles(source, source)).toBe(source);
     expect(fromMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("checks ordinary links and references without parsing unrelated angle syntax", () => {
+    const source =
+      "# Synthetic heading\n\n[Guide](https://example.test)\n\n[Another guide][guide]\n\n[guide]: https://example.test/guide";
+    vi.mocked(fromMarkdown).mockClear();
+
+    expect(hasUnsupportedRichMarkdown(source)).toBe(false);
+
+    expect(fromMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("parses each source variant only once when validating disclosure sections", () => {
+    const source =
+      "# Synthetic heading\n\n<details>\n<summary>More</summary>\n\n[Guide](https://example.test)\n\n</details>";
+    vi.mocked(fromMarkdown).mockClear();
+
+    expect(hasUnsupportedRichMarkdown(source)).toBe(false);
+
+    const parsedSources = vi.mocked(fromMarkdown).mock.calls.map(([value]) => value);
+    expect(parsedSources.length).toBeGreaterThan(0);
+    expect(parsedSources).toHaveLength(new Set(parsedSources).size);
+  });
+
+  it("shares analysis trees within an operation but never across edits", () => {
+    const source = "# Synthetic heading\n\n[Guide](https://example.test)";
+    vi.mocked(fromMarkdown).mockClear();
+    const parse = createMarkdownParser();
+
+    expect(extractHeadings(source, parse)).toHaveLength(1);
+    expect(extractWebLinks(source, parse)).toEqual(["https://example.test"]);
+    expect(fromMarkdown).toHaveBeenCalledTimes(1);
+
+    expect(extractHeadings(source, createMarkdownParser())).toHaveLength(1);
+    expect(fromMarkdown).toHaveBeenCalledTimes(2);
   });
 
   it("round-trips Denote warning callouts through editor directives", () => {

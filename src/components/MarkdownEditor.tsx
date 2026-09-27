@@ -122,7 +122,11 @@ import {
   restoreThematicBreaks,
 } from "../lib/markdown";
 import type { MarkdownViewMode } from "../lib/markdownView";
-import { captureReferenceMarkdown } from "../lib/referenceMarkdown";
+import {
+  captureReferenceMarkdown,
+  type ReferenceMarkdownSnapshot,
+} from "../lib/referenceMarkdown";
+import { createMarkdownParser } from "../lib/markdownParser";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
@@ -326,6 +330,9 @@ export interface MarkdownEditorDiagnostic {
   location: MarkdownErrorLocation | null;
 }
 
+const EMPTY_DECORATIONS: PluginEditorDecoration[] = [];
+const EMPTY_EMOJI_PICKERS: EmojiContribution[] = [];
+
 export const MarkdownEditor = forwardRef<
   MDXEditorMethods,
   MarkdownEditorProps
@@ -335,9 +342,9 @@ export const MarkdownEditor = forwardRef<
     markdown,
     lineEnding,
     displaySettings,
-    pluginDecorations = [],
+    pluginDecorations = EMPTY_DECORATIONS,
     emoji,
-    emojiPickers = [],
+    emojiPickers = EMPTY_EMOJI_PICKERS,
     diagrams,
     preferredViewMode,
     projectSourceMode = false,
@@ -356,19 +363,30 @@ export const MarkdownEditor = forwardRef<
   },
   ref,
 ) {
-  const editorMarkdown = useMemo(
-    () => normalizeBareSpaceLinkDestinations(markdown),
-    [markdown],
-  );
-  const editorSource = useMemo(() => markdownEditorSource(markdown), [markdown]);
-  const referenceSnapshot = useMemo(
-    () => captureReferenceMarkdown(editorSource),
-    [editorSource],
-  );
-  const referenceSnapshotRef = useRef(referenceSnapshot);
-  referenceSnapshotRef.current = referenceSnapshot;
-  const detectedSourceOnly = useMemo(() => hasUnsupportedRichMarkdown(markdown), [markdown]);
-  const renderDetails = useMemo(() => hasSupportedDetailsMarkdown(markdown), [markdown]);
+  const { editorMarkdown, editorSource, detectedSourceOnly, renderDetails } =
+    useMemo(() => {
+      const parse = createMarkdownParser();
+      const editorMarkdown = normalizeBareSpaceLinkDestinations(markdown, parse);
+      return {
+        editorMarkdown,
+        editorSource: markdownEditorSource(markdown, parse),
+        detectedSourceOnly: hasUnsupportedRichMarkdown(markdown, parse),
+        renderDetails: hasSupportedDetailsMarkdown(markdown, parse),
+      };
+    }, [markdown]);
+  const editorSourceRef = useRef(editorSource);
+  editorSourceRef.current = editorSource;
+  const referenceSnapshotRef = useMemo(() => {
+    let snapshot: ReferenceMarkdownSnapshot | null = null;
+    return {
+      get current(): ReferenceMarkdownSnapshot {
+        if (snapshot?.source !== editorSourceRef.current) {
+          snapshot = captureReferenceMarkdown(editorSourceRef.current);
+        }
+        return snapshot;
+      },
+    };
+  }, []);
   const shellRef = useRef<HTMLDivElement>(null);
   const emojiRef = useRef(emoji);
   const emojiSourceRef = useRef(markdown);
@@ -403,6 +421,10 @@ export const MarkdownEditor = forwardRef<
   onLinkOpenRef.current = onLinkOpen;
   const callbacksRef = useRef({ onError, onImageUpload, onViewModeChange, onMarkdownErrorCleared });
   callbacksRef.current = { onError, onImageUpload, onViewModeChange, onMarkdownErrorCleared };
+  const onCodeBlockError = useCallback(
+    (caught: unknown) => callbacksRef.current.onError(errorMessage(caught)),
+    [],
+  );
   const displayGuidesForceSource =
     hasEditorDisplayGuides(displaySettings);
   const initialSourceOnly = useRef(detectedSourceOnly).current;
@@ -981,7 +1003,7 @@ export const MarkdownEditor = forwardRef<
         <DenoteCodeBlockEditorSettingsProvider
           readOnly={readOnly}
           tabExtensions={tabExtensions}
-          onError={(caught) => onError(errorMessage(caught))}
+          onError={onCodeBlockError}
         >
           <MDXEditor
           key={`${htmlProcessing ? "details-html" : "standard-markdown"}:${diagrams?.renderers.map((renderer) => renderer.id).join(",") ?? "no-diagrams"}`}
@@ -999,13 +1021,14 @@ export const MarkdownEditor = forwardRef<
               const serialization = emojiSerialization;
               if (initialNormalize) serialization.record(value, emojiSourceRef.current);
               if (!initialNormalize) {
+                const parse = createMarkdownParser();
                 const exactSource = serialization.restore(value);
                 if (exactSource !== undefined) {
                   const output = sourceLineBreak !== "\n" && activeViewModeRef.current === "source"
                     ? exactSource.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak)
                     : exactSource;
-                  tocMarkersRef.current = captureTocMarkers(output);
-                  thematicBreaksRef.current = captureThematicBreaks(output);
+                  tocMarkersRef.current = captureTocMarkers(output, parse);
+                  thematicBreaksRef.current = captureThematicBreaks(output, parse);
                   serialization.record(value, output);
                   emojiSourceRef.current = output;
                   onChange(output);
@@ -1018,10 +1041,8 @@ export const MarkdownEditor = forwardRef<
                   restoredMarkdown = restoreThematicBreaks(
                     restoredMarkdown,
                     thematicBreaksRef.current!,
+                    parse,
                   );
-                } else {
-                  thematicBreaksRef.current =
-                    captureThematicBreaks(restoredMarkdown);
                 }
                 const normalizedMarkdown =
                   activeViewModeRef.current === "rich-text"
@@ -1029,6 +1050,7 @@ export const MarkdownEditor = forwardRef<
                         restoreStandardMarkdownAngles(
                           restoredMarkdown,
                           markdown,
+                          parse,
                         ),
                       )
                     : restoredMarkdown;
@@ -1036,10 +1058,11 @@ export const MarkdownEditor = forwardRef<
                   normalizedMarkdown,
                   tocMarkersRef.current!,
                   activeViewModeRef.current,
+                  parse,
                 );
                 tocMarkersRef.current = markerUpdate.snapshot;
                 thematicBreaksRef.current =
-                  captureThematicBreaks(markerUpdate.markdown);
+                  captureThematicBreaks(markerUpdate.markdown, parse);
                 let output = activeViewModeRef.current === "source" ? markerUpdate.markdown : restoreMarkdownBoundaryWhitespace(
                     markerUpdate.markdown,
                     boundaryWhitespace,
