@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarDates, type PluginCalendarRequest, type PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import type {
   PluginCalendarContribution,
@@ -318,6 +318,11 @@ vi.mock("./components/FileTree", () => ({
 import App from "./App";
 
 describe("App initial file-tree expansion", () => {
+  beforeAll(async () => {
+    // Module transformation is setup, not part of a UI interaction's deadline.
+    await import("./components/MarkdownEditor");
+  });
+
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
@@ -530,6 +535,10 @@ describe("App initial file-tree expansion", () => {
     await waitFor(() => {
       expect(mockApi.readNote).toHaveBeenCalledWith("linked note.md");
     });
+    await screen.findByRole("tab", { name: /linked note\.md/ });
+    await waitFor(() => {
+      expect(screen.queryByText("Loading editor...")).not.toBeInTheDocument();
+    });
     expect(mockApi.openKnownVault).not.toHaveBeenCalled();
   });
 
@@ -558,6 +567,7 @@ describe("App initial file-tree expansion", () => {
       expect(mockApi.openKnownVault).toHaveBeenCalledWith(8);
       expect(mockApi.readNote).toHaveBeenCalledWith("folder/linked.md");
     });
+    await screen.findByRole("tab", { name: /linked\.md/ });
   });
 
   it("asks for the vault folder when an app-linked file is not known", async () => {

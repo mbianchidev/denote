@@ -3,6 +3,20 @@
 Denote is a Tauri v2 desktop application with a React 19 and TypeScript
 frontend plus a Rust native core.
 
+The frontend build caps emitted main-thread JavaScript chunks at 500,000 bytes.
+Entry-aware chunks preserve lazy dependency boundaries for Markdown editing,
+formatted Git diffs, PDF rendering, and individual syntax languages. Each pane
+has a loading surface and an error boundary, keeping other tabs and panes
+usable while a feature loads or fails. PDF.js's upstream worker remains a
+separate lazy worker asset.
+
+Large Shiki grammar literals become byte-equivalent, hashed local JSON assets;
+their modules await successful fetch and parsing before exporting the original
+frozen grammar objects and imported language dependencies. Build-time AST checks
+reject unexpected package formats without evaluating package code. Oniguruma's
+optional WebAssembly is also emitted separately. These assets remain offline,
+same-origin resources under the existing content security policy.
+
 Vite injects the package version and full `git rev-parse HEAD` SHA as compile-time
 constants. The About dialog therefore reports the exact desktop artifact build,
 not a later runtime checkout or mutable environment value.

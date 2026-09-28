@@ -5,6 +5,7 @@ import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { frontendBundle } from "./scripts/frontend-bundle.ts";
 
 const host = process.env.TAURI_DEV_HOST;
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
@@ -79,17 +80,16 @@ function resolveDirtyBuild(): boolean {
 export default defineConfig(async ({ command }) => ({
   plugins: [
     react(),
-    ...(command === "build" ? [editorPluginBoundary()] : []),
+    ...(command === "build" ? [editorPluginBoundary(), frontendBundle()] : []),
   ],
-  resolve:
-    command === "serve"
-      ? {
-          alias: {
-            "decode-named-character-reference":
-              workerSafeNamedCharacterDecoder,
-          },
-        }
-      : undefined,
+  resolve: {
+    alias: {
+      "shiki/wasm": `${require.resolve("shiki/onig.wasm")}?init`,
+      ...(command === "serve"
+        ? { "decode-named-character-reference": workerSafeNamedCharacterDecoder }
+        : {}),
+    },
+  },
   worker: {
     plugins: () => [workerSafeMarkdownEntities()],
   },
@@ -97,6 +97,32 @@ export default defineConfig(async ({ command }) => ({
     __DENOTE_VERSION__: JSON.stringify(tauriVersion),
     __DENOTE_COMMIT_HASH__: JSON.stringify(commitHash),
     __DENOTE_DIRTY_BUILD__: JSON.stringify(dirtyBuild),
+  },
+  build: {
+    manifest: true,
+    rolldownOptions: {
+      output: {
+        strictExecutionOrder: true,
+        chunkFileNames: (chunk: { name: string }) =>
+          `assets/${chunk.name.split("~")[0]}-[hash].js`,
+        codeSplitting: {
+          groups: [
+            {
+              name: "vendor",
+              test: /[\\/]node_modules[\\/]/,
+              entriesAware: true,
+              maxSize: 600_000,
+            },
+            {
+              name: "workspace",
+              test: /[\\/]src[\\/](?:components|plugins)[\\/]/,
+              entriesAware: true,
+              maxSize: 600_000,
+            },
+          ],
+        },
+      },
+    },
   },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

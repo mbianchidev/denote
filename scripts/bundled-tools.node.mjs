@@ -1,9 +1,14 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import {
   assertPackagedSize,
   currentTarget,
   gitBuildEnvironment,
+  gitMakeFlags,
   githubApiToken,
   githubApiUrlAllowed,
   parseZipEntries,
@@ -76,6 +81,43 @@ test("caps the combined installer payload for bundled tools", () => {
     () => assertPackagedSize([80 * 1024 * 1024, 20 * 1024 * 1024]),
     /package limit/,
   );
+});
+
+test("preserves the Make jobserver for Git's nested Cargo recipe", {
+  skip: process.platform === "win32",
+}, () => {
+  const directory = mkdtempSync(join(tmpdir(), "denote-jobserver-test-"));
+  try {
+    writeFileSync(join(directory, "jobserver.sh"), [
+      'for flag in $MAKEFLAGS; do',
+      '  case "$flag" in',
+      '    --jobserver-auth=fifo:*)',
+      '      test -p "${flag#--jobserver-auth=fifo:}" && exit 0 ;;',
+      '    --jobserver-auth=*|--jobserver-fds=*)',
+      '      descriptors="${flag#*=}"',
+      '      test -p "/dev/fd/${descriptors%,*}" &&',
+      '        test -p "/dev/fd/${descriptors#*,}" && exit 0 ;;',
+      '  esac',
+      'done',
+      'echo "Make jobserver handles are missing or closed" >&2',
+      'exit 1',
+      "",
+    ].join("\n"));
+    writeFileSync(join(directory, "Makefile"),
+      "QUIET_CARGO = @\nall:\n\t$(QUIET_CARGO)sh jobserver.sh\n");
+    const environment = { ...process.env };
+    delete environment.MAKEFLAGS;
+    delete environment.MFLAGS;
+    delete environment.CARGO_MAKEFLAGS;
+    const result = spawnSync("make", [...gitMakeFlags({}), "all"], {
+      cwd: directory,
+      env: environment,
+      encoding: "utf8",
+    });
+    assert.equal(result.status, 0, result.error?.message ?? result.stderr);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("resolves the macOS Git SDK and compiler with absolute xcrun", () => {

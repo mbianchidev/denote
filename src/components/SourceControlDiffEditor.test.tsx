@@ -83,7 +83,10 @@ describe("SourceControlDiffEditor", () => {
       />,
     );
 
-    expect(screen.getByTestId("pierre-diff")).toHaveTextContent("diff --git");
+    expect(screen.getByLabelText("Loading formatted diff")).toHaveTextContent(
+      "diff --git",
+    );
+    expect(await screen.findByTestId("pierre-diff")).toHaveTextContent("diff --git");
     expect(screen.getByText("Temporary .diff · read-only")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", {

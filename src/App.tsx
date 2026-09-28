@@ -39,6 +39,8 @@ import {
   X,
 } from "lucide-react";
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -70,6 +72,7 @@ import {
 import { EncryptionDialog } from "./components/EncryptionDialog";
 import { EditorSettingsDialog } from "./components/EditorSettingsDialog";
 import { ErrorBanner } from "./components/ErrorBanner";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { ExternalLinkDialog } from "./components/ExternalLinkDialog";
 import { FileTree } from "./components/FileTree";
 import { GitProjectSuggestion } from "./components/GitProjectSuggestion";
@@ -82,10 +85,7 @@ import { PaneDockOverlay } from "./components/PaneDockOverlay";
 import { PaneResizer } from "./components/PaneResizer";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
-import {
-  MarkdownEditor,
-  type MarkdownEditorDiagnostic,
-} from "./components/MarkdownEditor";
+import type { MarkdownEditorDiagnostic } from "./components/MarkdownEditor";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
 import { StructuredDataViewer } from "./components/StructuredDataViewer";
@@ -373,6 +373,12 @@ import type {
   WorkspaceSnapshot,
   AvailableUpdate,
 } from "./types";
+
+const MarkdownEditor = lazy(() =>
+  import("./components/MarkdownEditor").then((module) => ({
+    default: module.MarkdownEditor,
+  })),
+);
 
 const DESIGN_CONTRACT = `<!--
 THESIS: Denote is a quiet file-native workbench, not a dashboard of cards.
@@ -10727,10 +10733,28 @@ function App() {
                     ) : null}
                   </div>
                   <div className="editor-pane">
-                    {renderPaneSurface(
-                      pane,
-                      focused ? activeProject : paneProject,
-                    )}
+                    <ErrorBoundary
+                      key={pane.activePath ?? pane.id}
+                      fallback={(error) => (
+                        <div className="editor-empty" role="alert">
+                          <p>Unable to load this editor. Your open tabs are still available.</p>
+                          <p>{error.message}</p>
+                        </div>
+                      )}
+                    >
+                      <Suspense
+                        fallback={
+                          <div className="editor-empty" role="status">
+                            Loading editor...
+                          </div>
+                        }
+                      >
+                        {renderPaneSurface(
+                          pane,
+                          focused ? activeProject : paneProject,
+                        )}
+                      </Suspense>
+                    </ErrorBoundary>
                     {dockTarget?.paneId === pane.id ? (
                       <PaneDockOverlay position={dockTarget.position} />
                     ) : null}
