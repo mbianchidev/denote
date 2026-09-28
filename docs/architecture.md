@@ -302,10 +302,14 @@ Vault, app-link, development archive, custom-executable, and clone-destination
 pickers share an asynchronous native selection adapter. On macOS, panel
 construction is deferred onto the main dispatch queue rather than nesting
 AppKit's file-service initialization inside tao's run-loop observer. After the
-main window finishes loading, the host prepares one invisible `NSOpenPanel` on
-that queue to initialize the shared file service before the first user request.
-This runs once per process and never presents a dialog, selects a path, or
-accesses vault content. Other platforms retain Tauri's callback dialogs.
+main window finishes loading, the host prepares and retains one invisible
+`NSOpenPanel` on that queue. File and folder requests reuse this panel rather than
+repeating AppKit's file-service handshake. Each request resets the file/folder
+mode, extension filter, title, and starting directory, and one callback-owned
+lease prevents another picker from reconfiguring it before selection completes.
+Preparation runs once per process and never presents a dialog, selects a path,
+or accesses vault content. Presentation failures remain errors, distinct from
+cancellation. Other platforms retain Tauri's callback dialogs.
 Selection cancellation returns without loading or changing a package. Archive
 inspection, executable validation, tool-status inspection, and settings writes
 that can probe custom executables run on the blocking pool. In particular,

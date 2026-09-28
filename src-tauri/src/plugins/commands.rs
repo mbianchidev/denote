@@ -16,7 +16,7 @@ use crate::{
     commands,
     crypto::{self, EncryptionPhase},
     db::AppState,
-    dialogs::{self, SelectionKind},
+    dialogs::{self, SelectionKind, SelectionOptions},
     error::{AppError, AppResult},
     models::WorkspaceSnapshot,
     vault,
@@ -94,12 +94,9 @@ pub async fn choose_development_plugin_archive(
                     .to_string(),
             ));
         }
-        let dialog = app
-            .dialog()
-            .file()
-            .set_title("Choose a development plugin archive")
-            .add_filter("Denote plugin archive", &["tgz"]);
-        let Some(path) = dialogs::select(dialog, SelectionKind::File).await? else {
+        let options = SelectionOptions::new("Choose a development plugin archive")
+            .with_filter("Denote plugin archive", &["tgz"]);
+        let Some(path) = dialogs::select(&app, SelectionKind::File, options).await? else {
             return Ok(None);
         };
         let manager = state.inner().clone();
@@ -524,11 +521,11 @@ pub async fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult
             ));
         }
     };
-    let dialog = app.dialog().file().set_title(match kind {
+    let options = SelectionOptions::new(match kind {
         ToolKind::Git => "Choose a Git executable",
         ToolKind::GitHubCli => "Choose a GitHub CLI executable",
     });
-    let Some(path) = dialogs::select(dialog, SelectionKind::File).await? else {
+    let Some(path) = dialogs::select(&app, SelectionKind::File, options).await? else {
         return Ok(None);
     };
     run_blocking(move || {
@@ -1149,11 +1146,8 @@ pub async fn choose_plugin_git_clone_destination(
         let _access = app_state.read_vault_access()?;
         active_vault_for_scope(&app_state, &workspace_scope)?;
     }
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose an empty folder for the cloned vault");
-    let Some(destination) = dialogs::select(dialog, SelectionKind::Folder).await? else {
+    let options = SelectionOptions::new("Choose an empty folder for the cloned vault");
+    let Some(destination) = dialogs::select(&app, SelectionKind::Folder, options).await? else {
         return Ok(None);
     };
     run_blocking(move || {

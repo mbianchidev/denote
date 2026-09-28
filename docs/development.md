@@ -211,11 +211,12 @@ starts background verification with a visible loading state; repeated requests
 share the same picker, and cancelling leaves the catalog unchanged. Tool version
 checks have a five-second deadline, so a broken custom executable cannot hang
 the settings UI.
-On macOS, every file/folder chooser uses the main dispatch queue instead of
+On macOS, file/folder selection uses the main dispatch queue instead of
 constructing AppKit panels inside the event-loop observer. The native file
-service is prepared once after the main window finishes loading, without showing
-a dialog. Debug builds log preparation, dispatch-queue wait, and panel
-initialization times without filenames or paths, so first-open latency can be
+panel is prepared and retained once after the main window finishes loading,
+without showing a dialog. Later requests reset and reuse it, with a callback-owned
+lease preventing overlapping dialogs. Debug builds log panel preparation and
+presentation times without filenames or paths, so picker latency can be
 distinguished from later file verification.
 
 Targeted one-off builds are also available:

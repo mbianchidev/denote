@@ -1,12 +1,71 @@
-use std::path::PathBuf;
-
-use tauri_plugin_dialog::{FileDialogBuilder, FilePath};
+use std::{
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use crate::error::{AppError, AppResult};
 
+#[cfg(target_os = "macos")]
+mod macos;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SelectionKind {
     File,
     Folder,
+}
+
+pub(crate) struct SelectionOptions {
+    title: &'static str,
+    directory: Option<PathBuf>,
+    filter: Option<(&'static str, &'static [&'static str])>,
+}
+
+impl SelectionOptions {
+    pub(crate) fn new(title: &'static str) -> Self {
+        Self {
+            title,
+            directory: None,
+            filter: None,
+        }
+    }
+
+    pub(crate) fn with_directory(mut self, path: &Path) -> Self {
+        self.directory = Some(path.to_path_buf());
+        self
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn with_filter(
+        mut self,
+        name: &'static str,
+        extensions: &'static [&'static str],
+    ) -> Self {
+        self.filter = Some((name, extensions));
+        self
+    }
+}
+
+type Completion = Box<dyn FnOnce(AppResult<Option<PathBuf>>) + Send>;
+
+struct PickerLease<'a>(&'a AtomicBool);
+
+impl<'a> PickerLease<'a> {
+    fn acquire(active: &'a AtomicBool) -> AppResult<Self> {
+        active
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| {
+                AppError::State(
+                    "Another file picker is already open. Complete or cancel it first.".to_string(),
+                )
+            })?;
+        Ok(Self(active))
+    }
+}
+
+impl Drop for PickerLease<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
 }
 
 pub(crate) fn prewarm() {
@@ -14,95 +73,86 @@ pub(crate) fn prewarm() {
     {
         static PREPARE: std::sync::Once = std::sync::Once::new();
         PREPARE.call_once(|| {
-            dispatch2::DispatchQueue::main().exec_async(|| {
-                let main_thread = objc2::MainThreadMarker::new()
-                    .expect("File picker preparation runs on the main queue");
-                #[cfg(debug_assertions)]
-                let started = std::time::Instant::now();
-                // Construct only: never present a panel or request a selection.
-                let _panel = objc2_app_kit::NSOpenPanel::openPanel(main_thread);
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "Native file picker prepared in {} ms.",
-                    started.elapsed().as_millis()
-                );
-            });
+            dispatch2::DispatchQueue::main().exec_async(macos::prewarm);
         });
     }
 }
 
 pub(crate) async fn select(
-    dialog: FileDialogBuilder<tauri::Wry>,
+    app: &tauri::AppHandle,
     kind: SelectionKind,
+    options: SelectionOptions,
 ) -> AppResult<Option<PathBuf>> {
-    select_with_callback(move |complete| open(dialog, kind, complete)).await
+    static ACTIVE: AtomicBool = AtomicBool::new(false);
+    let lease = PickerLease::acquire(&ACTIVE)?;
+    let app = app.clone();
+    select_with_callback(move |complete| {
+        open(
+            app,
+            kind,
+            options,
+            Box::new(move |result| {
+                drop(lease);
+                complete(result);
+            }),
+        );
+    })
+    .await
 }
 
-async fn select_with_callback(
-    open: impl FnOnce(Box<dyn FnOnce(Option<FilePath>) + Send>),
-) -> AppResult<Option<PathBuf>> {
+async fn select_with_callback(open: impl FnOnce(Completion)) -> AppResult<Option<PathBuf>> {
     let (sender, mut receiver) = tauri::async_runtime::channel(1);
     open(Box::new(move |selected| {
         if sender.try_send(selected).is_err() {
             eprintln!("The file picker closed after its request ended.");
         }
     }));
-    receiver
-        .recv()
-        .await
-        .ok_or_else(|| {
-            AppError::State("The file picker closed without a result. Try again.".to_string())
-        })?
-        .map(|selected| {
-            selected
-                .into_path()
-                .map_err(|error| AppError::InvalidPath(error.to_string()))
-        })
-        .transpose()
+    receiver.recv().await.ok_or_else(|| {
+        AppError::State("The file picker closed without a result. Try again.".to_string())
+    })?
 }
 
+#[cfg(target_os = "macos")]
 fn open(
-    dialog: FileDialogBuilder<tauri::Wry>,
+    _app: tauri::AppHandle,
     kind: SelectionKind,
-    complete: Box<dyn FnOnce(Option<FilePath>) + Send>,
+    options: SelectionOptions,
+    complete: Completion,
 ) {
-    #[cfg(target_os = "macos")]
-    {
-        #[cfg(debug_assertions)]
-        let queued = std::time::Instant::now();
-        // AppKit panel construction must not nest inside tao's run-loop observer.
-        dispatch2::DispatchQueue::main().exec_async(move || {
-            #[cfg(debug_assertions)]
-            let started = std::time::Instant::now();
-            let dialog = rfd::AsyncFileDialog::from(dialog);
-            match kind {
-                SelectionKind::File => complete_selection(dialog.pick_file(), complete),
-                SelectionKind::Folder => complete_selection(dialog.pick_folder(), complete),
-            }
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "Native file picker initialized in {} ms (queued {} ms).",
-                started.elapsed().as_millis(),
-                started.duration_since(queued).as_millis()
-            );
-        });
-    }
+    // AppKit panel work must not nest inside tao's run-loop observer.
+    dispatch2::DispatchQueue::main().exec_async(move || macos::open(kind, options, complete));
+}
 
-    #[cfg(not(target_os = "macos"))]
+#[cfg(not(target_os = "macos"))]
+fn open(
+    app: tauri::AppHandle,
+    kind: SelectionKind,
+    options: SelectionOptions,
+    complete: Completion,
+) {
+    use tauri_plugin_dialog::{DialogExt, FilePath};
+
+    let mut dialog = app.dialog().file().set_title(options.title);
+    if let Some(directory) = options.directory {
+        dialog = dialog.set_directory(directory);
+    }
+    if let Some((name, extensions)) = options.filter {
+        dialog = dialog.add_filter(name, extensions);
+    }
+    let complete = move |selected: Option<FilePath>| {
+        complete(
+            selected
+                .map(|path| {
+                    path.into_path()
+                        .map_err(|error| AppError::InvalidPath(error.to_string()))
+                })
+                .transpose(),
+        );
+    };
     match kind {
         SelectionKind::File => dialog.pick_file(complete),
         SelectionKind::Folder => dialog.pick_folder(complete),
     }
-}
-
-#[cfg(target_os = "macos")]
-fn complete_selection(
-    selection: impl std::future::Future<Output = Option<rfd::FileHandle>> + Send + 'static,
-    complete: Box<dyn FnOnce(Option<FilePath>) + Send>,
-) {
-    tauri::async_runtime::spawn(async move {
-        complete(selection.await.map(|file| file.path().to_path_buf().into()));
-    });
 }
 
 #[cfg(test)]
@@ -128,7 +178,7 @@ mod tests {
             Poll::Pending
         ));
         let complete = receiver.try_recv().expect("picker callback");
-        complete(Some(FilePath::Path(PathBuf::from("synthetic.tgz"))));
+        complete(Ok(Some(PathBuf::from("synthetic.tgz"))));
         assert_eq!(
             tauri::async_runtime::block_on(selection).expect("selected file"),
             Some(PathBuf::from("synthetic.tgz")),
@@ -138,7 +188,7 @@ mod tests {
     #[test]
     fn file_selection_distinguishes_cancellation_from_a_missing_callback() {
         assert_eq!(
-            tauri::async_runtime::block_on(select_with_callback(|complete| complete(None)))
+            tauri::async_runtime::block_on(select_with_callback(|complete| complete(Ok(None))))
                 .expect("cancelled"),
             None,
         );
@@ -163,11 +213,32 @@ mod tests {
             .expect("started");
         assert_ne!(caller, worker);
         assert_eq!(
-            tauri::async_runtime::block_on(select_with_callback(|complete| complete(None)))
+            tauri::async_runtime::block_on(select_with_callback(|complete| complete(Ok(None))))
                 .expect("picker remains responsive"),
             None,
         );
         release.send(()).expect("release");
         tauri::async_runtime::block_on(work).expect("worker finished");
+    }
+
+    #[test]
+    fn file_selection_reports_native_presentation_errors() {
+        let error = tauri::async_runtime::block_on(select_with_callback(|complete| {
+            complete(Err(AppError::State("Synthetic native failure".to_string())));
+        }))
+        .expect_err("native error");
+        assert!(error.to_string().contains("Synthetic native failure"));
+    }
+
+    #[test]
+    fn a_picker_lease_prevents_reconfiguration_until_the_native_callback_is_released() {
+        let active = AtomicBool::new(false);
+        let lease = PickerLease::acquire(&active).expect("first picker");
+        assert!(PickerLease::acquire(&active).is_err());
+        drop(lease);
+        let next = PickerLease::acquire(&active).expect("next picker");
+        assert!(active.load(Ordering::Acquire));
+        drop(next);
+        assert!(!active.load(Ordering::Acquire));
     }
 }

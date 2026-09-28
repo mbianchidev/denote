@@ -10,7 +10,6 @@ use clipboard_rs::{Clipboard, ClipboardContext};
 use fs2::FileExt as Fs2FileExt;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -20,7 +19,7 @@ use crate::{
     crypto::{self, EncryptionPhase},
     db::{self, AppState},
     default_vault,
-    dialogs::{self, SelectionKind},
+    dialogs::{self, SelectionKind, SelectionOptions},
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, GitignoreStatusUpdate,
@@ -240,12 +239,9 @@ pub async fn import_app_link_vault(
     let containing_folder = target.parent().ok_or_else(|| {
         AppError::InvalidPath("The linked file has no containing folder".to_string())
     })?;
-    let dialog = app
-        .dialog()
-        .file()
-        .set_title("Choose the vault folder containing the linked file")
-        .set_directory(containing_folder);
-    let Some(selected) = dialogs::select(dialog, SelectionKind::Folder).await? else {
+    let options = SelectionOptions::new("Choose the vault folder containing the linked file")
+        .with_directory(containing_folder);
+    let Some(selected) = dialogs::select(&app, SelectionKind::Folder, options).await? else {
         return Ok(None);
     };
     let (root, path) = app_links::vault_file_target(&selected, &target)?;
@@ -369,8 +365,8 @@ pub async fn choose_vault(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Option<WorkspaceSnapshot>> {
-    let dialog = app.dialog().file().set_title("Choose a Denote vault");
-    let Some(path) = dialogs::select(dialog, SelectionKind::Folder).await? else {
+    let options = SelectionOptions::new("Choose a Denote vault");
+    let Some(path) = dialogs::select(&app, SelectionKind::Folder, options).await? else {
         return Ok(None);
     };
     let _vault_access = state.write_vault_access()?;
