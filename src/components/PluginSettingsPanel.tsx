@@ -247,6 +247,23 @@ export function PluginSettingsPanel({
       plugin.previouslyApproved === true,
   );
 
+  const saveSettings = async (pluginId: string, settings: Record<string, unknown>) => {
+    await onUpdateSettings(pluginId, settings);
+    setDirtyPluginIds((current) => {
+      const next = new Set(current);
+      next.delete(pluginId);
+      return next;
+    });
+    if (pluginId === "denote.git") {
+      void onInspectTools(pluginId)
+        .then((statuses) => setToolStatuses((current) => ({
+          ...current,
+          [pluginId]: statuses,
+        })))
+        .catch(onError);
+    }
+  };
+
   return (
     <section
       className="plugin-settings"
@@ -557,6 +574,7 @@ export function PluginSettingsPanel({
                                 hasCredentials={plugin.hasCredentials}
                                 disabled={busy}
                                 dirty={dirtyPluginIds.has(pluginId)}
+                                onSaveSettings={() => saveSettings(pluginId, draft)}
                                 onError={onError}
                               />
                             ) : null}
@@ -622,22 +640,7 @@ export function PluginSettingsPanel({
                               type="button"
                               className="secondary-button"
                               onClick={() =>
-                                void onUpdateSettings(pluginId, draft)
-                                  .then(async () => {
-                                    setDirtyPluginIds((current) => {
-                                      const next = new Set(current);
-                                      next.delete(pluginId);
-                                      return next;
-                                    });
-                                    if (pluginId === "denote.git") {
-                                      const statuses =
-                                        await onInspectTools(pluginId);
-                                      setToolStatuses((current) => ({
-                                        ...current,
-                                        [pluginId]: statuses,
-                                      }));
-                                    }
-                                  })
+                                void saveSettings(pluginId, draft)
                                   .catch(onError)
                               }
                             >
@@ -744,7 +747,7 @@ export function PluginSettingsPanel({
                           >
                             <h6 id={`${pluginId}-permission-title`}>
                               <ShieldCheck aria-hidden="true" size={14} />
-                              {plugin.status === "update-available"
+                              {plugin.enabled && plugin.status === "update-available"
                                 ? "Approve update permissions?"
                                 : "Approve permissions?"}
                             </h6>
@@ -794,10 +797,10 @@ export function PluginSettingsPanel({
                                 }
                               >
                                 {busy
-                                  ? plugin.status === "update-available"
+                                  ? plugin.enabled && plugin.status === "update-available"
                                     ? "Updating…"
                                     : "Enabling…"
-                                  : plugin.status === "update-available"
+                                  : plugin.enabled && plugin.status === "update-available"
                                     ? "Approve and update"
                                     : "Approve and enable"}
                               </button>
@@ -812,7 +815,7 @@ export function PluginSettingsPanel({
                                 disabled={busy}
                                 onClick={() => setPendingEnable(pluginId)}
                               >
-                                Review and update
+                                {plugin.enabled ? "Review and update" : "Review and enable"}
                               </button>
                             ) : !plugin.enabled ? (
                               <button
@@ -1325,7 +1328,7 @@ function permissionScope(permission: PluginPermissionRequest): string | null {
 
 function statusLabel(plugin: PluginView): string {
   if (plugin.status === "update-available") {
-    return "Update available";
+    return `${plugin.enabled ? "Enabled" : "Disabled"} · update available`;
   }
   if (plugin.enabled) {
     return "Enabled";
@@ -1353,8 +1356,7 @@ function statusLabel(plugin: PluginView): string {
 function candidateStatusLabel(plugin: PluginView): string {
   if (
     plugin.status === "failed" ||
-    plugin.status === "incompatible" ||
-    plugin.status === "update-available"
+    plugin.status === "incompatible"
   ) {
     return statusLabel({ ...plugin, enabled: false });
   }

@@ -286,6 +286,33 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("keeps a disabled JSON/YAML viewer stopped at startup even with an update available", async () => {
+    const viewer = makePlugin({
+      catalog: {
+        ...catalog,
+        manifest: { ...catalog.manifest, id: "denote.json-yaml-viewer" },
+      },
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+      approvedPermissions: [{ capability: "structured-viewer" }],
+    });
+    const rendered = await mountReady([viewer]);
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(rendered.result.current.structuredViewers).toEqual([]);
+
+    await act(async () => rendered.result.current.setAutoUpdateEnabled(true));
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+      currentContentAvailable: true,
+    });
+
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(rendered.result.current.plugins[0].enabled).toBe(false);
+  });
+
   it.each([
     "structured-viewer",
     "kanban-board",

@@ -380,6 +380,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   entries with an error open automatically. Automatic update controls live in
   a compact update strip, while **Disable all plugins** stays in a separate
   recovery footer below the catalog.
+  Update badges explicitly retain the enabled or disabled state; a disabled
+  JSON/YAML viewer or other optional plugin never starts merely because an
+  update exists, including in development builds.
 - **Update all** appears only when previously approved plugins have available
   updates. One confirmation lists the affected plugins and re-accepts each
   latest complete permission payload. Each plugin then updates through its own

@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { GitSigningStatus } from "../types";
 import { GitSigningSettings } from "./GitSigningSettings";
+import appStyles from "../App.css?raw";
 
 const status: GitSigningStatus = {
   format: "openpgp",
@@ -22,6 +23,7 @@ function props() {
     onInspect: vi.fn().mockResolvedValue(status),
     onSave: vi.fn().mockResolvedValue({ ...status, hasSavedPassphrase: true }),
     onDelete: vi.fn().mockResolvedValue(undefined),
+    onSaveSettings: vi.fn().mockResolvedValue(undefined),
     onError: vi.fn(),
   };
 }
@@ -54,7 +56,59 @@ describe("GitSigningSettings", () => {
     await user.type(await screen.findByLabelText("Save passphrase for this key"), "synthetic password");
     view.rerender(<GitSigningSettings {...actions} settings={{ gpgSigningKey: "different" }} dirty />);
     expect(screen.queryByLabelText("Save passphrase for this key")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Detect signing key" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save settings and detect signing key" })).toBeEnabled();
+  });
+
+  it("saves pending settings before detection and survives the settings refresh", async () => {
+    const user = userEvent.setup();
+    const actions = props();
+    let finishSave: () => void = () => {};
+    actions.onSaveSettings.mockImplementation(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+    const view = render(<GitSigningSettings {...actions} dirty />);
+
+    await user.click(screen.getByRole("button", { name: "Save settings and detect signing key" }));
+    expect(actions.onSaveSettings).toHaveBeenCalledTimes(1);
+    expect(actions.onInspect).not.toHaveBeenCalled();
+    view.rerender(<GitSigningSettings {...actions} disabled dirty />);
+    view.rerender(<GitSigningSettings {...actions} settings={{ gitExecutableMode: "system" }} />);
+    await act(async () => finishSave());
+
+    expect(await screen.findByText(status.key!)).toBeInTheDocument();
+    expect(actions.onInspect).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Detect signing key" })).toBeEnabled();
+  });
+
+  it("does not detect with stale settings after saving fails", async () => {
+    const user = userEvent.setup();
+    const actions = props();
+    actions.onSaveSettings.mockRejectedValue(new Error("Could not save settings."));
+    render(<GitSigningSettings {...actions} dirty />);
+    await user.click(screen.getByRole("button", { name: "Save settings and detect signing key" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save settings.");
+    expect(actions.onInspect).not.toHaveBeenCalled();
+    expect(actions.onError).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Save settings and detect signing key" })).toBeEnabled();
+  });
+
+  it("does not detect in a different repository after a pending settings save", async () => {
+    const user = userEvent.setup();
+    const actions = props();
+    let finishSave: () => void = () => {};
+    actions.onSaveSettings.mockImplementation(() => new Promise<void>((resolve) => { finishSave = resolve; }));
+    const view = render(<GitSigningSettings {...actions} contextKey="vault-one" dirty />);
+    await user.click(screen.getByRole("button", { name: "Save settings and detect signing key" }));
+    view.rerender(<GitSigningSettings {...actions} contextKey="vault-two" />);
+    await act(async () => finishSave());
+    expect(actions.onInspect).not.toHaveBeenCalled();
+  });
+
+  it("uses compact settings typography for signing guidance", () => {
+    render(<><style>{appStyles}</style><GitSigningSettings {...props()} /></>);
+    const paragraph = screen.getByText(/Leave Signing key empty/);
+    const style = window.getComputedStyle(paragraph);
+    expect(style.fontSize).toBe("11px");
+    expect(style.lineHeight).toBe("1.45");
+    expect(window.getComputedStyle(screen.getByRole("heading", { name: "Signing credentials" })).fontSize).toBe("11px");
   });
 
   it("reports save failures and clears input without logging its content", async () => {

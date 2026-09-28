@@ -108,6 +108,11 @@ actions, while entries with errors open automatically. Permissions must be
 approved before download. Structured permission objects are persisted and
 compared with the current manifest, so any permission change requires approval
 again.
+Enablement and update availability are independent. The catalog always labels
+an update with its **Enabled** or **Disabled** state; previously approved but
+disabled plugins remain stopped on startup and automatic updates, including in
+Denote Development. **Review and enable** explicitly approves starting a
+disabled package at its current version.
 Prior approval metadata remains after package code is disabled or removed; it
 does not grant runtime access. It exists so an explicit **Update all** can select
 only previously approved plugins, show one confirmation, and re-accept each
@@ -595,6 +600,10 @@ removes saved signing entries. A saved entry is bound to signing format, program
 and key identity, including SSH file content. Host save/delete commands are
 serialized with enable/disable operations, and stale key selections cannot save
 under a different identity.
+Pending Git settings do not make key detection unusable. The host offers
+**Save settings and detect signing key**, waits for the normal settings save and
+runtime refresh, then invokes detection with the persisted configuration. Save
+failures and repository changes stop the continuation.
 
 Beyond `run` and `cancel`, the Git capability exposes three host-owned
 operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,

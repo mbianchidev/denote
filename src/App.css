@@ -4383,36 +4383,6 @@ button.tag-chip:active,
   font-size: 11px;
 }
 
-.plugin-signing {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-
-.plugin-signing p,
-.plugin-signing dl,
-.plugin-signing h6 {
-  margin: 0;
-}
-
-.plugin-signing dd {
-  margin: 3px 0 8px;
-  overflow-wrap: anywhere;
-}
-
-.plugin-signing pre {
-  overflow-x: auto;
-  padding: 8px;
-  background: var(--code-bg);
-  font-size: 11px;
-}
-
-.plugin-signing [role="alert"] {
-  color: var(--danger);
-}
-
 .source-control__file-stats caption {
   padding-bottom: 6px;
   color: var(--text-primary);
@@ -6675,6 +6645,73 @@ kbd {
   gap: 8px;
 }
 
+.plugin-signing {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px;
+  color: var(--text-secondary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.plugin-signing p,
+.plugin-signing dl,
+.plugin-signing h6 {
+  margin: 0;
+}
+
+.plugin-signing h6 {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.plugin-signing > button {
+  justify-self: start;
+}
+
+.plugin-signing__metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.plugin-signing dt {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.plugin-signing dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-signing__guide {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.plugin-signing pre {
+  min-width: 0;
+  overflow-x: auto;
+  margin: 0;
+  padding: 8px;
+  background: var(--code-bg);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plugin-signing [role="alert"] {
+  color: var(--danger);
+}
+
 .plugin-tool-settings,
 .plugin-tool {
   display: grid;
@@ -6765,13 +6802,6 @@ kbd {
 
 .notice-block--warning {
   border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-}
-
-.plugin-card__signing-warning strong {
-  display: block;
-  margin-bottom: 2px;
-  color: var(--text-primary);
-  font-size: 11px;
 }
 
 .plugin-settings-json {

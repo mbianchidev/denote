@@ -356,6 +356,9 @@ status. Opening one reveals description, provenance, permissions, guide,
 settings, and lifecycle actions. Error entries open automatically, focus remains
 visible, and nested permissions or JSON disclosures retain native keyboard
 behavior.
+Update badges retain the enablement state: **Enabled · update available** or
+**Disabled · update available**. A disabled package offers **Review and enable**,
+not an update action that suggests it is already running.
 Git executable settings use one compact status block per tool: selected source,
 resolved path, locked or detected version, validation state, and prerequisite
 guidance. Bundled mode shows **not downloaded** until an action first needs it;
@@ -371,6 +374,12 @@ JSON. The field clears on submission, errors, settings changes, repository
 changes, or unmount. Pending operations cannot repopulate a stale key selection.
 Platform-labeled native disclosures provide Windows PowerShell and macOS/Linux
 key-location commands, distinguishing OpenPGP fingerprints from SSH file paths.
+Signing copy uses the same native settings typography: 11px supporting text at
+1.45 line height, 10px metadata labels, and ordinary compact secondary buttons.
+Only commands and key/program values use monospace. With pending settings edits,
+**Save settings and detect signing key** stays available, saves through the
+normal settings flow, then detects after that save and runtime refresh settle.
+A failed save or changed repository cannot continue into stale detection.
 The source-control commit form places an enabled-by-default **Sign commit**
 control after the commit message. Its native password input exists only while
 signing is selected, explains that it overrides saved OpenPGP/SSH credentials

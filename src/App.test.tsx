@@ -1702,6 +1702,36 @@ describe("App initial file-tree expansion", () => {
     );
   });
 
+  it("does not activate an update-available JSON viewer while it is disabled", async () => {
+    const user = userEvent.setup();
+    const source = '{"synthetic": true}\n';
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("example.json", "text")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "example.json",
+      content: source,
+      contentHash: "synthetic-json-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockPluginController.plugins = [{
+      ...structuredViewerPluginView(),
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+    }];
+    mockPluginController.structuredViewers = [structuredViewerContribution()];
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open example.json" }));
+    expect(await screen.findByLabelText("Content of Edit example.json")).toHaveTextContent(source.trim());
+    expect(screen.queryByRole("button", { name: "Structured" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Structured example.json" })).not.toBeInTheDocument();
+    expect(mockPluginController.parseStructuredView).not.toHaveBeenCalled();
+  });
+
   it("keeps structured expansion state inside its open tab and clears it when the viewer unregisters", async () => {
     const user = userEvent.setup();
     mockApi.getLastVault.mockResolvedValue(

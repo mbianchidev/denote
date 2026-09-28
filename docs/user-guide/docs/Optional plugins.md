@@ -9,6 +9,10 @@ Each plugin starts as a compact row showing only its name and current status.
 Open the row to see its description, version, publisher, permissions, guide,
 settings, and enable, update, disable, or cleanup actions. Entries with an error
 open automatically so the failure stays visible.
+An update does not mean a plugin is running: **Disabled · update available**
+remains disabled, including in Denote Development. Choose **Review and enable**
+only when you want to start it. **Enabled · update available** means the installed
+version is still active.
 
 Plugin code comes from separately verified GitHub Release assets, not from the
 desktop installer. Denote checks each package's pinned size and checksum before
@@ -679,7 +683,9 @@ program, so Git for Windows cannot shadow Gpg4win with a different bundled GPG.
 Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`.
 Automatic commits remain unsigned.
 
-Save plugin settings, then choose **Signing credentials → Detect signing key**.
+Choose **Signing credentials → Detect signing key**. If you have pending plugin
+settings edits, the button becomes **Save settings and detect signing key** and
+saves them before detection; you do not need to find a separate save button.
 This reads the focused project's Git configuration, or the vault repository
 when no project is focused. It shows the actual format, program, key, and where
 the selection came from. Without a configured OpenPGP key, Denote looks for one

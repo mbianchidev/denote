@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import catalogJson from "../../plugins/catalog.json";
@@ -185,6 +185,65 @@ describe("PluginSettingsPanel", () => {
     await user.clear(search);
     await user.type(search, "synthetic value");
     expect(pluginDisclosure("Reference plugin")).toBeInTheDocument();
+  });
+
+  it("shows a disabled viewer as disabled even when a newer version is available", async () => {
+    const user = userEvent.setup();
+    const onEnable = vi.fn().mockResolvedValue(undefined);
+    const viewerCatalog = {
+      ...catalog,
+      manifest: { ...catalog.manifest, id: "denote.json-yaml-viewer", name: "JSON and YAML viewer" },
+    };
+    const disabled = plugin({
+      catalog: viewerCatalog,
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+    });
+    render(<PluginSettingsPanel {...props({ plugins: [disabled], developmentSupported: true, onEnable })} />);
+
+    const row = pluginDisclosure("JSON and YAML viewer");
+    expect(row.querySelector("summary")).toHaveTextContent("Disabled · update available");
+    await expandPlugin(user, "JSON and YAML viewer");
+    expect(screen.getByText("Not stored locally")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review and enable" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Disable and remove code" })).not.toBeInTheDocument();
+    expect(onEnable).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Review and enable" }));
+    expect(screen.getByRole("heading", { name: "Approve permissions?" })).toBeInTheDocument();
+    expect(onEnable).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Approve and enable" }));
+    expect(onEnable).toHaveBeenCalledWith("denote.json-yaml-viewer", viewerCatalog.manifest.permissions);
+  });
+
+  it("saves the current draft when detecting a signing key", async () => {
+    const user = userEvent.setup();
+    const gitCatalogValue: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.git");
+    assertValidPluginCatalogEntry(gitCatalogValue);
+    const settings = { gitExecutableMode: "bundled", useSystemGitSettings: true };
+    const gitPlugin = plugin({ catalog: gitCatalogValue, enabled: true, status: "enabled", settings });
+    const onUpdateSettings = vi.fn().mockResolvedValue(undefined);
+    const onInspect = vi.fn().mockResolvedValue({
+      format: "openpgp", program: "/synthetic/gpg", key: "A".repeat(40),
+      keySource: "Git configuration", credentialId: "b".repeat(64),
+      hasSavedPassphrase: false, guidance: "Synthetic signing key.",
+    });
+    const actions = props({
+      plugins: [gitPlugin], onUpdateSettings,
+      gitSigningActions: { onInspect, onSave: vi.fn(), onDelete: vi.fn() },
+    });
+    const view = render(<PluginSettingsPanel {...actions} />);
+    onUpdateSettings.mockImplementationOnce(async () => {
+      view.rerender(<PluginSettingsPanel {...actions} plugins={[{
+        ...gitPlugin, settings: { ...settings, gitExecutableMode: "system" },
+      }]} />);
+    });
+    await expandPlugin(user, "Git vault versioning");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Git source/ }), "system");
+    await user.click(screen.getByRole("button", { name: "Save settings and detect signing key" }));
+    await waitFor(() => expect(onUpdateSettings).toHaveBeenCalledWith("denote.git", { ...settings, gitExecutableMode: "system" }));
+    expect(await screen.findByText("A".repeat(40))).toBeInTheDocument();
+    expect(onInspect).toHaveBeenCalledTimes(1);
   });
 
   it("loads local archives only when development support is available", async () => {
@@ -476,7 +535,7 @@ describe("PluginSettingsPanel", () => {
     expect(
       within(section!).getByText("Failed — Synthetic activation failure"),
     ).toBeInTheDocument();
-    expect(within(section!).getByText("Update available")).toBeInTheDocument();
+    expect(within(section!).getByText("Disabled · update available")).toBeInTheDocument();
     expect(
       within(section!).getByText(
         "Incompatible — Requires a newer Denote version",
@@ -490,7 +549,7 @@ describe("PluginSettingsPanel", () => {
       screen.getAllByRole("button", { name: "Enable" }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "Review and update" }),
+      screen.getByRole("button", { name: "Review and enable" }),
     ).toBeInTheDocument();
   });
 
@@ -589,7 +648,7 @@ describe("PluginSettingsPanel", () => {
     expect(
       screen.getByRole("button", { name: "Review and update" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Update available")).toBeInTheDocument();
+    expect(screen.getByText("Enabled · update available")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Disable and remove code" }),
     ).toBeInTheDocument();
