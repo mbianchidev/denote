@@ -2082,6 +2082,9 @@ export function takeHostOperationScope(
   value: unknown,
 ): PluginActionLeaseScope | undefined {
   const hostScope = actionScope ? { ...actionScope } : undefined;
+  if (operation === "git.clone-vault" && actionScope) {
+    delete actionScope.gitCloneDestinationToken;
+  }
   if (operation === "git.run" && isCommitGitRequest(value) && actionScope) {
     // The sign choice and passphrase belong to one commit request. The copy
     // returned here receives them; the reusable live lease does not.

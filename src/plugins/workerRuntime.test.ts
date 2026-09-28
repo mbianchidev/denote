@@ -3782,7 +3782,7 @@ describe("PluginWorkerRuntime", () => {
       "denote.reference",
       "denote.reference.git",
       { id: "clone" },
-      lease,
+      { ...lease, gitCloneDestinationToken: "synthetic-destination" },
     );
     expect(api.pluginGitCloneVault).toHaveBeenCalledTimes(1);
     expect(api.pluginGitCloneVault).toHaveBeenCalledWith(
@@ -3790,6 +3790,7 @@ describe("PluginWorkerRuntime", () => {
       { url: "https://example.invalid/repo.git", authMode: "public" },
       VAULT_ALPHA,
       expect.any(String),
+      "synthetic-destination",
     );
     expect(workerLogs(worker, "clone-outcome")).toHaveLength(1);
 

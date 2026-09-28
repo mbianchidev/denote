@@ -24,6 +24,7 @@ import type {
   ProjectRoot,
 } from "../types";
 import { systemPathForDisplay } from "../lib/systemPath";
+import { GitSigningSettings, type GitSigningActions } from "./GitSigningSettings";
 
 const CATEGORY_LABELS: Record<PluginCategory, string> = {
   code: "Code",
@@ -69,6 +70,7 @@ interface PluginSettingsPanelProps {
   plugins: PluginView[];
   bundles: PluginBundleMetadata[];
   developmentSupported?: boolean;
+  developmentLoading?: boolean;
   activeProject: ProjectRoot | null;
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -95,6 +97,7 @@ interface PluginSettingsPanelProps {
   ) => Promise<void>;
   onInspectTools?: (pluginId: string) => Promise<PluginToolStatus[]>;
   onPickExecutable?: (tool: "git" | "github-cli") => Promise<string | null>;
+  gitSigningActions?: GitSigningActions;
   onError: (error: unknown) => void;
 }
 
@@ -102,6 +105,7 @@ export function PluginSettingsPanel({
   plugins,
   bundles,
   developmentSupported = false,
+  developmentLoading = false,
   activeProject,
   loading,
   busyPluginIds,
@@ -118,6 +122,7 @@ export function PluginSettingsPanel({
   onImportSettings,
   onInspectTools = async () => [],
   onPickExecutable = async () => null,
+  gitSigningActions,
   onError,
 }: PluginSettingsPanelProps) {
   const [query, setQuery] = useState("");
@@ -240,9 +245,27 @@ export function PluginSettingsPanel({
   }, [filtered]);
   const approvedUpdates = plugins.filter(
     (plugin) =>
+      plugin.enabled &&
       plugin.status === "update-available" &&
       plugin.previouslyApproved === true,
   );
+
+  const saveSettings = async (pluginId: string, settings: Record<string, unknown>) => {
+    await onUpdateSettings(pluginId, settings);
+    setDirtyPluginIds((current) => {
+      const next = new Set(current);
+      next.delete(pluginId);
+      return next;
+    });
+    if (pluginId === "denote.git") {
+      void onInspectTools(pluginId)
+        .then((statuses) => setToolStatuses((current) => ({
+          ...current,
+          [pluginId]: statuses,
+        })))
+        .catch(onError);
+    }
+  };
 
   return (
     <section
@@ -265,13 +288,21 @@ export function PluginSettingsPanel({
           <button
             type="button"
             className="secondary-button"
+            disabled={developmentLoading}
+            aria-busy={developmentLoading}
             onClick={() => void onLoadDevelopment().catch(onError)}
           >
             <FolderOpen aria-hidden="true" size={14} />
-            Load local plugin archive
+            {developmentLoading ? "Loading local plugin archive…" : "Load local plugin archive"}
           </button>
         ) : null}
       </header>
+
+      {developmentLoading ? (
+        <p className="plugin-settings__empty" role="status">
+          Choose a .tgz in the file picker. Denote verifies it before adding it to the catalog.
+        </p>
+      ) : null}
 
       <section
         className="plugin-settings__updates"
@@ -547,27 +578,16 @@ export function PluginSettingsPanel({
                             disabled={busy}
                           >
                             <legend>Settings</legend>
-                            {pluginId === "denote.git" &&
-                            draft.useSystemGitSettings !== false ? (
-                              <div className="notice-block notice-block--warning plugin-card__signing-warning">
-                                <AlertTriangle
-                                  aria-hidden="true"
-                                  size={15}
-                                />
-                                <div>
-                                  <strong>
-                                    Check your system Git signing configuration
-                                  </strong>
-                                  <p>
-                                    Before signing with a system GPG key, verify
-                                    that user.signingKey and
-                                    gpg.openpgp.program (or gpg.program) point
-                                    to the intended secret key and GPG
-                                    installation. On Windows, Git may otherwise
-                                    use a different bundled GPG and keyring.
-                                  </p>
-                                </div>
-                              </div>
+                            {pluginId === "denote.git" && gitSigningActions ? (
+                              <GitSigningSettings
+                                {...gitSigningActions}
+                                settings={plugin.settings}
+                                hasCredentials={plugin.hasCredentials}
+                                disabled={busy}
+                                dirty={dirtyPluginIds.has(pluginId)}
+                                onSaveSettings={() => saveSettings(pluginId, draft)}
+                                onError={onError}
+                              />
                             ) : null}
                           {Object.entries(settingDefinitions).map(
                             ([key, definition]) =>
@@ -631,22 +651,7 @@ export function PluginSettingsPanel({
                               type="button"
                               className="secondary-button"
                               onClick={() =>
-                                void onUpdateSettings(pluginId, draft)
-                                  .then(async () => {
-                                    setDirtyPluginIds((current) => {
-                                      const next = new Set(current);
-                                      next.delete(pluginId);
-                                      return next;
-                                    });
-                                    if (pluginId === "denote.git") {
-                                      const statuses =
-                                        await onInspectTools(pluginId);
-                                      setToolStatuses((current) => ({
-                                        ...current,
-                                        [pluginId]: statuses,
-                                      }));
-                                    }
-                                  })
+                                void saveSettings(pluginId, draft)
                                   .catch(onError)
                               }
                             >
@@ -753,7 +758,7 @@ export function PluginSettingsPanel({
                           >
                             <h6 id={`${pluginId}-permission-title`}>
                               <ShieldCheck aria-hidden="true" size={14} />
-                              {plugin.status === "update-available"
+                              {plugin.enabled && plugin.status === "update-available"
                                 ? "Approve update permissions?"
                                 : "Approve permissions?"}
                             </h6>
@@ -803,10 +808,10 @@ export function PluginSettingsPanel({
                                 }
                               >
                                 {busy
-                                  ? plugin.status === "update-available"
+                                  ? plugin.enabled && plugin.status === "update-available"
                                     ? "Updating…"
                                     : "Enabling…"
-                                  : plugin.status === "update-available"
+                                  : plugin.enabled && plugin.status === "update-available"
                                     ? "Approve and update"
                                     : "Approve and enable"}
                               </button>
@@ -814,7 +819,7 @@ export function PluginSettingsPanel({
                           </section>
                         ) : (
                           <div className="plugin-card__actions">
-                            {plugin.status === "update-available" ? (
+                            {plugin.enabled && plugin.status === "update-available" ? (
                               <button
                                 type="button"
                                 className="primary-button"
@@ -1333,8 +1338,8 @@ function permissionScope(permission: PluginPermissionRequest): string | null {
 }
 
 function statusLabel(plugin: PluginView): string {
-  if (plugin.status === "update-available") {
-    return "Update available";
+  if (plugin.enabled && plugin.status === "update-available") {
+    return "Enabled · update available";
   }
   if (plugin.enabled) {
     return "Enabled";
@@ -1355,6 +1360,7 @@ function statusLabel(plugin: PluginView): string {
     case "not-installed":
     case "disabled":
     case "enabled":
+    case "update-available":
       return "Disabled";
   }
 }
@@ -1362,8 +1368,7 @@ function statusLabel(plugin: PluginView): string {
 function candidateStatusLabel(plugin: PluginView): string {
   if (
     plugin.status === "failed" ||
-    plugin.status === "incompatible" ||
-    plugin.status === "update-available"
+    plugin.status === "incompatible"
   ) {
     return statusLabel({ ...plugin, enabled: false });
   }

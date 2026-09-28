@@ -714,7 +714,7 @@ describe("selected staging and hunks", () => {
     // hunk that has already been staged.
     expect(
       git.calls.slice(before + 1).map((call) => call.request.operation),
-    ).toEqual(["status", "operation-state", "diff"]);
+    ).toEqual(["status", "diff", "diff", "operation-state", "diff"]);
   });
 
   it("unstages a hunk from the staged diff", async () => {

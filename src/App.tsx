@@ -547,6 +547,7 @@ function advancedOperation(values: Record<string, unknown>): string | null {
 function sourceControlConfirmation(
   action: PluginSourceControlAction,
   repositoryLabel = "",
+  cloneDestinationPath = "",
 ): Omit<ActionDialogState, "mode" | "initialValue"> | null {
   const values = action.values ?? {};
   const value = (key: string) =>
@@ -715,8 +716,8 @@ function sourceControlConfirmation(
     case "clone":
       return {
         title: "Clone a repository",
-        message: `Clone ${url}${branch ? ` on branch "${branch}"` : ""} into an empty folder you choose? Denote saves and closes the current vault, then opens the clone as a vault.`,
-        confirmLabel: "Choose a folder",
+        message: `Clone ${url}${branch ? ` on branch "${branch}"` : ""} into ${cloneDestinationPath}? Denote saves and closes the current vault, then opens the clone as a vault.`,
+        confirmLabel: "Clone",
         dangerous: false,
       };
     case "clean-failed-clone":
@@ -994,8 +995,6 @@ function App() {
   const clonedVaultHandler = useRef<
     (snapshot: WorkspaceSnapshot) => Promise<void>
   >(async () => {});
-  /** True once a source-control action has already swapped the workspace. */
-  const clonedDuringAction = useRef(false);
   const indexTimer = useRef<number | null>(null);
   const appMounted = useRef(false);
   const automaticUpdateStarted = useRef(false);
@@ -5853,21 +5852,30 @@ function App() {
       hostOptions?: SourceControlActionHostOptions,
     ) => {
       if (!workspace) {
-        return;
+        return false;
       }
-      const confirmation = sourceControlConfirmation(action, repositoryLabel);
+      const actionGeneration = vaultGeneration.current;
+      if (action.id === "clone" && (!hostOptions?.gitCloneDestinationToken || !hostOptions.gitCloneDestinationPath)) {
+        showError(new Error("Choose an empty destination folder before cloning."));
+        return false;
+      }
+      const confirmation = sourceControlConfirmation(
+        action, repositoryLabel, hostOptions?.gitCloneDestinationPath,
+      );
       if (confirmation && !(await requestConfirmation(confirmation))) {
-        return;
+        return false;
       }
       const mutatesWorkspace = WORKSPACE_MUTATING_SOURCE_CONTROL_ACTIONS.has(
         action.id,
       );
       let workspaceOperationStarted = false;
-      clonedDuringAction.current = false;
       try {
         if (mutatesWorkspace) {
           if (!(await beginWorkspaceOperation())) {
-            return;
+            if (action.id === "clone") {
+              throw new Error("The current vault could not be prepared for cloning. Save your open notes and try again; the clone has not started.");
+            }
+            return false;
           }
           workspaceOperationStarted = true;
         }
@@ -5887,9 +5895,9 @@ function App() {
             workspace.vaultPath,
           );
         }
-        // A clone already replaced the workspace, so refreshing the vault the
-        // action started in would read a vault that is no longer open.
-        if (mutatesWorkspace && !clonedDuringAction.current) {
+        // Only a failed clone inside this vault can change its existing tree.
+        const affectsCurrentVault = action.id !== "clone" || hostOptions?.gitCloneDestinationWithinVault;
+        if (mutatesWorkspace && affectsCurrentVault && actionGeneration === vaultGeneration.current) {
           const snapshot = await refreshAndReindex();
           if (WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS.has(action.id)) {
             await reloadOpenTabsFromDisk(snapshot);
@@ -5900,10 +5908,12 @@ function App() {
             );
           }
         }
+        return true;
       } catch (caught) {
+        if (action.id === "clone") throw caught;
         showError(caught);
+        return false;
       } finally {
-        clonedDuringAction.current = false;
         if (workspaceOperationStarted) {
           setWorkspaceLock(false);
         }
@@ -6101,7 +6111,6 @@ function App() {
    */
   const openClonedVault = useCallback(
     async (snapshot: WorkspaceSnapshot) => {
-      clonedDuringAction.current = true;
       setVaultSwitcherOpen(false);
       vaultGeneration.current += 1;
       await loadWorkspace(snapshot, true);
@@ -9332,13 +9341,26 @@ function App() {
       clone={
         workspace && gitSourceControlContribution
           ? {
+              contextKey: `${workspace.vaultPath}:${gitSourceControlContribution.pluginId}:${gitSourceControlContribution.id}`,
               remoteAccess: gitSourceControlContribution.model.remoteAccess,
-              busy: gitSourceControlContribution.model.repository.busy,
-              onAction: (action) => {
-                void runSourceControlAction(
+              busy: workspaceLocked || gitSourceControlContribution.model.repository.busy,
+              busyMessage: gitSourceControlContribution.model.repository.busyMessage,
+              activeOperationId: gitSourceControlContribution.model.repository.activeOperationId,
+              recovery: gitSourceControlContribution.model.recovery,
+              onChooseDestination: () => api.choosePluginGitCloneDestination(
+                gitSourceControlContribution.pluginId, workspace.vaultPath,
+              ),
+              onReleaseDestination: (token) => api.releasePluginGitCloneDestination(
+                gitSourceControlContribution.pluginId, token,
+              ),
+              onError: showError,
+              onAction: (action, hostOptions) => {
+                return runSourceControlAction(
                   gitSourceControlContribution.pluginId,
                   gitSourceControlContribution.id,
                   action,
+                  "",
+                  hostOptions,
                 );
               },
             }
@@ -10889,6 +10911,7 @@ function App() {
         plugins={pluginController.plugins}
         pluginBundles={pluginController.bundles}
         pluginDevelopmentSupported={pluginController.developmentSupported}
+        pluginDevelopmentLoading={pluginController.developmentLoading}
         activeProject={activeProject}
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}
@@ -10909,6 +10932,21 @@ function App() {
         onUpdatePluginSettings={pluginController.updateSettings}
         onImportPluginSettings={pluginController.importSettings}
         onInspectPluginTools={api.getPluginToolStatuses}
+        gitSigningActions={{
+          contextKey: `${workspace?.vaultPath ?? ""}:${activeProject?.id ?? ""}`,
+          onInspect: () => api.getGitSigningStatus(workspace?.vaultPath ?? null, activeProject?.id ?? null),
+          onSave: async (credentialId, passphrase) => {
+            const status = await api.saveGitSigningPassphrase(
+              credentialId, passphrase, workspace?.vaultPath ?? null, activeProject?.id ?? null,
+            );
+            void pluginController.refresh().catch(showError);
+            return status;
+          },
+          onDelete: async (credentialId) => {
+            await api.deleteGitSigningPassphrase(credentialId);
+            void pluginController.refresh().catch(showError);
+          },
+        }}
         onPickPluginExecutable={api.choosePluginExecutable}
         onPluginError={showError}
         onClose={() => setEditorSettingsOpen(false)}

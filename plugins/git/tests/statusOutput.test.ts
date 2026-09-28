@@ -27,6 +27,7 @@ describe("parseStatus", () => {
     );
 
     expect(report.branch).toBe("main");
+    expect(report.head).toBe("1".repeat(40));
     expect(report.detached).toBe(false);
     expect(report.upstream).toBe("origin/main");
     expect(report.ahead).toBe(2);
@@ -38,6 +39,7 @@ describe("parseStatus", () => {
         additions: 0,
         deletions: 0,
         binary: false,
+        lineCountsKnown: false,
       },
       {
         path: "notes/gamma.md",
@@ -45,6 +47,7 @@ describe("parseStatus", () => {
         additions: 0,
         deletions: 0,
         binary: false,
+        lineCountsKnown: false,
       },
       {
         path: "notes/removed.md",
@@ -52,6 +55,7 @@ describe("parseStatus", () => {
         additions: 0,
         deletions: 0,
         binary: false,
+        lineCountsKnown: false,
       },
       {
         path: "notes/renamed.md",
@@ -59,6 +63,7 @@ describe("parseStatus", () => {
         additions: 0,
         deletions: 0,
         binary: false,
+        lineCountsKnown: false,
       },
     ]);
     expect(report.unstaged.map((resource) => resource.path)).toEqual([
@@ -75,6 +80,7 @@ describe("parseStatus", () => {
         additions: 0,
         deletions: 0,
         binary: false,
+        lineCountsKnown: false,
       },
     ]);
   });
@@ -102,6 +108,7 @@ describe("parseStatus", () => {
     );
 
     expect(report.branch).toBeNull();
+    expect(report.head).toBeNull();
     expect(report.detached).toBe(true);
     expect(report.upstream).toBeNull();
     expect(report.ahead).toBe(0);
@@ -114,5 +121,11 @@ describe("parseStatus", () => {
     expect(splitFields("a b c d", " ", 3)).toEqual(["a", "b", "c d"]);
     expect(splitFields("single", "\t", 4)).toEqual(["single"]);
     expect(splitFields("a\tb", "\t", 1)).toEqual(["a\tb"]);
+  });
+
+  it("distinguishes a missing commit header from an unborn HEAD", () => {
+    expect(parseStatus("").head).toBeUndefined();
+    expect(parseStatus(`# branch.oid ${"a".repeat(64)}\0`).head).toBe("a".repeat(64));
+    expect(() => parseStatus("# branch.oid not-a-commit\0")).toThrow(/invalid current commit/);
   });
 });

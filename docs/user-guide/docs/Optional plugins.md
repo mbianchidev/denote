@@ -9,6 +9,9 @@ Each plugin starts as a compact row showing only its name and current status.
 Open the row to see its description, version, publisher, permissions, guide,
 settings, and enable, update, disable, or cleanup actions. Entries with an error
 open automatically so the failure stays visible.
+Disabled plugins show **Disabled**, without update notices, including in Denote
+Development. Choose **Enable** only when you want to start one.
+**Enabled · update available** means the installed version is still active.
 
 Plugin code comes from separately verified GitHub Release assets, not from the
 desktop installer. Denote checks each package's pinned size and checksum before
@@ -40,18 +43,18 @@ cannot fix the missing package. Keep the plugin ID, version, and download URL
 from the error when reporting it. A failed update preserves the installed
 version; do not disable it just to retry the download.
 
-When previously approved plugins have updates, **Update all** appears in the
-plugin manager. It first lists the exact plugins and explains that their complete
+When enabled, previously approved plugins have updates, **Update all** appears in
+the plugin manager. It first lists the exact plugins and explains that their complete
 latest permission sets will be accepted again. Confirming updates only those
-listed plugins, one independently verified transaction at a time. Current,
-never-approved, incompatible, and unrelated plugins are not downloaded or
+listed plugins, one independently verified transaction at a time. Disabled,
+current, never-approved, incompatible, and unrelated plugins are not downloaded or
 changed. An enabled plugin keeps running its installed version until its update
 has downloaded, verified, started, and completed. If that fails, Denote removes
 the attempted replacement and starts the installed version again.
 
 The plugin manager also has an **Automatically update plugins** toggle, off by
-default. Turning it on applies updates for previously approved plugins in the
-background, without the **Update all** confirmation, but only when the update
+default. Turning it on applies updates for enabled, previously approved plugins
+in the background, without the **Update all** confirmation, but only when the update
 keeps every permission the plugin already holds unchanged. An update that asks
 for a new or different permission still waits for you to review it through
 **Update all** or that plugin's own **Review and update** action. Update controls
@@ -599,15 +602,25 @@ mode is not set up, Denote says so instead of leaving Git waiting for a
 password.
 
 Open **Switch vault**, choose **Clone repo as vault**, and enter the repository
-there. Denote asks you to choose an empty folder, clones into it,
-checks the result, and only then opens it as a vault. Your open notes are saved
+URL and optional branch. Select **Choose folder** and choose a real, empty
+destination. Its path appears in the form; no clone starts yet. Select **Clone**
+and confirm the URL, branch, and destination to begin. Denote checks the result
+and only then opens it as a vault. Your open notes are saved
 before the clone starts, so nothing you typed in the current vault is lost when
 the clone replaces it. Cancelling the folder chooser does nothing at all, and
-Cancel stops a clone or a repository browse while it is still running. If the clone fails, the folder is left exactly as
+**Cancel operation** requests cancellation while a clone or repository browse is
+running. Progress and any failure details stay in this dialog; its close and
+vault-switch controls remain disabled until the operation settles. The footer's
+**Cancel** leaves onboarding without cloning when nothing is running.
+If the clone fails, the destination path and error remain visible and the folder is left exactly as
 it is: you can retry, or use **Clean incomplete clone**, which asks for a
 separate confirmation and deletes only that one folder. Denote never cleans it
 up for you. A cloned vault that is encrypted opens on the usual unlock screen,
 so no note is shown before you unlock it.
+Choose an empty folder again before retrying a clone. A clone that completed but
+could not be opened is reported separately; its files remain available in the
+shown folder. A failed clone refreshes your previous vault only when you chose
+a destination inside it; unrelated vaults are not rescanned.
 
 The current branch control does branch work inside the Git view. You can create
 from the branch you are on, another local branch, or a remote-tracking branch,
@@ -623,6 +636,26 @@ commit message, commit, and push. **Restore** replaces one tracked file with the
 current upstream version; **Restore from remote** does the same for all tracked
 staged and unstaged changes. Both require a dangerous confirmation and never
 delete untracked files.
+
+Git plugin 0.8.0 requires Denote 0.7.1 or newer. **Refresh** shows added and
+removed lines for every staged and unstaged file without opening a diff.
+When a file has both kinds of changes, each row measures its own side of the
+staging area. Binary and encrypted files are labeled binary. Untracked files,
+conflicts, or other changes without measured statistics say **line counts
+unavailable**, not `+0 / -0`; stage a new text file to see its line counts.
+
+After a successful **Pull**, **Last remote operation** lists the files changed,
+added and removed lines per text file, renamed files' previous paths, and binary
+changes. It measures the net difference between the commits before and after
+the pull, including merge and rebase pulls, without counting unrelated unsaved
+or uncommitted edits. A pull with no file changes says so. The report stays
+available through refreshes until dismissed or replaced by another remote
+operation; switching repositories clears it.
+
+Reports can list up to 5,000 files. If Git cannot supply a complete report or the
+following refresh fails, Denote says that the pull already completed and reports
+the follow-up problem separately. **Refresh** rereads local state; it never
+repeats the pull. Use your own Git tooling to inspect a report beyond the limit.
 
 Select the current branch button to open the branch picker inside the Git view.
 It is one searchable list with explicit Local and Remote labels. Select a local
@@ -651,28 +684,75 @@ to enable and configure it.
 
 **Use system Git settings** is on by default. Denote
 imports only bounded allowlisted identity, credential-helper, line-ending, and
-GPG values into its hardened Git process. Manual commits can follow the system
-signing default, always sign, or never sign. The optional GPG key field is masked;
-your system GPG agent or pinentry asks for the passphrase, which Denote never
-stores. Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`
-in Git's normal order, including a Gpg4win path on Windows. Automatic commits
-remain unsigned.
+GPG values into its hardened Git process. System and global config files are
+optional: you do not need to create `/etc/gitconfig` to clone or detect a signing
+key. Unreadable or malformed config files still report an error.
+Manual commits can follow the system signing default, always sign, or never sign.
+Leave **Signing key** empty to use
+Git configuration, or supply an imported OpenPGP fingerprint or SSH private-key
+path. Git plugin 0.9.0 uses the configured signing format and pins the resolved
+program, so Git for Windows cannot shadow Gpg4win with a different bundled GPG.
+Denote respects both `gpg.openpgp.program` and the legacy `gpg.program`.
+Automatic commits remain unsigned.
 
-Before relying on a system GPG key, verify that your selected Git's system or
-global configuration points `user.signingKey` and `gpg.openpgp.program` (or the
-legacy `gpg.program`) at the intended secret key and GPG installation. This is
-especially important on Windows, where Git for Windows and Gpg4win can use
-different GPG executables and keyrings.
+Choose **Signing credentials → Detect signing key**. If you have pending plugin
+settings edits, the button becomes **Save settings and detect signing key** and
+saves them before detection; you do not need to find a separate save button.
+This reads the focused project's Git configuration, or the vault repository
+when no project is focused. It shows the actual format, program, key, and where
+the selection came from. Without a configured OpenPGP key, Denote looks for one
+usable key matching the commit identity; an ambiguous result asks you to choose
+a fingerprint instead of silently signing as someone else.
+
+To remember a key's password, enter it in **Save passphrase for this key** and
+choose **Save passphrase**. This is optional and separate from plugin settings:
+the password lives in macOS Keychain, Windows Credential Manager, or Linux
+Secret Service, not settings JSON, exports, logs, or plugin code. It survives
+restarts until **Delete saved passphrase** or **Clear credentials**. The field
+clears immediately after submission, including errors. Anyone with access to
+your unlocked operating-system account may be able to use saved credentials.
+Without a saved password, the system agent or pinentry remains available.
+
+**Find your signing key** provides platform-specific commands. Run these in your
+repository; a Git query with no output means that setting is absent:
+
+```bash
+git config --show-origin --get user.signingKey
+git config --show-origin --get gpg.format
+gpg --list-secret-keys --keyid-format=long
+ssh-add -L
+```
+
+On macOS/Linux, `command -v gpg` locates GPG and `ls -l ~/.ssh/*.pub` lists SSH
+public-key files. In Windows PowerShell, use
+`Get-Command gpg | Select-Object -ExpandProperty Source` and
+`Get-ChildItem "$env:USERPROFILE\.ssh" -Filter *.pub`.
+If GPG is not on PATH, invoke your installed executable directly, for example:
+
+```powershell
+& 'C:\Program Files (x86)\GnuPG\bin\gpg.exe' --list-secret-keys --keyid-format=long
+```
+
+Use the OpenPGP fingerprint shown beneath the secret key, not the path to an
+exported private-key file. For SSH file signing, use the matching private-key
+path without `.pub`; an SSH public key uses the agent instead. Never paste
+private-key contents or passwords into commands or bug reports.
+
+If Git reports **exit 128 / cannot sign the data**, the details now retain GPG's
+reason, such as a missing secret key or a bad passphrase. Check the detected
+program and keyring first, especially when both Git for Windows and Gpg4win are
+installed. Replace or delete a wrong saved password. Denote keeps your staged
+work and never retries without a signature.
 
 The manual commit form provides **Sign commit**, enabled by default for each
 submission, plus **Commit** and **Commit and push**. Turn signing off for an
 unsigned commit. If you leave the message blank, Denote uses
 `Denote manual commit {timestamp}` and resolves the placeholder to the current
 local time in `yyyy-mm-dd hh:mm` format. For an encrypted SSH signing key, enter its passphrase in the
-password-style field that appears while signing is selected. Denote uses it for
-that commit only and clears it immediately; the plugin never receives it. Leave
-it empty when your SSH agent already has the key, or when OpenPGP/X.509 signing
-uses the system GPG agent or pinentry.
+password-style field that appears while signing is selected. It also supports
+OpenPGP: Denote uses it once instead of a saved passphrase and clears it
+immediately; the plugin never receives it. Leave it empty to use a saved
+password or your system agent. X.509 always uses system pinentry.
 
 Plugin icons in the activity rail can be reordered by dragging. **Organize
 plugins** also provides keyboard move controls, optional group names, group
@@ -684,6 +764,10 @@ It accepts a locally built `.tgz`, labels it as a local development archive, and
 still requires permission approval before enablement. Disable it before loading
 a rebuilt archive with the same ID. Installed releases do not expose this
 action.
+The picker opens without waiting for Git or GitHub CLI checks. While it is open
+or Denote is verifying the selected archive, the button shows **Loading local
+plugin archive…** and cannot open another picker. Cancel to leave the catalog
+unchanged; a failed verification reports an error and lets you retry.
 
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and

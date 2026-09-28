@@ -1060,15 +1060,17 @@ dependencies = [
 
 [[package]]
 name = "denote"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "argon2",
  "atomic-write-file",
  "base64 0.23.1",
+ "block2",
  "chacha20poly1305",
  "chrono",
  "clipboard-rs",
  "command-group",
+ "dispatch2",
  "flate2",
  "fs2",
  "getrandom 0.4.3",
@@ -1077,6 +1079,9 @@ dependencies = [
  "keyring",
  "libc",
  "mime_guess",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
  "quick-xml 0.42.0",
  "reqwest",
  "rlimit",

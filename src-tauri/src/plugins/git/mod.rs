@@ -6,6 +6,9 @@ pub(crate) mod askpass;
 pub(super) mod auto_commit;
 pub(super) mod clone;
 pub(super) mod github;
+mod gpg_paths;
+pub(crate) mod gpg_signer;
+pub(super) mod signing;
 pub(super) mod tools;
 mod transport;
 
@@ -15,6 +18,8 @@ mod auto_commit_tests;
 mod clone_tests;
 #[cfg(test)]
 mod git_tests;
+#[cfg(test)]
+mod signing_tests;
 
 pub(crate) use transport::*;
 

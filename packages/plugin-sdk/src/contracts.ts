@@ -865,6 +865,19 @@ export interface PluginSourceControlResource {
   additions: number;
   deletions: number;
   binary: boolean;
+  /** False when Git has not supplied line statistics for this resource. */
+  lineCountsKnown?: boolean;
+}
+
+export const PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS = 5000;
+
+/** Content-free statistics for one file in a Git comparison. */
+export interface PluginSourceControlFileStat {
+  path: string;
+  previousPath: string | null;
+  additions: number;
+  deletions: number;
+  binary: boolean;
 }
 
 export interface PluginSourceControlResourceGroup {
@@ -1182,6 +1195,8 @@ export interface PluginSourceControlOperationReview {
   outcome: "succeeded" | "failed" | "cancelled";
   summary: string;
   detail: string | null;
+  /** Complete comparison, capped at PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS. */
+  files?: PluginSourceControlFileStat[];
   retryActionId?: string;
 }
 
@@ -1454,6 +1469,8 @@ export type PluginGitDiffTarget =
   | { kind: "commit"; commit: string }
   | { kind: "range"; fromCommit: string; toCommit: string };
 
+export type PluginGitDiffFormat = "patch" | "numstat";
+
 export type PluginGitConflictResolution =
   | { kind: "stage"; stage: PluginGitConflictStage }
   | { kind: "content"; contentBase64: string };
@@ -1556,6 +1573,8 @@ export type PluginGitRunRequest =
       scope: PluginGitScope;
       target: PluginGitDiffTarget;
       paths?: string[];
+      /** Defaults to a patch. Numstat returns NUL-delimited file statistics. */
+      format?: PluginGitDiffFormat;
     }
   | {
       operation: "fetch";

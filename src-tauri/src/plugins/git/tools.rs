@@ -1,8 +1,10 @@
 use std::{
     fs::{self, File},
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
     process::Stdio,
+    thread,
+    time::{Duration, Instant},
 };
 
 use flate2::read::GzDecoder;
@@ -15,10 +17,12 @@ use uuid::Uuid;
 use crate::error::{AppError, AppResult};
 use crate::plugins::package::ensure_managed_directory;
 
-use super::background_command;
+use super::{background_command, spawn_background_group};
 
 const LOCK_JSON: &str = include_str!("../../../../bundled-tools.lock.json");
 const MAX_INTEGRITY_BYTES: u64 = 16 * 1024 * 1024;
+const TOOL_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+const TOOL_PROBE_OUTPUT_LIMIT: u64 = 64 * 1024;
 
 #[cfg(target_os = "macos")]
 const SYSTEM_GIT_PATHS: &[&str] = &[
@@ -866,12 +870,14 @@ fn verify_executable(path: &Path, kind: ToolKind) -> AppResult<()> {
 }
 
 fn probe(path: &Path, kind: ToolKind) -> AppResult<String> {
+    let mut stdout_file = tempfile::tempfile()?;
+    let mut stderr_file = tempfile::tempfile()?;
     let mut command = background_command(path);
     command
         .arg(kind.probe_argument())
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
+        .stdout(Stdio::from(stdout_file.try_clone()?))
+        .stderr(Stdio::from(stderr_file.try_clone()?));
     for name in [
         "GIT_ASKPASS",
         "SSH_ASKPASS",
@@ -884,16 +890,75 @@ fn probe(path: &Path, kind: ToolKind) -> AppResult<String> {
     ] {
         command.env_remove(name);
     }
-    let output = command.output().map_err(|error| {
+    let mut child = spawn_background_group(&mut command).map_err(|error| {
         AppError::Plugin(format!(
             "Unable to start the {} executable: {error}",
             kind.name()
         ))
     })?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let deadline = Instant::now() + TOOL_PROBE_TIMEOUT;
+    let outcome = (|| {
+        loop {
+            if let Some(status) = child.inner().try_wait()? {
+                return Ok(status);
+            }
+            if stdout_file.metadata()?.len() > TOOL_PROBE_OUTPUT_LIMIT
+                || stderr_file.metadata()?.len() > TOOL_PROBE_OUTPUT_LIMIT
+            {
+                return Err(AppError::Plugin(format!(
+                    "The {} version check exceeded its 64 KiB output limit.",
+                    kind.name(),
+                )));
+            }
+            if Instant::now() >= deadline {
+                return Err(AppError::Plugin(format!(
+                    "The {} version check timed out after 5 seconds. Check its installation or choose another executable.",
+                    kind.name(),
+                )));
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+    })();
+    match child.kill() {
+        Ok(()) => {}
+        #[cfg(unix)]
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {}
+        Err(error) => {
+            return Err(AppError::Plugin(format!(
+                "Unable to stop the {} version-check process group: {error}",
+                kind.name(),
+            )));
+        }
+    }
+    child.wait().map_err(|error| {
+        AppError::Plugin(format!(
+            "Unable to reap the {} version-check process: {error}",
+            kind.name(),
+        ))
+    })?;
+    let status = outcome?;
+    if stdout_file.metadata()?.len() > TOOL_PROBE_OUTPUT_LIMIT
+        || stderr_file.metadata()?.len() > TOOL_PROBE_OUTPUT_LIMIT
+    {
+        return Err(AppError::Plugin(format!(
+            "The {} version check exceeded its 64 KiB output limit.",
+            kind.name(),
+        )));
+    }
+    stdout_file.seek(SeekFrom::Start(0))?;
+    stderr_file.seek(SeekFrom::Start(0))?;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    stdout_file
+        .take(TOOL_PROBE_OUTPUT_LIMIT)
+        .read_to_end(&mut stdout)?;
+    stderr_file
+        .take(TOOL_PROBE_OUTPUT_LIMIT)
+        .read_to_end(&mut stderr)?;
+    let stdout = String::from_utf8_lossy(&stdout);
     let line = stdout.lines().next().unwrap_or("").trim().to_string();
-    if !output.status.success() || !line.starts_with(kind.version_prefix()) {
-        let detail = String::from_utf8_lossy(&output.stderr);
+    if !status.success() || !line.starts_with(kind.version_prefix()) {
+        let detail = String::from_utf8_lossy(&stderr);
         return Err(AppError::Plugin(format!(
             "The selected executable did not identify itself as {}. {}",
             kind.name(),
@@ -930,6 +995,47 @@ mod tests {
     #[cfg(unix)]
     use tar::{Builder, Header};
     use tempfile::tempdir;
+
+    #[cfg(unix)]
+    fn synthetic_tool(body: &str) -> (tempfile::TempDir, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().expect("synthetic tool");
+        let path = directory.path().join("git");
+        fs::write(&path, format!("#!/bin/sh\n{body}\n")).expect("tool");
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).expect("executable");
+        (directory, path)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn version_probe_stops_an_unresponsive_tool() {
+        let (_directory, path) = synthetic_tool("sleep 8\nprintf 'git version synthetic\\n'");
+        let started = std::time::Instant::now();
+        let error = probe(&path, ToolKind::Git).expect_err("bounded version check");
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(7));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn version_probe_does_not_wait_for_inherited_output_pipes() {
+        let (_directory, path) = synthetic_tool("sleep 8 &\nprintf 'git version synthetic\\n'");
+        let started = std::time::Instant::now();
+        assert_eq!(
+            probe(&path, ToolKind::Git).expect("version"),
+            "git version synthetic"
+        );
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn version_probe_refuses_excess_output_even_from_a_successful_tool() {
+        let (_directory, path) = synthetic_tool("printf 'git version synthetic\\n%70000s' x");
+        let error = probe(&path, ToolKind::Git).expect_err("bounded version output");
+        assert!(error.to_string().contains("output limit"), "{error}");
+    }
 
     #[test]
     fn custom_paths_must_be_absolute_and_executable() {

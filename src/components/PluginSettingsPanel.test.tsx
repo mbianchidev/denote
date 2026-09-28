@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import catalogJson from "../../plugins/catalog.json";
@@ -115,7 +115,7 @@ describe("PluginSettingsPanel", () => {
     ).not.toBeNull();
   });
 
-  it("warns when the Git plugin uses system signing configuration", async () => {
+  it("offers host-owned signing discovery and cross-platform key guidance", async () => {
     const user = userEvent.setup();
     const gitCatalog = {
       ...catalog,
@@ -144,6 +144,11 @@ describe("PluginSettingsPanel", () => {
     render(
       <PluginSettingsPanel
         {...props({
+          gitSigningActions: {
+            onInspect: vi.fn(),
+            onSave: vi.fn(),
+            onDelete: vi.fn(),
+          },
           plugins: [
             plugin({
               catalog: gitCatalog,
@@ -160,10 +165,10 @@ describe("PluginSettingsPanel", () => {
     await expandPlugin(user, "Git vault versioning");
 
     expect(
-      screen.getByText("Check your system Git signing configuration"),
+      screen.getByText("Signing credentials"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/user\.signingKey.*gpg\.openpgp\.program.*gpg\.program/i),
+      screen.getByRole("button", { name: "Detect signing key" }),
     ).toBeInTheDocument();
   });
 
@@ -180,6 +185,68 @@ describe("PluginSettingsPanel", () => {
     await user.clear(search);
     await user.type(search, "synthetic value");
     expect(pluginDisclosure("Reference plugin")).toBeInTheDocument();
+  });
+
+  it("hides update notices and actions for a disabled viewer", async () => {
+    const user = userEvent.setup();
+    const onEnable = vi.fn().mockResolvedValue(undefined);
+    const viewerCatalog = {
+      ...catalog,
+      manifest: { ...catalog.manifest, id: "denote.json-yaml-viewer", name: "JSON and YAML viewer" },
+    };
+    const disabled = plugin({
+      catalog: viewerCatalog,
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+    });
+    render(<PluginSettingsPanel {...props({ plugins: [disabled], developmentSupported: true, onEnable })} />);
+
+    const row = pluginDisclosure("JSON and YAML viewer");
+    expect(row.querySelector("summary")).toHaveTextContent("Disabled");
+    expect(row.querySelector("summary")).not.toHaveTextContent(/update available/i);
+    await expandPlugin(user, "JSON and YAML viewer");
+    expect(screen.getByText("Not stored locally")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enable" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /update all/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /review and/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Disable and remove code" })).not.toBeInTheDocument();
+    expect(onEnable).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Enable" }));
+    expect(screen.getByRole("heading", { name: "Approve permissions?" })).toBeInTheDocument();
+    expect(onEnable).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Approve and enable" }));
+    expect(onEnable).toHaveBeenCalledWith("denote.json-yaml-viewer", viewerCatalog.manifest.permissions);
+  });
+
+  it("saves the current draft when detecting a signing key", async () => {
+    const user = userEvent.setup();
+    const gitCatalogValue: unknown = catalogJson.find((entry) => entry.manifest.id === "denote.git");
+    assertValidPluginCatalogEntry(gitCatalogValue);
+    const settings = { gitExecutableMode: "bundled", useSystemGitSettings: true };
+    const gitPlugin = plugin({ catalog: gitCatalogValue, enabled: true, status: "enabled", settings });
+    const onUpdateSettings = vi.fn().mockResolvedValue(undefined);
+    const onInspect = vi.fn().mockResolvedValue({
+      format: "openpgp", program: "/synthetic/gpg", key: "A".repeat(40),
+      keySource: "Git configuration", credentialId: "b".repeat(64),
+      hasSavedPassphrase: false, guidance: "Synthetic signing key.",
+    });
+    const actions = props({
+      plugins: [gitPlugin], onUpdateSettings,
+      gitSigningActions: { onInspect, onSave: vi.fn(), onDelete: vi.fn() },
+    });
+    const view = render(<PluginSettingsPanel {...actions} />);
+    onUpdateSettings.mockImplementationOnce(async () => {
+      view.rerender(<PluginSettingsPanel {...actions} plugins={[{
+        ...gitPlugin, settings: { ...settings, gitExecutableMode: "system" },
+      }]} />);
+    });
+    await expandPlugin(user, "Git vault versioning");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Git source/ }), "system");
+    await user.click(screen.getByRole("button", { name: "Save settings and detect signing key" }));
+    await waitFor(() => expect(onUpdateSettings).toHaveBeenCalledWith("denote.git", { ...settings, gitExecutableMode: "system" }));
+    expect(await screen.findByText("A".repeat(40))).toBeInTheDocument();
+    expect(onInspect).toHaveBeenCalledTimes(1);
   });
 
   it("loads local archives only when development support is available", async () => {
@@ -199,6 +266,36 @@ describe("PluginSettingsPanel", () => {
     );
 
     expect(onLoadDevelopment).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the archive picker usable while Git tool inspection is pending", async () => {
+    const user = userEvent.setup();
+    const onLoadDevelopment = vi.fn().mockResolvedValue(undefined);
+    const onInspectTools = vi.fn(() => new Promise<never>(() => {}));
+    render(<PluginSettingsPanel {...props({
+      plugins: [plugin({ catalog: { ...catalog, manifest: { ...catalog.manifest, id: "denote.git" } } })],
+      developmentSupported: true,
+      onLoadDevelopment,
+      onInspectTools,
+    })} />);
+    await waitFor(() => expect(onInspectTools).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Load local plugin archive" }));
+    expect(onLoadDevelopment).toHaveBeenCalledOnce();
+  });
+
+  it("shows pending archive selection and prevents duplicate picker clicks", async () => {
+    const user = userEvent.setup();
+    const onLoadDevelopment = vi.fn();
+    render(<PluginSettingsPanel {...props({
+      developmentSupported: true,
+      developmentLoading: true,
+      onLoadDevelopment,
+    })} />);
+    const button = screen.getByRole("button", { name: "Loading local plugin archive…" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await user.click(button);
+    expect(onLoadDevelopment).not.toHaveBeenCalled();
   });
 
   it("labels local development archives as untrusted session code", () => {
@@ -252,7 +349,7 @@ describe("PluginSettingsPanel", () => {
     ]);
   });
 
-  it("updates every previously approved plugin with an available update", async () => {
+  it("updates only enabled previously approved plugins with an available update", async () => {
     const user = userEvent.setup();
     const onUpdateAll = vi.fn().mockResolvedValue(undefined);
     const git = plugin({
@@ -264,11 +361,13 @@ describe("PluginSettingsPanel", () => {
           name: "Git vault versioning",
         },
       },
+      enabled: true,
       status: "update-available",
       previouslyApproved: true,
     });
     const reference = plugin({
-      status: "not-installed",
+      enabled: false,
+      status: "update-available",
       previouslyApproved: true,
     });
     const neverApproved = plugin({
@@ -471,7 +570,8 @@ describe("PluginSettingsPanel", () => {
     expect(
       within(section!).getByText("Failed — Synthetic activation failure"),
     ).toBeInTheDocument();
-    expect(within(section!).getByText("Update available")).toBeInTheDocument();
+    expect(within(section!).getAllByText("Disabled")).toHaveLength(2);
+    expect(within(section!).queryByText(/update available/i)).not.toBeInTheDocument();
     expect(
       within(section!).getByText(
         "Incompatible — Requires a newer Denote version",
@@ -485,8 +585,8 @@ describe("PluginSettingsPanel", () => {
       screen.getAllByRole("button", { name: "Enable" }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "Review and update" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Review and enable" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers package disable and explicit data cleanup", async () => {
@@ -584,7 +684,7 @@ describe("PluginSettingsPanel", () => {
     expect(
       screen.getByRole("button", { name: "Review and update" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("Update available")).toBeInTheDocument();
+    expect(screen.getByText("Enabled · update available")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Disable and remove code" }),
     ).toBeInTheDocument();

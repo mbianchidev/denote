@@ -62,9 +62,7 @@ impl PluginManager {
                     "enabled"
                 } else if compatibility_error.is_some() {
                     "incompatible"
-                } else if state.updates_available.contains(plugin_id) {
-                    "update-available"
-                } else if enabled {
+                } else if enabled || state.errors.contains_key(plugin_id) {
                     "failed"
                 } else if installed {
                     "disabled"
@@ -686,6 +684,17 @@ impl PluginManager {
         self.remove_persisted_development_plugins()?;
         self.prune_transient_paths()?;
         let enabled = self.state()?.enabled.clone();
+        if self
+            .state()?
+            .updates_available
+            .iter()
+            .any(|id| !enabled.contains(id))
+        {
+            self.update_state(|state| {
+                state.updates_available.retain(|id| enabled.contains(id));
+                Ok(())
+            })?;
+        }
         let catalog_entries = self.catalog_entries()?;
         for catalog in &catalog_entries {
             let plugin_id = &catalog.manifest.id;
@@ -742,7 +751,7 @@ impl PluginManager {
                     }
                     self.update_state(|state| {
                         state.enabled.remove(plugin_id);
-                        state.updates_available.insert(plugin_id.clone());
+                        state.updates_available.remove(plugin_id);
                         state.entrypoint_hashes.remove(plugin_id);
                         state.installed_manifests.remove(plugin_id);
                         state.errors.insert(
@@ -772,15 +781,8 @@ impl PluginManager {
                 if plugin_root.exists() {
                     self.remove_package(plugin_id)?;
                 }
-                let update_available = compatibility_error(catalog).is_none()
-                    && (approved_permissions.as_ref() != Some(&requested_permissions)
-                        || artifact_hash.as_deref() != Some(catalog.artifact.sha256.as_str()));
                 self.update_state(|state| {
-                    if update_available {
-                        state.updates_available.insert(plugin_id.clone());
-                    } else {
-                        state.updates_available.remove(plugin_id);
-                    }
+                    state.updates_available.remove(plugin_id);
                     state.entrypoint_hashes.remove(plugin_id);
                     state.installed_manifests.remove(plugin_id);
                     Ok(())

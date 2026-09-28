@@ -189,6 +189,7 @@ export interface PluginController {
   sourceControlProviders: PluginSourceControlContribution[];
   automaticLocalCommits: PluginAutomaticLocalCommitContribution[];
   developmentSupported: boolean;
+  developmentLoading: boolean;
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
   refresh: () => Promise<void>;
@@ -325,6 +326,8 @@ export function usePlugins(
     PluginAutomaticLocalCommitContribution[]
   >([]);
   const [loading, setLoading] = useState(true);
+  const [developmentLoading, setDevelopmentLoading] = useState(false);
+  const developmentLoadRef = useRef<Promise<void> | null>(null);
   const [busyPluginIds, setBusyPluginIds] = useState<Set<string>>(new Set());
   const [autoUpdateEnabled, setAutoUpdateEnabledState] = useState(
     getPluginAutoUpdateEnabled,
@@ -739,6 +742,7 @@ export function usePlugins(
   const updateAll = useCallback(async () => {
     const targets = plugins.filter(
       (plugin) =>
+        plugin.enabled &&
         plugin.status === "update-available" &&
         plugin.previouslyApproved === true,
     );
@@ -812,9 +816,24 @@ export function usePlugins(
   }, [autoUpdateEnabled, loading, plugins, busyPluginIds, enable, reportError]);
 
   const loadDevelopmentPlugin = useCallback(async () => {
-    const pluginId = await api.chooseDevelopmentPluginArchive();
-    if (pluginId) {
-      await refresh();
+    if (developmentLoadRef.current) {
+      return developmentLoadRef.current;
+    }
+    const operation = (async () => {
+      const pluginId = await api.chooseDevelopmentPluginArchive();
+      if (pluginId) {
+        await refresh();
+      }
+    })();
+    developmentLoadRef.current = operation;
+    setDevelopmentLoading(true);
+    try {
+      await operation;
+    } finally {
+      if (developmentLoadRef.current === operation) {
+        developmentLoadRef.current = null;
+        setDevelopmentLoading(false);
+      }
     }
   }, [refresh]);
 
@@ -988,6 +1007,9 @@ export function usePlugins(
         projectId: projectContext?.projectId ?? null,
         ...(projectIds.length > 0 ? { projectIds } : {}),
         sourceControlActionId: action.id,
+        ...(action.id === "clone" && hostSecrets?.gitCloneDestinationToken
+          ? { gitCloneDestinationToken: hostSecrets.gitCloneDestinationToken }
+          : {}),
         ...((action.id === "commit" ||
           action.id === "commit-and-push" ||
           action.id === "branch-switch-commit") &&
@@ -1241,6 +1263,7 @@ export function usePlugins(
     sourceControlProviders,
     automaticLocalCommits,
     developmentSupported: import.meta.env.DEV,
+    developmentLoading,
     loading,
     busyPluginIds,
     refresh,

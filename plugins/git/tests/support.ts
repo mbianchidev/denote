@@ -224,6 +224,9 @@ export function repositoryResponder(
   overrides: Partial<Record<string, Partial<PluginGitResult>>> = {},
 ): GitResponder {
   return (request) => {
+    if (request.operation === "diff" && request.format === "numstat") {
+      return { stdout: "" };
+    }
     const override = overrides[request.operation];
     if (override) {
       return override;

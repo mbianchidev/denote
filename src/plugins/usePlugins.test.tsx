@@ -69,6 +69,7 @@ vi.mock("../lib/api", () => ({
     setPluginSettings: vi.fn(),
     getPluginSettings: vi.fn(),
     importPluginSettings: vi.fn(),
+    chooseDevelopmentPluginArchive: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -286,6 +287,112 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("does not re-enable a disabled plugin through Update all even with stale update metadata", async () => {
+    const disabled = makePlugin({
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+      approvedPermissions: [...catalog.manifest.permissions],
+    });
+    const { result } = await mountReady([disabled]);
+    await act(async () => result.current.updateAll());
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+  });
+
+  it("binds only the host's clone token to a clone lease and keeps its display path out", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const hostOptions = {
+      gitCloneDestinationToken: "synthetic-destination",
+      gitCloneDestinationPath: "/synthetic/clone",
+    };
+    const clone = { id: "clone", values: { url: "https://example.invalid/repo.git" } };
+    await act(async () => {
+      await result.current.runSourceControlAction(pluginId, "git", clone, "/synthetic/vault-alpha", hostOptions);
+    });
+    expect(runtimeInstances[0].runSourceControlAction).toHaveBeenLastCalledWith(
+      pluginId, "git", clone,
+      {
+        workspaceScope: "/synthetic/vault-alpha", projectId: null,
+        sourceControlActionId: "clone", gitCloneDestinationToken: "synthetic-destination",
+      },
+    );
+    await act(async () => {
+      await result.current.runSourceControlAction(pluginId, "git", { id: "refresh" }, "/synthetic/vault-alpha", hostOptions);
+    });
+    const calls = runtimeInstances[0].runSourceControlAction.mock.calls;
+    expect(calls[calls.length - 1][3]).not.toHaveProperty("gitCloneDestinationToken");
+    expect(JSON.stringify(runtimeInstances[0].runSourceControlAction.mock.calls)).not.toContain("/synthetic/clone");
+  });
+
+  it("coalesces concurrent development pickers and remains retryable after cancellation", async () => {
+    const { result } = await mountReady([]);
+    let finishSelection: (pluginId: string | null) => void = () => {};
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockImplementationOnce(() =>
+      new Promise<string | null>((resolve) => { finishSelection = resolve; }),
+    );
+    let first: Promise<void>;
+    let second: Promise<void>;
+    act(() => {
+      first = result.current.loadDevelopmentPlugin();
+      second = result.current.loadDevelopmentPlugin();
+    });
+    expect(api.chooseDevelopmentPluginArchive).toHaveBeenCalledTimes(1);
+    expect(result.current.developmentLoading).toBe(true);
+    await act(async () => {
+      finishSelection(null);
+      await Promise.all([first, second]);
+    });
+    expect(result.current.developmentLoading).toBe(false);
+    expect(api.listPlugins).not.toHaveBeenCalled();
+
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockResolvedValueOnce(pluginId);
+    queueListPlugins([makePlugin()]);
+    await act(async () => result.current.loadDevelopmentPlugin());
+    expect(api.chooseDevelopmentPluginArchive).toHaveBeenCalledTimes(2);
+    expect(api.listPlugins).toHaveBeenCalledTimes(1);
+    expect(result.current.developmentLoading).toBe(false);
+  });
+
+  it("releases the development picker after an archive verification error", async () => {
+    const { result } = await mountReady([]);
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockRejectedValueOnce(new Error("Synthetic invalid archive."));
+    await act(async () => {
+      await expect(result.current.loadDevelopmentPlugin()).rejects.toThrow("Synthetic invalid archive.");
+    });
+    expect(result.current.developmentLoading).toBe(false);
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockResolvedValueOnce(null);
+    await act(async () => result.current.loadDevelopmentPlugin());
+    expect(api.chooseDevelopmentPluginArchive).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps a disabled JSON/YAML viewer stopped at startup even with an update available", async () => {
+    const viewer = makePlugin({
+      catalog: {
+        ...catalog,
+        manifest: { ...catalog.manifest, id: "denote.json-yaml-viewer" },
+      },
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+      approvedPermissions: [{ capability: "structured-viewer" }],
+    });
+    const rendered = await mountReady([viewer]);
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(rendered.result.current.structuredViewers).toEqual([]);
+
+    await act(async () => rendered.result.current.setAutoUpdateEnabled(true));
+    rendered.rerender({
+      currentProjectContext: null,
+      currentWorkspaceIdentity: "/synthetic/vault-beta",
+      currentContentAvailable: true,
+    });
+
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(rendered.result.current.plugins[0].enabled).toBe(false);
+  });
+
   it.each([
     "structured-viewer",
     "kanban-board",

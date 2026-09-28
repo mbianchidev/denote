@@ -298,6 +298,28 @@ entrypoint, and worker checks before enablement. A local package must be
 disabled before replacement, and stale development enablement is removed at
 startup instead of being restored under production metadata.
 
+Vault, app-link, development archive, custom-executable, and clone-destination
+pickers share an asynchronous native selection adapter. On macOS, panel
+construction is deferred onto the main dispatch queue rather than nesting
+AppKit's file-service initialization inside tao's run-loop observer. After the
+main window finishes loading, the host prepares and retains one invisible
+`NSOpenPanel` on that queue. File and folder requests reuse this panel rather than
+repeating AppKit's file-service handshake. Each request resets the file/folder
+mode, extension filter, title, and starting directory, and one callback-owned
+lease prevents another picker from reconfiguring it before selection completes.
+Preparation runs once per process and never presents a dialog, selects a path,
+or accesses vault content. Presentation failures remain errors, distinct from
+cancellation. Other platforms retain Tauri's callback dialogs.
+Selection cancellation returns without loading or changing a package. Archive
+inspection, executable validation, tool-status inspection, and settings writes
+that can probe custom executables run on the blocking pool. In particular,
+opening the archive picker never waits for the Git/gh status checks started by
+Settings. Version probes use process groups, a five-second deadline, and 64 KiB
+output limits on both streams. Private temporary output files avoid waiting for
+descendants that retain pipe handles; timeout and oversized output are explicit
+failures. The frontend shares one in-flight archive request and exposes loading
+state until selection, verification, and catalog refresh finish.
+
 The development Tauri configuration uses separate application data, cache, and
 manager-lock locations. The keychain service is derived from the runtime
 application identity while preserving the existing production service name, so
@@ -572,24 +594,39 @@ the safe `core.autocrlf`, `core.eol`, `core.ignoreCase`, and
 `core.precomposeUnicode` values, then reapplies only the values needed by the
 typed operation after the hardening overrides. The later global scope wins for
 single-valued settings and an empty higher-precedence credential helper clears
-earlier helpers exactly as Git does. Credential helpers are enabled only for
+earlier helpers exactly as Git does. Both scopes are optional: a missing or empty
+system/global file contributes no settings. The shared reader queries entries
+and accepts Git's no-match status only with empty output and diagnostics;
+unreadable or malformed files remain explicit errors. Signing detection and
+cloning use this same reader. Credential helpers are enabled only for
 the `system` authentication mode. GPG programs and signing values are enabled
-only for a manual commit whose signing policy requires them. A masked key
-setting can override `user.signingKey`; the passphrase remains entirely in the
-system GPG agent or pinentry. Automatic commits keep the isolated unsigned
-path.
+only for a manual commit whose signing policy requires them. The Signing key
+setting can override `user.signingKey`. Signed commits and explicit key
+detection evaluate trusted global conditional includes from the selected
+repository, then overlay only safe local format, key, signing-default, and email
+values. Repository-local executable settings remain forbidden. Automatic and
+explicitly unsigned commits never load a signing credential.
 
 Hardening pins every GPG program to an empty value before operation-specific
 settings are applied. A signed manual commit therefore always restores one
 explicit program after that pin. OpenPGP honors both the modern
 `gpg.openpgp.program` setting and the legacy `gpg.program` alias in Git's
 original system-to-global order, so the later effective setting wins; otherwise
-the format default is used (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures,
-or `gpgsm` for X.509). This keeps a configured Windows Gpg4win installation
-from being replaced by Git for Windows' bundled GPG while still preventing an
-empty program from being executed on unsigned operations.
+the format default is resolved (`gpg` for OpenPGP, `ssh-keygen` for SSH signatures,
+or `gpgsm` for X.509). Resolution uses absolute entries in the application's PATH
+and known installation directories before Git's portable PATH is applied. Both
+the format and canonical executable are pinned per signed commit, so Git for
+Windows cannot shadow a selected Gpg4win executable. Missing explicitly configured
+programs fail without fallback. OpenPGP discovery reads bounded colon-delimited
+secret-key metadata, selects one matching usable fingerprint, and refuses
+ambiguous keys rather than silently choosing another identity.
+When the selected GPG uses Git for Windows' MSYS runtime, an explicit native
+`GNUPGHOME` is translated to its MSYS drive/UNC form for detection and signing.
+Native Gpg4win retains native paths. This avoids treating a `C:\...` keyring as a
+relative folder without changing the selected keyring or the application's
+environment.
 
-An SSH signing passphrase never enters plugin code. `SourceControlPanel` passes
+A signing passphrase never enters plugin code. `SourceControlPanel` passes
 it as host-only metadata beside the typed commit action;
 `PluginWorkerRuntime` keeps it only in the in-memory action lease and posts the
 ordinary commit action to the worker. When the plugin invokes `git.run`,
@@ -598,9 +635,34 @@ layer validates and zeroizes the received string, writes it to an owner-only
 one-shot askpass file, and sets `SSH_ASKPASS` to Denote's early-exit helper with
 `SSH_ASKPASS_REQUIRE=force` for that signed commit only. A separate signing
 context answers only passphrase/PIN prompts, never GitHub credential prompts.
-The file is overwritten and removed with the operation scope on success,
-failure, cancellation, timeout, disable, or shutdown. OpenPGP/X.509 signing
-continues to use the system GPG agent or pinentry.
+OpenPGP instead points Git at Denote's early-exit signing bridge, which accepts
+only Git's signing argument shape and launches the pinned GPG executable with
+batch loopback pinentry. It sends the passphrase as the first line of a private
+stdin pipe and then the exact commit bytes, never a password argument or
+environment value. Git still receives GPG's signature and status output.
+The bridge captures bounded GPG output in private temporary files and forwards
+it after GPG exits, so a Windows GPG agent cannot inherit and keep Git's output
+pipes open after signing.
+The temporary channel is owner-only on Unix and has a protected owner/SYSTEM DACL
+on Windows; link reads are refused. Creation rolls back on failure, and operation
+teardown overwrites/removes the channel. Existing startup cleanup handles crash
+residue. Without a supplied or saved passphrase, the system agent/pinentry remains
+in charge. X.509 always uses system pinentry.
+
+Host-only Settings commands detect a signing key and save/delete its optional
+passphrase in the existing OS credential store. The identifier binds format,
+canonical signing program, key fingerprint and keyring context, or SSH canonical
+path and file digest. An SSH file replacement invalidates its saved credential.
+Settings revalidates the identifier before saving, serializes saves/deletes with
+plugin lifecycle operations, and returns only metadata plus a saved/not-saved
+flag. The private `host-git-signing.` namespace is denied by the plugin secret
+API, even to a plugin approved for secure storage. The existing credential
+journal records cleanup identifiers, never passwords. Explicit credential
+cleanup removes these entries; ordinary disablement retains them. A one-shot
+passphrase overrides the saved one. Saved credentials are loaded only for the
+host-authorized signed commit, not a second commit on a reused plugin action.
+Failure never retries an unsigned commit,
+and bounded multi-line signing diagnostics retain the reason behind exit 128.
 The per-commit sign choice and optional passphrase are consumed by the first
 commit host request in the action lease, including commit-before-switch and
 commit-and-push. A second request cannot reuse either value. Explicit Always or
@@ -640,6 +702,25 @@ the whole report one flat stream of fields, seven per commit. Git cannot place a
 NUL into an author name, a subject, a ref, or a path, so no text read out of a
 repository can shift a field or split a record the way a tab or a newline
 could.
+
+Git `diff` requests can select the additive `numstat` format; omitted format
+retains the existing patch behavior. Native code maps this enum to fixed
+`--numstat -z` arguments with the same revision, path, output, cancellation,
+and hardening boundaries. The plugin parses exact NUL-delimited paths, including
+the two separate names in rename records, without reading file content. Reports
+are capped at 5,000 files and invalid or oversized output is refused, not
+truncated. Status refresh reads the index and worktree separately; an opened
+patch updates only its matching resource group. Untracked, conflicted, or
+otherwise unmeasured resources explicitly mark their line counts unknown.
+
+Pull reporting reads fresh full commit IDs before and after the successful
+operation and compares those immutable trees, not a cached history selection,
+`ORIG_HEAD`, or the dirty worktree. An unborn repository uses Git's matching
+SHA-1 or SHA-256 empty tree. A bounded optional file-stat array in the operation
+review feeds the host's semantic table and survives ordinary refreshes, but is
+cleared on repository or vault switches. A report or refresh failure preserves
+the fact that the pull completed, reports the failing follow-up separately, and
+never retries the pull.
 
 Repository-local configuration that defines filters, includes, credential
 helpers, URL rewrites, protocol overrides, command-bearing `remote` keys, or
@@ -688,7 +769,29 @@ Cloning and deleting a failed clone are bound to the standardised source-control
 action the host confirmed. The renderer's action lease carries the action ID it
 was opened for, `null` for a plugin command, and the host operation refuses
 anything but `clone` and `clean-failed-clone` respectively, before the native
-folder chooser opens or any native command runs.
+command runs.
+
+Clone destination selection is a separate host-only native command using the
+callback folder picker. It validates an empty, real directory and retains one
+opaque selection per plugin, bound to the originating vault. The renderer shows
+the destination and sends its token only as host action metadata after the
+explicit Clone confirmation; plugin actions and worker messages contain neither
+path nor token. `takeHostOperationScope` consumes the lease's selection after one
+clone request, and the native registry independently consumes and revalidates it
+before starting Git. Missing, wrong-vault, replaced, non-empty, linked, or spent
+selections fail before any clone process starts. Release/disable/shutdown remove
+tokens only, never destination contents.
+
+The native clone holds read access to its originating vault while Git runs, then
+revalidates that scope under write access before opening the completed checkout.
+The new snapshot's encryption state is prepared without inheriting the old
+vault's key before active-vault state changes. Clone progress and errors render
+inside the vault switcher; its Done action becomes Cancel during onboarding,
+and close/switch controls stay disabled while selection or execution is pending.
+Successful clones load their returned snapshot. Failed clones rescan the
+previous vault only when native selection identifies a destination inside it
+and the originating vault is still active; an unrelated destination needs no
+old-vault rescan.
 
 Operations run in a command process group with a ten minute hard timeout and
 output bounded at 8 MiB. Windows Git and GitHub CLI children suppress console
@@ -1333,10 +1436,12 @@ plus the single-instance plugin prevents concurrent writers.
 
 Approved permission records and the artifact/catalog identities last accepted
 by the user remain as inert metadata after code is disabled or removed. They are
-consulted only to mark an independently changed catalog entry update-available
-and to qualify it for the explicit **Update all** flow; runtime authorization
-still requires the plugin to be enabled. For enabled plugins, native state also
-records the installed manifest. Startup validates that manifest, its approved
+consulted only for enabled plugins to mark an independently changed catalog entry
+update-available and qualify it for the explicit **Update all** flow. Disabled
+plugins never report an update; recovery removes their stale update flags without
+discarding approval metadata. Runtime authorization still requires the plugin to
+be enabled. For enabled plugins, native state also records the installed
+manifest. Startup validates that manifest, its approved
 permissions, and the recorded entrypoint digest against the versioned package,
 then continues running it under those installed permissions when a newer catalog
 entry appears. Bulk update captures the eligible list, stops one old runtime,

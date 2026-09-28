@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import type { PluginPermissionRequest } from "@denote/plugin-sdk";
 import { PluginSettingsPanel } from "./PluginSettingsPanel";
+import type { GitSigningActions } from "./GitSigningSettings";
 import type { ThemePreference } from "../lib/theme";
 
 interface EditorSettingsDialogProps {
@@ -28,6 +29,7 @@ interface EditorSettingsDialogProps {
   plugins: PluginView[];
   pluginBundles: PluginBundleMetadata[];
   pluginDevelopmentSupported?: boolean;
+  pluginDevelopmentLoading?: boolean;
   activeProject: ProjectRoot | null;
   pluginsLoading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -58,6 +60,7 @@ interface EditorSettingsDialogProps {
     settings: Record<string, unknown>,
   ) => Promise<void>;
   onInspectPluginTools?: (pluginId: string) => Promise<PluginToolStatus[]>;
+  gitSigningActions?: GitSigningActions;
   onPickPluginExecutable?: (
     tool: "git" | "github-cli",
   ) => Promise<string | null>;
@@ -76,6 +79,7 @@ export function EditorSettingsDialog({
   plugins,
   pluginBundles,
   pluginDevelopmentSupported = false,
+  pluginDevelopmentLoading = false,
   activeProject,
   pluginsLoading,
   busyPluginIds,
@@ -96,6 +100,7 @@ export function EditorSettingsDialog({
   onUpdatePluginSettings,
   onImportPluginSettings,
   onInspectPluginTools,
+  gitSigningActions,
   onPickPluginExecutable,
   onPluginError,
   onClose,
@@ -388,6 +393,7 @@ export function EditorSettingsDialog({
           plugins={plugins}
           bundles={pluginBundles}
           developmentSupported={pluginDevelopmentSupported}
+          developmentLoading={pluginDevelopmentLoading}
           activeProject={activeProject}
           loading={pluginsLoading}
           busyPluginIds={busyPluginIds}
@@ -403,6 +409,7 @@ export function EditorSettingsDialog({
           onUpdateSettings={onUpdatePluginSettings}
           onImportSettings={onImportPluginSettings}
           onInspectTools={onInspectPluginTools}
+          gitSigningActions={gitSigningActions}
           onPickExecutable={onPickPluginExecutable}
           onError={onPluginError}
         />

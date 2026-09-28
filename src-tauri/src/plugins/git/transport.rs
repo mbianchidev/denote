@@ -162,6 +162,26 @@ pub(crate) struct SystemGitSettings {
 }
 
 impl SystemGitSettings {
+    pub(super) fn append_repository_signing(&mut self, output: &str) -> AppResult<()> {
+        for record in output.split('\0') {
+            let Some((key, _)) = record.split_once('\n') else {
+                continue;
+            };
+            if [
+                "gpg.format",
+                "user.signingkey",
+                "commit.gpgsign",
+                "user.email",
+            ]
+            .contains(&key.to_ascii_lowercase().as_str())
+            {
+                self.values
+                    .extend(Self::parse_scopes(&[record.as_bytes()])?.values);
+            }
+        }
+        Ok(())
+    }
+
     #[cfg(test)]
     pub(crate) fn from_pairs<K, V, I>(pairs: I) -> Self
     where
@@ -184,11 +204,11 @@ impl SystemGitSettings {
             .map(|(_, value)| value.as_str())
     }
 
-    fn last(&self, key: &str) -> Option<&str> {
+    pub(super) fn last(&self, key: &str) -> Option<&str> {
         self.values(key).last()
     }
 
-    fn last_of(&self, keys: &[&str]) -> Option<&str> {
+    pub(super) fn last_of(&self, keys: &[&str]) -> Option<&str> {
         self.values.iter().rev().find_map(|(candidate, value)| {
             keys.iter()
                 .any(|key| candidate.eq_ignore_ascii_case(key))
@@ -276,6 +296,14 @@ pub enum PluginGitDiffTarget {
         from_commit: String,
         to_commit: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PluginGitDiffFormat {
+    #[default]
+    Patch,
+    Numstat,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -401,6 +429,8 @@ pub enum PluginGitRequest {
         target: PluginGitDiffTarget,
         #[serde(default)]
         paths: Option<Vec<String>>,
+        #[serde(default)]
+        format: PluginGitDiffFormat,
     },
     Fetch {
         scope: PluginGitScope,
@@ -913,7 +943,12 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
             }
             vec![read_only(args)]
         }
-        PluginGitRequest::Diff { target, paths, .. } => {
+        PluginGitRequest::Diff {
+            target,
+            paths,
+            format,
+            ..
+        } => {
             let mut args = match target {
                 PluginGitDiffTarget::Worktree => vec!["diff".into()],
                 PluginGitDiffTarget::Index => vec!["diff".into(), "--cached".into()],
@@ -947,8 +982,11 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
                 "--no-ext-diff".into(),
                 "--no-textconv".into(),
                 "--find-renames".into(),
-                "--patch".into(),
             ];
+            match format {
+                PluginGitDiffFormat::Patch => full.push("--patch".into()),
+                PluginGitDiffFormat::Numstat => full.extend(["--numstat".into(), "-z".into()]),
+            }
             full.extend(args);
             if let Some(paths) = paths {
                 full.push("--".into());
@@ -1388,9 +1426,8 @@ pub(crate) fn apply_system_git_settings(
                     .flatten()
                     .unwrap_or("openpgp")
                     .to_ascii_lowercase();
-                if format != "openpgp" {
-                    push_system_config(&mut prefix, "gpg.format", &format)?;
-                }
+                super::signing::SigningFormat::parse(Some(&format))?;
+                push_system_config(&mut prefix, "gpg.format", &format)?;
                 let (program_key, default_program) = match format.as_str() {
                     "ssh" => ("gpg.ssh.program", "ssh-keygen"),
                     "x509" => ("gpg.x509.program", "gpgsm"),
@@ -1463,8 +1500,15 @@ fn git_config_truthy(value: &str) -> bool {
 }
 
 pub(crate) fn read_system_git_settings(executable: &Path) -> AppResult<SystemGitSettings> {
-    let system = read_git_config_scope(executable, GitConfigScope::System)?;
-    let global = read_git_config_scope(executable, GitConfigScope::Global)?;
+    read_system_git_settings_at(executable, None)
+}
+
+pub(super) fn read_system_git_settings_at(
+    executable: &Path,
+    repository: Option<&Path>,
+) -> AppResult<SystemGitSettings> {
+    let system = read_git_config_scope(executable, GitConfigScope::System, repository)?;
+    let global = read_git_config_scope(executable, GitConfigScope::Global, repository)?;
     SystemGitSettings::parse_scopes(&[&system, &global])
 }
 
@@ -1490,9 +1534,24 @@ impl GitConfigScope {
     }
 }
 
-fn read_git_config_scope(executable: &Path, scope: GitConfigScope) -> AppResult<Vec<u8>> {
+fn read_git_config_scope(
+    executable: &Path,
+    scope: GitConfigScope,
+    repository: Option<&Path>,
+) -> AppResult<Vec<u8>> {
     let mut command = background_command(executable);
-    command.args(["config", scope.flag(), "--includes", "--null", "--list"]);
+    if let Some(repository) = repository {
+        command.current_dir(repository);
+    }
+    // Unlike --list, a query permits optional config files to be absent.
+    command.args([
+        "config",
+        scope.flag(),
+        "--includes",
+        "--null",
+        "--get-regexp",
+        ".*",
+    ]);
     remove_inherited_environment(&mut command);
     command
         .env_remove("GIT_CONFIG_GLOBAL")
@@ -1507,7 +1566,9 @@ fn read_git_config_scope(executable: &Path, scope: GitConfigScope) -> AppResult<
             scope.label()
         ))
     })?;
-    if !output.status.success() {
+    let no_entries =
+        output.status.code() == Some(1) && output.stdout.is_empty() && output.stderr.is_empty();
+    if !output.status.success() && !no_entries {
         return Err(AppError::Plugin(format!(
             "Unable to read the {} Git settings: {}",
             scope.label(),
@@ -3010,6 +3071,13 @@ pub(crate) fn run_git_command_with_input(
         .stdout(Stdio::from(stdout_file.try_clone()?))
         .stderr(Stdio::from(stderr_file.try_clone()?));
     apply_environment(&mut command, execution);
+    if let Some(program) = args.iter().rev().find_map(|argument| {
+        argument
+            .strip_prefix("gpg.openpgp.program=")
+            .filter(|value| !value.is_empty())
+    }) {
+        super::gpg_paths::configure_gpg_home(&mut command, Path::new(program));
+    }
     let mut child = spawn_background_group(&mut command)
         .map_err(|error| AppError::Plugin(format!("Unable to start Git: {error}")))?;
     // The payload is written from its own thread and the pipe is closed when
@@ -3258,6 +3326,8 @@ const REMOVED_ENVIRONMENT: &[&str] = &[
     ASKPASS_MODE_ENV,
     ASKPASS_FILE_ENV,
     ASKPASS_CONTEXT_ENV,
+    super::gpg_signer::GPG_SIGNER_MODE_ENV,
+    super::gpg_signer::GPG_SIGNER_PROGRAM_ENV,
 ];
 
 /// The identity variables are removed rather than pinned. Git reads
@@ -3370,7 +3440,7 @@ pub(crate) fn git_cli_path_string(path: &Path) -> String {
 /// Strips every inherited variable Denote refuses to let a Git child see. It is
 /// applied to every Git child, including the executable probe, so no invocation
 /// is ever reached by an ambient value.
-fn remove_inherited_environment(command: &mut Command) {
+pub(super) fn remove_inherited_environment(command: &mut Command) {
     for name in REMOVED_ENVIRONMENT {
         command.env_remove(OsStr::new(name));
     }
@@ -3798,12 +3868,42 @@ impl PluginManager {
                 GitCommitSigningMode::Never
             };
         }
-        let system_settings = if policy.use_system_settings {
-            read_system_git_settings(&executable)?
+        let mut system_settings = if policy.use_system_settings {
+            read_system_git_settings_at(&executable, Some(repository_root))?
         } else {
             SystemGitSettings::default()
         };
+        if matches!(request, PluginGitRequest::Commit { .. })
+            && policy.signing != GitCommitSigningMode::Never
+        {
+            super::signing::read_repository_signing(
+                &mut system_settings,
+                &executable,
+                repository_root,
+                operation.token(),
+            )?;
+        }
         apply_system_git_settings(&mut steps, &request, &policy, &system_settings)?;
+        let signer = if matches!(request, PluginGitRequest::Commit { .. })
+            && Self::commit_signing_enabled(&steps)
+        {
+            let author_email = match &request {
+                PluginGitRequest::Commit { author_email, .. } => author_email.as_deref(),
+                _ => None,
+            };
+            let signer = super::signing::resolve_signer(
+                &executable,
+                &policy,
+                &system_settings,
+                Some(repository_root),
+                operation.token(),
+                author_email,
+            )?;
+            super::signing::pin_signer(&mut steps, &signer)?;
+            Some(signer)
+        } else {
+            None
+        };
         let hooks_directory = self.git_hooks_directory()?;
         let global_config = self.git_global_config()?;
         // Credential material exists only for the four operations that reach a
@@ -3821,23 +3921,65 @@ impl PluginManager {
             },
             operation.token(),
         )?;
-        let signing_askpass = if remote_askpass.is_none()
-            && matches!(request, PluginGitRequest::Commit { .. })
-            && Self::commit_signing_enabled(&steps)
-        {
-            signing_passphrase
-                .filter(|passphrase| !passphrase.is_empty())
-                .map(|passphrase| {
-                    Self::validate_signing_passphrase(passphrase)?;
-                    AskpassMaterial::create_signing(
+        let saved_passphrase = match &signer {
+            Some(signer)
+                if signing_override == Some(true)
+                    && signing_passphrase.is_none_or(str::is_empty) =>
+            {
+                self.saved_signing_passphrase(plugin_id, signer)?
+            }
+            _ => None,
+        };
+        let passphrase = signing_passphrase
+            .filter(|value| !value.is_empty())
+            .or(saved_passphrase.as_deref().map(String::as_str));
+        let signing_askpass = match (&signer, passphrase) {
+            (Some(signer), Some(passphrase)) => {
+                super::signing::validate_passphrase(passphrase)?;
+                let program = super::askpass::askpass_program()?;
+                match signer.status.format {
+                    super::signing::SigningFormat::OpenPgp => {
+                        for step in &mut steps {
+                            if let GitPlanStep::Command { args, .. } = step {
+                                let index = args
+                                    .iter()
+                                    .position(|arg| arg == "commit")
+                                    .ok_or_else(|| {
+                                        AppError::Plugin(
+                                            "Missing signed commit command.".to_string(),
+                                        )
+                                    })?;
+                                args.splice(
+                                    index..index,
+                                    [
+                                        "-c".to_string(),
+                                        format!(
+                                            "gpg.openpgp.program={}",
+                                            git_cli_path_string(&program)
+                                        ),
+                                    ],
+                                );
+                            }
+                        }
+                        Some(AskpassMaterial::create_openpgp(
+                            &self.git_support_directory()?,
+                            program,
+                            signer.program.clone(),
+                            passphrase,
+                        )?)
+                    }
+                    super::signing::SigningFormat::Ssh => Some(AskpassMaterial::create_signing(
                         &self.git_support_directory()?,
-                        super::askpass::askpass_program()?,
+                        program,
                         passphrase,
-                    )
-                })
-                .transpose()?
-        } else {
-            None
+                    )?),
+                    super::signing::SigningFormat::X509 => return Err(AppError::Plugin(
+                        "X.509 signing uses system pinentry and cannot accept a Denote passphrase."
+                            .to_string(),
+                    )),
+                }
+            }
+            _ => None,
         };
         let askpass = remote_askpass.or(signing_askpass);
         let execution = GitExecution {
@@ -3850,7 +3992,15 @@ impl PluginManager {
             encrypted,
             transport,
         };
-        run_git_plan(&steps, &execution, operation.token())
+        let mut result = run_git_plan(&steps, &execution, operation.token())?;
+        if let Some(passphrase) = passphrase {
+            result.stdout = result.stdout.replace(passphrase, "<redacted>");
+            result.stderr = result.stderr.replace(passphrase, "<redacted>");
+        }
+        if signer.is_some() && result.exit_code != 0 {
+            result.stderr.push_str("\nSigning failed. Check Signing credentials in Settings: verify the detected Git format, signing program and key; replace a saved passphrase if necessary. Denote did not retry without a signature.");
+        }
+        Ok(result)
     }
 
     fn commit_signing_enabled(steps: &[GitPlanStep]) -> bool {
@@ -3864,19 +4014,6 @@ impl PluginManager {
                     || argument.eq_ignore_ascii_case("commit.gpgSign=true")
             })
         })
-    }
-
-    fn validate_signing_passphrase(passphrase: &str) -> AppResult<()> {
-        if passphrase.is_empty()
-            || passphrase.len() > 4096
-            || passphrase.chars().any(char::is_control)
-        {
-            return Err(AppError::Plugin(
-                "The signing passphrase is empty, too long, or contains control characters"
-                    .to_string(),
-            ));
-        }
-        Ok(())
     }
 
     /// Prepares credentials for a remote operation.
@@ -3958,10 +4095,12 @@ impl PluginManager {
     pub(crate) fn cancel_git_operations(&self, plugin_id: &str) {
         self.inner.git_operations.cancel_plugin(plugin_id);
         self.inner.clone_cleanups.forget_plugin(plugin_id);
+        self.inner.clone_destinations.forget_plugin(plugin_id);
     }
 
     pub(crate) fn cancel_all_git_operations(&self) {
         self.inner.git_operations.cancel_all();
+        self.inner.clone_destinations.clear();
     }
 }
 

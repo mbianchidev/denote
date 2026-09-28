@@ -99,6 +99,17 @@ validation, extraction, permission approval, worker activation, rollback, and
 disable cleanup. Release builds do not compile the local adapter and never show
 the picker.
 
+The development archive picker opens independently of executable status checks.
+Dialog results are awaited asynchronously; archive verification and any
+executable checks run outside the UI thread. On macOS, archive, executable, and
+clone-folder panel construction is deferred to the main dispatch queue instead
+of running inside the event-loop observer. Git/gh version probes stop after
+five seconds or 64 KiB per output stream and report the failure rather than
+blocking Settings indefinitely. One in-flight load is shared across repeated
+requests, with visible progress and a retryable state after cancellation or an
+invalid archive. These scheduling changes do not skip verification or approve
+permissions automatically.
+
 The Settings dialog contains the searchable, category-grouped plugin manager.
 It shows catalog metadata, requested permissions, status, in-app guides,
 declarative settings, enable/disable controls, and explicit data or credential
@@ -108,10 +119,14 @@ actions, while entries with errors open automatically. Permissions must be
 approved before download. Structured permission objects are persisted and
 compared with the current manifest, so any permission change requires approval
 again.
+Only enabled plugins show update availability. Previously approved but disabled
+plugins show **Disabled**, with no update notice, and remain stopped on startup,
+automatic updates, and **Update all**, including in Denote Development.
+**Enable** explicitly approves starting a disabled package at its current version.
 Prior approval metadata remains after package code is disabled or removed; it
 does not grant runtime access. It exists so an explicit **Update all** can select
-only previously approved plugins, show one confirmation, and re-accept each
-latest complete permission payload. Every selected plugin still uses its own
+only enabled, previously approved plugins, show one confirmation, and re-accept
+each latest complete permission payload. Every selected plugin still uses its own
 prepare, verified activation, commit, rollback, busy state, and error path.
 The valid installed version remains available until the replacement commits, and
 rollback removes only the staged replacement before restarting the installed
@@ -119,7 +134,7 @@ runtime. Updating one plugin never prepares, downloads, starts, or changes
 another.
 An **Automatically update plugins** toggle in the same panel, off by default
 and persisted locally, lets Denote apply this same per-plugin update sequence
-without a confirmation prompt for plugins whose next version keeps every
+without a confirmation prompt for enabled plugins whose next version keeps every
 already-approved permission unchanged. A plugin whose next version changes its
 requested permissions is never touched by the automatic path; it keeps showing
 as update-available until the user reviews it through **Update all** or its
@@ -579,13 +594,26 @@ against the build-anchored integrity manifest. The archive itself is downloaded
 only when Bundled mode is selected and a Git or GitHub-specific operation first
 needs it. System, Custom, and Disabled never use the downloader.
 
-Host-rendered source control may attach an SSH signing passphrase to a manual
+Host-rendered source control may attach an OpenPGP or SSH passphrase to a manual
 commit action as host-only metadata. It is not part of
 `PluginSourceControlAction`, `PluginGitRequest`, any worker message, settings,
 storage, or logs. The native host consumes it through a private one-shot
-`SSH_ASKPASS` file only when the fixed commit plan is signed. The host also
+`SSH_ASKPASS` channel or GPG loopback stdin bridge only when the fixed commit plan is signed. The host also
 consumes the per-commit signing override on that first commit request, so a
 reusable action lease cannot sign a second commit with either value.
+
+Host Settings can separately persist a passphrase for a detected key in the OS
+credential store. The `host-git-signing.` namespace is reserved and unavailable
+through plugin secret APIs; no new plugin capability exposes saved passwords.
+The existing cleanup journal tracks identifiers only, and **Clear credentials**
+removes saved signing entries. A saved entry is bound to signing format, program,
+and key identity, including SSH file content. Host save/delete commands are
+serialized with enable/disable operations, and stale key selections cannot save
+under a different identity.
+Pending Git settings do not make key detection unusable. The host offers
+**Save settings and detect signing key**, waits for the normal settings save and
+runtime refresh, then invokes detection with the persisted configuration. Save
+failures and repository changes stop the continuation.
 
 Beyond `run` and `cancel`, the Git capability exposes three host-owned
 operations that are not Git commands: `listGitHubRepositories`, `cloneVault`,
@@ -597,8 +625,8 @@ exactly as `git.run` does: the ID is published before the work is awaited, and
 Cloning and deleting a failed clone additionally require the lease to belong to
 the standardised source-control action the host confirmed, `clone` and
 `clean-failed-clone`; a plugin command carries no source-control action at all,
-and any other action ID is refused before the folder chooser opens or any native
-command runs.
+and any other action ID is refused before any clone or cleanup command runs.
+Folder selection is a separate host-only action and never runs a plugin command.
 
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
 unmerged-path listing, operation-state detection, initialize, stage, unstage,
@@ -663,6 +691,21 @@ message suppressed, so the report is the patch alone: a repository that sets
 one-parent patch, so a surface reads it as the range against its first parent
 rather than parsing Git's combined diff.
 
+The optional `diff.format` enum accepts `patch` (the default) or `numstat`.
+Numstat uses fixed `--numstat -z` arguments and returns per-file additions,
+deletions, binary markers, and unquoted paths without patch content. It shares
+the same validated targets, path rules, exact-output handling, and 8 MiB native
+output ceiling. The Git plugin and host validate file-stat reports up to 5,000
+entries; incomplete or larger reports fail explicitly.
+
+Source-control resources may set `lineCountsKnown: false` when statistics are
+unavailable. The Git provider reads staged and unstaged statistics independently
+on refresh rather than deriving every row from one opened patch. An operation
+review may include a bounded `files` array for a completed pull's exact
+before/after commit comparison. This is host-rendered data only, never markup or
+a new write capability. Git plugin 0.8.0 requires Denote 0.7.1 for these additive
+API version 1 fields.
+
 The host presents a loaded diff as a transient read-only `.diff` editor tab.
 `@pierre/diffs/react` renders the host-serialized patch, while file and hunk
 buttons continue to send the original typed action IDs and indexes. The
@@ -690,9 +733,11 @@ can reintroduce a filter or a command. When the plugin's host-owned
 configuration and then its user-global configuration, preserving Git's
 precedence and credential-helper reset semantics, and reapplies only bounded
 allowlisted identity, credential-helper, line-ending, and GPG signing values
-after those hardening pins. Credential helpers are restored only for `system`
-authentication, and GPG programs only for signed manual commits; passphrases
-remain in system pinentry. The host still rejects dangerous repository-local
+after those hardening pins. Missing or empty system/global configuration is
+allowed; malformed or unreadable configuration still fails explicitly.
+Credential helpers are restored only for `system`
+authentication, and GPG programs only for signed manual commits. System pinentry
+remains available unless a saved or one-shot passphrase is supplied. The host still rejects dangerous repository-local
 configuration before running. Operations use process groups, suppress console
 windows on Windows, bound output at 8 MiB and fail rather than truncate, enforce
 a ten minute hard timeout, and use a native per-plugin cancellation registry
@@ -704,9 +749,12 @@ and quotes them back in a hunk request.
 For OpenPGP signing, both the modern `gpg.openpgp.program` setting and the
 legacy `gpg.program` alias retain Git's system-to-global order, so a configured
 Windows Gpg4win installation is not replaced by Git for Windows' bundled GPG.
-When system Git settings are active, the host settings surface warns users to
+When system Git settings are active, the host settings surface helps users to
 verify those program values and `user.signingKey` before relying on a system
 GPG key, because separate Windows GPG installations may use separate keyrings.
+The host resolves and pins the executable before portable Git adjusts PATH,
+detects an unambiguous OpenPGP key when no override exists, and offers the
+effective key plus cross-platform discovery commands in **Signing credentials**.
 
 ### Remote authentication
 
@@ -772,10 +820,19 @@ use.
 `cloneVault` is presented by the host in the Switch vault dialog and is the one
 operation that creates a whole vault, so the host owns
 every part of it. A plugin supplies a URL, an authentication mode, and an
-optional branch; it never supplies, learns, or influences a destination. The
-host opens a native folder chooser, and closing it is an ordinary `cancelled`
-outcome rather than an error. The chosen folder must be a real, empty directory
-that is not a symbolic link. The clone runs through the same hardened Git with a
+optional branch; it never supplies, learns, or influences a destination.
+**Choose folder** opens the host's callback-based native chooser separately
+from **Clone**. Cancellation returns no selection and runs no Git. The host
+displays the selected path and enables Clone only once a URL and destination
+exist; the explicit confirmation names both.
+
+Native code retains at most one pending destination per plugin, bound to the
+originating vault and an opaque token. Only the token enters host-only action
+lease metadata; neither the path nor token reaches plugin code. The clone
+request consumes that token once and revalidates the chosen folder as a real,
+empty directory, refusing links and reparse points. Closing onboarding,
+replacing a selection, disabling the plugin, and shutdown discard pending
+tokens without deleting any folder. The clone runs through the same hardened Git with a
 fixed template that disables submodules, local object sharing, and hard links,
 and the standard protocol pins still allow only HTTPS and SSH.
 
@@ -789,6 +846,11 @@ previous vault, register the clone, and hand a workspace snapshot to its own
 renderer. The snapshot never crosses the plugin boundary, and an encrypted clone
 opens locked, so the normal password and recovery screen appears before any
 content.
+The clone dialog shows the provider's progress, cancellation control, operation
+review, and recovery errors. It cannot be dismissed mid-operation. A completed
+clone whose vault could not be opened is reported as such, with its files left
+intact; an ordinary failed clone leaves the previous vault active. It is
+refreshed only if the destination was inside that still-active vault.
 
 A clone that fails leaves the destination exactly as it is and returns an opaque
 host-owned clean-up token instead of a path. The panel offers Retry and

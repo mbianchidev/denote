@@ -29,10 +29,12 @@ export interface PluginActionLeaseScope {
   sourceControlActionId: string | null;
   gitSigningPassphrase?: string;
   gitCommitSign?: boolean;
+  gitCloneDestinationToken?: string;
 }
 
 export interface PluginActionHostSecrets {
   gitSigningPassphrase?: string;
+  gitCloneDestinationToken?: string;
 }
 
 /**
@@ -237,16 +239,18 @@ export async function runHostOperation(
       );
     }
     case "git.clone-vault": {
-      // A clone opens a native folder chooser and replaces the workspace, so
-      // it is refused unless the host itself is running the standardised
-      // clone action the user confirmed. Refusing here means no chooser is
-      // ever opened and no native command is ever reached.
+      // The selected folder is host-only metadata on this confirmed action,
+      // never a destination a plugin can name or replace.
       const scope = requireSourceControlAction(actionScope, "clone");
+      if (!scope.gitCloneDestinationToken) {
+        throw new Error("Choose an empty destination folder before cloning.");
+      }
       const response = await api.pluginGitCloneVault(
         pluginId,
         parsePluginGitCloneVaultRequest(value),
         scope.workspaceScope,
         requireOperationId(operationId),
+        scope.gitCloneDestinationToken,
       );
       if (response.snapshot) {
         // The host renderer owns the new vault. Awaiting it here means the

@@ -2,6 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if let Some(code) = denote_lib::run_gpg_signer_if_requested() {
+        std::process::exit(code);
+    }
     // A Git credential prompt reaches Denote as an ordinary process launch.
     // It is answered and the process exits before any window, database, or
     // plugin manager exists.

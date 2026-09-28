@@ -281,10 +281,27 @@ describe("plugin Git host operation", () => {
 });
 
 describe("plugin clone and GitHub host operations", () => {
+  it("refuses cloning without a host-selected destination even if a plugin supplies one", async () => {
+    vi.mocked(api.pluginGitCloneVault).mockResolvedValue({
+      outcome: { status: "cancelled" },
+      snapshot: null,
+    });
+    await expect(runHostOperation(
+      "denote.git",
+      "git.clone-vault",
+      undefined,
+      { url: "https://example.invalid/repo.git", destinationToken: "plugin-supplied" },
+      { workspaceScope: "/synthetic-vault", projectId: null, sourceControlActionId: "clone" },
+      OPERATION_ID,
+    )).rejects.toThrow(/Choose.*folder/);
+    expect(api.pluginGitCloneVault).not.toHaveBeenCalled();
+  });
+
   const leaseFor = (sourceControlActionId: string | null) => ({
     workspaceScope: "/vaults/synthetic",
     projectId: null,
     sourceControlActionId,
+    ...(sourceControlActionId === "clone" ? { gitCloneDestinationToken: "synthetic-destination" } : {}),
   });
   /** A command lease: it names no source-control action at all. */
   const scope = leaseFor(null);
@@ -370,6 +387,7 @@ describe("plugin clone and GitHub host operations", () => {
       { url: "https://example.invalid/repo.git", authMode: "public" },
       "/vaults/synthetic",
       OPERATION_ID,
+      "synthetic-destination",
     );
     // The renderer opens the vault; the plugin is told only that it worked.
     expect(opened).toEqual([snapshot]);

@@ -105,6 +105,30 @@ editor/plugin import boundaries separately with:
 npm run check:plugins
 ```
 
+Git status and pull-report checks are:
+
+```bash
+npx vitest run plugins/git/tests \
+  src/plugins/gitRequests.test.ts src/plugins/runtimeMessages.test.ts \
+  src/plugins/hostOperations.test.ts src/plugins/workerRuntimeLease.test.ts \
+  src/components/SourceControlPanel.test.tsx \
+  src/components/CloneOnboarding.test.tsx src/components/VaultSwitcherDialog.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
+cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
+```
+
+Clone tests use local synthetic bare repositories. Folder selection alone must
+leave the directory empty; only the host-bound explicit clone may populate it.
+Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
+folders, link replacement, visible failure state, and saved-note handoff covered.
+
+The signing integration tests require Git, GnuPG (including `gpgconf`), and
+OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary
+keyrings, exercise Denote's early-exit OpenPGP/SSH helpers, verify the resulting
+commits, and reject a wrong password without creating an unsigned commit.
+They never read, import, or modify a developer's own keys. Windows searches the
+ordinary Git for Windows and GnuPG installation directories as well as PATH.
+
 Bundled tool preparation accepts an explicit release target:
 
 ```bash
@@ -182,6 +206,18 @@ app, are labeled untrusted, and still pass package bounds, path, manifest,
 permission, extraction, entrypoint-integrity, worker-isolation, rollback, and
 cleanup checks. Disable the plugin before loading its rebuilt archive. Use
 `--once` for one build without watching.
+The native picker does not wait for Git/gh status probes. Selecting an archive
+starts background verification with a visible loading state; repeated requests
+share the same picker, and cancelling leaves the catalog unchanged. Tool version
+checks have a five-second deadline, so a broken custom executable cannot hang
+the settings UI.
+On macOS, file/folder selection uses the main dispatch queue instead of
+constructing AppKit panels inside the event-loop observer. The native file
+panel is prepared and retained once after the main window finishes loading,
+without showing a dialog. Later requests reset and reuse it, with a callback-owned
+lease preventing overlapping dialogs. Debug builds log panel preparation and
+presentation times without filenames or paths, so picker latency can be
+distinguished from later file verification.
 
 Targeted one-off builds are also available:
 

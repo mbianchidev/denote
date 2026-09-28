@@ -21,8 +21,10 @@ import type {
   PluginAutomaticCommitOutcome,
   PluginAutomaticCommitRequest,
   PluginCloneVaultResponse,
+  PluginCloneDestination,
   PluginView,
   PluginToolStatus,
+  GitSigningStatus,
   PluginBundleMetadata,
   ProjectConfiguration,
   RecoveryCodesResult,
@@ -52,6 +54,12 @@ import type {
 import { systemPathForDisplay } from "./systemPath";
 
 export const api = {
+  getGitSigningStatus: (workspaceScope: string | null, projectId: string | null) =>
+    invoke<GitSigningStatus>("get_git_signing_status", { workspaceScope, projectId }),
+  saveGitSigningPassphrase: (credentialId: string, passphrase: string, workspaceScope: string | null, projectId: string | null) =>
+    invoke<GitSigningStatus>("save_git_signing_passphrase", { credentialId, passphrase, workspaceScope, projectId }),
+  deleteGitSigningPassphrase: (credentialId: string) =>
+    invoke<void>("delete_git_signing_passphrase", { credentialId }),
   getRuntimeInfo: () => invoke<RuntimeInfo>("get_runtime_info"),
   checkForUpdate: () => invoke<AvailableUpdate | null>("check_for_update"),
   downloadUpdate: (
@@ -425,7 +433,7 @@ export const api = {
       operationId,
     }),
   /**
-   * Clones into a folder the user picks in a native chooser. The workspace
+   * Clones into the previously selected host-owned destination. The workspace
    * snapshot in the response is for the host renderer only; the plugin runtime
    * strips it before answering the plugin.
    */
@@ -434,13 +442,21 @@ export const api = {
     request: PluginGitCloneVaultRequest,
     workspaceScope: string,
     operationId: string,
+    destinationToken: string,
   ) =>
     invoke<PluginCloneVaultResponse>("plugin_git_clone_vault", {
       pluginId,
       request,
       workspaceScope,
       operationId,
+      destinationToken,
     }),
+  choosePluginGitCloneDestination: (pluginId: string, workspaceScope: string) =>
+    invoke<PluginCloneDestination | null>("choose_plugin_git_clone_destination", {
+      pluginId, workspaceScope,
+    }),
+  releasePluginGitCloneDestination: (pluginId: string, token: string) =>
+    invoke<void>("release_plugin_git_clone_destination", { pluginId, token }),
   pluginGitCleanFailedClone: (
     pluginId: string,
     cleanupToken: string,

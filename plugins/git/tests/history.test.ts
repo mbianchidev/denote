@@ -286,7 +286,7 @@ describe("GitRepositoryController commit diffs", () => {
 
     await openFirstCommit(controller, git);
 
-    expect(git.request("diff")).toEqual({
+    expect(git.calls.at(-1)?.request).toEqual({
       operation: "diff",
       scope: "vault",
       target: { kind: "commit", commit: commitId(0) },
@@ -351,7 +351,7 @@ describe("GitRepositoryController commit diffs", () => {
           }),
         };
       }
-      if (request.operation === "diff") {
+      if (request.operation === "diff" && request.format !== "numstat") {
         return { stdout: SYNTHETIC_COMMIT_DIFF };
       }
       return repositoryResponder()(request);
@@ -359,7 +359,7 @@ describe("GitRepositoryController commit diffs", () => {
 
     await openFirstCommit(controller, git);
 
-    expect(git.request("diff")).toEqual({
+    expect(git.calls.at(-1)?.request).toEqual({
       operation: "diff",
       scope: "vault",
       target: {
@@ -391,7 +391,7 @@ describe("GitRepositoryController commit diffs", () => {
     const git = new FakeGit((request) =>
       request.operation === "discover"
         ? { stdout: JSON.stringify({ initialized: true, encrypted: true }) }
-        : request.operation === "diff"
+        : request.operation === "diff" && request.format !== "numstat"
           ? { stdout: BINARY_COMMIT_DIFF }
           : request.operation === "list-history"
             ? { stdout: syntheticHistory(1) }
@@ -444,7 +444,7 @@ describe("GitRepositoryController commit diffs", () => {
     const git = pagedGit({ diff: { stdout: SYNTHETIC_COMMIT_DIFF } });
     await openFirstCommit(controller, git);
     const diffs = git.calls.filter(
-      (call) => call.request.operation === "diff",
+      (call) => call.request.operation === "diff" && call.request.format !== "numstat",
     ).length;
 
     await controller.runAction({ id: "refresh" }, git);
@@ -452,7 +452,7 @@ describe("GitRepositoryController commit diffs", () => {
     // A commit is named by the hash of its own content, so the diff that was
     // read for it cannot have changed.
     expect(
-      git.calls.filter((call) => call.request.operation === "diff"),
+      git.calls.filter((call) => call.request.operation === "diff" && call.request.format !== "numstat"),
     ).toHaveLength(diffs);
     expect(controller.model.commitDetail?.commit.id).toBe(commitId(0));
     expect(controller.model.selectedView).toEqual({
@@ -516,7 +516,7 @@ describe("GitRepositoryController commit diffs", () => {
   it("drops an open working tree diff when a commit is opened", async () => {
     const { controller } = harness();
     const git = new FakeGit((request) =>
-      request.operation === "diff"
+      request.operation === "diff" && request.format !== "numstat"
         ? {
             stdout:
               "target" in request && request.target.kind === "worktree"

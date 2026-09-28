@@ -16,6 +16,7 @@ use crate::{
     commands,
     crypto::{self, EncryptionPhase},
     db::AppState,
+    dialogs::{self, SelectionKind, SelectionOptions},
     error::{AppError, AppResult},
     models::WorkspaceSnapshot,
     vault,
@@ -27,8 +28,8 @@ use super::{
         GitRequestTarget, GitTransportPolicy, PluginGitRequest, PluginGitResult, PluginGitScope,
         auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
         clone::{
-            CloneAttempt, PluginGitCloneCleanupOutcome, PluginGitCloneVaultOutcome,
-            PluginGitCloneVaultRequest,
+            CloneAttempt, PluginCloneDestination, PluginGitCloneCleanupOutcome,
+            PluginGitCloneVaultOutcome, PluginGitCloneVaultRequest,
         },
         github::GitHubRepository,
         tools::{ExecutableMode, ToolKind},
@@ -93,18 +94,11 @@ pub async fn choose_development_plugin_archive(
                     .to_string(),
             ));
         }
-        let selected = app
-            .dialog()
-            .file()
-            .set_title("Choose a development plugin archive")
-            .add_filter("Denote plugin archive", &["tgz"])
-            .blocking_pick_file();
-        let Some(selected) = selected else {
+        let options = SelectionOptions::new("Choose a development plugin archive")
+            .with_filter("Denote plugin archive", &["tgz"]);
+        let Some(path) = dialogs::select(&app, SelectionKind::File, options).await? else {
             return Ok(None);
         };
-        let path = selected
-            .into_path()
-            .map_err(|error| AppError::InvalidPath(error.to_string()))?;
         let manager = state.inner().clone();
         run_blocking(move || manager.load_development_archive(&path))
             .await
@@ -412,34 +406,112 @@ pub fn get_plugin_settings(state: State<'_, PluginManager>, plugin_id: String) -
 }
 
 #[tauri::command]
-pub fn set_plugin_settings(
+pub async fn set_plugin_settings(
     state: State<'_, PluginManager>,
     plugin_id: String,
     settings: Value,
 ) -> AppResult<Value> {
-    state.set_settings(&plugin_id, settings)
+    let manager = state.inner().clone();
+    run_blocking(move || manager.set_settings(&plugin_id, settings)).await
 }
 
 #[tauri::command]
-pub fn import_plugin_settings(
+pub async fn import_plugin_settings(
     state: State<'_, PluginManager>,
     plugin_id: String,
     source_version: u32,
     settings: Value,
 ) -> AppResult<Value> {
-    state.import_settings(&plugin_id, source_version, settings)
+    let manager = state.inner().clone();
+    run_blocking(move || manager.import_settings(&plugin_id, source_version, settings)).await
 }
 
 #[tauri::command]
-pub fn get_plugin_tool_statuses(
+pub async fn get_plugin_tool_statuses(
     state: State<'_, PluginManager>,
     plugin_id: String,
 ) -> AppResult<Vec<super::ToolStatus>> {
-    state.tool_statuses(&plugin_id)
+    let manager = state.inner().clone();
+    run_blocking(move || manager.tool_statuses(&plugin_id)).await
 }
 
 #[tauri::command]
-pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Option<String>> {
+pub async fn get_git_signing_status(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    workspace_scope: Option<String>,
+    project_id: Option<String>,
+) -> AppResult<super::git::signing::GitSigningStatus> {
+    let manager = state.inner().clone();
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        with_signing_repository(
+            &app_state,
+            workspace_scope.as_deref(),
+            project_id.as_deref(),
+            |root| manager.git_signing_status(root),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn save_git_signing_passphrase(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    credential_id: String,
+    passphrase: String,
+    workspace_scope: Option<String>,
+    project_id: Option<String>,
+) -> AppResult<super::git::signing::GitSigningStatus> {
+    let manager = state.inner().clone();
+    let passphrase = zeroize::Zeroizing::new(passphrase);
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        with_signing_repository(
+            &app_state,
+            workspace_scope.as_deref(),
+            project_id.as_deref(),
+            |root| manager.save_git_signing_passphrase(&credential_id, &passphrase, root),
+        )
+    })
+    .await
+}
+
+fn with_signing_repository<T>(
+    state: &AppState,
+    workspace_scope: Option<&str>,
+    project_id: Option<&str>,
+    run: impl FnOnce(Option<&Path>) -> AppResult<T>,
+) -> AppResult<T> {
+    let Some(scope) = workspace_scope else {
+        if project_id.is_some() {
+            return Err(AppError::Plugin(
+                "Signing key detection needs an active vault for project scope.".to_string(),
+            ));
+        }
+        return run(None);
+    };
+    let _access = state.read_vault_access()?;
+    let vault_root = active_vault_for_scope(state, scope)?;
+    let root = match project_id {
+        Some(id) => vault::resolve_project_root(&state.db_path, &vault_root.to_string_lossy(), id)?,
+        None => vault_root,
+    };
+    run(Some(&root))
+}
+
+#[tauri::command]
+pub async fn delete_git_signing_passphrase(
+    state: State<'_, PluginManager>,
+    credential_id: String,
+) -> AppResult<()> {
+    let manager = state.inner().clone();
+    run_blocking(move || manager.delete_git_signing_passphrase(&credential_id)).await
+}
+
+#[tauri::command]
+pub async fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Option<String>> {
     let kind = match tool.as_str() {
         "git" => ToolKind::Git,
         "github-cli" => ToolKind::GitHubCli,
@@ -449,32 +521,28 @@ pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Optio
             ));
         }
     };
-    let selected = app
-        .dialog()
-        .file()
-        .set_title(match kind {
-            ToolKind::Git => "Choose a Git executable",
-            ToolKind::GitHubCli => "Choose a GitHub CLI executable",
-        })
-        .blocking_pick_file();
-    let Some(selected) = selected else {
+    let options = SelectionOptions::new(match kind {
+        ToolKind::Git => "Choose a Git executable",
+        ToolKind::GitHubCli => "Choose a GitHub CLI executable",
+    });
+    let Some(path) = dialogs::select(&app, SelectionKind::File, options).await? else {
         return Ok(None);
     };
-    let path = selected
-        .into_path()
-        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
-    let value = path.to_string_lossy().into_owned();
-    let status = super::git::tools::inspect(
-        std::path::Path::new(""),
-        std::path::Path::new(""),
-        kind,
-        ExecutableMode::Custom,
-        Some(&value),
-    );
-    if status.validation_status != "valid" {
-        return Err(AppError::Plugin(status.message));
-    }
-    Ok(status.resolved_path)
+    run_blocking(move || {
+        let value = path.to_string_lossy().into_owned();
+        let status = super::git::tools::inspect(
+            Path::new(""),
+            Path::new(""),
+            kind,
+            ExecutableMode::Custom,
+            Some(&value),
+        );
+        if status.validation_status != "valid" {
+            return Err(AppError::Plugin(status.message));
+        }
+        Ok(status.resolved_path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1064,7 +1132,45 @@ pub async fn plugin_github_list_repositories(
     .await
 }
 
-/// Clones a repository into a folder the user picks, then opens it as a vault.
+#[tauri::command]
+pub async fn choose_plugin_git_clone_destination(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    workspace_scope: String,
+) -> AppResult<Option<PluginCloneDestination>> {
+    let manager = state.inner().clone();
+    manager.enabled_permission(&plugin_id, "git")?;
+    {
+        let app_state = app.state::<AppState>();
+        let _access = app_state.read_vault_access()?;
+        active_vault_for_scope(&app_state, &workspace_scope)?;
+    }
+    let options = SelectionOptions::new("Choose an empty folder for the cloned vault");
+    let Some(destination) = dialogs::select(&app, SelectionKind::Folder, options).await? else {
+        return Ok(None);
+    };
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        let _access = app_state.read_vault_access()?;
+        let root = active_vault_for_scope(&app_state, &workspace_scope)?;
+        manager
+            .select_clone_destination(&plugin_id, &root, &destination)
+            .map(Some)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn release_plugin_git_clone_destination(
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    token: String,
+) -> AppResult<()> {
+    state.release_clone_destination(&plugin_id, &token)
+}
+
+/// Clones into a previously selected host-owned folder, then opens it as a vault.
 ///
 /// The chooser, the destination, the credentials, and the vault registration
 /// are all host-owned. A plugin supplies a URL, an authentication mode, and an
@@ -1077,45 +1183,24 @@ pub async fn plugin_git_clone_vault(
     request: PluginGitCloneVaultRequest,
     workspace_scope: String,
     operation_id: String,
+    destination_token: String,
 ) -> AppResult<PluginCloneVaultResponse> {
     let manager = state.inner().clone();
-    manager.enabled_permission(&plugin_id, "git")?;
-    {
+    run_blocking(move || {
         let app_state = app.state::<AppState>();
-        let _vault_access = app_state.read_vault_access()?;
-        active_vault_for_scope(&app_state, &workspace_scope)?;
-    }
-    let selected = app
-        .dialog()
-        .file()
-        .set_title("Choose an empty folder for the cloned vault")
-        .blocking_pick_folder();
-    // Cancelling the chooser is an ordinary outcome, not a failure.
-    let Some(selected) = selected else {
-        return Ok(PluginCloneVaultResponse {
-            outcome: PluginGitCloneVaultOutcome::Cancelled,
-            snapshot: None,
-        });
-    };
-    let destination = selected
-        .into_path()
-        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
-    let cloning = {
-        let manager = manager.clone();
-        let plugin_id = plugin_id.clone();
-        let destination = destination.clone();
-        run_blocking(move || {
-            manager.clone_into_destination(
+        let cloning = {
+            let _access = app_state.read_vault_access()?;
+            let root = active_vault_for_scope(&app_state, &workspace_scope)?;
+            manager.clone_into_selected_destination(
                 &plugin_id,
                 &request,
-                &destination,
+                &root,
+                &destination_token,
                 &operation_id,
                 GitTransportPolicy::RemoteOnly,
-            )
-        })
-        .await?
-    };
-    let clone = match cloning {
+            )?
+        };
+        let clone = match cloning {
         CloneAttempt::Failed {
             message,
             cleanup_token,
@@ -1129,16 +1214,38 @@ pub async fn plugin_git_clone_vault(
             });
         }
         CloneAttempt::Cloned(clone) => clone,
-    };
+        };
     // Registration happens only now, after the checkout passed every
     // validation, so a half-finished clone never becomes a known vault.
-    let app_state = app.state::<AppState>();
-    let _vault_access = app_state.write_vault_access()?;
-    commands::seal_active_vault_before_switch(&app_state)?;
-    let mut snapshot = vault::open_vault(&app_state.db_path, &clone.path.to_string_lossy())?;
-    app_state.set_active_vault(snapshot.vault_path.clone().into())?;
-    commands::populate_encryption_status(&app_state, &mut snapshot)?;
-    Ok(PluginCloneVaultResponse {
+        let opened = (|| {
+            let _access = app_state.write_vault_access()?;
+            active_vault_for_scope(&app_state, &workspace_scope)?;
+            commands::seal_active_vault_before_switch(&app_state)?;
+            let mut snapshot = vault::open_vault(&app_state.db_path, &clone.path.to_string_lossy())?;
+            // A clone must never inherit the previous vault's unlock state.
+            snapshot.encryption = vault::encryption_status(&snapshot.vault_path, false)?;
+            if snapshot.encryption.enabled {
+                vault::recompute_snapshot_ignored_paths(&mut snapshot, None);
+            }
+            app_state.set_active_vault(snapshot.vault_path.clone().into())?;
+            Ok::<_, AppError>(snapshot)
+        })();
+        let snapshot = match opened {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let detail = super::git::redact(
+                    &error.to_string(), &[clone.path.clone(), PathBuf::from(&workspace_scope)],
+                );
+                return Ok(PluginCloneVaultResponse {
+                    outcome: PluginGitCloneVaultOutcome::Failed {
+                        message: format!("The repository was cloned, but Denote could not open it as a vault. The files remain in the chosen folder. {detail}"),
+                        cleanup_token: None,
+                    },
+                    snapshot: None,
+                });
+            }
+        };
+        Ok(PluginCloneVaultResponse {
         outcome: PluginGitCloneVaultOutcome::Cloned {
             label: clone.label,
             remote_url: clone.remote_url,
@@ -1149,7 +1256,8 @@ pub async fn plugin_git_clone_vault(
         // The snapshot is for the host renderer only. The runtime strips it
         // before anything is returned to the plugin.
         snapshot: Some(snapshot),
-    })
+        })
+    }).await
 }
 
 /// Deletes the destination of a clone that failed, named only by its opaque

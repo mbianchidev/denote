@@ -4199,6 +4199,12 @@ button.tag-chip:active,
   font-weight: 650;
 }
 
+.source-control__clone-destination {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
 .source-control__field input,
 .source-control__field select {
   width: 100%;
@@ -4373,6 +4379,47 @@ button.tag-chip:active,
 .source-control__review > p,
 .source-control__recovery > p {
   border-color: color-mix(in srgb, var(--warning) 44%, var(--border));
+}
+
+.source-control__file-stats {
+  width: 100%;
+  margin-top: 10px;
+  border-collapse: collapse;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.source-control__file-stats caption {
+  padding-bottom: 6px;
+  color: var(--text-primary);
+  text-align: left;
+  font-weight: 600;
+}
+
+.source-control__file-stats th,
+.source-control__file-stats td {
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.source-control__file-stats th:first-child {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.source-control__file-stats th[scope="row"] {
+  width: 100%;
+  font-weight: 500;
+}
+
+.source-control__file-stats th span {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-tertiary);
+  font-weight: 400;
 }
 
 .source-control__tabs {
@@ -6604,6 +6651,73 @@ kbd {
   gap: 8px;
 }
 
+.plugin-signing {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  padding: 10px;
+  color: var(--text-secondary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.plugin-signing p,
+.plugin-signing dl,
+.plugin-signing h6 {
+  margin: 0;
+}
+
+.plugin-signing h6 {
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.plugin-signing > button {
+  justify-self: start;
+}
+
+.plugin-signing__metadata {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+}
+
+.plugin-signing dt {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.plugin-signing dd {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.plugin-signing__guide {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.plugin-signing pre {
+  min-width: 0;
+  overflow-x: auto;
+  margin: 0;
+  padding: 8px;
+  background: var(--code-bg);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.plugin-signing [role="alert"] {
+  color: var(--danger);
+}
+
 .plugin-tool-settings,
 .plugin-tool {
   display: grid;
@@ -6694,13 +6808,6 @@ kbd {
 
 .notice-block--warning {
   border-color: color-mix(in srgb, var(--warning) 45%, var(--border));
-}
-
-.plugin-card__signing-warning strong {
-  display: block;
-  margin-bottom: 2px;
-  color: var(--text-primary);
-  font-size: 11px;
 }
 
 .plugin-settings-json {

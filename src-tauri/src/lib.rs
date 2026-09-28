@@ -3,6 +3,7 @@ mod commands;
 mod crypto;
 mod db;
 mod default_vault;
+mod dialogs;
 mod error;
 mod gitignore;
 mod models;
@@ -12,6 +13,7 @@ mod updater;
 mod vault;
 
 use db::AppState;
+pub use plugins::git::gpg_signer::run_gpg_signer_if_requested;
 use tauri::{Emitter, Manager, RunEvent};
 
 #[cfg(target_os = "macos")]
@@ -251,6 +253,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+            {
+                dialogs::prewarm();
+            }
+        })
         .setup(|app| {
             #[cfg(target_os = "macos")]
             configure_macos_menu(app)?;
@@ -367,6 +376,9 @@ pub fn run() {
             plugins::set_plugin_settings,
             plugins::import_plugin_settings,
             plugins::get_plugin_tool_statuses,
+            plugins::get_git_signing_status,
+            plugins::save_git_signing_passphrase,
+            plugins::delete_git_signing_passphrase,
             plugins::choose_plugin_executable,
             plugins::plugin_storage_get,
             plugins::plugin_storage_set,
@@ -387,6 +399,8 @@ pub fn run() {
             plugins::plugin_git_request,
             plugins::plugin_github_list_repositories,
             plugins::plugin_git_clone_vault,
+            plugins::choose_plugin_git_clone_destination,
+            plugins::release_plugin_git_clone_destination,
             plugins::plugin_git_clean_failed_clone,
             plugins::plugin_automatic_commit,
         ])

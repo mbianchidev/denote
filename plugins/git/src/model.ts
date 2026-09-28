@@ -355,7 +355,10 @@ export function withDiffFiles(
 ): PluginSourceControlViewModel {
   const base = { ...baseOf(model), diffFiles, diffSource };
   return compose(
-    { ...base, resourceGroups: countedGroups(base.resourceGroups, diffFiles) },
+    {
+      ...base,
+      resourceGroups: countedGroups(base.resourceGroups, diffFiles, diffSource),
+    },
     selection,
   );
 }
@@ -538,7 +541,11 @@ export function refreshedModel(
           : null,
     },
     workspaceRepositories: [],
-    resourceGroups: countedGroups(resourceGroups(data.status), data.diffFiles),
+    resourceGroups: countedGroups(
+      resourceGroups(data.status),
+      data.diffFiles,
+      data.diffSource,
+    ),
     branches: data.branches,
     remotes: data.remotes,
     history: data.history,
@@ -740,29 +747,30 @@ function resourceGroups(
 }
 
 /**
- * Fills in the line counts a status report cannot give.
- *
- * `git status` reports which files changed, never by how much, so a row shows
- * zeros until a diff for that exact path has been read. Counts are applied
- * only for paths the parsed diff actually covers; nothing is estimated.
+ * Updates only the side an opened patch describes; staged and unstaged counts
+ * for the same path are independent.
  */
 function countedGroups(
   groups: PluginSourceControlResourceGroup[],
   diffFiles: PluginSourceControlDiffFile[],
+  source: PluginSourceControlDiffSource | null,
 ): PluginSourceControlResourceGroup[] {
-  if (diffFiles.length === 0) {
+  if (diffFiles.length === 0 || !source || source.kind === "commit") {
     return groups;
   }
   const counts = new Map<string, PluginSourceControlDiffFile>();
   for (const file of diffFiles) {
     counts.set(file.path, file);
   }
-  return groups.map((group) => ({
-    ...group,
-    resources: group.resources.map((resource) =>
-      counted(resource, counts.get(resource.path)),
-    ),
-  }));
+  const kind = source.kind === "index" ? "staged" : "unstaged";
+  return groups.map((group) =>
+    group.kind !== kind ? group : {
+      ...group,
+      resources: group.resources.map((resource) =>
+        counted(resource, counts.get(resource.path)),
+      ),
+    },
+  );
 }
 
 function counted(
@@ -777,6 +785,7 @@ function counted(
     additions: file.additions,
     deletions: file.deletions,
     binary: file.binary,
+    lineCountsKnown: true,
   };
 }
 

@@ -314,10 +314,14 @@ that status. Remote work uses the
 same vocabulary: labelled URL and name fields for adding, editing, and removing
 a remote, the configured authentication mode shown read-only beside a line
 directing the user to Settings. Clone onboarding appears in the Switch vault
-dialog beside the ordinary folder action; its submit opens the host's own folder
-chooser, its offered repositories remain ordinary buttons, and failures retain a
-review region with Retry
-and Dismiss. Anything that reaches a remote, changes where one points, removes
+dialog beside the ordinary folder action. **Choose folder** is a separate
+secondary action, and its validated destination is shown before **Clone**, the
+primary submit action, becomes available. Selecting a folder never starts a
+clone. The confirmation names the URL, optional branch, and selected path.
+The form shows progress, cancellation, and failures in place; its footer says
+**Cancel**, not **Done**, and closing or switching vaults is disabled while
+selection or cloning is pending. Offered repositories remain ordinary buttons.
+Anything that reaches a remote, changes where one points, removes
 one, restores tracked content from an upstream, or deletes a folder is confirmed
 in the standard action dialog, which
 names the exact remote, URL, and branch, and a deletion uses the dangerous
@@ -328,6 +332,12 @@ read in progress. A selected commit is a definition list of its own metadata
 followed by its changed files, and its diff carries no hunk action. Opening a
 file is a named button on the row or the changed file it belongs to, absent
 where the file was deleted. Plugin data never supplies arbitrary markup.
+Changed-file rows show independently measured staged and unstaged counts;
+unavailable counts say so rather than displaying zero. A completed pull keeps a
+compact native table in **Last remote operation**, with a caption, file row
+headers, added/removed columns, previous names for renames, and a written Binary
+label instead of numeric counts. The existing polite status region announces
+the file count without reading the entire table aloud.
 The always-visible branch button expands a searchable picker inside the plugin
 sidebar. One compact list labels local and remote branches, exposes
 create-and-switch with an explicit start-point selector when search has no exact
@@ -350,18 +360,38 @@ status. Opening one reveals description, provenance, permissions, guide,
 settings, and lifecycle actions. Error entries open automatically, focus remains
 visible, and nested permissions or JSON disclosures retain native keyboard
 behavior.
+The development-only local-archive action shows a loading label and polite
+status while the picker or verification is pending. Repeated clicks cannot
+stack native pickers, and cancellation restores the action. Other settings
+stay responsive while executable probes and archive checks run in background.
+Only enabled packages show **Enabled · update available** and appear in
+**Update all**. Disabled packages show **Disabled** with an ordinary **Enable**
+action, never an update badge or update action.
 Git executable settings use one compact status block per tool: selected source,
 resolved path, locked or detected version, validation state, and prerequisite
 guidance. Bundled mode shows **not downloaded** until an action first needs it;
 opening settings never starts a download. The native path picker appears only
-for Custom mode. While **Use system Git settings** is active, a warning asks the
-user to verify the selected Git's `user.signingKey`,
-`gpg.openpgp.program`, or legacy `gpg.program` before relying on a system GPG
-key, including the possibility of separate Windows GPG keyrings.
+for Custom mode. The signing inspector helps users verify the selected Git's
+`user.signingKey`, `gpg.openpgp.program`, or legacy `gpg.program`,
+including the possibility of separate Windows GPG keyrings.
+The Git settings include a **Signing credentials** section with explicit
+**Detect signing key**, the resolved format/program/key, a password-style
+**Save passphrase for this key** field, and **Save passphrase** / **Delete saved
+passphrase** actions. Saving uses only the OS credential store, never settings
+JSON. The field clears on submission, errors, settings changes, repository
+changes, or unmount. Pending operations cannot repopulate a stale key selection.
+Platform-labeled native disclosures provide Windows PowerShell and macOS/Linux
+key-location commands, distinguishing OpenPGP fingerprints from SSH file paths.
+Signing copy uses the same native settings typography: 11px supporting text at
+1.45 line height, 10px metadata labels, and ordinary compact secondary buttons.
+Only commands and key/program values use monospace. With pending settings edits,
+**Save settings and detect signing key** stays available, saves through the
+normal settings flow, then detects after that save and runtime refresh settle.
+A failed save or changed repository cannot continue into stale detection.
 The source-control commit form places an enabled-by-default **Sign commit**
 control after the commit message. Its native password input exists only while
-signing is selected, explains that it is one-shot and SSH-signing-only, and
-clears after submission or repository change. Commit and Commit and push are
+signing is selected, explains that it overrides saved OpenPGP/SSH credentials
+once, and clears after submission or repository change. Commit and Commit and push are
 adjacent primary actions. The message may be blank; its placeholder previews the
 timestamped manual default.
 Refresh, fetch, pull, push, stage, unstage, restore, diff, and file-open actions

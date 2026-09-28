@@ -10,6 +10,7 @@ import type {
   PluginSourceControlConflictDetail,
   PluginSourceControlConflictSide,
   PluginSourceControlDiffFile,
+  PluginSourceControlFileStat,
   PluginSourceControlHistoryEntry,
   PluginSourceControlHistoryPage,
   PluginSourceControlOperationPlan,
@@ -58,7 +59,8 @@ import {
   type GitOperationState,
 } from "./repositoryOutput";
 import { DiffTooLarge, hunkRequest, parseUnifiedDiff, supportsHunkStaging } from "./diffOutput";
-import { parseStatus } from "./statusOutput";
+import { parseStatus, type GitStatusReport } from "./statusOutput";
+import { parseNumstat } from "./numstatOutput";
 import { parseUnmergedPaths, type GitUnmergedPath } from "./conflictOutput";
 import {
   ConflictContentTooLarge,
@@ -78,6 +80,10 @@ import { readGitSettings } from "./settings";
 
 const MAX_REPORTED_ERROR_LENGTH = 200;
 const REPOSITORY_LIST_LIMIT = 50;
+
+// Git's empty-tree object IDs let an unborn pull report every incoming file.
+const EMPTY_TREE_SHA1 = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+const EMPTY_TREE_SHA256 = "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321";
 
 /**
  * Why a merge commit is compared with its first parent.
@@ -397,7 +403,15 @@ export class GitRepositoryController {
     // Remote and clone state describes how the user signs in and what a failed
     // clone left behind. Neither belongs to the repository that was open, so
     // both survive a scope change while everything read from Git is discarded.
-    this.current = initialModel(scope, this.remoteAccess, this.repositories);
+    const remoteAccess = this.remoteAccess;
+    this.current = initialModel(
+      scope,
+      {
+        ...remoteAccess,
+        review: remoteAccess.review?.operation === "Pull" ? null : remoteAccess.review,
+      },
+      this.repositories,
+    );
     this.stable = this.current;
     if (abandoned) {
       this.options.report("Closed a conflict editor with an unsaved result.");
@@ -1273,12 +1287,7 @@ export class GitRepositoryController {
       return;
     }
 
-    const status = await this.perform(
-      git,
-      generation,
-      "Reading the working tree",
-      { operation: "status", scope: this.scope.kind },
-    );
+    const report = await this.readStatus(git, generation);
     const branches = await this.perform(git, generation, "Reading branches", {
       operation: "list-branches",
       scope: this.scope.kind,
@@ -1308,7 +1317,6 @@ export class GitRepositoryController {
     // An open diff is re-read in the same pass, so what is on screen after an
     // action always describes the repository this refresh just read.
     const diffFiles = await this.readOpenDiff(git, generation);
-    const report = parseStatus(status.stdout);
     const operationState = parseOperationState(state.stdout);
     // Nothing here starts an operation: the repository is only ever asked what
     // it is already doing, and the controls that are valid for it are
@@ -1367,12 +1375,7 @@ export class GitRepositoryController {
     git: PluginGitCapability,
     generation: number,
   ): Promise<void> {
-    const status = await this.perform(
-      git,
-      generation,
-      "Reading the working tree",
-      { operation: "status", scope: this.scope.kind },
-    );
+    const report = await this.readStatus(git, generation);
     const state = await this.perform(
       git,
       generation,
@@ -1380,7 +1383,6 @@ export class GitRepositoryController {
       { operation: "operation-state", scope: this.scope.kind },
     );
     const diffFiles = await this.readOpenDiff(git, generation);
-    const report = parseStatus(status.stdout);
     const operationState = parseOperationState(state.stdout);
     const operationProgress = operationProgressOf(
       operationState,
@@ -1424,6 +1426,54 @@ export class GitRepositoryController {
         }),
       );
     }
+  }
+
+  private async readStatus(
+    git: PluginGitCapability,
+    generation: number,
+  ): Promise<GitStatusReport> {
+    const status = await this.perform(
+      git,
+      generation,
+      "Reading the working tree",
+      { operation: "status", scope: this.scope.kind },
+    );
+    const report = parseStatus(status.stdout);
+    for (const [group, kind] of [
+      ["staged", "index"],
+      ["unstaged", "worktree"],
+    ] as const) {
+      if (report[group].length === 0) {
+        continue;
+      }
+      const result = await this.perform(
+        git,
+        generation,
+        `Reading ${group} line counts`,
+        {
+          operation: "diff",
+          scope: this.scope.kind,
+          target: { kind },
+          format: "numstat",
+        },
+      );
+      const counts = new Map(
+        parseNumstat(result.stdout).map((file) => [file.path, file]),
+      );
+      report[group] = report[group].map((resource) => {
+        const stats = counts.get(resource.path);
+        return stats
+          ? {
+              ...resource,
+              additions: stats.additions,
+              deletions: stats.deletions,
+              binary: stats.binary,
+              lineCountsKnown: true,
+            }
+          : resource;
+      });
+    }
+    return report;
   }
 
   /**
@@ -3221,6 +3271,8 @@ export class GitRepositoryController {
     const name = requireRemote(remote);
     const target = requireBranch(branch);
     const settings = readGitSettings(await this.options.readSettings());
+    this.publish(withReview(this.current, null));
+    const before = await this.readHead(git, generation);
     await this.perform(git, generation, `Pulling ${target} from ${name}`, {
       operation: "pull",
       scope: this.scope.kind,
@@ -3232,8 +3284,81 @@ export class GitRepositoryController {
     // A pull moves the branch, and can rewrite the worktree, so a review
     // prepared before it no longer describes what an operation would change.
     this.discardPreparedOperation();
-    await this.refresh(git, generation);
-    this.reviewed("Pull", "succeeded", `Pulled ${target} from ${name}.`);
+    let review: PluginSourceControlOperationReview = {
+      operation: "Pull",
+      outcome: "succeeded",
+      summary: `Pulled ${target} from ${name}.`,
+      detail: null,
+    };
+    try {
+      const after = await this.readHead(git, generation);
+      if (after === null) {
+        throw new GitRefused("Git did not report a commit after the pull.");
+      }
+      let files: PluginSourceControlFileStat[] = [];
+      if (before !== after) {
+        const result = await this.perform(
+          git,
+          generation,
+          "Reading files changed by the pull",
+          {
+            operation: "diff",
+            scope: this.scope.kind,
+            target: {
+              kind: "range",
+              fromCommit: before ??
+                (after.length === 64 ? EMPTY_TREE_SHA256 : EMPTY_TREE_SHA1),
+              toCommit: after,
+            },
+            format: "numstat",
+          },
+        );
+        files = parseNumstat(result.stdout);
+      }
+      const summary = files.length === 0
+        ? "No files changed."
+        : `${files.length} file${files.length === 1 ? "" : "s"} changed.`;
+      review = {
+        ...review,
+        summary: `${review.summary} ${summary}`,
+        detail: "Net file changes between the commits before and after the pull. Binary files have no line counts.",
+        files,
+      };
+      await this.refresh(git, generation);
+      this.publish(withReview(this.current, review));
+    } catch (error) {
+      if (generation !== this.generation || error instanceof StaleScope) {
+        throw error;
+      }
+      const step = review.files === undefined
+        ? "file-change report"
+        : "repository refresh";
+      const reason = error instanceof GitFailure
+        ? `${error.message} ${error.detail}`.trim()
+        : describe(error);
+      const detail = `The pull completed, but the ${step} did not finish. ${reason} Refresh to read the current repository; do not repeat the pull just to refresh the report.`;
+      this.publishFailure(new GitPreservedWork("pull", detail));
+      this.publish(withReview(this.current, { ...review, detail }));
+    }
+  }
+
+  private async readHead(
+    git: PluginGitCapability,
+    generation: number,
+  ): Promise<string | null> {
+    const result = await this.perform(
+      git,
+      generation,
+      "Reading the current commit",
+      { operation: "status", scope: this.scope.kind },
+    );
+    const head = parseStatus(result.stdout).head;
+    if (head === undefined) {
+      throw new GitRefused(
+        "Git did not identify the current commit. Refresh the repository before pulling.",
+      );
+    }
+    return head;
   }
 
   /**
@@ -3538,7 +3663,9 @@ export class GitRepositoryController {
         throw new GitFailure(
           request.operation,
           result.exitCode,
-          firstLine(result.stderr),
+          request.operation === "commit"
+            ? commitErrorDetail(result.stderr)
+            : firstLine(result.stderr),
         );
       }
       return result;
@@ -4115,6 +4242,11 @@ function firstLine(value: string): string {
   return characters.length > MAX_REPORTED_ERROR_LENGTH
     ? `${characters.slice(0, MAX_REPORTED_ERROR_LENGTH).join("")}…`
     : line;
+}
+
+function commitErrorDetail(value: string): string {
+  const lines = value.split("\n").map((line) => line.trim()).filter(Boolean);
+  return lines.slice(0, 6).map(firstLine).join(" ");
 }
 
 function describe(error: unknown): string {

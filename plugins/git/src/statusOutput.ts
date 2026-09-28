@@ -5,6 +5,8 @@ import type {
 import { splitFields } from "./splitFields";
 
 export interface GitStatusReport {
+  /** Null for an unborn repository; absent when Git did not supply the header. */
+  head?: string | null;
   branch: string | null;
   detached: boolean;
   upstream: string | null;
@@ -75,6 +77,15 @@ function readHeader(record: string, report: GitStatusReport): void {
   const fields = splitFields(record, " ", 3);
   const value = fields[2] ?? "";
   switch (fields[1]) {
+    case "branch.oid":
+      if (value === "(initial)") {
+        report.head = null;
+      } else if (/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i.test(value)) {
+        report.head = value;
+      } else {
+        throw new Error("Git returned an invalid current commit in its status report.");
+      }
+      return;
     case "branch.head":
       if (value === "(detached)") {
         report.detached = true;
@@ -116,14 +127,20 @@ function readChange(
 }
 
 /**
- * Line counts are not part of status output, so a resource reports the change
- * kind only. Denote never invents numbers it did not read from Git.
+ * Status has no line counts. Keep them explicitly unknown until numstat is read.
  */
 function resource(
   path: string,
   status: PluginSourceControlResourceStatus,
 ): PluginSourceControlResource {
-  return { path, status, additions: 0, deletions: 0, binary: false };
+  return {
+    path,
+    status,
+    additions: 0,
+    deletions: 0,
+    binary: false,
+    lineCountsKnown: false,
+  };
 }
 
 function resourceStatus(code: string): PluginSourceControlResourceStatus {

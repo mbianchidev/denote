@@ -7,6 +7,7 @@ import {
   IDLE_OPERATION_STATE,
   SYNTHETIC_REPOSITORY,
   SYNTHETIC_STATUS,
+  SYNTHETIC_DIFF,
   deferred,
   last,
   repositoryResponder,
@@ -32,14 +33,33 @@ function harness(settings: Record<string, unknown> = {}): Harness {
 const REFRESH_SEQUENCE = [
   "discover",
   "status",
+  "diff",
+  "diff",
   "list-branches",
   "list-remotes",
   "operation-state",
   "list-history",
 ];
-const WORKTREE_REFRESH_SEQUENCE = ["status", "operation-state"];
+const WORKTREE_REFRESH_SEQUENCE = ["status", "diff", "diff", "operation-state"];
 
 describe("GitRepositoryController", () => {
+  it("retains the actionable GPG diagnostic after the generic signing failure", async () => {
+    const { controller, reports } = harness();
+    const git = new FakeGit(repositoryResponder({
+      commit: {
+        exitCode: 128,
+        stderr: "error: gpg failed to sign the data:\ngpg: signing failed: No secret key\nfatal: failed to write commit object",
+      },
+    }));
+    await controller.runAction({ id: "refresh" }, git);
+    await controller.runAction({ id: "commit", values: { message: "Synthetic change" } }, git);
+    expect(controller.model.recovery).toMatchObject({
+      state: "failed",
+      message: expect.stringContaining("No secret key"),
+    });
+    expect(reports.join(" ")).not.toContain("No secret key");
+  });
+
   it("starts by asking for a refresh instead of describing a repository", () => {
     const { controller } = harness();
 
@@ -171,6 +191,60 @@ describe("GitRepositoryController", () => {
       initialized: false,
     });
     expect(statusText(controller.model)).toBe("Git: no repository");
+  });
+
+  it("reads separate staged and unstaged line counts before any diff is opened", async () => {
+    const { controller } = harness();
+    const respond = repositoryResponder({
+      diff: { stdout: SYNTHETIC_DIFF },
+      status: {
+        stdout: [
+          "# branch.head main",
+          "1 MM N... 100644 100644 100644 1111111 2222222 notes/changed.md",
+          "1 .M N... 100644 100644 100644 1111111 2222222 image.bin",
+        ].join("\0"),
+      },
+    });
+    const git = new FakeGit((request) => {
+      if (request.operation === "diff" && request.format === "numstat") {
+        return {
+          stdout: request.target.kind === "index"
+            ? "4\t1\tnotes/changed.md\0"
+            : "2\t3\tnotes/changed.md\0-\t-\timage.bin\0",
+        };
+      }
+      return respond(request);
+    });
+
+    await controller.runAction({ id: "refresh" }, git);
+
+    expect(controller.model.diffFiles).toEqual([]);
+    expect(controller.model.resourceGroups).toMatchObject([
+      {
+        kind: "staged",
+        resources: [{ path: "notes/changed.md", additions: 4, deletions: 1, binary: false }],
+      },
+      {
+        kind: "unstaged",
+        resources: [
+          { path: "notes/changed.md", additions: 2, deletions: 3, binary: false },
+          { path: "image.bin", binary: true },
+        ],
+      },
+    ]);
+
+    await controller.runAction(
+      { id: "open-diff", values: { path: "notes/changed.md", group: "unstaged" } },
+      git,
+    );
+    expect(controller.model.resourceGroups[0].resources[0]).toMatchObject({
+      additions: 4,
+      deletions: 1,
+    });
+    expect(controller.model.resourceGroups[1].resources[0]).toMatchObject({
+      additions: 2,
+      deletions: 2,
+    });
   });
 
   it("initializes with the configured default branch only on the user action", async () => {
@@ -834,7 +908,7 @@ describe("GitRepositoryController remotes and cloning", () => {
     });
     // The model is re-read after the operation, so nothing on screen predates
     // the fetch.
-    expect(git.operations.slice(-6)).toEqual(REFRESH_SEQUENCE);
+    expect(git.operations.slice(-REFRESH_SEQUENCE.length)).toEqual(REFRESH_SEQUENCE);
     expect(controller.model.remoteAccess.review).toMatchObject({
       operation: "Fetch",
       outcome: "succeeded",

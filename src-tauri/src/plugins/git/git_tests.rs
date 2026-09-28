@@ -19,25 +19,102 @@ use crate::plugins::{
     types::PluginPermission,
 };
 
+#[cfg(unix)]
+use super::transport::read_system_git_settings;
+
 use super::{
     tools,
     transport::{
         GitDirectoryState, GitExecution, GitInspection, GitOutputMode, GitPlanStep,
         GitTransportPolicy, GitWriteSource, PluginGitAuthMode, PluginGitConflictResolution,
-        PluginGitConflictStage, PluginGitDiffTarget, PluginGitHunk, PluginGitHunkLine,
-        PluginGitHunkLineKind, PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest,
-        PluginGitScope, PluginGitSequencer, PluginGitStashAction, SystemGitSettings,
-        apply_environment, apply_system_git_settings, assert_repository_config_is_safe,
-        detect_operation_state, ensure_encrypted_repository_metadata, hardening_arguments,
-        plan_git_request, redact, resolve_git_directory, resolve_git_executable, run_git_command,
-        validate_branch_name, validate_operation_id, validate_remote_name, validate_remote_url,
-        validate_revision, validated_path,
+        PluginGitConflictStage, PluginGitDiffFormat, PluginGitDiffTarget, PluginGitHunk,
+        PluginGitHunkLine, PluginGitHunkLineKind, PluginGitPullStrategy, PluginGitPushMode,
+        PluginGitRequest, PluginGitScope, PluginGitSequencer, PluginGitStashAction,
+        SystemGitSettings, apply_environment, apply_system_git_settings,
+        assert_repository_config_is_safe, detect_operation_state,
+        ensure_encrypted_repository_metadata, hardening_arguments, plan_git_request, redact,
+        resolve_git_directory, resolve_git_executable, run_git_command, validate_branch_name,
+        validate_operation_id, validate_remote_name, validate_remote_url, validate_revision,
+        validated_path,
     },
 };
 
 use crate::{crypto, db, vault};
 
 const PLUGIN_ID: &str = "denote.reference";
+
+#[cfg(unix)]
+fn isolated_config_git(system: Option<&str>, global: Option<&str>) -> (TempDir, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = TempDir::new().expect("config fixture");
+    let system_path = directory.path().join("system-config");
+    let global_path = directory.path().join("global-config");
+    if let Some(contents) = system {
+        fs::write(&system_path, contents).expect("system config");
+    }
+    if let Some(contents) = global {
+        fs::write(&global_path, contents).expect("global config");
+    }
+    let executable = directory.path().join("git");
+    let git = resolve_git_executable(None).expect("Git");
+    fs::write(&executable, format!(
+        "#!/bin/sh\nexport GIT_CONFIG_SYSTEM='{}'\nexport GIT_CONFIG_GLOBAL='{}'\nexec '{}' \"$@\"\n",
+        system_path.display(), global_path.display(), git.display(),
+    )).expect("isolated Git wrapper");
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).expect("executable");
+    (directory, executable)
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_optional_system_config_preserves_global_signing_settings() {
+    let (_directory, git) = isolated_config_git(
+        None,
+        Some(
+            "[user]\n name = Synthetic Author\n signingkey = SYNTHETIC-KEY\n[gpg]\n format = ssh\n",
+        ),
+    );
+    let settings = read_system_git_settings(&git).expect("optional system config");
+    assert_eq!(settings.last("user.signingkey"), Some("SYNTHETIC-KEY"));
+    assert_eq!(settings.last("gpg.format"), Some("ssh"));
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_optional_git_config_scopes_are_empty_for_clone_and_signing() {
+    for (system, global) in [(None, None), (Some(""), None), (None, Some(""))] {
+        let (_directory, git) = isolated_config_git(system, global);
+        assert_eq!(
+            read_system_git_settings(&git).expect("empty optional scopes"),
+            SystemGitSettings::default()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn malformed_git_config_is_not_treated_as_missing() {
+    let (_directory, git) = isolated_config_git(Some("[broken\n"), None);
+    let error = read_system_git_settings(&git).expect_err("malformed system config");
+    assert!(error.to_string().contains("bad config"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_git_config_is_not_treated_as_missing() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let (directory, git) = isolated_config_git(Some("[user]\n name = Synthetic\n"), None);
+    fs::set_permissions(
+        directory.path().join("system-config"),
+        fs::Permissions::from_mode(0),
+    )
+    .expect("restrict config");
+    let error = read_system_git_settings(&git).expect_err("unreadable system config");
+    assert!(error.to_string().contains("Permission denied"), "{error}");
+}
 
 #[cfg(windows)]
 #[test]
@@ -66,6 +143,36 @@ fn command_args(request: PluginGitRequest) -> Vec<String> {
 // ---------------------------------------------------------------------------
 // Fixed argument templates
 // ---------------------------------------------------------------------------
+
+#[test]
+fn maps_numstat_to_a_nul_delimited_read_only_diff() {
+    let request: PluginGitRequest = serde_json::from_value(serde_json::json!({
+        "operation": "diff",
+        "scope": "vault",
+        "target": { "kind": "index" },
+        "format": "numstat"
+    }))
+    .expect("numstat request");
+    assert_eq!(
+        plan_git_request(&request).expect("numstat plan"),
+        vec![GitPlanStep::Command {
+            args: [
+                "diff",
+                "--no-color",
+                "--no-ext-diff",
+                "--no-textconv",
+                "--find-renames",
+                "--numstat",
+                "-z",
+                "--cached",
+            ]
+            .map(str::to_string)
+            .to_vec(),
+            mutating: false,
+            output: GitOutputMode::Exact,
+        }]
+    );
+}
 
 #[test]
 fn maps_every_operation_to_a_fixed_argument_template() {
@@ -170,6 +277,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Index,
             paths: Some(vec!["notes/alpha.md".to_string()]),
@@ -188,6 +296,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit {
                 commit: "1111111111111111111111111111111111111111".to_string(),
@@ -210,6 +319,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
     );
     assert_eq!(
         command_args(PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Range {
                 from_commit: "1111111111111111111111111111111111111111".to_string(),
@@ -596,6 +706,40 @@ fn applies_system_credentials_and_gpg_signing_without_exposing_a_passphrase() {
         other => panic!("expected command, found {other:?}"),
     };
     expect_args_in_order(args, &["credential.helper=osxkeychain", "fetch"]);
+}
+
+#[test]
+fn signed_commits_pin_the_default_format_and_reject_unknown_formats() {
+    let request = PluginGitRequest::Commit {
+        scope: PluginGitScope::Vault,
+        message: "Synthetic signed commit".to_string(),
+        amend: false,
+        allow_empty: false,
+        author_name: None,
+        author_email: None,
+    };
+    let policy = GitSettingsPolicy {
+        use_system_settings: true,
+        signing: GitCommitSigningMode::Always,
+        signing_key: None,
+    };
+    let mut steps = plan_git_request(&request).expect("plan");
+    apply_system_git_settings(&mut steps, &request, &policy, &SystemGitSettings::default())
+        .expect("settings");
+    let GitPlanStep::Command { args, .. } = &steps[0] else {
+        panic!("expected command");
+    };
+    assert!(args.iter().any(|arg| arg == "gpg.format=openpgp"));
+    let mut steps = plan_git_request(&request).expect("plan");
+    assert!(
+        apply_system_git_settings(
+            &mut steps,
+            &request,
+            &policy,
+            &SystemGitSettings::from_pairs([("gpg.format", "unknown")]),
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -2347,6 +2491,7 @@ fn initializes_stages_commits_and_reports_a_vault_repository() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Index,
             paths: None,
@@ -2942,6 +3087,7 @@ fn encrypted_vaults_stage_ciphertext_and_keep_git_metadata_intact() {
     let stored = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit {
                 commit: "HEAD".to_string(),
@@ -4506,6 +4652,7 @@ fn pinned_configuration_beats_repository_configuration_when_git_actually_runs() 
     fs::write(repository.join("alpha.md"), "two\n").expect("note");
 
     let diff = run_plan(PluginGitRequest::Diff {
+        format: Default::default(),
         scope: PluginGitScope::Vault,
         target: PluginGitDiffTarget::Worktree,
         paths: None,
@@ -5503,6 +5650,7 @@ fn a_staged_hunk_matches_the_bytes_on_disk_even_when_they_look_like_a_secret() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Worktree,
             paths: Some(vec!["alpha.md".to_string()]),
@@ -5602,6 +5750,7 @@ fn a_non_utf8_text_diff_is_refused_before_hunk_staging_can_change_bytes() {
     let error = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Worktree,
             paths: Some(vec!["legacy.txt".to_string()]),
@@ -5664,6 +5813,7 @@ fn exact_output_is_limited_to_diff_stdout_and_never_reaches_stderr() {
     };
 
     let diff = outcome(PluginGitRequest::Diff {
+        format: Default::default(),
         scope: PluginGitScope::Vault,
         target: PluginGitDiffTarget::Worktree,
         paths: None,
@@ -5676,6 +5826,7 @@ fn exact_output_is_limited_to_diff_stdout_and_never_reaches_stderr() {
     );
 
     let show = outcome(PluginGitRequest::Diff {
+        format: Default::default(),
         scope: PluginGitScope::Vault,
         target: PluginGitDiffTarget::Commit {
             commit: "HEAD".to_string(),
@@ -5834,6 +5985,7 @@ fn stages_and_unstages_a_hunk_of_a_real_file_with_crlf_endings() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Worktree,
             paths: Some(vec!["alpha.md".to_string()]),
@@ -5918,6 +6070,7 @@ fn stages_and_unstages_a_hunk_whose_lines_look_like_file_headers() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Worktree,
             paths: Some(vec!["log.md".to_string()]),
@@ -6108,6 +6261,7 @@ fn history_and_diff_refuse_a_revision_or_path_that_is_not_one() {
         );
         assert!(
             plan_git_request(&PluginGitRequest::Diff {
+                format: Default::default(),
                 scope: PluginGitScope::Vault,
                 target: PluginGitDiffTarget::Commit {
                     commit: revision.to_string()
@@ -6119,6 +6273,7 @@ fn history_and_diff_refuse_a_revision_or_path_that_is_not_one() {
         );
         assert!(
             plan_git_request(&PluginGitRequest::Diff {
+                format: Default::default(),
                 scope: PluginGitScope::Vault,
                 target: PluginGitDiffTarget::Range {
                     from_commit: revision.to_string(),
@@ -6133,6 +6288,7 @@ fn history_and_diff_refuse_a_revision_or_path_that_is_not_one() {
     for path in ["../outside.md", "/etc/passwd", ".git/config"] {
         assert!(
             plan_git_request(&PluginGitRequest::Diff {
+                format: Default::default(),
                 scope: PluginGitScope::Vault,
                 target: PluginGitDiffTarget::Worktree,
                 paths: Some(vec![path.to_string()]),
@@ -6180,6 +6336,7 @@ fn worktree_index_and_commit_diffs_describe_their_own_side() {
         run(
             &fixture,
             PluginGitRequest::Diff {
+                format: Default::default(),
                 scope: PluginGitScope::Vault,
                 target,
                 paths: Some(vec!["alpha.md".to_string()]),
@@ -6216,6 +6373,143 @@ fn worktree_index_and_commit_diffs_describe_their_own_side() {
     assert_eq!(range.trim(), "", "{range}");
 }
 
+#[test]
+fn numstat_reports_real_index_worktree_and_commit_range_changes() {
+    let Some(fixture) = history_fixture() else {
+        return;
+    };
+    let root = &fixture.vault_root;
+    fs::write(root.join("alpha.md"), "one\ntwo\nthree\n").expect("note");
+    fs::write(root.join("old name.md"), "rename\nthis\nnote\n").expect("rename source");
+    fs::write(root.join("removed.md"), "remove\nthis\n").expect("deleted note");
+    fs::write(root.join("image.bin"), [0, 1, 2]).expect("binary");
+    commit_worktree(
+        &fixture,
+        &["alpha.md", "old name.md", "removed.md", "image.bin"],
+        "Record synthetic files",
+    );
+    let before = head_commit(&fixture);
+    fs::write(
+        root.join("alpha.md"),
+        "one\nstaged one\nstaged two\nthree\n",
+    )
+    .expect("staged edit");
+    let staged = run(
+        &fixture,
+        PluginGitRequest::Stage {
+            scope: PluginGitScope::Vault,
+            paths: vec!["alpha.md".to_string()],
+        },
+        None,
+    )
+    .expect("stage");
+    assert_eq!(staged.exit_code, 0, "{}", staged.stderr);
+    fs::write(root.join("alpha.md"), "one\nworktree\nthree\nfour\n").expect("worktree edit");
+
+    let stats = |target| {
+        let result = run(
+            &fixture,
+            PluginGitRequest::Diff {
+                scope: PluginGitScope::Vault,
+                target,
+                paths: None,
+                format: PluginGitDiffFormat::Numstat,
+            },
+            None,
+        )
+        .expect("numstat");
+        assert_eq!(result.exit_code, 0, "{}", result.stderr);
+        assert!(
+            !result.stdout.contains("@@"),
+            "statistics must not include hunks"
+        );
+        result.stdout
+    };
+    assert_eq!(stats(PluginGitDiffTarget::Index), "2\t1\talpha.md\0");
+    assert_eq!(stats(PluginGitDiffTarget::Worktree), "2\t2\talpha.md\0");
+
+    fs::rename(root.join("old name.md"), root.join("new name.md")).expect("rename");
+    fs::remove_file(root.join("removed.md")).expect("remove synthetic note");
+    fs::write(root.join("image.bin"), [0, 3, 4]).expect("binary edit");
+    commit_worktree(
+        &fixture,
+        &[
+            "alpha.md",
+            "old name.md",
+            "new name.md",
+            "removed.md",
+            "image.bin",
+        ],
+        "Update synthetic files",
+    );
+    let after = head_commit(&fixture);
+    let report = stats(PluginGitDiffTarget::Range {
+        from_commit: before,
+        to_commit: after.clone(),
+    });
+    assert!(report.contains("2\t1\talpha.md\0"), "{report:?}");
+    assert!(
+        report.contains("0\t0\t\0old name.md\0new name.md\0"),
+        "{report:?}"
+    );
+    assert!(report.contains("0\t2\tremoved.md\0"), "{report:?}");
+    assert!(report.contains("-\t-\timage.bin\0"), "{report:?}");
+
+    // Dirty local edits after the pull are not part of its commit comparison.
+    fs::write(root.join("alpha.md"), "unrelated local edit\n").expect("local edit");
+    assert_eq!(
+        stats(PluginGitDiffTarget::Range {
+            from_commit: after.clone(),
+            to_commit: after,
+        }),
+        ""
+    );
+}
+
+#[test]
+fn numstat_compares_unborn_repositories_with_their_empty_tree() {
+    for (format, empty_tree) in [
+        ("sha1", "4b825dc642cb6eb9a060e54bf8d69288fbee4904"),
+        (
+            "sha256",
+            "6ef19b41225c5369f1c104d45d8d85efa9b057b53b14b4b9b939dd74decc5321",
+        ),
+    ] {
+        let Some(fixture) = fixture() else {
+            return;
+        };
+        git_output(
+            &fixture.vault_root,
+            &[
+                "init",
+                "--initial-branch=main",
+                &format!("--object-format={format}"),
+            ],
+        );
+        identify(&fixture.vault_root);
+        fs::write(fixture.vault_root.join("first.md"), "one\ntwo\n").expect("first note");
+        commit_worktree(&fixture, &["first.md"], "Record first synthetic note");
+        fs::write(fixture.vault_root.join("second.md"), "three\n").expect("second note");
+        commit_worktree(&fixture, &["second.md"], "Record second synthetic note");
+        let result = run(
+            &fixture,
+            PluginGitRequest::Diff {
+                scope: PluginGitScope::Vault,
+                target: PluginGitDiffTarget::Range {
+                    from_commit: empty_tree.to_string(),
+                    to_commit: head_commit(&fixture),
+                },
+                paths: None,
+                format: PluginGitDiffFormat::Numstat,
+            },
+            None,
+        )
+        .expect("empty tree comparison");
+        assert_eq!(result.exit_code, 0, "{}", result.stderr);
+        assert_eq!(result.stdout, "2\t0\tfirst.md\01\t0\tsecond.md\0");
+    }
+}
+
 /// One commit that adds, renames, copies, deletes, and stores binary content,
 /// so the report a surface parses carries every shape at once.
 #[test]
@@ -6250,6 +6544,7 @@ fn commit_diffs_report_additions_renames_deletions_and_binary_content() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit { commit: head },
             paths: None,
@@ -6292,6 +6587,7 @@ fn a_commit_message_cannot_be_read_as_a_changed_file() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit { commit: head },
             paths: None,
@@ -6369,6 +6665,7 @@ fn merge_commits_are_readable_as_the_range_against_the_first_parent() {
     let shown = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit {
                 commit: head.clone(),
@@ -6389,6 +6686,7 @@ fn merge_commits_are_readable_as_the_range_against_the_first_parent() {
     let range = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Range {
                 from_commit: first_parent,
@@ -6435,6 +6733,7 @@ fn empty_commits_report_no_files_at_all() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit { commit: head },
             paths: None,
@@ -6466,6 +6765,7 @@ fn diffs_carry_quoted_names_carriage_returns_and_missing_final_newlines() {
     let diff = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Worktree,
             paths: Some(vec!["sub dir/café.md".to_string()]),
@@ -6504,6 +6804,7 @@ fn encrypted_history_reports_binary_content_and_never_plaintext() {
     let commit = run(
         &fixture,
         PluginGitRequest::Diff {
+            format: Default::default(),
             scope: PluginGitScope::Vault,
             target: PluginGitDiffTarget::Commit { commit: head },
             paths: None,
