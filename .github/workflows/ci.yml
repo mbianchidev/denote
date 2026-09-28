@@ -193,27 +193,17 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         env:
-          DENOTE_RENDERER_SMOKE_OUTPUT: ${{ runner.temp }}/denote-renderer-smoke.json
+          DENOTE_RENDERER_SMOKE_OUTPUT: ${{ github.workspace }}/denote-renderer-smoke.json
         run: |
-          $policy = 'HKLM:\SOFTWARE\Policies\Microsoft\Edge\WebView2\AdditionalBrowserArguments'
-          New-Item $policy -Force | Out-Null
-          New-ItemProperty `
-            -Path $policy `
-            -Name 'denote.exe' `
-            -Value '--remote-debugging-port=9222' `
-            -PropertyType String `
-            -Force | Out-Null
-          try {
-            node scripts/windows-renderer-smoke.mjs src-tauri/target/debug/denote.exe
-          } finally {
-            Remove-ItemProperty -Path $policy -Name 'denote.exe' -ErrorAction SilentlyContinue
-          }
+          winget install gerardog.gsudo --accept-source-agreements --accept-package-agreements
+          icacls "$env:GITHUB_WORKSPACE" /grant "Everyone:(OI)(CI)F"
+          sudo --integrity Medium node scripts/windows-renderer-smoke.mjs src-tauri/target/debug/denote.exe
 
       - name: Upload Windows renderer smoke evidence
         if: runner.os == 'Windows' && failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-renderer-smoke-attempt-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/denote-renderer-smoke.json
+          path: ${{ github.workspace }}/denote-renderer-smoke.json
           if-no-files-found: warn
           retention-days: 7
