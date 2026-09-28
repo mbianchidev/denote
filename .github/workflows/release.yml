@@ -176,7 +176,7 @@ jobs:
       id-token: write
     runs-on: ${{ matrix.platform }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         include:
           - name: Linux x64
@@ -257,11 +257,12 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Prepare bundled Git and GitHub CLI
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          npm run prepare:bundled-tools -- --target "${{ matrix.target }}"
-          npm run verify:bundled-tools -- --target "${{ matrix.target }}"
+          node scripts/bundled-tools.mjs --target "${{ matrix.target }}"
+          node scripts/verify-bundled-tools.mjs --target "${{ matrix.target }}"
 
       - name: Require updater signing secrets
         if: needs.validate.outputs.updater_enabled == 'true'

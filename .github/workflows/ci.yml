@@ -89,7 +89,7 @@ jobs:
     needs: plugin-archive-guard
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
@@ -151,8 +151,8 @@ jobs:
             Windows-X64) target=x86_64-pc-windows-msvc ;;
             *) echo "::error::Unsupported release target"; exit 1 ;;
           esac
-          npm run prepare:bundled-tools -- --target "$target"
-          npm run verify:bundled-tools -- --target "$target"
+          node scripts/bundled-tools.mjs --target "$target"
+          node scripts/verify-bundled-tools.mjs --target "$target"
 
       - name: Upload npm debug logs
         if: failure() && steps.npm-ci.outcome == 'failure'
