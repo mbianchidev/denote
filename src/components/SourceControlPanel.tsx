@@ -62,6 +62,7 @@ export interface SourceControlActionHostOptions {
   gitSigningPassphrase?: string;
   gitCloneDestinationToken?: string;
   gitCloneDestinationPath?: string;
+  gitCloneDestinationWithinVault?: boolean;
 }
 
 const tabs = [
@@ -878,7 +879,7 @@ export function CloneOnboarding({
 }: CloneOnboardingProps) {
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
-  const [destination, setDestination] = useState<{ path: string; token: string | null } | null>(null);
+  const [destination, setDestination] = useState<(Omit<PluginCloneDestination, "token"> & { token: string | null }) | null>(null);
   const [choosing, setChoosing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -955,10 +956,14 @@ export function CloneOnboarding({
     try {
       const started = await onAction(
         action("clone", { url: url.trim(), ...(branch.trim() ? { branch: branch.trim() } : {}) }),
-        { gitCloneDestinationToken: selected.token, gitCloneDestinationPath: selected.path },
+        {
+          gitCloneDestinationToken: selected.token,
+          gitCloneDestinationPath: selected.path,
+          ...(selected.withinVault ? { gitCloneDestinationWithinVault: true } : {}),
+        },
       );
       if (started !== false && current === generation.current) {
-        const used = { path: selected.path, token: null };
+        const used = { ...selected, token: null };
         destinationRef.current = used;
         setDestination(used);
         await onReleaseDestination(selected.token);

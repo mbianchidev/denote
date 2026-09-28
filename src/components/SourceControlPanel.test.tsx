@@ -501,7 +501,7 @@ describe("SourceControlPanel", () => {
         busy={false}
         onAction={onAction}
         contextKey="synthetic-vault"
-        onChooseDestination={vi.fn().mockResolvedValue({ token: "synthetic-destination", path: "/synthetic/clone" })}
+        onChooseDestination={vi.fn().mockResolvedValue({ token: "synthetic-destination", path: "/synthetic/clone", withinVault: false })}
         onReleaseDestination={vi.fn().mockResolvedValue(undefined)}
         onError={vi.fn()}
       />,

@@ -108,6 +108,7 @@ pub(crate) enum CloneAttempt {
 pub struct PluginCloneDestination {
     pub token: String,
     pub path: String,
+    pub within_vault: bool,
 }
 
 struct SelectedCloneDestination {
@@ -133,6 +134,7 @@ impl CloneDestinationRegistry {
         let selected = PluginCloneDestination {
             token: token.clone(),
             path: crate::paths::path_for_display(&path),
+            within_vault: path.starts_with(workspace),
         };
         self.entries
             .lock()

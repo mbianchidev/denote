@@ -774,8 +774,10 @@ The new snapshot's encryption state is prepared without inheriting the old
 vault's key before active-vault state changes. Clone progress and errors render
 inside the vault switcher; its Done action becomes Cancel during onboarding,
 and close/switch controls stay disabled while selection or execution is pending.
-Successful clones load their returned snapshot; unsuccessful clones do not
-rescan the previous vault, since clone writes only to the selected destination.
+Successful clones load their returned snapshot. Failed clones rescan the
+previous vault only when native selection identifies a destination inside it
+and the originating vault is still active; an unrelated destination needs no
+old-vault rescan.
 
 Operations run in a command process group with a ten minute hard timeout and
 output bounded at 8 MiB. Windows Git and GitHub CLI children suppress console

@@ -336,6 +336,7 @@ export interface PluginToolStatus {
 export interface PluginCloneDestination {
   token: string;
   path: string;
+  withinVault: boolean;
 }
 
 export interface GitSigningStatus {

@@ -18,7 +18,7 @@ describe("VaultSwitcherDialog", () => {
       clone={{
         contextKey: "synthetic-vault", busy: false,
         remoteAccess: { authMode: "public", cloneAvailable: true, githubAvailable: false, repositories: [], cleanup: null, review: null },
-        onChooseDestination: vi.fn().mockResolvedValue({ token: "synthetic-destination", path: "/synthetic/clone" }),
+        onChooseDestination: vi.fn().mockResolvedValue({ token: "synthetic-destination", path: "/synthetic/clone", withinVault: false }),
         onReleaseDestination: vi.fn().mockResolvedValue(undefined),
         onAction, onError: vi.fn(),
       }}
@@ -42,6 +42,7 @@ describe("VaultSwitcherDialog", () => {
     const onChooseDestination = vi.fn().mockResolvedValue({
       token: "synthetic-destination",
       path: "/synthetic/clone",
+      withinVault: false,
     });
     render(
       <VaultSwitcherDialog

@@ -620,7 +620,8 @@ up for you. A cloned vault that is encrypted opens on the usual unlock screen,
 so no note is shown before you unlock it.
 Choose an empty folder again before retrying a clone. A clone that completed but
 could not be opened is reported separately; its files remain available in the
-shown folder. A failed clone does not rescan your previous vault.
+shown folder. A failed clone refreshes your previous vault only when you chose
+a destination inside it; unrelated vaults are not rescanned.
 
 The current branch control does branch work inside the Git view. You can create
 from the branch you are on, another local branch, or a remote-tracking branch,

@@ -846,8 +846,8 @@ content.
 The clone dialog shows the provider's progress, cancellation control, operation
 review, and recovery errors. It cannot be dismissed mid-operation. A completed
 clone whose vault could not be opened is reported as such, with its files left
-intact; an ordinary failed clone leaves the previous vault active without an
-unnecessary rescan.
+intact; an ordinary failed clone leaves the previous vault active. It is
+refreshed only if the destination was inside that still-active vault.
 
 A clone that fails leaves the destination exactly as it is and returns an opaque
 host-owned clean-up token instead of a path. The panel offers Retry and

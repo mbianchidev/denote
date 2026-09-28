@@ -5854,6 +5854,7 @@ function App() {
       if (!workspace) {
         return false;
       }
+      const actionGeneration = vaultGeneration.current;
       if (action.id === "clone" && (!hostOptions?.gitCloneDestinationToken || !hostOptions.gitCloneDestinationPath)) {
         showError(new Error("Choose an empty destination folder before cloning."));
         return false;
@@ -5894,9 +5895,9 @@ function App() {
             workspace.vaultPath,
           );
         }
-        // Cloning writes only to its destination; success opens its snapshot,
-        // and failure leaves the previous vault needing no rescan.
-        if (mutatesWorkspace && action.id !== "clone") {
+        // Only a failed clone inside this vault can change its existing tree.
+        const affectsCurrentVault = action.id !== "clone" || hostOptions?.gitCloneDestinationWithinVault;
+        if (mutatesWorkspace && affectsCurrentVault && actionGeneration === vaultGeneration.current) {
           const snapshot = await refreshAndReindex();
           if (WORKTREE_CHANGING_SOURCE_CONTROL_ACTIONS.has(action.id)) {
             await reloadOpenTabsFromDisk(snapshot);

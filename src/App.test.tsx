@@ -3131,7 +3131,7 @@ describe("App initial file-tree expansion", () => {
     const model = appSourceControlModel("Synthetic repository");
     model.remoteAccess = { ...model.remoteAccess, cloneAvailable: true };
     mockApi.choosePluginGitCloneDestination.mockResolvedValue({
-      token: "synthetic-destination", path: "/synthetic-clone",
+      token: "synthetic-destination", path: "/synthetic-clone", withinVault: false,
     });
     mockPluginController.sourceControlProviders = [
       { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
@@ -3258,8 +3258,9 @@ describe("App initial file-tree expansion", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("does not rescan the current vault when a clone fails without switching vaults", async () => {
+  it.each([false, true])("rescans a failed clone only when its destination is inside the current vault (%s)", async (withinVault) => {
       const user = userEvent.setup();
+      const destinationPath = withinVault ? "/synthetic-vault/clone" : "/synthetic-clone";
       const snapshot = workspaceSnapshot([fileNode("keep.md", "markdown")]);
       const model = appSourceControlModel("Synthetic repository");
       mockPluginController.sourceControlProviders = [{
@@ -3268,7 +3269,7 @@ describe("App initial file-tree expansion", () => {
       mockApi.getLastVault.mockResolvedValue(snapshot);
       mockApi.refreshVault.mockResolvedValue(snapshot);
       mockApi.choosePluginGitCloneDestination.mockResolvedValue({
-        token: "synthetic-destination", path: "/synthetic-clone",
+        token: "synthetic-destination", path: destinationPath, withinVault,
       });
       const view = render(<App />);
       mockPluginController.runSourceControlAction.mockImplementation(async () => {
@@ -3286,14 +3287,14 @@ describe("App initial file-tree expansion", () => {
       await user.click(await screen.findByRole("button", { name: "Clone repo as vault" }));
       await user.type(screen.getByLabelText("Repository URL"), "https://example.invalid/repo.git");
       await user.click(screen.getByRole("button", { name: "Choose folder" }));
-      await screen.findByText("/synthetic-clone");
+      await screen.findByText(destinationPath);
       await user.click(screen.getByRole("button", { name: "Clone" }));
       const confirmation = await screen.findByRole("dialog", { name: "Clone a repository" });
       await user.click(within(confirmation).getByRole("button", { name: "Clone" }));
 
       expect(await screen.findByText("Clone: Synthetic remote unavailable.")).toBeInTheDocument();
       await screen.findByText("Choose an empty folder before another clone.");
-      expect(mockApi.refreshVault).not.toHaveBeenCalled();
+      expect(mockApi.refreshVault).toHaveBeenCalledTimes(withinVault ? 1 : 0);
       expect(screen.getByRole("button", { name: "Open keep.md" })).toBeInTheDocument();
     });
 

@@ -617,7 +617,8 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
   and offers Retry, or an explicitly confirmed clean-up that deletes only that
   exact folder. Nothing is ever deleted automatically.
-  Failed clones do not trigger an unrelated rescan of the previous vault.
+  Failed clones rescan the previous vault only when their destination was
+  inside it and that vault is still active.
 - Branch work is explicit, reviewed, and never destructive. The always-visible
   selector expands inside the plugin into one searchable local-and-remote list.
   It switches local branches, creates local tracking branches, creates and

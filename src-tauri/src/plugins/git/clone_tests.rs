@@ -42,6 +42,29 @@ const PLUGIN_ID: &str = "denote.reference";
 const SYNTHETIC_TOKEN: &str = "synthetic-token-0123456789";
 
 #[test]
+fn clone_selection_reports_whether_a_failed_clone_would_change_the_current_vault() {
+    let Some(fixture) = fixture() else { return };
+    let inside = fixture.vault_root.join("clone-target");
+    let outside = fixture.data.path().join("clone-target");
+    fs::create_dir(&inside).expect("inside");
+    fs::create_dir(&outside).expect("outside");
+    assert!(
+        fixture
+            .manager
+            .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &inside)
+            .expect("inside selection")
+            .within_vault
+    );
+    assert!(
+        !fixture
+            .manager
+            .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &outside)
+            .expect("outside selection")
+            .within_vault
+    );
+}
+
+#[test]
 fn selecting_a_clone_folder_does_not_clone_until_the_selected_token_is_used() {
     let Some(fixture) = fixture() else { return };
     let remote = synthetic_bare_remote(fixture.data.path());

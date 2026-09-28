@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { CloneOnboarding, type CloneOnboardingProps } from "./SourceControlPanel";
 
-const destination = { token: "synthetic-destination", path: "/synthetic/clone" };
+const destination = { token: "synthetic-destination", path: "/synthetic/clone", withinVault: false };
 
 function props(overrides: Partial<CloneOnboardingProps> = {}): CloneOnboardingProps {
   return {
