@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarDates, type PluginCalendarRequest, type PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import type {
   PluginCalendarContribution,
@@ -316,6 +316,11 @@ vi.mock("./components/FileTree", () => ({
 import App from "./App";
 
 describe("App initial file-tree expansion", () => {
+  beforeAll(async () => {
+    // Module transformation is setup, not part of a UI interaction's deadline.
+    await import("./components/MarkdownEditor");
+  });
+
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
