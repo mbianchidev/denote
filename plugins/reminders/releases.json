@@ -1,1 +1,13 @@
-[]
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "4dbcb1847e9af12777adbf2c161bf6e9aaa27735",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.0/denote.reminders-0.1.0.tgz",
+      "sha256": "e22199800140a5c686f9de882843a00664eb55d6522770543d3e702f77132730",
+      "sizeBytes": 71784
+    }
+  }
+]
