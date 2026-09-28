@@ -192,18 +192,18 @@ jobs:
       - name: Smoke test Windows renderer
         if: runner.os == 'Windows'
         shell: pwsh
-        env:
-          DENOTE_RENDERER_SMOKE_OUTPUT: ${{ github.workspace }}/denote-renderer-smoke.json
         run: |
           winget install gerardog.gsudo --accept-source-agreements --accept-package-agreements
           icacls "$env:GITHUB_WORKSPACE" /grant "Everyone:(OI)(CI)F"
-          sudo --integrity Medium node scripts/windows-renderer-smoke.mjs src-tauri/target/debug/denote.exe
+          sudo --integrity Medium pwsh -NoProfile -File scripts/windows-renderer-smoke.ps1 `
+            -AppPath src-tauri/target/debug/denote.exe `
+            -EvidenceDirectory windows-renderer-smoke
 
       - name: Upload Windows renderer smoke evidence
         if: runner.os == 'Windows' && failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: windows-renderer-smoke-attempt-${{ github.run_attempt }}
-          path: ${{ github.workspace }}/denote-renderer-smoke.json
+          path: windows-renderer-smoke/
           if-no-files-found: warn
           retention-days: 7
