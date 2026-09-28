@@ -165,6 +165,7 @@ function Measure-RenderedFrame {
 
   $colorBuckets = @{}
   $brightSamples = 0
+  $darkSamples = 0
   $samples = 0
   $minimumLuminance = 255
   $maximumLuminance = 0
@@ -182,6 +183,9 @@ function Measure-RenderedFrame {
       if ($luminance -ge 90) {
         $brightSamples++
       }
+      if ($luminance -le 55) {
+        $darkSamples++
+      }
       $bucket = "{0}:{1}:{2}" -f (
         [Math]::Floor($color.R / 16)
       ), (
@@ -198,6 +202,7 @@ function Measure-RenderedFrame {
     Samples = $samples
     DistinctColorBuckets = $colorBuckets.Count
     BrightSamples = $brightSamples
+    DarkSamples = $darkSamples
     LuminanceRange = $maximumLuminance - $minimumLuminance
   }
 }
@@ -219,6 +224,7 @@ $metrics = [ordered]@{
   samples = 0
   distinctColorBuckets = 0
   brightSamples = 0
+  darkSamples = 0
   luminanceRange = 0
   rendered = $false
   exitedAfterClose = $false
@@ -278,6 +284,7 @@ try {
     Samples = 0
     DistinctColorBuckets = 0
     BrightSamples = 0
+    DarkSamples = 0
     LuminanceRange = 0
   }
   do {
@@ -318,10 +325,12 @@ try {
     $metrics.samples = $analysis.Samples
     $metrics.distinctColorBuckets = $analysis.DistinctColorBuckets
     $metrics.brightSamples = $analysis.BrightSamples
+    $metrics.darkSamples = $analysis.DarkSamples
     $metrics.luminanceRange = $analysis.LuminanceRange
     $rendered = (
       $analysis.DistinctColorBuckets -ge 12 -and
       $analysis.BrightSamples -ge 12 -and
+      $analysis.DarkSamples -ge [Math]::Floor($analysis.Samples / 2) -and
       $analysis.LuminanceRange -ge 70
     )
   } while (-not $rendered -and [DateTime]::UtcNow -lt $windowDeadline)
@@ -332,6 +341,7 @@ try {
       "Denote remained visually blank: " +
       "$($analysis.DistinctColorBuckets) color buckets, " +
       "$($analysis.BrightSamples) bright samples, " +
+      "$($analysis.DarkSamples) dark samples, " +
       "$($analysis.LuminanceRange) luminance range."
     )
   }
