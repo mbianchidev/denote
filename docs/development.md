@@ -642,7 +642,8 @@ npx tsc --noEmit -p tsconfig.node.json
 
 Run `cargo audit --file src-tauri/Cargo.lock`. Tauri 2.12.0 and tauri-build 2.7.0
 remove the five unmaintained `unic-*` dependencies through their updated URL
-pattern implementation. No advisory is ignored.
+pattern implementation. The npm Tauri API and CLI use the matching 2.12 minor
+release; desktop packaging rejects a mismatched API minor. No advisory is ignored.
 
 Two findings remain in the Linux GTK stack:
 
