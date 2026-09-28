@@ -679,22 +679,29 @@ npx tsc --noEmit -p tsconfig.node.json
 Run `cargo audit --file src-tauri/Cargo.lock`. Windows releases temporarily pin
 Tauri 2.11.6, tauri-build/codegen/macros 2.6.3, runtime 2.11.3,
 runtime-wry 2.11.4, Tao 0.35.3, and Wry 0.55.1. The npm Tauri API 2.11.1 and
-CLI 2.11.5 use the matching runtime minor. Tauri 2.12 / Wry 0.57 opens a blank
-Windows webview and leaves the process alive after its last window closes.
-Do not float this runtime family until the packaged Windows renderer smoke gate
-passes. `tauri-utils` remains at 2.10.0, so the five unmaintained `unic-*`
-dependencies removed by its updated URL-pattern implementation stay absent.
-Desktop packaging rejects a mismatched API minor. No advisory is ignored.
+CLI 2.11.5 use the matching runtime minor. Tauri 2.12, including
+`tauri-utils` 2.10, opens a blank Windows webview and leaves the process alive
+after its last window closes. Do not float this runtime family until the
+packaged Windows renderer smoke gate passes. The known-good graph retains
+`tauri-utils` 2.9.3 and its URL-pattern implementation, so five unmaintained
+`unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
+minor. No vulnerability advisory is ignored.
 
-Two findings remain in the Linux GTK stack:
+Seven warning-level findings remain:
 
 | Advisory | Dependency path | Status |
 | --- | --- | --- |
 | [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370) | GTK 0.18 / GLib macros -> `proc-macro-error` 1.0.4 | Unmaintained |
+| [RUSTSEC-2025-0081](https://rustsec.org/advisories/RUSTSEC-2025-0081) | Tauri utils 2.9 / URL pattern -> `unic-char-property` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0075](https://rustsec.org/advisories/RUSTSEC-2025-0075) | Tauri utils 2.9 / URL pattern -> `unic-char-range` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0080](https://rustsec.org/advisories/RUSTSEC-2025-0080) | Tauri utils 2.9 / URL pattern -> `unic-common` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
-report these Linux dependencies. A successful exit does not resolve them.
+report the Linux GTK dependencies. A successful exit does not resolve any of
+these warnings.
 
 Migration investigation, 2026-09-28: maintained
 [GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, the

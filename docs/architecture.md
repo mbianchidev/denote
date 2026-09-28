@@ -5,12 +5,13 @@ frontend plus a Rust native core.
 
 Windows production builds pin the last verified Tauri 2.11 runtime family:
 Tauri 2.11.6, runtime 2.11.3, runtime-wry 2.11.4, Tao 0.35.3, and Wry 0.55.1.
-The Tauri 2.12 / Wry 0.57 upgrade can create an entirely blank Windows webview
-and leave the native process alive after its last window closes. CI therefore
-builds the package-equivalent application, captures its client area, requires
-the dark Denote surface rather than a uniform frame or browser error page, then
-closes the window and requires the process to exit. A newer runtime may replace
-the pin only when that gate passes.
+The matching build/codegen/macro crates stay at 2.6.3 and `tauri-utils` at
+2.9.3. The Tauri 2.12 family, including `tauri-utils` 2.10, can create an
+entirely blank Windows webview and leave the native process alive after its last
+window closes. CI therefore builds the package-equivalent application, captures
+its client area, requires the dark Denote surface rather than a uniform frame
+or browser error page, then closes the window and requires the process to exit.
+A newer runtime may replace the pin only when that gate passes.
 
 The frontend build caps emitted main-thread JavaScript chunks at 500,000 bytes.
 Entry-aware chunks preserve lazy dependency boundaries for Markdown editing,
