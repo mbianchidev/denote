@@ -245,6 +245,7 @@ export function PluginSettingsPanel({
   }, [filtered]);
   const approvedUpdates = plugins.filter(
     (plugin) =>
+      plugin.enabled &&
       plugin.status === "update-available" &&
       plugin.previouslyApproved === true,
   );
@@ -818,14 +819,14 @@ export function PluginSettingsPanel({
                           </section>
                         ) : (
                           <div className="plugin-card__actions">
-                            {plugin.status === "update-available" ? (
+                            {plugin.enabled && plugin.status === "update-available" ? (
                               <button
                                 type="button"
                                 className="primary-button"
                                 disabled={busy}
                                 onClick={() => setPendingEnable(pluginId)}
                               >
-                                {plugin.enabled ? "Review and update" : "Review and enable"}
+                                Review and update
                               </button>
                             ) : !plugin.enabled ? (
                               <button
@@ -1337,8 +1338,8 @@ function permissionScope(permission: PluginPermissionRequest): string | null {
 }
 
 function statusLabel(plugin: PluginView): string {
-  if (plugin.status === "update-available") {
-    return `${plugin.enabled ? "Enabled" : "Disabled"} · update available`;
+  if (plugin.enabled && plugin.status === "update-available") {
+    return "Enabled · update available";
   }
   if (plugin.enabled) {
     return "Enabled";
@@ -1359,6 +1360,7 @@ function statusLabel(plugin: PluginView): string {
     case "not-installed":
     case "disabled":
     case "enabled":
+    case "update-available":
       return "Disabled";
   }
 }

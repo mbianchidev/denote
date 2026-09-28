@@ -298,8 +298,14 @@ entrypoint, and worker checks before enablement. A local package must be
 disabled before replacement, and stale development enablement is removed at
 startup instead of being restored under production metadata.
 
-Development archive and custom-executable pickers use the native callback API,
-awaiting the result without blocking an async worker or the UI event loop.
+Vault, app-link, development archive, custom-executable, and clone-destination
+pickers share an asynchronous native selection adapter. On macOS, panel
+construction is deferred onto the main dispatch queue rather than nesting
+AppKit's file-service initialization inside tao's run-loop observer. After the
+main window finishes loading, the host prepares one invisible `NSOpenPanel` on
+that queue to initialize the shared file service before the first user request.
+This runs once per process and never presents a dialog, selects a path, or
+accesses vault content. Other platforms retain Tauri's callback dialogs.
 Selection cancellation returns without loading or changing a package. Archive
 inspection, executable validation, tool-status inspection, and settings writes
 that can probe custom executables run on the blocking pool. In particular,
@@ -584,7 +590,11 @@ the safe `core.autocrlf`, `core.eol`, `core.ignoreCase`, and
 `core.precomposeUnicode` values, then reapplies only the values needed by the
 typed operation after the hardening overrides. The later global scope wins for
 single-valued settings and an empty higher-precedence credential helper clears
-earlier helpers exactly as Git does. Credential helpers are enabled only for
+earlier helpers exactly as Git does. Both scopes are optional: a missing or empty
+system/global file contributes no settings. The shared reader queries entries
+and accepts Git's no-match status only with empty output and diagnostics;
+unreadable or malformed files remain explicit errors. Signing detection and
+cloning use this same reader. Credential helpers are enabled only for
 the `system` authentication mode. GPG programs and signing values are enabled
 only for a manual commit whose signing policy requires them. The Signing key
 setting can override `user.signingKey`. Signed commits and explicit key
@@ -1422,10 +1432,12 @@ plus the single-instance plugin prevents concurrent writers.
 
 Approved permission records and the artifact/catalog identities last accepted
 by the user remain as inert metadata after code is disabled or removed. They are
-consulted only to mark an independently changed catalog entry update-available
-and to qualify it for the explicit **Update all** flow; runtime authorization
-still requires the plugin to be enabled. For enabled plugins, native state also
-records the installed manifest. Startup validates that manifest, its approved
+consulted only for enabled plugins to mark an independently changed catalog entry
+update-available and qualify it for the explicit **Update all** flow. Disabled
+plugins never report an update; recovery removes their stale update flags without
+discarding approval metadata. Runtime authorization still requires the plugin to
+be enabled. For enabled plugins, native state also records the installed
+manifest. Startup validates that manifest, its approved
 permissions, and the recorded entrypoint digest against the versioned package,
 then continues running it under those installed permissions when a newer catalog
 entry appears. Bulk update captures the eligible list, stops one old runtime,

@@ -9,10 +9,9 @@ Each plugin starts as a compact row showing only its name and current status.
 Open the row to see its description, version, publisher, permissions, guide,
 settings, and enable, update, disable, or cleanup actions. Entries with an error
 open automatically so the failure stays visible.
-An update does not mean a plugin is running: **Disabled · update available**
-remains disabled, including in Denote Development. Choose **Review and enable**
-only when you want to start it. **Enabled · update available** means the installed
-version is still active.
+Disabled plugins show **Disabled**, without update notices, including in Denote
+Development. Choose **Enable** only when you want to start one.
+**Enabled · update available** means the installed version is still active.
 
 Plugin code comes from separately verified GitHub Release assets, not from the
 desktop installer. Denote checks each package's pinned size and checksum before
@@ -44,18 +43,18 @@ cannot fix the missing package. Keep the plugin ID, version, and download URL
 from the error when reporting it. A failed update preserves the installed
 version; do not disable it just to retry the download.
 
-When previously approved plugins have updates, **Update all** appears in the
-plugin manager. It first lists the exact plugins and explains that their complete
+When enabled, previously approved plugins have updates, **Update all** appears in
+the plugin manager. It first lists the exact plugins and explains that their complete
 latest permission sets will be accepted again. Confirming updates only those
-listed plugins, one independently verified transaction at a time. Current,
-never-approved, incompatible, and unrelated plugins are not downloaded or
+listed plugins, one independently verified transaction at a time. Disabled,
+current, never-approved, incompatible, and unrelated plugins are not downloaded or
 changed. An enabled plugin keeps running its installed version until its update
 has downloaded, verified, started, and completed. If that fails, Denote removes
 the attempted replacement and starts the installed version again.
 
 The plugin manager also has an **Automatically update plugins** toggle, off by
-default. Turning it on applies updates for previously approved plugins in the
-background, without the **Update all** confirmation, but only when the update
+default. Turning it on applies updates for enabled, previously approved plugins
+in the background, without the **Update all** confirmation, but only when the update
 keeps every permission the plugin already holds unchanged. An update that asks
 for a new or different permission still waits for you to review it through
 **Update all** or that plugin's own **Review and update** action. Update controls
@@ -685,8 +684,11 @@ to enable and configure it.
 
 **Use system Git settings** is on by default. Denote
 imports only bounded allowlisted identity, credential-helper, line-ending, and
-GPG values into its hardened Git process. Manual commits can follow the system
-signing default, always sign, or never sign. Leave **Signing key** empty to use
+GPG values into its hardened Git process. System and global config files are
+optional: you do not need to create `/etc/gitconfig` to clone or detect a signing
+key. Unreadable or malformed config files still report an error.
+Manual commits can follow the system signing default, always sign, or never sign.
+Leave **Signing key** empty to use
 Git configuration, or supply an imported OpenPGP fingerprint or SSH private-key
 path. Git plugin 0.9.0 uses the configured signing format and pins the resolved
 program, so Git for Windows cannot shadow Gpg4win with a different bundled GPG.

@@ -3,6 +3,7 @@ mod commands;
 mod crypto;
 mod db;
 mod default_vault;
+mod dialogs;
 mod error;
 mod gitignore;
 mod models;
@@ -252,6 +253,13 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main"
+                && matches!(payload.event(), tauri::webview::PageLoadEvent::Finished)
+            {
+                dialogs::prewarm();
+            }
+        })
         .setup(|app| {
             #[cfg(target_os = "macos")]
             configure_macos_menu(app)?;

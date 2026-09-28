@@ -477,7 +477,7 @@ fn failed_update_removes_only_the_new_package() {
 }
 
 #[test]
-fn disabled_previously_approved_plugin_reports_an_independent_update() {
+fn disabled_previously_approved_plugin_does_not_report_an_update() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");
     let catalog = catalog();
@@ -494,7 +494,16 @@ fn disabled_previously_approved_plugin_reports_an_independent_update() {
         state
             .catalog_fingerprints
             .insert(catalog.manifest.id.clone(), "older-catalog".to_string());
+        state.updates_available.insert(catalog.manifest.id.clone());
     }
+
+    let before = manager.list().expect("plugins before recovery");
+    let before = before
+        .iter()
+        .find(|plugin| plugin.catalog.manifest.id == catalog.manifest.id)
+        .expect("plugin");
+    assert_eq!(before.status, "not-installed");
+    assert!(!before.enabled);
 
     manager.reconcile_packages().expect("reconcile");
 
@@ -504,7 +513,15 @@ fn disabled_previously_approved_plugin_reports_an_independent_update() {
         .into_iter()
         .find(|plugin| plugin.catalog.manifest.id == catalog.manifest.id)
         .expect("plugin");
-    assert_eq!(view.status, "update-available");
+    assert_eq!(view.status, "not-installed");
+    assert!(!view.enabled);
+    assert!(
+        !manager
+            .state()
+            .expect("state")
+            .updates_available
+            .contains(&catalog.manifest.id)
+    );
     assert!(view.previously_approved);
     assert!(
         manager
@@ -652,11 +669,23 @@ fn tampered_entrypoint_is_removed_during_startup_recovery() {
             .contains_key(&catalog.manifest.id)
     );
     assert!(
-        manager
+        !manager
             .state()
             .expect("state")
             .updates_available
             .contains(&catalog.manifest.id)
+    );
+    let view = manager
+        .list()
+        .expect("plugins")
+        .into_iter()
+        .find(|plugin| plugin.catalog.manifest.id == catalog.manifest.id)
+        .expect("plugin");
+    assert_eq!(view.status, "failed");
+    assert!(
+        view.error
+            .as_deref()
+            .is_some_and(|error| error.contains("failed its integrity check"))
     );
 }
 

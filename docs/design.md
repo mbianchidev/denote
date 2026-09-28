@@ -364,9 +364,9 @@ The development-only local-archive action shows a loading label and polite
 status while the picker or verification is pending. Repeated clicks cannot
 stack native pickers, and cancellation restores the action. Other settings
 stay responsive while executable probes and archive checks run in background.
-Update badges retain the enablement state: **Enabled · update available** or
-**Disabled · update available**. A disabled package offers **Review and enable**,
-not an update action that suggests it is already running.
+Only enabled packages show **Enabled · update available** and appear in
+**Update all**. Disabled packages show **Disabled** with an ordinary **Enable**
+action, never an update badge or update action.
 Git executable settings use one compact status block per tool: selected source,
 resolved path, locked or detected version, validation state, and prerequisite
 guidance. Bundled mode shows **not downloaded** until an action first needs it;

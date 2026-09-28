@@ -287,6 +287,19 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("does not re-enable a disabled plugin through Update all even with stale update metadata", async () => {
+    const disabled = makePlugin({
+      enabled: false,
+      status: "update-available",
+      previouslyApproved: true,
+      approvedPermissions: [...catalog.manifest.permissions],
+    });
+    const { result } = await mountReady([disabled]);
+    await act(async () => result.current.updateAll());
+    expect(api.preparePluginEnable).not.toHaveBeenCalled();
+    expect(runtimeInstances[0].start).not.toHaveBeenCalled();
+  });
+
   it("binds only the host's clone token to a clone lease and keeps its display path out", async () => {
     const { result } = await mountReady([makePlugin({ enabled: true })]);
     const hostOptions = {

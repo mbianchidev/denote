@@ -101,7 +101,9 @@ the picker.
 
 The development archive picker opens independently of executable status checks.
 Dialog results are awaited asynchronously; archive verification and any
-executable checks run outside the UI thread. Git/gh version probes stop after
+executable checks run outside the UI thread. On macOS, archive, executable, and
+clone-folder panel construction is deferred to the main dispatch queue instead
+of running inside the event-loop observer. Git/gh version probes stop after
 five seconds or 64 KiB per output stream and report the failure rather than
 blocking Settings indefinitely. One in-flight load is shared across repeated
 requests, with visible progress and a retryable state after cancellation or an
@@ -117,15 +119,14 @@ actions, while entries with errors open automatically. Permissions must be
 approved before download. Structured permission objects are persisted and
 compared with the current manifest, so any permission change requires approval
 again.
-Enablement and update availability are independent. The catalog always labels
-an update with its **Enabled** or **Disabled** state; previously approved but
-disabled plugins remain stopped on startup and automatic updates, including in
-Denote Development. **Review and enable** explicitly approves starting a
-disabled package at its current version.
+Only enabled plugins show update availability. Previously approved but disabled
+plugins show **Disabled**, with no update notice, and remain stopped on startup,
+automatic updates, and **Update all**, including in Denote Development.
+**Enable** explicitly approves starting a disabled package at its current version.
 Prior approval metadata remains after package code is disabled or removed; it
 does not grant runtime access. It exists so an explicit **Update all** can select
-only previously approved plugins, show one confirmation, and re-accept each
-latest complete permission payload. Every selected plugin still uses its own
+only enabled, previously approved plugins, show one confirmation, and re-accept
+each latest complete permission payload. Every selected plugin still uses its own
 prepare, verified activation, commit, rollback, busy state, and error path.
 The valid installed version remains available until the replacement commits, and
 rollback removes only the staged replacement before restarting the installed
@@ -133,7 +134,7 @@ runtime. Updating one plugin never prepares, downloads, starts, or changes
 another.
 An **Automatically update plugins** toggle in the same panel, off by default
 and persisted locally, lets Denote apply this same per-plugin update sequence
-without a confirmation prompt for plugins whose next version keeps every
+without a confirmation prompt for enabled plugins whose next version keeps every
 already-approved permission unchanged. A plugin whose next version changes its
 requested permissions is never touched by the automatic path; it keeps showing
 as update-available until the user reviews it through **Update all** or its
@@ -732,7 +733,9 @@ can reintroduce a filter or a command. When the plugin's host-owned
 configuration and then its user-global configuration, preserving Git's
 precedence and credential-helper reset semantics, and reapplies only bounded
 allowlisted identity, credential-helper, line-ending, and GPG signing values
-after those hardening pins. Credential helpers are restored only for `system`
+after those hardening pins. Missing or empty system/global configuration is
+allowed; malformed or unreadable configuration still fails explicitly.
+Credential helpers are restored only for `system`
 authentication, and GPG programs only for signed manual commits. System pinentry
 remains available unless a saved or one-shot passphrase is supplied. The host still rejects dangerous repository-local
 configuration before running. Operations use process groups, suppress console

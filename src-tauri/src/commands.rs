@@ -20,6 +20,7 @@ use crate::{
     crypto::{self, EncryptionPhase},
     db::{self, AppState},
     default_vault,
+    dialogs::{self, SelectionKind},
     error::{AppError, AppResult},
     models::{
         DocumentBatch, EncryptionSetupResult, FileEncoding, FileLineEnding, GitignoreStatusUpdate,
@@ -239,18 +240,14 @@ pub async fn import_app_link_vault(
     let containing_folder = target.parent().ok_or_else(|| {
         AppError::InvalidPath("The linked file has no containing folder".to_string())
     })?;
-    let selected = app
+    let dialog = app
         .dialog()
         .file()
         .set_title("Choose the vault folder containing the linked file")
-        .set_directory(containing_folder)
-        .blocking_pick_folder();
-    let Some(selected) = selected else {
+        .set_directory(containing_folder);
+    let Some(selected) = dialogs::select(dialog, SelectionKind::Folder).await? else {
         return Ok(None);
     };
-    let selected = selected
-        .into_path()
-        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
     let (root, path) = app_links::vault_file_target(&selected, &target)?;
     let _vault_access = state.write_vault_access()?;
     seal_active_vault_before_switch(&state)?;
@@ -372,17 +369,10 @@ pub async fn choose_vault(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<Option<WorkspaceSnapshot>> {
-    let selected = app
-        .dialog()
-        .file()
-        .set_title("Choose a Denote vault")
-        .blocking_pick_folder();
-    let Some(selected) = selected else {
+    let dialog = app.dialog().file().set_title("Choose a Denote vault");
+    let Some(path) = dialogs::select(dialog, SelectionKind::Folder).await? else {
         return Ok(None);
     };
-    let path = selected
-        .into_path()
-        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
     let _vault_access = state.write_vault_access()?;
     seal_active_vault_before_switch(&state)?;
     let mut snapshot = vault::open_vault(&state.db_path, &path.to_string_lossy())?;

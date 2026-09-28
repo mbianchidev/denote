@@ -19,6 +19,9 @@ use crate::plugins::{
     types::PluginPermission,
 };
 
+#[cfg(unix)]
+use super::transport::read_system_git_settings;
+
 use super::{
     tools,
     transport::{
@@ -39,6 +42,79 @@ use super::{
 use crate::{crypto, db, vault};
 
 const PLUGIN_ID: &str = "denote.reference";
+
+#[cfg(unix)]
+fn isolated_config_git(system: Option<&str>, global: Option<&str>) -> (TempDir, PathBuf) {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = TempDir::new().expect("config fixture");
+    let system_path = directory.path().join("system-config");
+    let global_path = directory.path().join("global-config");
+    if let Some(contents) = system {
+        fs::write(&system_path, contents).expect("system config");
+    }
+    if let Some(contents) = global {
+        fs::write(&global_path, contents).expect("global config");
+    }
+    let executable = directory.path().join("git");
+    let git = resolve_git_executable(None).expect("Git");
+    fs::write(&executable, format!(
+        "#!/bin/sh\nexport GIT_CONFIG_SYSTEM='{}'\nexport GIT_CONFIG_GLOBAL='{}'\nexec '{}' \"$@\"\n",
+        system_path.display(), global_path.display(), git.display(),
+    )).expect("isolated Git wrapper");
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).expect("executable");
+    (directory, executable)
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_optional_system_config_preserves_global_signing_settings() {
+    let (_directory, git) = isolated_config_git(
+        None,
+        Some(
+            "[user]\n name = Synthetic Author\n signingkey = SYNTHETIC-KEY\n[gpg]\n format = ssh\n",
+        ),
+    );
+    let settings = read_system_git_settings(&git).expect("optional system config");
+    assert_eq!(settings.last("user.signingkey"), Some("SYNTHETIC-KEY"));
+    assert_eq!(settings.last("gpg.format"), Some("ssh"));
+}
+
+#[cfg(unix)]
+#[test]
+fn missing_optional_git_config_scopes_are_empty_for_clone_and_signing() {
+    for (system, global) in [(None, None), (Some(""), None), (None, Some(""))] {
+        let (_directory, git) = isolated_config_git(system, global);
+        assert_eq!(
+            read_system_git_settings(&git).expect("empty optional scopes"),
+            SystemGitSettings::default()
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn malformed_git_config_is_not_treated_as_missing() {
+    let (_directory, git) = isolated_config_git(Some("[broken\n"), None);
+    let error = read_system_git_settings(&git).expect_err("malformed system config");
+    assert!(error.to_string().contains("bad config"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_git_config_is_not_treated_as_missing() {
+    use std::os::unix::fs::PermissionsExt;
+    if unsafe { libc::geteuid() } == 0 {
+        return;
+    }
+    let (directory, git) = isolated_config_git(Some("[user]\n name = Synthetic\n"), None);
+    fs::set_permissions(
+        directory.path().join("system-config"),
+        fs::Permissions::from_mode(0),
+    )
+    .expect("restrict config");
+    let error = read_system_git_settings(&git).expect_err("unreadable system config");
+    assert!(error.to_string().contains("Permission denied"), "{error}");
+}
 
 #[cfg(windows)]
 #[test]

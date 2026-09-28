@@ -187,7 +187,7 @@ describe("PluginSettingsPanel", () => {
     expect(pluginDisclosure("Reference plugin")).toBeInTheDocument();
   });
 
-  it("shows a disabled viewer as disabled even when a newer version is available", async () => {
+  it("hides update notices and actions for a disabled viewer", async () => {
     const user = userEvent.setup();
     const onEnable = vi.fn().mockResolvedValue(undefined);
     const viewerCatalog = {
@@ -203,13 +203,16 @@ describe("PluginSettingsPanel", () => {
     render(<PluginSettingsPanel {...props({ plugins: [disabled], developmentSupported: true, onEnable })} />);
 
     const row = pluginDisclosure("JSON and YAML viewer");
-    expect(row.querySelector("summary")).toHaveTextContent("Disabled · update available");
+    expect(row.querySelector("summary")).toHaveTextContent("Disabled");
+    expect(row.querySelector("summary")).not.toHaveTextContent(/update available/i);
     await expandPlugin(user, "JSON and YAML viewer");
     expect(screen.getByText("Not stored locally")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review and enable" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Enable" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /update all/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /review and/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disable and remove code" })).not.toBeInTheDocument();
     expect(onEnable).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: "Review and enable" }));
+    await user.click(screen.getByRole("button", { name: "Enable" }));
     expect(screen.getByRole("heading", { name: "Approve permissions?" })).toBeInTheDocument();
     expect(onEnable).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Approve and enable" }));
@@ -346,7 +349,7 @@ describe("PluginSettingsPanel", () => {
     ]);
   });
 
-  it("updates every previously approved plugin with an available update", async () => {
+  it("updates only enabled previously approved plugins with an available update", async () => {
     const user = userEvent.setup();
     const onUpdateAll = vi.fn().mockResolvedValue(undefined);
     const git = plugin({
@@ -358,11 +361,13 @@ describe("PluginSettingsPanel", () => {
           name: "Git vault versioning",
         },
       },
+      enabled: true,
       status: "update-available",
       previouslyApproved: true,
     });
     const reference = plugin({
-      status: "not-installed",
+      enabled: false,
+      status: "update-available",
       previouslyApproved: true,
     });
     const neverApproved = plugin({
@@ -565,7 +570,8 @@ describe("PluginSettingsPanel", () => {
     expect(
       within(section!).getByText("Failed — Synthetic activation failure"),
     ).toBeInTheDocument();
-    expect(within(section!).getByText("Disabled · update available")).toBeInTheDocument();
+    expect(within(section!).getAllByText("Disabled")).toHaveLength(2);
+    expect(within(section!).queryByText(/update available/i)).not.toBeInTheDocument();
     expect(
       within(section!).getByText(
         "Incompatible — Requires a newer Denote version",
@@ -579,8 +585,8 @@ describe("PluginSettingsPanel", () => {
       screen.getAllByRole("button", { name: "Enable" }).length,
     ).toBeGreaterThan(0);
     expect(
-      screen.getByRole("button", { name: "Review and enable" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "Review and enable" }),
+    ).not.toBeInTheDocument();
   });
 
   it("offers package disable and explicit data cleanup", async () => {

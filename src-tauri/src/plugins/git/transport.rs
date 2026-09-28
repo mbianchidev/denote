@@ -1543,7 +1543,15 @@ fn read_git_config_scope(
     if let Some(repository) = repository {
         command.current_dir(repository);
     }
-    command.args(["config", scope.flag(), "--includes", "--null", "--list"]);
+    // Unlike --list, a query permits optional config files to be absent.
+    command.args([
+        "config",
+        scope.flag(),
+        "--includes",
+        "--null",
+        "--get-regexp",
+        ".*",
+    ]);
     remove_inherited_environment(&mut command);
     command
         .env_remove("GIT_CONFIG_GLOBAL")
@@ -1558,7 +1566,9 @@ fn read_git_config_scope(
             scope.label()
         ))
     })?;
-    if !output.status.success() {
+    let no_entries =
+        output.status.code() == Some(1) && output.stdout.is_empty() && output.stderr.is_empty();
+    if !output.status.success() && !no_entries {
         return Err(AppError::Plugin(format!(
             "Unable to read the {} Git settings: {}",
             scope.label(),

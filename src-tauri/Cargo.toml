@@ -63,5 +63,11 @@ tauri-plugin-deep-link = "2"
 rlimit = "0.11.0"
 xattr = "1.6.1"
 
+[target."cfg(target_os = \"macos\")".dependencies]
+dispatch2 = "0.3.1"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+rfd = { version = "0.16.0", default-features = false }
+
 [target."cfg(windows)".dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_Security_Authorization"] }

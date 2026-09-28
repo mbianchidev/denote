@@ -380,16 +380,15 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   entries with an error open automatically. Automatic update controls live in
   a compact update strip, while **Disable all plugins** stays in a separate
   recovery footer below the catalog.
-  Update badges explicitly retain the enabled or disabled state; a disabled
-  JSON/YAML viewer or other optional plugin never starts merely because an
-  update exists, including in development builds.
-- **Update all** appears only when previously approved plugins have available
-  updates. One confirmation lists the affected plugins and re-accepts each
-  latest complete permission payload. Each plugin then updates through its own
+  Disabled plugins show no update badge or update action, including in
+  development builds. They remain stopped until the user chooses **Enable**.
+- **Update all** appears only when enabled, previously approved plugins have
+  available updates. One confirmation lists the affected plugins and re-accepts
+  each latest complete permission payload. Each plugin then updates through its own
   transaction and runtime. The installed version remains active and stored
   until the replacement has downloaded, verified, activated, and committed;
   a failed or cancelled update restores that installed version. Unrelated,
-  never-approved, current, or incompatible plugins are untouched.
+  disabled, never-approved, current, or incompatible plugins are untouched.
 - Disabling a plugin removes its installed package, cached archive, staging
   content, and removal backups. Catalog metadata remains available for a later
   reinstall; plugin settings and generated data follow their separate cleanup

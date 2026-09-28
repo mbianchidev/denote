@@ -742,6 +742,7 @@ export function usePlugins(
   const updateAll = useCallback(async () => {
     const targets = plugins.filter(
       (plugin) =>
+        plugin.enabled &&
         plugin.status === "update-available" &&
         plugin.previouslyApproved === true,
     );
