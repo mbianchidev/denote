@@ -676,10 +676,15 @@ npx tsc --noEmit -p tsconfig.node.json
 
 ## Rust dependency audits and GTK migration
 
-Run `cargo audit --file src-tauri/Cargo.lock`. Tauri 2.12.0 and tauri-build 2.7.0
-remove the five unmaintained `unic-*` dependencies through their updated URL
-pattern implementation. The npm Tauri API and CLI use the matching 2.12 minor
-release; desktop packaging rejects a mismatched API minor. No advisory is ignored.
+Run `cargo audit --file src-tauri/Cargo.lock`. Windows releases temporarily pin
+Tauri 2.11.6, tauri-build/codegen/macros 2.6.3, runtime 2.11.3,
+runtime-wry 2.11.4, Tao 0.35.3, and Wry 0.55.1. The npm Tauri API 2.11.1 and
+CLI 2.11.5 use the matching runtime minor. Tauri 2.12 / Wry 0.57 opens a blank
+Windows webview and leaves the process alive after its last window closes.
+Do not float this runtime family until the packaged Windows renderer smoke gate
+passes. `tauri-utils` remains at 2.10.0, so the five unmaintained `unic-*`
+dependencies removed by its updated URL-pattern implementation stay absent.
+Desktop packaging rejects a mismatched API minor. No advisory is ignored.
 
 Two findings remain in the Linux GTK stack:
 
@@ -692,9 +697,10 @@ The audit includes every platform in the lockfile, so macOS and Windows also
 report these Linux dependencies. A successful exit does not resolve them.
 
 Migration investigation, 2026-09-28: maintained
-[GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, Tauri
-2.12, its runtime, Tao, Wry, and WebKitGTK still use GTK 0.18 types. A new direct
-GTK/GLib dependency cannot replace incompatible transitive types and native
+[GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, the
+Tauri 2.11 and 2.12 runtime families, Tao, Wry, and WebKitGTK still use GTK 0.18
+types. A new direct GTK/GLib dependency cannot replace incompatible transitive
+types and native
 `links` dependencies. The runtime, menu/dialog integrations, and WebKitGTK
 bindings need a coordinated upgrade.
 
@@ -716,6 +722,20 @@ npm run tauri build
 
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
+
+Windows CI additionally builds the embedded application without installers and
+runs:
+
+```powershell
+pwsh -NoProfile -File scripts/windows-renderer-smoke.ps1 `
+  -AppPath src-tauri/target/release/denote.exe `
+  -EvidenceDirectory windows-renderer-smoke
+```
+
+The hosted runner launches this at medium integrity, isolates application and
+WebView2 data, captures the client area, rejects a uniform blank frame or browser
+error page, closes the last window, and requires `denote.exe` to exit. Failure
+uploads the screenshot and measured frame evidence.
 
 ### Preview an unpublished plugin on macOS
 
