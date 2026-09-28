@@ -320,7 +320,10 @@ import App from "./App";
 describe("App initial file-tree expansion", () => {
   beforeAll(async () => {
     // Module transformation is setup, not part of a UI interaction's deadline.
-    await import("./components/MarkdownEditor");
+    await Promise.all([
+      import("./components/MarkdownEditor"),
+      import("@pierre/diffs/react"),
+    ]);
   });
 
   beforeEach(() => {
