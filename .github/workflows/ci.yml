@@ -187,7 +187,7 @@ jobs:
 
       - name: Build Windows renderer smoke binary
         if: runner.os == 'Windows'
-        run: cargo build --manifest-path src-tauri/Cargo.toml --bin denote
+        run: cargo build --release --manifest-path src-tauri/Cargo.toml --bin denote
 
       - name: Smoke test Windows renderer
         if: runner.os == 'Windows'
@@ -196,7 +196,7 @@ jobs:
           winget install gerardog.gsudo --accept-source-agreements --accept-package-agreements
           icacls "$env:GITHUB_WORKSPACE" /grant "Everyone:(OI)(CI)F"
           sudo --integrity Medium pwsh -NoProfile -File scripts/windows-renderer-smoke.ps1 `
-            -AppPath src-tauri/target/debug/denote.exe `
+            -AppPath src-tauri/target/release/denote.exe `
             -EvidenceDirectory windows-renderer-smoke
 
       - name: Upload Windows renderer smoke evidence
