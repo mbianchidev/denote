@@ -69,6 +69,7 @@ vi.mock("../lib/api", () => ({
     setPluginSettings: vi.fn(),
     getPluginSettings: vi.fn(),
     importPluginSettings: vi.fn(),
+    chooseDevelopmentPluginArchive: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -286,6 +287,47 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("coalesces concurrent development pickers and remains retryable after cancellation", async () => {
+    const { result } = await mountReady([]);
+    let finishSelection: (pluginId: string | null) => void = () => {};
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockImplementationOnce(() =>
+      new Promise<string | null>((resolve) => { finishSelection = resolve; }),
+    );
+    let first: Promise<void>;
+    let second: Promise<void>;
+    act(() => {
+      first = result.current.loadDevelopmentPlugin();
+      second = result.current.loadDevelopmentPlugin();
+    });
+    expect(api.chooseDevelopmentPluginArchive).toHaveBeenCalledTimes(1);
+    expect(result.current.developmentLoading).toBe(true);
+    await act(async () => {
+      finishSelection(null);
+      await Promise.all([first, second]);
+    });
+    expect(result.current.developmentLoading).toBe(false);
+    expect(api.listPlugins).not.toHaveBeenCalled();
+
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockResolvedValueOnce(pluginId);
+    queueListPlugins([makePlugin()]);
+    await act(async () => result.current.loadDevelopmentPlugin());
+    expect(api.chooseDevelopmentPluginArchive).toHaveBeenCalledTimes(2);
+    expect(api.listPlugins).toHaveBeenCalledTimes(1);
+    expect(result.current.developmentLoading).toBe(false);
+  });
+
+  it("releases the development picker after an archive verification error", async () => {
+    const { result } = await mountReady([]);
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockRejectedValueOnce(new Error("Synthetic invalid archive."));
+    await act(async () => {
+      await expect(result.current.loadDevelopmentPlugin()).rejects.toThrow("Synthetic invalid archive.");
+    });
+    expect(result.current.developmentLoading).toBe(false);
+    vi.mocked(api.chooseDevelopmentPluginArchive).mockResolvedValueOnce(null);
+    await act(async () => result.current.loadDevelopmentPlugin());
+    expect(api.chooseDevelopmentPluginArchive).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps a disabled JSON/YAML viewer stopped at startup even with an update available", async () => {
     const viewer = makePlugin({
       catalog: {

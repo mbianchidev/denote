@@ -10889,6 +10889,7 @@ function App() {
         plugins={pluginController.plugins}
         pluginBundles={pluginController.bundles}
         pluginDevelopmentSupported={pluginController.developmentSupported}
+        pluginDevelopmentLoading={pluginController.developmentLoading}
         activeProject={activeProject}
         pluginsLoading={pluginController.loading}
         busyPluginIds={pluginController.busyPluginIds}

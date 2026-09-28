@@ -356,6 +356,10 @@ status. Opening one reveals description, provenance, permissions, guide,
 settings, and lifecycle actions. Error entries open automatically, focus remains
 visible, and nested permissions or JSON disclosures retain native keyboard
 behavior.
+The development-only local-archive action shows a loading label and polite
+status while the picker or verification is pending. Repeated clicks cannot
+stack native pickers, and cancellation restores the action. Other settings
+stay responsive while executable probes and archive checks run in background.
 Update badges retain the enablement state: **Enabled · update available** or
 **Disabled · update available**. A disabled package offers **Review and enable**,
 not an update action that suggests it is already running.

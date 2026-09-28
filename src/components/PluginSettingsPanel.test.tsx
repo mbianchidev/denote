@@ -265,6 +265,36 @@ describe("PluginSettingsPanel", () => {
     expect(onLoadDevelopment).toHaveBeenCalledOnce();
   });
 
+  it("keeps the archive picker usable while Git tool inspection is pending", async () => {
+    const user = userEvent.setup();
+    const onLoadDevelopment = vi.fn().mockResolvedValue(undefined);
+    const onInspectTools = vi.fn(() => new Promise<never>(() => {}));
+    render(<PluginSettingsPanel {...props({
+      plugins: [plugin({ catalog: { ...catalog, manifest: { ...catalog.manifest, id: "denote.git" } } })],
+      developmentSupported: true,
+      onLoadDevelopment,
+      onInspectTools,
+    })} />);
+    await waitFor(() => expect(onInspectTools).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Load local plugin archive" }));
+    expect(onLoadDevelopment).toHaveBeenCalledOnce();
+  });
+
+  it("shows pending archive selection and prevents duplicate picker clicks", async () => {
+    const user = userEvent.setup();
+    const onLoadDevelopment = vi.fn();
+    render(<PluginSettingsPanel {...props({
+      developmentSupported: true,
+      developmentLoading: true,
+      onLoadDevelopment,
+    })} />);
+    const button = screen.getByRole("button", { name: "Loading local plugin archive…" });
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute("aria-busy", "true");
+    await user.click(button);
+    expect(onLoadDevelopment).not.toHaveBeenCalled();
+  });
+
   it("labels local development archives as untrusted session code", () => {
     render(
       <PluginSettingsPanel

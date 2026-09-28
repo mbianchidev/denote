@@ -8,7 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, FilePath};
 use tauri_plugin_notification::NotificationExt;
 use zeroize::Zeroize;
 
@@ -62,6 +62,31 @@ where
         .map_err(|error| AppError::State(format!("Background plugin task failed: {error}")))?
 }
 
+async fn select_plugin_file(
+    open: impl FnOnce(Box<dyn FnOnce(Option<FilePath>) + Send>),
+) -> AppResult<Option<PathBuf>> {
+    let (sender, mut receiver) = tauri::async_runtime::channel(1);
+    open(Box::new(move |selected| {
+        if sender.try_send(selected).is_err() {
+            eprintln!("The plugin file picker closed after its request ended.");
+        }
+    }));
+    receiver
+        .recv()
+        .await
+        .ok_or_else(|| {
+            AppError::Plugin(
+                "The plugin file picker closed without a result. Try again.".to_string(),
+            )
+        })?
+        .map(|selected| {
+            selected
+                .into_path()
+                .map_err(|error| AppError::InvalidPath(error.to_string()))
+        })
+        .transpose()
+}
+
 #[tauri::command]
 pub fn list_plugins(state: State<'_, PluginManager>) -> AppResult<Vec<PluginView>> {
     state.list()
@@ -93,18 +118,15 @@ pub async fn choose_development_plugin_archive(
                     .to_string(),
             ));
         }
-        let selected = app
+        let dialog = app
             .dialog()
             .file()
             .set_title("Choose a development plugin archive")
-            .add_filter("Denote plugin archive", &["tgz"])
-            .blocking_pick_file();
-        let Some(selected) = selected else {
+            .add_filter("Denote plugin archive", &["tgz"]);
+        let Some(path) = select_plugin_file(move |complete| dialog.pick_file(complete)).await?
+        else {
             return Ok(None);
         };
-        let path = selected
-            .into_path()
-            .map_err(|error| AppError::InvalidPath(error.to_string()))?;
         let manager = state.inner().clone();
         run_blocking(move || manager.load_development_archive(&path))
             .await
@@ -412,30 +434,33 @@ pub fn get_plugin_settings(state: State<'_, PluginManager>, plugin_id: String) -
 }
 
 #[tauri::command]
-pub fn set_plugin_settings(
+pub async fn set_plugin_settings(
     state: State<'_, PluginManager>,
     plugin_id: String,
     settings: Value,
 ) -> AppResult<Value> {
-    state.set_settings(&plugin_id, settings)
+    let manager = state.inner().clone();
+    run_blocking(move || manager.set_settings(&plugin_id, settings)).await
 }
 
 #[tauri::command]
-pub fn import_plugin_settings(
+pub async fn import_plugin_settings(
     state: State<'_, PluginManager>,
     plugin_id: String,
     source_version: u32,
     settings: Value,
 ) -> AppResult<Value> {
-    state.import_settings(&plugin_id, source_version, settings)
+    let manager = state.inner().clone();
+    run_blocking(move || manager.import_settings(&plugin_id, source_version, settings)).await
 }
 
 #[tauri::command]
-pub fn get_plugin_tool_statuses(
+pub async fn get_plugin_tool_statuses(
     state: State<'_, PluginManager>,
     plugin_id: String,
 ) -> AppResult<Vec<super::ToolStatus>> {
-    state.tool_statuses(&plugin_id)
+    let manager = state.inner().clone();
+    run_blocking(move || manager.tool_statuses(&plugin_id)).await
 }
 
 #[tauri::command]
@@ -514,7 +539,7 @@ pub async fn delete_git_signing_passphrase(
 }
 
 #[tauri::command]
-pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Option<String>> {
+pub async fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Option<String>> {
     let kind = match tool.as_str() {
         "git" => ToolKind::Git,
         "github-cli" => ToolKind::GitHubCli,
@@ -524,32 +549,28 @@ pub fn choose_plugin_executable(app: AppHandle, tool: String) -> AppResult<Optio
             ));
         }
     };
-    let selected = app
-        .dialog()
-        .file()
-        .set_title(match kind {
-            ToolKind::Git => "Choose a Git executable",
-            ToolKind::GitHubCli => "Choose a GitHub CLI executable",
-        })
-        .blocking_pick_file();
-    let Some(selected) = selected else {
+    let dialog = app.dialog().file().set_title(match kind {
+        ToolKind::Git => "Choose a Git executable",
+        ToolKind::GitHubCli => "Choose a GitHub CLI executable",
+    });
+    let Some(path) = select_plugin_file(move |complete| dialog.pick_file(complete)).await? else {
         return Ok(None);
     };
-    let path = selected
-        .into_path()
-        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
-    let value = path.to_string_lossy().into_owned();
-    let status = super::git::tools::inspect(
-        std::path::Path::new(""),
-        std::path::Path::new(""),
-        kind,
-        ExecutableMode::Custom,
-        Some(&value),
-    );
-    if status.validation_status != "valid" {
-        return Err(AppError::Plugin(status.message));
-    }
-    Ok(status.resolved_path)
+    run_blocking(move || {
+        let value = path.to_string_lossy().into_owned();
+        let status = super::git::tools::inspect(
+            Path::new(""),
+            Path::new(""),
+            kind,
+            ExecutableMode::Custom,
+            Some(&value),
+        );
+        if status.validation_status != "valid" {
+            return Err(AppError::Plugin(status.message));
+        }
+        Ok(status.resolved_path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1246,4 +1267,74 @@ pub async fn plugin_git_clean_failed_clone(
         manager.clean_failed_clone(&plugin_id, &cleanup_token, &[root])
     })
     .await
+}
+
+#[cfg(test)]
+mod picker_tests {
+    use super::*;
+    use std::{
+        future::Future,
+        sync::mpsc,
+        task::{Context, Poll, Waker},
+        thread,
+        time::Duration,
+    };
+
+    #[test]
+    fn plugin_file_selection_yields_until_the_native_callback_answers() {
+        let (sender, receiver) = mpsc::channel();
+        let mut selection = Box::pin(select_plugin_file(move |complete| {
+            sender.send(complete).expect("picker opened");
+        }));
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(matches!(
+            selection.as_mut().poll(&mut context),
+            Poll::Pending
+        ));
+        let complete = receiver.try_recv().expect("picker callback");
+        complete(Some(FilePath::Path(PathBuf::from("synthetic.tgz"))));
+        assert_eq!(
+            tauri::async_runtime::block_on(selection).expect("selected file"),
+            Some(PathBuf::from("synthetic.tgz")),
+        );
+    }
+
+    #[test]
+    fn plugin_file_selection_distinguishes_cancellation_from_a_missing_callback() {
+        assert_eq!(
+            tauri::async_runtime::block_on(select_plugin_file(|complete| complete(None)))
+                .expect("cancelled"),
+            None,
+        );
+        let error = tauri::async_runtime::block_on(select_plugin_file(|_| {}))
+            .expect_err("picker dispatch failed");
+        assert!(error.to_string().contains("without a result"));
+    }
+
+    #[test]
+    fn slow_plugin_background_work_does_not_block_file_selection() {
+        let caller = thread::current().id();
+        let (started, started_receiver) = mpsc::channel();
+        let (release, release_receiver) = mpsc::channel();
+        let mut work = Box::pin(run_blocking(move || {
+            started
+                .send(thread::current().id())
+                .expect("background worker");
+            release_receiver.recv().expect("release worker");
+            Ok(())
+        }));
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(matches!(work.as_mut().poll(&mut context), Poll::Pending));
+        let worker = started_receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("started");
+        assert_ne!(caller, worker);
+        assert_eq!(
+            tauri::async_runtime::block_on(select_plugin_file(|complete| complete(None)))
+                .expect("picker remains responsive"),
+            None,
+        );
+        release.send(()).expect("release");
+        tauri::async_runtime::block_on(work).expect("worker finished");
+    }
 }

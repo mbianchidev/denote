@@ -99,6 +99,15 @@ validation, extraction, permission approval, worker activation, rollback, and
 disable cleanup. Release builds do not compile the local adapter and never show
 the picker.
 
+The development archive picker opens independently of executable status checks.
+Dialog results are awaited asynchronously; archive verification and any
+executable checks run outside the UI thread. Git/gh version probes stop after
+five seconds or 64 KiB per output stream and report the failure rather than
+blocking Settings indefinitely. One in-flight load is shared across repeated
+requests, with visible progress and a retryable state after cancellation or an
+invalid archive. These scheduling changes do not skip verification or approve
+permissions automatically.
+
 The Settings dialog contains the searchable, category-grouped plugin manager.
 It shows catalog metadata, requested permissions, status, in-app guides,
 declarative settings, enable/disable controls, and explicit data or credential

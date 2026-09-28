@@ -29,6 +29,7 @@ interface EditorSettingsDialogProps {
   plugins: PluginView[];
   pluginBundles: PluginBundleMetadata[];
   pluginDevelopmentSupported?: boolean;
+  pluginDevelopmentLoading?: boolean;
   activeProject: ProjectRoot | null;
   pluginsLoading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -78,6 +79,7 @@ export function EditorSettingsDialog({
   plugins,
   pluginBundles,
   pluginDevelopmentSupported = false,
+  pluginDevelopmentLoading = false,
   activeProject,
   pluginsLoading,
   busyPluginIds,
@@ -391,6 +393,7 @@ export function EditorSettingsDialog({
           plugins={plugins}
           bundles={pluginBundles}
           developmentSupported={pluginDevelopmentSupported}
+          developmentLoading={pluginDevelopmentLoading}
           activeProject={activeProject}
           loading={pluginsLoading}
           busyPluginIds={busyPluginIds}

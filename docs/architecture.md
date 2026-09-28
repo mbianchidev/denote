@@ -298,6 +298,18 @@ entrypoint, and worker checks before enablement. A local package must be
 disabled before replacement, and stale development enablement is removed at
 startup instead of being restored under production metadata.
 
+Development archive and custom-executable pickers use the native callback API,
+awaiting the result without blocking an async worker or the UI event loop.
+Selection cancellation returns without loading or changing a package. Archive
+inspection, executable validation, tool-status inspection, and settings writes
+that can probe custom executables run on the blocking pool. In particular,
+opening the archive picker never waits for the Git/gh status checks started by
+Settings. Version probes use process groups, a five-second deadline, and 64 KiB
+output limits on both streams. Private temporary output files avoid waiting for
+descendants that retain pipe handles; timeout and oversized output are explicit
+failures. The frontend shares one in-flight archive request and exposes loading
+state until selection, verification, and catalog refresh finish.
+
 The development Tauri configuration uses separate application data, cache, and
 manager-lock locations. The keychain service is derived from the runtime
 application identity while preserving the existing production service name, so

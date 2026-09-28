@@ -531,7 +531,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Development builds use a separate application identity and can explicitly
   load a local `.tgz` from **Settings → Plugins**. Local packages are visibly
   untrusted, pass the ordinary package/runtime safety checks, and are
-  unavailable in release builds.
+  unavailable in release builds. The picker does not wait for Git/gh status
+  probes, loading/verification progress is visible, and repeated requests never
+  stack pickers. Cancelling leaves existing plugins unchanged.
 - The optional **Git vault versioning** plugin is the first production catalog
   entry. Its host-rendered view lists the vault root and configured project roots
   that contain a safe `.git` file or directory, keeps one explicitly selected,

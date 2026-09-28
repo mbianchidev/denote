@@ -199,6 +199,11 @@ app, are labeled untrusted, and still pass package bounds, path, manifest,
 permission, extraction, entrypoint-integrity, worker-isolation, rollback, and
 cleanup checks. Disable the plugin before loading its rebuilt archive. Use
 `--once` for one build without watching.
+The native picker does not wait for Git/gh status probes. Selecting an archive
+starts background verification with a visible loading state; repeated requests
+share the same picker, and cancelling leaves the catalog unchanged. Tool version
+checks have a five-second deadline, so a broken custom executable cannot hang
+the settings UI.
 
 Targeted one-off builds are also available:
 

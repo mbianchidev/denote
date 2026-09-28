@@ -70,6 +70,7 @@ interface PluginSettingsPanelProps {
   plugins: PluginView[];
   bundles: PluginBundleMetadata[];
   developmentSupported?: boolean;
+  developmentLoading?: boolean;
   activeProject: ProjectRoot | null;
   loading: boolean;
   busyPluginIds: ReadonlySet<string>;
@@ -104,6 +105,7 @@ export function PluginSettingsPanel({
   plugins,
   bundles,
   developmentSupported = false,
+  developmentLoading = false,
   activeProject,
   loading,
   busyPluginIds,
@@ -285,13 +287,21 @@ export function PluginSettingsPanel({
           <button
             type="button"
             className="secondary-button"
+            disabled={developmentLoading}
+            aria-busy={developmentLoading}
             onClick={() => void onLoadDevelopment().catch(onError)}
           >
             <FolderOpen aria-hidden="true" size={14} />
-            Load local plugin archive
+            {developmentLoading ? "Loading local plugin archive…" : "Load local plugin archive"}
           </button>
         ) : null}
       </header>
+
+      {developmentLoading ? (
+        <p className="plugin-settings__empty" role="status">
+          Choose a .tgz in the file picker. Denote verifies it before adding it to the catalog.
+        </p>
+      ) : null}
 
       <section
         className="plugin-settings__updates"

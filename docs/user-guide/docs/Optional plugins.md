@@ -752,6 +752,10 @@ It accepts a locally built `.tgz`, labels it as a local development archive, and
 still requires permission approval before enablement. Disable it before loading
 a rebuilt archive with the same ID. Installed releases do not expose this
 action.
+The picker opens without waiting for Git or GitHub CLI checks. While it is open
+or Denote is verifying the selected archive, the button shows **Loading local
+plugin archive…** and cannot open another picker. Cancel to leave the catalog
+unchanged; a failed verification reports an error and lets you retry.
 
 If switching would disturb work, Denote does not switch. It reads the working
 tree again first. Unresolved conflicts stop a checkout outright: resolve them and
