@@ -1006,6 +1006,9 @@ export function usePlugins(
         projectId: projectContext?.projectId ?? null,
         ...(projectIds.length > 0 ? { projectIds } : {}),
         sourceControlActionId: action.id,
+        ...(action.id === "clone" && hostSecrets?.gitCloneDestinationToken
+          ? { gitCloneDestinationToken: hostSecrets.gitCloneDestinationToken }
+          : {}),
         ...((action.id === "commit" ||
           action.id === "commit-and-push" ||
           action.id === "branch-switch-commit") &&

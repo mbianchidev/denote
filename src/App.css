@@ -4199,6 +4199,12 @@ button.tag-chip:active,
   font-weight: 650;
 }
 
+.source-control__clone-destination {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-size: 11px;
+}
+
 .source-control__field input,
 .source-control__field select {
   width: 100%;

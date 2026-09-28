@@ -41,9 +41,234 @@ use super::{
 const PLUGIN_ID: &str = "denote.reference";
 const SYNTHETIC_TOKEN: &str = "synthetic-token-0123456789";
 
+#[test]
+fn selecting_a_clone_folder_does_not_clone_until_the_selected_token_is_used() {
+    let Some(fixture) = fixture() else { return };
+    let remote = synthetic_bare_remote(fixture.data.path());
+    let destination = fixture.data.path().join("chosen-folder");
+    fs::create_dir(&destination).expect("destination");
+    let selected = fixture
+        .manager
+        .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &destination)
+        .expect("select");
+    assert!(
+        fs::read_dir(&destination)
+            .expect("empty folder")
+            .next()
+            .is_none()
+    );
+
+    let request = PluginGitCloneVaultRequest {
+        url: remote.to_string_lossy().into_owned(),
+        branch: None,
+        auth_mode: PluginGitAuthMode::Public,
+    };
+    let attempt = fixture
+        .manager
+        .clone_into_selected_destination(
+            PLUGIN_ID,
+            &request,
+            &fixture.vault_root,
+            &selected.token,
+            &new_operation_id(),
+            GitTransportPolicy::AllowLocal,
+        )
+        .expect("clone");
+    assert!(matches!(attempt, CloneAttempt::Cloned(_)));
+    assert_eq!(
+        fs::read_to_string(destination.join("alpha.md"))
+            .expect("cloned note")
+            .replace("\r\n", "\n"),
+        "synthetic remote note\n"
+    );
+    let reused = fixture
+        .manager
+        .clone_into_selected_destination(
+            PLUGIN_ID,
+            &request,
+            &fixture.vault_root,
+            &selected.token,
+            &new_operation_id(),
+            GitTransportPolicy::AllowLocal,
+        )
+        .expect_err("one-shot selection");
+    assert!(reused.to_string().contains("Choose"), "{reused}");
+}
+
+#[test]
+fn selected_clone_folders_are_scope_bound_and_revalidated_before_use() {
+    let Some(fixture) = fixture() else { return };
+    let destination = fixture.data.path().join("chosen-folder");
+    fs::create_dir(&destination).expect("destination");
+    let selected = fixture
+        .manager
+        .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &destination)
+        .expect("select");
+    let request = PluginGitCloneVaultRequest {
+        url: "https://example.invalid/synthetic.git".to_string(),
+        branch: None,
+        auth_mode: PluginGitAuthMode::Public,
+    };
+    let wrong_scope = fixture
+        .manager
+        .clone_into_selected_destination(
+            PLUGIN_ID,
+            &request,
+            &fixture.data.path().join("another-vault"),
+            &selected.token,
+            &new_operation_id(),
+            GitTransportPolicy::RemoteOnly,
+        )
+        .expect_err("scope mismatch");
+    assert!(wrong_scope.to_string().contains("Choose"), "{wrong_scope}");
+    fs::write(destination.join("preserve.md"), "synthetic local content").expect("local file");
+    let nonempty = fixture
+        .manager
+        .clone_into_selected_destination(
+            PLUGIN_ID,
+            &request,
+            &fixture.vault_root,
+            &selected.token,
+            &new_operation_id(),
+            GitTransportPolicy::RemoteOnly,
+        )
+        .expect_err("destination changed");
+    assert!(nonempty.to_string().contains("empty"), "{nonempty}");
+    assert_eq!(
+        fs::read_to_string(destination.join("preserve.md")).expect("preserved"),
+        "synthetic local content"
+    );
+    assert!(!destination.join(".git").exists());
+}
+
+#[test]
+fn releasing_or_replacing_a_clone_destination_invalidates_only_its_token() {
+    let Some(fixture) = fixture() else { return };
+    let destination = fixture.data.path().join("chosen-folder");
+    fs::create_dir(&destination).expect("destination");
+    let first = fixture
+        .manager
+        .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &destination)
+        .expect("first");
+    let second = fixture
+        .manager
+        .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &destination)
+        .expect("second");
+    fixture
+        .manager
+        .release_clone_destination(PLUGIN_ID, &first.token)
+        .expect("release old");
+    fixture
+        .manager
+        .release_clone_destination(PLUGIN_ID, &second.token)
+        .expect("release current");
+    assert!(destination.is_dir());
+    assert!(
+        fs::read_dir(&destination)
+            .expect("empty folder")
+            .next()
+            .is_none()
+    );
+    let request = PluginGitCloneVaultRequest {
+        url: "https://example.invalid/synthetic.git".to_string(),
+        branch: None,
+        auth_mode: PluginGitAuthMode::Public,
+    };
+    for token in [first.token, second.token] {
+        assert!(
+            fixture
+                .manager
+                .clone_into_selected_destination(
+                    PLUGIN_ID,
+                    &request,
+                    &fixture.vault_root,
+                    &token,
+                    &new_operation_id(),
+                    GitTransportPolicy::RemoteOnly,
+                )
+                .is_err()
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Synthetic repository helpers
 // ---------------------------------------------------------------------------
+
+#[test]
+fn disabling_git_discards_clone_selections_without_removing_folders() {
+    let Some(fixture) = fixture() else { return };
+    let destination = fixture.data.path().join("chosen-folder");
+    fs::create_dir(&destination).expect("destination");
+    let selected = fixture
+        .manager
+        .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &destination)
+        .expect("select");
+    fixture.manager.cancel_git_operations(PLUGIN_ID);
+    let request = PluginGitCloneVaultRequest {
+        url: "https://example.invalid/repo.git".to_string(),
+        branch: None,
+        auth_mode: PluginGitAuthMode::Public,
+    };
+    let error = fixture
+        .manager
+        .clone_into_selected_destination(
+            PLUGIN_ID,
+            &request,
+            &fixture.vault_root,
+            &selected.token,
+            &new_operation_id(),
+            GitTransportPolicy::RemoteOnly,
+        )
+        .expect_err("discarded destination");
+    assert!(error.to_string().contains("Choose"), "{error}");
+    assert!(destination.is_dir());
+    assert!(
+        fs::read_dir(destination)
+            .expect("unchanged folder")
+            .next()
+            .is_none()
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn a_selected_clone_folder_cannot_be_redirected_through_a_link() {
+    let Some(fixture) = fixture() else { return };
+    let destination = fixture.data.path().join("chosen-folder");
+    let other = fixture.data.path().join("other-folder");
+    fs::create_dir(&destination).expect("destination");
+    fs::create_dir(&other).expect("other folder");
+    fs::write(other.join("preserve.md"), "synthetic local content").expect("local note");
+    let selected = fixture
+        .manager
+        .select_clone_destination(PLUGIN_ID, &fixture.vault_root, &destination)
+        .expect("select");
+    fs::rename(&destination, fixture.data.path().join("moved-folder")).expect("move");
+    std::os::unix::fs::symlink(&other, &destination).expect("redirect");
+    let request = PluginGitCloneVaultRequest {
+        url: "https://example.invalid/repo.git".to_string(),
+        branch: None,
+        auth_mode: PluginGitAuthMode::Public,
+    };
+    let error = fixture
+        .manager
+        .clone_into_selected_destination(
+            PLUGIN_ID,
+            &request,
+            &fixture.vault_root,
+            &selected.token,
+            &new_operation_id(),
+            GitTransportPolicy::RemoteOnly,
+        )
+        .expect_err("redirected destination");
+    assert!(error.to_string().contains("symbolic link"), "{error}");
+    assert_eq!(
+        fs::read_to_string(other.join("preserve.md")).expect("preserved"),
+        "synthetic local content"
+    );
+    assert!(!other.join(".git").exists());
+}
 
 fn git() -> PathBuf {
     resolve_git_executable(None).expect("git")

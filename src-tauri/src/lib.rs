@@ -391,6 +391,8 @@ pub fn run() {
             plugins::plugin_git_request,
             plugins::plugin_github_list_repositories,
             plugins::plugin_git_clone_vault,
+            plugins::choose_plugin_git_clone_destination,
+            plugins::release_plugin_git_clone_destination,
             plugins::plugin_git_clean_failed_clone,
             plugins::plugin_automatic_commit,
         ])

@@ -332,6 +332,12 @@ export interface PluginToolStatus {
   guidance: string;
 }
 
+/** A native folder selection retained only by the host, never plugin code. */
+export interface PluginCloneDestination {
+  token: string;
+  path: string;
+}
+
 export interface GitSigningStatus {
   format: "openpgp" | "ssh" | "x509";
   program: string;

@@ -25,7 +25,10 @@ pub use git::tools::ToolStatus;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};
-use git::{GitOperationRegistry, clone::CloneCleanupRegistry};
+use git::{
+    GitOperationRegistry,
+    clone::{CloneCleanupRegistry, CloneDestinationRegistry},
+};
 use package::ensure_managed_directory;
 use sandbox::load_credential_ledger;
 
@@ -62,6 +65,7 @@ struct PluginManagerInner {
     git_operations: GitOperationRegistry,
     /// Destinations of clones that failed, addressable only by opaque token.
     clone_cleanups: CloneCleanupRegistry,
+    clone_destinations: CloneDestinationRegistry,
     _process_lock: Option<fs::File>,
 }
 
@@ -151,6 +155,7 @@ impl PluginManager {
                                 initialization_error: Mutex::new(Some(error.to_string())),
                                 git_operations: GitOperationRegistry::default(),
                                 clone_cleanups: CloneCleanupRegistry::default(),
+                                clone_destinations: CloneDestinationRegistry::default(),
                                 _process_lock: None,
                             }),
                         },
@@ -274,6 +279,7 @@ impl PluginManager {
                 initialization_error: Mutex::new(None),
                 git_operations: GitOperationRegistry::default(),
                 clone_cleanups: CloneCleanupRegistry::default(),
+                clone_destinations: CloneDestinationRegistry::default(),
                 _process_lock: Some(process_lock),
             }),
         };

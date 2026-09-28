@@ -4085,10 +4085,12 @@ impl PluginManager {
     pub(crate) fn cancel_git_operations(&self, plugin_id: &str) {
         self.inner.git_operations.cancel_plugin(plugin_id);
         self.inner.clone_cleanups.forget_plugin(plugin_id);
+        self.inner.clone_destinations.forget_plugin(plugin_id);
     }
 
     pub(crate) fn cancel_all_git_operations(&self) {
         self.inner.git_operations.cancel_all();
+        self.inner.clone_destinations.clear();
     }
 }
 

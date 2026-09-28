@@ -603,15 +603,24 @@ mode is not set up, Denote says so instead of leaving Git waiting for a
 password.
 
 Open **Switch vault**, choose **Clone repo as vault**, and enter the repository
-there. Denote asks you to choose an empty folder, clones into it,
-checks the result, and only then opens it as a vault. Your open notes are saved
+URL and optional branch. Select **Choose folder** and choose a real, empty
+destination. Its path appears in the form; no clone starts yet. Select **Clone**
+and confirm the URL, branch, and destination to begin. Denote checks the result
+and only then opens it as a vault. Your open notes are saved
 before the clone starts, so nothing you typed in the current vault is lost when
 the clone replaces it. Cancelling the folder chooser does nothing at all, and
-Cancel stops a clone or a repository browse while it is still running. If the clone fails, the folder is left exactly as
+**Cancel operation** requests cancellation while a clone or repository browse is
+running. Progress and any failure details stay in this dialog; its close and
+vault-switch controls remain disabled until the operation settles. The footer's
+**Cancel** leaves onboarding without cloning when nothing is running.
+If the clone fails, the destination path and error remain visible and the folder is left exactly as
 it is: you can retry, or use **Clean incomplete clone**, which asks for a
 separate confirmation and deletes only that one folder. Denote never cleans it
 up for you. A cloned vault that is encrypted opens on the usual unlock screen,
 so no note is shown before you unlock it.
+Choose an empty folder again before retrying a clone. A clone that completed but
+could not be opened is reported separately; its files remain available in the
+shown folder. A failed clone does not rescan your previous vault.
 
 The current branch control does branch work inside the Git view. You can create
 from the branch you are on, another local branch, or a remote-tracking branch,

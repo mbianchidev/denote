@@ -27,8 +27,8 @@ use super::{
         GitRequestTarget, GitTransportPolicy, PluginGitRequest, PluginGitResult, PluginGitScope,
         auto_commit::{AutomaticCommitOutcome, AutomaticCommitRequest, AutomaticCommitTarget},
         clone::{
-            CloneAttempt, PluginGitCloneCleanupOutcome, PluginGitCloneVaultOutcome,
-            PluginGitCloneVaultRequest,
+            CloneAttempt, PluginCloneDestination, PluginGitCloneCleanupOutcome,
+            PluginGitCloneVaultOutcome, PluginGitCloneVaultRequest,
         },
         github::GitHubRepository,
         tools::{ExecutableMode, ToolKind},
@@ -1160,7 +1160,50 @@ pub async fn plugin_github_list_repositories(
     .await
 }
 
-/// Clones a repository into a folder the user picks, then opens it as a vault.
+#[tauri::command]
+pub async fn choose_plugin_git_clone_destination(
+    app: AppHandle,
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    workspace_scope: String,
+) -> AppResult<Option<PluginCloneDestination>> {
+    let manager = state.inner().clone();
+    manager.enabled_permission(&plugin_id, "git")?;
+    {
+        let app_state = app.state::<AppState>();
+        let _access = app_state.read_vault_access()?;
+        active_vault_for_scope(&app_state, &workspace_scope)?;
+    }
+    let dialog = app
+        .dialog()
+        .file()
+        .set_title("Choose an empty folder for the cloned vault");
+    let Some(destination) =
+        select_plugin_file(move |complete| dialog.pick_folder(complete)).await?
+    else {
+        return Ok(None);
+    };
+    run_blocking(move || {
+        let app_state = app.state::<AppState>();
+        let _access = app_state.read_vault_access()?;
+        let root = active_vault_for_scope(&app_state, &workspace_scope)?;
+        manager
+            .select_clone_destination(&plugin_id, &root, &destination)
+            .map(Some)
+    })
+    .await
+}
+
+#[tauri::command]
+pub fn release_plugin_git_clone_destination(
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+    token: String,
+) -> AppResult<()> {
+    state.release_clone_destination(&plugin_id, &token)
+}
+
+/// Clones into a previously selected host-owned folder, then opens it as a vault.
 ///
 /// The chooser, the destination, the credentials, and the vault registration
 /// are all host-owned. A plugin supplies a URL, an authentication mode, and an
@@ -1173,45 +1216,24 @@ pub async fn plugin_git_clone_vault(
     request: PluginGitCloneVaultRequest,
     workspace_scope: String,
     operation_id: String,
+    destination_token: String,
 ) -> AppResult<PluginCloneVaultResponse> {
     let manager = state.inner().clone();
-    manager.enabled_permission(&plugin_id, "git")?;
-    {
+    run_blocking(move || {
         let app_state = app.state::<AppState>();
-        let _vault_access = app_state.read_vault_access()?;
-        active_vault_for_scope(&app_state, &workspace_scope)?;
-    }
-    let selected = app
-        .dialog()
-        .file()
-        .set_title("Choose an empty folder for the cloned vault")
-        .blocking_pick_folder();
-    // Cancelling the chooser is an ordinary outcome, not a failure.
-    let Some(selected) = selected else {
-        return Ok(PluginCloneVaultResponse {
-            outcome: PluginGitCloneVaultOutcome::Cancelled,
-            snapshot: None,
-        });
-    };
-    let destination = selected
-        .into_path()
-        .map_err(|error| AppError::InvalidPath(error.to_string()))?;
-    let cloning = {
-        let manager = manager.clone();
-        let plugin_id = plugin_id.clone();
-        let destination = destination.clone();
-        run_blocking(move || {
-            manager.clone_into_destination(
+        let cloning = {
+            let _access = app_state.read_vault_access()?;
+            let root = active_vault_for_scope(&app_state, &workspace_scope)?;
+            manager.clone_into_selected_destination(
                 &plugin_id,
                 &request,
-                &destination,
+                &root,
+                &destination_token,
                 &operation_id,
                 GitTransportPolicy::RemoteOnly,
-            )
-        })
-        .await?
-    };
-    let clone = match cloning {
+            )?
+        };
+        let clone = match cloning {
         CloneAttempt::Failed {
             message,
             cleanup_token,
@@ -1225,16 +1247,38 @@ pub async fn plugin_git_clone_vault(
             });
         }
         CloneAttempt::Cloned(clone) => clone,
-    };
+        };
     // Registration happens only now, after the checkout passed every
     // validation, so a half-finished clone never becomes a known vault.
-    let app_state = app.state::<AppState>();
-    let _vault_access = app_state.write_vault_access()?;
-    commands::seal_active_vault_before_switch(&app_state)?;
-    let mut snapshot = vault::open_vault(&app_state.db_path, &clone.path.to_string_lossy())?;
-    app_state.set_active_vault(snapshot.vault_path.clone().into())?;
-    commands::populate_encryption_status(&app_state, &mut snapshot)?;
-    Ok(PluginCloneVaultResponse {
+        let opened = (|| {
+            let _access = app_state.write_vault_access()?;
+            active_vault_for_scope(&app_state, &workspace_scope)?;
+            commands::seal_active_vault_before_switch(&app_state)?;
+            let mut snapshot = vault::open_vault(&app_state.db_path, &clone.path.to_string_lossy())?;
+            // A clone must never inherit the previous vault's unlock state.
+            snapshot.encryption = vault::encryption_status(&snapshot.vault_path, false)?;
+            if snapshot.encryption.enabled {
+                vault::recompute_snapshot_ignored_paths(&mut snapshot, None);
+            }
+            app_state.set_active_vault(snapshot.vault_path.clone().into())?;
+            Ok::<_, AppError>(snapshot)
+        })();
+        let snapshot = match opened {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                let detail = super::git::redact(
+                    &error.to_string(), &[clone.path.clone(), PathBuf::from(&workspace_scope)],
+                );
+                return Ok(PluginCloneVaultResponse {
+                    outcome: PluginGitCloneVaultOutcome::Failed {
+                        message: format!("The repository was cloned, but Denote could not open it as a vault. The files remain in the chosen folder. {detail}"),
+                        cleanup_token: None,
+                    },
+                    snapshot: None,
+                });
+            }
+        };
+        Ok(PluginCloneVaultResponse {
         outcome: PluginGitCloneVaultOutcome::Cloned {
             label: clone.label,
             remote_url: clone.remote_url,
@@ -1245,7 +1289,8 @@ pub async fn plugin_git_clone_vault(
         // The snapshot is for the host renderer only. The runtime strips it
         // before anything is returned to the plugin.
         snapshot: Some(snapshot),
-    })
+        })
+    }).await
 }
 
 /// Deletes the destination of a clone that failed, named only by its opaque

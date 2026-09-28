@@ -51,6 +51,8 @@ const mockApi = vi.hoisted(() => ({
   restoreTrashItem: vi.fn(),
   openExternalUri: vi.fn(),
   pluginAutomaticCommit: vi.fn(),
+  choosePluginGitCloneDestination: vi.fn(),
+  releasePluginGitCloneDestination: vi.fn().mockResolvedValue(undefined),
 }));
 
 const mockPluginController = vi.hoisted(() => ({
@@ -3128,6 +3130,9 @@ describe("App initial file-tree expansion", () => {
     const snapshot = workspaceSnapshot([fileNode("sample.py", "text")]);
     const model = appSourceControlModel("Synthetic repository");
     model.remoteAccess = { ...model.remoteAccess, cloneAvailable: true };
+    mockApi.choosePluginGitCloneDestination.mockResolvedValue({
+      token: "synthetic-destination", path: "/synthetic-clone",
+    });
     mockPluginController.sourceControlProviders = [
       { pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model },
     ];
@@ -3174,14 +3179,17 @@ describe("App initial file-tree expansion", () => {
       screen.getByLabelText("Repository URL"),
       "https://example.invalid/repo.git",
     );
-    await user.click(
-      screen.getByRole("button", { name: "Choose folder and clone" }),
-    );
+    await user.click(screen.getByRole("button", { name: "Choose folder" }));
+    expect(await screen.findByText("/synthetic-clone")).toBeInTheDocument();
+    expect(mockPluginController.runSourceControlAction).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Clone" }));
     // The host owns the confirmation, and it names the repository.
     expect(
       await screen.findByText(/Clone https:\/\/example.invalid\/repo.git/),
     ).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Choose a folder" }));
+    const confirmation = screen.getByRole("dialog", { name: "Clone a repository" });
+    expect(confirmation).toHaveTextContent("/synthetic-clone");
+    await user.click(within(confirmation).getByRole("button", { name: "Clone" }));
 
     await waitFor(() => {
       expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
@@ -3192,6 +3200,7 @@ describe("App initial file-tree expansion", () => {
           values: { url: "https://example.invalid/repo.git" },
         },
         "/synthetic-vault",
+        { gitCloneDestinationToken: "synthetic-destination", gitCloneDestinationPath: "/synthetic-clone" },
       );
     });
     // The edit was flushed by the workspace transaction the clone action
@@ -3248,6 +3257,45 @@ describe("App initial file-tree expansion", () => {
       screen.queryByRole("button", { name: "Open cloned-note.md" }),
     ).not.toBeInTheDocument();
   });
+
+  it("does not rescan the current vault when a clone fails without switching vaults", async () => {
+      const user = userEvent.setup();
+      const snapshot = workspaceSnapshot([fileNode("keep.md", "markdown")]);
+      const model = appSourceControlModel("Synthetic repository");
+      mockPluginController.sourceControlProviders = [{
+        pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model,
+      }];
+      mockApi.getLastVault.mockResolvedValue(snapshot);
+      mockApi.refreshVault.mockResolvedValue(snapshot);
+      mockApi.choosePluginGitCloneDestination.mockResolvedValue({
+        token: "synthetic-destination", path: "/synthetic-clone",
+      });
+      const view = render(<App />);
+      mockPluginController.runSourceControlAction.mockImplementation(async () => {
+        model.remoteAccess = {
+          ...model.remoteAccess,
+          review: {
+            operation: "Clone", outcome: "failed", summary: "Synthetic remote unavailable.",
+            detail: null,
+          },
+        };
+        view.rerender(<App />);
+      });
+
+      await user.click(await screen.findByRole("button", { name: "Switch vault" }));
+      await user.click(await screen.findByRole("button", { name: "Clone repo as vault" }));
+      await user.type(screen.getByLabelText("Repository URL"), "https://example.invalid/repo.git");
+      await user.click(screen.getByRole("button", { name: "Choose folder" }));
+      await screen.findByText("/synthetic-clone");
+      await user.click(screen.getByRole("button", { name: "Clone" }));
+      const confirmation = await screen.findByRole("dialog", { name: "Clone a repository" });
+      await user.click(within(confirmation).getByRole("button", { name: "Clone" }));
+
+      expect(await screen.findByText("Clone: Synthetic remote unavailable.")).toBeInTheDocument();
+      await screen.findByText("Choose an empty folder before another clone.");
+      expect(mockApi.refreshVault).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Open keep.md" })).toBeInTheDocument();
+    });
 
   it("saves open notes before an automatic commit and refreshes after it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });

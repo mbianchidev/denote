@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import {
   ArrowDownToLine,
   ArrowLeft,
@@ -32,10 +32,14 @@ import type {
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlRemote,
   PluginSourceControlRemoteAccess,
+  PluginSourceControlRecoveryState,
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
 import { resolveCommitMessage } from "../plugins/commitMessages";
+import { errorMessage } from "../lib/api";
+import { systemPathForDisplay } from "../lib/systemPath";
+import type { PluginCloneDestination } from "../types";
 
 interface SourceControlPanelProps {
   title: string;
@@ -56,6 +60,8 @@ interface SourceControlPanelProps {
 
 export interface SourceControlActionHostOptions {
   gitSigningPassphrase?: string;
+  gitCloneDestinationToken?: string;
+  gitCloneDestinationPath?: string;
 }
 
 const tabs = [
@@ -840,17 +846,133 @@ function PendingBranchSwitch({
   );
 }
 
+export interface CloneOnboardingProps {
+  remoteAccess: PluginSourceControlRemoteAccess;
+  busy: boolean;
+  busyMessage?: string;
+  activeOperationId?: string;
+  recovery?: PluginSourceControlRecoveryState;
+  contextKey: string;
+  onChooseDestination: () => Promise<PluginCloneDestination | null>;
+  onReleaseDestination: (token: string) => Promise<void>;
+  onAction: (
+    action: PluginSourceControlAction,
+    hostOptions?: SourceControlActionHostOptions,
+  ) => void | Promise<boolean | void>;
+  onBusyChange?: (busy: boolean) => void;
+  onError: (error: unknown) => void;
+}
+
 export function CloneOnboarding({
   remoteAccess,
   busy,
+  busyMessage,
+  activeOperationId,
+  recovery,
+  contextKey,
+  onChooseDestination,
+  onReleaseDestination,
   onAction,
-}: {
-  remoteAccess: PluginSourceControlRemoteAccess;
-  busy: boolean;
-  onAction: SourceControlPanelProps["onAction"];
-}) {
+  onBusyChange,
+  onError,
+}: CloneOnboardingProps) {
   const [url, setUrl] = useState("");
   const [branch, setBranch] = useState("");
+  const [destination, setDestination] = useState<{ path: string; token: string | null } | null>(null);
+  const [choosing, setChoosing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const generation = useRef(0);
+  const destinationRef = useRef(destination);
+  const releaseRef = useRef(onReleaseDestination);
+  const errorRef = useRef(onError);
+  releaseRef.current = onReleaseDestination;
+  errorRef.current = onError;
+
+  useEffect(() => {
+    generation.current += 1;
+    setDestination(null);
+    setChoosing(false);
+    setSubmitting(false);
+    setError(null);
+    const release = releaseRef.current;
+    const report = errorRef.current;
+    return () => {
+      generation.current += 1;
+      const selected = destinationRef.current;
+      destinationRef.current = null;
+      if (selected?.token) {
+        void release(selected.token).catch(report);
+      }
+    };
+  }, [contextKey]);
+
+  useEffect(() => {
+    onBusyChange?.(choosing || submitting);
+    return () => onBusyChange?.(false);
+  }, [choosing, submitting, onBusyChange]);
+
+  const blocked = busy || choosing || submitting;
+  const reportError = (failure: unknown) => {
+    setError(errorMessage(failure));
+    onError(failure);
+  };
+  const chooseDestination = async () => {
+    const current = generation.current;
+    setChoosing(true);
+    setError(null);
+    try {
+      const selected = await onChooseDestination();
+      if (current !== generation.current) {
+        if (selected) await onReleaseDestination(selected.token);
+        return;
+      }
+      if (selected) {
+        const previous = destinationRef.current;
+        destinationRef.current = selected;
+        setDestination(selected);
+        if (previous?.token) {
+          await onReleaseDestination(previous.token);
+        }
+      }
+    } catch (failure) {
+      if (current === generation.current) reportError(failure);
+      else onError(failure);
+    } finally {
+      if (current === generation.current) setChoosing(false);
+    }
+  };
+  const submitClone = async () => {
+    const selected = destinationRef.current;
+    if (blocked) return;
+    if (!url.trim() || !selected?.token) {
+      reportError(new Error("Enter a repository URL and choose an empty destination folder before cloning."));
+      return;
+    }
+    const current = generation.current;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const started = await onAction(
+        action("clone", { url: url.trim(), ...(branch.trim() ? { branch: branch.trim() } : {}) }),
+        { gitCloneDestinationToken: selected.token, gitCloneDestinationPath: selected.path },
+      );
+      if (started !== false && current === generation.current) {
+        const used = { path: selected.path, token: null };
+        destinationRef.current = used;
+        setDestination(used);
+        await onReleaseDestination(selected.token);
+      }
+    } catch (failure) {
+      if (current === generation.current) reportError(failure);
+      else onError(failure);
+    } finally {
+      if (current === generation.current) setSubmitting(false);
+    }
+  };
+  const auxiliaryAction = (next: PluginSourceControlAction) => {
+    void Promise.resolve().then(() => onAction(next)).catch(reportError);
+  };
 
   if (!remoteAccess.cloneAvailable) {
     return null;
@@ -863,21 +985,26 @@ export function CloneOnboarding({
     >
       <h3 id="source-control-clone">Clone a repository</h3>
       <p className="source-control__hint">
-        Denote asks you to choose an empty folder, clones into it, and opens it
-        as a vault.
+        Choose an empty destination folder, then select Clone. Denote saves your
+        open notes, clones the repository, and opens it as a vault.
       </p>
+      {error ? <p className="source-control__limitation" role="alert">{error}</p> : null}
+      {choosing ? <p className="source-control__status" role="status">Choose an empty destination folder.</p> : null}
+      {busy || submitting ? (
+        <div className="source-control__operation-status">
+          <p className="source-control__status" role="status">{busyMessage ?? "Preparing clone…"}</p>
+          {activeOperationId ? (
+            <button type="button" className="source-control__cancel-operation"
+              onClick={() => auxiliaryAction(action("cancel-operation", { operationId: activeOperationId }))}>
+              <X aria-hidden="true" size={14} /> Cancel operation
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          const trimmed = url.trim();
-          if (!trimmed) {
-            return;
-          }
-          const values: Record<string, string> = { url: trimmed };
-          if (branch.trim()) {
-            values.branch = branch.trim();
-          }
-          onAction(action("clone", values));
+          void submitClone();
         }}
       >
         <label className="source-control__field">
@@ -885,9 +1012,10 @@ export function CloneOnboarding({
           <input
             type="url"
             inputMode="url"
+            required
             placeholder="https://host.example/owner/repository.git"
             value={url}
-            disabled={busy}
+            disabled={blocked}
             onChange={(event) => setUrl(event.currentTarget.value)}
           />
         </label>
@@ -895,7 +1023,7 @@ export function CloneOnboarding({
           <span>Branch (optional)</span>
           <input
             value={branch}
-            disabled={busy}
+            disabled={blocked}
             onChange={(event) => setBranch(event.currentTarget.value)}
           />
         </label>
@@ -909,20 +1037,29 @@ export function CloneOnboarding({
           Every fetch, pull, push, and clone uses this mode. Change it in
           Settings, under this plugin's settings.
         </p>
+        <div className="source-control__field">
+          <span>Destination folder (required)</span>
+          {destination ? <code className="source-control__clone-destination">{systemPathForDisplay(destination.path)}</code> : <span>No folder selected.</span>}
+          {!destination?.token && destination ? <small>Choose an empty folder before another clone.</small> : null}
+        </div>
         <div className="source-control__actions">
+          <button type="button" className="secondary-button" disabled={blocked}
+            onClick={() => void chooseDestination()}>
+            {destination ? "Change folder" : "Choose folder"}
+          </button>
           <button
             type="submit"
             className="primary-button"
-            disabled={busy || url.trim().length === 0}
+            disabled={blocked || url.trim().length === 0 || !destination?.token}
           >
-            Choose folder and clone
+            Clone
           </button>
           {remoteAccess.githubAvailable ? (
             <button
               type="button"
               className="secondary-button"
-              disabled={busy}
-              onClick={() => onAction(action("browse-github"))}
+              disabled={blocked}
+              onClick={() => auxiliaryAction(action("browse-github"))}
             >
               Browse GitHub repositories
             </button>
@@ -936,11 +1073,11 @@ export function CloneOnboarding({
               <button
                 type="button"
                 aria-label={`Use ${repository.nameWithOwner}`}
-                disabled={busy}
+                disabled={blocked}
                 onClick={() => {
                   setUrl(repository.httpsUrl);
                   setBranch(repository.defaultBranch ?? "");
-                  onAction(
+                  auxiliaryAction(
                     action("select-repository", {
                       nameWithOwner: repository.nameWithOwner,
                       url: repository.httpsUrl,
@@ -970,9 +1107,9 @@ export function CloneOnboarding({
             <button
               type="button"
               className="secondary-button"
-              disabled={busy}
+              disabled={blocked}
               onClick={() =>
-                onAction(
+                auxiliaryAction(
                   action("clean-failed-clone", {
                     token: remoteAccess.cleanup?.token ?? "",
                   }),
@@ -983,6 +1120,12 @@ export function CloneOnboarding({
             </button>
           </div>
         </div>
+      ) : null}
+      <OperationReview remoteAccess={remoteAccess} busy={blocked} onAction={auxiliaryAction} />
+      {recovery && recovery.state !== "idle" ? (
+        <p className="source-control__limitation" role={recovery.state === "failed" ? "alert" : "status"}>
+          {recovery.message}
+        </p>
       ) : null}
     </section>
   );
@@ -1667,6 +1810,7 @@ function OperationReview({
   busy: boolean;
   onAction: SourceControlPanelProps["onAction"];
 }) {
+  const headingId = useId();
   const review = remoteAccess.review;
   if (!review) {
     return null;
@@ -1675,9 +1819,9 @@ function OperationReview({
   return (
     <section
       className="source-control__review"
-      aria-labelledby="source-control-review"
+      aria-labelledby={headingId}
     >
-      <h3 id="source-control-review">Last remote operation</h3>
+      <h3 id={headingId}>Last remote operation</h3>
       <p role="status">
         {review.operation}: {review.summary}
       </p>
@@ -1720,7 +1864,7 @@ function OperationReview({
             disabled={busy}
             onClick={() => onAction(action(review.retryActionId as string))}
           >
-            Retry
+            {review.operation === "Clone" && review.retryActionId === "refresh" ? "Refresh repository" : "Retry"}
           </button>
         ) : null}
         <button

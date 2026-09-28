@@ -3,6 +3,19 @@ import type { PluginActionLeaseScope } from "./hostOperations";
 import { takeHostOperationScope } from "./workerRuntime";
 
 describe("takeHostOperationScope", () => {
+  it("consumes the host-selected clone destination after one clone request", () => {
+    const scope = {
+      workspaceScope: "/synthetic-vault",
+      projectId: null,
+      sourceControlActionId: "clone",
+      gitCloneDestinationToken: "synthetic-destination",
+    };
+    const first = takeHostOperationScope(scope, "git.clone-vault", {});
+    const second = takeHostOperationScope(scope, "git.clone-vault", {});
+    expect(first).toMatchObject({ gitCloneDestinationToken: "synthetic-destination" });
+    expect(second).not.toHaveProperty("gitCloneDestinationToken");
+  });
+
   it("consumes commit signing values after one host request", () => {
     const scope: PluginActionLeaseScope = {
       workspaceScope: "/synthetic-vault",

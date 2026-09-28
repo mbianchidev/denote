@@ -314,10 +314,14 @@ that status. Remote work uses the
 same vocabulary: labelled URL and name fields for adding, editing, and removing
 a remote, the configured authentication mode shown read-only beside a line
 directing the user to Settings. Clone onboarding appears in the Switch vault
-dialog beside the ordinary folder action; its submit opens the host's own folder
-chooser, its offered repositories remain ordinary buttons, and failures retain a
-review region with Retry
-and Dismiss. Anything that reaches a remote, changes where one points, removes
+dialog beside the ordinary folder action. **Choose folder** is a separate
+secondary action, and its validated destination is shown before **Clone**, the
+primary submit action, becomes available. Selecting a folder never starts a
+clone. The confirmation names the URL, optional branch, and selected path.
+The form shows progress, cancellation, and failures in place; its footer says
+**Cancel**, not **Done**, and closing or switching vaults is disabled while
+selection or cloning is pending. Offered repositories remain ordinary buttons.
+Anything that reaches a remote, changes where one points, removes
 one, restores tracked content from an upstream, or deletes a folder is confirmed
 in the standard action dialog, which
 names the exact remote, URL, and branch, and a deletion uses the dangerous

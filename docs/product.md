@@ -607,12 +607,17 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   system pinentry. A signing failure preserves staged work, explains the GPG
   cause behind exit 128, and never silently retries without a signature.
 - **Clone repo as vault** lives in the Switch vault dialog beside **Open another
-  folder**. It asks you to choose an empty folder, clones into it, checks the result,
+  folder**. **Choose folder** first selects a required empty destination and
+  displays its path without starting Git. A separate **Clone** button and
+  confirmation start the operation. Progress, cancellation, and errors stay
+  visible in that same dialog, which cannot close or switch vaults while the
+  operation is pending. Denote clones into the selected folder, checks the result,
   and only then opens it as a vault, so an encrypted clone shows the usual
   unlock screen before any note. Open notes are saved before the clone starts,
   and a clone or a repository browse can be cancelled while it runs. A clone that fails leaves the folder untouched
   and offers Retry, or an explicitly confirmed clean-up that deletes only that
   exact folder. Nothing is ever deleted automatically.
+  Failed clones do not trigger an unrelated rescan of the previous vault.
 - Branch work is explicit, reviewed, and never destructive. The always-visible
   selector expands inside the plugin into one searchable local-and-remote list.
   It switches local branches, creates local tracking branches, creates and

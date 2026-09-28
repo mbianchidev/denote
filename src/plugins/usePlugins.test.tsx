@@ -287,6 +287,31 @@ beforeEach(() => {
 });
 
 describe("usePlugins", () => {
+  it("binds only the host's clone token to a clone lease and keeps its display path out", async () => {
+    const { result } = await mountReady([makePlugin({ enabled: true })]);
+    const hostOptions = {
+      gitCloneDestinationToken: "synthetic-destination",
+      gitCloneDestinationPath: "/synthetic/clone",
+    };
+    const clone = { id: "clone", values: { url: "https://example.invalid/repo.git" } };
+    await act(async () => {
+      await result.current.runSourceControlAction(pluginId, "git", clone, "/synthetic/vault-alpha", hostOptions);
+    });
+    expect(runtimeInstances[0].runSourceControlAction).toHaveBeenLastCalledWith(
+      pluginId, "git", clone,
+      {
+        workspaceScope: "/synthetic/vault-alpha", projectId: null,
+        sourceControlActionId: "clone", gitCloneDestinationToken: "synthetic-destination",
+      },
+    );
+    await act(async () => {
+      await result.current.runSourceControlAction(pluginId, "git", { id: "refresh" }, "/synthetic/vault-alpha", hostOptions);
+    });
+    const calls = runtimeInstances[0].runSourceControlAction.mock.calls;
+    expect(calls[calls.length - 1][3]).not.toHaveProperty("gitCloneDestinationToken");
+    expect(JSON.stringify(runtimeInstances[0].runSourceControlAction.mock.calls)).not.toContain("/synthetic/clone");
+  });
+
   it("coalesces concurrent development pickers and remains retryable after cancellation", async () => {
     const { result } = await mountReady([]);
     let finishSelection: (pluginId: string | null) => void = () => {};

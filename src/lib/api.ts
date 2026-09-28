@@ -21,6 +21,7 @@ import type {
   PluginAutomaticCommitOutcome,
   PluginAutomaticCommitRequest,
   PluginCloneVaultResponse,
+  PluginCloneDestination,
   PluginView,
   PluginToolStatus,
   GitSigningStatus,
@@ -432,7 +433,7 @@ export const api = {
       operationId,
     }),
   /**
-   * Clones into a folder the user picks in a native chooser. The workspace
+   * Clones into the previously selected host-owned destination. The workspace
    * snapshot in the response is for the host renderer only; the plugin runtime
    * strips it before answering the plugin.
    */
@@ -441,13 +442,21 @@ export const api = {
     request: PluginGitCloneVaultRequest,
     workspaceScope: string,
     operationId: string,
+    destinationToken: string,
   ) =>
     invoke<PluginCloneVaultResponse>("plugin_git_clone_vault", {
       pluginId,
       request,
       workspaceScope,
       operationId,
+      destinationToken,
     }),
+  choosePluginGitCloneDestination: (pluginId: string, workspaceScope: string) =>
+    invoke<PluginCloneDestination | null>("choose_plugin_git_clone_destination", {
+      pluginId, workspaceScope,
+    }),
+  releasePluginGitCloneDestination: (pluginId: string, token: string) =>
+    invoke<void>("release_plugin_git_clone_destination", { pluginId, token }),
   pluginGitCleanFailedClone: (
     pluginId: string,
     cleanupToken: string,

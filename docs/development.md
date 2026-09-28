@@ -110,10 +110,17 @@ Git status and pull-report checks are:
 ```bash
 npx vitest run plugins/git/tests \
   src/plugins/gitRequests.test.ts src/plugins/runtimeMessages.test.ts \
-  src/components/SourceControlPanel.test.tsx
+  src/plugins/hostOperations.test.ts src/plugins/workerRuntimeLease.test.ts \
+  src/components/SourceControlPanel.test.tsx \
+  src/components/CloneOnboarding.test.tsx src/components/VaultSwitcherDialog.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
 cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
 ```
+
+Clone tests use local synthetic bare repositories. Folder selection alone must
+leave the directory empty; only the host-bound explicit clone may populate it.
+Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
+folders, link replacement, visible failure state, and saved-note handoff covered.
 
 The signing integration tests require Git, GnuPG (including `gpgconf`), and
 OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary

@@ -1,12 +1,48 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { VaultSwitcherDialog } from "./VaultSwitcherDialog";
 
 describe("VaultSwitcherDialog", () => {
+  it("keeps the clone surface open while the explicit clone action is running", async () => {
+    const user = userEvent.setup();
+    let finish: (started: boolean) => void = () => {};
+    const onAction = vi.fn(() => new Promise<boolean>((resolve) => { finish = resolve; }));
+    render(<VaultSwitcherDialog
+      open
+      onLoad={vi.fn().mockResolvedValue([])}
+      onSwitch={vi.fn()}
+      onDelete={vi.fn()}
+      onChooseFolder={vi.fn()}
+      onClose={vi.fn()}
+      clone={{
+        contextKey: "synthetic-vault", busy: false,
+        remoteAccess: { authMode: "public", cloneAvailable: true, githubAvailable: false, repositories: [], cleanup: null, review: null },
+        onChooseDestination: vi.fn().mockResolvedValue({ token: "synthetic-destination", path: "/synthetic/clone" }),
+        onReleaseDestination: vi.fn().mockResolvedValue(undefined),
+        onAction, onError: vi.fn(),
+      }}
+    />);
+    await user.click(await screen.findByRole("button", { name: "Clone repo as vault" }));
+    expect(screen.queryByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    await user.type(screen.getByLabelText("Repository URL"), "https://example.invalid/repo.git");
+    await user.click(screen.getByRole("button", { name: "Choose folder" }));
+    await screen.findByText("/synthetic/clone");
+    await user.click(screen.getByRole("button", { name: "Clone" }));
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Close vault switcher" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Open another folder" })).toBeDisabled();
+    await act(async () => finish(true));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled());
+  });
+
   it("starts clone onboarding from the switch-vault surface", async () => {
     const user = userEvent.setup();
-    const onAction = vi.fn();
+    const onAction = vi.fn().mockResolvedValue(true);
+    const onChooseDestination = vi.fn().mockResolvedValue({
+      token: "synthetic-destination",
+      path: "/synthetic/clone",
+    });
     render(
       <VaultSwitcherDialog
         open
@@ -15,7 +51,11 @@ describe("VaultSwitcherDialog", () => {
         onDelete={vi.fn()}
         onChooseFolder={vi.fn()}
         clone={{
+          contextKey: "synthetic-vault",
           busy: false,
+          onChooseDestination,
+          onReleaseDestination: vi.fn().mockResolvedValue(undefined),
+          onError: vi.fn(),
           remoteAccess: {
             authMode: "public",
             cloneAvailable: true,
@@ -37,14 +77,19 @@ describe("VaultSwitcherDialog", () => {
       screen.getByLabelText("Repository URL"),
       "https://example.invalid/synthetic.git",
     );
-    await user.click(
-      screen.getByRole("button", { name: "Choose folder and clone" }),
-    );
+    expect(screen.getByRole("button", { name: "Clone" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Choose folder" }));
+    expect(await screen.findByText("/synthetic/clone")).toBeInTheDocument();
+    expect(onAction).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Clone" }));
 
-    expect(onAction).toHaveBeenCalledWith({
-      id: "clone",
-      values: { url: "https://example.invalid/synthetic.git" },
-    });
+    expect(onAction).toHaveBeenCalledWith(
+      { id: "clone", values: { url: "https://example.invalid/synthetic.git" } },
+      {
+        gitCloneDestinationToken: "synthetic-destination",
+        gitCloneDestinationPath: "/synthetic/clone",
+      },
+    );
   });
 
   it("switches to an available recent vault", async () => {

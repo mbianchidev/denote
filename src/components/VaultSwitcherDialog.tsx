@@ -11,11 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "../lib/api";
 import { systemPathForDisplay } from "../lib/systemPath";
 import type { KnownVault } from "../types";
-import type {
-  PluginSourceControlAction,
-  PluginSourceControlRemoteAccess,
-} from "@denote/plugin-sdk";
-import { CloneOnboarding } from "./SourceControlPanel";
+import { CloneOnboarding, type CloneOnboardingProps } from "./SourceControlPanel";
 
 interface VaultSwitcherDialogProps {
   open: boolean;
@@ -23,11 +19,7 @@ interface VaultSwitcherDialogProps {
   onSwitch: (vaultId: number) => Promise<void>;
   onDelete: (vaultId: number, trashFiles: boolean) => Promise<void>;
   onChooseFolder: () => void;
-  clone?: {
-    remoteAccess: PluginSourceControlRemoteAccess;
-    busy: boolean;
-    onAction: (action: PluginSourceControlAction) => void;
-  };
+  clone?: Omit<CloneOnboardingProps, "onBusyChange">;
   onClose: () => void;
 }
 
@@ -50,6 +42,7 @@ export function VaultSwitcherDialog({
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cloneOpen, setCloneOpen] = useState(false);
+  const [cloneActionBusy, setCloneActionBusy] = useState(false);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -131,7 +124,7 @@ export function VaultSwitcherDialog({
     }
   };
 
-  const busy = loading || switchingId !== null || deleting;
+  const busy = loading || switchingId !== null || deleting || cloneActionBusy || (cloneOpen && Boolean(clone?.busy));
 
   return (
     <dialog
@@ -173,11 +166,11 @@ export function VaultSwitcherDialog({
             {error}
           </p>
         ) : null}
-        {cloneOpen && clone ? (
+        {open && cloneOpen && clone ? (
           <CloneOnboarding
-            remoteAccess={clone.remoteAccess}
-            busy={clone.busy}
-            onAction={clone.onAction}
+            key={clone.contextKey}
+            {...clone}
+            onBusyChange={setCloneActionBusy}
           />
         ) : pendingDelete ? (
           <section
@@ -337,11 +330,11 @@ export function VaultSwitcherDialog({
         </button>
         <button
           type="button"
-          className="primary-button"
+          className={cloneOpen ? "secondary-button" : "primary-button"}
           disabled={busy || pendingDelete !== null}
           onClick={onClose}
         >
-          Done
+          {cloneOpen ? "Cancel" : "Done"}
         </button>
       </footer>
     </dialog>

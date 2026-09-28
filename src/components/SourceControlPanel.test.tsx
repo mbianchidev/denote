@@ -500,6 +500,10 @@ describe("SourceControlPanel", () => {
         remoteAccess={model.remoteAccess}
         busy={false}
         onAction={onAction}
+        contextKey="synthetic-vault"
+        onChooseDestination={vi.fn().mockResolvedValue({ token: "synthetic-destination", path: "/synthetic/clone" })}
+        onReleaseDestination={vi.fn().mockResolvedValue(undefined)}
+        onError={vi.fn()}
       />,
     );
 
@@ -526,16 +530,19 @@ describe("SourceControlPanel", () => {
     );
     expect(screen.getByLabelText("Branch (optional)")).toHaveValue("main");
 
-    await user.click(
-      screen.getByRole("button", { name: "Choose folder and clone" }),
-    );
-    expect(onAction).toHaveBeenCalledWith({
-      id: "clone",
-      values: {
-        url: "https://github.com/synthetic-owner/synthetic-notes.git",
-        branch: "main",
+    await user.click(screen.getByRole("button", { name: "Choose folder" }));
+    await screen.findByText("/synthetic/clone");
+    await user.click(screen.getByRole("button", { name: "Clone" }));
+    expect(onAction).toHaveBeenCalledWith(
+      {
+        id: "clone",
+        values: {
+          url: "https://github.com/synthetic-owner/synthetic-notes.git",
+          branch: "main",
+        },
       },
-    });
+      { gitCloneDestinationToken: "synthetic-destination", gitCloneDestinationPath: "/synthetic/clone" },
+    );
 
     await user.click(
       screen.getByRole("button", { name: "Clean incomplete clone" }),
@@ -582,6 +589,10 @@ describe("SourceControlPanel", () => {
         remoteAccess={model.remoteAccess}
         busy={false}
         onAction={onAction}
+        contextKey="synthetic-vault"
+        onChooseDestination={vi.fn().mockResolvedValue(null)}
+        onReleaseDestination={vi.fn().mockResolvedValue(undefined)}
+        onError={vi.fn()}
       />,
     );
 

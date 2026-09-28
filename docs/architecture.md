@@ -755,7 +755,27 @@ Cloning and deleting a failed clone are bound to the standardised source-control
 action the host confirmed. The renderer's action lease carries the action ID it
 was opened for, `null` for a plugin command, and the host operation refuses
 anything but `clone` and `clean-failed-clone` respectively, before the native
-folder chooser opens or any native command runs.
+command runs.
+
+Clone destination selection is a separate host-only native command using the
+callback folder picker. It validates an empty, real directory and retains one
+opaque selection per plugin, bound to the originating vault. The renderer shows
+the destination and sends its token only as host action metadata after the
+explicit Clone confirmation; plugin actions and worker messages contain neither
+path nor token. `takeHostOperationScope` consumes the lease's selection after one
+clone request, and the native registry independently consumes and revalidates it
+before starting Git. Missing, wrong-vault, replaced, non-empty, linked, or spent
+selections fail before any clone process starts. Release/disable/shutdown remove
+tokens only, never destination contents.
+
+The native clone holds read access to its originating vault while Git runs, then
+revalidates that scope under write access before opening the completed checkout.
+The new snapshot's encryption state is prepared without inheriting the old
+vault's key before active-vault state changes. Clone progress and errors render
+inside the vault switcher; its Done action becomes Cancel during onboarding,
+and close/switch controls stay disabled while selection or execution is pending.
+Successful clones load their returned snapshot; unsuccessful clones do not
+rescan the previous vault, since clone writes only to the selected destination.
 
 Operations run in a command process group with a ten minute hard timeout and
 output bounded at 8 MiB. Windows Git and GitHub CLI children suppress console

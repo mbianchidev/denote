@@ -19,6 +19,7 @@ use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
 use crate::plugins::PluginManager;
+use crate::plugins::package::metadata_is_link;
 
 use super::{
     askpass::AskpassMaterial,
@@ -60,7 +61,6 @@ pub struct PluginGitCloneVaultRequest {
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "status", rename_all = "kebab-case")]
 pub enum PluginGitCloneVaultOutcome {
-    Cancelled,
     #[serde(rename_all = "camelCase")]
     Cloned {
         label: String,
@@ -101,6 +101,103 @@ pub(crate) enum CloneAttempt {
         message: String,
         cleanup_token: Option<String>,
     },
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginCloneDestination {
+    pub token: String,
+    pub path: String,
+}
+
+struct SelectedCloneDestination {
+    token: String,
+    workspace: PathBuf,
+    path: PathBuf,
+}
+
+#[derive(Default)]
+pub(crate) struct CloneDestinationRegistry {
+    // Only the latest unspent selection is retained for each plugin.
+    entries: std::sync::Mutex<std::collections::HashMap<String, SelectedCloneDestination>>,
+}
+
+impl CloneDestinationRegistry {
+    fn select(
+        &self,
+        plugin_id: &str,
+        workspace: &Path,
+        path: PathBuf,
+    ) -> AppResult<PluginCloneDestination> {
+        let token = Uuid::new_v4().to_string();
+        let selected = PluginCloneDestination {
+            token: token.clone(),
+            path: crate::paths::path_for_display(&path),
+        };
+        self.entries
+            .lock()
+            .map_err(|_| AppError::State("Clone destination lock is poisoned".to_string()))?
+            .insert(
+                plugin_id.to_string(),
+                SelectedCloneDestination {
+                    token,
+                    workspace: workspace.to_path_buf(),
+                    path,
+                },
+            );
+        Ok(selected)
+    }
+
+    fn take(&self, plugin_id: &str, workspace: &Path, token: &str) -> AppResult<PathBuf> {
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| AppError::State("Clone destination lock is poisoned".to_string()))?;
+        let selected = entries.get(plugin_id)
+            .filter(|entry| entry.token == token && entry.workspace == workspace)
+            .ok_or_else(|| AppError::Plugin(
+                "Choose an empty destination folder again; the previous selection is no longer valid for this vault.".to_string(),
+            ))?;
+        let path = selected.path.clone();
+        entries.remove(plugin_id);
+        drop(entries);
+        if validate_empty_destination(&path)? != path {
+            return Err(AppError::Plugin(
+                "The chosen folder moved. Choose it again before cloning.".to_string(),
+            ));
+        }
+        Ok(path)
+    }
+
+    fn release(&self, plugin_id: &str, token: &str) -> AppResult<()> {
+        let mut entries = self
+            .entries
+            .lock()
+            .map_err(|_| AppError::State("Clone destination lock is poisoned".to_string()))?;
+        if entries
+            .get(plugin_id)
+            .is_some_and(|entry| entry.token == token)
+        {
+            entries.remove(plugin_id);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn forget_plugin(&self, plugin_id: &str) {
+        match self.entries.lock() {
+            Ok(mut entries) => {
+                entries.remove(plugin_id);
+            }
+            Err(error) => eprintln!("Cannot discard clone destination: {error}"),
+        }
+    }
+
+    pub(crate) fn clear(&self) {
+        match self.entries.lock() {
+            Ok(mut entries) => entries.clear(),
+            Err(error) => eprintln!("Cannot discard clone destinations: {error}"),
+        }
+    }
 }
 
 /// One destination a clone failed in. The token is the only handle to it, and
@@ -156,6 +253,40 @@ impl CloneCleanupRegistry {
 }
 
 impl PluginManager {
+    pub(crate) fn select_clone_destination(
+        &self,
+        plugin_id: &str,
+        workspace: &Path,
+        destination: &Path,
+    ) -> AppResult<PluginCloneDestination> {
+        self.enabled_permission(plugin_id, "git")?;
+        let path = validate_empty_destination(destination)?;
+        self.inner
+            .clone_destinations
+            .select(plugin_id, workspace, path)
+    }
+
+    pub(crate) fn release_clone_destination(&self, plugin_id: &str, token: &str) -> AppResult<()> {
+        self.inner.clone_destinations.release(plugin_id, token)
+    }
+
+    pub(crate) fn clone_into_selected_destination(
+        &self,
+        plugin_id: &str,
+        request: &PluginGitCloneVaultRequest,
+        workspace: &Path,
+        destination_token: &str,
+        operation_id: &str,
+        transport: GitTransportPolicy,
+    ) -> AppResult<CloneAttempt> {
+        self.enabled_permission(plugin_id, "git")?;
+        let destination =
+            self.inner
+                .clone_destinations
+                .take(plugin_id, workspace, destination_token)?;
+        self.clone_into_destination(plugin_id, request, &destination, operation_id, transport)
+    }
+
     /// Validates one chosen destination and clones into it.
     ///
     /// The destination is whatever the host's own folder chooser returned, so
@@ -413,7 +544,7 @@ pub(crate) fn validate_empty_destination(destination: &Path) -> AppResult<PathBu
     let metadata = fs::symlink_metadata(destination).map_err(|error| {
         AppError::Plugin(format!("Denote cannot read the chosen folder: {error}"))
     })?;
-    if metadata.file_type().is_symlink() {
+    if metadata_is_link(&metadata) {
         return Err(AppError::Plugin(
             "Denote will not clone into a symbolic link. Choose a real folder.".to_string(),
         ));

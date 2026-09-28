@@ -624,8 +624,8 @@ exactly as `git.run` does: the ID is published before the work is awaited, and
 Cloning and deleting a failed clone additionally require the lease to belong to
 the standardised source-control action the host confirmed, `clone` and
 `clean-failed-clone`; a plugin command carries no source-control action at all,
-and any other action ID is refused before the folder chooser opens or any native
-command runs.
+and any other action ID is refused before any clone or cleanup command runs.
+Folder selection is a separate host-only action and never runs a plugin command.
 
 `PluginGitRequest` is a typed discriminated union covering discovery, status,
 unmerged-path listing, operation-state detection, initialize, stage, unstage,
@@ -817,10 +817,19 @@ use.
 `cloneVault` is presented by the host in the Switch vault dialog and is the one
 operation that creates a whole vault, so the host owns
 every part of it. A plugin supplies a URL, an authentication mode, and an
-optional branch; it never supplies, learns, or influences a destination. The
-host opens a native folder chooser, and closing it is an ordinary `cancelled`
-outcome rather than an error. The chosen folder must be a real, empty directory
-that is not a symbolic link. The clone runs through the same hardened Git with a
+optional branch; it never supplies, learns, or influences a destination.
+**Choose folder** opens the host's callback-based native chooser separately
+from **Clone**. Cancellation returns no selection and runs no Git. The host
+displays the selected path and enables Clone only once a URL and destination
+exist; the explicit confirmation names both.
+
+Native code retains at most one pending destination per plugin, bound to the
+originating vault and an opaque token. Only the token enters host-only action
+lease metadata; neither the path nor token reaches plugin code. The clone
+request consumes that token once and revalidates the chosen folder as a real,
+empty directory, refusing links and reparse points. Closing onboarding,
+replacing a selection, disabling the plugin, and shutdown discard pending
+tokens without deleting any folder. The clone runs through the same hardened Git with a
 fixed template that disables submodules, local object sharing, and hard links,
 and the standard protocol pins still allow only HTTPS and SSH.
 
@@ -834,6 +843,11 @@ previous vault, register the clone, and hand a workspace snapshot to its own
 renderer. The snapshot never crosses the plugin boundary, and an encrypted clone
 opens locked, so the normal password and recovery screen appears before any
 content.
+The clone dialog shows the provider's progress, cancellation control, operation
+review, and recovery errors. It cannot be dismissed mid-operation. A completed
+clone whose vault could not be opened is reported as such, with its files left
+intact; an ordinary failed clone leaves the previous vault active without an
+unnecessary rescan.
 
 A clone that fails leaves the destination exactly as it is and returns an opaque
 host-owned clean-up token instead of a path. The panel offers Retry and
