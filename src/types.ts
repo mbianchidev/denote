@@ -229,6 +229,7 @@ export interface GitignoreStatusUpdate {
 export interface WorkspaceSnapshot {
   vaultPath: string;
   vaultName: string;
+  pluginScopeId: string;
   default: boolean;
   tree: FileNode[];
   bookmarks: NoteListItem[];

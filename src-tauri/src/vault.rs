@@ -2185,6 +2185,7 @@ fn snapshot_with_tree(
         }
     }
     let vault_path = path_to_string(root);
+    let plugin_scope_id = db::plugin_scope_id(connection, vault_id)?;
     let default = db::is_default_vault(connection, &vault_path)?;
     let welcome_page = welcome_page_preference(connection, vault_id, root, default)?;
     if let Err(error) = reconcile_workspace_children(connection, vault_id, root) {
@@ -2194,6 +2195,7 @@ fn snapshot_with_tree(
     let mut snapshot = WorkspaceSnapshot {
         vault_path,
         vault_name,
+        plugin_scope_id,
         default,
         tree,
         bookmarks,

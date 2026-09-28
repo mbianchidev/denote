@@ -43,6 +43,7 @@ other regular file. Your files remain the source of truth.
 - [ ] Enable **Note graph** and inspect this note's local connections
 - [ ] Enable **Mermaid diagrams** and open the diagram example
 - [ ] Enable **Kanban boards** and open the board example
+- [ ] Enable **Reminders** and create one from the reminder targets example
 - [ ] Open the PDF, JSON, YAML, and a few files in `code`
 
 | Feature | Where to try it |
@@ -57,6 +58,7 @@ other regular file. Your files remain the source of truth.
 | Optional note graph | Enable **Note graph**, then choose this note in **Local** mode |
 | Optional diagrams | [Mermaid diagram example](<examples/Mermaid diagram.md>) |
 | Optional boards | [Kanban board example](<plugins/Kanban board.kanban.md>) |
+| Optional reminders | [Reminder targets](<plugins/Reminders.md>) |
 | More optional workflows | [Plugin examples](plugins/README.md) |
 | PDF reader | [Synthetic PDF](<examples/Hello document.pdf>) |
 | Structured data | [JSON](<examples/Sample data.json>) and [YAML](<examples/Sample data.yaml>) |
@@ -104,7 +106,8 @@ source.
 
 The `plugins` folder contains [examples for each user-facing plugin](plugins/README.md):
 daily and dated notes, emoji practice, a manual Git exercise, structured data,
-the Kanban board, a Mermaid flow, linked graph notes, and advanced tasks.
+the Kanban board, a Mermaid flow, linked graph notes, advanced tasks, and
+reminder targets.
 Enable only the plugin you want to try. Opening these files never installs
 anything or initializes a Git repository.
 

@@ -49,6 +49,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "task-list": "Index Markdown checkboxes and update one verified task marker after an explicit action",
   "note-graph": "Index and visualize bounded local note connections",
   calendar: "Read filesystem dates and bounded frontmatter; create daily Markdown after an explicit action, without overwriting existing notes",
+  reminders: "Store local reminder metadata and schedule host-owned reminder delivery",
   "diagram-renderer": "Render bounded diagrams in an isolated local sandbox",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",

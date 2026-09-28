@@ -449,6 +449,27 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   hash, encoding, line endings, revision history, and vault-generation guards.
   Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
   uninterpreted Markdown.
+- The independently installable **Reminders** plugin is disabled by default and
+  requests separate Reminders and Notifications approvals. Its host-rendered
+  activity-rail view creates one-time reminders linked to the active Markdown
+  note, a parsed heading, or a standard task item. The worker persists reminder
+  names, vault-relative note links, generic heading/task line anchors, delivery
+  state, and schedules under a random opaque per-vault scope; it never stores a
+  copied heading or task body and never edits note content.
+- Wall-clock reminders retain the selected civil `YYYY-MM-DDTHH:mm` value and
+  IANA time zone. Repeated daylight-saving times use the earlier occurrence;
+  skipped local times are refused instead of silently moving. Snooze is an
+  explicit instant offset from the current time. The host rechecks at least
+  once per minute and on focus, catches up overdue reminders after restart,
+  enablement, wake, or returning to a vault, and collapses a large backlog into
+  one native system notification while keeping every reminder visible.
+- The Reminders panel is the authoritative action surface because portable
+  desktop notification buttons and click callbacks are unavailable. It exposes
+  written delivery state plus **Open note**, **Snooze**, **Dismiss**, and
+  retry controls. Native notification dispatch is best effort; command failures
+  stay visible and retryable. Disabling withdraws the view and cancels host
+  timers and in-flight follow-up without deleting records; **Clear data**
+  removes them explicitly.
 - The independently installable **Kanban boards** plugin is disabled by default
   and requests only `kanban-board`. Files ending in `.kanban.md` or
   `.kanban.markdown` switch between exact Markdown source and a host-rendered

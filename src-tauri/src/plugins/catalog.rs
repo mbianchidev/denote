@@ -138,6 +138,21 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
         }
         (None, false) => {}
     }
+    let has_reminder_permission = entry
+        .manifest
+        .permissions
+        .iter()
+        .any(|permission| permission.capability == "reminders");
+    let has_notification_permission = entry
+        .manifest
+        .permissions
+        .iter()
+        .any(|permission| permission.capability == "notifications");
+    if has_reminder_permission && !has_notification_permission {
+        return Err(AppError::Plugin(format!(
+            "Plugin {id} requests reminders without notifications"
+        )));
+    }
     validate_relative_path(&entry.manifest.documentation)?;
     validate_relative_path(&entry.manifest.icon)?;
     for legal in &entry.manifest.legal {
@@ -155,6 +170,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "task-list"
             | "note-graph"
             | "calendar"
+            | "reminders"
             | "diagram-renderer"
             | "note-events"
             | "project-context"

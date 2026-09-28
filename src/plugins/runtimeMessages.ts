@@ -16,6 +16,11 @@ import type {
   PluginProjectContext,
   PluginProjectContextChangeEvent,
   PluginProjectRepositoryContext,
+  PluginReminderModel,
+  PluginReminderMutationRequest,
+  PluginReminderQuery,
+  PluginReminderTargetsModel,
+  PluginReminderTargetsRequest,
   PluginSourceControlAction,
   PluginSourceControlViewModel,
   PluginStructuredViewerParseRequest,
@@ -42,6 +47,12 @@ import {
   isPluginNoteGraphModel,
   isPluginNoteGraphQuery,
   isPluginNoteGraphRegistration,
+  isPluginReminderModel,
+  isPluginReminderMutationRequest,
+  isPluginReminderQuery,
+  isPluginReminderRegistration,
+  isPluginReminderTargetsModel,
+  isPluginReminderTargetsRequest,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
   isPluginTaskListIndexRequest,
@@ -130,6 +141,13 @@ export interface PluginCalendarContribution {
   views?: PluginCalendarView[];
 }
 
+export interface PluginReminderContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+  defaultSnoozeMinutes: number;
+}
+
 export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
   pluginId: string;
 }
@@ -143,6 +161,24 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
+  | {
+      type: "parse-reminder-targets";
+      providerId: string;
+      request: PluginReminderTargetsRequest;
+      requestId: string;
+    }
+  | {
+      type: "query-reminders";
+      providerId: string;
+      request: PluginReminderQuery;
+      requestId: string;
+    }
+  | {
+      type: "mutate-reminders";
+      providerId: string;
+      request: PluginReminderMutationRequest;
+      requestId: string;
+    }
   | {
       type: "query-calendar";
       providerId: string;
@@ -223,6 +259,31 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | {
+      type: "register-reminders";
+      id: string;
+      title: string;
+      defaultSnoozeMinutes: number;
+    }
+  | { type: "unregister-reminders"; id: string }
+  | {
+      type: "reminder-targets-result";
+      requestId: string;
+      model?: PluginReminderTargetsModel;
+      error?: string;
+    }
+  | {
+      type: "reminder-query-result";
+      requestId: string;
+      model?: PluginReminderModel;
+      error?: string;
+    }
+  | {
+      type: "reminder-mutation-result";
+      requestId: string;
+      model?: PluginReminderModel;
+      error?: string;
+    }
   | { type: "register-calendar"; id: string; title: string; views?: PluginCalendarView[] }
   | { type: "unregister-calendar"; id: string }
   | {
@@ -436,6 +497,22 @@ export function isPluginRuntimeMessage(
         ((value.error !== undefined && value.model === undefined) ||
           (value.error === undefined && isPluginTaskListModel(value.model)))
       );
+    case "reminder-targets-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.model === undefined) ||
+          (value.error === undefined &&
+            isPluginReminderTargetsModel(value.model)))
+      );
+    case "reminder-query-result":
+    case "reminder-mutation-result":
+      return (
+        typeof value.requestId === "string" &&
+        (value.error === undefined || typeof value.error === "string") &&
+        ((value.error !== undefined && value.model === undefined) ||
+          (value.error === undefined && isPluginReminderModel(value.model)))
+      );
     case "task-list-toggle-result":
       return (
         typeof value.requestId === "string" &&
@@ -453,6 +530,10 @@ export function isPluginRuntimeMessage(
     case "register-calendar":
       return isPluginCalendarRegistration(value);
     case "unregister-calendar":
+      return typeof value.id === "string";
+    case "register-reminders":
+      return isPluginReminderRegistration(value);
+    case "unregister-reminders":
       return typeof value.id === "string";
     case "register-command":
       return typeof value.id === "string" && typeof value.title === "string";
@@ -617,6 +698,24 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.providerId === "string" &&
         typeof value.requestId === "string" &&
         isPluginCalendarRequest(value.request)
+      );
+    case "parse-reminder-targets":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginReminderTargetsRequest(value.request)
+      );
+    case "query-reminders":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginReminderQuery(value.request)
+      );
+    case "mutate-reminders":
+      return (
+        typeof value.providerId === "string" &&
+        typeof value.requestId === "string" &&
+        isPluginReminderMutationRequest(value.request)
       );
     case "note-event":
       return (

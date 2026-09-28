@@ -22,6 +22,9 @@ import type {
   PluginProjectContext,
   PluginProjectContextChangeEvent,
   PluginProjectRepositoryContext,
+  PluginReminderModel,
+  PluginReminderProvider,
+  PluginReminderTargetsModel,
   PluginSourceControlProvider,
   PluginSourceControlViewModel,
   PluginStructuredViewer,
@@ -57,6 +60,12 @@ import {
   isPluginNoteGraphModel,
   isPluginNoteGraphQuery,
   isPluginNoteGraphRegistration,
+  isPluginReminderModel,
+  isPluginReminderMutationRequest,
+  isPluginReminderQuery,
+  isPluginReminderRegistration,
+  isPluginReminderTargetsModel,
+  isPluginReminderTargetsRequest,
   isPluginStructuredViewerRegistration,
   isPluginStructuredViewModel,
   isPluginTaskListIndexRequest,
@@ -117,6 +126,18 @@ const taskListToggleHandlers = new Map<
   PluginTaskListProvider["toggle"]
 >();
 const calendarHandlers = new Map<string, PluginCalendarProvider["query"]>();
+const reminderTargetHandlers = new Map<
+  string,
+  PluginReminderProvider["targets"]
+>();
+const reminderQueryHandlers = new Map<
+  string,
+  PluginReminderProvider["query"]
+>();
+const reminderMutationHandlers = new Map<
+  string,
+  PluginReminderProvider["mutate"]
+>();
 const noteListeners = new Set<
   (event: PluginNoteEvent) => void | Promise<void>
 >();
@@ -126,6 +147,7 @@ const structuredViewers = new Set<string>();
 const kanbanBoards = new Set<string>();
 const noteGraphs = new Set<string>();
 const taskLists = new Set<string>();
+const reminders = new Set<string>();
 const diagramRenderers = new Set<string>();
 const projectContextListeners = new Set<
   (event: PluginProjectContextChangeEvent) => void | Promise<void>
@@ -487,6 +509,45 @@ function runtimeContext(): PluginActivationContext {
           calendarHandlers.size > 0
         ) {
           throw new Error("Invalid or duplicate calendar registration.");
+        }
+        if (permissions.has("reminders") && permissions.has("notifications")) {
+          capabilities.reminders = {
+            register(provider) {
+              const registration = {
+                id: provider?.id,
+                title: provider?.title,
+                defaultSnoozeMinutes: provider?.defaultSnoozeMinutes,
+              };
+              if (
+                cleaned ||
+                !isPluginReminderRegistration(registration) ||
+                typeof provider.targets !== "function" ||
+                typeof provider.query !== "function" ||
+                typeof provider.mutate !== "function" ||
+                reminders.size > 0
+              ) {
+                throw new Error("Invalid or duplicate reminders registration.");
+              }
+              validateContributionId(provider.id, "reminders");
+              reminders.add(provider.id);
+              reminderTargetHandlers.set(provider.id, provider.targets);
+              reminderQueryHandlers.set(provider.id, provider.query);
+              reminderMutationHandlers.set(provider.id, provider.mutate);
+              send({ type: "register-reminders", ...registration });
+              let disposed = false;
+              return disposable(() => {
+                if (disposed) {
+                  return;
+                }
+                disposed = true;
+                reminders.delete(provider.id);
+                reminderTargetHandlers.delete(provider.id);
+                reminderQueryHandlers.delete(provider.id);
+                reminderMutationHandlers.delete(provider.id);
+                send({ type: "unregister-reminders", id: provider.id });
+              });
+            },
+          };
         }
         validateContributionId(provider.id, "calendar");
         calendarHandlers.set(provider.id, provider.query);
@@ -864,12 +925,16 @@ async function cleanup(): Promise<unknown[]> {
   taskListQueryHandlers.clear();
   taskListToggleHandlers.clear();
   calendarHandlers.clear();
+  reminderTargetHandlers.clear();
+  reminderQueryHandlers.clear();
+  reminderMutationHandlers.clear();
   automaticCommitSchedules.clear();
   emojiPickers.clear();
   structuredViewers.clear();
   kanbanBoards.clear();
   noteGraphs.clear();
   taskLists.clear();
+  reminders.clear();
   diagramRenderers.clear();
   return failures;
 }
@@ -1056,6 +1121,84 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
       send({ type: "calendar-result", requestId: message.requestId, model });
     } catch (error) {
       send({ type: "calendar-result", requestId: message.requestId, error: errorMessage(error) });
+    }
+    return;
+  }
+  if (message.type === "parse-reminder-targets") {
+    try {
+      const targets = reminderTargetHandlers.get(message.providerId);
+      if (!targets || !isPluginReminderTargetsRequest(message.request)) {
+        throw new Error(
+          "Reminders provider is no longer registered or its target request is invalid.",
+        );
+      }
+      const model: PluginReminderTargetsModel = await targets(message.request);
+      if (!isPluginReminderTargetsModel(model)) {
+        throw new Error("Reminders provider returned invalid targets.");
+      }
+      send({
+        type: "reminder-targets-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "reminder-targets-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "query-reminders") {
+    try {
+      const query = reminderQueryHandlers.get(message.providerId);
+      if (!query || !isPluginReminderQuery(message.request)) {
+        throw new Error(
+          "Reminders provider is no longer registered or its query is invalid.",
+        );
+      }
+      const model: PluginReminderModel = await query(message.request);
+      if (!isPluginReminderModel(model)) {
+        throw new Error("Reminders provider returned an invalid model.");
+      }
+      send({
+        type: "reminder-query-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "reminder-query-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
+    }
+    return;
+  }
+  if (message.type === "mutate-reminders") {
+    try {
+      const mutate = reminderMutationHandlers.get(message.providerId);
+      if (!mutate || !isPluginReminderMutationRequest(message.request)) {
+        throw new Error(
+          "Reminders provider is no longer registered or its mutation is invalid.",
+        );
+      }
+      const model: PluginReminderModel = await mutate(message.request);
+      if (!isPluginReminderModel(model)) {
+        throw new Error("Reminders provider returned an invalid model.");
+      }
+      send({
+        type: "reminder-mutation-result",
+        requestId: message.requestId,
+        model,
+      });
+    } catch (error) {
+      send({
+        type: "reminder-mutation-result",
+        requestId: message.requestId,
+        error: errorMessage(error),
+      });
     }
     return;
   }

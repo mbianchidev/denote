@@ -401,6 +401,57 @@ never changes or deletes task Markdown.
 Try [Advanced tasks](<../plugins/Advanced tasks.md>) for open/completed items,
 headings, hashtags, due dates, and a fenced checkbox that is not indexed.
 
+## Reminders
+
+Enable **Reminders** under **Productivity** in Denote 0.8.0 or newer. It is off
+by default and asks for separate **Reminders** and **Notifications** approvals
+only when you choose **Enable**. It has no network, process, clipboard,
+credential, general workspace-read/write, DOM, or native API access.
+
+Open a UTF-8 Markdown note and choose **Reminders** in the activity rail. The
+creation form can link a reminder to the whole note, a parsed heading, or a
+standard Markdown task. Enter a reminder name and future local date and time.
+Creating a reminder stores local plugin metadata; it never inserts syntax into
+the note or changes its bytes.
+
+Wall-clock reminders retain the civil time and the IANA time zone shown in the
+form. Changing the computer's current time zone does not rewrite that intent.
+When a daylight-saving fall-back hour repeats, Reminders uses its earlier
+occurrence. A time skipped by a spring-forward transition is refused instead of
+moving silently. **Snooze** schedules the configured number of minutes from
+now.
+
+Denote rechecks reminders while running, when the window regains focus, after
+sleep, and when the plugin or vault becomes available again. Overdue reminders
+therefore catch up after an application restart. Up to five are sent as
+individual native notifications; a larger backlog uses one summary
+notification while every item remains listed in the panel.
+
+The Reminders panel is the reliable action surface:
+
+- **Open note** uses ordinary Denote navigation.
+- **Snooze** reschedules a notified or failed reminder.
+- **Dismiss** removes it; **Cancel** removes a future reminder.
+- **Retry notification** repeats only a failed native dispatch.
+
+Desktop operating systems do not expose one portable notification-button or
+click callback through Tauri, so these actions do not appear inside the system
+banner. A status of **Notification requested** means the operating system
+accepted the request; Focus, Do Not Disturb, lock-screen policy, or disabled
+notification-center settings can still hide it. A command failure stays written
+in the panel with its retry action.
+
+Persisted links keep the vault-relative note path and a generic heading/task
+source line, not copied heading or task body text. Reminder names and note paths
+live in local application plugin data outside vault encryption and may appear in
+the operating system's notification history or lock screen. Disablement removes
+the view, stops the worker, and cancels host scheduling without deleting those
+records. Use **Clear data** in plugin settings to remove them.
+
+Try [Reminder targets](<../plugins/Reminders.md>) for an invented note, heading,
+and two tasks. The example never creates a reminder until you choose a future
+time yourself.
+
 ## Note graph
 
 Enable **Note graph** under **Knowledge management** to see how Markdown notes

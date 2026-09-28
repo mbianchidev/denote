@@ -306,8 +306,9 @@ more detail and examples.
 - Older Welcome vaults receive only missing `examples`, `code`, and new
   `plugins` example sets once; existing paths and earlier markers remain
   untouched, and encrypted copies wait for unlock to receive ciphertext.
-- Graph view, Kanban, task enhancements, reminders, comments,
-  highlighting, TTS/dictation, calendar, time tracking, and colorful text remain
+- Graph view, Kanban, task enhancements, and reminders remain optional
+  downloadable plugins. Comments, highlighting, TTS/dictation, time tracking,
+  and colorful text remain
   optional rather than built into the minimal core.
 
 [Back to Welcome](../Welcome.md)

@@ -1,6 +1,7 @@
 import {
   ArrowDown,
   ArrowUp,
+  Bell,
   Bookmark,
   CalendarDays,
   ChevronDown,
@@ -27,6 +28,7 @@ import type { Theme } from "../lib/theme";
 import type {
   PluginCalendarContribution,
   PluginNoteGraphContribution,
+  PluginReminderContribution,
   PluginSourceControlContribution,
   PluginTaskListContribution,
 } from "../plugins/workerRuntime";
@@ -49,10 +51,16 @@ interface ActivityRailProps {
     pluginId: string;
     providerId: string;
   } | null;
+  activeReminder?: {
+    pluginId: string;
+    providerId: string;
+  } | null;
   pluginViews: Array<{ id: string; title: string }>;
   sourceControlProviders: PluginSourceControlContribution[];
   noteGraphs: PluginNoteGraphContribution[];
   taskLists: PluginTaskListContribution[];
+  reminders?: PluginReminderContribution[];
+  reminderDueCounts?: Record<string, number>;
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
   onPluginViewChange: (viewId: string) => void;
@@ -62,6 +70,7 @@ interface ActivityRailProps {
   ) => void;
   onNoteGraphChange: (pluginId: string, providerId: string) => void;
   onTaskListChange: (pluginId: string, providerId: string) => void;
+  onReminderChange?: (pluginId: string, providerId: string) => void;
   onAbout: () => void;
   onThemeToggle: () => void;
 }
@@ -77,7 +86,14 @@ interface PluginRailItem {
   key: string;
   title: string;
   selected: boolean;
-  kind: "view" | "source-control" | "note-graph" | "task-list" | "calendar";
+  kind:
+    | "view"
+    | "source-control"
+    | "note-graph"
+    | "task-list"
+    | "calendar"
+    | "reminders";
+  ariaLabel?: string;
   onSelect: () => void;
 }
 
@@ -105,16 +121,20 @@ function ActivityRailComponent({
   activeSourceControlProvider,
   activeNoteGraph,
   activeTaskList,
+  activeReminder = null,
   pluginViews,
   sourceControlProviders,
   noteGraphs,
   taskLists,
+  reminders = [],
+  reminderDueCounts = {},
   theme,
   onViewChange,
   onPluginViewChange,
   onSourceControlProviderChange,
   onNoteGraphChange,
   onTaskListChange,
+  onReminderChange = () => {},
   onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
@@ -182,12 +202,32 @@ function ActivityRailComponent({
       kind: "calendar" as const,
       onSelect: () => onCalendarChange(provider.pluginId, provider.id),
     }));
+    const reminderItems = reminders.map((provider) => {
+      const key = `reminders:${provider.pluginId}:${provider.id}`;
+      const dueCount = reminderDueCounts[
+        `${provider.pluginId}\u0000${provider.id}`
+      ] ?? 0;
+      return {
+        key,
+        title: provider.title,
+        ariaLabel:
+          dueCount > 0
+            ? `${provider.title}, ${dueCount} need attention`
+            : provider.title,
+        selected:
+          activeReminder?.pluginId === provider.pluginId &&
+          activeReminder.providerId === provider.id,
+        kind: "reminders" as const,
+        onSelect: () => onReminderChange(provider.pluginId, provider.id),
+      };
+    });
     const available = [
       ...sidebarItems,
       ...sourceItems,
       ...graphItems,
       ...taskItems,
       ...calendarItems,
+      ...reminderItems,
     ];
     const rank = new Map(
       preferences.order.map((key, index) => [key, index] as const),
@@ -204,11 +244,15 @@ function ActivityRailComponent({
     onCalendarChange,
     activePluginView,
     activeNoteGraph,
+    activeReminder,
     activeTaskList,
     activeSourceControlProvider,
     noteGraphs,
+    reminders,
+    reminderDueCounts,
     taskLists,
     onNoteGraphChange,
+    onReminderChange,
     onTaskListChange,
     onPluginViewChange,
     onSourceControlProviderChange,
@@ -265,6 +309,7 @@ function ActivityRailComponent({
               activeNoteGraph === null &&
               activeTaskList === null &&
               activeCalendar === null &&
+              activeReminder === null &&
               activeView === id
             }
             title={
@@ -315,7 +360,7 @@ function ActivityRailComponent({
                       type="button"
                       draggable
                       key={item.key}
-                      aria-label={item.title}
+                      aria-label={item.ariaLabel ?? item.title}
                       aria-pressed={item.selected}
                       title={`${item.title} · drag to reorder`}
                       onClick={item.onSelect}
@@ -338,6 +383,8 @@ function ActivityRailComponent({
                         <ListChecks aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "calendar" ? (
                         <CalendarDays aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "reminders" ? (
+                        <Bell aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : (
                         <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
                       )}

@@ -329,6 +329,7 @@ pub struct GitignoreStatusUpdate {
 pub struct WorkspaceSnapshot {
     pub vault_path: String,
     pub vault_name: String,
+    pub plugin_scope_id: String,
     pub default: bool,
     pub tree: Vec<FileNode>,
     pub bookmarks: Vec<NoteListItem>,
