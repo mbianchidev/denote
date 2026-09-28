@@ -197,6 +197,18 @@ export function assertPackagedSize(sizes) {
   }
 }
 
+export function gitMakeFlags(environment = process.env) {
+  return [
+    `-j${Math.max(1, Math.min(4, Number(environment.DENOTE_TOOL_BUILD_JOBS ?? 2)))}`,
+    // Git's Cargo recipe must inherit Make's open jobserver descriptors.
+    "QUIET_CARGO=+",
+    "NO_GETTEXT=YesPlease",
+    "NO_TCLTK=YesPlease",
+    "NO_PYTHON=YesPlease",
+    "INSTALL_SYMLINKS=YesPlease",
+  ];
+}
+
 export function gitBuildEnvironment(
   targetName,
   environment = process.env,
@@ -545,13 +557,7 @@ async function prepareGit(lock, targetName, target, staging, temporary) {
       cwd: sourceRoot,
       env: environment,
     });
-    const makeFlags = [
-      `-j${Math.max(1, Math.min(4, Number(process.env.DENOTE_TOOL_BUILD_JOBS ?? 2)))}`,
-      "NO_GETTEXT=YesPlease",
-      "NO_TCLTK=YesPlease",
-      "NO_PYTHON=YesPlease",
-      "INSTALL_SYMLINKS=YesPlease",
-    ];
+    const makeFlags = gitMakeFlags();
     run("make", [...makeFlags, "all"], { cwd: sourceRoot, env: environment });
     run("make", [...makeFlags, "install"], { cwd: sourceRoot, env: environment });
     if (targetName.endsWith("apple-darwin")) {

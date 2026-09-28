@@ -528,6 +528,10 @@ describe("App initial file-tree expansion", () => {
     await waitFor(() => {
       expect(mockApi.readNote).toHaveBeenCalledWith("linked note.md");
     });
+    await screen.findByRole("tab", { name: /linked note\.md/ });
+    await waitFor(() => {
+      expect(screen.queryByText("Loading editor...")).not.toBeInTheDocument();
+    });
     expect(mockApi.openKnownVault).not.toHaveBeenCalled();
   });
 
@@ -556,6 +560,7 @@ describe("App initial file-tree expansion", () => {
       expect(mockApi.openKnownVault).toHaveBeenCalledWith(8);
       expect(mockApi.readNote).toHaveBeenCalledWith("folder/linked.md");
     });
+    await screen.findByRole("tab", { name: /linked\.md/ });
   });
 
   it("asks for the vault folder when an app-linked file is not known", async () => {

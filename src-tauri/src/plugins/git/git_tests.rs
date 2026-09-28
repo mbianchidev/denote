@@ -1413,6 +1413,7 @@ fn configured_commit_identity_beats_an_ambient_identity() {
                 .expect("git init")
                 .success()
         );
+        git_config(&git, &repository, "core.autocrlf", "false");
         fs::write(repository.join("alpha.md"), "synthetic note\n").expect("note");
         assert!(
             Command::new(&git)

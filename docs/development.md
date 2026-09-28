@@ -140,6 +140,14 @@ material. The target tree contains the Git and gh release archives. Denote
 downloads the matching published archive only for Bundled mode, then extracts it
 atomically into application data on first required use.
 
+Git's source build passes `QUIET_CARGO=+` to Make. The recursive recipe prefix
+keeps Make's jobserver descriptors open for its nested Cargo invocation; clearing
+`MAKEFLAGS` or hiding warnings would lose that concurrency contract. The
+synthetic Make fixture in `npm run test:bundled-tools` checks inherited jobserver
+handles. Git identity tests explicitly disable `core.autocrlf` only in their
+temporary repositories, preventing Windows conversion notices without changing
+production Git configuration or note line-ending preservation.
+
 Plugin source belongs under `plugins/<name>/` and may import
 `@denote/plugin-sdk`, its own files, and declared third-party packages. It must
 not import from `src/`, `@tauri-apps/*`, or another plugin package. Use
@@ -605,6 +613,63 @@ source/build inputs before pinning with
 `npm run pin:plugin -- denote.calendar --ref "$(git rev-parse HEAD)" --release v0.6.0`.
 Commit the resulting catalog and release ledger separately; archives stay
 ignored and are published only by the ordinary release workflow.
+
+## Frontend bundle limits
+
+`npm run build` uses entry-aware Rolldown groups and rejects main-thread
+JavaScript chunks above 500,000 bytes after minification. The warning limit is
+not raised. Markdown editing and formatted Git diffs load only when opened;
+PDF rendering already has a lazy entrypoint. Loading or failing one editor
+leaves the surrounding workspace available.
+
+Large Shiki grammar JSON is emitted unchanged as local hashed assets instead
+of JavaScript strings. The build validates the literal-data format without
+executing package code and fails if it changes. Grammar imports await those
+assets and reject HTTP or JSON errors. The optional Oniguruma engine uses a
+local `.wasm` asset instead of a Base64 JavaScript module. Neither path uses a
+CDN or removes languages. PDF.js's separately loaded, prebuilt worker remains
+one upstream module, not a main-thread chunk.
+`dist/.vite/manifest.json` records static and lazy imports.
+
+```bash
+npx vitest run scripts/frontend-bundle.test.ts \
+  src/components/ErrorBoundary.test.tsx \
+  src/components/SourceControlDiffEditor.test.tsx src/App.test.tsx
+npx tsc --noEmit -p tsconfig.node.json
+```
+
+## Rust dependency audits and GTK migration
+
+Run `cargo audit --file src-tauri/Cargo.lock`. Tauri 2.12.0 and tauri-build 2.7.0
+remove the five unmaintained `unic-*` dependencies through their updated URL
+pattern implementation. No advisory is ignored.
+
+Two findings remain in the Linux GTK stack:
+
+| Advisory | Dependency path | Status |
+| --- | --- | --- |
+| [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370) | GTK 0.18 / GLib macros -> `proc-macro-error` 1.0.4 | Unmaintained |
+| [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
+
+The audit includes every platform in the lockfile, so macOS and Windows also
+report these Linux dependencies. A successful exit does not resolve them.
+
+Migration investigation, 2026-09-28: maintained
+[GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, Tauri
+2.12, its runtime, Tao, Wry, and WebKitGTK still use GTK 0.18 types. A new direct
+GTK/GLib dependency cannot replace incompatible transitive types and native
+`links` dependencies. The runtime, menu/dialog integrations, and WebKitGTK
+bindings need a coordinated upgrade.
+
+[Tauri 3.0.0-alpha.3](https://github.com/tauri-apps/tauri/releases/tag/tauri-v3.0.0-alpha.3)
+requires Rust 1.95, matching version-three runtime/plugins, and native plugin
+hooks that can run concurrently and require `Sync`. Its
+[Wry runtime](https://crates.io/crates/tauri-runtime-wry/3.0.0-alpha.3) still uses
+GTK 0.18 and WebKitGTK 2.0: moving to that alpha alone does not fix the findings.
+Keep stable Tauri until a compatible maintained GTK stack is available. That
+migration must cover Linux menus, dialogs, clipboard, deep links, single-instance
+behavior, updater shutdown, and vault/plugin lifecycles across all platforms.
+Do not relabel crates or suppress advisories to bypass this dependency boundary.
 
 ## Build a desktop bundle
 

@@ -2,6 +2,7 @@ import { Component, type ErrorInfo, type ReactNode } from "react";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
+  fallback?: (error: Error) => ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -24,6 +25,9 @@ export class ErrorBoundary extends Component<
 
   render() {
     if (this.state.error) {
+      if (this.props.fallback) {
+        return this.props.fallback(this.state.error);
+      }
       return (
         <main className="fatal-error" role="alert">
           <div className="welcome__mark">D</div>

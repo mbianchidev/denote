@@ -1,10 +1,13 @@
-import { PatchDiff } from "@pierre/diffs/react";
 import { FileText, Minus, Plus } from "lucide-react";
-import { Component, useMemo, type ReactNode } from "react";
+import { Component, lazy, Suspense, useMemo, type ReactNode } from "react";
 import type { PluginSourceControlAction } from "@denote/plugin-sdk";
 import type { Theme } from "../lib/theme";
 import { sourceControlFilePatch } from "../lib/sourceControlDiff";
 import type { EditorTab } from "../types";
+
+const PatchDiff = lazy(() =>
+  import("@pierre/diffs/react").then((module) => ({ default: module.PatchDiff })),
+);
 
 interface SourceControlDiffEditorProps {
   tab: EditorTab;
@@ -122,11 +125,24 @@ export function SourceControlDiffEditor({
               key={`${file.previousPath ?? ""}:${file.path}`}
               patch={patch}
             >
-              <PatchDiff
-                patch={patch}
-                options={options}
-                disableWorkerPool
-              />
+              <Suspense
+                fallback={
+                  <pre
+                    className="source-control-diff-editor__fallback"
+                    role="region"
+                    aria-label="Loading formatted diff"
+                    aria-busy="true"
+                  >
+                    {patch}
+                  </pre>
+                }
+              >
+                <PatchDiff
+                  patch={patch}
+                  options={options}
+                  disableWorkerPool
+                />
+              </Suspense>
             </DiffRenderBoundary>
           );
         })}
