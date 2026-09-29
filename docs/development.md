@@ -676,25 +676,75 @@ npx tsc --noEmit -p tsconfig.node.json
 
 ## Rust dependency audits and GTK migration
 
-Run `cargo audit --file src-tauri/Cargo.lock`. Tauri 2.12.0 and tauri-build 2.7.0
-remove the five unmaintained `unic-*` dependencies through their updated URL
-pattern implementation. The npm Tauri API and CLI use the matching 2.12 minor
-release; desktop packaging rejects a mismatched API minor. No advisory is ignored.
+Run `cargo audit --file src-tauri/Cargo.lock`. Windows releases temporarily pin
+Tauri 2.11.6, tauri-build/codegen/macros 2.6.3, runtime 2.11.3,
+runtime-wry 2.11.4, Tao 0.35.3, and Wry 0.55.1. The npm Tauri API 2.11.1 and
+CLI 2.11.5 use the matching runtime minor. Tauri 2.12, including
+`tauri-utils` 2.10, opens a blank Windows webview and leaves the process alive
+after its last window closes. Do not float this runtime family until the
+packaged Windows renderer smoke gate passes. The known-good graph retains
+`tauri-utils` 2.9.3 and its URL-pattern implementation, so five unmaintained
+`unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
+minor. No vulnerability advisory is ignored.
 
-Two findings remain in the Linux GTK stack:
+Seven warning-level findings remain:
 
 | Advisory | Dependency path | Status |
 | --- | --- | --- |
 | [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370) | GTK 0.18 / GLib macros -> `proc-macro-error` 1.0.4 | Unmaintained |
+| [RUSTSEC-2025-0081](https://rustsec.org/advisories/RUSTSEC-2025-0081) | Tauri utils 2.9 / URL pattern -> `unic-char-property` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0075](https://rustsec.org/advisories/RUSTSEC-2025-0075) | Tauri utils 2.9 / URL pattern -> `unic-char-range` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0080](https://rustsec.org/advisories/RUSTSEC-2025-0080) | Tauri utils 2.9 / URL pattern -> `unic-common` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
+| [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
-report these Linux dependencies. A successful exit does not resolve them.
+report the Linux GTK dependencies. A successful exit does not resolve any of
+these warnings.
+
+### Re-evaluate the Windows runtime pin
+
+The exact npm, Cargo manifest, and Cargo lock versions are one coordinated
+workaround. Denote 0.7.2 moved to the Tauri 2.12 family; packaged Windows builds
+then opened as a uniform black page and kept `denote.exe` alive after the last
+window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
+Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
+supported upgrade.
+
+Last upstream check: **2026-09-29**.
+
+- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
+  release newer than 2.12.0.
+- [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
+  Windows blank-webview fix for this regression.
+- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
+  than 0.57.0.
+- [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
+  Windows fix matching both the blank frame and orphaned process.
+
+Any agent or contributor considering an upgrade must:
+
+1. Check those official release notes and issue trackers first. Link the exact
+   upstream release, issue, or pull request evaluated and update the last-check
+   date above; do not assume that `latest` contains a fix.
+2. Move the family together: `@tauri-apps/api`, `@tauri-apps/cli`, `tauri`,
+   `tauri-build`, `tauri-codegen`, `tauri-macros`, `tauri-runtime`,
+   `tauri-runtime-wry`, `tauri-utils`, Tao, Wry, and their WebView2 bindings.
+   Use npm and Cargo to regenerate lockfiles; never hand-edit resolved versions.
+3. Run the JavaScript and Rust audits, full build/check suite, and all-platform
+   CI. The package-equivalent Windows renderer smoke is mandatory: it must show
+   Denote's dark UI, reject blank or browser-error frames, close the last window,
+   and observe `denote.exe` exit.
+4. Remove or relax the exact pins only when the upstream evidence is cited and
+   the Windows gate passes. If the candidate fails, restore the known-good graph
+   exactly; never weaken, skip, or delete the smoke check to land an upgrade.
 
 Migration investigation, 2026-09-28: maintained
-[GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, Tauri
-2.12, its runtime, Tao, Wry, and WebKitGTK still use GTK 0.18 types. A new direct
-GTK/GLib dependency cannot replace incompatible transitive types and native
+[GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, the
+Tauri 2.11 and 2.12 runtime families, Tao, Wry, and WebKitGTK still use GTK 0.18
+types. A new direct GTK/GLib dependency cannot replace incompatible transitive
+types and native
 `links` dependencies. The runtime, menu/dialog integrations, and WebKitGTK
 bindings need a coordinated upgrade.
 
@@ -716,6 +766,20 @@ npm run tauri build
 
 The GitHub Actions workflow runs the validation commands on macOS, Windows, and
 Linux.
+
+Windows CI additionally builds the embedded application without installers and
+runs:
+
+```powershell
+pwsh -NoProfile -File scripts/windows-renderer-smoke.ps1 `
+  -AppPath src-tauri/target/release/denote.exe `
+  -EvidenceDirectory windows-renderer-smoke
+```
+
+The hosted runner launches this at medium integrity, isolates application and
+WebView2 data, captures the client area, rejects a uniform blank frame or browser
+error page, closes the last window, and requires `denote.exe` to exit. Failure
+uploads the screenshot and measured frame evidence.
 
 ### Preview an unpublished plugin on macOS
 
