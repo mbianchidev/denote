@@ -3599,7 +3599,7 @@ button.tag-chip:active,
   font: inherit;
 }
 
-.reminder-panel button {
+.reminder-panel button:not(.primary-button):not(.secondary-button) {
   min-height: 30px;
   padding: 4px 9px;
   color: var(--text-primary);
@@ -3608,13 +3608,20 @@ button.tag-chip:active,
   border-radius: 5px;
 }
 
-.reminder-panel button:not(:disabled) {
+.reminder-panel button:not(.primary-button):not(.secondary-button):not(:disabled) {
   cursor: pointer;
 }
 
-.reminder-panel button:hover:not(:disabled) {
+.reminder-panel button:not(.primary-button):not(.secondary-button):hover:not(:disabled) {
   background: var(--panel-bg);
   border-color: var(--border-strong);
+}
+
+.reminder-form__submit {
+  min-height: 32px;
+  justify-self: start;
+  padding-inline: 12px;
+  font-size: 11px;
 }
 
 .reminder-panel :is(button, input, select):focus-visible {

@@ -81,9 +81,9 @@ describe("ReminderPanel", () => {
     });
     await user.clear(screen.getByLabelText("Reminder name"));
     await user.type(screen.getByLabelText("Reminder name"), "Review plan");
-    await user.click(
-      screen.getByRole("button", { name: "Create reminder" }),
-    );
+    const create = screen.getByRole("button", { name: "Create reminder" });
+    expect(create).toHaveClass("primary-button");
+    await user.click(create);
 
     await waitFor(() =>
       expect(controller.mutate).toHaveBeenCalledWith(

@@ -274,6 +274,7 @@ export function ReminderPanel({
             ) : null}
             <button
               type="submit"
+              className="primary-button reminder-form__submit"
               disabled={
                 disabled ||
                 working !== null ||
@@ -283,7 +284,7 @@ export function ReminderPanel({
                 !time
               }
             >
-              {working === "create" ? "Creating..." : "Create reminder"}
+              {working === "create" ? "Creating…" : "Create reminder"}
             </button>
           </>
         ) : (
