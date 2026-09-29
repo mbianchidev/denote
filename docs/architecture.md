@@ -12,6 +12,9 @@ window closes. CI therefore builds the package-equivalent application, captures
 its client area, requires the dark Denote surface rather than a uniform frame
 or browser error page, then closes the window and requires the process to exit.
 A newer runtime may replace the pin only when that gate passes.
+`docs/development.md` records the upstream-check sources and coordinated upgrade
+procedure; dependency automation or an agent must follow it before changing any
+member of this family.
 
 The frontend build caps emitted main-thread JavaScript chunks at 500,000 bytes.
 Entry-aware chunks preserve lazy dependency boundaries for Markdown editing,

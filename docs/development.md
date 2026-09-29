@@ -703,6 +703,43 @@ The audit includes every platform in the lockfile, so macOS and Windows also
 report the Linux GTK dependencies. A successful exit does not resolve any of
 these warnings.
 
+### Re-evaluate the Windows runtime pin
+
+The exact npm, Cargo manifest, and Cargo lock versions are one coordinated
+workaround. Denote 0.7.2 moved to the Tauri 2.12 family; packaged Windows builds
+then opened as a uniform black page and kept `denote.exe` alive after the last
+window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
+Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
+supported upgrade.
+
+Last upstream check: **2026-09-29**.
+
+- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
+  release newer than 2.12.0.
+- [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
+  Windows blank-webview fix for this regression.
+- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
+  than 0.57.0.
+- [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
+  Windows fix matching both the blank frame and orphaned process.
+
+Any agent or contributor considering an upgrade must:
+
+1. Check those official release notes and issue trackers first. Link the exact
+   upstream release, issue, or pull request evaluated and update the last-check
+   date above; do not assume that `latest` contains a fix.
+2. Move the family together: `@tauri-apps/api`, `@tauri-apps/cli`, `tauri`,
+   `tauri-build`, `tauri-codegen`, `tauri-macros`, `tauri-runtime`,
+   `tauri-runtime-wry`, `tauri-utils`, Tao, Wry, and their WebView2 bindings.
+   Use npm and Cargo to regenerate lockfiles; never hand-edit resolved versions.
+3. Run the JavaScript and Rust audits, full build/check suite, and all-platform
+   CI. The package-equivalent Windows renderer smoke is mandatory: it must show
+   Denote's dark UI, reject blank or browser-error frames, close the last window,
+   and observe `denote.exe` exit.
+4. Remove or relax the exact pins only when the upstream evidence is cited and
+   the Windows gate passes. If the candidate fails, restore the known-good graph
+   exactly; never weaken, skip, or delete the smoke check to land an upgrade.
+
 Migration investigation, 2026-09-28: maintained
 [GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, the
 Tauri 2.11 and 2.12 runtime families, Tao, Wry, and WebKitGTK still use GTK 0.18
