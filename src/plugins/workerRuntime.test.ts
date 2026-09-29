@@ -1347,6 +1347,76 @@ describe("PluginWorkerRuntime", () => {
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 
+  it("exposes reminders through the actual isolated worker capability", async () => {
+    await bridgeRealPluginWorker();
+    const source = pluginWithReminders();
+    const registration = {
+      id: "denote.reference.reminders",
+      title: "Reminders",
+      defaultSnoozeMinutes: 15,
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          const reminders = context.capabilities.reminders;
+          if (!reminders) throw Error("Missing reminders");
+          context.subscriptions.add(reminders.register({
+            ...${JSON.stringify(registration)},
+            targets() {
+              return ${JSON.stringify(reminderTargetsModel)};
+            },
+            query() {
+              return ${JSON.stringify(reminderModel)};
+            },
+            mutate() {
+              return ${JSON.stringify(reminderModel)};
+            },
+          }));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(source);
+
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    await expect(
+      runtime.parseReminderTargets(
+        "denote.reference",
+        registration.id,
+        {
+          document: {
+            path: "Plan.md",
+            title: "Plan",
+            source: "- [ ] Synthetic",
+          },
+        },
+      ),
+    ).resolves.toEqual(reminderTargetsModel);
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
   it("force stops a note graph without waiting for queued deactivation", async () => {
     const changed = vi.fn();
     const registration = {

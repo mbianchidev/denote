@@ -510,45 +510,6 @@ function runtimeContext(): PluginActivationContext {
         ) {
           throw new Error("Invalid or duplicate calendar registration.");
         }
-        if (permissions.has("reminders") && permissions.has("notifications")) {
-          capabilities.reminders = {
-            register(provider) {
-              const registration = {
-                id: provider?.id,
-                title: provider?.title,
-                defaultSnoozeMinutes: provider?.defaultSnoozeMinutes,
-              };
-              if (
-                cleaned ||
-                !isPluginReminderRegistration(registration) ||
-                typeof provider.targets !== "function" ||
-                typeof provider.query !== "function" ||
-                typeof provider.mutate !== "function" ||
-                reminders.size > 0
-              ) {
-                throw new Error("Invalid or duplicate reminders registration.");
-              }
-              validateContributionId(provider.id, "reminders");
-              reminders.add(provider.id);
-              reminderTargetHandlers.set(provider.id, provider.targets);
-              reminderQueryHandlers.set(provider.id, provider.query);
-              reminderMutationHandlers.set(provider.id, provider.mutate);
-              send({ type: "register-reminders", ...registration });
-              let disposed = false;
-              return disposable(() => {
-                if (disposed) {
-                  return;
-                }
-                disposed = true;
-                reminders.delete(provider.id);
-                reminderTargetHandlers.delete(provider.id);
-                reminderQueryHandlers.delete(provider.id);
-                reminderMutationHandlers.delete(provider.id);
-                send({ type: "unregister-reminders", id: provider.id });
-              });
-            },
-          };
-        }
         validateContributionId(provider.id, "calendar");
         calendarHandlers.set(provider.id, provider.query);
         send({ type: "register-calendar", ...registration });
@@ -558,6 +519,45 @@ function runtimeContext(): PluginActivationContext {
           disposed = true;
           calendarHandlers.delete(provider.id);
           send({ type: "unregister-calendar", id: provider.id });
+        });
+      },
+    };
+  }
+  if (permissions.has("reminders") && permissions.has("notifications")) {
+    capabilities.reminders = {
+      register(provider) {
+        const registration = {
+          id: provider?.id,
+          title: provider?.title,
+          defaultSnoozeMinutes: provider?.defaultSnoozeMinutes,
+        };
+        if (
+          cleaned ||
+          !isPluginReminderRegistration(registration) ||
+          typeof provider.targets !== "function" ||
+          typeof provider.query !== "function" ||
+          typeof provider.mutate !== "function" ||
+          reminders.size > 0
+        ) {
+          throw new Error("Invalid or duplicate reminders registration.");
+        }
+        validateContributionId(provider.id, "reminders");
+        reminders.add(provider.id);
+        reminderTargetHandlers.set(provider.id, provider.targets);
+        reminderQueryHandlers.set(provider.id, provider.query);
+        reminderMutationHandlers.set(provider.id, provider.mutate);
+        send({ type: "register-reminders", ...registration });
+        let disposed = false;
+        return disposable(() => {
+          if (disposed) {
+            return;
+          }
+          disposed = true;
+          reminders.delete(provider.id);
+          reminderTargetHandlers.delete(provider.id);
+          reminderQueryHandlers.delete(provider.id);
+          reminderMutationHandlers.delete(provider.id);
+          send({ type: "unregister-reminders", id: provider.id });
         });
       },
     };
