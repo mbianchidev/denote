@@ -29,6 +29,25 @@ patterns instead of inventing a one-off treatment:
 - Avoid generic, promotional, or explanatory filler. Text should tell the user
   what happened, what an action does, or how to recover.
 
+## Windows Tauri runtime pin
+
+Denote pins the complete Windows-safe Tauri 2.11 dependency family. Tauri 2.12,
+including `tauri-utils` 2.10 and Wry 0.57, produced a completely blank Windows
+webview and left `denote.exe` running after its last window closed.
+
+Before changing any `@tauri-apps/*`, `tauri*`, Tao, Wry, WebView2, URL-pattern,
+or related lockfile version, an agent must first check the current official
+Tauri and Wry releases and issue trackers for an upstream fix. Follow
+**Re-evaluate the Windows runtime pin** in `docs/development.md`, cite the
+upstream release, issue, or pull request examined, and update its last-check
+record when performing a real re-evaluation.
+
+Never float or partially upgrade this family. A candidate upgrade must move the
+matching npm and Cargo packages together and may replace the pin only after the
+package-equivalent Windows renderer smoke test shows the Denote UI and confirms
+that closing the last window terminates the process. If no verified upstream
+fix exists or the smoke test fails, keep the exact known-good versions.
+
 ## Plugins
 
 Before changing plugin code or lifecycle behavior, read:

@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.reference-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
@@ -306,7 +306,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.git-0.9.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.git-0.9.0.tgz",
       "sha256": "30d1ac6abd1d73e54c8d474ee79b6ecd56fdc4efcc470e1407499c83d66276e2",
       "sizeBytes": 71538
     },
@@ -376,7 +376,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.emoji-picker-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.emoji-picker-0.1.1.tgz",
       "sha256": "501acb6a911f2aa85fd47adc8709fd867d3482b495209dc490cd4b54aca0dbf6",
       "sizeBytes": 105317
     },
@@ -416,7 +416,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.json-yaml-viewer-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.json-yaml-viewer-0.1.1.tgz",
       "sha256": "c7809c1cd27ac62eb5fa3a05e501f95d1334fdf357be91a6b71c5b43dcc8fcdf",
       "sizeBytes": 66485
     },
@@ -463,7 +463,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.mermaid-0.2.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.mermaid-0.2.2.tgz",
       "sha256": "8d6410e4262379d51d9d36f9d5d8e234d9cb8eda9370cc8dbf975aa34cfee7e8",
       "sizeBytes": 1646463
     },
@@ -503,7 +503,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.kanban-0.1.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.kanban-0.1.3.tgz",
       "sha256": "24ff948143ec0e930c082da3cdac036f63a731d4888caab972c69e0e1336c244",
       "sizeBytes": 20814
     },
@@ -543,7 +543,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.note-graph-0.1.4.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.note-graph-0.1.4.tgz",
       "sha256": "8a86259b050b837932ab5d7e7ab4bec0165d6dd6739e3ea3fe5a59c3f8f3a4f1",
       "sizeBytes": 74349
     },
@@ -609,7 +609,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.calendar-0.2.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.calendar-0.2.0.tgz",
       "sha256": "bdd340c4b9c969eb75d956d67c67ee64c9c4f0b6bce5cc50eddd2ca0a80a38c0",
       "sizeBytes": 68477
     },
@@ -649,7 +649,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.1/denote.task-lists-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.task-lists-0.1.1.tgz",
       "sha256": "e66f7adb2d0c34e408cdca0ba129266866ce0dc23993152c6802a2a6e30f01ac",
       "sizeBytes": 69997
     },
