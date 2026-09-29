@@ -6790,21 +6790,75 @@ kbd {
   gap: 8px;
 }
 
-.plugin-guide > div {
+.plugin-guide__section {
   display: grid;
-  gap: 2px;
+  gap: 4px;
 }
 
-.plugin-guide strong {
+.plugin-guide__section-title,
+.plugin-guide__subheading {
   color: var(--text-secondary);
   font-size: 10px;
 }
 
-.plugin-guide p {
+.plugin-guide__content {
+  display: grid;
+  gap: 6px;
+}
+
+.plugin-guide :is(p, ul, ol, blockquote, pre) {
+  margin: 0;
   color: var(--text-tertiary);
   font-size: 11px;
   line-height: 1.5;
-  white-space: pre-line;
+}
+
+.plugin-guide :is(ul, ol) {
+  padding-left: 18px;
+}
+
+.plugin-guide li > p {
+  margin: 0;
+}
+
+.plugin-guide blockquote {
+  padding-left: 8px;
+  border-left: 2px solid var(--border-strong);
+}
+
+.plugin-guide pre {
+  max-height: 240px;
+  padding: 8px;
+  overflow: auto;
+  background: var(--app-bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  white-space: pre;
+}
+
+.plugin-guide code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.plugin-guide :not(pre) > code {
+  padding: 1px 3px;
+  background: var(--app-bg);
+  border-radius: 3px;
+}
+
+.plugin-guide__emphasis {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 700;
+}
+
+.plugin-guide__link {
+  overflow-wrap: anywhere;
+}
+
+.plugin-guide__link-url {
+  color: var(--text-tertiary);
 }
 
 .plugin-card__settings {

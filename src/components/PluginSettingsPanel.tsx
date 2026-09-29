@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import { systemPathForDisplay } from "../lib/systemPath";
 import { GitSigningSettings, type GitSigningActions } from "./GitSigningSettings";
+import { PluginGuide } from "./PluginGuide";
 
 const CATEGORY_LABELS: Record<PluginCategory, string> = {
   code: "Code",
@@ -569,7 +570,7 @@ export function PluginSettingsPanel({
                                 <p>No additional permissions.</p>
                               )}
                             </section>
-                            <Guide guide={plugin.catalog.guide} />
+                            <PluginGuide guide={plugin.catalog.guide} />
                           </div>
                         </details>
 
@@ -1288,27 +1289,6 @@ function PluginSetting({
         />
       )}
     </label>
-  );
-}
-
-function Guide({ guide }: { guide: string }) {
-  const sections = guide
-    .split(/^## /m)
-    .slice(1)
-    .map((section) => {
-      const [title, ...body] = section.trim().split("\n");
-      return { title, body: body.join("\n").trim() };
-    });
-  return (
-    <section className="plugin-guide">
-      <h6>How to use</h6>
-      {sections.map((section) => (
-        <div key={section.title}>
-          <strong>{section.title}</strong>
-          <p>{section.body}</p>
-        </div>
-      ))}
-    </section>
   );
 }
 

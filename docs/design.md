@@ -360,6 +360,12 @@ status. Opening one reveals description, provenance, permissions, guide,
 settings, and lifecycle actions. Error entries open automatically, focus remains
 visible, and nested permissions or JSON disclosures retain native keyboard
 behavior.
+Expanded guides render a safe documentation subset: section headings,
+paragraphs, ordered and unordered lists, emphasis, inline code, fenced code,
+quotes, and separators. Markdown markers never appear as literal UI. Raw HTML
+is displayed as code rather than executed, and guide links remain labelled
+non-navigating text so catalog documentation cannot bypass Denote's external
+link confirmation flow.
 The development-only local-archive action shows a loading label and polite
 status while the picker or verification is pending. Repeated clicks cannot
 stack native pickers, and cancellation restores the action. Other settings

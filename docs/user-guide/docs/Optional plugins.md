@@ -403,7 +403,7 @@ headings, hashtags, due dates, and a fenced checkbox that is not indexed.
 
 ## Reminders
 
-Enable **Reminders** under **Productivity** in Denote 0.8.0 or newer. It is off
+Enable **Reminders** under **Productivity** in Denote 0.7.1 or newer. It is off
 by default and asks for separate **Reminders** and **Notifications** approvals
 only when you choose **Enable**. It has no network, process, clipboard,
 credential, general workspace-read/write, DOM, or native API access.

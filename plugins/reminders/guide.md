@@ -4,12 +4,12 @@
 
 Create local one-time reminders linked to a Markdown note, heading, or task.
 Reminder records stay in Denote's local plugin data rather than changing note
-content. Requires Denote 0.8.0 or newer.
+content. Requires Denote 0.7.1 or newer, including Denote 0.7.2.
 
 ## Enablement and permissions
 
 Reminders is disabled by default. Enable it under
-**Settings -> Plugins -> Productivity** and approve **Reminders** and
+**Settings → Plugins → Productivity** and approve **Reminders** and
 **Notifications**. Denote asks for these permissions only when you choose to
 enable the plugin.
 

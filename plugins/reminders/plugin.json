@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.reminders",
   "name": "Reminders",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Create local reminders linked to notes, headings, and Markdown tasks.",
   "publisher": {
     "name": "Denote",
@@ -14,7 +14,7 @@
   "category": "productivity",
   "compatibility": {
     "apiVersion": 1,
-    "minimumDenoteVersion": "0.8.0",
+    "minimumDenoteVersion": "0.7.1",
     "maximumDenoteVersion": "1.0.0"
   },
   "permissions": [

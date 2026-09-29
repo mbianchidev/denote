@@ -653,7 +653,7 @@ ignored and are published only by the ordinary release workflow.
 ### Reminders plugin development
 
 Use `npm run dev:plugin -- denote.reminders` and load the ignored archive in the
-isolated development application. Reminders targets Denote 0.8.0 and requests
+isolated development application. Reminders targets Denote 0.7.1 and requests
 both `reminders` and `notifications`; registration must fail when either
 approval is absent. Plugin code owns Markdown target parsing, civil-time/DST
 resolution, vault-scoped storage, quotas, and typed state transitions. The host

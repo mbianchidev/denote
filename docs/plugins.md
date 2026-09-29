@@ -119,6 +119,11 @@ actions, while entries with errors open automatically. Permissions must be
 approved before download. Structured permission objects are persisted and
 compared with the current manifest, so any permission change requires approval
 again.
+Guides are parsed as data into a fixed host-rendered Markdown subset. Headings,
+paragraphs, lists, emphasis, inline/fenced code, quotes, and separators are
+supported; raw HTML is shown as code and links are non-navigating labels.
+Plugin documentation never injects markup or bypasses the host's external-link
+review.
 Only enabled plugins show update availability. Previously approved but disabled
 plugins show **Disabled**, with no update notice, and remain stopped on startup,
 automatic updates, and **Update all**, including in Denote Development.
