@@ -10,4 +10,5 @@ export * from "./kanban";
 export * from "./taskList";
 export * from "./noteGraph";
 export * from "./calendar";
+export * from "./reminders";
 export * from "./diagramRenderer";

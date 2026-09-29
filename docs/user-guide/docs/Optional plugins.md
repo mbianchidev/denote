@@ -401,6 +401,77 @@ never changes or deletes task Markdown.
 Try [Advanced tasks](<../plugins/Advanced tasks.md>) for open/completed items,
 headings, hashtags, due dates, and a fenced checkbox that is not indexed.
 
+## Reminders
+
+Enable **Reminders** under **Productivity** in Denote 0.7.1 or newer. It is off
+by default and asks for separate **Reminders** and **Notifications** approvals
+only when you choose **Enable**. It has no network, process, clipboard,
+credential, general workspace-read/write, DOM, or native API access.
+
+Choose **Reminders** in the activity rail. No note is required: **No note**
+creates a standalone reminder. When a UTF-8 Markdown note is open, the target
+list also offers the whole note, parsed headings, and standard tasks. Enter a
+name and future local date and time. **Edit** changes the name, target, date,
+time, or repeat rule without changing note bytes.
+
+Wall-clock reminders retain the civil time and the IANA time zone shown in the
+form. Changing the computer's current time zone does not rewrite that intent.
+When a daylight-saving fall-back hour repeats, Reminders uses its earlier
+occurrence. A time skipped by a spring-forward transition is refused instead of
+moving silently. **Snooze** schedules the configured number of minutes from
+now. Repeat rules support every N minutes, hours, days, weeks, months, or years.
+Minutes and hours use elapsed time. Daily and longer schedules keep civil time;
+monthly and yearly schedules clamp to the last day of a short month. A recurring
+civil-time occurrence inside a skipped daylight-saving time is skipped rather
+than moved silently.
+
+Denote rechecks reminders while running, when the window regains focus, after
+sleep, and when the plugin or vault becomes available again. Overdue reminders
+therefore catch up after an application restart. Up to five are sent as
+individual native notifications; a larger backlog uses one summary
+notification while every item remains listed in the panel.
+Each due reminder also creates an in-app banner. Up to three banners remain
+visible; an additional count points to the panel. The bell in the activity rail
+shows a numbered badge and exposes the same count to assistive technology.
+
+The Reminders panel is the reliable action surface:
+
+- **Edit** changes the reminder.
+- **Copy** prefills a new reminder from any Active, Completed, or Dismissed row.
+- **Open note** appears only for linked reminders and uses ordinary Denote
+  navigation.
+- **Snooze** reschedules a notified or failed reminder.
+- **Complete** moves a one-time reminder to Completed. For a recurring reminder,
+  it adds that occurrence to Completed and schedules the next one.
+- **Next occurrence** advances a recurring reminder without completing it.
+- **Dismiss** or **Dismiss series** moves it to Dismissed without deleting it.
+- **Restore** reactivates a dismissed reminder.
+- **Delete** permanently removes a Completed or Dismissed reminder.
+- **Cancel** or **Cancel series** removes a future reminder.
+- **Retry notification** repeats only a failed native dispatch.
+
+Use the **Active**, **Completed**, and **Dismissed** controls to switch lists.
+Completed and dismissed reminders do not appear in the rail badge or create
+in-app banners.
+
+Desktop operating systems do not expose one portable notification-button or
+click callback through Tauri, so these actions do not appear inside the system
+banner. A status of **Notification requested** means the operating system
+accepted the request; Focus, Do Not Disturb, lock-screen policy, or disabled
+notification-center settings can still hide it. A command failure stays written
+in the panel with its retry action.
+
+Persisted links keep the vault-relative note path and a generic heading/task
+source line, not copied heading or task body text. Reminder names and note paths
+live in local application plugin data outside vault encryption and may appear in
+the operating system's notification history or lock screen. Disablement removes
+the view, stops the worker, and cancels host scheduling without deleting those
+records. Use **Clear data** in plugin settings to remove them.
+
+Try [Reminder targets](<../plugins/Reminders.md>) for standalone, note, heading,
+and task targets. The example never creates a reminder until you choose a future
+time yourself.
+
 ## Note graph
 
 Enable **Note graph** under **Knowledge management** to see how Markdown notes

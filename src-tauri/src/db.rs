@@ -161,6 +161,7 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
           id INTEGER PRIMARY KEY,
           path TEXT NOT NULL UNIQUE,
           name TEXT NOT NULL,
+          plugin_scope_id TEXT NOT NULL UNIQUE,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           last_opened_at TEXT NOT NULL,
@@ -331,6 +332,20 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
             [],
         )?;
     }
+    if !column_exists(&migration, "vaults", "plugin_scope_id")? {
+        migration.execute("ALTER TABLE vaults ADD COLUMN plugin_scope_id TEXT", [])?;
+    }
+    migration.execute(
+        "UPDATE vaults
+         SET plugin_scope_id = lower(hex(randomblob(16)))
+         WHERE plugin_scope_id IS NULL OR plugin_scope_id = ''",
+        [],
+    )?;
+    migration.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_vaults_plugin_scope_id
+         ON vaults(plugin_scope_id)",
+        [],
+    )?;
     let added_encoding = !column_exists(&migration, "history", "encoding")?;
     if added_encoding {
         migration.execute(
@@ -448,6 +463,10 @@ pub fn initialize(db_path: &Path) -> AppResult<()> {
         "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (16, CURRENT_TIMESTAMP)",
         [],
     )?;
+    migration.execute(
+        "INSERT OR IGNORE INTO schema_migrations(version, applied_at) VALUES (17, CURRENT_TIMESTAMP)",
+        [],
+    )?;
     if added_encoding || added_line_ending {
         backfill_history_format(&migration)?;
     }
@@ -554,16 +573,17 @@ pub fn now() -> String {
 
 pub fn ensure_vault(connection: &Connection, path: &str, name: &str) -> AppResult<i64> {
     let timestamp = now();
+    let plugin_scope_id = Uuid::new_v4().to_string();
     connection.execute(
         r#"
-        INSERT INTO vaults(path, name, created_at, updated_at, last_opened_at)
-        VALUES (?1, ?2, ?3, ?3, ?3)
+        INSERT INTO vaults(path, name, plugin_scope_id, created_at, updated_at, last_opened_at)
+        VALUES (?1, ?2, ?3, ?4, ?4, ?4)
         ON CONFLICT(path) DO UPDATE SET
           name = excluded.name,
           updated_at = excluded.updated_at,
           last_opened_at = excluded.last_opened_at
         "#,
-        params![path, name, timestamp],
+        params![path, name, plugin_scope_id, timestamp],
     )?;
     let id = connection.query_row(
         "SELECT id FROM vaults WHERE path = ?1",
@@ -580,15 +600,16 @@ pub fn register_default_vault(
 ) -> AppResult<i64> {
     let transaction = connection.transaction()?;
     let timestamp = now();
+    let plugin_scope_id = Uuid::new_v4().to_string();
     transaction.execute(
         r#"
-        INSERT INTO vaults(path, name, created_at, updated_at, last_opened_at)
-        VALUES (?1, ?2, ?3, ?3, ?3)
+        INSERT INTO vaults(path, name, plugin_scope_id, created_at, updated_at, last_opened_at)
+        VALUES (?1, ?2, ?3, ?4, ?4, ?4)
         ON CONFLICT(path) DO UPDATE SET
           name = excluded.name,
           updated_at = excluded.updated_at
         "#,
-        params![path, name, timestamp],
+        params![path, name, plugin_scope_id, timestamp],
     )?;
     transaction.execute(
         r#"
@@ -607,6 +628,18 @@ pub fn register_default_vault(
     )?;
     transaction.commit()?;
     Ok(id)
+}
+
+pub fn plugin_scope_id(connection: &Connection, vault_id: i64) -> AppResult<String> {
+    connection
+        .query_row(
+            "SELECT plugin_scope_id FROM vaults WHERE id = ?1",
+            params![vault_id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .filter(|value: &String| !value.is_empty())
+        .ok_or_else(|| AppError::State(format!("Vault {vault_id} has no plugin storage scope")))
 }
 
 pub fn set_last_vault(connection: &Connection, path: &str) -> AppResult<()> {
@@ -2300,6 +2333,36 @@ mod tests {
         assert_eq!(
             get_last_vault(&connection).expect("last vault removed"),
             None
+        );
+    }
+
+    #[test]
+    fn vault_plugin_scopes_are_stable_and_distinct() {
+        let directory = tempdir().expect("temp directory");
+        let db_path = directory.path().join("plugin-scopes.sqlite3");
+        initialize(&db_path).expect("database initialized");
+        let connection = open(&db_path).expect("database opened");
+        let first_id = ensure_vault(&connection, "/vaults/first", "first").expect("first vault");
+        let first_scope = plugin_scope_id(&connection, first_id).expect("first scope");
+        let reopened_id =
+            ensure_vault(&connection, "/vaults/first", "renamed").expect("reopened vault");
+        let reopened_scope = plugin_scope_id(&connection, reopened_id).expect("reopened scope");
+        let second_id =
+            ensure_vault(&connection, "/vaults/second", "second").expect("second vault");
+        let second_scope = plugin_scope_id(&connection, second_id).expect("second scope");
+
+        assert_eq!(first_id, reopened_id);
+        assert_eq!(first_scope, reopened_scope);
+        assert_ne!(first_scope, second_scope);
+        assert_eq!(
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM schema_migrations WHERE version = 17",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .expect("plugin scope migration"),
+            1
         );
     }
 

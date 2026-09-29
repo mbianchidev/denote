@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityRail } from "./ActivityRail";
@@ -234,6 +234,64 @@ describe("ActivityRail", () => {
     expect(onTaskListChange).toHaveBeenCalledWith(
       "denote.task-lists",
       "denote.task-lists.tasks",
+    );
+  });
+
+  it("announces due reminders and opens their host-rendered view", async () => {
+    const user = userEvent.setup();
+    const onReminderChange = vi.fn();
+    render(
+      <ActivityRail
+        calendars={[]}
+        activeCalendar={null}
+        onCalendarChange={vi.fn()}
+        activeView="files"
+        activePluginView={null}
+        activeSourceControlProvider={null}
+        activeNoteGraph={null}
+        activeTaskList={null}
+        activeReminder={{
+          pluginId: "denote.reminders",
+          providerId: "denote.reminders.main",
+        }}
+        pluginViews={[]}
+        sourceControlProviders={[]}
+        noteGraphs={[]}
+        taskLists={[]}
+        reminders={[
+          {
+            pluginId: "denote.reminders",
+            id: "denote.reminders.main",
+            title: "Reminders",
+            defaultSnoozeMinutes: 15,
+          },
+        ]}
+        reminderDueCounts={{
+          "denote.reminders\u0000denote.reminders.main": 2,
+        }}
+        theme="dark"
+        onViewChange={vi.fn()}
+        onPluginViewChange={vi.fn()}
+        onSourceControlProviderChange={vi.fn()}
+        onNoteGraphChange={vi.fn()}
+        onTaskListChange={vi.fn()}
+        onReminderChange={onReminderChange}
+        onAbout={vi.fn()}
+        onThemeToggle={vi.fn()}
+      />,
+    );
+
+    const reminders = screen.getByRole("button", {
+      name: "Reminders, 2 need attention",
+    });
+    expect(reminders).toHaveAttribute("aria-pressed", "true");
+    expect(within(reminders).getByText("2")).toHaveClass(
+      "activity-rail__badge",
+    );
+    await user.click(reminders);
+    expect(onReminderChange).toHaveBeenCalledWith(
+      "denote.reminders",
+      "denote.reminders.main",
     );
   });
 

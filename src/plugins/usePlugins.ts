@@ -18,6 +18,11 @@ import type {
   PluginPermissionRequest,
   PluginProjectContext,
   PluginProjectRepositoryContext,
+  PluginReminderModel,
+  PluginReminderMutationRequest,
+  PluginReminderQuery,
+  PluginReminderTargetsModel,
+  PluginReminderTargetsRequest,
   PluginSourceControlAction,
   PluginStructuredViewerParseRequest,
   PluginStructuredViewModel,
@@ -42,6 +47,7 @@ import {
   type PluginEmojiPickerContribution,
   type PluginKanbanBoardContribution,
   type PluginNoteGraphContribution,
+  type PluginReminderContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
   type PluginTaskListContribution,
@@ -100,6 +106,7 @@ function permissionRequestEqual(
     case "task-list":
     case "note-graph":
     case "calendar":
+    case "reminders":
     case "diagram-renderer":
     case "note-events":
     case "project-context":
@@ -158,6 +165,22 @@ export interface PluginController {
   structuredViewers: PluginStructuredViewerContribution[];
   kanbanBoards: PluginKanbanBoardContribution[];
   noteGraphs: PluginNoteGraphContribution[];
+  reminders: PluginReminderContribution[];
+  parseReminderTargets: (
+    pluginId: string,
+    providerId: string,
+    request: PluginReminderTargetsRequest,
+  ) => Promise<PluginReminderTargetsModel>;
+  queryReminders: (
+    pluginId: string,
+    providerId: string,
+    request: PluginReminderQuery,
+  ) => Promise<PluginReminderModel>;
+  mutateReminders: (
+    pluginId: string,
+    providerId: string,
+    request: PluginReminderMutationRequest,
+  ) => Promise<PluginReminderModel>;
   taskLists: PluginTaskListContribution[];
   indexTaskList: (
     pluginId: string,
@@ -301,6 +324,7 @@ export function usePlugins(
     PluginKanbanBoardContribution[]
   >([]);
   const [noteGraphs, setNoteGraphs] = useState<PluginNoteGraphContribution[]>([]);
+  const [reminders, setReminders] = useState<PluginReminderContribution[]>([]);
   const [taskListState, setTaskListState] = useState<{
     workspaceIdentity: string | null;
     contributions: PluginTaskListContribution[];
@@ -402,6 +426,7 @@ export function usePlugins(
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
       }),
+      setReminders,
       (contributions) => setTaskListState({
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
@@ -1205,6 +1230,51 @@ export function usePlugins(
     [],
   );
 
+  const parseReminderTargets = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginReminderTargetsRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.parseReminderTargets(pluginId, providerId, request);
+    },
+    [],
+  );
+
+  const queryReminders = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginReminderQuery,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.queryReminders(pluginId, providerId, request);
+    },
+    [],
+  );
+
+  const mutateReminders = useCallback(
+    (
+      pluginId: string,
+      providerId: string,
+      request: PluginReminderMutationRequest,
+    ) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) {
+        throw new Error("Plugin runtime is unavailable.");
+      }
+      return runtime.mutateReminders(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const renderDiagram = useCallback(
     (
       renderer: PluginDiagramRendererContribution,
@@ -1252,6 +1322,10 @@ export function usePlugins(
     structuredViewers,
     kanbanBoards,
     noteGraphs,
+    reminders,
+    parseReminderTargets,
+    queryReminders,
+    mutateReminders,
     taskLists,
     indexTaskList,
     queryTaskList,

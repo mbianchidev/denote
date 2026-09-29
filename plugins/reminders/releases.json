@@ -1,0 +1,57 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "4dbcb1847e9af12777adbf2c161bf6e9aaa27735",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.0/denote.reminders-0.1.0.tgz",
+      "sha256": "e22199800140a5c686f9de882843a00664eb55d6522770543d3e702f77132730",
+      "sizeBytes": 71784
+    }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "12ad3ea1f7dc1a4d8ffd56a03c4451e1a5d7fb3d",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.3/denote.reminders-0.1.1.tgz",
+      "sha256": "c541b4eb4f076960272da1c86ee00ff7fed03cb6eb8bb4664ac5984cd706995b",
+      "sizeBytes": 71802
+    }
+  },
+  {
+    "version": "0.2.0",
+    "sourceCommit": "abdd5a108f828a31178b77d10e53d49134644d52",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.4/denote.reminders-0.2.0.tgz",
+      "sha256": "4154fa393e147bff23a35720a758f1734a94651876bca25e01ca052f523934c2",
+      "sizeBytes": 73138
+    }
+  },
+  {
+    "version": "0.2.1",
+    "sourceCommit": "92e2a934a1a1927b1f1931f63cc6bca252cca12b",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.4/denote.reminders-0.2.1.tgz",
+      "sha256": "a87f4cabcba9bf4a5d3970fec2fc07d810c391a0dc08fc78a49882da8f27f828",
+      "sizeBytes": 73357
+    }
+  },
+  {
+    "version": "0.3.0",
+    "sourceCommit": "c409eaac465ab6282cfdfab9f0fc232427915cae",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.4/denote.reminders-0.3.0.tgz",
+      "sha256": "b6b80cf5121cc66a644d104ec2cef90dd54002a0df018e56fc7ad9c36d12f9eb",
+      "sizeBytes": 74068
+    }
+  }
+]

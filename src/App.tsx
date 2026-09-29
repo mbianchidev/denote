@@ -93,6 +93,8 @@ import { KanbanBoardEditor } from "./components/KanbanBoardEditor";
 import { NoteGraphPanel } from "./components/NoteGraphPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
 import { TaskListPanel } from "./components/TaskListPanel";
+import { ReminderPanel } from "./components/ReminderPanel";
+import { ReminderBanners } from "./components/ReminderBanners";
 import { createCalendarSnapshot } from "./plugins/calendars";
 import { calendarToday } from "./lib/calendar";
 import { isCalendarDate, isCalendarNotePath, type PluginCalendarDay } from "@denote/plugin-sdk";
@@ -115,6 +117,10 @@ import {
   createTaskListSnapshot,
   verifyTaskToggleDelta,
 } from "./plugins/taskLists";
+import {
+  reminderProviderKey,
+  useReminderScheduler,
+} from "./plugins/useReminderScheduler";
 import { TaskListCoordinator } from "./plugins/taskListCoordinator";
 import { ReplaceDialog } from "./components/ReplaceDialog";
 import { SearchPanel } from "./components/SearchPanel";
@@ -846,12 +852,17 @@ function App() {
     pluginId: string;
     providerId: string;
   } | null>(null);
+  const [activeReminder, setActiveReminder] = useState<{
+    pluginId: string;
+    providerId: string;
+  } | null>(null);
   const showSidebarView = useCallback((view: SidebarView) => {
     setActiveSourceControlProvider(null);
     setActivePluginSidebar(null);
     setActiveNoteGraph(null);
     setActiveCalendar(null);
     setActiveTaskList(null);
+    setActiveReminder(null);
     setSidebarView(view);
   }, []);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -1738,6 +1749,42 @@ function App() {
   );
   const calendarsRef = useRef(calendars);
   calendarsRef.current = calendars;
+  const reminders = useMemo(
+    () =>
+      pluginController.reminders.filter(
+        (reminder) =>
+          !pluginController.busyPluginIds.has(reminder.pluginId) &&
+          pluginController.plugins.some(
+            (plugin) =>
+              plugin.enabled &&
+              plugin.catalog.manifest.id === reminder.pluginId,
+          ),
+      ),
+    [
+      pluginController.busyPluginIds,
+      pluginController.plugins,
+      pluginController.reminders,
+    ],
+  );
+  const remindersRef = useRef(reminders);
+  remindersRef.current = reminders;
+  const reminderScheduler = useReminderScheduler({
+    providers: reminders,
+    workspaceId: workspace?.pluginScopeId ?? null,
+    queryReminders: pluginController.queryReminders,
+    mutateReminders: pluginController.mutateReminders,
+    reportError: showError,
+  });
+  const reminderDueCounts = useMemo(
+    () =>
+      Object.fromEntries(
+        reminders.map((reminder) => [
+          reminderProviderKey(reminder),
+          reminderScheduler.dueCountFor(reminder),
+        ]),
+      ),
+    [reminderScheduler, reminders],
+  );
   const buildCalendarSnapshot = useCallback(
     () => createCalendarSnapshot(
       allFiles.filter((file) => file.kind === "markdown"),
@@ -1836,6 +1883,24 @@ function App() {
       searchDocumentBatch,
       taskLists.length,
       workspace?.vaultPath,
+    ],
+  );
+  const reminderDocument = useMemo(
+    () =>
+      activeFileTab?.kind === "markdown" &&
+      activeFileTab.encoding === "utf8"
+        ? {
+            path: activeFileTab.path,
+            title: activeFileTab.title,
+            source: activeFileTab.content,
+          }
+        : null,
+    [
+      activeFileTab?.content,
+      activeFileTab?.encoding,
+      activeFileTab?.kind,
+      activeFileTab?.path,
+      activeFileTab?.title,
     ],
   );
   const diagramRenderers = useMemo(
@@ -4557,6 +4622,7 @@ function App() {
       setActiveSourceControlProvider(null);
       setActiveCalendar(null);
       setActiveTaskList(null);
+      setActiveReminder(null);
       setActiveNoteGraph({ pluginId, providerId });
     },
     [activateTab, focusTabControl, showSidebarView],
@@ -4567,6 +4633,7 @@ function App() {
     setActiveSourceControlProvider(null);
     setActiveNoteGraph(null);
     setActiveTaskList(null);
+    setActiveReminder(null);
     setActiveCalendar({ pluginId, providerId });
   }, []);
 
@@ -4575,7 +4642,17 @@ function App() {
     setActiveSourceControlProvider(null);
     setActiveNoteGraph(null);
     setActiveCalendar(null);
+    setActiveReminder(null);
     setActiveTaskList({ pluginId, providerId });
+  }, []);
+
+  const showReminder = useCallback((pluginId: string, providerId: string) => {
+    setActivePluginSidebar(null);
+    setActiveSourceControlProvider(null);
+    setActiveNoteGraph(null);
+    setActiveCalendar(null);
+    setActiveTaskList(null);
+    setActiveReminder({ pluginId, providerId });
   }, []);
 
   const navigateTabHistory = useCallback(
@@ -9415,6 +9492,16 @@ function App() {
       }
     />
   );
+  const reminderBanners = (
+    <ReminderBanners
+      bumps={reminderScheduler.bumps}
+      onOpen={(bump) => {
+        showReminder(bump.provider.pluginId, bump.provider.id);
+        reminderScheduler.clearBumpsFor(bump.provider);
+      }}
+      onDismiss={reminderScheduler.dismissBump}
+    />
+  );
   const activePluginSidebarView =
     pluginController.sidebarViews.find(
       (view) => view.id === activePluginSidebar,
@@ -9439,6 +9526,12 @@ function App() {
     ) ?? null;
   const activeCalendarContribution = calendars.find((calendar) =>
     calendar.pluginId === activeCalendar?.pluginId && calendar.id === activeCalendar.providerId) ?? null;
+  const activeReminderContribution =
+    reminders.find(
+      (reminder) =>
+        reminder.pluginId === activeReminder?.pluginId &&
+        reminder.id === activeReminder.providerId,
+    ) ?? null;
   const activeSourceControlAction = useCallback(
     (
       action: PluginSourceControlAction,
@@ -9484,6 +9577,7 @@ function App() {
       setActivePluginSidebar(null);
       setActiveNoteGraph(null);
       setActiveTaskList(null);
+      setActiveReminder(null);
       setSidebarView("files");
     }
   }, [activeSourceControlContribution, activeSourceControlProvider]);
@@ -9494,6 +9588,7 @@ function App() {
       setActiveSourceControlProvider(null);
       setActivePluginSidebar(null);
       setActiveTaskList(null);
+      setActiveReminder(null);
       setSidebarView("files");
     }
   }, [activeNoteGraph, activeNoteGraphContribution]);
@@ -9508,6 +9603,12 @@ function App() {
     }
   }, [activeTaskList, activeTaskListContribution, showSidebarView]);
 
+  useEffect(() => {
+    if (activeReminder && !activeReminderContribution) {
+      showSidebarView("files");
+    }
+  }, [activeReminder, activeReminderContribution, showSidebarView]);
+
   if (!workspace) {
     return (
       <>
@@ -9517,6 +9618,7 @@ function App() {
           dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
         />
         {errorBanner}
+        {reminderBanners}
         <Welcome
           loading={initializing}
           onChooseVault={chooseVault}
@@ -9538,6 +9640,7 @@ function App() {
           dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
         />
         {errorBanner}
+        {reminderBanners}
         <VaultUnlockScreen
           vaultName={workspace.vaultName}
           theme={theme}
@@ -9973,10 +10076,13 @@ function App() {
         activeSourceControlProvider={activeSourceControlProvider}
         activeNoteGraph={activeNoteGraph}
         activeTaskList={activeTaskList}
+        activeReminder={activeReminder}
         pluginViews={pluginController.sidebarViews}
         sourceControlProviders={pluginController.sourceControlProviders}
         noteGraphs={noteGraphs}
         taskLists={taskLists}
+        reminders={reminders}
+        reminderDueCounts={reminderDueCounts}
         theme={theme}
         onViewChange={(view) => {
           showSidebarView(view);
@@ -9986,6 +10092,7 @@ function App() {
           setActiveNoteGraph(null);
           setActiveCalendar(null);
           setActiveTaskList(null);
+          setActiveReminder(null);
           setActivePluginSidebar(viewId);
         }}
         onSourceControlProviderChange={(pluginId, providerId) => {
@@ -9993,6 +10100,7 @@ function App() {
           setActiveNoteGraph(null);
           setActiveCalendar(null);
           setActiveTaskList(null);
+          setActiveReminder(null);
           setActiveSourceControlProvider({ pluginId, providerId });
           void runSourceControlAction(pluginId, providerId, {
             id: "refresh",
@@ -10000,6 +10108,7 @@ function App() {
         }}
         onNoteGraphChange={showNoteGraph}
         onTaskListChange={showTaskList}
+        onReminderChange={showReminder}
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={toggleTheme}
       />
@@ -10034,7 +10143,31 @@ function App() {
             </button>
           </div>
         </header>
-        {activeCalendarContribution && calendarSnapshot ? (
+        {activeReminderContribution ? (
+          <ReminderPanel
+            key={`${activeReminderContribution.pluginId}:${activeReminderContribution.id}:${workspace.pluginScopeId}`}
+            provider={activeReminderContribution}
+            document={reminderDocument}
+            parseTargets={pluginController.parseReminderTargets}
+            scheduler={reminderScheduler}
+            encrypted={workspace.encryption.enabled}
+            disabled={workspaceLocked}
+            onOpenFile={async (path) => {
+              if (
+                !remindersRef.current.some(
+                  (candidate) =>
+                    candidate.pluginId ===
+                      activeReminderContribution.pluginId &&
+                    candidate.id === activeReminderContribution.id,
+                )
+              ) {
+                throw new Error("Reminders is no longer available.");
+              }
+              await openFile(path);
+            }}
+            onError={showError}
+          />
+        ) : activeCalendarContribution && calendarSnapshot ? (
           <CalendarPanel
             key={`${activeCalendarContribution.pluginId}:${activeCalendarContribution.id}:${workspace.vaultPath}`}
             provider={activeCalendarContribution}
@@ -10647,6 +10780,7 @@ function App() {
           </div>
         </header>
         {errorBanner}
+        {reminderBanners}
         {workspace.suggestGitProject && !workspaceLocked ? (
           <GitProjectSuggestion
             onAccept={() => markProject("")}

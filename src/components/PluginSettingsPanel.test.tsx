@@ -788,7 +788,23 @@ describe("PluginSettingsPanel", () => {
 
   it("exposes the in-app usage guide before enablement", async () => {
     const user = userEvent.setup();
-    render(<PluginSettingsPanel {...props()} />);
+    const guideCatalog = {
+      ...catalog,
+      guide: [
+        "# Reference plugin",
+        "",
+        "## Enablement and permissions",
+        "",
+        "The package is **downloaded and verified** before its code loads.",
+        "",
+        "- Run the `reference` command.",
+      ].join("\n"),
+    };
+    render(
+      <PluginSettingsPanel
+        {...props({ plugins: [plugin({ catalog: guideCatalog })] })}
+      />,
+    );
 
     await user.click(
       screen.getByText("Permissions and guide"),
@@ -796,8 +812,13 @@ describe("PluginSettingsPanel", () => {
 
     expect(screen.getByText("How to use")).toBeInTheDocument();
     expect(screen.getByText("Enablement and permissions")).toBeInTheDocument();
-    expect(
-      screen.getByText(/downloaded and verified before its code loads/i),
-    ).toBeInTheDocument();
+    const guideSection = screen
+      .getByText("Enablement and permissions")
+      .closest(".plugin-guide__section");
+    expect(guideSection).toHaveTextContent(
+      "The package is downloaded and verified before its code loads.",
+    );
+    expect(screen.getByText("downloaded and verified").tagName).toBe("STRONG");
+    expect(screen.getByText("reference").tagName).toBe("CODE");
   });
 });

@@ -1136,6 +1136,88 @@ conflicts leave the original row focused and unchanged. Disabling or removing
 the plugin clears code and the in-memory index but never edits, deletes, or
 reformats task Markdown. Recurring syntax is deliberately uninterpreted.
 
+### Reminders
+
+The additive API version 1 `reminders` permission accepts one declarative
+provider per plugin and requires the separate `notifications` permission. Its
+registration contains a namespaced ID, title, bounded default snooze interval,
+target parser, vault-scoped query, and typed mutation callback. The worker
+receives no DOM, Tauri object, absolute vault path, encryption key, timer, or
+native notification API. The native notification permission is checked again
+for every host delivery request.
+
+Each vault row owns a random durable `plugin_scope_id`. It is exposed to the
+renderer as opaque `pluginScopeId` and crosses only the reminders protocol, so
+plugin storage can partition records without receiving `vaultPath` or a
+reusable SQLite row ID. Migration 17 backfills existing vaults with distinct
+random scopes and preserves the scope when a known vault is reopened. Deleting
+a known-vault row cannot cause a later vault to inherit its reminder records.
+
+`denote.reminders` stores one versioned value per opaque scope in the existing
+plugin storage namespace. A vault is capped at 128 reminders and the serialized
+value is kept below the native 256 KiB per-value ceiling. Corrupt or oversized
+state fails visibly. Clearing plugin data removes every scope; ordinary
+disablement preserves state. Storage schema version 3 migrates version-1 rows by
+adding recurrence, snooze, completion, and dismissal fields, and migrates
+version-2 rows by adding completion and dismissal fields. A target can be
+standalone or contain only a vault-relative note path, display filename, target
+kind, and optional source line. Heading and task body text is used for the
+transient chooser but is not copied into plugin storage.
+
+A schedule is either a wall-clock civil `YYYY-MM-DDTHH:mm` plus IANA zone or an
+absolute snooze override plus its display zone. The worker resolves wall-clock
+times from independently sampled zone offsets, chooses the earlier instant when
+a fall-back hour repeats, and rejects a spring-forward gap. Recurrence retains
+the base schedule and adds a bounded interval in minutes, hours, days, weeks,
+months, or years. Minute/hour recurrence advances exact elapsed instants.
+Day/week/month/year recurrence advances civil time; month/year arithmetic clamps
+to the last valid day, and a local time inside a spring-forward gap skips that
+occurrence. Models expose the derived epoch only as scheduling data; changing
+the machine's current zone does not rewrite the stored civil intent.
+
+The renderer owns one reminder scheduler across all active providers. It
+requeries on activation, vault change, focus/visibility return, and every 30
+seconds; timers are wake-up hints rather than the source of truth, so long
+future delays, sleep, throttling, and clock changes cannot overflow a single
+`setTimeout`. Every query and mutation is serialized by
+`(workspaceScope, pluginId, providerId)` and guarded by a generation captured
+before each await. Disablement or a vault switch invalidates follow-up writes.
+Delivery IDs additionally prevent duplicate in-process attempts.
+
+Before native dispatch, the worker persists `delivering` and increments the
+attempt count. Accepted dispatch becomes `notified`; a command error becomes
+`failed` with a bounded written message and manual retry. A worker or app crash
+can therefore cause at most one duplicate request: a `delivering` record older
+than two minutes returns to `scheduled` during the next query. Automatic
+delivery processes only scheduled due records; failed records retry only after
+an explicit action. More than five overdue records use one summary system
+notification while each record remains individually actionable in the panel.
+Create and update mutations replace the complete title, optional target,
+schedule, and recurrence transactionally. Snooze overrides only the current
+occurrence. Dismiss moves any reminder or series into the Dismissed archive;
+restore reactivates it, advancing an overdue recurring series or returning an
+overdue one-time reminder to attention. Complete moves a one-time reminder into
+Completed. Completing a recurring reminder creates a bounded completed snapshot
+with a host-issued ID and advances the live series. Advance skips a recurring
+occurrence without recording completion. Remove permanently deletes any stage.
+Copy is host-owned form state: it prefills a new create mutation and never
+duplicates a stored ID or archived state.
+
+Tauri's desktop notification backend has no portable action buttons, click
+callback, or native future schedule. The host therefore uses immediate
+best-effort native notifications and keeps the Reminders panel authoritative
+for edit, optional **Open note**, **Snooze**, next occurrence, deletion,
+dismissal, completion, restore, copy, and retry. Completed and dismissed rows
+never contribute to attention counts or banners. The scheduler records one
+in-memory bump per
+`(workspace, provider, reminder, dueAt)`, displays at most three persistent
+host-rendered banners, and publishes the attention count to the activity rail.
+Closing a banner does not mutate the reminder. A successful dispatch means the
+platform accepted the request, not that Focus, Do Not Disturb, lock-screen
+policy, or notification-center settings displayed it. Disabling removes the
+contribution, interval, banners, and badge immediately; an already submitted OS
+notification cannot be recalled portably.
+
 ### Note graphs
 
 The additive API version 1 `note-graph` permission accepts one stateful
@@ -1579,6 +1661,8 @@ The application-data database stores:
 - trash records used by restore;
 - stable explicit/implicit project and workspace IDs and vault-relative paths,
   including unavailable roots and children;
+- one random durable plugin-storage scope per known vault, never derived from
+  its path or reusable SQLite row ID;
 - per-vault Git-project-suggestion dismissal.
 
 Schema changes are tracked in `schema_migrations`. Markdown remains authoritative

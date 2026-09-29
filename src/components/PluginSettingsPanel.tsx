@@ -25,6 +25,7 @@ import type {
 } from "../types";
 import { systemPathForDisplay } from "../lib/systemPath";
 import { GitSigningSettings, type GitSigningActions } from "./GitSigningSettings";
+import { PluginGuide } from "./PluginGuide";
 
 const CATEGORY_LABELS: Record<PluginCategory, string> = {
   code: "Code",
@@ -49,6 +50,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "task-list": "Index Markdown checkboxes and update one verified task marker after an explicit action",
   "note-graph": "Index and visualize bounded local note connections",
   calendar: "Read filesystem dates and bounded frontmatter; create daily Markdown after an explicit action, without overwriting existing notes",
+  reminders: "Store local reminder metadata and schedule host-owned reminder delivery",
   "diagram-renderer": "Render bounded diagrams in an isolated local sandbox",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",
@@ -568,7 +570,7 @@ export function PluginSettingsPanel({
                                 <p>No additional permissions.</p>
                               )}
                             </section>
-                            <Guide guide={plugin.catalog.guide} />
+                            <PluginGuide guide={plugin.catalog.guide} />
                           </div>
                         </details>
 
@@ -1287,27 +1289,6 @@ function PluginSetting({
         />
       )}
     </label>
-  );
-}
-
-function Guide({ guide }: { guide: string }) {
-  const sections = guide
-    .split(/^## /m)
-    .slice(1)
-    .map((section) => {
-      const [title, ...body] = section.trim().split("\n");
-      return { title, body: body.join("\n").trim() };
-    });
-  return (
-    <section className="plugin-guide">
-      <h6>How to use</h6>
-      {sections.map((section) => (
-        <div key={section.title}>
-          <strong>{section.title}</strong>
-          <p>{section.body}</p>
-        </div>
-      ))}
-    </section>
   );
 }
 

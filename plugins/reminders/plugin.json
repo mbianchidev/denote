@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.reminders",
+  "name": "Reminders",
+  "version": "0.3.0",
+  "description": "Create editable standalone or linked reminders with optional recurring schedules.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "productivity",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.7.1",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    {
+      "capability": "reminders"
+    },
+    {
+      "capability": "notifications"
+    }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md",
+  "settings": {
+    "version": 1,
+    "properties": {
+      "defaultSnoozeMinutes": {
+        "type": "number",
+        "title": "Default snooze",
+        "description": "Minutes added by the Snooze action.",
+        "default": 15,
+        "minimum": 1,
+        "maximum": 1440
+      }
+    }
+  }
+}

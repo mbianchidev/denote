@@ -26,6 +26,7 @@ export const PLUGIN_CAPABILITIES = [
   "task-list",
   "note-graph",
   "calendar",
+  "reminders",
   "diagram-renderer",
   "note-events",
   "project-context",
@@ -661,6 +662,202 @@ export interface PluginCalendarProvider {
 
 export interface PluginCalendarCapability {
   register: (provider: PluginCalendarProvider) => PluginDisposable;
+}
+
+export type PluginReminderTargetKind =
+  | "standalone"
+  | "note"
+  | "heading"
+  | "task";
+
+export interface PluginReminderDocument {
+  path: string;
+  title: string;
+  source: string;
+}
+
+export interface PluginReminderTarget {
+  id: string;
+  kind: PluginReminderTargetKind;
+  path: string | null;
+  noteTitle: string | null;
+  line: number | null;
+  label: string;
+}
+
+export interface PluginReminderLink {
+  kind: PluginReminderTargetKind;
+  path: string | null;
+  noteTitle: string | null;
+  line: number | null;
+}
+
+export interface PluginReminderTargetsRequest {
+  document: PluginReminderDocument | null;
+}
+
+export interface PluginReminderTargetsModel {
+  targets: PluginReminderTarget[];
+  truncated: boolean;
+  notices: string[];
+}
+
+export type PluginReminderSchedule =
+  | {
+      kind: "wall-clock";
+      localDateTime: string;
+      timeZone: string;
+    }
+  | {
+      kind: "instant";
+      dueAt: number;
+      timeZone: string;
+    };
+
+export type PluginReminderStatus =
+  | "scheduled"
+  | "delivering"
+  | "notified"
+  | "failed"
+  | "completed"
+  | "dismissed";
+
+export type PluginReminderRecurrenceUnit =
+  | "minute"
+  | "hour"
+  | "day"
+  | "week"
+  | "month"
+  | "year";
+
+export interface PluginReminderRecurrence {
+  interval: number;
+  unit: PluginReminderRecurrenceUnit;
+}
+
+export interface PluginReminderRecord {
+  id: string;
+  title: string;
+  target: PluginReminderLink;
+  schedule: PluginReminderSchedule;
+  recurrence: PluginReminderRecurrence | null;
+  dueAt: number;
+  snoozedUntil: number | null;
+  snoozeTimeZone: string | null;
+  status: PluginReminderStatus;
+  createdAt: number;
+  updatedAt: number;
+  attemptCount: number;
+  deliveringAt: number | null;
+  notifiedAt: number | null;
+  completedAt: number | null;
+  dismissedAt: number | null;
+  lastError: string | null;
+}
+
+export interface PluginReminderQuery {
+  workspaceId: string;
+  now: number;
+}
+
+export type PluginReminderMutation =
+  | {
+      type: "create";
+      id: string;
+      title: string;
+      target: PluginReminderTarget;
+      schedule: PluginReminderSchedule;
+      recurrence: PluginReminderRecurrence | null;
+      createdAt: number;
+    }
+  | {
+      type: "update";
+      id: string;
+      title: string;
+      target: PluginReminderTarget;
+      schedule: PluginReminderSchedule;
+      recurrence: PluginReminderRecurrence | null;
+      updatedAt: number;
+    }
+  | {
+      type: "snooze";
+      id: string;
+      dueAt: number;
+      timeZone: string;
+      updatedAt: number;
+    }
+  | {
+      type: "dismiss";
+      id: string;
+      dismissedAt: number;
+    }
+  | {
+      type: "complete";
+      id: string;
+      historyId: string;
+      completedAt: number;
+    }
+  | {
+      type: "restore";
+      id: string;
+      restoredAt: number;
+    }
+  | {
+      type: "advance";
+      id: string;
+      advancedAt: number;
+    }
+  | {
+      type: "remove";
+      id: string;
+      updatedAt: number;
+    }
+  | {
+      type: "delivery-started";
+      id: string;
+      startedAt: number;
+    }
+  | {
+      type: "delivery-succeeded";
+      id: string;
+      completedAt: number;
+    }
+  | {
+      type: "delivery-failed";
+      id: string;
+      failedAt: number;
+      error: string;
+    };
+
+export interface PluginReminderMutationRequest {
+  workspaceId: string;
+  now: number;
+  mutation: PluginReminderMutation;
+}
+
+export interface PluginReminderModel {
+  reminders: PluginReminderRecord[];
+  truncated: boolean;
+  notices: string[];
+}
+
+export interface PluginReminderProvider {
+  id: string;
+  title: string;
+  defaultSnoozeMinutes: number;
+  targets: (
+    request: PluginReminderTargetsRequest,
+  ) => PluginReminderTargetsModel | Promise<PluginReminderTargetsModel>;
+  query: (
+    request: PluginReminderQuery,
+  ) => PluginReminderModel | Promise<PluginReminderModel>;
+  mutate: (
+    request: PluginReminderMutationRequest,
+  ) => PluginReminderModel | Promise<PluginReminderModel>;
+}
+
+export interface PluginReminderCapability {
+  register: (provider: PluginReminderProvider) => PluginDisposable;
 }
 
 export type PluginDiagramTheme = "light" | "dark" | "high-contrast";
@@ -1902,6 +2099,7 @@ export interface PluginCapabilities {
   taskList?: PluginTaskListCapability;
   noteGraph?: PluginNoteGraphCapability;
   calendar?: PluginCalendarCapability;
+  reminders?: PluginReminderCapability;
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;

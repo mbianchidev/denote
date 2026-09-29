@@ -360,6 +360,12 @@ status. Opening one reveals description, provenance, permissions, guide,
 settings, and lifecycle actions. Error entries open automatically, focus remains
 visible, and nested permissions or JSON disclosures retain native keyboard
 behavior.
+Expanded guides render a safe documentation subset: section headings,
+paragraphs, ordered and unordered lists, emphasis, inline code, fenced code,
+quotes, and separators. Markdown markers never appear as literal UI. Raw HTML
+is displayed as code rather than executed, and guide links remain labelled
+non-navigating text so catalog documentation cannot bypass Denote's external
+link confirmation flow.
 The development-only local-archive action shows a loading label and polite
 status while the picker or verification is pending. Repeated clicks cannot
 stack native pickers, and cancellation restores the action. Other settings
@@ -729,6 +735,45 @@ status region reports the displayed month and note count. Stale results cannot
 replace the current month or enable an old create action. Existing semantic
 theme tokens, visible focus rings, and system forced colors apply without
 animation or new color palettes.
+
+### Optional reminders
+
+Reminders is a host-rendered activity-rail surface. The plugin contributes
+bounded targets and reminder records, never markup, styles, timers, or native
+notification calls. A compact creation form uses labelled native controls for
+target, reminder name, date, time, and recurrence. **No note** is always the
+first target; when a Markdown note is open, the whole note, headings, and tasks
+follow in source order. Edit reuses the same form and moves focus to the name
+field. The Repeat and Every controls use one intrinsic two-slot grid; the
+disabled interval slot stays reserved when recurrence is off, so selecting a
+unit does not move later content. Narrow sidebars stack the slots without
+horizontal scrolling. The time-zone label and daylight-saving rule remain
+written beside the schedule; invalid skipped local times are errors rather than
+silent adjustments.
+
+The reminder list is a flat work queue, not a dashboard. Each row shows the
+name, written state, scheduled time with zone, optional vault-relative link,
+generic heading/task line anchor, and recurrence. Native buttons expose
+**Edit**, optional **Open note**, **Snooze**, **Retry notification**,
+**Complete**, **Next occurrence**, **Dismiss**, **Restore**, **Copy**,
+**Delete**, or **Cancel** only when each action applies. A compact
+**Active** / **Completed** / **Dismissed** group uses visible `aria-pressed`
+state and stable counts. Dismiss moves a reminder to its archive rather than
+deleting it. Notification failures include written details and preserve the row.
+Loading, empty, storage, parse, stale-workspace, and retry states use one polite
+status region and do not depend on color.
+
+The activity-rail control uses the bell icon, a visible bounded number badge,
+and the same count in its accessible name when reminders need attention. Due
+reminders also appear in a fixed in-app banner stack of at most three rows; an
+additional count points to the complete panel. One polite atomic status
+announcement names the latest reminder. Native buttons open the Reminders panel
+or dismiss only the banner. Tab order follows the form, status, list, and row
+actions. Native date/time/number inputs keep platform keyboard behavior;
+buttons and fields retain standard focus rings, forced-colors borders, and
+pointer-sized targets. No decorative animation is added. Encrypted vaults show
+a concise notice that reminder names and note paths live outside vault
+encryption and may appear in operating-system notification history.
 
 ### Optional note graph
 

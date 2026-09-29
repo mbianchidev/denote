@@ -119,6 +119,11 @@ actions, while entries with errors open automatically. Permissions must be
 approved before download. Structured permission objects are persisted and
 compared with the current manifest, so any permission change requires approval
 again.
+Guides are parsed as data into a fixed host-rendered Markdown subset. Headings,
+paragraphs, lists, emphasis, inline/fenced code, quotes, and separators are
+supported; raw HTML is shown as code and links are non-navigating labels.
+Plugin documentation never injects markup or bypasses the host's external-link
+review.
 Only enabled plugins show update availability. Previously approved but disabled
 plugins show **Disabled**, with no update notice, and remain stopped on startup,
 automatic updates, and **Update all**, including in Denote Development.
@@ -255,11 +260,13 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, task-list, calendar, note-graph, and diagram-renderer
+`kanban-board`, task-list, calendar, reminders, note-graph, and diagram-renderer
 registrations. Approved plugins
 may also observe `project-context`. Sensitive
-workspace, network, clipboard, notification, and process operations exist only
-inside an explicit command action.
+workspace, network, clipboard, notification, and process operations otherwise
+exist only inside an explicit command action. The reminders surface is the
+single notification exception: the host, not plugin code, dispatches a due
+record that the user explicitly created through host-rendered controls.
 
 Arbitrary host-DOM renderer code, embedded plugin webviews, custom React
 components, menu injection, and general import/export hooks are deliberately
@@ -440,6 +447,45 @@ modification dates. Opening an activity result never creates or edits a note.
 Calendar workers and models are withdrawn on vault switch/lock and discarded on
 disable/update/crash. Enabled workers restart for the current unlocked vault.
 Disabling deletes package code and archives but never dates, notes, or folders.
+
+### Local reminders
+
+The additive API version 1 `reminders` permission exposes only
+`context.capabilities.reminders.register(provider)` and requires the same
+manifest to request `notifications`. One provider registers a namespaced ID,
+title, default snooze minutes, a bounded active-document target parser, and
+vault-scoped query/mutation callbacks. The provider never receives an absolute
+vault path, DOM handle, timer, or native notification service.
+
+Target requests contain either no document or one current UTF-8 Markdown note
+capped at 256 KiB. Models always include a standalone target and return at most
+512 total choices across standalone, note, heading, and task targets. Stored
+reminder models are
+capped at 128 rows and use a host-issued random opaque vault scope. The plugin
+may persist names, optional relative note links, generic target kinds/lines,
+civil schedules, bounded recurrence, snooze overrides, delivery states, and
+bounded errors plus completed/dismissed lifecycle timestamps in its existing
+isolated storage namespace. It must not copy heading or task body text into
+storage.
+
+The host owns the rail control, form, list, minute rechecks, focus/wake catch-up,
+native notifications, generation guards, overdue-summary bound, optional note
+opening, in-app banners, numbered badge, and lifecycle teardown. Mutations are
+closed typed transitions for create, update, snooze, dismiss, complete, restore,
+advance, remove, delivery start, accepted dispatch, and failed dispatch. Copy
+prefills create state in the host and is available from every lifecycle view.
+Native notification failure stays in the model for manual retry. Desktop
+notifications provide no portable action buttons or click event, so edit,
+snooze, lifecycle/series actions, retry, and optional open-note actions remain
+host-rendered.
+
+Wall-clock schedules keep a strict local civil time plus IANA zone. Providers
+must choose one documented occurrence for an ambiguous fall-back time and
+refuse or explicitly adjust a spring-forward gap; `denote.reminders` chooses the
+earlier occurrence and refuses the gap. Snooze uses a future instant. Disable,
+update, crash, vault change, and application teardown withdraw schedules before
+another workspace can receive a stale mutation. Disabling preserves plugin
+storage; explicit data cleanup removes reminder records.
 
 ### Note graph
 

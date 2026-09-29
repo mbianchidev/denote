@@ -194,6 +194,21 @@ export function validatePluginManifest(
   if (!hasDiagramPermission && value.diagramRenderer !== undefined) {
     errors.push("diagramRenderer requires the diagram-renderer permission.");
   }
+  const hasReminderPermission =
+    Array.isArray(value.permissions) &&
+    value.permissions.some(
+      (permission) =>
+        isRecord(permission) && permission.capability === "reminders",
+    );
+  const hasNotificationPermission =
+    Array.isArray(value.permissions) &&
+    value.permissions.some(
+      (permission) =>
+        isRecord(permission) && permission.capability === "notifications",
+    );
+  if (hasReminderPermission && !hasNotificationPermission) {
+    errors.push("reminders permission requires notifications permission.");
+  }
   if (value.legal !== undefined) {
     if (!Array.isArray(value.legal) || value.legal.length === 0) {
       errors.push("legal must be a non-empty array.");

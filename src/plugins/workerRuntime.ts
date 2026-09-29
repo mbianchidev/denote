@@ -17,6 +17,11 @@ import type {
   PluginProjectContext,
   PluginProjectContextChangeEvent,
   PluginProjectRepositoryContext,
+  PluginReminderModel,
+  PluginReminderMutationRequest,
+  PluginReminderQuery,
+  PluginReminderTargetsModel,
+  PluginReminderTargetsRequest,
   PluginSourceControlAction,
   PluginStructuredViewerParseRequest,
   PluginStructuredViewModel,
@@ -36,6 +41,12 @@ import {
   isPluginNoteGraphIndexRequest,
   isPluginNoteGraphQuery,
   isPluginNoteGraphRegistration,
+  isPluginReminderModel,
+  isPluginReminderMutationRequest,
+  isPluginReminderQuery,
+  isPluginReminderRegistration,
+  isPluginReminderTargetsModel,
+  isPluginReminderTargetsRequest,
   isPluginStructuredViewerRegistration,
   isPluginTaskListIndexRequest,
   isPluginTaskListQuery,
@@ -60,6 +71,7 @@ import {
   type PluginEmojiPickerContribution,
   type PluginKanbanBoardContribution,
   type PluginNoteGraphContribution,
+  type PluginReminderContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
   type PluginSourceControlContribution,
@@ -79,6 +91,7 @@ export type {
   PluginEmojiPickerContribution,
   PluginKanbanBoardContribution,
   PluginNoteGraphContribution,
+  PluginReminderContribution,
   PluginSidebarContribution,
   PluginSourceControlContribution,
   PluginStatusContribution,
@@ -101,6 +114,7 @@ const STRUCTURED_VIEW_TIMEOUT_MS = 15_000;
 const KANBAN_OPERATION_TIMEOUT_MS = 15_000;
 const NOTE_GRAPH_OPERATION_TIMEOUT_MS = 30_000;
 const TASK_LIST_OPERATION_TIMEOUT_MS = 30_000;
+const REMINDER_OPERATION_TIMEOUT_MS = 15_000;
 
 interface PendingRequest {
   resolve: (value: unknown) => void;
@@ -118,6 +132,9 @@ interface PendingRequest {
     | "task-list-query-result"
     | "task-list-toggle-result"
     | "calendar-result"
+    | "reminder-targets-result"
+    | "reminder-query-result"
+    | "reminder-mutation-result"
     | "deactivated";
 }
 
@@ -151,6 +168,8 @@ interface Runtime {
   stagedTaskLists: Map<string, PluginTaskListContribution>;
   calendars: Map<string, PluginCalendarContribution>;
   stagedCalendars: Map<string, PluginCalendarContribution>;
+  reminders: Map<string, PluginReminderContribution>;
+  stagedReminders: Map<string, PluginReminderContribution>;
   diagramRenderers: Map<string, PluginDiagramRendererContribution>;
   stagedDiagramRenderers: Map<string, PluginDiagramRendererContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
@@ -231,6 +250,9 @@ export class PluginWorkerRuntime {
     private readonly onCalendarsChanged: (
       calendars: PluginCalendarContribution[],
     ) => void = () => {},
+    private readonly onRemindersChanged: (
+      reminders: PluginReminderContribution[],
+    ) => void = () => {},
     private readonly onTaskListsChanged: (
       taskLists: PluginTaskListContribution[],
     ) => void = () => {},
@@ -303,6 +325,7 @@ export class PluginWorkerRuntime {
     this.publishNoteGraphs();
     this.publishTaskLists();
     this.publishCalendars();
+    this.publishReminders();
     this.publishDiagramRenderers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
@@ -728,6 +751,123 @@ export class PluginWorkerRuntime {
     return model;
   }
 
+  async parseReminderTargets(
+    pluginId: string,
+    providerId: string,
+    request: PluginReminderTargetsRequest,
+  ): Promise<PluginReminderTargetsModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (
+      runtime.phase !== "active" ||
+      !runtime.permissions.has("reminders") ||
+      !runtime.permissions.has("notifications") ||
+      !runtime.reminders.has(providerId)
+    ) {
+      throw new Error(`Plugin reminders ${providerId} is not registered.`);
+    }
+    if (!isPluginReminderTargetsRequest(request)) {
+      throw new Error("Invalid reminder target request.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      REMINDER_OPERATION_TIMEOUT_MS,
+      "reminder-targets-result",
+    );
+    runtime.port.postMessage({
+      type: "parse-reminder-targets",
+      providerId,
+      request,
+      requestId,
+    });
+    const model = await result;
+    if (!isPluginReminderTargetsModel(model)) {
+      const error = new Error("Plugin returned invalid reminder targets.");
+      await this.failRuntime(pluginId, error);
+      throw error;
+    }
+    return model;
+  }
+
+  async queryReminders(
+    pluginId: string,
+    providerId: string,
+    request: PluginReminderQuery,
+  ): Promise<PluginReminderModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (
+      runtime.phase !== "active" ||
+      !runtime.permissions.has("reminders") ||
+      !runtime.permissions.has("notifications") ||
+      !runtime.reminders.has(providerId)
+    ) {
+      throw new Error(`Plugin reminders ${providerId} is not registered.`);
+    }
+    if (!isPluginReminderQuery(request)) {
+      throw new Error("Invalid reminder query.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      REMINDER_OPERATION_TIMEOUT_MS,
+      "reminder-query-result",
+    );
+    runtime.port.postMessage({
+      type: "query-reminders",
+      providerId,
+      request,
+      requestId,
+    });
+    const model = await result;
+    if (!isPluginReminderModel(model)) {
+      const error = new Error("Plugin returned an invalid reminder model.");
+      await this.failRuntime(pluginId, error);
+      throw error;
+    }
+    return model;
+  }
+
+  async mutateReminders(
+    pluginId: string,
+    providerId: string,
+    request: PluginReminderMutationRequest,
+  ): Promise<PluginReminderModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (
+      runtime.phase !== "active" ||
+      !runtime.permissions.has("reminders") ||
+      !runtime.permissions.has("notifications") ||
+      !runtime.reminders.has(providerId)
+    ) {
+      throw new Error(`Plugin reminders ${providerId} is not registered.`);
+    }
+    if (!isPluginReminderMutationRequest(request)) {
+      throw new Error("Invalid reminder mutation.");
+    }
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(
+      runtime,
+      requestId,
+      REMINDER_OPERATION_TIMEOUT_MS,
+      "reminder-mutation-result",
+    );
+    runtime.port.postMessage({
+      type: "mutate-reminders",
+      providerId,
+      request,
+      requestId,
+    });
+    const model = await result;
+    if (!isPluginReminderModel(model)) {
+      const error = new Error("Plugin returned an invalid reminder model.");
+      await this.failRuntime(pluginId, error);
+      throw error;
+    }
+    return model;
+  }
+
   renderDiagram(
     renderer: PluginDiagramRendererContribution,
     request: PluginDiagramRenderRequest,
@@ -891,6 +1031,8 @@ export class PluginWorkerRuntime {
       stagedTaskLists: new Map(),
       calendars: new Map(),
       stagedCalendars: new Map(),
+      reminders: new Map(),
+      stagedReminders: new Map(),
       diagramRenderers: new Map(),
       stagedDiagramRenderers: new Map(),
       sourceControlProviders: new Map(),
@@ -1013,6 +1155,10 @@ export class PluginWorkerRuntime {
         runtime.calendars.set(id, calendar);
       }
       runtime.stagedCalendars.clear();
+      for (const [id, reminders] of runtime.stagedReminders) {
+        runtime.reminders.set(id, reminders);
+      }
+      runtime.stagedReminders.clear();
       for (const [id, renderer] of runtime.stagedDiagramRenderers) {
         runtime.diagramRenderers.set(id, renderer);
       }
@@ -1037,6 +1183,7 @@ export class PluginWorkerRuntime {
       this.publishNoteGraphs();
       this.publishTaskLists();
       this.publishCalendars();
+      this.publishReminders();
       this.publishDiagramRenderers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
@@ -1320,6 +1467,45 @@ export class PluginWorkerRuntime {
         runtime.stagedCalendars.delete(message.id);
         this.publishCalendars();
         return;
+      case "register-reminders": {
+        const registration = {
+          id: message.id,
+          title: message.title,
+          defaultSnoozeMinutes: message.defaultSnoozeMinutes,
+        };
+        if (
+          (runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("reminders") ||
+          !runtime.permissions.has("notifications") ||
+          !message.id.startsWith(`${pluginId}.`) ||
+          !isPluginReminderRegistration(registration) ||
+          runtime.reminders.size + runtime.stagedReminders.size > 0 ||
+          this.reminderProviderIdRegistered(message.id)
+        ) {
+          this.protocolViolation(
+            pluginId,
+            "unauthorized or duplicate reminders registration",
+          );
+          return;
+        }
+        const contribution: PluginReminderContribution = {
+          pluginId,
+          ...registration,
+        };
+        const reminders = runtime.activated
+          ? runtime.reminders
+          : runtime.stagedReminders;
+        reminders.set(message.id, contribution);
+        if (runtime.activated) {
+          this.publishReminders();
+        }
+        return;
+      }
+      case "unregister-reminders":
+        runtime.reminders.delete(message.id);
+        runtime.stagedReminders.delete(message.id);
+        this.publishReminders();
+        return;
       case "register-note-graph": {
         const registration = {
           id: message.id,
@@ -1601,7 +1787,10 @@ export class PluginWorkerRuntime {
       case "calendar-result":
       case "note-graph-query-result":
       case "task-list-query-result":
-      case "task-list-toggle-result": {
+      case "task-list-toggle-result":
+      case "reminder-targets-result":
+      case "reminder-query-result":
+      case "reminder-mutation-result": {
         if (
           !this.settle(
             runtime,
@@ -1616,6 +1805,10 @@ export class PluginWorkerRuntime {
                   ? message.result
                   : message.type === "task-list-toggle-result"
                     ? message.result
+                    : message.type === "reminder-targets-result" ||
+                        message.type === "reminder-query-result" ||
+                        message.type === "reminder-mutation-result"
+                      ? message.model
                   : message.type === "note-graph-query-result" ||
                         message.type === "task-list-query-result" ||
                         message.type === "calendar-result"
@@ -1828,6 +2021,15 @@ export class PluginWorkerRuntime {
     return false;
   }
 
+  private reminderProviderIdRegistered(id: string): boolean {
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.reminders.has(id) || runtime.stagedReminders.has(id)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private kanbanFileSuffixRegistered(suffix: string): boolean {
     for (const runtime of this.runtimes.values()) {
       for (const board of [
@@ -1883,6 +2085,7 @@ export class PluginWorkerRuntime {
     this.publishNoteGraphs();
     this.publishTaskLists();
     this.publishCalendars();
+    this.publishReminders();
     this.publishDiagramRenderers();
   }
 
@@ -1911,6 +2114,7 @@ export class PluginWorkerRuntime {
     this.publishNoteGraphs();
     this.publishTaskLists();
     this.publishCalendars();
+    this.publishReminders();
     this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
@@ -2006,6 +2210,14 @@ export class PluginWorkerRuntime {
       [...this.runtimes.values()].flatMap((runtime) =>
         runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
           ? [...runtime.calendars.values()] : [],
+      ),
+    );
+  }
+
+  private publishReminders(): void {
+    this.onRemindersChanged(
+      [...this.runtimes.values()].flatMap((runtime) =>
+        runtime.phase === "active" ? [...runtime.reminders.values()] : [],
       ),
     );
   }

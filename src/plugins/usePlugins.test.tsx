@@ -11,6 +11,7 @@ import type {
   PluginCalendarContribution,
   PluginKanbanBoardContribution,
   PluginNoteGraphContribution,
+  PluginReminderContribution,
   PluginTaskListContribution,
 } from "./workerRuntime";
 import type { PluginView } from "../types";
@@ -148,6 +149,28 @@ vi.mock("./workerRuntime", () => {
       status: "applied" as const,
       source: "- [x] Synthetic",
     }));
+    parseReminderTargets = vi.fn(async () => ({
+      targets: [{
+        id: "note",
+        kind: "note" as const,
+        path: "Synthetic.md",
+        noteTitle: "Synthetic",
+        line: null,
+        label: "Whole note: Synthetic",
+      }],
+      truncated: false,
+      notices: [],
+    }));
+    queryReminders = vi.fn(async () => ({
+      reminders: [],
+      truncated: false,
+      notices: [],
+    }));
+    mutateReminders = vi.fn(async () => ({
+      reminders: [],
+      truncated: false,
+      notices: [],
+    }));
     broadcastNoteEvent = vi.fn();
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
@@ -169,6 +192,7 @@ vi.mock("./workerRuntime", () => {
       public onKanbanBoardsChanged?: (boards: PluginKanbanBoardContribution[]) => void,
       public onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void,
       public onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void,
+      public onRemindersChanged?: (reminders: PluginReminderContribution[]) => void,
       public onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void,
     ) {
       runtimeInstances.push(this);

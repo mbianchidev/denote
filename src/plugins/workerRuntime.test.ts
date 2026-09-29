@@ -9,6 +9,8 @@ import {
   type PluginGitResult,
   type PluginEmojiPicker,
   type PluginNoteGraphModel,
+  type PluginReminderModel,
+  type PluginReminderTargetsModel,
   type PluginSourceControlViewModel,
   type PluginStructuredViewModel,
   type PluginTaskListModel,
@@ -197,6 +199,27 @@ const taskListToggleResult: PluginTaskListToggleResult = {
   source: "- [x] Synthetic",
 };
 
+const reminderTargetsModel: PluginReminderTargetsModel = {
+  targets: [
+    {
+      id: "note",
+      kind: "note",
+      path: "Plan.md",
+      noteTitle: "Plan",
+      line: null,
+      label: "Whole note: Plan",
+    },
+  ],
+  truncated: false,
+  notices: [],
+};
+
+const reminderModel: PluginReminderModel = {
+  reminders: [],
+  truncated: false,
+  notices: [],
+};
+
 class FakePort extends EventTarget {
   peer: FakePort | null = null;
   closed = false;
@@ -276,6 +299,13 @@ class FakeWorker extends EventTarget {
     days: [{ date: "2026-09-01", dailyNotePath: "Daily/2026-09-01.md", notes: [] }],
     notices: [], truncated: false,
   };
+  static remindersOnActivate: {
+    id: string;
+    title: string;
+    defaultSnoozeMinutes: number;
+  } | null = null;
+  static reminderTargetsModel = reminderTargetsModel;
+  static reminderModel = reminderModel;
   static completeNoteGraphIndexes = true;
   static sourceControlActionResultType:
     | "source-control-action-result"
@@ -356,6 +386,12 @@ class FakeWorker extends EventTarget {
         }
         if (FakeWorker.calendarOnActivate) {
           port.postMessage({ type: "register-calendar", ...FakeWorker.calendarOnActivate });
+        }
+        if (FakeWorker.remindersOnActivate) {
+          port.postMessage({
+            type: "register-reminders",
+            ...FakeWorker.remindersOnActivate,
+          });
         }
         if (FakeWorker.failActivationAfterSourceControl) {
           port.postMessage({
@@ -462,6 +498,33 @@ class FakeWorker extends EventTarget {
           type: "calendar-result",
           requestId: data.requestId,
           model: FakeWorker.calendarModel,
+        });
+      } else if (
+        data.type === "parse-reminder-targets" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "reminder-targets-result",
+          requestId: data.requestId,
+          model: FakeWorker.reminderTargetsModel,
+        });
+      } else if (
+        data.type === "query-reminders" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "reminder-query-result",
+          requestId: data.requestId,
+          model: FakeWorker.reminderModel,
+        });
+      } else if (
+        data.type === "mutate-reminders" &&
+        typeof data.requestId === "string"
+      ) {
+        port.postMessage({
+          type: "reminder-mutation-result",
+          requestId: data.requestId,
+          model: FakeWorker.reminderModel,
         });
       } else if (
         data.type === "deactivate" &&
@@ -669,6 +732,18 @@ function pluginWithTaskList(): PluginView {
   };
 }
 
+function pluginWithReminders(): PluginView {
+  const source = plugin();
+  return {
+    ...source,
+    approvedPermissions: [
+      ...source.approvedPermissions,
+      { capability: "reminders" },
+      { capability: "notifications" },
+    ],
+  };
+}
+
 function pluginWithDiagramRenderer(): PluginView {
   const source = plugin();
   const manifest = {
@@ -736,6 +811,9 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.noteGraphModel = noteGraphModel;
     FakeWorker.taskListModel = taskListModel;
     FakeWorker.taskListToggleResult = taskListToggleResult;
+    FakeWorker.remindersOnActivate = null;
+    FakeWorker.reminderTargetsModel = reminderTargetsModel;
+    FakeWorker.reminderModel = reminderModel;
     FakeWorker.completeNoteGraphIndexes = true;
     FakeWorker.sourceControlActionResultType = "source-control-action-result";
     FakeWorker.failActivationAfterSourceControl = false;
@@ -769,6 +847,7 @@ describe("PluginWorkerRuntime", () => {
       undefined,
       undefined,
       changed,
+      undefined,
     );
 
     await runtime.start(pluginWithStructuredViewer());
@@ -1138,6 +1217,7 @@ describe("PluginWorkerRuntime", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       changed,
     );
 
@@ -1197,6 +1277,142 @@ describe("PluginWorkerRuntime", () => {
       }),
     );
 
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("registers, parses, queries, mutates, and removes reminders", async () => {
+    const changed = vi.fn();
+    const registration = {
+      id: "denote.reference.reminders",
+      title: "Reminders",
+      defaultSnoozeMinutes: 15,
+    };
+    FakeWorker.remindersOnActivate = registration;
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(pluginWithReminders());
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    const targetsRequest = {
+      document: {
+        path: "Plan.md",
+        title: "Plan",
+        source: "- [ ] Synthetic",
+      },
+    };
+    await expect(
+      runtime.parseReminderTargets(
+        "denote.reference",
+        registration.id,
+        targetsRequest,
+      ),
+    ).resolves.toEqual(reminderTargetsModel);
+    const query = {
+      workspaceId: "synthetic-scope",
+      now: Date.parse("2026-09-28T18:00:00Z"),
+    };
+    await expect(
+      runtime.queryReminders("denote.reference", registration.id, query),
+    ).resolves.toEqual(reminderModel);
+    await expect(
+      runtime.mutateReminders("denote.reference", registration.id, {
+        ...query,
+        mutation: {
+          type: "dismiss",
+          id: "synthetic-reminder",
+          dismissedAt: query.now,
+        },
+      }),
+    ).resolves.toEqual(reminderModel);
+
+    await runtime.stop("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("exposes reminders through the actual isolated worker capability", async () => {
+    await bridgeRealPluginWorker();
+    const source = pluginWithReminders();
+    const registration = {
+      id: "denote.reference.reminders",
+      title: "Reminders",
+      defaultSnoozeMinutes: 15,
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          const reminders = context.capabilities.reminders;
+          if (!reminders) throw Error("Missing reminders");
+          context.subscriptions.add(reminders.register({
+            ...${JSON.stringify(registration)},
+            targets() {
+              return ${JSON.stringify(reminderTargetsModel)};
+            },
+            query() {
+              return ${JSON.stringify(reminderModel)};
+            },
+            mutate() {
+              return ${JSON.stringify(reminderModel)};
+            },
+          }));
+        },
+      };
+    `);
+    const changed = vi.fn();
+    const runtime = new PluginWorkerRuntime(
+      vi.fn(),
+      vi.fn(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      changed,
+    );
+
+    await runtime.start(source);
+
+    expect(changed).toHaveBeenLastCalledWith([
+      { pluginId: "denote.reference", ...registration },
+    ]);
+    await expect(
+      runtime.parseReminderTargets(
+        "denote.reference",
+        registration.id,
+        {
+          document: {
+            path: "Plan.md",
+            title: "Plan",
+            source: "- [ ] Synthetic",
+          },
+        },
+      ),
+    ).resolves.toEqual(reminderTargetsModel);
     await runtime.stop("denote.reference");
     expect(changed).toHaveBeenLastCalledWith([]);
   });

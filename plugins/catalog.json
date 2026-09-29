@@ -659,5 +659,61 @@
       "trusted": true
     },
     "guide": "# Advanced task lists\n\n## Purpose\n\nCollect standard Markdown checkboxes from the current vault into one local task\nview. Tasks remain ordinary portable Markdown and continue to work when the\nplugin is disabled. Requires Denote 0.7.0 or newer.\n\n## Enablement and permissions\n\nDisabled by default. Enable **Advanced task lists** under\n**Settings -> Plugins -> Productivity** and approve **Task list**.\n\nThe permission supplies bounded vault-relative Markdown paths, note titles, and\nsource to an isolated local worker. The worker returns declarative task data and\nmay propose one checkbox-marker change after an explicit toggle. Denote verifies\nthat exactly one `[ ]`, `[x]`, or `[X]` marker changed and owns the save,\nrevision, conflict, encryption, and open-editor behavior. The plugin receives no\nabsolute vault path, raw encryption key, network, process, clipboard, or general\nworkspace-read/write capability.\n\n## Usage\n\nChoose **Advanced task lists** in the activity rail. Filter the consolidated\nlist by:\n\n- **Status:** open, completed, or all tasks.\n- **Tag:** a hashtag such as `#work` found in the task text.\n- **Path:** a case-insensitive vault-relative path fragment.\n- **Due:** overdue, today, upcoming, undated, or any due state.\n\nDue dates use the portable plain-text token `due:YYYY-MM-DD`:\n\n```markdown\n## Release\n\n- [ ] Ship the installer #work due:2026-10-01\n- [x] Publish the notes #docs\n```\n\nThe view shows the note path, one-based source line, and enclosing Markdown\nheading path. Choose the note title to open the source normally. Toggle the\nnative checkbox with a pointer or Space. If the note is already open, Denote\nchanges the current editor buffer and follows ordinary autosave behavior. If it\nis closed, Denote reads and saves it with the existing content hash, encoding,\nline endings, revision history, and vault-generation guards.\n\nTask identity never relies only on a line number. The plugin relocates the exact\ntask line under the same heading and checks the number and occurrence of\nidentical tasks. Nearby inserted or removed lines are safe. Changed, missing, or\nambiguous task content reports a conflict instead of overwriting the note.\n\nFilters, note links, and checkboxes follow normal Tab order. Checkboxes use\nnative keyboard behavior, focus remains visible, and when a completed toggle\nleaves the current filter Denote moves focus to the nearest remaining task.\n\nRecurring-task syntax is intentionally not interpreted in this version.\nRecurrence remains plain Markdown so notes stay portable and no task is\nrecreated unexpectedly.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling stops the worker, withdraws the task view, clears its in-memory index,\nand deletes downloaded package code and cached archives. It never removes or\nrewrites task Markdown. Standard task lists remain editable in every Markdown\nmode.\n\n## Troubleshooting\n\nUse **Refresh current vault** after external file changes. If a toggle reports a\nconflict, open the named note, review the checkbox, and try again after the task\nview refreshes. Identical task lines under one heading remain toggleable while\ntheir count and order are unchanged; changing that group causes a safe conflict.\n\nOnly UTF-8 `.md` and `.markdown` files enter the index. YAML frontmatter, fenced\ncode, and indented code blocks are ignored. Each note is capped at 256 KiB, the\nindex at 5,000 notes and 8 MiB, and each query at 1,000 visible tasks. Bounds and\nskipped or malformed notes are reported instead of presented as a complete\nindex. Locked encrypted vaults expose no task content and stop the worker until\nunlock.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.reminders",
+      "name": "Reminders",
+      "version": "0.3.0",
+      "description": "Create editable standalone or linked reminders with optional recurring schedules.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "productivity",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.7.1",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "reminders"
+        },
+        {
+          "capability": "notifications"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md",
+      "settings": {
+        "version": 1,
+        "properties": {
+          "defaultSnoozeMinutes": {
+            "type": "number",
+            "title": "Default snooze",
+            "description": "Minutes added by the Snooze action.",
+            "default": 15,
+            "minimum": 1,
+            "maximum": 1440
+          }
+        }
+      }
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.7.4/denote.reminders-0.3.0.tgz",
+      "sha256": "b6b80cf5121cc66a644d104ec2cef90dd54002a0df018e56fc7ad9c36d12f9eb",
+      "sizeBytes": 74068
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "c409eaac465ab6282cfdfab9f0fc232427915cae",
+      "trusted": true
+    },
+    "guide": "# Reminders\n\n## Purpose\n\nCreate editable standalone reminders or optionally link them to a Markdown note,\nheading, or task. Repeat them every N minutes, hours, days, weeks, months, or\nyears. Reminder records stay in Denote's local plugin data rather than changing\nnote content. Requires Denote 0.7.1 or newer.\n\n## Enablement and permissions\n\nReminders is disabled by default. Enable it under\n**Settings → Plugins → Productivity** and approve **Reminders** and\n**Notifications**. Denote asks for these permissions only when you choose to\nenable the plugin.\n\nThe Reminders permission can supply the active Markdown note to the isolated\nworker while the host-rendered form is open. A note is optional. The worker\nalways returns **No note**, plus bounded note, heading, and task targets when\nsource is available, and stores reminder metadata under an opaque vault scope.\nIt receives no absolute vault path, encryption key, DOM, Tauri API, network,\nprocess, clipboard, or general workspace-read/write access.\n\nNative desktop notifications are best effort. Desktop operating systems do not\noffer one portable action-button API through Tauri, so snooze, dismiss, retry,\nand open-note controls remain in Denote's Reminders panel. Operating-system\nnotification settings, Focus or Do Not Disturb modes, and lock-screen policy can\nstill suppress a notification after the host accepts it.\n\n## Usage\n\nChoose **Reminders** in the activity rail. Select **No note** for a standalone\nreminder. When a Markdown note is open, you can instead choose the whole note,\na heading, or a standard checkbox. Enter a name, date, and time, then choose\n**Create reminder**. Use **Edit** later to change every field.\n\nWall-clock reminders store the selected local civil time and IANA time zone.\nChanging the computer's current time zone does not rewrite that intent.\nAmbiguous daylight-saving times use the earlier occurrence. A local time that\ndoes not exist during a spring-forward transition is refused so it cannot move\nsilently.\n\nUse **Repeat** and **Every** to schedule every N minutes, hours, days, weeks,\nmonths, or years. Minutes and hours use elapsed time. Daily and longer schedules\nkeep civil time. Monthly and yearly reminders clamp to the last valid day of a\nshort month. A recurring civil-time occurrence whose local time is skipped by\ndaylight saving is skipped.\n\nWhen Denote is running, the host rechecks reminders against the wall clock at\nleast once per minute and whenever the window regains focus. After restart,\nreenablement, wake, or returning to a vault, overdue reminders appear in the\npanel and Denote requests a native notification. A large overdue set is\ncollapsed into one system notification while every reminder remains listed.\nEach due reminder also creates an in-app banner. The activity-rail bell shows a\nnumbered attention badge. The banner opens Reminders or can be dismissed without\nchanging the reminder.\n\nUse:\n\n- **Edit** to change the reminder.\n- **Open note** to navigate through Denote's ordinary file flow when the\n  reminder is linked.\n- **Snooze** to schedule the configured number of minutes from now.\n- **Complete** to move a one-time reminder to Completed, or record one recurring\n  occurrence and schedule the next.\n- **Next occurrence** to advance a recurring reminder without completing it.\n- **Dismiss** or **Dismiss series** to move it to Dismissed without deletion.\n- **Restore** to reactivate a dismissed reminder.\n- **Copy** to prefill a new reminder from any Active, Completed, or Dismissed\n  row.\n- **Delete** to permanently remove a Completed or Dismissed reminder.\n- **Retry notification** after a reported native notification error.\n\nSwitch between **Active**, **Completed**, and **Dismissed** above the list.\nArchived reminders do not contribute to the numbered badge or in-app banners.\n\nHeading and task text is used only to choose the target. Persisted links keep the\nvault-relative note path and source line, not copied note body text. Reminder\nnames and note paths are local application metadata and can appear in the\noperating system's notification history or lock screen according to system\nsettings.\n\n## Settings\n\n**Default snooze** controls the Snooze action from 1 minute through 24 hours.\nChanging it reloads the plugin without deleting reminders.\n\n## Disable behavior\n\nDisabling stops the isolated worker, removes the Reminders view, cancels every\nhost timer and in-flight delivery, and deletes downloaded package code and\ncaches. Stored reminder records remain local so reenabling can resume them.\nChoose **Clear data** in plugin settings to delete those records. Notes are\nnever edited or deleted.\n\n## Troubleshooting\n\nIf a notification request fails, the reminder stays visible with the error and\na **Retry notification** action. Check the operating system's notification\nsettings for Denote when no error appears but no banner is visible.\n\nOpen the linked note if a stored source line no longer identifies the same\nheading or task after edits; Reminders never rewrites note content to repair an\nanchor. A corrupt or over-quota plugin data record reports an explicit error.\nUse **Clear data** only when you intend to remove all reminder metadata.\n"
   }
 ]

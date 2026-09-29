@@ -8,6 +8,27 @@ Read these documents before changing Denote:
 - `docs/development.md` lists setup and validation commands.
 - `docs/user-guide/` contains the canonical in-app documentation.
 
+## Interface and copy
+
+Before changing interface code or user-visible text, read the relevant section
+of `docs/design.md` and inspect nearby components. Reuse Denote's existing
+patterns instead of inventing a one-off treatment:
+
+- Use the shared `primary-button`, `secondary-button`, and `icon-button`
+  hierarchy. A screen or form gets one primary action; supporting actions stay
+  secondary or quiet.
+- Match the surrounding control density, spacing, borders, corner radius,
+  typography, focus ring, disabled state, and forced-colors behavior.
+- Write short sentence-case labels and status text. Use Denote's established
+  terms and exact action names. Prefer `…` for progress and `→` for interface
+  paths where those forms already appear in the app.
+- Do not expose Markdown markers such as `**`, backticks, or list prefixes as
+  literal UI. Route guides and formatted help through the existing safe
+  host-rendered Markdown subset, and test emphasis, lists, and code when that
+  rendering changes.
+- Avoid generic, promotional, or explanatory filler. Text should tell the user
+  what happened, what an action does, or how to recover.
+
 ## Windows Tauri runtime pin
 
 Denote pins the complete Windows-safe Tauri 2.11 dependency family. Tauri 2.12,

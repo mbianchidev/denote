@@ -7,6 +7,7 @@ import {
 import type {
   PluginKanbanBoardModel,
   PluginNoteGraphModel,
+  PluginReminderModel,
   PluginSourceControlViewModel,
   PluginTaskListModel,
 } from "@denote/plugin-sdk";
@@ -148,6 +149,110 @@ const taskListModel: PluginTaskListModel = {
   truncated: false,
   notices: [],
 };
+
+const reminderModel: PluginReminderModel = {
+  reminders: [
+    {
+      id: "synthetic-reminder",
+      title: "Synthetic reminder",
+      target: {
+        kind: "task",
+        path: "Plan.md",
+        noteTitle: "Plan",
+        line: 1,
+      },
+      schedule: {
+        kind: "wall-clock",
+        localDateTime: "2026-09-28T21:00",
+        timeZone: "Europe/Rome",
+      },
+      recurrence: null,
+      dueAt: Date.parse("2026-09-28T19:00:00Z"),
+      snoozedUntil: null,
+      snoozeTimeZone: null,
+      status: "scheduled",
+      createdAt: Date.parse("2026-09-28T18:00:00Z"),
+      updatedAt: Date.parse("2026-09-28T18:00:00Z"),
+      attemptCount: 0,
+      deliveringAt: null,
+      notifiedAt: null,
+      completedAt: null,
+      dismissedAt: null,
+      lastError: null,
+    },
+  ],
+  truncated: false,
+  notices: [],
+};
+
+describe("reminder runtime messages", () => {
+  it("validates registration, target, query, mutation, and result messages", () => {
+    const targetRequest = {
+      document: {
+        path: "Plan.md",
+        title: "Plan",
+        source: "- [ ] Synthetic",
+      },
+    };
+    const query = {
+      workspaceId: "synthetic-scope",
+      now: Date.parse("2026-09-28T18:00:00Z"),
+    };
+    expect(
+      isPluginRuntimeMessage({
+        type: "register-reminders",
+        id: "denote.synthetic.reminders",
+        title: "Reminders",
+        defaultSnoozeMinutes: 15,
+      }),
+    ).toBe(true);
+    expect(
+      isPluginHostMessage({
+        type: "parse-reminder-targets",
+        providerId: "denote.synthetic.reminders",
+        requestId: "targets",
+        request: targetRequest,
+      }),
+    ).toBe(true);
+    expect(
+      isPluginHostMessage({
+        type: "query-reminders",
+        providerId: "denote.synthetic.reminders",
+        requestId: "query",
+        request: query,
+      }),
+    ).toBe(true);
+    expect(
+      isPluginHostMessage({
+        type: "mutate-reminders",
+        providerId: "denote.synthetic.reminders",
+        requestId: "mutate",
+        request: {
+          ...query,
+          mutation: {
+            type: "dismiss",
+            id: "synthetic-reminder",
+            dismissedAt: query.now,
+          },
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPluginRuntimeMessage({
+        type: "reminder-query-result",
+        requestId: "query",
+        model: reminderModel,
+      }),
+    ).toBe(true);
+    expect(
+      isPluginRuntimeMessage({
+        type: "reminder-mutation-result",
+        requestId: "mutate",
+        error: "Synthetic failure",
+      }),
+    ).toBe(true);
+  });
+});
 
 describe("plugin runtime source control messages", () => {
   it("validates bounded file reports and optional unknown line-count flags", () => {
