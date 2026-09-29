@@ -232,7 +232,7 @@ describe("reminder runtime messages", () => {
           mutation: {
             type: "dismiss",
             id: "synthetic-reminder",
-            updatedAt: query.now,
+            dismissedAt: query.now,
           },
         },
       }),
