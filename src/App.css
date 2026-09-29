@@ -3689,6 +3689,28 @@ button.tag-chip:active,
   margin: 10px 0;
 }
 
+.reminder-view-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 8px;
+}
+
+.reminder-view-controls button {
+  min-width: 0;
+  padding-inline: 5px;
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminder-view-controls button[aria-pressed="true"] {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
 .reminder-panel__privacy {
   padding-left: 8px;
   border-left: 2px solid var(--warning);

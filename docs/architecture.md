@@ -1157,11 +1157,12 @@ a known-vault row cannot cause a later vault to inherit its reminder records.
 plugin storage namespace. A vault is capped at 128 reminders and the serialized
 value is kept below the native 256 KiB per-value ceiling. Corrupt or oversized
 state fails visibly. Clearing plugin data removes every scope; ordinary
-disablement preserves state. Storage schema version 2 migrates version-1 rows
-in place by adding null recurrence and snooze fields. A target can be standalone
-or contain only a vault-relative note path, display filename, target kind, and
-optional source line. Heading and task body text is used for the transient
-chooser but is not copied into plugin storage.
+disablement preserves state. Storage schema version 3 migrates version-1 rows by
+adding recurrence, snooze, completion, and dismissal fields, and migrates
+version-2 rows by adding completion and dismissal fields. A target can be
+standalone or contain only a vault-relative note path, display filename, target
+kind, and optional source line. Heading and task body text is used for the
+transient chooser but is not copied into plugin storage.
 
 A schedule is either a wall-clock civil `YYYY-MM-DDTHH:mm` plus IANA zone or an
 absolute snooze override plus its display zone. The worker resolves wall-clock
@@ -1193,15 +1194,22 @@ an explicit action. More than five overdue records use one summary system
 notification while each record remains individually actionable in the panel.
 Create and update mutations replace the complete title, optional target,
 schedule, and recurrence transactionally. Snooze overrides only the current
-occurrence. Dismissing a one-time reminder deletes it; dismissing a recurring
-one advances its base schedule beyond the current time. A separate remove
-mutation always deletes the reminder or complete series.
+occurrence. Dismiss moves any reminder or series into the Dismissed archive;
+restore reactivates it, advancing an overdue recurring series or returning an
+overdue one-time reminder to attention. Complete moves a one-time reminder into
+Completed. Completing a recurring reminder creates a bounded completed snapshot
+with a host-issued ID and advances the live series. Advance skips a recurring
+occurrence without recording completion. Remove permanently deletes any stage.
+Copy is host-owned form state: it prefills a new create mutation and never
+duplicates a stored ID or archived state.
 
 Tauri's desktop notification backend has no portable action buttons, click
 callback, or native future schedule. The host therefore uses immediate
 best-effort native notifications and keeps the Reminders panel authoritative
 for edit, optional **Open note**, **Snooze**, next occurrence, deletion,
-dismissal, and retry. The scheduler records one in-memory bump per
+dismissal, completion, restore, copy, and retry. Completed and dismissed rows
+never contribute to attention counts or banners. The scheduler records one
+in-memory bump per
 `(workspace, provider, reminder, dueAt)`, displays at most three persistent
 host-rendered banners, and publishes the attention count to the activity rail.
 Closing a banner does not mutate the reminder. A successful dispatch means the

@@ -437,14 +437,22 @@ shows a numbered badge and exposes the same count to assistive technology.
 The Reminders panel is the reliable action surface:
 
 - **Edit** changes the reminder.
+- **Copy** prefills a new reminder from any Active, Completed, or Dismissed row.
 - **Open note** appears only for linked reminders and uses ordinary Denote
   navigation.
 - **Snooze** reschedules a notified or failed reminder.
-- **Dismiss** removes a one-time reminder.
-- **Next occurrence** advances a recurring reminder; **Delete series** removes
-  it completely.
+- **Complete** moves a one-time reminder to Completed. For a recurring reminder,
+  it adds that occurrence to Completed and schedules the next one.
+- **Next occurrence** advances a recurring reminder without completing it.
+- **Dismiss** or **Dismiss series** moves it to Dismissed without deleting it.
+- **Restore** reactivates a dismissed reminder.
+- **Delete** permanently removes a Completed or Dismissed reminder.
 - **Cancel** or **Cancel series** removes a future reminder.
 - **Retry notification** repeats only a failed native dispatch.
+
+Use the **Active**, **Completed**, and **Dismissed** controls to switch lists.
+Completed and dismissed reminders do not appear in the rail badge or create
+in-app banners.
 
 Desktop operating systems do not expose one portable notification-button or
 click callback through Tauri, so these actions do not appear inside the system

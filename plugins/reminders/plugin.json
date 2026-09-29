@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.reminders",
   "name": "Reminders",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Create editable standalone or linked reminders with optional recurring schedules.",
   "publisher": {
     "name": "Denote",

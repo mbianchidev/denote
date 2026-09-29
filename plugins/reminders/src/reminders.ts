@@ -32,19 +32,28 @@ interface MarkdownNode {
 }
 
 interface StoredWorkspace {
-  version: 2;
+  version: 3;
   reminders: StoredReminder[];
 }
 
 type StoredReminder = Omit<PluginReminderRecord, "dueAt">;
-type StoredReminderV1 = Omit<
+type StoredReminderV2 = Omit<
   StoredReminder,
+  "completedAt" | "dismissedAt"
+>;
+type StoredReminderV1 = Omit<
+  StoredReminderV2,
   "recurrence" | "snoozedUntil" | "snoozeTimeZone"
 >;
 
 interface StoredWorkspaceV1 {
   version: 1;
   reminders: StoredReminderV1[];
+}
+
+interface StoredWorkspaceV2 {
+  version: 2;
+  reminders: StoredReminderV2[];
 }
 
 const STORAGE_PREFIX = "reminders-v1-";
@@ -119,6 +128,8 @@ export class ReminderStore {
           snoozeTimeZone: null,
           deliveringAt: null,
           notifiedAt: null,
+          completedAt: null,
+          dismissedAt: null,
           lastError: null,
         });
         break;
@@ -141,17 +152,101 @@ export class ReminderStore {
           snoozeTimeZone: null,
           deliveringAt: null,
           notifiedAt: null,
+          completedAt: null,
+          dismissedAt: null,
           lastError: null,
         } satisfies Partial<StoredReminder>);
         break;
       }
       case "dismiss": {
         const reminder = requireReminder(workspace.reminders, index);
-        if (reminder.recurrence) {
-          advanceRecurringReminder(reminder, mutation.updatedAt);
-        } else {
-          workspace.reminders.splice(index, 1);
+        Object.assign(reminder, {
+          status: "dismissed",
+          updatedAt: mutation.dismissedAt,
+          deliveringAt: null,
+          notifiedAt: null,
+          completedAt: null,
+          dismissedAt: mutation.dismissedAt,
+          lastError: null,
+        } satisfies Partial<StoredReminder>);
+        break;
+      }
+      case "complete": {
+        const reminder = requireReminder(workspace.reminders, index);
+        if (
+          reminder.status !== "notified" &&
+          reminder.status !== "failed"
+        ) {
+          throw new Error("Only a running reminder can be completed.");
         }
+        if (reminder.recurrence) {
+          if (
+            workspace.reminders.some(
+              (candidate) => candidate.id === mutation.historyId,
+            )
+          ) {
+            throw new Error("The completed occurrence ID already exists.");
+          }
+          pruneArchivedReminder(workspace.reminders);
+          workspace.reminders.push({
+            ...reminder,
+            id: mutation.historyId,
+            recurrence: null,
+            status: "completed",
+            updatedAt: mutation.completedAt,
+            attemptCount: 0,
+            deliveringAt: null,
+            notifiedAt: null,
+            completedAt: mutation.completedAt,
+            dismissedAt: null,
+            lastError: null,
+          });
+          advanceRecurringReminder(reminder, mutation.completedAt);
+        } else {
+          Object.assign(reminder, {
+            status: "completed",
+            updatedAt: mutation.completedAt,
+            deliveringAt: null,
+            notifiedAt: null,
+            completedAt: mutation.completedAt,
+            dismissedAt: null,
+            lastError: null,
+          } satisfies Partial<StoredReminder>);
+        }
+        break;
+      }
+      case "restore": {
+        const reminder = requireReminder(workspace.reminders, index);
+        if (reminder.status !== "dismissed") {
+          throw new Error("Only a dismissed reminder can be restored.");
+        }
+        if (
+          reminder.recurrence &&
+          reminderDueAt(reminder) <= mutation.restoredAt
+        ) {
+          advanceRecurringReminder(reminder, mutation.restoredAt);
+        } else {
+          const due = reminderDueAt(reminder);
+          Object.assign(reminder, {
+            status: due <= mutation.restoredAt ? "notified" : "scheduled",
+            updatedAt: mutation.restoredAt,
+            deliveringAt: null,
+            notifiedAt: due <= mutation.restoredAt
+              ? mutation.restoredAt
+              : null,
+            completedAt: null,
+            dismissedAt: null,
+            lastError: null,
+          } satisfies Partial<StoredReminder>);
+        }
+        break;
+      }
+      case "advance": {
+        const reminder = requireReminder(workspace.reminders, index);
+        if (!reminder.recurrence) {
+          throw new Error("The reminder is not recurring.");
+        }
+        advanceRecurringReminder(reminder, mutation.advancedAt);
         break;
       }
       case "remove":
@@ -170,6 +265,8 @@ export class ReminderStore {
           snoozeTimeZone: mutation.timeZone,
           deliveringAt: null,
           notifiedAt: null,
+          completedAt: null,
+          dismissedAt: null,
           lastError: null,
         } satisfies Partial<StoredReminder>);
         break;
@@ -191,6 +288,8 @@ export class ReminderStore {
           attemptCount: reminder.attemptCount + 1,
           deliveringAt: mutation.startedAt,
           notifiedAt: null,
+          completedAt: null,
+          dismissedAt: null,
           lastError: null,
         } satisfies Partial<StoredReminder>);
         break;
@@ -205,6 +304,8 @@ export class ReminderStore {
           updatedAt: mutation.completedAt,
           deliveringAt: null,
           notifiedAt: mutation.completedAt,
+          completedAt: null,
+          dismissedAt: null,
           lastError: null,
         } satisfies Partial<StoredReminder>);
         break;
@@ -219,6 +320,8 @@ export class ReminderStore {
           updatedAt: mutation.failedAt,
           deliveringAt: null,
           notifiedAt: null,
+          completedAt: null,
+          dismissedAt: null,
           lastError: mutation.error.trim(),
         } satisfies Partial<StoredReminder>);
         break;
@@ -235,7 +338,7 @@ export class ReminderStore {
     const value = await this.storage.get<unknown>(storageKey(workspaceId));
     if (value === null) {
       return {
-        workspace: { version: 2, reminders: [] },
+        workspace: { version: 3, reminders: [] },
         migrated: false,
       };
     }
@@ -243,7 +346,7 @@ export class ReminderStore {
       typeof value !== "object" ||
       value === null ||
       Array.isArray(value) ||
-      ![1, 2].includes(
+      ![1, 2, 3].includes(
         (value as { version?: unknown }).version as number,
       ) ||
       !Array.isArray((value as { reminders?: unknown }).reminders)
@@ -252,10 +355,14 @@ export class ReminderStore {
         "Stored reminder data is invalid. Clear Reminders data in plugin settings to recover.",
       );
     }
-    const migrated = (value as { version: number }).version === 1;
-    const candidate = migrated
-      ? migrateWorkspace(value as StoredWorkspaceV1)
-      : cloneWorkspace(value as StoredWorkspace);
+    const version = (value as { version: number }).version;
+    const migrated = version !== 3;
+    const candidate =
+      version === 1
+        ? migrateWorkspaceV1(value as StoredWorkspaceV1)
+        : version === 2
+          ? migrateWorkspaceV2(value as StoredWorkspaceV2)
+          : cloneWorkspace(value as StoredWorkspace);
     const model = toModel(candidate.reminders);
     if (!isPluginReminderModel(model)) {
       throw new Error(
@@ -480,7 +587,31 @@ function advanceRecurringReminder(
   reminder.snoozeTimeZone = null;
   reminder.deliveringAt = null;
   reminder.notifiedAt = null;
+  reminder.completedAt = null;
+  reminder.dismissedAt = null;
   reminder.lastError = null;
+}
+
+function pruneArchivedReminder(reminders: StoredReminder[]): void {
+  if (reminders.length < MAX_PLUGIN_REMINDERS) {
+    return;
+  }
+  const archived = reminders
+    .map((reminder, index) => ({ reminder, index }))
+    .filter(({ reminder }) =>
+      reminder.status === "completed" ||
+      reminder.status === "dismissed"
+    )
+    .sort(
+      (left, right) =>
+        left.reminder.updatedAt - right.reminder.updatedAt,
+    )[0];
+  if (!archived) {
+    throw new Error(
+      `This vault already has the maximum of ${MAX_PLUGIN_REMINDERS} reminders.`,
+    );
+  }
+  reminders.splice(archived.index, 1);
 }
 
 export function nextRecurringSchedule(
@@ -651,9 +782,9 @@ function storedLink(target: PluginReminderTarget): PluginReminderLink {
   };
 }
 
-function migrateWorkspace(workspace: StoredWorkspaceV1): StoredWorkspace {
+function migrateWorkspaceV1(workspace: StoredWorkspaceV1): StoredWorkspace {
   return {
-    version: 2,
+    version: 3,
     reminders: workspace.reminders.map((reminder) => ({
       ...reminder,
       target: { ...reminder.target },
@@ -661,13 +792,31 @@ function migrateWorkspace(workspace: StoredWorkspaceV1): StoredWorkspace {
       recurrence: null,
       snoozedUntil: null,
       snoozeTimeZone: null,
+      completedAt: null,
+      dismissedAt: null,
+    })),
+  };
+}
+
+function migrateWorkspaceV2(workspace: StoredWorkspaceV2): StoredWorkspace {
+  return {
+    version: 3,
+    reminders: workspace.reminders.map((reminder) => ({
+      ...reminder,
+      target: { ...reminder.target },
+      schedule: { ...reminder.schedule },
+      recurrence: reminder.recurrence
+        ? { ...reminder.recurrence }
+        : null,
+      completedAt: null,
+      dismissedAt: null,
     })),
   };
 }
 
 function cloneWorkspace(workspace: StoredWorkspace): StoredWorkspace {
   return {
-    version: 2,
+    version: 3,
     reminders: workspace.reminders.map((reminder) => ({
       ...reminder,
       target: { ...reminder.target },

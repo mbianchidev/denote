@@ -176,6 +176,8 @@ const reminderModel: PluginReminderModel = {
       attemptCount: 0,
       deliveringAt: null,
       notifiedAt: null,
+      completedAt: null,
+      dismissedAt: null,
       lastError: null,
     },
   ],

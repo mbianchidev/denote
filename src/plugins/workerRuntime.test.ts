@@ -1338,7 +1338,7 @@ describe("PluginWorkerRuntime", () => {
         mutation: {
           type: "dismiss",
           id: "synthetic-reminder",
-          updatedAt: query.now,
+          dismissedAt: query.now,
         },
       }),
     ).resolves.toEqual(reminderModel);

@@ -162,7 +162,7 @@ describe("reminder schedules", () => {
 });
 
 describe("reminder storage", () => {
-  it("persists delivery state, snoozes, and dismisses per opaque workspace", async () => {
+  it("persists delivery state, snoozes, archives, restores, and deletes reminders", async () => {
     const store = new ReminderStore(memoryStorage());
     const workspaceId = "scope-alpha";
     const createdAt = Date.parse("2026-09-28T18:00:00Z");
@@ -254,7 +254,32 @@ describe("reminder storage", () => {
       mutation: {
         type: "dismiss",
         id: "reminder-alpha",
-        updatedAt: dueAt + 3,
+        dismissedAt: dueAt + 3,
+      },
+    });
+    expect(model.reminders[0]).toMatchObject({
+      status: "dismissed",
+      dismissedAt: dueAt + 3,
+    });
+
+    model = await store.mutate({
+      workspaceId,
+      now: dueAt + 4,
+      mutation: {
+        type: "restore",
+        id: "reminder-alpha",
+        restoredAt: dueAt + 4,
+      },
+    });
+    expect(model.reminders[0].status).toBe("scheduled");
+
+    model = await store.mutate({
+      workspaceId,
+      now: dueAt + 5,
+      mutation: {
+        type: "remove",
+        id: "reminder-alpha",
+        updatedAt: dueAt + 5,
       },
     });
     expect(model.reminders).toEqual([]);
@@ -338,18 +363,37 @@ describe("reminder storage", () => {
       workspaceId,
       now: editedDueAt + 2,
       mutation: {
-        type: "dismiss",
+        type: "complete",
         id: "recurring-reminder",
-        updatedAt: editedDueAt + 2,
+        historyId: "completed-occurrence",
+        completedAt: editedDueAt + 2,
       },
     });
-    expect(model.reminders[0]).toMatchObject({
+    expect(model.reminders).toHaveLength(2);
+    expect(
+      model.reminders.find(
+        (reminder) => reminder.id === "recurring-reminder",
+      ),
+    ).toMatchObject({
       status: "scheduled",
       recurrence: { interval: 1, unit: "month" },
     });
-    expect(model.reminders[0].dueAt).toBe(
+    expect(
+      model.reminders.find(
+        (reminder) => reminder.id === "recurring-reminder",
+      )?.dueAt,
+    ).toBe(
       Date.parse("2026-02-28T10:00:00Z"),
     );
+    expect(
+      model.reminders.find(
+        (reminder) => reminder.id === "completed-occurrence",
+      ),
+    ).toMatchObject({
+      status: "completed",
+      recurrence: null,
+      completedAt: editedDueAt + 2,
+    });
     expect(dueAt).not.toBe(editedDueAt);
   });
 
@@ -400,7 +444,61 @@ describe("reminder storage", () => {
       recurrence: null,
       snoozedUntil: null,
       snoozeTimeZone: null,
+      completedAt: null,
+      dismissedAt: null,
     });
-    expect(storage.values.get(key)).toMatchObject({ version: 2 });
+    expect(storage.values.get(key)).toMatchObject({ version: 3 });
+  });
+
+  it("migrates version-two reminder stages to version three", async () => {
+    const workspaceId = "scope-stage-migration";
+    const key = `reminders-v1-${workspaceId}`;
+    const storage = memoryStorage([
+      [
+        key,
+        {
+          version: 2,
+          reminders: [
+            {
+              id: "version-two-reminder",
+              title: "Version two reminder",
+              target: {
+                kind: "standalone",
+                path: null,
+                noteTitle: null,
+                line: null,
+              },
+              schedule: {
+                kind: "wall-clock",
+                localDateTime: "2026-10-01T09:00",
+                timeZone: "UTC",
+              },
+              recurrence: null,
+              snoozedUntil: null,
+              snoozeTimeZone: null,
+              status: "scheduled",
+              createdAt: Date.parse("2026-09-01T09:00:00Z"),
+              updatedAt: Date.parse("2026-09-01T09:00:00Z"),
+              attemptCount: 0,
+              deliveringAt: null,
+              notifiedAt: null,
+              lastError: null,
+            },
+          ],
+        },
+      ],
+    ]);
+    const store = new ReminderStore(storage);
+
+    const model = await store.query({
+      workspaceId,
+      now: Date.parse("2026-09-01T10:00:00Z"),
+    });
+
+    expect(model.reminders[0]).toMatchObject({
+      completedAt: null,
+      dismissedAt: null,
+    });
+    expect(storage.values.get(key)).toMatchObject({ version: 3 });
   });
 });

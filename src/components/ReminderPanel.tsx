@@ -33,6 +33,9 @@ interface ReminderPanelProps {
   onError: (error: unknown) => void;
 }
 
+type ReminderView = "active" | "completed" | "dismissed";
+const EMPTY_REMINDERS: PluginReminderRecord[] = [];
+
 export function ReminderPanel({
   provider,
   document,
@@ -57,26 +60,57 @@ export function ReminderPanel({
   >("none");
   const [repeatInterval, setRepeatInterval] = useState("1");
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [view, setView] = useState<ReminderView>("active");
   const [timeZone, setTimeZone] = useState(currentTimeZone);
   const [working, setWorking] = useState<string | null>(null);
   const [status, setStatus] = useState("Waiting for reminders.");
   const providerState = scheduler.stateFor(provider);
-  const reminders = providerState.model?.reminders ?? [];
+  const reminders = providerState.model?.reminders ?? EMPTY_REMINDERS;
+  const {
+    activeReminders,
+    completedReminders,
+    dismissedReminders,
+  } = useMemo(
+    () => ({
+      activeReminders: reminders.filter(
+        (reminder) =>
+          reminder.status !== "completed" &&
+          reminder.status !== "dismissed",
+      ),
+      completedReminders: reminders.filter(
+        (reminder) => reminder.status === "completed",
+      ),
+      dismissedReminders: reminders.filter(
+        (reminder) => reminder.status === "dismissed",
+      ),
+    }),
+    [reminders],
+  );
+  const visibleReminders =
+    view === "completed"
+      ? completedReminders
+      : view === "dismissed"
+        ? dismissedReminders
+        : activeReminders;
   const editingReminder =
     reminders.find((reminder) => reminder.id === editingId) ?? null;
+  const copyingReminder =
+    reminders.find((reminder) => reminder.id === copyingId) ?? null;
+  const formSourceReminder = editingReminder ?? copyingReminder;
   const nameInput = useRef<HTMLInputElement>(null);
   const targetOptions = useMemo(() => {
     const available = [...(targets?.targets ?? [])];
     if (
-      editingReminder &&
+      formSourceReminder &&
       !available.some((target) =>
-        sameReminderLink(target, editingReminder.target)
+        sameReminderLink(target, formSourceReminder.target)
       )
     ) {
-      available.push(targetForStoredLink(editingReminder.target));
+      available.push(targetForStoredLink(formSourceReminder.target));
     }
     return available;
-  }, [editingReminder, targets]);
+  }, [formSourceReminder, targets]);
   const selectedTarget = useMemo(
     () =>
       targetOptions.find((target) => target.id === selectedTargetId) ??
@@ -121,7 +155,10 @@ export function ReminderPanel({
   }, [document, onError, parseTargets, provider.id, provider.pluginId]);
 
   useEffect(() => {
-    if (editingId && !editingReminder) {
+    if (
+      (editingId && !editingReminder) ||
+      (copyingId && !copyingReminder)
+    ) {
       resetForm();
     }
   });
@@ -132,17 +169,17 @@ export function ReminderPanel({
     } else if (providerState.error) {
       setStatus("Reminders could not be updated.");
     } else if (providerState.model) {
-      const due = providerState.model.reminders.filter(
+      const due = activeReminders.filter(
         (reminder) =>
           reminder.status !== "scheduled" || reminder.dueAt <= Date.now(),
       ).length;
       setStatus(
-        `${providerState.model.reminders.length} reminder${
-          providerState.model.reminders.length === 1 ? "" : "s"
+        `${activeReminders.length} active reminder${
+          activeReminders.length === 1 ? "" : "s"
         }; ${due} need${due === 1 ? "s" : ""} attention.`,
       );
     }
-  }, [providerState]);
+  }, [activeReminders, providerState]);
 
   const run = async (id: string, action: () => Promise<void>) => {
     if (disabled || working) {
@@ -206,6 +243,8 @@ export function ReminderPanel({
     setStatus(
       editingId
         ? `Updated ${reminderTitle}.`
+        : copyingId
+          ? `Created a copy of ${reminderTitle}.`
         : `Created ${reminderTitle}.`,
     );
     resetForm();
@@ -229,13 +268,41 @@ export function ReminderPanel({
     await scheduler.mutate(provider, {
       type: "dismiss",
       id: reminder.id,
-      updatedAt: Date.now(),
+      dismissedAt: Date.now(),
+    });
+    setStatus(`Moved ${reminder.title} to Dismissed.`);
+  };
+
+  const complete = async (reminder: PluginReminderRecord) => {
+    await scheduler.mutate(provider, {
+      type: "complete",
+      id: reminder.id,
+      historyId: crypto.randomUUID(),
+      completedAt: Date.now(),
     });
     setStatus(
       reminder.recurrence
-        ? `Scheduled the next ${reminder.title} reminder.`
-        : `Dismissed ${reminder.title}.`,
+        ? `Completed ${reminder.title} and scheduled its next occurrence.`
+        : `Moved ${reminder.title} to Completed.`,
     );
+  };
+
+  const restore = async (reminder: PluginReminderRecord) => {
+    await scheduler.mutate(provider, {
+      type: "restore",
+      id: reminder.id,
+      restoredAt: Date.now(),
+    });
+    setStatus(`Restored ${reminder.title}.`);
+  };
+
+  const advance = async (reminder: PluginReminderRecord) => {
+    await scheduler.mutate(provider, {
+      type: "advance",
+      id: reminder.id,
+      advancedAt: Date.now(),
+    });
+    setStatus(`Scheduled the next ${reminder.title} reminder.`);
   };
 
   const removeReminder = async (reminder: PluginReminderRecord) => {
@@ -261,6 +328,7 @@ export function ReminderPanel({
         sameReminderLink(target, reminder.target)
       ) ?? targetForStoredLink(reminder.target);
     setEditingId(reminder.id);
+    setCopyingId(null);
     setTitle(reminder.title);
     setSelectedTargetId(matchingTarget.id);
     setDate(local.date);
@@ -272,9 +340,32 @@ export function ReminderPanel({
     window.requestAnimationFrame(() => nameInput.current?.focus());
   };
 
+  const startCopying = (reminder: PluginReminderRecord) => {
+    const local =
+      reminder.dueAt > Date.now()
+        ? reminderLocalDateTime(reminder)
+        : { ...defaultLocalDateTime(), timeZone: currentTimeZone() };
+    const matchingTarget =
+      targetOptions.find((target) =>
+        sameReminderLink(target, reminder.target)
+      ) ?? targetForStoredLink(reminder.target);
+    setEditingId(null);
+    setCopyingId(reminder.id);
+    setTitle(reminder.title);
+    setSelectedTargetId(matchingTarget.id);
+    setDate(local.date);
+    setTime(local.time);
+    setTimeZone(local.timeZone);
+    setRepeatUnit(reminder.recurrence?.unit ?? "none");
+    setRepeatInterval(String(reminder.recurrence?.interval ?? 1));
+    setStatus(`Copying ${reminder.title}.`);
+    window.requestAnimationFrame(() => nameInput.current?.focus());
+  };
+
   function resetForm() {
     const next = defaultLocalDateTime();
     setEditingId(null);
+    setCopyingId(null);
     setTitle("");
     setSelectedTargetId(
       targets?.targets.find((target) => target.kind === "standalone")?.id ??
@@ -306,7 +397,13 @@ export function ReminderPanel({
           void run("save", saveReminder);
         }}
       >
-        <h3>{editingId ? "Edit reminder" : "Create reminder"}</h3>
+        <h3>
+          {editingId
+            ? "Edit reminder"
+            : copyingId
+              ? "Copy reminder"
+              : "Create reminder"}
+        </h3>
         <label>
           Link to
           <select
@@ -457,19 +554,23 @@ export function ReminderPanel({
             {working === "save"
               ? editingId
                 ? "Saving…"
-                : "Creating…"
+                : copyingId
+                  ? "Copying…"
+                  : "Creating…"
               : editingId
                 ? "Save changes"
-                : "Create reminder"}
+                : copyingId
+                  ? "Create copy"
+                  : "Create reminder"}
           </button>
-          {editingId ? (
+          {editingId || copyingId ? (
             <button
               type="button"
               className="secondary-button"
               disabled={working !== null}
               onClick={resetForm}
             >
-              Cancel edit
+              {editingId ? "Cancel edit" : "Cancel copy"}
             </button>
           ) : null}
         </div>
@@ -498,9 +599,37 @@ export function ReminderPanel({
         </div>
       ) : null}
 
-      {reminders.length > 0 ? (
+      <div
+        className="reminder-view-controls"
+        role="group"
+        aria-label="Reminder view"
+      >
+        <button
+          type="button"
+          aria-pressed={view === "active"}
+          onClick={() => setView("active")}
+        >
+          Active ({activeReminders.length})
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "completed"}
+          onClick={() => setView("completed")}
+        >
+          Completed ({completedReminders.length})
+        </button>
+        <button
+          type="button"
+          aria-pressed={view === "dismissed"}
+          onClick={() => setView("dismissed")}
+        >
+          Dismissed ({dismissedReminders.length})
+        </button>
+      </div>
+
+      {visibleReminders.length > 0 ? (
         <ul className="reminder-list">
-          {reminders.map((reminder) => {
+          {visibleReminders.map((reminder) => {
             const busy = working === reminder.id;
             return (
               <li key={reminder.id} aria-busy={busy}>
@@ -543,55 +672,116 @@ export function ReminderPanel({
                       Open note
                     </button>
                   ) : null}
-                  {reminder.status === "notified" ||
-                  reminder.status === "failed" ? (
-                    <button
-                      type="button"
-                      disabled={disabled || working !== null}
-                      onClick={() =>
-                        void run(reminder.id, () => snooze(reminder))
-                      }
-                    >
-                      Snooze {provider.defaultSnoozeMinutes}m
-                    </button>
-                  ) : null}
-                  {reminder.status === "failed" ? (
-                    <button
-                      type="button"
-                      disabled={disabled || working !== null}
-                      onClick={() =>
-                        void run(reminder.id, () =>
-                          scheduler.retry(provider, reminder)
-                        )
-                      }
-                    >
-                      Retry notification
-                    </button>
-                  ) : null}
-                  {reminder.status === "scheduled" ? (
-                    <button
-                      type="button"
-                      disabled={disabled || working !== null}
-                      onClick={() =>
-                        void run(reminder.id, () => removeReminder(reminder))
-                      }
-                    >
-                      {reminder.recurrence ? "Cancel series" : "Cancel"}
-                    </button>
-                  ) : (
+                  <button
+                    type="button"
+                    disabled={disabled || working !== null}
+                    onClick={() => startCopying(reminder)}
+                  >
+                    Copy
+                  </button>
+                  {view === "dismissed" ? (
                     <>
                       <button
                         type="button"
                         disabled={disabled || working !== null}
                         onClick={() =>
-                          void run(reminder.id, () => dismiss(reminder))
+                          void run(reminder.id, () => restore(reminder))
                         }
                       >
-                        {reminder.recurrence
-                          ? "Next occurrence"
-                          : "Dismiss"}
+                        Restore
                       </button>
-                      {reminder.recurrence ? (
+                      <button
+                        type="button"
+                        disabled={disabled || working !== null}
+                        onClick={() =>
+                          void run(reminder.id, () =>
+                            removeReminder(reminder)
+                          )
+                        }
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : view === "completed" ? (
+                    <button
+                      type="button"
+                      disabled={disabled || working !== null}
+                      onClick={() =>
+                        void run(reminder.id, () =>
+                          removeReminder(reminder)
+                        )
+                      }
+                    >
+                      Delete
+                    </button>
+                  ) : (
+                    <>
+                      {reminder.status === "notified" ||
+                      reminder.status === "failed" ? (
+                        <>
+                          <button
+                            type="button"
+                            disabled={disabled || working !== null}
+                            onClick={() =>
+                              void run(reminder.id, () =>
+                                complete(reminder)
+                              )
+                            }
+                          >
+                            Complete
+                          </button>
+                          <button
+                            type="button"
+                            disabled={disabled || working !== null}
+                            onClick={() =>
+                              void run(reminder.id, () =>
+                                snooze(reminder)
+                              )
+                            }
+                          >
+                            Snooze {provider.defaultSnoozeMinutes}m
+                          </button>
+                          {reminder.status === "failed" ? (
+                            <button
+                              type="button"
+                              disabled={disabled || working !== null}
+                              onClick={() =>
+                                void run(reminder.id, () =>
+                                  scheduler.retry(provider, reminder)
+                                )
+                              }
+                            >
+                              Retry notification
+                            </button>
+                          ) : null}
+                          {reminder.recurrence ? (
+                            <button
+                              type="button"
+                              disabled={disabled || working !== null}
+                              onClick={() =>
+                                void run(reminder.id, () =>
+                                  advance(reminder)
+                                )
+                              }
+                            >
+                              Next occurrence
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            disabled={disabled || working !== null}
+                            onClick={() =>
+                              void run(reminder.id, () =>
+                                dismiss(reminder)
+                              )
+                            }
+                          >
+                            {reminder.recurrence
+                              ? "Dismiss series"
+                              : "Dismiss"}
+                          </button>
+                        </>
+                      ) : reminder.status === "scheduled" ? (
                         <button
                           type="button"
                           disabled={disabled || working !== null}
@@ -601,7 +791,9 @@ export function ReminderPanel({
                             )
                           }
                         >
-                          Delete series
+                          {reminder.recurrence
+                            ? "Cancel series"
+                            : "Cancel"}
                         </button>
                       ) : null}
                     </>
@@ -612,7 +804,13 @@ export function ReminderPanel({
           })}
         </ul>
       ) : providerState.model && !providerState.error ? (
-        <p className="reminder-panel__empty">No reminders in this vault.</p>
+        <p className="reminder-panel__empty">
+          {view === "completed"
+            ? "No completed reminders."
+            : view === "dismissed"
+              ? "No dismissed reminders."
+              : "No active reminders."}
+        </p>
       ) : null}
     </section>
   );
@@ -644,6 +842,10 @@ function reminderStatus(reminder: PluginReminderRecord): string {
       return "Notification requested";
     case "failed":
       return "Needs retry";
+    case "completed":
+      return "Completed";
+    case "dismissed":
+      return "Dismissed";
   }
 }
 

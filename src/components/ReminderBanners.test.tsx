@@ -37,6 +37,8 @@ function bump(id: string, title: string): ReminderBump {
       attemptCount: 1,
       deliveringAt: null,
       notifiedAt: Date.parse("2026-10-01T09:00:00Z"),
+      completedAt: null,
+      dismissedAt: null,
       lastError: null,
     },
   };

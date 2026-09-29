@@ -61,10 +61,18 @@ Use:
 - **Open note** to navigate through Denote's ordinary file flow when the
   reminder is linked.
 - **Snooze** to schedule the configured number of minutes from now.
-- **Dismiss** to remove a one-time reminder.
-- **Next occurrence** to advance a recurring reminder.
-- **Delete series** to remove a recurring reminder completely.
+- **Complete** to move a one-time reminder to Completed, or record one recurring
+  occurrence and schedule the next.
+- **Next occurrence** to advance a recurring reminder without completing it.
+- **Dismiss** or **Dismiss series** to move it to Dismissed without deletion.
+- **Restore** to reactivate a dismissed reminder.
+- **Copy** to prefill a new reminder from any Active, Completed, or Dismissed
+  row.
+- **Delete** to permanently remove a Completed or Dismissed reminder.
 - **Retry notification** after a reported native notification error.
+
+Switch between **Active**, **Completed**, and **Dismissed** above the list.
+Archived reminders do not contribute to the numbered badge or in-app banners.
 
 Heading and task text is used only to choose the target. Persisted links keep the
 vault-relative note path and source line, not copied note body text. Reminder

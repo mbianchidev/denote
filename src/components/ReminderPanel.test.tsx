@@ -138,6 +138,8 @@ describe("ReminderPanel", () => {
       attemptCount: 1,
       deliveringAt: null,
       notifiedAt: null,
+      completedAt: null,
+      dismissedAt: null,
       lastError: "Synthetic notification failure",
     };
     const controller = scheduler([reminder]);
@@ -200,6 +202,15 @@ describe("ReminderPanel", () => {
       }),
     );
 
+    await user.click(screen.getByRole("button", { name: "Complete" }));
+    expect(controller.mutate).toHaveBeenCalledWith(
+      provider,
+      expect.objectContaining({
+        type: "complete",
+        id: reminder.id,
+      }),
+    );
+
     await user.click(screen.getByRole("button", { name: "Dismiss" }));
     expect(controller.mutate).toHaveBeenCalledWith(
       provider,
@@ -236,6 +247,8 @@ describe("ReminderPanel", () => {
       attemptCount: 1,
       deliveringAt: null,
       notifiedAt: Date.parse("2026-10-01T09:00:00Z"),
+      completedAt: null,
+      dismissedAt: null,
       lastError: null,
     };
     const controller = scheduler([reminder]);
@@ -271,19 +284,117 @@ describe("ReminderPanel", () => {
     expect(controller.mutate).toHaveBeenCalledWith(
       provider,
       expect.objectContaining({
-        type: "dismiss",
+        type: "advance",
         id: reminder.id,
       }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Delete series" }),
+      screen.getByRole("button", { name: "Dismiss series" }),
     );
     expect(controller.mutate).toHaveBeenCalledWith(
       provider,
       expect.objectContaining({
-        type: "remove",
+        type: "dismiss",
         id: reminder.id,
       }),
     );
+  });
+
+  it("archives reminders into separate views and copies from any stage", async () => {
+    const user = userEvent.setup();
+    const base: PluginReminderRecord = {
+      id: "base",
+      title: "Base reminder",
+      target: {
+        kind: "standalone",
+        path: null,
+        noteTitle: null,
+        line: null,
+      },
+      schedule: {
+        kind: "wall-clock",
+        localDateTime: "2026-10-01T09:00",
+        timeZone: "UTC",
+      },
+      recurrence: null,
+      dueAt: Date.parse("2026-10-01T09:00:00Z"),
+      snoozedUntil: null,
+      snoozeTimeZone: null,
+      status: "scheduled",
+      createdAt: Date.parse("2026-09-01T09:00:00Z"),
+      updatedAt: Date.parse("2026-10-01T09:00:00Z"),
+      attemptCount: 0,
+      deliveringAt: null,
+      notifiedAt: null,
+      completedAt: null,
+      dismissedAt: null,
+      lastError: null,
+    };
+    const dismissed: PluginReminderRecord = {
+      ...base,
+      id: "dismissed",
+      title: "Dismissed reminder",
+      status: "dismissed",
+      dismissedAt: Date.parse("2026-10-01T10:00:00Z"),
+    };
+    const completed: PluginReminderRecord = {
+      ...base,
+      id: "completed",
+      title: "Completed reminder",
+      status: "completed",
+      completedAt: Date.parse("2026-10-01T10:00:00Z"),
+    };
+    const controller = scheduler([dismissed, completed]);
+    render(
+      <ReminderPanel
+        provider={provider}
+        document={null}
+        parseTargets={vi.fn(async () => ({
+          targets: [{
+            id: "standalone",
+            kind: "standalone" as const,
+            path: null,
+            noteTitle: null,
+            line: null,
+            label: "No note",
+          }],
+          truncated: false,
+          notices: [],
+        }))}
+        scheduler={controller}
+        encrypted={false}
+        onOpenFile={vi.fn(async () => {})}
+        onError={vi.fn()}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Dismissed (1)" }),
+    );
+    expect(screen.getByText("Dismissed reminder")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(
+      screen.getByRole("heading", { name: "Copy reminder" }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel copy" }));
+    await user.click(screen.getByRole("button", { name: "Restore" }));
+    expect(controller.mutate).toHaveBeenCalledWith(
+      provider,
+      expect.objectContaining({
+        type: "restore",
+        id: dismissed.id,
+      }),
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Completed (1)" }),
+    );
+    expect(screen.getByText("Completed reminder")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Restore" }))
+      .not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(
+      screen.getByRole("button", { name: "Create copy" }),
+    ).toBeInTheDocument();
   });
 });

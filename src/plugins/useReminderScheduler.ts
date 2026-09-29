@@ -232,7 +232,15 @@ export function useReminderScheduler({
           error: null,
         }));
         if (
-          ["update", "snooze", "dismiss", "remove"].includes(mutation.type)
+          [
+            "update",
+            "snooze",
+            "dismiss",
+            "complete",
+            "restore",
+            "advance",
+            "remove",
+          ].includes(mutation.type)
         ) {
           forgetReminderBumps(provider, mutation.id);
         }
@@ -538,8 +546,7 @@ export function useReminderScheduler({
       const timestamp = now();
       return (
         states[reminderProviderKey(provider)]?.model?.reminders.filter(
-          (reminder) =>
-            reminder.status !== "scheduled" || reminder.dueAt <= timestamp,
+          (reminder) => reminderNeedsAttention(reminder, timestamp),
         ).length ?? 0
       );
     },
@@ -605,4 +612,16 @@ function reminderNotificationBody(reminder: PluginReminderRecord): string {
           reminder.target.kind === "heading" ? "heading" : "task"
         } at line ${reminder.target.line}`;
   return `Reminder for ${target}. Open Denote for snooze, dismiss, and open-note actions.`;
+}
+
+function reminderNeedsAttention(
+  reminder: PluginReminderRecord,
+  now: number,
+): boolean {
+  return (
+    reminder.status === "delivering" ||
+    reminder.status === "notified" ||
+    reminder.status === "failed" ||
+    (reminder.status === "scheduled" && reminder.dueAt <= now)
+  );
 }

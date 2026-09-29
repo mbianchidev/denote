@@ -44,6 +44,8 @@ function model(status: "scheduled" | "delivering" | "notified" | "failed"): Plug
         attemptCount: status === "scheduled" ? 0 : 1,
         deliveringAt: status === "delivering" ? now : null,
         notifiedAt: status === "notified" ? now : null,
+        completedAt: null,
+        dismissedAt: null,
         lastError: status === "failed" ? "Synthetic failure" : null,
       },
     ],
@@ -148,5 +150,42 @@ describe("useReminderScheduler", () => {
         }),
       ),
     );
+  });
+
+  it("does not badge or bump completed and dismissed reminders", async () => {
+    const completed = {
+      ...model("notified").reminders[0],
+      id: "completed",
+      status: "completed" as const,
+      notifiedAt: null,
+      completedAt: now,
+    };
+    const dismissed = {
+      ...model("notified").reminders[0],
+      id: "dismissed",
+      status: "dismissed" as const,
+      notifiedAt: null,
+      dismissedAt: now,
+    };
+    const queryReminders = vi.fn(async () => ({
+      reminders: [completed, dismissed],
+      truncated: false,
+      notices: [],
+    }));
+    const { result } = renderHook(() =>
+      useReminderScheduler({
+        providers: [provider],
+        workspaceId: "synthetic-scope",
+        queryReminders,
+        mutateReminders: vi.fn(),
+        reportError: vi.fn(),
+        notify: vi.fn(),
+        now: nowValue,
+      }),
+    );
+
+    await waitFor(() => expect(queryReminders).toHaveBeenCalled());
+    expect(result.current.dueCountFor(provider)).toBe(0);
+    expect(result.current.bumps).toEqual([]);
   });
 });

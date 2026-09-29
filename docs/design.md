@@ -755,10 +755,13 @@ The reminder list is a flat work queue, not a dashboard. Each row shows the
 name, written state, scheduled time with zone, optional vault-relative link,
 generic heading/task line anchor, and recurrence. Native buttons expose
 **Edit**, optional **Open note**, **Snooze**, **Retry notification**,
-**Next occurrence**, **Delete series**, **Dismiss**, or **Cancel** only when
-each action applies. Notification failures include written details and preserve
-the row. Loading, empty, storage, parse, stale-workspace, and retry states use
-one polite status region and do not depend on color.
+**Complete**, **Next occurrence**, **Dismiss**, **Restore**, **Copy**,
+**Delete**, or **Cancel** only when each action applies. A compact
+**Active** / **Completed** / **Dismissed** group uses visible `aria-pressed`
+state and stable counts. Dismiss moves a reminder to its archive rather than
+deleting it. Notification failures include written details and preserve the row.
+Loading, empty, storage, parse, stale-workspace, and retry states use one polite
+status region and do not depend on color.
 
 The activity-rail control uses the bell icon, a visible bounded number badge,
 and the same count in its accessible name when reminders need attention. Due

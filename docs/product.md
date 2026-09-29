@@ -471,12 +471,14 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - The Reminders panel is the authoritative action surface because portable
   desktop notification buttons and click callbacks are unavailable. It exposes
   written delivery state plus edit, optional **Open note**, **Snooze**,
-  next-occurrence, series deletion, dismissal, and retry controls. Due reminders
-  also create persistent in-app banners and a numbered activity-rail badge with
-  a polite announcement. Native notification dispatch is best effort; command
-  failures stay visible and retryable. Disabling withdraws the view and cancels
-  host timers and in-flight follow-up without deleting records; **Clear data**
-  removes them explicitly.
+  completion, next-occurrence, archival dismissal, restore, permanent deletion,
+  copy, and retry controls. Active, Completed, and Dismissed views keep lifecycle
+  states separate. Completing a recurring occurrence records a completed copy
+  and advances the live series. Due reminders also create persistent in-app
+  banners and a numbered activity-rail badge with a polite announcement. Native
+  notification dispatch is best effort; command failures stay visible and
+  retryable. Disabling withdraws the view and cancels host timers and in-flight
+  follow-up without deleting records; **Clear data** removes them explicitly.
 - The independently installable **Kanban boards** plugin is disabled by default
   and requests only `kanban-board`. Files ending in `.kanban.md` or
   `.kanban.markdown` switch between exact Markdown source and a host-rendered

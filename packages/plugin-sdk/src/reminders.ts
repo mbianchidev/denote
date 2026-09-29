@@ -217,6 +217,17 @@ function isPluginReminderMutation(
         isTimestamp(value.updatedAt)
       );
     case "dismiss":
+      return isTimestamp(value.dismissedAt);
+    case "complete":
+      return (
+        safeId(value.historyId) &&
+        value.historyId !== value.id &&
+        isTimestamp(value.completedAt)
+      );
+    case "restore":
+      return isTimestamp(value.restoredAt);
+    case "advance":
+      return isTimestamp(value.advancedAt);
     case "remove":
       return isTimestamp(value.updatedAt);
     case "delivery-started":
@@ -248,7 +259,14 @@ function isPluginReminderRecord(
     (value.snoozeTimeZone !== null &&
       !isReminderTimeZone(value.snoozeTimeZone)) ||
     (value.snoozedUntil === null) !== (value.snoozeTimeZone === null) ||
-    !["scheduled", "delivering", "notified", "failed"].includes(
+    ![
+      "scheduled",
+      "delivering",
+      "notified",
+      "failed",
+      "completed",
+      "dismissed",
+    ].includes(
       String(value.status),
     ) ||
     !isTimestamp(value.createdAt) ||
@@ -257,6 +275,8 @@ function isPluginReminderRecord(
     value.attemptCount > MAX_PLUGIN_REMINDER_DELIVERY_ATTEMPTS ||
     !isNullableTimestamp(value.deliveringAt) ||
     !isNullableTimestamp(value.notifiedAt) ||
+    !isNullableTimestamp(value.completedAt) ||
+    !isNullableTimestamp(value.dismissedAt) ||
     (value.lastError !== null &&
       !safeDisplayText(value.lastError, MAX_PLUGIN_REMINDER_ERROR_BYTES))
   ) {
@@ -267,25 +287,49 @@ function isPluginReminderRecord(
       return (
         value.deliveringAt === null &&
         value.notifiedAt === null &&
+        value.completedAt === null &&
+        value.dismissedAt === null &&
         value.lastError === null
       );
     case "delivering":
       return (
         value.deliveringAt !== null &&
         value.notifiedAt === null &&
+        value.completedAt === null &&
+        value.dismissedAt === null &&
         value.lastError === null
       );
     case "notified":
       return (
         value.deliveringAt === null &&
         value.notifiedAt !== null &&
+        value.completedAt === null &&
+        value.dismissedAt === null &&
         value.lastError === null
       );
     case "failed":
       return (
         value.deliveringAt === null &&
         value.notifiedAt === null &&
+        value.completedAt === null &&
+        value.dismissedAt === null &&
         value.lastError !== null
+      );
+    case "completed":
+      return (
+        value.deliveringAt === null &&
+        value.notifiedAt === null &&
+        value.completedAt !== null &&
+        value.dismissedAt === null &&
+        value.lastError === null
+      );
+    case "dismissed":
+      return (
+        value.deliveringAt === null &&
+        value.notifiedAt === null &&
+        value.completedAt === null &&
+        value.dismissedAt !== null &&
+        value.lastError === null
       );
   }
   return false;

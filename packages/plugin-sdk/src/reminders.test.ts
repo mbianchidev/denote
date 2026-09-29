@@ -46,6 +46,8 @@ const reminder = {
   attemptCount: 0,
   deliveringAt: null,
   notifiedAt: null,
+  completedAt: null,
+  dismissedAt: null,
   lastError: null,
 };
 
@@ -150,7 +152,27 @@ describe("reminder contracts", () => {
         timeZone: "Europe/Rome",
         updatedAt: reminder.updatedAt,
       },
-      { type: "dismiss", id: reminder.id, updatedAt: reminder.updatedAt },
+      {
+        type: "dismiss",
+        id: reminder.id,
+        dismissedAt: reminder.updatedAt,
+      },
+      {
+        type: "complete",
+        id: reminder.id,
+        historyId: "completed-reminder",
+        completedAt: reminder.updatedAt,
+      },
+      {
+        type: "restore",
+        id: reminder.id,
+        restoredAt: reminder.updatedAt,
+      },
+      {
+        type: "advance",
+        id: reminder.id,
+        advancedAt: reminder.updatedAt,
+      },
       { type: "remove", id: reminder.id, updatedAt: reminder.updatedAt },
       {
         type: "delivery-started",

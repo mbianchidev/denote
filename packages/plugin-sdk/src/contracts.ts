@@ -718,7 +718,9 @@ export type PluginReminderStatus =
   | "scheduled"
   | "delivering"
   | "notified"
-  | "failed";
+  | "failed"
+  | "completed"
+  | "dismissed";
 
 export type PluginReminderRecurrenceUnit =
   | "minute"
@@ -748,6 +750,8 @@ export interface PluginReminderRecord {
   attemptCount: number;
   deliveringAt: number | null;
   notifiedAt: number | null;
+  completedAt: number | null;
+  dismissedAt: number | null;
   lastError: string | null;
 }
 
@@ -785,7 +789,23 @@ export type PluginReminderMutation =
   | {
       type: "dismiss";
       id: string;
-      updatedAt: number;
+      dismissedAt: number;
+    }
+  | {
+      type: "complete";
+      id: string;
+      historyId: string;
+      completedAt: number;
+    }
+  | {
+      type: "restore";
+      id: string;
+      restoredAt: number;
+    }
+  | {
+      type: "advance";
+      id: string;
+      advancedAt: number;
     }
   | {
       type: "remove";
