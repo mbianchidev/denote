@@ -4,6 +4,7 @@ import type {
   PluginReminderMutation,
   PluginReminderMutationRequest,
   PluginReminderQuery,
+  PluginReminderRecurrence,
   PluginReminderRecord,
   PluginReminderSchedule,
   PluginReminderTarget,
@@ -19,6 +20,7 @@ export const MAX_PLUGIN_REMINDER_NOTIFICATION_TITLE_BYTES = 120;
 export const MAX_PLUGIN_REMINDER_NOTIFICATION_BODY_BYTES = 1_024;
 export const MAX_PLUGIN_REMINDER_ERROR_BYTES = 2_048;
 export const MAX_PLUGIN_REMINDER_DELIVERY_ATTEMPTS = 10_000;
+export const MAX_PLUGIN_REMINDER_RECURRENCE_INTERVAL = 999;
 
 const SAFE_TEXT =
   /^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]*$/u;
@@ -46,11 +48,13 @@ export function isPluginReminderTargetsRequest(
 ): value is PluginReminderTargetsRequest {
   return (
     isRecord(value) &&
-    isRecord(value.document) &&
-    safePath(value.document.path) &&
-    safeSingleLine(value.document.title, 200) &&
-    typeof value.document.source === "string" &&
-    stringBytes(value.document.source) <= MAX_PLUGIN_REMINDER_DOCUMENT_BYTES
+    (value.document === null ||
+      (isRecord(value.document) &&
+        safePath(value.document.path) &&
+        safeSingleLine(value.document.title, 200) &&
+        typeof value.document.source === "string" &&
+        stringBytes(value.document.source) <=
+          MAX_PLUGIN_REMINDER_DOCUMENT_BYTES))
   );
 }
 
@@ -195,14 +199,25 @@ function isPluginReminderMutation(
         safeDisplayText(value.title, MAX_PLUGIN_REMINDER_TITLE_BYTES) &&
         isPluginReminderTarget(value.target) &&
         isPluginReminderSchedule(value.schedule) &&
+        isNullableRecurrence(value.recurrence) &&
         isTimestamp(value.createdAt)
+      );
+    case "update":
+      return (
+        safeDisplayText(value.title, MAX_PLUGIN_REMINDER_TITLE_BYTES) &&
+        isPluginReminderTarget(value.target) &&
+        isPluginReminderSchedule(value.schedule) &&
+        isNullableRecurrence(value.recurrence) &&
+        isTimestamp(value.updatedAt)
       );
     case "snooze":
       return (
-        isPluginReminderSchedule(value.schedule) &&
+        isTimestamp(value.dueAt) &&
+        isReminderTimeZone(value.timeZone) &&
         isTimestamp(value.updatedAt)
       );
     case "dismiss":
+    case "remove":
       return isTimestamp(value.updatedAt);
     case "delivery-started":
       return isTimestamp(value.startedAt);
@@ -227,7 +242,12 @@ function isPluginReminderRecord(
     !safeDisplayText(value.title, MAX_PLUGIN_REMINDER_TITLE_BYTES) ||
     !isPluginReminderLink(value.target) ||
     !isPluginReminderSchedule(value.schedule) ||
+    !isNullableRecurrence(value.recurrence) ||
     !isTimestamp(value.dueAt) ||
+    !isNullableTimestamp(value.snoozedUntil) ||
+    (value.snoozeTimeZone !== null &&
+      !isReminderTimeZone(value.snoozeTimeZone)) ||
+    (value.snoozedUntil === null) !== (value.snoozeTimeZone === null) ||
     !["scheduled", "delivering", "notified", "failed"].includes(
       String(value.status),
     ) ||
@@ -283,8 +303,17 @@ function isPluginReminderTarget(
 }
 
 function isPluginReminderLink(value: unknown): value is PluginReminderLink {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (value.kind === "standalone") {
+    return (
+      value.path === null &&
+      value.noteTitle === null &&
+      value.line === null
+    );
+  }
   if (
-    !isRecord(value) ||
     !["note", "heading", "task"].includes(String(value.kind)) ||
     !safePath(value.path) ||
     !safeSingleLine(value.noteTitle, 200)
@@ -294,6 +323,23 @@ function isPluginReminderLink(value: unknown): value is PluginReminderLink {
   return value.kind === "note"
     ? value.line === null
     : positiveInteger(value.line);
+}
+
+export function isPluginReminderRecurrence(
+  value: unknown,
+): value is PluginReminderRecurrence {
+  return (
+    isRecord(value) &&
+    positiveInteger(value.interval) &&
+    value.interval <= MAX_PLUGIN_REMINDER_RECURRENCE_INTERVAL &&
+    ["day", "week", "month", "year"].includes(String(value.unit))
+  );
+}
+
+function isNullableRecurrence(
+  value: unknown,
+): value is PluginReminderRecurrence | null {
+  return value === null || isPluginReminderRecurrence(value);
 }
 
 function isPluginReminderSchedule(

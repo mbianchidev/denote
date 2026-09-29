@@ -3,6 +3,7 @@ import {
   isPluginReminderModel,
   isPluginReminderMutationRequest,
   isPluginReminderQuery,
+  isPluginReminderRecurrence,
   isPluginReminderRegistration,
   isPluginReminderTargetsModel,
   isPluginReminderTargetsRequest,
@@ -35,7 +36,10 @@ const reminder = {
     localDateTime: "2026-10-25T09:30",
     timeZone: "Europe/Rome",
   },
+  recurrence: null,
   dueAt: 1_793_000_000_000,
+  snoozedUntil: null,
+  snoozeTimeZone: null,
   status: "scheduled" as const,
   createdAt: 1_792_000_000_000,
   updatedAt: 1_792_000_000_000,
@@ -70,9 +74,18 @@ describe("reminder contracts", () => {
         },
       }),
     ).toBe(true);
+    expect(isPluginReminderTargetsRequest({ document: null })).toBe(true);
     expect(
       isPluginReminderTargetsModel({
         targets: [
+          {
+            id: "standalone",
+            kind: "standalone",
+            path: null,
+            noteTitle: null,
+            line: null,
+            label: "No note",
+          },
           {
             id: "note",
             kind: "note",
@@ -101,6 +114,12 @@ describe("reminder contracts", () => {
     expect(isReminderLocalDateTime("2026-10-25T24:00")).toBe(false);
     expect(isReminderTimeZone("Europe/Rome")).toBe(true);
     expect(isReminderTimeZone("Not/AZone")).toBe(false);
+    expect(
+      isPluginReminderRecurrence({ interval: 2, unit: "week" }),
+    ).toBe(true);
+    expect(
+      isPluginReminderRecurrence({ interval: 0, unit: "week" }),
+    ).toBe(false);
 
     for (const mutation of [
       {
@@ -109,19 +128,27 @@ describe("reminder contracts", () => {
         title: reminder.title,
         target,
         schedule: reminder.schedule,
+        recurrence: { interval: 2, unit: "week" },
         createdAt: reminder.createdAt,
+      },
+      {
+        type: "update",
+        id: reminder.id,
+        title: "Updated release",
+        target,
+        schedule: reminder.schedule,
+        recurrence: null,
+        updatedAt: reminder.updatedAt,
       },
       {
         type: "snooze",
         id: reminder.id,
-        schedule: {
-          kind: "instant",
-          dueAt: reminder.dueAt + 15 * 60_000,
-          timeZone: "Europe/Rome",
-        },
+        dueAt: reminder.dueAt + 15 * 60_000,
+        timeZone: "Europe/Rome",
         updatedAt: reminder.updatedAt,
       },
       { type: "dismiss", id: reminder.id, updatedAt: reminder.updatedAt },
+      { type: "remove", id: reminder.id, updatedAt: reminder.updatedAt },
       {
         type: "delivery-started",
         id: reminder.id,

@@ -408,30 +408,40 @@ by default and asks for separate **Reminders** and **Notifications** approvals
 only when you choose **Enable**. It has no network, process, clipboard,
 credential, general workspace-read/write, DOM, or native API access.
 
-Open a UTF-8 Markdown note and choose **Reminders** in the activity rail. The
-creation form can link a reminder to the whole note, a parsed heading, or a
-standard Markdown task. Enter a reminder name and future local date and time.
-Creating a reminder stores local plugin metadata; it never inserts syntax into
-the note or changes its bytes.
+Choose **Reminders** in the activity rail. No note is required: **No note**
+creates a standalone reminder. When a UTF-8 Markdown note is open, the target
+list also offers the whole note, parsed headings, and standard tasks. Enter a
+name and future local date and time. **Edit** changes the name, target, date,
+time, or repeat rule without changing note bytes.
 
 Wall-clock reminders retain the civil time and the IANA time zone shown in the
 form. Changing the computer's current time zone does not rewrite that intent.
 When a daylight-saving fall-back hour repeats, Reminders uses its earlier
 occurrence. A time skipped by a spring-forward transition is refused instead of
 moving silently. **Snooze** schedules the configured number of minutes from
-now.
+now. Repeat rules support every N days, weeks, months, or years. Monthly and
+yearly schedules clamp to the last day of a short month. A recurring occurrence
+inside a skipped daylight-saving time is skipped rather than moved silently.
 
 Denote rechecks reminders while running, when the window regains focus, after
 sleep, and when the plugin or vault becomes available again. Overdue reminders
 therefore catch up after an application restart. Up to five are sent as
 individual native notifications; a larger backlog uses one summary
 notification while every item remains listed in the panel.
+Each due reminder also creates an in-app banner. Up to three banners remain
+visible; an additional count points to the panel. The bell in the activity rail
+shows a numbered badge and exposes the same count to assistive technology.
 
 The Reminders panel is the reliable action surface:
 
-- **Open note** uses ordinary Denote navigation.
+- **Edit** changes the reminder.
+- **Open note** appears only for linked reminders and uses ordinary Denote
+  navigation.
 - **Snooze** reschedules a notified or failed reminder.
-- **Dismiss** removes it; **Cancel** removes a future reminder.
+- **Dismiss** removes a one-time reminder.
+- **Next occurrence** advances a recurring reminder; **Delete series** removes
+  it completely.
+- **Cancel** or **Cancel series** removes a future reminder.
 - **Retry notification** repeats only a failed native dispatch.
 
 Desktop operating systems do not expose one portable notification-button or
@@ -448,8 +458,8 @@ the operating system's notification history or lock screen. Disablement removes
 the view, stops the worker, and cancels host scheduling without deleting those
 records. Use **Clear data** in plugin settings to remove them.
 
-Try [Reminder targets](<../plugins/Reminders.md>) for an invented note, heading,
-and two tasks. The example never creates a reminder until you choose a future
+Try [Reminder targets](<../plugins/Reminders.md>) for standalone, note, heading,
+and task targets. The example never creates a reminder until you choose a future
 time yourself.
 
 ## Note graph

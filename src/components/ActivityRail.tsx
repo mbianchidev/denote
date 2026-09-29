@@ -94,6 +94,7 @@ interface PluginRailItem {
     | "calendar"
     | "reminders";
   ariaLabel?: string;
+  badgeCount?: number;
   onSelect: () => void;
 }
 
@@ -218,6 +219,7 @@ function ActivityRailComponent({
           activeReminder?.pluginId === provider.pluginId &&
           activeReminder.providerId === provider.id,
         kind: "reminders" as const,
+        badgeCount: dueCount,
         onSelect: () => onReminderChange(provider.pluginId, provider.id),
       };
     });
@@ -388,6 +390,14 @@ function ActivityRailComponent({
                       ) : (
                         <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
                       )}
+                      {item.badgeCount ? (
+                        <span
+                          className="activity-rail__badge"
+                          aria-hidden="true"
+                        >
+                          {item.badgeCount > 99 ? "99+" : item.badgeCount}
+                        </span>
+                      ) : null}
                     </button>
                   ))}
             </div>

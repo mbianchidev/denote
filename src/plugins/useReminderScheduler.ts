@@ -21,6 +21,12 @@ export interface ReminderProviderState {
   error: string | null;
 }
 
+export interface ReminderBump {
+  id: string;
+  provider: PluginReminderContribution;
+  reminder: PluginReminderRecord;
+}
+
 interface ReminderSchedulerOptions {
   providers: PluginReminderContribution[];
   workspaceId: string | null;
@@ -40,6 +46,7 @@ interface ReminderSchedulerOptions {
 }
 
 export interface ReminderSchedulerController {
+  bumps: ReminderBump[];
   stateFor: (provider: PluginReminderContribution) => ReminderProviderState;
   dueCountFor: (provider: PluginReminderContribution) => number;
   mutate: (
@@ -51,6 +58,8 @@ export interface ReminderSchedulerController {
     reminder: PluginReminderRecord,
   ) => Promise<void>;
   refresh: (provider?: PluginReminderContribution) => Promise<void>;
+  dismissBump: (id: string) => void;
+  clearBumpsFor: (provider: PluginReminderContribution) => void;
 }
 
 const EMPTY_STATE: ReminderProviderState = {
@@ -71,6 +80,7 @@ export function useReminderScheduler({
   const [states, setStates] = useState<Record<string, ReminderProviderState>>(
     {},
   );
+  const [bumps, setBumps] = useState<ReminderBump[]>([]);
   const generation = useRef(0);
   const providersRef = useRef(providers);
   providersRef.current = providers;
@@ -79,6 +89,7 @@ export function useReminderScheduler({
   const tails = useRef(new Map<string, Promise<unknown>>());
   const delivering = useRef(new Set<string>());
   const reportedErrors = useRef(new Map<string, string>());
+  const seenBumps = useRef(new Set<string>());
   const providerKeys = useMemo(
     () => new Set(providers.map(reminderProviderKey)),
     [providers],
@@ -111,6 +122,63 @@ export function useReminderScheduler({
         ...previous,
         [providerKey]: update(previous[providerKey] ?? EMPTY_STATE),
       }));
+    },
+    [],
+  );
+
+  const forgetReminderBumps = useCallback(
+    (provider: PluginReminderContribution, reminderId: string) => {
+      const scope = workspaceRef.current;
+      if (!scope) {
+        return;
+      }
+      const prefix = `${scope}\u0000${reminderProviderKey(provider)}\u0000${reminderId}\u0000`;
+      for (const key of seenBumps.current) {
+        if (key.startsWith(prefix)) {
+          seenBumps.current.delete(key);
+        }
+      }
+      setBumps((current) =>
+        current.filter(
+          (bump) =>
+            bump.provider.pluginId !== provider.pluginId ||
+            bump.provider.id !== provider.id ||
+            bump.reminder.id !== reminderId,
+        ),
+      );
+    },
+    [],
+  );
+
+  const showBump = useCallback(
+    (
+      provider: PluginReminderContribution,
+      reminder: PluginReminderRecord,
+    ) => {
+      const scope = workspaceRef.current;
+      if (!scope) {
+        return;
+      }
+      const id = `${scope}\u0000${reminderProviderKey(provider)}\u0000${reminder.id}\u0000${reminder.dueAt}`;
+      if (seenBumps.current.has(id)) {
+        return;
+      }
+      seenBumps.current.add(id);
+      setBumps((current) => [
+        ...current,
+        {
+          id,
+          provider,
+          reminder: {
+            ...reminder,
+            target: { ...reminder.target },
+            schedule: { ...reminder.schedule },
+            recurrence: reminder.recurrence
+              ? { ...reminder.recurrence }
+              : null,
+          },
+        },
+      ]);
     },
     [],
   );
@@ -163,6 +231,11 @@ export function useReminderScheduler({
           loading: false,
           error: null,
         }));
+        if (
+          ["update", "snooze", "dismiss", "remove"].includes(mutation.type)
+        ) {
+          forgetReminderBumps(provider, mutation.id);
+        }
         return model;
       });
     },
@@ -171,6 +244,7 @@ export function useReminderScheduler({
       enqueue,
       mutateReminders,
       now,
+      forgetReminderBumps,
       setProviderState,
     ],
   );
@@ -279,6 +353,9 @@ export function useReminderScheduler({
       if (due.length === 0) {
         return;
       }
+      for (const reminder of due) {
+        showBump(provider, reminder);
+      }
       if (due.length <= MAX_INDIVIDUAL_NOTIFICATIONS) {
         for (const reminder of due) {
           await deliverOne(provider, reminder);
@@ -327,6 +404,7 @@ export function useReminderScheduler({
       notify,
       now,
       reportError,
+      showBump,
     ],
   );
 
@@ -363,6 +441,11 @@ export function useReminderScheduler({
           loading: false,
           error: null,
         }));
+        for (const reminder of model.reminders) {
+          if (reminder.status === "notified" || reminder.status === "failed") {
+            showBump(provider, reminder);
+          }
+        }
         await deliverDue(provider, model);
       } catch (error) {
         if (!current(expectedGeneration, scope, key)) {
@@ -387,6 +470,7 @@ export function useReminderScheduler({
       now,
       queryReminders,
       reportError,
+      showBump,
       setProviderState,
     ],
   );
@@ -406,6 +490,8 @@ export function useReminderScheduler({
 
   useEffect(() => {
     generation.current += 1;
+    seenBumps.current.clear();
+    setBumps([]);
     const activeProviders = providersRef.current;
     const activeKeys = new Set(activeProviders.map(reminderProviderKey));
     setStates((previous) =>
@@ -473,12 +559,32 @@ export function useReminderScheduler({
     [deliverOne],
   );
 
+  const dismissBump = useCallback((id: string) => {
+    setBumps((current) => current.filter((bump) => bump.id !== id));
+  }, []);
+
+  const clearBumpsFor = useCallback(
+    (provider: PluginReminderContribution) => {
+      setBumps((current) =>
+        current.filter(
+          (bump) =>
+            bump.provider.pluginId !== provider.pluginId ||
+            bump.provider.id !== provider.id,
+        ),
+      );
+    },
+    [],
+  );
+
   return {
+    bumps,
     stateFor,
     dueCountFor,
     mutate,
     retry,
     refresh,
+    dismissBump,
+    clearBumpsFor,
   };
 }
 
@@ -489,10 +595,13 @@ export function reminderProviderKey(
 }
 
 function reminderNotificationBody(reminder: PluginReminderRecord): string {
+  if (reminder.target.kind === "standalone") {
+    return "Open Denote for snooze, dismiss, and edit actions.";
+  }
   const target =
     reminder.target.kind === "note"
-      ? reminder.target.noteTitle
-      : `${reminder.target.noteTitle}, ${
+      ? reminder.target.noteTitle ?? reminder.target.path ?? "linked note"
+      : `${reminder.target.noteTitle ?? reminder.target.path ?? "linked note"}, ${
           reminder.target.kind === "heading" ? "heading" : "task"
         } at line ${reminder.target.line}`;
   return `Reminder for ${target}. Open Denote for snooze, dismiss, and open-note actions.`;

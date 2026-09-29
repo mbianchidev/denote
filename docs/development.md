@@ -655,10 +655,11 @@ ignored and are published only by the ordinary release workflow.
 Use `npm run dev:plugin -- denote.reminders` and load the ignored archive in the
 isolated development application. Reminders targets Denote 0.7.1 and requests
 both `reminders` and `notifications`; registration must fail when either
-approval is absent. Plugin code owns Markdown target parsing, civil-time/DST
-resolution, vault-scoped storage, quotas, and typed state transitions. The host
-owns the activity-rail panel, 30-second wall-clock rechecks, focus catch-up,
-generation guards, native notification dispatch, and teardown.
+approval is absent. Plugin code owns optional Markdown target parsing,
+civil-time/DST and recurrence resolution, storage migration, vault-scoped
+storage, quotas, and typed state transitions. The host owns the activity-rail
+panel, edit form, banner stack, numbered badge, 30-second wall-clock rechecks,
+focus catch-up, generation guards, native notification dispatch, and teardown.
 
 ```bash
 npx vitest run \
@@ -669,6 +670,7 @@ npx vitest run \
   src/plugins/usePlugins.test.tsx \
   src/plugins/useReminderScheduler.test.tsx \
   src/components/ReminderPanel.test.tsx \
+  src/components/ReminderBanners.test.tsx \
   src/components/ActivityRail.test.tsx \
   src/App.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml \
@@ -681,9 +683,11 @@ Cover fall-back ambiguity, spring-forward gaps, system-zone changes, long future
 dates, sleep/focus catch-up, overdue summary bounds, stale workspace or disabled
 provider races, persisted `delivering` recovery, notification failures, manual
 retry, snooze, dismiss, storage corruption/quota, encrypted-vault disclosure,
-forced colors, focus, and synthetic note/heading/task targets. Native dispatch
-success only means the operating system accepted the request; do not test Focus
-or notification-center policy as delivery success.
+forced colors, focus, standalone and synthetic note/heading/task targets,
+editing, every-N recurrence, short-month and leap-day clamping, recurring DST
+gaps, series advancement/deletion, banner bounds, and badge counts. Native
+dispatch success only means the operating system accepted the request; do not
+test Focus or notification-center policy as delivery success.
 
 Stage with `npm run package:plugin -- denote.reminders`. Commit SDK, host, plugin,
 tests, docs, lockfile, and Welcome `plugins-v3` inputs first. Pin that full

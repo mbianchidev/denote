@@ -664,7 +664,11 @@ export interface PluginCalendarCapability {
   register: (provider: PluginCalendarProvider) => PluginDisposable;
 }
 
-export type PluginReminderTargetKind = "note" | "heading" | "task";
+export type PluginReminderTargetKind =
+  | "standalone"
+  | "note"
+  | "heading"
+  | "task";
 
 export interface PluginReminderDocument {
   path: string;
@@ -675,21 +679,21 @@ export interface PluginReminderDocument {
 export interface PluginReminderTarget {
   id: string;
   kind: PluginReminderTargetKind;
-  path: string;
-  noteTitle: string;
+  path: string | null;
+  noteTitle: string | null;
   line: number | null;
   label: string;
 }
 
 export interface PluginReminderLink {
   kind: PluginReminderTargetKind;
-  path: string;
-  noteTitle: string;
+  path: string | null;
+  noteTitle: string | null;
   line: number | null;
 }
 
 export interface PluginReminderTargetsRequest {
-  document: PluginReminderDocument;
+  document: PluginReminderDocument | null;
 }
 
 export interface PluginReminderTargetsModel {
@@ -716,12 +720,26 @@ export type PluginReminderStatus =
   | "notified"
   | "failed";
 
+export type PluginReminderRecurrenceUnit =
+  | "day"
+  | "week"
+  | "month"
+  | "year";
+
+export interface PluginReminderRecurrence {
+  interval: number;
+  unit: PluginReminderRecurrenceUnit;
+}
+
 export interface PluginReminderRecord {
   id: string;
   title: string;
   target: PluginReminderLink;
   schedule: PluginReminderSchedule;
+  recurrence: PluginReminderRecurrence | null;
   dueAt: number;
+  snoozedUntil: number | null;
+  snoozeTimeZone: string | null;
   status: PluginReminderStatus;
   createdAt: number;
   updatedAt: number;
@@ -743,16 +761,32 @@ export type PluginReminderMutation =
       title: string;
       target: PluginReminderTarget;
       schedule: PluginReminderSchedule;
+      recurrence: PluginReminderRecurrence | null;
       createdAt: number;
+    }
+  | {
+      type: "update";
+      id: string;
+      title: string;
+      target: PluginReminderTarget;
+      schedule: PluginReminderSchedule;
+      recurrence: PluginReminderRecurrence | null;
+      updatedAt: number;
     }
   | {
       type: "snooze";
       id: string;
-      schedule: PluginReminderSchedule;
+      dueAt: number;
+      timeZone: string;
       updatedAt: number;
     }
   | {
       type: "dismiss";
+      id: string;
+      updatedAt: number;
+    }
+  | {
+      type: "remove";
       id: string;
       updatedAt: number;
     }

@@ -8,6 +8,7 @@ import {
   type PluginReminderModel,
   type PluginReminderMutationRequest,
   type PluginReminderQuery,
+  type PluginReminderRecurrence,
   type PluginReminderRecord,
   type PluginReminderSchedule,
   type PluginReminderTarget,
@@ -31,11 +32,20 @@ interface MarkdownNode {
 }
 
 interface StoredWorkspace {
-  version: 1;
+  version: 2;
   reminders: StoredReminder[];
 }
 
 type StoredReminder = Omit<PluginReminderRecord, "dueAt">;
+type StoredReminderV1 = Omit<
+  StoredReminder,
+  "recurrence" | "snoozedUntil" | "snoozeTimeZone"
+>;
+
+interface StoredWorkspaceV1 {
+  version: 1;
+  reminders: StoredReminderV1[];
+}
 
 const STORAGE_PREFIX = "reminders-v1-";
 const MAX_STORED_BYTES = 240 * 1024;
@@ -51,12 +61,12 @@ export class ReminderStore {
   }
 
   async query(request: PluginReminderQuery): Promise<PluginReminderModel> {
-    const workspace = await this.load(request.workspaceId);
+    const { workspace, migrated } = await this.load(request.workspaceId);
     const recovered = recoverInterruptedDeliveries(
       workspace.reminders,
       request.now,
     );
-    if (recovered > 0) {
+    if (migrated || recovered > 0) {
       await this.save(request.workspaceId, workspace);
     }
     return toModel(
@@ -74,7 +84,7 @@ export class ReminderStore {
   async mutate(
     request: PluginReminderMutationRequest,
   ): Promise<PluginReminderModel> {
-    const workspace = await this.load(request.workspaceId);
+    const { workspace } = await this.load(request.workspaceId);
     recoverInterruptedDeliveries(workspace.reminders, request.now);
     const mutation = request.mutation;
     const index = workspace.reminders.findIndex(
@@ -100,32 +110,64 @@ export class ReminderStore {
           title: mutation.title.trim(),
           target: storedLink(mutation.target),
           schedule: mutation.schedule,
+          recurrence: mutation.recurrence,
           status: "scheduled",
           createdAt: mutation.createdAt,
           updatedAt: mutation.createdAt,
           attemptCount: 0,
+          snoozedUntil: null,
+          snoozeTimeZone: null,
           deliveringAt: null,
           notifiedAt: null,
           lastError: null,
         });
         break;
       }
-      case "dismiss":
-        if (index === -1) {
-          throw new Error("The reminder no longer exists.");
+      case "update": {
+        const reminder = requireReminder(workspace.reminders, index);
+        const dueAt = resolveReminderSchedule(mutation.schedule);
+        if (dueAt <= request.now) {
+          throw new Error("Choose a reminder time in the future.");
         }
+        Object.assign(reminder, {
+          title: mutation.title.trim(),
+          target: storedLink(mutation.target),
+          schedule: mutation.schedule,
+          recurrence: mutation.recurrence,
+          status: "scheduled",
+          updatedAt: mutation.updatedAt,
+          attemptCount: 0,
+          snoozedUntil: null,
+          snoozeTimeZone: null,
+          deliveringAt: null,
+          notifiedAt: null,
+          lastError: null,
+        } satisfies Partial<StoredReminder>);
+        break;
+      }
+      case "dismiss": {
+        const reminder = requireReminder(workspace.reminders, index);
+        if (reminder.recurrence) {
+          advanceRecurringReminder(reminder, mutation.updatedAt);
+        } else {
+          workspace.reminders.splice(index, 1);
+        }
+        break;
+      }
+      case "remove":
+        requireReminder(workspace.reminders, index);
         workspace.reminders.splice(index, 1);
         break;
       case "snooze": {
         const reminder = requireReminder(workspace.reminders, index);
-        const dueAt = resolveReminderSchedule(mutation.schedule);
-        if (dueAt <= request.now) {
+        if (mutation.dueAt <= request.now) {
           throw new Error("Choose a snooze time in the future.");
         }
         Object.assign(reminder, {
-          schedule: mutation.schedule,
           status: "scheduled",
           updatedAt: mutation.updatedAt,
+          snoozedUntil: mutation.dueAt,
+          snoozeTimeZone: mutation.timeZone,
           deliveringAt: null,
           notifiedAt: null,
           lastError: null,
@@ -140,7 +182,7 @@ export class ReminderStore {
         ) {
           throw new Error("The reminder is not ready for delivery.");
         }
-        if (resolveReminderSchedule(reminder.schedule) > request.now) {
+        if (reminderDueAt(reminder) > request.now) {
           throw new Error("The reminder is not due yet.");
         }
         Object.assign(reminder, {
@@ -187,37 +229,40 @@ export class ReminderStore {
     return toModel(workspace.reminders);
   }
 
-  private async load(workspaceId: string): Promise<StoredWorkspace> {
+  private async load(
+    workspaceId: string,
+  ): Promise<{ workspace: StoredWorkspace; migrated: boolean }> {
     const value = await this.storage.get<unknown>(storageKey(workspaceId));
     if (value === null) {
-      return { version: 1, reminders: [] };
+      return {
+        workspace: { version: 2, reminders: [] },
+        migrated: false,
+      };
     }
     if (
       typeof value !== "object" ||
       value === null ||
       Array.isArray(value) ||
-      (value as { version?: unknown }).version !== 1 ||
+      ![1, 2].includes(
+        (value as { version?: unknown }).version as number,
+      ) ||
       !Array.isArray((value as { reminders?: unknown }).reminders)
     ) {
       throw new Error(
         "Stored reminder data is invalid. Clear Reminders data in plugin settings to recover.",
       );
     }
-    const candidate = value as StoredWorkspace;
+    const migrated = (value as { version: number }).version === 1;
+    const candidate = migrated
+      ? migrateWorkspace(value as StoredWorkspaceV1)
+      : cloneWorkspace(value as StoredWorkspace);
     const model = toModel(candidate.reminders);
     if (!isPluginReminderModel(model)) {
       throw new Error(
         "Stored reminder data is invalid. Clear Reminders data in plugin settings to recover.",
       );
     }
-    return {
-      version: 1,
-      reminders: candidate.reminders.map((reminder) => ({
-        ...reminder,
-        target: { ...reminder.target },
-        schedule: { ...reminder.schedule },
-      })),
-    };
+    return { workspace: candidate, migrated };
   }
 
   private async save(
@@ -240,6 +285,23 @@ export function parseReminderTargets(
   const { document } = request;
   const targets: PluginReminderTarget[] = [
     {
+      id: "standalone",
+      kind: "standalone",
+      path: null,
+      noteTitle: null,
+      line: null,
+      label: "No note",
+    },
+  ];
+  if (!document) {
+    return {
+      targets,
+      truncated: false,
+      notices: [],
+    };
+  }
+  targets.push(
+    {
       id: "note",
       kind: "note",
       path: document.path,
@@ -247,7 +309,7 @@ export function parseReminderTargets(
       line: null,
       label: `Whole note: ${document.title}`,
     },
-  ];
+  );
   let root: MarkdownNode;
   try {
     root = fromMarkdown(maskFrontmatter(document.source), {
@@ -379,7 +441,10 @@ function toModel(
         ...reminder,
         target: { ...reminder.target },
         schedule: { ...reminder.schedule },
-        dueAt: resolveReminderSchedule(reminder.schedule),
+        recurrence: reminder.recurrence
+          ? { ...reminder.recurrence }
+          : null,
+        dueAt: reminderDueAt(reminder),
       }))
       .sort(
         (left, right) =>
@@ -390,6 +455,126 @@ function toModel(
     truncated: false,
     notices,
   };
+}
+
+function reminderDueAt(reminder: StoredReminder): number {
+  return reminder.snoozedUntil ?? resolveReminderSchedule(reminder.schedule);
+}
+
+function advanceRecurringReminder(
+  reminder: StoredReminder,
+  now: number,
+): void {
+  if (!reminder.recurrence) {
+    throw new Error("The reminder is not recurring.");
+  }
+  reminder.schedule = nextRecurringSchedule(
+    reminder.schedule,
+    reminder.recurrence,
+    now,
+  );
+  reminder.status = "scheduled";
+  reminder.updatedAt = now;
+  reminder.attemptCount = 0;
+  reminder.snoozedUntil = null;
+  reminder.snoozeTimeZone = null;
+  reminder.deliveringAt = null;
+  reminder.notifiedAt = null;
+  reminder.lastError = null;
+}
+
+export function nextRecurringSchedule(
+  schedule: PluginReminderSchedule,
+  recurrence: PluginReminderRecurrence,
+  after: number,
+): PluginReminderSchedule {
+  let localDateTime =
+    schedule.kind === "wall-clock"
+      ? schedule.localDateTime
+      : localDateTimeForInstant(schedule.dueAt, schedule.timeZone);
+  for (let iteration = 0; iteration < 10_000; iteration += 1) {
+    localDateTime = addRecurrence(localDateTime, recurrence);
+    const next: PluginReminderSchedule = {
+      kind: "wall-clock",
+      localDateTime,
+      timeZone: schedule.timeZone,
+    };
+    try {
+      if (resolveReminderSchedule(next) > after) {
+        return next;
+      }
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes("does not exist")
+      ) {
+        throw error;
+      }
+    }
+  }
+  throw new Error("The recurring reminder could not reach a future date.");
+}
+
+export function addRecurrence(
+  localDateTime: string,
+  recurrence: PluginReminderRecurrence,
+): string {
+  if (!isReminderLocalDateTime(localDateTime)) {
+    throw new Error("The recurring reminder date is invalid.");
+  }
+  const [datePart, timePart] = localDateTime.split("T");
+  const [year, month, day] = datePart.split("-").map(Number);
+  const [hour, minute] = timePart.split(":").map(Number);
+  let targetYear = year;
+  let targetMonth = month;
+  let targetDay = day;
+  switch (recurrence.unit) {
+    case "day": {
+      const date = new Date(
+        Date.UTC(year, month - 1, day + recurrence.interval, hour, minute),
+      );
+      targetYear = date.getUTCFullYear();
+      targetMonth = date.getUTCMonth() + 1;
+      targetDay = date.getUTCDate();
+      break;
+    }
+    case "week": {
+      const date = new Date(
+        Date.UTC(
+          year,
+          month - 1,
+          day + recurrence.interval * 7,
+          hour,
+          minute,
+        ),
+      );
+      targetYear = date.getUTCFullYear();
+      targetMonth = date.getUTCMonth() + 1;
+      targetDay = date.getUTCDate();
+      break;
+    }
+    case "month": {
+      const monthIndex = month - 1 + recurrence.interval;
+      targetYear = year + Math.floor(monthIndex / 12);
+      targetMonth = ((monthIndex % 12) + 12) % 12 + 1;
+      targetDay = Math.min(day, daysInMonth(targetYear, targetMonth));
+      break;
+    }
+    case "year":
+      targetYear = year + recurrence.interval;
+      targetDay = Math.min(day, daysInMonth(targetYear, month));
+      break;
+  }
+  return `${String(targetYear).padStart(4, "0")}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function localDateTimeForInstant(instant: number, timeZone: string): string {
+  const parts = zonedParts(instant, timeZone);
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}T${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
+function daysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function recoverInterruptedDeliveries(
@@ -420,6 +605,34 @@ function storedLink(target: PluginReminderTarget): PluginReminderLink {
     path: target.path,
     noteTitle: target.noteTitle,
     line: target.line,
+  };
+}
+
+function migrateWorkspace(workspace: StoredWorkspaceV1): StoredWorkspace {
+  return {
+    version: 2,
+    reminders: workspace.reminders.map((reminder) => ({
+      ...reminder,
+      target: { ...reminder.target },
+      schedule: { ...reminder.schedule },
+      recurrence: null,
+      snoozedUntil: null,
+      snoozeTimeZone: null,
+    })),
+  };
+}
+
+function cloneWorkspace(workspace: StoredWorkspace): StoredWorkspace {
+  return {
+    version: 2,
+    reminders: workspace.reminders.map((reminder) => ({
+      ...reminder,
+      target: { ...reminder.target },
+      schedule: { ...reminder.schedule },
+      recurrence: reminder.recurrence
+        ? { ...reminder.recurrence }
+        : null,
+    })),
   };
 }
 

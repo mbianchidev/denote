@@ -2,9 +2,13 @@ import {
   useEffect,
   useId,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import type {
+  PluginReminderLink,
+  PluginReminderRecurrence,
+  PluginReminderRecurrenceUnit,
   PluginReminderRecord,
   PluginReminderTarget,
   PluginReminderTargetsModel,
@@ -48,16 +52,36 @@ export function ReminderPanel({
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(() => defaultLocalDateTime().date);
   const [time, setTime] = useState(() => defaultLocalDateTime().time);
+  const [repeatUnit, setRepeatUnit] = useState<
+    PluginReminderRecurrenceUnit | "none"
+  >("none");
+  const [repeatInterval, setRepeatInterval] = useState("1");
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [timeZone, setTimeZone] = useState(currentTimeZone);
   const [working, setWorking] = useState<string | null>(null);
   const [status, setStatus] = useState("Waiting for reminders.");
   const providerState = scheduler.stateFor(provider);
   const reminders = providerState.model?.reminders ?? [];
+  const editingReminder =
+    reminders.find((reminder) => reminder.id === editingId) ?? null;
+  const nameInput = useRef<HTMLInputElement>(null);
+  const targetOptions = useMemo(() => {
+    const available = [...(targets?.targets ?? [])];
+    if (
+      editingReminder &&
+      !available.some((target) =>
+        sameReminderLink(target, editingReminder.target)
+      )
+    ) {
+      available.push(targetForStoredLink(editingReminder.target));
+    }
+    return available;
+  }, [editingReminder, targets]);
   const selectedTarget = useMemo(
     () =>
-      targets?.targets.find((target) => target.id === selectedTargetId) ??
+      targetOptions.find((target) => target.id === selectedTargetId) ??
       null,
-    [selectedTargetId, targets],
+    [selectedTargetId, targetOptions],
   );
 
   useEffect(() => {
@@ -70,20 +94,17 @@ export function ReminderPanel({
     let active = true;
     setTargets(null);
     setTargetError(null);
-    setSelectedTargetId("");
-    if (!document) {
-      return () => {
-        active = false;
-      };
-    }
     void parseTargets(provider.pluginId, provider.id, { document }).then(
       (model) => {
         if (!active) {
           return;
         }
         setTargets(model);
-        setSelectedTargetId(model.targets[0]?.id ?? "");
-        setTitle(document.title);
+        setSelectedTargetId((current) =>
+          model.targets.some((target) => target.id === current)
+            ? current
+            : model.targets[0]?.id ?? "",
+        );
       },
       (error) => {
         if (!active) {
@@ -100,8 +121,14 @@ export function ReminderPanel({
   }, [document, onError, parseTargets, provider.id, provider.pluginId]);
 
   useEffect(() => {
+    if (editingId && !editingReminder) {
+      resetForm();
+    }
+  });
+
+  useEffect(() => {
     if (providerState.loading) {
-      setStatus("Updating reminders...");
+      setStatus("Updating reminders…");
     } else if (providerState.error) {
       setStatus("Reminders could not be updated.");
     } else if (providerState.model) {
@@ -132,32 +159,56 @@ export function ReminderPanel({
     }
   };
 
-  const createReminder = async () => {
+  const saveReminder = async () => {
     if (!selectedTarget) {
-      throw new Error("Choose a note, heading, or task.");
+      throw new Error("Choose a reminder target.");
     }
     const reminderTitle = title.trim();
     if (!reminderTitle) {
       throw new Error("Enter a reminder name.");
     }
     const localDateTime = `${date}T${time}`;
-    const createdAt = Date.now();
-    await scheduler.mutate(provider, {
-      type: "create",
-      id: crypto.randomUUID(),
-      title: reminderTitle,
-      target: selectedTarget,
-      schedule: {
-        kind: "wall-clock",
-        localDateTime,
-        timeZone,
-      },
-      createdAt,
-    });
-    const next = defaultLocalDateTime();
-    setDate(next.date);
-    setTime(next.time);
-    setStatus(`Created ${reminderTitle}.`);
+    const recurrence: PluginReminderRecurrence | null =
+      repeatUnit === "none"
+        ? null
+        : { interval: Number(repeatInterval), unit: repeatUnit };
+    const timestamp = Date.now();
+    await scheduler.mutate(
+      provider,
+      editingId
+        ? {
+            type: "update",
+            id: editingId,
+            title: reminderTitle,
+            target: selectedTarget,
+            schedule: {
+              kind: "wall-clock",
+              localDateTime,
+              timeZone,
+            },
+            recurrence,
+            updatedAt: timestamp,
+          }
+        : {
+            type: "create",
+            id: crypto.randomUUID(),
+            title: reminderTitle,
+            target: selectedTarget,
+            schedule: {
+              kind: "wall-clock",
+              localDateTime,
+              timeZone,
+            },
+            recurrence,
+            createdAt: timestamp,
+          },
+    );
+    setStatus(
+      editingId
+        ? `Updated ${reminderTitle}.`
+        : `Created ${reminderTitle}.`,
+    );
+    resetForm();
   };
 
   const snooze = async (reminder: PluginReminderRecord) => {
@@ -165,12 +216,8 @@ export function ReminderPanel({
     await scheduler.mutate(provider, {
       type: "snooze",
       id: reminder.id,
-      schedule: {
-        kind: "instant",
-        dueAt:
-          updatedAt + provider.defaultSnoozeMinutes * 60_000,
-        timeZone: currentTimeZone(),
-      },
+      dueAt: updatedAt + provider.defaultSnoozeMinutes * 60_000,
+      timeZone: currentTimeZone(),
       updatedAt,
     });
     setStatus(
@@ -184,8 +231,62 @@ export function ReminderPanel({
       id: reminder.id,
       updatedAt: Date.now(),
     });
-    setStatus(`Dismissed ${reminder.title}.`);
+    setStatus(
+      reminder.recurrence
+        ? `Scheduled the next ${reminder.title} reminder.`
+        : `Dismissed ${reminder.title}.`,
+    );
   };
+
+  const removeReminder = async (reminder: PluginReminderRecord) => {
+    await scheduler.mutate(provider, {
+      type: "remove",
+      id: reminder.id,
+      updatedAt: Date.now(),
+    });
+    if (editingId === reminder.id) {
+      resetForm();
+    }
+    setStatus(
+      reminder.recurrence
+        ? `Deleted the ${reminder.title} series.`
+        : `Cancelled ${reminder.title}.`,
+    );
+  };
+
+  const startEditing = (reminder: PluginReminderRecord) => {
+    const local = reminderLocalDateTime(reminder);
+    const matchingTarget =
+      targetOptions.find((target) =>
+        sameReminderLink(target, reminder.target)
+      ) ?? targetForStoredLink(reminder.target);
+    setEditingId(reminder.id);
+    setTitle(reminder.title);
+    setSelectedTargetId(matchingTarget.id);
+    setDate(local.date);
+    setTime(local.time);
+    setTimeZone(local.timeZone);
+    setRepeatUnit(reminder.recurrence?.unit ?? "none");
+    setRepeatInterval(String(reminder.recurrence?.interval ?? 1));
+    setStatus(`Editing ${reminder.title}.`);
+    window.requestAnimationFrame(() => nameInput.current?.focus());
+  };
+
+  function resetForm() {
+    const next = defaultLocalDateTime();
+    setEditingId(null);
+    setTitle("");
+    setSelectedTargetId(
+      targets?.targets.find((target) => target.kind === "standalone")?.id ??
+        targets?.targets[0]?.id ??
+        "",
+    );
+    setDate(next.date);
+    setTime(next.time);
+    setTimeZone(currentTimeZone());
+    setRepeatUnit("none");
+    setRepeatInterval("1");
+  }
 
   return (
     <section
@@ -202,96 +303,162 @@ export function ReminderPanel({
         className="reminder-form"
         onSubmit={(event) => {
           event.preventDefault();
-          void run("create", createReminder);
+          void run("save", saveReminder);
         }}
       >
-        <h3>Create reminder</h3>
-        {document ? (
-          <>
-            <label>
-              Link to
-              <select
-                value={selectedTargetId}
-                disabled={disabled || working !== null || !targets}
-                onChange={(event) =>
-                  setSelectedTargetId(event.currentTarget.value)
-                }
-              >
-                {targets?.targets.map((target) => (
-                  <option key={target.id} value={target.id}>
-                    {target.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Reminder name
-              <input
-                type="text"
-                maxLength={160}
-                value={title}
-                disabled={disabled || working !== null}
-                onChange={(event) => setTitle(event.currentTarget.value)}
-              />
-            </label>
-            <div className="reminder-form__schedule">
-              <label>
-                Date
-                <input
-                  type="date"
-                  value={date}
-                  disabled={disabled || working !== null}
-                  onChange={(event) => setDate(event.currentTarget.value)}
-                />
-              </label>
-              <label>
-                Time
-                <input
-                  type="time"
-                  value={time}
-                  disabled={disabled || working !== null}
-                  onChange={(event) => setTime(event.currentTarget.value)}
-                />
-              </label>
-            </div>
-            <small>
-              Time zone: {timeZone}. A skipped daylight-saving time is refused;
-              a repeated time uses its earlier occurrence.
-            </small>
-            {encrypted ? (
-              <p className="reminder-panel__privacy">
-                Reminder names and note paths are stored outside vault
-                encryption and may appear in system notification history.
-              </p>
-            ) : null}
-            {targets?.notices.map((notice) => (
-              <p className="reminder-panel__notice" key={notice}>
-                {notice}
-              </p>
+        <h3>{editingId ? "Edit reminder" : "Create reminder"}</h3>
+        <label>
+          Link to
+          <select
+            value={selectedTargetId}
+            disabled={disabled || working !== null || !targets}
+            onChange={(event) =>
+              setSelectedTargetId(event.currentTarget.value)
+            }
+          >
+            {targetOptions.map((target) => (
+              <option key={target.id} value={target.id}>
+                {target.label}
+              </option>
             ))}
-            {targetError ? (
-              <p className="reminder-panel__error">{targetError}</p>
-            ) : null}
-            <button
-              type="submit"
-              className="primary-button reminder-form__submit"
-              disabled={
-                disabled ||
-                working !== null ||
-                !selectedTarget ||
-                !title.trim() ||
-                !date ||
-                !time
+          </select>
+        </label>
+        {!document ? (
+          <small>
+            No note is open. Choose No note to create a standalone reminder.
+          </small>
+        ) : null}
+        <label>
+          Reminder name
+          <input
+            ref={nameInput}
+            type="text"
+            maxLength={160}
+            value={title}
+            disabled={disabled || working !== null}
+            onChange={(event) => setTitle(event.currentTarget.value)}
+          />
+        </label>
+        <div className="reminder-form__schedule">
+          <label>
+            Date
+            <input
+              type="date"
+              value={date}
+              disabled={disabled || working !== null}
+              onChange={(event) => setDate(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            Time
+            <input
+              type="time"
+              value={time}
+              disabled={disabled || working !== null}
+              onChange={(event) => setTime(event.currentTarget.value)}
+            />
+          </label>
+        </div>
+        <div className="reminder-form__repeat">
+          <label>
+            Repeat
+            <select
+              value={repeatUnit}
+              disabled={disabled || working !== null}
+              onChange={(event) =>
+                setRepeatUnit(
+                  event.currentTarget.value as
+                    | PluginReminderRecurrenceUnit
+                    | "none",
+                )
               }
             >
-              {working === "create" ? "Creating…" : "Create reminder"}
-            </button>
-          </>
-        ) : (
-          <p className="reminder-panel__empty">
-            Open an editable UTF-8 Markdown note to create a reminder.
+              <option value="none">Does not repeat</option>
+              <option value="day">Every N days</option>
+              <option value="week">Every N weeks</option>
+              <option value="month">Every N months</option>
+              <option value="year">Every N years</option>
+            </select>
+          </label>
+          {repeatUnit !== "none" ? (
+            <label>
+              Every
+              <input
+                type="number"
+                aria-label="Repeat interval"
+                min={1}
+                max={999}
+                step={1}
+                value={repeatInterval}
+                disabled={disabled || working !== null}
+                onChange={(event) => {
+                  const next = event.currentTarget.value;
+                  if (next === "" || /^\d{1,3}$/u.test(next)) {
+                    setRepeatInterval(next);
+                  }
+                }}
+              />
+              <span>
+                {repeatUnit}
+                {Number(repeatInterval) === 1 ? "" : "s"}
+              </span>
+            </label>
+          ) : null}
+        </div>
+        <small>
+          Time zone: {timeZone}. A skipped daylight-saving time is refused;
+          a repeated time uses its earlier occurrence.
+        </small>
+        {encrypted ? (
+          <p className="reminder-panel__privacy">
+            Reminder names and note paths are stored outside vault encryption
+            and may appear in system notification history.
           </p>
-        )}
+        ) : null}
+        {targets?.notices.map((notice) => (
+          <p className="reminder-panel__notice" key={notice}>
+            {notice}
+          </p>
+        ))}
+        {targetError ? (
+          <p className="reminder-panel__error">{targetError}</p>
+        ) : null}
+        <div className="reminder-form__actions">
+          <button
+            type="submit"
+            className="primary-button reminder-form__submit"
+            disabled={
+              disabled ||
+              working !== null ||
+              !selectedTarget ||
+              !title.trim() ||
+              !date ||
+              !time ||
+              (repeatUnit !== "none" &&
+                (!repeatInterval ||
+                  Number(repeatInterval) < 1 ||
+                  Number(repeatInterval) > 999))
+            }
+          >
+            {working === "save"
+              ? editingId
+                ? "Saving…"
+                : "Creating…"
+              : editingId
+                ? "Save changes"
+                : "Create reminder"}
+          </button>
+          {editingId ? (
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={working !== null}
+              onClick={resetForm}
+            >
+              Cancel edit
+            </button>
+          ) : null}
+        </div>
       </form>
 
       <p className="reminder-panel__status" role="status" aria-live="polite">
@@ -331,11 +498,11 @@ export function ReminderPanel({
                   {formatReminderTime(reminder)}
                 </time>
                 <small>
-                  {reminder.target.path}
-                  {reminder.target.line
-                    ? ` · ${reminder.target.kind} at line ${reminder.target.line}`
-                    : ""}
+                  {reminderTargetDescription(reminder.target)}
                 </small>
+                {reminder.recurrence ? (
+                  <small>{formatRecurrence(reminder.recurrence)}</small>
+                ) : null}
                 {reminder.lastError ? (
                   <p className="reminder-list__error">
                     Notification failed: {reminder.lastError}
@@ -345,14 +512,23 @@ export function ReminderPanel({
                   <button
                     type="button"
                     disabled={disabled || working !== null}
-                    onClick={() =>
-                      void run(reminder.id, () =>
-                        onOpenFile(reminder.target.path)
-                      )
-                    }
+                    onClick={() => startEditing(reminder)}
                   >
-                    Open note
+                    Edit
                   </button>
+                  {reminder.target.path ? (
+                    <button
+                      type="button"
+                      disabled={disabled || working !== null}
+                      onClick={() =>
+                        void run(reminder.id, () =>
+                          onOpenFile(reminder.target.path!)
+                        )
+                      }
+                    >
+                      Open note
+                    </button>
+                  ) : null}
                   {reminder.status === "notified" ||
                   reminder.status === "failed" ? (
                     <button
@@ -378,15 +554,44 @@ export function ReminderPanel({
                       Retry notification
                     </button>
                   ) : null}
-                  <button
-                    type="button"
-                    disabled={disabled || working !== null}
-                    onClick={() =>
-                      void run(reminder.id, () => dismiss(reminder))
-                    }
-                  >
-                    {reminder.status === "scheduled" ? "Cancel" : "Dismiss"}
-                  </button>
+                  {reminder.status === "scheduled" ? (
+                    <button
+                      type="button"
+                      disabled={disabled || working !== null}
+                      onClick={() =>
+                        void run(reminder.id, () => removeReminder(reminder))
+                      }
+                    >
+                      {reminder.recurrence ? "Cancel series" : "Cancel"}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        disabled={disabled || working !== null}
+                        onClick={() =>
+                          void run(reminder.id, () => dismiss(reminder))
+                        }
+                      >
+                        {reminder.recurrence
+                          ? "Next occurrence"
+                          : "Dismiss"}
+                      </button>
+                      {reminder.recurrence ? (
+                        <button
+                          type="button"
+                          disabled={disabled || working !== null}
+                          onClick={() =>
+                            void run(reminder.id, () =>
+                              removeReminder(reminder)
+                            )
+                          }
+                        >
+                          Delete series
+                        </button>
+                      ) : null}
+                    </>
+                  )}
                 </div>
               </li>
             );
@@ -430,7 +635,7 @@ function reminderStatus(reminder: PluginReminderRecord): string {
 
 function formatReminderTime(reminder: PluginReminderRecord): string {
   return new Intl.DateTimeFormat(undefined, {
-    timeZone: reminder.schedule.timeZone,
+    timeZone: reminder.snoozeTimeZone ?? reminder.schedule.timeZone,
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -438,6 +643,82 @@ function formatReminderTime(reminder: PluginReminderRecord): string {
     minute: "2-digit",
     timeZoneName: "short",
   }).format(new Date(reminder.dueAt));
+}
+
+function reminderLocalDateTime(reminder: PluginReminderRecord): {
+  date: string;
+  time: string;
+  timeZone: string;
+} {
+  const timeZone = reminder.snoozeTimeZone ?? reminder.schedule.timeZone;
+  if (
+    reminder.snoozedUntil === null &&
+    reminder.schedule.kind === "wall-clock"
+  ) {
+    const [date, time] = reminder.schedule.localDateTime.split("T");
+    return { date, time, timeZone };
+  }
+  const parts = new Map(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      calendar: "gregory",
+      numberingSystem: "latn",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    })
+      .formatToParts(new Date(reminder.dueAt))
+      .map((part) => [part.type, part.value]),
+  );
+  return {
+    date: `${parts.get("year")}-${parts.get("month")}-${parts.get("day")}`,
+    time: `${parts.get("hour")}:${parts.get("minute")}`,
+    timeZone,
+  };
+}
+
+function sameReminderLink(
+  target: Pick<PluginReminderTarget, "kind" | "path" | "noteTitle" | "line">,
+  link: PluginReminderLink,
+): boolean {
+  return (
+    target.kind === link.kind &&
+    target.path === link.path &&
+    target.noteTitle === link.noteTitle &&
+    target.line === link.line
+  );
+}
+
+function targetForStoredLink(
+  link: PluginReminderLink,
+): PluginReminderTarget {
+  return {
+    id: `stored:${link.kind}:${link.path ?? "standalone"}:${link.line ?? 0}`,
+    ...link,
+    label:
+      link.kind === "standalone"
+        ? "No note"
+        : `Current link: ${reminderTargetDescription(link)}`,
+  };
+}
+
+function reminderTargetDescription(link: PluginReminderLink): string {
+  if (link.kind === "standalone") {
+    return "No note";
+  }
+  const path = link.path ?? "Unknown note";
+  return link.line
+    ? `${path} · ${link.kind} at line ${link.line}`
+    : path;
+}
+
+function formatRecurrence(recurrence: PluginReminderRecurrence): string {
+  return `Repeats every ${recurrence.interval} ${recurrence.unit}${
+    recurrence.interval === 1 ? "" : "s"
+  }`;
 }
 
 export type { PluginReminderTarget };

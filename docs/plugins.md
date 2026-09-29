@@ -457,20 +457,24 @@ title, default snooze minutes, a bounded active-document target parser, and
 vault-scoped query/mutation callbacks. The provider never receives an absolute
 vault path, DOM handle, timer, or native notification service.
 
-Target requests contain one current UTF-8 Markdown note capped at 256 KiB.
-Models return at most 512 note, heading, and task choices. Stored reminder
-models are capped at 128 rows and use a host-issued random opaque vault scope.
-The plugin may persist names, relative note links, generic target kinds/lines,
-civil schedules, delivery states, and bounded errors in its existing isolated
-storage namespace. It must not copy heading or task body text into storage.
+Target requests contain either no document or one current UTF-8 Markdown note
+capped at 256 KiB. Models always include a standalone target and return at most
+512 total choices across standalone, note, heading, and task targets. Stored
+reminder models are
+capped at 128 rows and use a host-issued random opaque vault scope. The plugin
+may persist names, optional relative note links, generic target kinds/lines,
+civil schedules, bounded recurrence, snooze overrides, delivery states, and
+bounded errors in its existing isolated storage namespace. It must not copy
+heading or task body text into storage.
 
 The host owns the rail control, form, list, minute rechecks, focus/wake catch-up,
-native notifications, generation guards, overdue-summary bound, note opening,
-and lifecycle teardown. Mutations are closed typed transitions for create,
-snooze, dismiss, delivery start, accepted dispatch, and failed dispatch.
-Native notification failure stays in the model for manual retry. Desktop
-notifications provide no portable action buttons or click event, so snooze,
-dismiss, retry, and open-note actions remain host-rendered.
+native notifications, generation guards, overdue-summary bound, optional note
+opening, in-app banners, numbered badge, and lifecycle teardown. Mutations are
+closed typed transitions for create, update, snooze, dismiss/advance, remove,
+delivery start, accepted dispatch, and failed dispatch. Native notification
+failure stays in the model for manual retry. Desktop notifications provide no
+portable action buttons or click event, so edit, snooze, series actions, retry,
+and optional open-note actions remain host-rendered.
 
 Wall-clock schedules keep a strict local civil time plus IANA zone. Providers
 must choose one documented occurrence for an ambiguous fall-back time and

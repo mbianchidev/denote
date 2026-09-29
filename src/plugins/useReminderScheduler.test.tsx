@@ -34,7 +34,10 @@ function model(status: "scheduled" | "delivering" | "notified" | "failed"): Plug
           dueAt: now - 60_000,
           timeZone: "UTC",
         },
+        recurrence: null,
         dueAt: now - 60_000,
+        snoozedUntil: null,
+        snoozeTimeZone: null,
         status,
         createdAt: now - 120_000,
         updatedAt: now,
@@ -65,7 +68,7 @@ describe("useReminderScheduler", () => {
     const notify = vi.fn(async () => {});
     const reportError = vi.fn();
 
-    const { unmount } = renderHook(() =>
+    const { result, unmount } = renderHook(() =>
       useReminderScheduler({
         providers: [provider],
         workspaceId: "synthetic-scope",
@@ -94,6 +97,10 @@ describe("useReminderScheduler", () => {
       expect.stringContaining("Open Denote"),
     );
     expect(reportError).not.toHaveBeenCalled();
+    expect(result.current.bumps).toHaveLength(1);
+    expect(result.current.bumps[0].reminder.title).toBe(
+      "Synthetic reminder",
+    );
     unmount();
   });
 

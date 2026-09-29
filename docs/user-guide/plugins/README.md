@@ -14,7 +14,7 @@ trying its view. Opening an example never installs or enables a plugin.
 | Mermaid diagrams | [Mermaid flow](<Mermaid flow.md>) | Render a small decision loop in Rich view |
 | Note graph | [Note graph](<Note graph.md>) | Explore three linked notes with a tag filter and Local depth |
 | Advanced task lists | [Advanced tasks](<Advanced tasks.md>) | Filter open/completed tasks, tags, paths, and due dates |
-| Reminders | [Reminder targets](<Reminders.md>) | Link a local reminder to the note, a heading, or a Markdown task |
+| Reminders | [Reminder targets](<Reminders.md>) | Create standalone or linked reminders, edit them, and repeat them on a schedule |
 
 Disable a plugin at any time; the files remain. Git is a written, opt-in
 exercise: do not initialize a repository in this Welcome vault. No sample

@@ -1,14 +1,23 @@
 import { describe, expect, it } from "vitest";
 import type { PluginStorage } from "@denote/plugin-sdk";
 import {
+  addRecurrence,
+  nextRecurringSchedule,
   ReminderStore,
   parseReminderTargets,
   resolveWallClock,
 } from "../src/reminders";
 
-function memoryStorage(): PluginStorage {
-  const values = new Map<string, unknown>();
+interface MemoryStorage extends PluginStorage {
+  values: Map<string, unknown>;
+}
+
+function memoryStorage(
+  entries: Array<[string, unknown]> = [],
+): MemoryStorage {
+  const values = new Map<string, unknown>(entries);
   return {
+    values,
     get: async <T>(key: string) => (values.get(key) as T | undefined) ?? null,
     set: async <T>(key: string, value: T) => {
       values.set(key, structuredClone(value));
@@ -45,9 +54,23 @@ describe("reminder targets", () => {
     });
 
     expect(model.targets.map(({ kind, line }) => [kind, line])).toEqual([
+      ["standalone", null],
       ["note", null],
       ["heading", 4],
       ["task", 6],
+    ]);
+  });
+
+  it("offers a standalone reminder without an open note", () => {
+    expect(parseReminderTargets({ document: null }).targets).toEqual([
+      {
+        id: "standalone",
+        kind: "standalone",
+        path: null,
+        noteTitle: null,
+        line: null,
+        label: "No note",
+      },
     ]);
   });
 });
@@ -60,6 +83,51 @@ describe("reminder schedules", () => {
     expect(() =>
       resolveWallClock("2026-03-29T02:30", "Europe/Rome"),
     ).toThrow(/does not exist/u);
+  });
+
+  it("advances recurring civil dates and clamps short months", () => {
+    expect(
+      addRecurrence("2026-01-31T09:00", {
+        interval: 1,
+        unit: "month",
+      }),
+    ).toBe("2026-02-28T09:00");
+    expect(
+      addRecurrence("2024-02-29T09:00", {
+        interval: 1,
+        unit: "year",
+      }),
+    ).toBe("2025-02-28T09:00");
+    expect(
+      nextRecurringSchedule(
+        {
+          kind: "wall-clock",
+          localDateTime: "2026-01-01T09:00",
+          timeZone: "UTC",
+        },
+        { interval: 2, unit: "week" },
+        Date.parse("2026-02-01T00:00:00Z"),
+      ),
+    ).toEqual({
+      kind: "wall-clock",
+      localDateTime: "2026-02-12T09:00",
+      timeZone: "UTC",
+    });
+    expect(
+      nextRecurringSchedule(
+        {
+          kind: "wall-clock",
+          localDateTime: "2026-03-28T02:30",
+          timeZone: "Europe/Rome",
+        },
+        { interval: 1, unit: "day" },
+        Date.parse("2026-03-28T02:00:00Z"),
+      ),
+    ).toEqual({
+      kind: "wall-clock",
+      localDateTime: "2026-03-30T02:30",
+      timeZone: "Europe/Rome",
+    });
   });
 });
 
@@ -91,6 +159,7 @@ describe("reminder storage", () => {
         title: "Sign release",
         target,
         schedule,
+        recurrence: null,
         createdAt,
       },
     });
@@ -138,11 +207,8 @@ describe("reminder storage", () => {
       mutation: {
         type: "snooze",
         id: "reminder-alpha",
-        schedule: {
-          kind: "instant",
-          dueAt: dueAt + 15 * 60_000,
-          timeZone: "Europe/Rome",
-        },
+        dueAt: dueAt + 15 * 60_000,
+        timeZone: "Europe/Rome",
         updatedAt: dueAt + 2,
       },
     });
@@ -162,5 +228,149 @@ describe("reminder storage", () => {
       },
     });
     expect(model.reminders).toEqual([]);
+  });
+
+  it("edits standalone reminders and advances a recurring occurrence", async () => {
+    const store = new ReminderStore(memoryStorage());
+    const workspaceId = "scope-recurring";
+    const createdAt = Date.parse("2026-01-01T00:00:00Z");
+    const standalone = {
+      id: "standalone",
+      kind: "standalone" as const,
+      path: null,
+      noteTitle: null,
+      line: null,
+      label: "No note",
+    };
+    let model = await store.mutate({
+      workspaceId,
+      now: createdAt,
+      mutation: {
+        type: "create",
+        id: "recurring-reminder",
+        title: "Monthly review",
+        target: standalone,
+        schedule: {
+          kind: "wall-clock",
+          localDateTime: "2026-01-31T09:00",
+          timeZone: "UTC",
+        },
+        recurrence: { interval: 1, unit: "month" },
+        createdAt,
+      },
+    });
+    const dueAt = model.reminders[0].dueAt;
+    model = await store.mutate({
+      workspaceId,
+      now: createdAt,
+      mutation: {
+        type: "update",
+        id: "recurring-reminder",
+        title: "Edited monthly review",
+        target: standalone,
+        schedule: {
+          kind: "wall-clock",
+          localDateTime: "2026-01-31T10:00",
+          timeZone: "UTC",
+        },
+        recurrence: { interval: 1, unit: "month" },
+        updatedAt: createdAt + 1,
+      },
+    });
+    expect(model.reminders[0]).toMatchObject({
+      title: "Edited monthly review",
+      target: { kind: "standalone", path: null },
+      recurrence: { interval: 1, unit: "month" },
+    });
+
+    const editedDueAt = model.reminders[0].dueAt;
+    model = await store.mutate({
+      workspaceId,
+      now: editedDueAt,
+      mutation: {
+        type: "delivery-started",
+        id: "recurring-reminder",
+        startedAt: editedDueAt,
+      },
+    });
+    model = await store.mutate({
+      workspaceId,
+      now: editedDueAt + 1,
+      mutation: {
+        type: "delivery-succeeded",
+        id: "recurring-reminder",
+        completedAt: editedDueAt + 1,
+      },
+    });
+    expect(model.reminders[0].status).toBe("notified");
+
+    model = await store.mutate({
+      workspaceId,
+      now: editedDueAt + 2,
+      mutation: {
+        type: "dismiss",
+        id: "recurring-reminder",
+        updatedAt: editedDueAt + 2,
+      },
+    });
+    expect(model.reminders[0]).toMatchObject({
+      status: "scheduled",
+      recurrence: { interval: 1, unit: "month" },
+    });
+    expect(model.reminders[0].dueAt).toBe(
+      Date.parse("2026-02-28T10:00:00Z"),
+    );
+    expect(dueAt).not.toBe(editedDueAt);
+  });
+
+  it("migrates stored version-one reminders without losing them", async () => {
+    const workspaceId = "scope-migration";
+    const key = `reminders-v1-${workspaceId}`;
+    const storage = memoryStorage([
+      [
+        key,
+        {
+          version: 1,
+          reminders: [
+            {
+              id: "legacy-reminder",
+              title: "Legacy reminder",
+              target: {
+                kind: "note",
+                path: "Legacy.md",
+                noteTitle: "Legacy",
+                line: null,
+              },
+              schedule: {
+                kind: "wall-clock",
+                localDateTime: "2026-10-01T09:00",
+                timeZone: "UTC",
+              },
+              status: "scheduled",
+              createdAt: Date.parse("2026-09-01T09:00:00Z"),
+              updatedAt: Date.parse("2026-09-01T09:00:00Z"),
+              attemptCount: 0,
+              deliveringAt: null,
+              notifiedAt: null,
+              lastError: null,
+            },
+          ],
+        },
+      ],
+    ]);
+    const store = new ReminderStore(storage);
+
+    const model = await store.query({
+      workspaceId,
+      now: Date.parse("2026-09-01T10:00:00Z"),
+    });
+
+    expect(model.reminders[0]).toMatchObject({
+      id: "legacy-reminder",
+      recurrence: null,
+      snoozedUntil: null,
+      snoozeTimeZone: null,
+    });
+    expect(storage.values.get(key)).toMatchObject({ version: 2 });
   });
 });

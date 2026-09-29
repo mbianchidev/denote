@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "denote.reminders",
   "name": "Reminders",
-  "version": "0.1.1",
-  "description": "Create local reminders linked to notes, headings, and Markdown tasks.",
+  "version": "0.2.0",
+  "description": "Create editable standalone or linked reminders with optional recurring schedules.",
   "publisher": {
     "name": "Denote",
     "url": "https://github.com/mbianchidev/denote"

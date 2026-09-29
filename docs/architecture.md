@@ -1157,17 +1157,21 @@ a known-vault row cannot cause a later vault to inherit its reminder records.
 plugin storage namespace. A vault is capped at 128 reminders and the serialized
 value is kept below the native 256 KiB per-value ceiling. Corrupt or oversized
 state fails visibly. Clearing plugin data removes every scope; ordinary
-disablement preserves state. Persisted links contain only a vault-relative note
-path, display filename, target kind, and optional source line. Heading and task
-body text is used for the transient chooser but is not copied into plugin
-storage.
+disablement preserves state. Storage schema version 2 migrates version-1 rows
+in place by adding null recurrence and snooze fields. A target can be standalone
+or contain only a vault-relative note path, display filename, target kind, and
+optional source line. Heading and task body text is used for the transient
+chooser but is not copied into plugin storage.
 
 A schedule is either a wall-clock civil `YYYY-MM-DDTHH:mm` plus IANA zone or an
-absolute snooze instant plus its display zone. The worker resolves wall-clock
-times from independently sampled zone offsets, chooses the earlier instant
-when a fall-back hour repeats, and rejects a spring-forward gap. Models expose
-the derived epoch only as scheduling data; changing the machine's current zone
-does not rewrite the stored civil intent.
+absolute snooze override plus its display zone. The worker resolves wall-clock
+times from independently sampled zone offsets, chooses the earlier instant when
+a fall-back hour repeats, and rejects a spring-forward gap. Recurrence retains
+the base civil schedule and adds a bounded interval in days, weeks, months, or
+years. Month/year arithmetic clamps to the last valid day; a recurring local
+time inside a spring-forward gap skips that occurrence. Models expose the
+derived epoch only as scheduling data; changing the machine's current zone does
+not rewrite the stored civil intent.
 
 The renderer owns one reminder scheduler across all active providers. It
 requeries on activation, vault change, focus/visibility return, and every 30
@@ -1186,15 +1190,24 @@ than two minutes returns to `scheduled` during the next query. Automatic
 delivery processes only scheduled due records; failed records retry only after
 an explicit action. More than five overdue records use one summary system
 notification while each record remains individually actionable in the panel.
+Create and update mutations replace the complete title, optional target,
+schedule, and recurrence transactionally. Snooze overrides only the current
+occurrence. Dismissing a one-time reminder deletes it; dismissing a recurring
+one advances its base schedule beyond the current time. A separate remove
+mutation always deletes the reminder or complete series.
 
 Tauri's desktop notification backend has no portable action buttons, click
 callback, or native future schedule. The host therefore uses immediate
 best-effort native notifications and keeps the Reminders panel authoritative
-for **Open note**, **Snooze**, **Dismiss**, and **Retry notification**. A
-successful dispatch means the platform accepted the request, not that Focus,
-Do Not Disturb, lock-screen policy, or notification-center settings displayed
-it. Disabling removes the contribution and interval immediately; an already
-submitted OS notification cannot be recalled portably.
+for edit, optional **Open note**, **Snooze**, next occurrence, deletion,
+dismissal, and retry. The scheduler records one in-memory bump per
+`(workspace, provider, reminder, dueAt)`, displays at most three persistent
+host-rendered banners, and publishes the attention count to the activity rail.
+Closing a banner does not mutate the reminder. A successful dispatch means the
+platform accepted the request, not that Focus, Do Not Disturb, lock-screen
+policy, or notification-center settings displayed it. Disabling removes the
+contribution, interval, banners, and badge immediately; an already submitted OS
+notification cannot be recalled portably.
 
 ### Note graphs
 

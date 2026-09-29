@@ -741,22 +741,29 @@ animation or new color palettes.
 Reminders is a host-rendered activity-rail surface. The plugin contributes
 bounded targets and reminder records, never markup, styles, timers, or native
 notification calls. A compact creation form uses labelled native controls for
-target, reminder name, date, and time. The target list starts with the whole
-note, then headings and Markdown tasks in source order. The time-zone label and
-daylight-saving rule remain written beside the schedule; invalid skipped local
-times are errors rather than silent adjustments.
+target, reminder name, date, time, and recurrence. **No note** is always the
+first target; when a Markdown note is open, the whole note, headings, and tasks
+follow in source order. Edit reuses the same form and moves focus to the name
+field. The time-zone label and daylight-saving rule remain written beside the
+schedule; invalid skipped local times are errors rather than silent
+adjustments.
 
 The reminder list is a flat work queue, not a dashboard. Each row shows the
-name, written state, scheduled time with zone, vault-relative note path, and a
-generic heading/task line anchor. Native buttons expose **Open note**,
-**Snooze**, **Retry notification**, and **Dismiss** or **Cancel** only when each
-action applies. Notification failures include written details and preserve the
-row. Loading, empty, storage, parse, stale-workspace, and retry states use one
-polite status region and do not depend on color.
+name, written state, scheduled time with zone, optional vault-relative link,
+generic heading/task line anchor, and recurrence. Native buttons expose
+**Edit**, optional **Open note**, **Snooze**, **Retry notification**,
+**Next occurrence**, **Delete series**, **Dismiss**, or **Cancel** only when
+each action applies. Notification failures include written details and preserve
+the row. Loading, empty, storage, parse, stale-workspace, and retry states use
+one polite status region and do not depend on color.
 
-The activity-rail control uses the bell icon and includes a written accessible
-count when reminders need attention. Tab order follows the form, status, list,
-and row actions. Native date/time inputs keep platform keyboard behavior;
+The activity-rail control uses the bell icon, a visible bounded number badge,
+and the same count in its accessible name when reminders need attention. Due
+reminders also appear in a fixed in-app banner stack of at most three rows; an
+additional count points to the complete panel. One polite atomic status
+announcement names the latest reminder. Native buttons open the Reminders panel
+or dismiss only the banner. Tab order follows the form, status, list, and row
+actions. Native date/time/number inputs keep platform keyboard behavior;
 buttons and fields retain standard focus rings, forced-colors borders, and
 pointer-sized targets. No decorative animation is added. Encrypted vaults show
 a concise notice that reminder names and note paths live outside vault

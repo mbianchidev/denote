@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ActivityRail } from "./ActivityRail";
@@ -285,6 +285,9 @@ describe("ActivityRail", () => {
       name: "Reminders, 2 need attention",
     });
     expect(reminders).toHaveAttribute("aria-pressed", "true");
+    expect(within(reminders).getByText("2")).toHaveClass(
+      "activity-rail__badge",
+    );
     await user.click(reminders);
     expect(onReminderChange).toHaveBeenCalledWith(
       "denote.reminders",

@@ -94,6 +94,7 @@ import { NoteGraphPanel } from "./components/NoteGraphPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
 import { TaskListPanel } from "./components/TaskListPanel";
 import { ReminderPanel } from "./components/ReminderPanel";
+import { ReminderBanners } from "./components/ReminderBanners";
 import { createCalendarSnapshot } from "./plugins/calendars";
 import { calendarToday } from "./lib/calendar";
 import { isCalendarDate, isCalendarNotePath, type PluginCalendarDay } from "@denote/plugin-sdk";
@@ -9491,6 +9492,16 @@ function App() {
       }
     />
   );
+  const reminderBanners = (
+    <ReminderBanners
+      bumps={reminderScheduler.bumps}
+      onOpen={(bump) => {
+        showReminder(bump.provider.pluginId, bump.provider.id);
+        reminderScheduler.clearBumpsFor(bump.provider);
+      }}
+      onDismiss={reminderScheduler.dismissBump}
+    />
+  );
   const activePluginSidebarView =
     pluginController.sidebarViews.find(
       (view) => view.id === activePluginSidebar,
@@ -9607,6 +9618,7 @@ function App() {
           dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
         />
         {errorBanner}
+        {reminderBanners}
         <Welcome
           loading={initializing}
           onChooseVault={chooseVault}
@@ -9628,6 +9640,7 @@ function App() {
           dangerouslySetInnerHTML={{ __html: DESIGN_CONTRACT }}
         />
         {errorBanner}
+        {reminderBanners}
         <VaultUnlockScreen
           vaultName={workspace.vaultName}
           theme={theme}
@@ -10767,6 +10780,7 @@ function App() {
           </div>
         </header>
         {errorBanner}
+        {reminderBanners}
         {workspace.suggestGitProject && !workspaceLocked ? (
           <GitProjectSuggestion
             onAccept={() => markProject("")}

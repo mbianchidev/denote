@@ -242,6 +242,24 @@ button:disabled {
   background: var(--accent);
 }
 
+.activity-rail__badge {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  display: grid;
+  min-width: 15px;
+  height: 15px;
+  place-items: center;
+  padding: 0 3px;
+  color: var(--accent-contrast);
+  background: var(--accent);
+  border: 1px solid var(--rail-bg);
+  border-radius: 8px;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 .activity-rail__plugin-group {
   display: grid;
   width: 100%;
@@ -3587,6 +3605,22 @@ button.tag-chip:active,
   gap: 8px;
 }
 
+.reminder-form__repeat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 0.45fr);
+  align-items: end;
+  gap: 8px;
+}
+
+.reminder-form__repeat label:last-child {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.reminder-form__repeat label:last-child > span {
+  align-self: center;
+  color: var(--text-tertiary);
+}
+
 .reminder-panel :is(input, select) {
   width: 100%;
   min-width: 0;
@@ -3619,9 +3653,14 @@ button.tag-chip:active,
 
 .reminder-form__submit {
   min-height: 32px;
-  justify-self: start;
   padding-inline: 12px;
   font-size: 11px;
+}
+
+.reminder-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .reminder-panel :is(button, input, select):focus-visible {
@@ -5263,6 +5302,94 @@ button.tag-chip:active,
 .error-banner__navigate:hover,
 .error-banner__navigate:focus-visible {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.reminder-bumps {
+  position: fixed;
+  z-index: 75;
+  top: 12px;
+  right: 12px;
+  width: min(380px, calc(100vw - 24px));
+}
+
+.reminder-bumps ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reminder-bumps li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 22%);
+}
+
+.reminder-bumps li > svg {
+  color: var(--accent);
+}
+
+.reminder-bumps li > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.reminder-bumps strong,
+.reminder-bumps span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reminder-bumps strong {
+  font-size: 11px;
+}
+
+.reminder-bumps span,
+.reminder-bumps > p {
+  color: var(--text-tertiary);
+  font-size: 10px;
+}
+
+.reminder-bumps .secondary-button {
+  min-height: 28px;
+  padding: 4px 7px;
+  font-size: 10px;
+}
+
+.reminder-bumps .icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.reminder-bumps > p {
+  margin: 5px 2px 0;
+  text-align: right;
+}
+
+@media (forced-colors: active) {
+  .activity-rail__badge {
+    color: HighlightText;
+    background: Highlight;
+    border-color: Canvas;
+    forced-color-adjust: none;
+  }
+
+  .reminder-bumps li {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
+    box-shadow: none;
+  }
 }
 
 .welcome {

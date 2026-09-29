@@ -1,8 +1,8 @@
 # Reminder targets
 
-Enable **Reminders**, open this note, then choose **Reminders** in the activity
-rail. Create a reminder for the whole note, the **Pack the field kit** heading,
-or either synthetic task below.
+Enable **Reminders** and choose **Reminders** in the activity rail. Create a
+standalone reminder with **No note**, or open this file and link one to the
+whole note, the **Pack the field kit** heading, or either synthetic task below.
 
 ## Pack the field kit
 
@@ -11,6 +11,8 @@ or either synthetic task below.
 
 The example never creates a reminder by itself. Pick a future local date and
 time, then try **Open note**, **Snooze**, and **Dismiss** from the Reminders
-panel. Reminder metadata stays local and this Markdown remains unchanged.
+panel. Use **Edit** to change it, or repeat it every two weeks and choose
+**Next occurrence** after it fires. Reminder metadata stays local and this
+Markdown remains unchanged.
 
 [Plugin examples](README.md) | [Optional plugin guide](<../docs/Optional plugins.md>)
