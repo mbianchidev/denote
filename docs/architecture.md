@@ -1167,11 +1167,12 @@ A schedule is either a wall-clock civil `YYYY-MM-DDTHH:mm` plus IANA zone or an
 absolute snooze override plus its display zone. The worker resolves wall-clock
 times from independently sampled zone offsets, chooses the earlier instant when
 a fall-back hour repeats, and rejects a spring-forward gap. Recurrence retains
-the base civil schedule and adds a bounded interval in days, weeks, months, or
-years. Month/year arithmetic clamps to the last valid day; a recurring local
-time inside a spring-forward gap skips that occurrence. Models expose the
-derived epoch only as scheduling data; changing the machine's current zone does
-not rewrite the stored civil intent.
+the base schedule and adds a bounded interval in minutes, hours, days, weeks,
+months, or years. Minute/hour recurrence advances exact elapsed instants.
+Day/week/month/year recurrence advances civil time; month/year arithmetic clamps
+to the last valid day, and a local time inside a spring-forward gap skips that
+occurrence. Models expose the derived epoch only as scheduling data; changing
+the machine's current zone does not rewrite the stored civil intent.
 
 The renderer owns one reminder scheduler across all active providers. It
 requeries on activation, vault change, focus/visibility return, and every 30

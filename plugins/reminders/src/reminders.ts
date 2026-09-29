@@ -488,6 +488,19 @@ export function nextRecurringSchedule(
   recurrence: PluginReminderRecurrence,
   after: number,
 ): PluginReminderSchedule {
+  if (recurrence.unit === "minute" || recurrence.unit === "hour") {
+    const base = resolveReminderSchedule(schedule);
+    const interval =
+      recurrence.interval *
+      (recurrence.unit === "minute" ? 60_000 : 60 * 60_000);
+    const elapsed = Math.max(0, after - base);
+    const steps = Math.floor(elapsed / interval) + 1;
+    return {
+      kind: "instant",
+      dueAt: base + steps * interval,
+      timeZone: schedule.timeZone,
+    };
+  }
   let localDateTime =
     schedule.kind === "wall-clock"
       ? schedule.localDateTime
@@ -529,6 +542,36 @@ export function addRecurrence(
   let targetMonth = month;
   let targetDay = day;
   switch (recurrence.unit) {
+    case "minute": {
+      const date = new Date(
+        Date.UTC(
+          year,
+          month - 1,
+          day,
+          hour,
+          minute + recurrence.interval,
+        ),
+      );
+      targetYear = date.getUTCFullYear();
+      targetMonth = date.getUTCMonth() + 1;
+      targetDay = date.getUTCDate();
+      return `${String(targetYear).padStart(4, "0")}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+    }
+    case "hour": {
+      const date = new Date(
+        Date.UTC(
+          year,
+          month - 1,
+          day,
+          hour + recurrence.interval,
+          minute,
+        ),
+      );
+      targetYear = date.getUTCFullYear();
+      targetMonth = date.getUTCMonth() + 1;
+      targetDay = date.getUTCDate();
+      return `${String(targetYear).padStart(4, "0")}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
+    }
     case "day": {
       const date = new Date(
         Date.UTC(year, month - 1, day + recurrence.interval, hour, minute),

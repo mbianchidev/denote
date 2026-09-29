@@ -332,7 +332,9 @@ export function isPluginReminderRecurrence(
     isRecord(value) &&
     positiveInteger(value.interval) &&
     value.interval <= MAX_PLUGIN_REMINDER_RECURRENCE_INTERVAL &&
-    ["day", "week", "month", "year"].includes(String(value.unit))
+    ["minute", "hour", "day", "week", "month", "year"].includes(
+      String(value.unit),
+    )
   );
 }
 

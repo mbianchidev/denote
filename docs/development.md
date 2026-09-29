@@ -685,9 +685,10 @@ provider races, persisted `delivering` recovery, notification failures, manual
 retry, snooze, dismiss, storage corruption/quota, encrypted-vault disclosure,
 forced colors, focus, standalone and synthetic note/heading/task targets,
 editing, every-N recurrence, short-month and leap-day clamping, recurring DST
-gaps, series advancement/deletion, banner bounds, and badge counts. Native
-dispatch success only means the operating system accepted the request; do not
-test Focus or notification-center policy as delivery success.
+gaps, exact minute/hour intervals, stable repeat-control layout, series
+advancement/deletion, banner bounds, and badge counts. Native dispatch success
+only means the operating system accepted the request; do not test Focus or
+notification-center policy as delivery success.
 
 Stage with `npm run package:plugin -- denote.reminders`. Commit SDK, host, plugin,
 tests, docs, lockfile, and Welcome `plugins-v3` inputs first. Pin that full

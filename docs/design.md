@@ -744,9 +744,12 @@ notification calls. A compact creation form uses labelled native controls for
 target, reminder name, date, time, and recurrence. **No note** is always the
 first target; when a Markdown note is open, the whole note, headings, and tasks
 follow in source order. Edit reuses the same form and moves focus to the name
-field. The time-zone label and daylight-saving rule remain written beside the
-schedule; invalid skipped local times are errors rather than silent
-adjustments.
+field. The Repeat and Every controls use one intrinsic two-slot grid; the
+disabled interval slot stays reserved when recurrence is off, so selecting a
+unit does not move later content. Narrow sidebars stack the slots without
+horizontal scrolling. The time-zone label and daylight-saving rule remain
+written beside the schedule; invalid skipped local times are errors rather than
+silent adjustments.
 
 The reminder list is a flat work queue, not a dashboard. Each row shows the
 name, written state, scheduled time with zone, optional vault-relative link,

@@ -3607,18 +3607,24 @@ button.tag-chip:active,
 
 .reminder-form__repeat {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(90px, 0.45fr);
-  align-items: end;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  align-items: start;
   gap: 8px;
 }
 
-.reminder-form__repeat label:last-child {
-  grid-template-columns: minmax(0, 1fr) auto;
+.reminder-form__interval-fields {
+  display: grid;
+  grid-template-columns: minmax(68px, 86px) minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
 }
 
-.reminder-form__repeat label:last-child > span {
-  align-self: center;
+.reminder-form__interval-fields > span {
   color: var(--text-tertiary);
+}
+
+.reminder-form__interval--inactive {
+  visibility: hidden;
 }
 
 .reminder-panel :is(input, select) {

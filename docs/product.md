@@ -462,8 +462,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   IANA time zone. Repeated daylight-saving times use the earlier occurrence;
   skipped local times are refused instead of silently moving. Snooze is an
   explicit instant offset from the current time. Recurrence supports every N
-  days, weeks, months, or years, clamps short months, and skips a recurring
-  occurrence whose local time does not exist. The host rechecks at least once
+  minutes, hours, days, weeks, months, or years, clamps short months, and skips
+  a recurring civil-time occurrence whose local time does not exist. Minute and
+  hour recurrence uses exact elapsed time. The host rechecks at least once
   per minute and on focus, catches up overdue reminders after restart,
   enablement, wake, or returning to a vault, and collapses a large backlog into
   one native system notification while keeping every reminder visible.

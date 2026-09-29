@@ -721,6 +721,8 @@ export type PluginReminderStatus =
   | "failed";
 
 export type PluginReminderRecurrenceUnit =
+  | "minute"
+  | "hour"
   | "day"
   | "week"
   | "month"

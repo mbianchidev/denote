@@ -76,10 +76,19 @@ describe("ReminderPanel", () => {
     );
 
     await screen.findByRole("option", { name: "No note" });
+    const interval = screen.getByLabelText("Repeat interval");
+    expect(interval).toBeDisabled();
+    expect(
+      screen.getByRole("option", { name: "Every N hours" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Every N minutes" }),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Reminder name"), "Review plan");
-    await user.selectOptions(screen.getByLabelText("Repeat"), "week");
-    await user.clear(screen.getByLabelText("Repeat interval"));
-    await user.type(screen.getByLabelText("Repeat interval"), "2");
+    await user.selectOptions(screen.getByLabelText("Repeat"), "minute");
+    expect(interval).toBeEnabled();
+    await user.clear(interval);
+    await user.type(interval, "15");
     const create = screen.getByRole("button", { name: "Create reminder" });
     expect(create).toHaveClass("primary-button");
     await user.click(create);
@@ -97,7 +106,7 @@ describe("ReminderPanel", () => {
           schedule: expect.objectContaining({
             kind: "wall-clock",
           }),
-          recurrence: { interval: 2, unit: "week" },
+          recurrence: { interval: 15, unit: "minute" },
         }),
       ),
     );

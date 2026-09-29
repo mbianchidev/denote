@@ -118,6 +118,9 @@ describe("reminder contracts", () => {
       isPluginReminderRecurrence({ interval: 2, unit: "week" }),
     ).toBe(true);
     expect(
+      isPluginReminderRecurrence({ interval: 15, unit: "minute" }),
+    ).toBe(true);
+    expect(
       isPluginReminderRecurrence({ interval: 0, unit: "week" }),
     ).toBe(false);
 

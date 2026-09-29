@@ -419,9 +419,11 @@ form. Changing the computer's current time zone does not rewrite that intent.
 When a daylight-saving fall-back hour repeats, Reminders uses its earlier
 occurrence. A time skipped by a spring-forward transition is refused instead of
 moving silently. **Snooze** schedules the configured number of minutes from
-now. Repeat rules support every N days, weeks, months, or years. Monthly and
-yearly schedules clamp to the last day of a short month. A recurring occurrence
-inside a skipped daylight-saving time is skipped rather than moved silently.
+now. Repeat rules support every N minutes, hours, days, weeks, months, or years.
+Minutes and hours use elapsed time. Daily and longer schedules keep civil time;
+monthly and yearly schedules clamp to the last day of a short month. A recurring
+civil-time occurrence inside a skipped daylight-saving time is skipped rather
+than moved silently.
 
 Denote rechecks reminders while running, when the window regains focus, after
 sleep, and when the plugin or vault becomes available again. Overdue reminders

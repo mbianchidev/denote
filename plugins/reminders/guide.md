@@ -3,9 +3,9 @@
 ## Purpose
 
 Create editable standalone reminders or optionally link them to a Markdown note,
-heading, or task. Repeat them every N days, weeks, months, or years. Reminder
-records stay in Denote's local plugin data rather than changing note content.
-Requires Denote 0.7.1 or newer.
+heading, or task. Repeat them every N minutes, hours, days, weeks, months, or
+years. Reminder records stay in Denote's local plugin data rather than changing
+note content. Requires Denote 0.7.1 or newer.
 
 ## Enablement and permissions
 
@@ -40,9 +40,11 @@ Ambiguous daylight-saving times use the earlier occurrence. A local time that
 does not exist during a spring-forward transition is refused so it cannot move
 silently.
 
-Use **Repeat** and **Every** to schedule every N days, weeks, months, or years.
-Monthly and yearly reminders clamp to the last valid day of a short month. A
-recurring occurrence whose local time is skipped by daylight saving is skipped.
+Use **Repeat** and **Every** to schedule every N minutes, hours, days, weeks,
+months, or years. Minutes and hours use elapsed time. Daily and longer schedules
+keep civil time. Monthly and yearly reminders clamp to the last valid day of a
+short month. A recurring civil-time occurrence whose local time is skipped by
+daylight saving is skipped.
 
 When Denote is running, the host rechecks reminders against the wall clock at
 least once per minute and whenever the window regains focus. After restart,

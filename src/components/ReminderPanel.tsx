@@ -374,15 +374,24 @@ export function ReminderPanel({
               }
             >
               <option value="none">Does not repeat</option>
+              <option value="minute">Every N minutes</option>
+              <option value="hour">Every N hours</option>
               <option value="day">Every N days</option>
               <option value="week">Every N weeks</option>
               <option value="month">Every N months</option>
               <option value="year">Every N years</option>
             </select>
           </label>
-          {repeatUnit !== "none" ? (
-            <label>
-              Every
+          <label
+            className={`reminder-form__interval${
+              repeatUnit === "none"
+                ? " reminder-form__interval--inactive"
+                : ""
+            }`}
+            aria-hidden={repeatUnit === "none" ? "true" : undefined}
+          >
+            <span>Every</span>
+            <span className="reminder-form__interval-fields">
               <input
                 type="number"
                 aria-label="Repeat interval"
@@ -390,7 +399,9 @@ export function ReminderPanel({
                 max={999}
                 step={1}
                 value={repeatInterval}
-                disabled={disabled || working !== null}
+                disabled={
+                  disabled || working !== null || repeatUnit === "none"
+                }
                 onChange={(event) => {
                   const next = event.currentTarget.value;
                   if (next === "" || /^\d{1,3}$/u.test(next)) {
@@ -399,11 +410,14 @@ export function ReminderPanel({
                 }}
               />
               <span>
-                {repeatUnit}
-                {Number(repeatInterval) === 1 ? "" : "s"}
+                {repeatUnit === "none"
+                  ? "minutes"
+                  : `${repeatUnit}${
+                      Number(repeatInterval) === 1 ? "" : "s"
+                    }`}
               </span>
-            </label>
-          ) : null}
+            </span>
+          </label>
         </div>
         <small>
           Time zone: {timeZone}. A skipped daylight-saving time is refused;

@@ -128,6 +128,36 @@ describe("reminder schedules", () => {
       localDateTime: "2026-03-30T02:30",
       timeZone: "Europe/Rome",
     });
+    expect(
+      nextRecurringSchedule(
+        {
+          kind: "wall-clock",
+          localDateTime: "2026-10-01T09:00",
+          timeZone: "UTC",
+        },
+        { interval: 15, unit: "minute" },
+        Date.parse("2026-10-01T09:05:00Z"),
+      ),
+    ).toEqual({
+      kind: "instant",
+      dueAt: Date.parse("2026-10-01T09:15:00Z"),
+      timeZone: "UTC",
+    });
+    expect(
+      nextRecurringSchedule(
+        {
+          kind: "wall-clock",
+          localDateTime: "2026-10-01T09:00",
+          timeZone: "UTC",
+        },
+        { interval: 2, unit: "hour" },
+        Date.parse("2026-10-01T10:00:00Z"),
+      ),
+    ).toEqual({
+      kind: "instant",
+      dueAt: Date.parse("2026-10-01T11:00:00Z"),
+      timeZone: "UTC",
+    });
   });
 });
 
