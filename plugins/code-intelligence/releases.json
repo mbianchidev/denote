@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "34196ffe7f1c99f6569b14c4c51e9b7931f73a07",
+    "kind": "source",
+    "sourcePath": "plugins/code-intelligence",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.code-intelligence-0.1.0.tgz",
+      "sha256": "59c27004090efe114ee54b6873d8a2afb7275c7e689f8be13cd28b672aca91eb",
+      "sizeBytes": 27197
+    }
+  }
+]

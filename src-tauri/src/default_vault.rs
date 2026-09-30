@@ -1025,6 +1025,10 @@ mod tests {
             ),
             ("denote.task-lists", &["plugins/Advanced tasks.md"]),
             ("denote.reminders", &["plugins/Reminders.md"]),
+            (
+                "denote.code-intelligence",
+                &["plugins/Code intelligence.md"],
+            ),
         ];
         let catalog: serde_json::Value =
             serde_json::from_slice(include_bytes!("../../plugins/catalog.json"))
@@ -1059,9 +1063,13 @@ mod tests {
             expected_paths
         );
         assert_eq!(PLUGIN_EXAMPLE_V3_PATHS, &["plugins/Reminders.md"]);
+        assert_eq!(PLUGIN_EXAMPLE_V4_PATHS, &["plugins/Code intelligence.md"]);
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS.len(),
-            expected_paths.len() - 1 - PLUGIN_EXAMPLE_V3_PATHS.len()
+            expected_paths.len()
+                - 1
+                - PLUGIN_EXAMPLE_V3_PATHS.len()
+                - PLUGIN_EXAMPLE_V4_PATHS.len()
         );
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS
@@ -1071,7 +1079,9 @@ mod tests {
             expected_paths
                 .into_iter()
                 .filter(|path| {
-                    *path != PLUGIN_EXAMPLE_V1_PATH && !PLUGIN_EXAMPLE_V3_PATHS.contains(path)
+                    *path != PLUGIN_EXAMPLE_V1_PATH
+                        && !PLUGIN_EXAMPLE_V3_PATHS.contains(path)
+                        && !PLUGIN_EXAMPLE_V4_PATHS.contains(path)
                 })
                 .collect::<BTreeSet<_>>()
         );
