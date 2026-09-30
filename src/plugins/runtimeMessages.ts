@@ -30,6 +30,8 @@ import type {
   PluginTaskListQuery,
   PluginTaskListToggleRequest,
   PluginTaskListToggleResult,
+  PluginCodeRequest,
+  PluginCodeResult,
 } from "@denote/plugin-sdk";
 import {
   PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS,
@@ -61,7 +63,12 @@ import {
   isPluginTaskListRegistration,
   isPluginTaskListToggleRequest,
   isPluginTaskListToggleResult,
+  isPluginCodeRequest,
+  isPluginCodeResult,
+  isPluginCodeRegistration,
 } from "@denote/plugin-sdk";
+import type { PluginCodeContribution } from "./codeIntelligence";
+export type { PluginCodeContribution } from "./codeIntelligence";
 export type { PluginEmojiPickerContribution } from "./emojiPickers";
 import {
   isPluginAutomaticLocalCommitPayload,
@@ -161,6 +168,8 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
+  | { type: "code-request"; providerId: string; request: PluginCodeRequest; requestId: string }
+  | { type: "cancel-code-request"; requestId: string }
   | {
       type: "parse-reminder-targets";
       providerId: string;
@@ -259,6 +268,9 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | ({ type: "register-code-intelligence" } & Omit<PluginCodeContribution, "pluginId">)
+  | { type: "unregister-code-intelligence"; id: string }
+  | { type: "code-result"; requestId: string; result?: PluginCodeResult; error?: string }
   | {
       type: "register-reminders";
       id: string;
@@ -444,6 +456,14 @@ export function isPluginRuntimeMessage(
     return false;
   }
   switch (value.type) {
+    case "register-code-intelligence":
+      return isPluginCodeRegistration(value);
+    case "unregister-code-intelligence":
+      return typeof value.id === "string";
+    case "code-result":
+      return typeof value.requestId === "string" &&
+        ((typeof value.error === "string" && value.result === undefined) ||
+          (value.error === undefined && isPluginCodeResult(value.result)));
     case "ready":
     case "activated":
       return true;
@@ -626,6 +646,10 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
     return false;
   }
   switch (value.type) {
+    case "code-request":
+      return typeof value.providerId === "string" && typeof value.requestId === "string" && isPluginCodeRequest(value.request);
+    case "cancel-code-request":
+      return typeof value.requestId === "string";
     case "activate":
       return (
         (value.projectContext === undefined ||

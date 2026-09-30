@@ -29,6 +29,8 @@ import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import type { EditorSearchNavigation, FileLineEnding } from "../types";
 import type { EmojiEditorBinding } from "../lib/emojiHost";
 import { createEmojiSourceExtension } from "../lib/emojiSource";
+import { createCodeIntelligenceExtensions, type CodeEditorBinding } from "../lib/codeEditor";
+import type { PluginCodePosition } from "@denote/plugin-sdk";
 
 interface PlainTextEditorProps {
   value: string;
@@ -48,6 +50,8 @@ interface PlainTextEditorProps {
   sourceNavigation?: SourceEditorNavigation;
   pluginDecorations?: PluginEditorDecoration[];
   emoji?: EmojiEditorBinding;
+  code?: CodeEditorBinding;
+  onCursorChange?: (position: PluginCodePosition) => void;
   onChange: (value: string) => void;
   onViewportChange?: (viewport: SourceViewport) => void;
   onError?: (error: unknown) => void;
@@ -71,6 +75,8 @@ export function PlainTextEditor({
   sourceNavigation,
   pluginDecorations = [],
   emoji,
+  code,
+  onCursorChange,
   onChange,
   onViewportChange,
   onError,
@@ -92,6 +98,11 @@ export function PlainTextEditor({
   const handledErrorNavigationRequest = useRef(0);
   const handledSourceNavigationRequest = useRef(0);
   const emojiRef = useRef(emoji);
+  const codeRef = useRef(code);
+  codeRef.current = !binary ? code : undefined;
+  const cursorCallback = useRef(onCursorChange);
+  cursorCallback.current = onCursorChange;
+  const codeCompartment = useRef(new Compartment()).current;
   emojiRef.current = !binary && /\.(md|markdown)$/i.test(filePath ?? "") ? emoji : undefined;
 
   useEffect(() => {
@@ -129,6 +140,7 @@ export function PlainTextEditor({
           ...createCodeMirrorBehaviorExtensions(),
           ...(value.includes("\r") ? [EditorState.lineSeparator.of(value.includes("\r\n") ? "\r\n" : "\r")] : []),
           emojiCompartment.of(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
+          codeCompartment.of(createCodeIntelligenceExtensions(() => codeRef.current)),
           denoteCodeMirrorTheme,
           ...(markdownSource
             ? [markdownLinkKeymap, ...createEditorDiagnosticExtensions()]
@@ -152,6 +164,11 @@ export function PlainTextEditor({
             createPluginDecorationExtensions(pluginDecorations),
           ),
           EditorView.updateListener.of((update) => {
+            if ((update.selectionSet || update.docChanged) && cursorCallback.current) {
+              const head = update.state.selection.main.head;
+              const line = update.state.doc.lineAt(head);
+              cursorCallback.current({ line: line.number - 1, character: head - line.from });
+            }
             if (update.docChanged && !syncingValue.current) {
               const nextValue = update.state.sliceDoc();
               currentValueRef.current = nextValue;
@@ -182,6 +199,7 @@ export function PlainTextEditor({
     };
   }, [
     attributesCompartment,
+    codeCompartment,
     displayCompartment,
     emojiCompartment,
     languageCompartment,
@@ -189,6 +207,12 @@ export function PlainTextEditor({
     pluginDecorationCompartment,
     readOnlyCompartment,
   ]);
+
+  useEffect(() => {
+    editorRef.current?.dispatch({
+      effects: codeCompartment.reconfigure(createCodeIntelligenceExtensions(() => codeRef.current)),
+    });
+  }, [code?.host, code?.path, code?.projectId, codeCompartment, binary]);
 
   useEffect(() => {
     editorRef.current?.dispatch({
@@ -350,8 +374,8 @@ export function PlainTextEditor({
         Math.max(1, Math.min(sourceNavigation.line, editor.state.doc.lines)),
       );
       editor.dispatch({
-        selection: { anchor: line.from },
-        effects: EditorView.scrollIntoView(line.from, { y: "center" }),
+        selection: { anchor: Math.min(line.to, line.from + Math.max(0, (sourceNavigation.column ?? 1) - 1)) },
+        effects: EditorView.scrollIntoView(Math.min(line.to, line.from + Math.max(0, (sourceNavigation.column ?? 1) - 1)), { y: "center" }),
       });
       editor.focus();
       return;

@@ -1,4 +1,5 @@
 import type { EditorTab } from "../types";
+import type { PluginCodePosition } from "@denote/plugin-sdk";
 
 export const MAX_TAB_SESSION_TABS = 100;
 export const MAX_TAB_SESSION_GROUPS = 50;
@@ -131,11 +132,12 @@ export function placeTabInGroup(
 export function tabHistoryTarget(
   tab: EditorTab,
   direction: -1 | 1,
-): { path: string; index: number } | null {
+): { path: string; index: number; position?: PluginCodePosition } | null {
   const navigation = tabNavigation(tab);
   const index = navigation.navigationIndex + direction;
   const path = navigation.navigationHistory[index];
-  return path ? { path, index } : null;
+  const position = tab.navigationPositions?.[index];
+  return path ? { path, index, ...(position ? { position } : {}) } : null;
 }
 
 export function restoreTabHistoryTarget(
@@ -149,6 +151,10 @@ export function restoreTabHistoryTarget(
     groupId: current.groupId,
     navigationHistory: navigation.navigationHistory,
     navigationIndex: index,
+    ...(current.navigationPositions ? {
+      navigationPositions: current.navigationPositions,
+      cursorPosition: current.navigationPositions[index] ?? undefined,
+    } : {}),
   };
 }
 
@@ -180,25 +186,51 @@ export function removeTabNavigationPaths(
       Math.min(retainedThroughCursor - 1, history.length - 1),
       0,
     ),
+    ...(tab.navigationPositions ? {
+      navigationPositions: tab.navigationPositions.filter((_, index) => !remove(navigation.navigationHistory[index])),
+    } : {}),
   };
 }
 
 function pushTabNavigation(
   tab: EditorTab,
   path: string,
-): Pick<EditorTab, "navigationHistory" | "navigationIndex"> {
+): Pick<EditorTab, "navigationHistory" | "navigationIndex" | "navigationPositions"> {
   const navigation = tabNavigation(tab);
   const history = navigation.navigationHistory.slice(
     0,
     navigation.navigationIndex + 1,
   );
+  const positions = tab.navigationPositions?.slice(0, navigation.navigationIndex + 1);
   if (history[history.length - 1] !== path) {
     history.push(path);
+    positions?.push(null);
   }
+  const trim = positions ? Math.max(0, history.length - 500) : 0;
   return {
-    navigationHistory: history,
-    navigationIndex: history.length - 1,
+    navigationHistory: history.slice(trim),
+    navigationIndex: history.length - trim - 1,
+    ...(positions ? { navigationPositions: positions.slice(trim) } : {}),
   };
+}
+
+export function recordTabCursor(tab: EditorTab, position: PluginCodePosition): EditorTab {
+  const navigation = tabNavigation(tab);
+  const positions = navigation.navigationHistory.map((_, index) =>
+    index === navigation.navigationIndex ? { ...position } : tab.navigationPositions?.[index] ?? null);
+  return { ...tab, ...navigation, cursorPosition: { ...position }, navigationPositions: positions };
+}
+
+export function pushTabLocation(tab: EditorTab, position: PluginCodePosition): EditorTab {
+  if (tab.cursorPosition?.line === position.line && tab.cursorPosition.character === position.character) return recordTabCursor(tab, position);
+  const current = recordTabCursor(tab, tab.cursorPosition ?? { line: 0, character: 0 });
+  const navigation = tabNavigation(current);
+  const history = navigation.navigationHistory.slice(0, navigation.navigationIndex + 1);
+  const positions = current.navigationPositions!.slice(0, navigation.navigationIndex + 1);
+  history.push(tab.path); positions.push({ ...position });
+  const trim = Math.max(0, history.length - 500);
+  return { ...tab, cursorPosition: { ...position }, navigationHistory: history.slice(trim),
+    navigationPositions: positions.slice(trim), navigationIndex: history.length - trim - 1 };
 }
 
 function tabNavigation(

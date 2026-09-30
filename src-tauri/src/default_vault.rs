@@ -15,6 +15,7 @@ const EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/examples-v1";
 const PLUGIN_EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v1";
 const PLUGIN_EXAMPLE_V2_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v2";
 const PLUGIN_EXAMPLE_V3_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v3";
+const PLUGIN_EXAMPLE_V4_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v4";
 const PLUGIN_EXAMPLE_V1_PATH: &str = "plugins/Kanban board.kanban.md";
 const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
     "plugins/README.md",
@@ -31,7 +32,12 @@ const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
     "plugins/Advanced tasks.md",
 ];
 const PLUGIN_EXAMPLE_V3_PATHS: &[&str] = &["plugins/Reminders.md"];
+const PLUGIN_EXAMPLE_V4_PATHS: &[&str] = &["plugins/Code intelligence.md"];
 const SEED_FILES: &[(&str, &[u8])] = &[
+    (
+        "plugins/Code intelligence.md",
+        include_bytes!("../../docs/user-guide/plugins/Code intelligence.md"),
+    ),
     (
         ".denote.md",
         include_bytes!("../../docs/user-guide/Welcome.md"),
@@ -638,6 +644,13 @@ fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -
         PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
         |path| PLUGIN_EXAMPLE_V3_PATHS.contains(&path),
         "plugin example v3",
+    )?;
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
+        |path| PLUGIN_EXAMPLE_V4_PATHS.contains(&path),
+        "plugin example v4",
     )
 }
 
@@ -750,6 +763,12 @@ fn write_plugin_example_fixture_markers(
         vault_key,
         PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
         "plugin example v3",
+    )?;
+    write_seed_collection_marker(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
+        "plugin example v4",
     )
 }
 
@@ -1219,6 +1238,47 @@ mod tests {
         );
         assert!(vault.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).is_file());
         assert!(vault.join(PLUGIN_EXAMPLE_V3_FIXTURE_MARKER).is_file());
+    }
+
+    #[test]
+    fn plugin_v4_preserves_prior_markers_user_content_and_deleted_code_examples() {
+        let directory = tempdir().expect("temp directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join(".denote/fixtures")).expect("fixtures");
+        fs::create_dir(vault.join("plugins")).expect("plugins");
+        for marker in [
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
+        ] {
+            fs::write(vault.join(marker), b"Original marker bytes\n").expect("prior marker");
+        }
+        fs::write(
+            vault.join("plugins/Code intelligence.md"),
+            b"Edited synthetic guide\n",
+        )
+        .expect("user guide");
+        add_missing_plugin_examples_once(&vault, None).expect("v4 addition");
+        assert_eq!(
+            fs::read(vault.join("plugins/Code intelligence.md")).expect("guide"),
+            b"Edited synthetic guide\n"
+        );
+        assert!(vault.join(".denote/fixtures/plugins-v4").is_file());
+        for marker in [
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
+        ] {
+            assert_eq!(
+                fs::read(vault.join(marker)).expect("prior marker"),
+                b"Original marker bytes\n"
+            );
+        }
+        assert!(!vault.join("plugins/Reminders.md").exists());
+        fs::remove_file(vault.join("plugins/Code intelligence.md"))
+            .expect("delete applied example");
+        add_missing_plugin_examples_once(&vault, None).expect("repeat");
+        assert!(!vault.join("plugins/Code intelligence.md").exists());
     }
 
     #[test]

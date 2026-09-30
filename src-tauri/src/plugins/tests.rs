@@ -171,6 +171,7 @@ pub(super) fn manager(
             operations: Mutex::new(HashSet::new()),
             initialization_error: Mutex::new(None),
             git_operations: Default::default(),
+            code_sessions: Default::default(),
             clone_cleanups: Default::default(),
             clone_destinations: Default::default(),
             _process_lock: None,

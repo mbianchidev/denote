@@ -897,6 +897,29 @@ directory, a non-modal suggestion appears in the workspace chrome. It offers
 permanently for that vault after either dismissal or manual root
 project/workspace marking.
 
+### Optional code intelligence
+
+Code intelligence extends the existing compact plugin sidebar, not a separate
+IDE shell. Native language/scope selectors precede a written status and
+progress/error region. Setup is progressively disclosed, with one **Save and
+approve** primary action per form; starting and debugger actions remain secondary.
+Executable selection never executes a tool. Inputs, JSON code fields, focus,
+disabled state and forced colors reuse the workbench tokens and button hierarchy.
+
+Navigation results are named buttons in semantic lists, with symbol/container,
+path, project, language and line/column. File/position jumps stay searchable and
+keyboard reachable. Diagnostics expose written severity and exact positions;
+source underlines/gutters supplement rather than replace the list. Hover/help
+uses the existing safe host-rendered Markdown subset, never literal formatting
+markers or injected HTML.
+
+Debugger controls are text-labelled, capability-gated and independently opt-in.
+Threads, frames, scopes, variables, watches and output remain compact inspectable
+data. Unsupported/external source locations never masquerade as working links.
+Native disclosure sections contain setup and logs without traps or custom
+dialogs. No-server, disabled, busy, stale, crash, unsupported and encrypted states
+keep ordinary source editing available.
+
 ### Source Outline
 
 Project source uses the available pane width rather than the centered writing

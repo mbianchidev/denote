@@ -1,4 +1,6 @@
 mod catalog;
+mod code_commands;
+mod code_intelligence;
 mod commands;
 #[cfg(debug_assertions)]
 mod development;
@@ -20,6 +22,7 @@ mod signing_secret_tests;
 #[cfg(test)]
 mod tests;
 
+pub use code_commands::*;
 pub use commands::*;
 pub use git::tools::ToolStatus;
 pub use types::*;
@@ -63,6 +66,7 @@ struct PluginManagerInner {
     operations: Mutex<HashSet<String>>,
     initialization_error: Mutex<Option<String>>,
     git_operations: GitOperationRegistry,
+    code_sessions: code_intelligence::CodeSessionRegistry,
     /// Destinations of clones that failed, addressable only by opaque token.
     clone_cleanups: CloneCleanupRegistry,
     clone_destinations: CloneDestinationRegistry,
@@ -154,6 +158,7 @@ impl PluginManager {
                                 operations: Mutex::new(HashSet::new()),
                                 initialization_error: Mutex::new(Some(error.to_string())),
                                 git_operations: GitOperationRegistry::default(),
+                                code_sessions: code_intelligence::CodeSessionRegistry::default(),
                                 clone_cleanups: CloneCleanupRegistry::default(),
                                 clone_destinations: CloneDestinationRegistry::default(),
                                 _process_lock: None,
@@ -278,6 +283,7 @@ impl PluginManager {
                 operations: Mutex::new(HashSet::new()),
                 initialization_error: Mutex::new(None),
                 git_operations: GitOperationRegistry::default(),
+                code_sessions: code_intelligence::CodeSessionRegistry::default(),
                 clone_cleanups: CloneCleanupRegistry::default(),
                 clone_destinations: CloneDestinationRegistry::default(),
                 _process_lock: Some(process_lock),

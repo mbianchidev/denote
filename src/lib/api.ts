@@ -52,8 +52,21 @@ import type {
   PluginTextDocument,
 } from "@denote/plugin-sdk";
 import { systemPathForDisplay } from "./systemPath";
+import type { CodeProtocolInvocation, CodeToolConfiguration, CodeToolEnvironment, CodeWorkspaceContext } from "./codeTools";
 
 export const api = {
+  codeToolEnvironment: (pluginId: string, context: CodeWorkspaceContext) =>
+    invoke<CodeToolEnvironment>("code_tool_environment", { pluginId, context }),
+  chooseCodeToolExecutable: (pluginId: string) =>
+    invoke<string | null>("choose_code_tool_executable", { pluginId }),
+  saveCodeToolConfiguration: (pluginId: string, context: CodeWorkspaceContext, kind: "lsp" | "dap", configuration: CodeToolConfiguration) =>
+    invoke<void>("save_code_tool_configuration", { pluginId, context, kind, configuration }),
+  startCodeSession: (pluginId: string, context: CodeWorkspaceContext, kind: "lsp" | "dap") =>
+    invoke<{ sessionId: string; rootPath: string }>("start_code_session", { pluginId, context, kind }),
+  codeProtocol: (pluginId: string, request: CodeProtocolInvocation) =>
+    invoke<unknown>("code_protocol", { pluginId, request }),
+  stopCodeSessions: (pluginId: string) =>
+    invoke<void>("stop_code_sessions", { pluginId }),
   getGitSigningStatus: (workspaceScope: string | null, projectId: string | null) =>
     invoke<GitSigningStatus>("get_git_signing_status", { workspaceScope, projectId }),
   saveGitSigningPassphrase: (credentialId: string, passphrase: string, workspaceScope: string | null, projectId: string | null) =>

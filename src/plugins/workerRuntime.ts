@@ -30,6 +30,8 @@ import type {
   PluginTaskListQuery,
   PluginTaskListToggleRequest,
   PluginTaskListToggleResult,
+  PluginCodeRequest,
+  PluginCodeResult,
 } from "@denote/plugin-sdk";
 import {
   isPluginCalendarModel,
@@ -54,7 +56,11 @@ import {
   isPluginTaskListToggleRequest,
   MAX_PLUGIN_KANBAN_SOURCE_BYTES,
   MAX_PLUGIN_STRUCTURED_VIEWER_SOURCE_BYTES,
+  isPluginCodeRequest,
+  isPluginCodeResult,
 } from "@denote/plugin-sdk";
+import type { PluginCodeContribution } from "./codeIntelligence";
+export type { PluginCodeContribution } from "./codeIntelligence";
 import {
   privilegedHostOperation,
   runHostOperation,
@@ -121,6 +127,7 @@ interface PendingRequest {
   reject: (error: Error) => void;
   timeout: number;
   expectedType:
+    | "code-result"
     | "command-result"
     | "source-control-action-result"
     | "structured-view-result"
@@ -144,6 +151,9 @@ interface PendingHandshake {
 }
 
 interface Runtime {
+  codeProviders: Map<string, PluginCodeContribution>;
+  stagedCodeProviders: Map<string, PluginCodeContribution>;
+  cancelledCodeRequests: Set<string>;
   workspaceIdentity: string | null;
   manifest: PluginManifest;
   worker: Worker;
@@ -256,6 +266,7 @@ export class PluginWorkerRuntime {
     private readonly onTaskListsChanged: (
       taskLists: PluginTaskListContribution[],
     ) => void = () => {},
+    private readonly onCodeProvidersChanged: (providers: PluginCodeContribution[]) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -892,6 +903,55 @@ export class PluginWorkerRuntime {
     return this.runtimes.get(pluginId)?.phase === "active";
   }
 
+  async runCodeRequest(
+    pluginId: string, providerId: string, request: PluginCodeRequest,
+    workspaceScope: string, signal?: AbortSignal,
+  ): Promise<PluginCodeResult> {
+    const runtime = this.requireRuntime(pluginId);
+    if (runtime.phase !== "active" || !runtime.permissions.has("code-intelligence") ||
+        !runtime.codeProviders.has(providerId) || !isPluginCodeRequest(request) ||
+        workspaceScope !== this.workspaceIdentity || runtime.pending.size >= 64) {
+      throw new Error("Code intelligence is unavailable, its scope changed, or its request limit was reached.");
+    }
+    if (signal?.aborted) throw new DOMException("Code request cancelled.", "AbortError");
+    const requestId = crypto.randomUUID();
+    runtime.activeActions.set(requestId, {
+      workspaceScope, projectId: request.scope.projectId, sourceControlActionId: null,
+      codeRequest: structuredClone(request), codeRequestToken: requestId,
+    });
+    const pending = this.waitForRequest(runtime, requestId, 60_000, "code-result");
+    const cancel = () => {
+      if (!runtime.pending.has(requestId)) return;
+      const item = runtime.pending.get(requestId)!;
+      window.clearTimeout(item.timeout);
+      runtime.pending.delete(requestId);
+      runtime.cancelledCodeRequests.add(requestId);
+      runtime.activeActions.delete(requestId);
+      item.reject(new DOMException("Code request cancelled.", "AbortError"));
+      runtime.port.postMessage({ type: "cancel-code-request", requestId });
+      void api.codeProtocol(pluginId, { operation: "cancel", sessionId: "", workspaceScope: "", requestToken: requestId })
+        .catch((error) => this.onError(pluginId, error));
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
+    runtime.port.postMessage({ type: "code-request", providerId, request, requestId });
+    try {
+      const result = await pending;
+      if (!isPluginCodeResult(result)) throw new Error("Code intelligence returned an invalid result.");
+      return result;
+    } catch (error) {
+      if (runtime.activeActions.has(requestId) && !(error instanceof DOMException && error.name === "AbortError")) {
+        runtime.cancelledCodeRequests.add(requestId);
+        runtime.port.postMessage({ type: "cancel-code-request", requestId });
+        void api.codeProtocol(pluginId, { operation: "cancel", sessionId: "", workspaceScope: "", requestToken: requestId })
+          .catch((failure) => this.onError(pluginId, failure));
+      }
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", cancel);
+      runtime.activeActions.delete(requestId);
+    }
+  }
+
   getEmojiPicker(pluginId: string, pickerId: string): PluginEmojiPickerContribution {
     const runtime = this.requireRuntime(pluginId);
     const picker = runtime.emojiPickers.get(pickerId);
@@ -927,6 +987,7 @@ export class PluginWorkerRuntime {
     if (projectIdentity(this.projectContext) !== projectIdentity(context)) {
       this.invalidateActionLeases();
     }
+    if (!sameProjectContext(this.projectContext, context)) this.stopNativeCodeTools();
     const nextRepositories = cloneProjectRepositories(repositories);
     const event: PluginProjectContextChangeEvent = {
       previous: cloneProjectContext(this.projectContext),
@@ -952,6 +1013,7 @@ export class PluginWorkerRuntime {
       return;
     }
     this.workspaceIdentity = identity;
+    this.stopNativeCodeTools();
     this.publishCalendars();
     this.diagramHost.clearDerivedContent();
     // Every lease was granted against the previous workspace, so an action
@@ -1007,6 +1069,9 @@ export class PluginWorkerRuntime {
     });
     const channel = new MessageChannel();
     const runtime: Runtime = {
+      codeProviders: new Map(),
+      stagedCodeProviders: new Map(),
+      cancelledCodeRequests: new Set(),
       workspaceIdentity: this.workspaceIdentity,
       manifest,
       worker,
@@ -1115,6 +1180,9 @@ export class PluginWorkerRuntime {
       this.assertCurrent(pluginId, generation);
       runtime.activated = true;
       runtime.phase = "active";
+      for (const [id, provider] of runtime.stagedCodeProviders) runtime.codeProviders.set(id, provider);
+      runtime.stagedCodeProviders.clear();
+      this.publishCodeProviders();
       for (const [commandId, command] of runtime.stagedCommands) {
         runtime.commands.set(commandId, command);
       }
@@ -1200,6 +1268,33 @@ export class PluginWorkerRuntime {
       return;
     }
     switch (message.type) {
+      case "register-code-intelligence": {
+        if (!runtime.permissions.has("code-intelligence") ||
+            !["activating", "active"].includes(runtime.phase) ||
+            !message.id.startsWith(`${pluginId}.`) ||
+            runtime.codeProviders.has(message.id) || runtime.stagedCodeProviders.has(message.id) ||
+            runtime.codeProviders.size + runtime.stagedCodeProviders.size >= 4) {
+          void this.failRuntime(pluginId, new Error("Unauthorized code intelligence registration."));
+          return;
+        }
+        const provider = { pluginId, id: message.id, title: message.title, languages: message.languages };
+        (runtime.activated ? runtime.codeProviders : runtime.stagedCodeProviders).set(message.id, provider);
+        this.publishCodeProviders();
+        return;
+      }
+      case "unregister-code-intelligence":
+        runtime.codeProviders.delete(message.id);
+        runtime.stagedCodeProviders.delete(message.id);
+        this.publishCodeProviders();
+        void api.stopCodeSessions(pluginId).catch((error) => this.onError(pluginId, error));
+        return;
+      case "code-result":
+        if (runtime.cancelledCodeRequests.delete(message.requestId)) return;
+        if (!this.settle(runtime, message.requestId, "code-result", message.error, message.result)) {
+          this.protocolViolation(pluginId, "unexpected code result");
+        }
+        runtime.activeActions.delete(message.requestId);
+        return;
       case "register-command": {
         if (
           (runtime.phase !== "activating" && runtime.phase !== "active") ||
@@ -2073,6 +2168,7 @@ export class PluginWorkerRuntime {
     }
     runtime.handshakes.clear();
     this.runtimes.delete(pluginId);
+    this.publishCodeProviders();
     this.publishCommands();
     this.publishSidebarViews();
     this.publishStatusItems();
@@ -2108,6 +2204,11 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "stopping";
+    this.publishCodeProviders();
+    if (runtime.permissions.has("code-intelligence")) {
+      try { await api.stopCodeSessions(pluginId); }
+      catch (error) { this.onError(pluginId, error); }
+    }
     this.publishEmojiPickers();
     this.publishStructuredViewers();
     this.publishKanbanBoards();
@@ -2134,6 +2235,19 @@ export class PluginWorkerRuntime {
         ...runtime.commands.values(),
       ]),
     );
+  }
+
+  private publishCodeProviders(): void {
+    this.onCodeProvidersChanged([...this.runtimes.values()].flatMap((runtime) =>
+      runtime.phase === "active" ? [...runtime.codeProviders.values()] : []));
+  }
+
+  private stopNativeCodeTools(): void {
+    for (const [pluginId, runtime] of this.runtimes) {
+      if (runtime.permissions.has("code-intelligence")) {
+        void api.stopCodeSessions(pluginId).catch((error) => this.onError(pluginId, error));
+      }
+    }
   }
 
   private publishSidebarViews(): void {
