@@ -232,8 +232,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - Files and folders can be pinned above their siblings and manually ordered
   within the pinned or unpinned section of each parent folder.
 - Files and folders can move between folders by pointer drag or the
-  keyboard-accessible context action. Rename and trash are also available from
-  the file-tree context menu.
+  keyboard-accessible context action. Dropping onto a file or its row area uses
+  that file's containing folder; root files and empty root space target the
+  vault root. Rename and trash are also available from the file-tree context
+  menu.
 - File context menus can duplicate, bookmark, copy the validated path, open
   version history, open in a new tab, and reveal the file in the operating
   system file manager. The focused file exposes the same menu from a three-dot

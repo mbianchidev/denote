@@ -2129,7 +2129,17 @@ canonical vault, reject self/descendant folder moves and conflicts, then reuse
 the rename recovery journal around one filesystem rename plus transactional
 metadata path rekeying. The frontend flushes affected tabs first and rewrites
 their paths after the move. Pointer capture plus coordinate hit-testing drives
-folder/root drop targets; **Move to folder…** is the keyboard alternative.
+folder/root drop targets; **Move to folder…** is the keyboard alternative. Folder
+rows target themselves, while file rows target their containing folder. The same
+resolver drives hover and release. Tree padding and pointer-transparent virtual
+spacers resolve against logical row bands using live viewport bounds and scroll
+offsets, not a blanket root fallback. Only blank space above or below the complete
+logical list targets root. Outside-tree and scrollbar positions are excluded;
+same-parent and self/descendant destinations remain no-ops. The hovered row and
+destination folder/root share existing drop styling, and source/target row
+retention stays bounded during virtualized scrolling. Scrolling or viewport
+remeasurement refreshes an active drag from its last pointer position, keeping
+feedback aligned without requiring another pointer move.
 
 After a successful rename or move, Rust returns a bounded batch containing only
 UTF-8 `.md` and `.markdown` files up to 1 MB each and 32 MB total. A bundled Web

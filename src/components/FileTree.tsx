@@ -16,6 +16,7 @@ import {
   Trash2,
 } from "lucide-react";
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -75,6 +76,13 @@ interface FileTreeProps {
 
 const EMPTY_IGNORED_PATHS = new Set<string>();
 
+interface FileTreeDropTarget {
+  parentPath: string;
+  rowPath: string | null;
+}
+
+type FileTreePointerPosition = Pick<PointerEvent, "clientX" | "clientY">;
+
 export function FileTree({
   nodes,
   selectedPath,
@@ -115,6 +123,8 @@ export function FileTree({
     pointerId: number;
     startX: number;
     startY: number;
+    lastX: number;
+    lastY: number;
     dragging: boolean;
   } | null>(null);
   const suppressClickPath = useRef<string | null>(null);
@@ -122,7 +132,7 @@ export function FileTree({
   const [focusedRowPath, setFocusedRowPath] = useState<string | null>(null);
   const [pendingFocusPath, setPendingFocusPath] = useState<string | null>(null);
   const [draggedPath, setDraggedPath] = useState<string | null>(null);
-  const [dropTargetPath, setDropTargetPath] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<FileTreeDropTarget | null>(null);
   const rows = useMemo(
     () => visibleWorkspaceRows(nodes, expandedPaths, showDotfiles),
     [expandedPaths, nodes, showDotfiles],
@@ -176,6 +186,7 @@ export function FileTree({
         focusedRowPath,
         pendingFocusPath,
         draggedPath,
+        dropTarget?.rowPath ?? null,
         contextMenu?.node?.path ?? null,
       ].filter((path): path is string => path !== null),
     );
@@ -189,6 +200,7 @@ export function FileTree({
   }, [
     contextMenu?.node?.path,
     draggedPath,
+    dropTarget?.rowPath,
     endIndex,
     focusedRowPath,
     pendingFocusPath,
@@ -430,20 +442,72 @@ export function FileTree({
   const clearPointerDrag = () => {
     pointerDrag.current = null;
     setDraggedPath(null);
-    setDropTargetPath(null);
+    setDropTarget(null);
   };
 
-  const targetParentAtPointer = (event: PointerEvent): string | null => {
-    const element = document.elementFromPoint?.(event.clientX, event.clientY);
-    const folder = element?.closest<HTMLElement>("[data-folder-drop-path]");
-    if (folder?.dataset.folderDropPath !== undefined) {
-      return folder.dataset.folderDropPath;
+  const dropTargetAtPointer = useCallback(
+    (point: FileTreePointerPosition): FileTreeDropTarget | null => {
+      const nav = navRef.current;
+      const element = document.elementFromPoint?.(point.clientX, point.clientY);
+      if (!nav || !element || !nav.contains(element)) {
+        return null;
+      }
+      const bounds = nav.getBoundingClientRect();
+      const x = point.clientX - bounds.left - nav.clientLeft;
+      const y = point.clientY - bounds.top - nav.clientTop;
+      if (
+        !Number.isFinite(x) ||
+        !Number.isFinite(y) ||
+        x < 0 ||
+        x >= nav.clientWidth ||
+        y < 0 ||
+        y >= nav.clientHeight
+      ) {
+        return null;
+      }
+      const rowElement = element.closest<HTMLElement>("[data-tree-row-path]");
+      if (rowElement) {
+        const rowIndex = rowIndexByPath.get(rowElement.dataset.treeRowPath ?? "");
+        const row = rowIndex === undefined ? undefined : rows[rowIndex];
+        return row
+          ? { parentPath: creationParent(row.node), rowPath: row.node.path }
+          : null;
+      }
+      // Pointer-transparent virtual spacers still belong to their logical rows.
+      const rowIndex = Math.floor(
+        (y + nav.scrollTop - FILE_TREE_TOP_PADDING) / FILE_TREE_ROW_HEIGHT,
+      );
+      const row = rows[rowIndex];
+      return {
+        parentPath: creationParent(row?.node ?? null),
+        rowPath: row?.node.path ?? null,
+      };
+    },
+    [rowIndexByPath, rows],
+  );
+
+  const updateDropTarget = useCallback(
+    (node: FileNode, point: FileTreePointerPosition) => {
+      const target = dropTargetAtPointer(point);
+      const nextTarget = target && canMoveNode(node, target.parentPath)
+        ? target
+        : null;
+      setDropTarget((current) =>
+        current?.parentPath === nextTarget?.parentPath &&
+        current?.rowPath === nextTarget?.rowPath
+          ? current
+          : nextTarget,
+      );
+    },
+    [dropTargetAtPointer],
+  );
+
+  useLayoutEffect(() => {
+    const drag = pointerDrag.current;
+    if (drag?.dragging) {
+      updateDropTarget(drag.node, { clientX: drag.lastX, clientY: drag.lastY });
     }
-    if (element?.closest(".file-tree__row")) {
-      return null;
-    }
-    return element?.closest(".file-tree") ? "" : null;
-  };
+  }, [scrollTop, viewportHeight, updateDropTarget]);
 
   const startPointerDrag = (
     event: PointerEvent<HTMLButtonElement>,
@@ -457,6 +521,8 @@ export function FileTree({
       pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
+      lastX: event.clientX,
+      lastY: event.clientY,
       dragging: false,
     };
     event.currentTarget.setPointerCapture?.(event.pointerId);
@@ -467,6 +533,8 @@ export function FileTree({
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
+    drag.lastX = event.clientX;
+    drag.lastY = event.clientY;
     if (
       !drag.dragging &&
       Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 6
@@ -476,10 +544,7 @@ export function FileTree({
     event.preventDefault();
     drag.dragging = true;
     setDraggedPath(drag.node.path);
-    const target = targetParentAtPointer(event);
-    setDropTargetPath(
-      target !== null && canMoveNode(drag.node, target) ? target : null,
-    );
+    updateDropTarget(drag.node, event);
   };
 
   const finishPointerDrag = (event: PointerEvent<HTMLButtonElement>) => {
@@ -487,7 +552,7 @@ export function FileTree({
     if (!drag || drag.pointerId !== event.pointerId) {
       return;
     }
-    const target = targetParentAtPointer(event);
+    const target = dropTargetAtPointer(event);
     if (drag.dragging) {
       suppressClickPath.current = drag.node.path;
       window.setTimeout(() => {
@@ -495,9 +560,9 @@ export function FileTree({
           suppressClickPath.current = null;
         }
       }, 0);
-      if (target !== null && canMoveNode(drag.node, target)) {
+      if (target !== null && canMoveNode(drag.node, target.parentPath)) {
         event.preventDefault();
-        onMove(drag.node, target);
+        onMove(drag.node, target.parentPath);
       }
     }
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
@@ -547,7 +612,7 @@ export function FileTree({
           )
         }
         draggedPath={draggedPath}
-        dropTargetPath={dropTargetPath}
+        dropTarget={dropTarget}
         onPointerDown={startPointerDrag}
         onPointerMove={updatePointerDrag}
         onPointerUp={finishPointerDrag}
@@ -576,7 +641,7 @@ export function FileTree({
         ref={navRef}
         className="file-tree"
         aria-label="Vault files"
-        data-drop-target={dropTargetPath === ""}
+        data-drop-target={dropTarget?.parentPath === ""}
         tabIndex={rows.length === 0 ? 0 : -1}
         onKeyDown={(event) => openKeyboardContextMenu(event, null)}
         onContextMenu={(event) => {
@@ -798,7 +863,7 @@ interface FileTreeRowProps
   onFocus: () => void;
   onBlur: () => void;
   draggedPath: string | null;
-  dropTargetPath: string | null;
+  dropTarget: FileTreeDropTarget | null;
   onPointerDown: (event: PointerEvent<HTMLButtonElement>, node: FileNode) => void;
   onPointerMove: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerUp: (event: PointerEvent<HTMLButtonElement>) => void;
@@ -820,7 +885,7 @@ function FileTreeRow({
   onFocus,
   onBlur,
   draggedPath,
-  dropTargetPath,
+  dropTarget,
   onPointerDown,
   onPointerMove,
   onPointerUp,
@@ -848,9 +913,11 @@ function FileTreeRow({
       data-tree-row-path={node.path}
       data-selected={selectedPath === node.path}
       data-dragging={draggedPath === node.path}
-      data-drop-target={isFolder && dropTargetPath === node.path}
+      data-drop-target={
+        dropTarget?.rowPath === node.path ||
+        (isFolder && dropTarget?.parentPath === node.path)
+      }
       data-ignored={ignored ? "true" : undefined}
-      data-folder-drop-path={isFolder ? node.path : undefined}
       aria-current={selectedPath === node.path ? "true" : undefined}
       aria-expanded={isFolder ? expanded : undefined}
       className="file-tree__row"
