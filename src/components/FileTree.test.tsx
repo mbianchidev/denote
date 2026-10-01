@@ -5,6 +5,23 @@ import type { FileNode } from "../types";
 import { FileTree } from "./FileTree";
 
 describe("FileTree", () => {
+  let elementFromPointDescriptor: PropertyDescriptor | undefined;
+
+  beforeEach(() => {
+    elementFromPointDescriptor = Object.getOwnPropertyDescriptor(
+      document,
+      "elementFromPoint",
+    );
+  });
+
+  afterEach(() => {
+    if (elementFromPointDescriptor) {
+      Object.defineProperty(document, "elementFromPoint", elementFromPointDescriptor);
+    } else {
+      Reflect.deleteProperty(document, "elementFromPoint");
+    }
+  });
+
   it("hides dot entries without changing their stored expansion", () => {
     const hiddenFolder: FileNode = {
       path: ".config",
@@ -742,11 +759,8 @@ describe("FileTree", () => {
     );
     const source = screen.getByRole("button", { name: /note\.md/i });
     const target = screen.getByRole("button", { name: /archive/i });
-    const originalElementFromPoint = document.elementFromPoint;
-    Object.defineProperty(document, "elementFromPoint", {
-      configurable: true,
-      value: vi.fn(() => target),
-    });
+    mockTreeViewport(screen.getByLabelText("Vault files"));
+    mockPointerHit(target);
 
     fireEvent.pointerDown(source, {
       button: 0,
@@ -766,13 +780,9 @@ describe("FileTree", () => {
     });
 
     expect(onMove).toHaveBeenCalledWith(nodes[0], "archive");
-    Object.defineProperty(document, "elementFromPoint", {
-      configurable: true,
-      value: originalElementFromPoint,
-    });
   });
 
-  it("does not treat a file row or touch scrolling as a root drop target", () => {
+  it("does not move a file onto itself or start a drag during touch scrolling", () => {
     const onMove = vi.fn();
     const node = {
       path: "folder/note.md",
@@ -799,11 +809,8 @@ describe("FileTree", () => {
       />,
     );
     const source = screen.getByRole("button", { name: /note\.md/i });
-    const originalElementFromPoint = document.elementFromPoint;
-    Object.defineProperty(document, "elementFromPoint", {
-      configurable: true,
-      value: vi.fn(() => source),
-    });
+    mockTreeViewport(screen.getByLabelText("Vault files"));
+    mockPointerHit(source);
 
     fireEvent.pointerDown(source, {
       button: 0,
@@ -840,9 +847,266 @@ describe("FileTree", () => {
     });
 
     expect(onMove).not.toHaveBeenCalled();
-    Object.defineProperty(document, "elementFromPoint", {
-      configurable: true,
-      value: originalElementFromPoint,
+  });
+
+  describe("containing-folder drop targets", () => {
+    it.each([
+      { name: "a sibling file", target: "peer.md", hit: "row", parent: "archive" },
+      { name: "a file label", target: "peer.md", hit: "label", parent: "archive" },
+      { name: "a file icon", target: "peer.md", hit: "icon", parent: "archive" },
+      { name: "a nested file", target: "nested.md", hit: "row", parent: "archive/deep" },
+      { name: "a root file", target: "root.md", hit: "row", parent: "" },
+      { name: "a folder label", target: "archive", hit: "label", parent: "archive" },
+    ])("moves into the containing directory when dropped over $name", ({
+      target,
+      hit,
+      parent,
+    }) => {
+      const fixture = renderDropTree();
+      const targetRow = screen.getByRole("button", { name: target });
+      const element = hit === "label"
+        ? screen.getByText(target)
+        : hit === "icon"
+          ? targetRow.querySelector("svg")
+          : targetRow;
+      expect(element).not.toBeNull();
+      mockPointerHit(element);
+      const point = rowPointerPoint(targetRow);
+
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, { ...point, pointerId: 7 });
+
+      expect(targetRow).toHaveAttribute("data-drop-target", "true");
+      expect(fixture.tree).toHaveAttribute("data-drop-target", String(parent === ""));
+      if (parent) {
+        expect(screen.getByRole("button", {
+          name: parent.split("/").slice(-1)[0],
+        })).toHaveAttribute("data-drop-target", "true");
+      }
+      fireEvent.pointerUp(fixture.sourceRow, { ...point, pointerId: 7 });
+      fireEvent.click(fixture.sourceRow);
+
+      expect(fixture.onMove).toHaveBeenCalledExactlyOnceWith(fixture.source, parent);
+      expect(fixture.onSelect).not.toHaveBeenCalled();
+      expect(fixture.onToggleFolder).not.toHaveBeenCalled();
+      expect(targetRow).toHaveAttribute("data-drop-target", "false");
+      expect(fixture.tree).toHaveAttribute("data-drop-target", "false");
+    });
+
+    it.each([
+      { name: "a sibling file band", rowIndex: 6, parent: "archive", rowName: "peer.md" },
+      { name: "a nested file band", rowIndex: 8, parent: "archive/deep", rowName: "nested.md" },
+      { name: "a root file band", rowIndex: 9, parent: "", rowName: "root.md" },
+      { name: "a folder band", rowIndex: 5, parent: "archive", rowName: "archive" },
+      { name: "empty space above the list", rowIndex: -1, parent: "", rowName: null },
+      { name: "empty space below the list", rowIndex: 11, parent: "", rowName: null },
+    ])("resolves tree padding aligned with $name", ({ rowIndex, parent, rowName }) => {
+      const fixture = renderDropTree();
+      mockPointerHit(fixture.tree);
+      const point = {
+        clientX: 21,
+        clientY: rowIndex < 0 ? 42 : 40 + 6 + rowIndex * 29 + 14,
+      };
+
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, { ...point, pointerId: 7 });
+
+      expect(fixture.tree).toHaveAttribute("data-drop-target", String(parent === ""));
+      if (rowName) {
+        expect(screen.getByRole("button", { name: rowName })).toHaveAttribute(
+          "data-drop-target",
+          "true",
+        );
+      }
+      fireEvent.pointerUp(fixture.sourceRow, { ...point, pointerId: 7 });
+      expect(fixture.onMove).toHaveBeenCalledExactlyOnceWith(fixture.source, parent);
+    });
+
+    it.each([
+      { sourceName: "moved.md", targetName: "stay.md" },
+      { sourceName: "moved.md", targetName: "moved.md" },
+      { sourceName: "drafts", targetName: "drafts" },
+      { sourceName: "drafts", targetName: "child.md" },
+      { sourceName: "drafts", targetName: "root.md" },
+    ])("does not move $sourceName into $targetName's invalid destination", ({
+      sourceName,
+      targetName,
+    }) => {
+      const fixture = renderDropTree();
+      const sourceRow = screen.getByRole("button", { name: sourceName });
+      const targetRow = screen.getByRole("button", { name: targetName });
+      mockPointerHit(targetRow);
+      const point = { ...rowPointerPoint(targetRow), clientX: 100 };
+
+      startSyntheticDrag(sourceRow);
+      fireEvent.pointerMove(sourceRow, { ...point, pointerId: 7 });
+      fireEvent.pointerUp(sourceRow, { ...point, pointerId: 7 });
+
+      expect(fixture.onMove).not.toHaveBeenCalled();
+      expect(targetRow).toHaveAttribute("data-drop-target", "false");
+      expect(fixture.tree).toHaveAttribute("data-drop-target", "false");
+    });
+
+    it.each([
+      { name: "left of the tree", x: 19, y: 100, clientWidth: 240, clientHeight: 360 },
+      { name: "right of the tree", x: 260, y: 100, clientWidth: 240, clientHeight: 360 },
+      { name: "above the tree", x: 80, y: 39, clientWidth: 240, clientHeight: 360 },
+      { name: "below the tree", x: 80, y: 400, clientWidth: 240, clientHeight: 360 },
+      { name: "over a vertical scrollbar", x: 255, y: 100, clientWidth: 230, clientHeight: 360 },
+      { name: "over a horizontal scrollbar", x: 80, y: 395, clientWidth: 240, clientHeight: 350 },
+    ])("does not treat a pointer $name as a root drop", ({
+      x,
+      y,
+      clientWidth,
+      clientHeight,
+    }) => {
+      const fixture = renderDropTree();
+      mockTreeViewport(fixture.tree, {
+        left: 20,
+        top: 40,
+        height: 360,
+        clientWidth,
+        clientHeight,
+      });
+      mockPointerHit(fixture.tree);
+      const point = { clientX: x, clientY: y, pointerId: 7 };
+
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, point);
+      fireEvent.pointerUp(fixture.sourceRow, point);
+
+      expect(fixture.onMove).not.toHaveBeenCalled();
+      expect(fixture.tree).toHaveAttribute("data-drop-target", "false");
+    });
+
+    it("ignores another tree instead of moving to that tree's root", () => {
+      const fixture = renderDropTree();
+      const otherTree = document.createElement("nav");
+      otherTree.className = "file-tree";
+      document.body.append(otherTree);
+      try {
+        mockPointerHit(otherTree);
+        const point = { clientX: 80, clientY: 100, pointerId: 7 };
+        startSyntheticDrag(fixture.sourceRow);
+        fireEvent.pointerMove(fixture.sourceRow, point);
+        fireEvent.pointerUp(fixture.sourceRow, point);
+        expect(fixture.onMove).not.toHaveBeenCalled();
+      } finally {
+        otherTree.remove();
+      }
+    });
+
+    it("clears the destination without moving when a drag is cancelled", () => {
+      const fixture = renderDropTree();
+      const target = screen.getByRole("button", { name: "peer.md" });
+      mockPointerHit(target);
+      const point = rowPointerPoint(target);
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, { ...point, pointerId: 7 });
+      expect(target).toHaveAttribute("data-drop-target", "true");
+
+      fireEvent.pointerCancel(fixture.sourceRow, { pointerId: 7 });
+      fireEvent.pointerUp(fixture.sourceRow, { ...point, pointerId: 7 });
+
+      expect(fixture.onMove).not.toHaveBeenCalled();
+      expect(target).toHaveAttribute("data-drop-target", "false");
+      expect(fixture.sourceRow).toHaveAttribute("data-dragging", "false");
+    });
+
+    it("clears the destination when the pointer leaves the tree", () => {
+      const fixture = renderDropTree();
+      const target = screen.getByRole("button", { name: "peer.md" });
+      mockPointerHit(target);
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, {
+        ...rowPointerPoint(target),
+        pointerId: 7,
+      });
+      expect(target).toHaveAttribute("data-drop-target", "true");
+
+      mockPointerHit(document.body);
+      const point = { clientX: 300, clientY: 100, pointerId: 7 };
+      fireEvent.pointerMove(fixture.sourceRow, point);
+      fireEvent.pointerUp(fixture.sourceRow, point);
+
+      expect(fixture.onMove).not.toHaveBeenCalled();
+      expect(target).toHaveAttribute("data-drop-target", "false");
+      expect(fixture.tree).toHaveAttribute("data-drop-target", "false");
+    });
+
+    it("uses the release location instead of a stale hover destination", () => {
+      const fixture = renderDropTree();
+      const folderPeer = screen.getByRole("button", { name: "peer.md" });
+      const rootPeer = screen.getByRole("button", { name: "root.md" });
+      mockPointerHit(folderPeer);
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, {
+        ...rowPointerPoint(folderPeer),
+        pointerId: 7,
+      });
+      expect(folderPeer).toHaveAttribute("data-drop-target", "true");
+
+      mockPointerHit(rootPeer);
+      fireEvent.pointerUp(fixture.sourceRow, {
+        ...rowPointerPoint(rootPeer),
+        pointerId: 7,
+      });
+      expect(fixture.onMove).toHaveBeenCalledExactlyOnceWith(fixture.source, "");
+      expect(fixture.tree).toHaveAttribute("data-drop-target", "false");
+    });
+
+    it("preserves touch scrolling over a valid destination", () => {
+      const fixture = renderDropTree();
+      const target = screen.getByRole("button", { name: "peer.md" });
+      mockPointerHit(target);
+      fireEvent.pointerDown(fixture.sourceRow, {
+        ...rowPointerPoint(fixture.sourceRow),
+        button: 0,
+        pointerId: 7,
+        pointerType: "touch",
+      });
+      const point = {
+        ...rowPointerPoint(target),
+        pointerId: 7,
+        pointerType: "touch",
+      };
+      fireEvent.pointerMove(fixture.sourceRow, point);
+      fireEvent.pointerUp(fixture.sourceRow, point);
+
+      expect(fixture.onMove).not.toHaveBeenCalled();
+      expect(fixture.sourceRow).toHaveAttribute("data-dragging", "false");
+      expect(target).toHaveAttribute("data-drop-target", "false");
+    });
+
+    it("does not let another pointer finish the active drag", () => {
+      const fixture = renderDropTree();
+      const target = screen.getByRole("button", { name: "peer.md" });
+      mockPointerHit(target);
+      const point = rowPointerPoint(target);
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, { ...point, pointerId: 8 });
+      fireEvent.pointerUp(fixture.sourceRow, { ...point, pointerId: 8 });
+      expect(fixture.onMove).not.toHaveBeenCalled();
+      expect(target).toHaveAttribute("data-drop-target", "false");
+
+      fireEvent.pointerMove(fixture.sourceRow, { ...point, pointerId: 7 });
+      fireEvent.pointerUp(fixture.sourceRow, { ...point, pointerId: 7 });
+      expect(fixture.onMove).toHaveBeenCalledExactlyOnceWith(fixture.source, "archive");
+    });
+
+    it.each([5, 6])("starts dragging only at the 6px threshold: %ipx", (distance) => {
+      const fixture = renderDropTree();
+      mockPointerHit(fixture.sourceRow);
+      const start = rowPointerPoint(fixture.sourceRow);
+      startSyntheticDrag(fixture.sourceRow);
+      fireEvent.pointerMove(fixture.sourceRow, {
+        ...start,
+        clientX: start.clientX + distance,
+        pointerId: 7,
+      });
+      expect(fixture.sourceRow).toHaveAttribute("data-dragging", String(distance >= 6));
+      fireEvent.pointerCancel(fixture.sourceRow, { pointerId: 7 });
+      expect(fixture.onMove).not.toHaveBeenCalled();
     });
   });
 
@@ -1144,11 +1408,8 @@ describe("FileTree", () => {
       const draggedRow = await screen.findByRole("button", {
         name: "file-0.md",
       });
-      const originalElementFromPoint = document.elementFromPoint;
-      Object.defineProperty(document, "elementFromPoint", {
-        configurable: true,
-        value: vi.fn(() => draggedRow),
-      });
+      mockTreeViewport(screen.getByLabelText("Vault files"));
+      mockPointerHit(draggedRow);
       fireEvent.pointerDown(draggedRow, {
         button: 0,
         clientX: 10,
@@ -1178,10 +1439,120 @@ describe("FileTree", () => {
       expect(draggedRow).toHaveAttribute("data-dragging", "true");
       expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
       fireEvent.pointerCancel(draggedRow, { pointerId: 5 });
-      Object.defineProperty(document, "elementFromPoint", {
-        configurable: true,
-        value: originalElementFromPoint,
+    });
+
+    it.each([false, true])(
+      "resolves a logical drop destination with the scroll frame applied: %s",
+      async (applyFrame) => {
+        const source = syntheticTreeFile("drafts/moved.md");
+        const onMove = vi.fn();
+        render(
+          <FileTree
+            nodes={[
+              syntheticTreeFolder("drafts", [source]),
+              syntheticTreeFolder("archive", fileNodes(100).map((node) => ({
+                ...node,
+                path: `archive/${node.path}`,
+              }))),
+            ]}
+            selectedPath={null}
+            expandedPaths={new Set(["drafts", "archive"])}
+            onSelect={vi.fn()}
+            onToggleFolder={vi.fn()}
+            onCreate={vi.fn()}
+            onRename={vi.fn()}
+            onDelete={vi.fn()}
+            onMove={onMove}
+            onRequestMove={vi.fn()}
+          />,
+        );
+        const sourceRow = screen.getByRole("button", { name: "moved.md" });
+        const tree = screen.getByLabelText("Vault files");
+        mockTreeViewport(tree, { left: 20, top: 40, height: 87 });
+        mockPointerHit(sourceRow);
+        startSyntheticDrag(sourceRow);
+        fireEvent.pointerMove(sourceRow, {
+          ...rowPointerPoint(sourceRow),
+          clientX: 100,
+          pointerId: 7,
+        });
+
+        fireEvent.scroll(tree, { target: { scrollTop: 50 * 29 } });
+        if (applyFrame) {
+          act(() => {
+            for (const callback of frameCallbacks.splice(0)) {
+              callback(performance.now());
+            }
+          });
+        }
+        mockPointerHit(tree);
+        const point = { clientX: 21, clientY: 60, pointerId: 7 };
+        fireEvent.pointerMove(sourceRow, point);
+
+        const target = await screen.findByRole("button", { name: "file-47.md" });
+        expect(target).toHaveAttribute("data-drop-target", "true");
+        expect(tree).toHaveAttribute("data-drop-target", "false");
+        expect(sourceRow).toBeInTheDocument();
+        expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+        fireEvent.pointerUp(sourceRow, point);
+        expect(onMove).toHaveBeenCalledExactlyOnceWith(source, "archive");
+      },
+    );
+
+    it("retargets a stationary drag when scrolling reveals another folder", () => {
+      const source = syntheticTreeFile("drafts/moved.md");
+      const onMove = vi.fn();
+      render(
+        <FileTree
+          nodes={[
+            syntheticTreeFolder("drafts", [source]),
+            ...["archive", "storage"].map((path) =>
+              syntheticTreeFolder(path, fileNodes(100).map((node) => ({
+                ...node,
+                path: `${path}/${node.path}`,
+              }))),
+            ),
+          ]}
+          selectedPath={null}
+          expandedPaths={new Set(["drafts", "archive", "storage"])}
+          onSelect={vi.fn()}
+          onToggleFolder={vi.fn()}
+          onCreate={vi.fn()}
+          onRename={vi.fn()}
+          onDelete={vi.fn()}
+          onMove={onMove}
+          onRequestMove={vi.fn()}
+        />,
+      );
+      const sourceRow = screen.getByRole("button", { name: "moved.md" });
+      const archiveRow = screen.getByRole("button", { name: "archive" });
+      const tree = screen.getByLabelText("Vault files");
+      mockTreeViewport(tree, { left: 20, top: 40, height: 87 });
+      mockPointerHit(archiveRow);
+      const point = { ...rowPointerPoint(archiveRow), pointerId: 7 };
+      startSyntheticDrag(sourceRow);
+      fireEvent.pointerMove(sourceRow, point);
+      expect(archiveRow).toHaveAttribute("data-drop-target", "true");
+
+      mockPointerHit(tree);
+      fireEvent.scroll(tree, { target: { scrollTop: 110 * 29 } });
+      act(() => {
+        for (const callback of frameCallbacks.splice(0)) {
+          callback(performance.now());
+        }
       });
+
+      const target = screen.getByRole("button", { name: "file-8.md" });
+      expect(target).toHaveAttribute("data-drop-target", "true");
+      expect(screen.getByRole("button", { name: "storage" })).toHaveAttribute(
+        "data-drop-target",
+        "true",
+      );
+      expect(archiveRow).not.toBeInTheDocument();
+      expect(tree).toHaveAttribute("data-drop-target", "false");
+      expect(screen.getAllByRole("button").length).toBeLessThanOrEqual(17);
+      fireEvent.pointerUp(sourceRow, point);
+      expect(onMove).toHaveBeenCalledExactlyOnceWith(source, "storage");
     });
 
     it("scrolls an externally selected visible row into the viewport", async () => {
@@ -1276,6 +1647,104 @@ describe("FileTree", () => {
     });
   });
 });
+
+function mockPointerHit(element: Element | null) {
+  Object.defineProperty(document, "elementFromPoint", {
+    configurable: true,
+    value: vi.fn(() => element),
+  });
+}
+
+function mockTreeViewport(
+  tree: HTMLElement,
+  options: {
+    left?: number;
+    top?: number;
+    height?: number;
+    clientWidth?: number;
+    clientHeight?: number;
+  } = {},
+) {
+  const height = options.height ?? (tree.clientHeight || 348);
+  Object.defineProperties(tree, {
+    getBoundingClientRect: {
+      configurable: true,
+      value: () => new DOMRect(options.left ?? 0, options.top ?? 0, 240, height),
+    },
+    clientWidth: { configurable: true, value: options.clientWidth ?? 240 },
+    clientHeight: { configurable: true, value: options.clientHeight ?? height },
+    clientLeft: { configurable: true, value: 0 },
+    clientTop: { configurable: true, value: 0 },
+  });
+}
+
+function rowPointerPoint(row: HTMLElement) {
+  const tree = screen.getByLabelText("Vault files");
+  const bounds = tree.getBoundingClientRect();
+  return {
+    clientX: bounds.left + 30,
+    clientY: bounds.top + 6 + Number(row.dataset.treeRowIndex) * 29 - tree.scrollTop + 14,
+  };
+}
+
+function startSyntheticDrag(row: HTMLElement) {
+  fireEvent.pointerDown(row, {
+    ...rowPointerPoint(row),
+    button: 0,
+    pointerId: 7,
+    pointerType: "mouse",
+  });
+}
+
+function syntheticTreeFile(path: string): FileNode {
+  return { ...fileNodes(1)[0], path, name: path.split("/").slice(-1)[0] ?? path };
+}
+
+function syntheticTreeFolder(path: string, children: FileNode[]): FileNode {
+  return { ...syntheticTreeFile(path), kind: "folder", children };
+}
+
+function renderDropTree() {
+  const source = syntheticTreeFile("drafts/moved.md");
+  const onMove = vi.fn();
+  const onSelect = vi.fn();
+  const onToggleFolder = vi.fn();
+  render(
+    <FileTree
+      nodes={[
+        syntheticTreeFolder("drafts", [
+          source,
+          syntheticTreeFile("drafts/stay.md"),
+          syntheticTreeFolder("drafts/inside", [syntheticTreeFile("drafts/inside/child.md")]),
+        ]),
+        syntheticTreeFolder("archive", [
+          syntheticTreeFile("archive/peer.md"),
+          syntheticTreeFolder("archive/deep", [syntheticTreeFile("archive/deep/nested.md")]),
+        ]),
+        syntheticTreeFile("root.md"),
+      ]}
+      selectedPath={null}
+      expandedPaths={new Set(["drafts", "drafts/inside", "archive", "archive/deep"])}
+      onSelect={onSelect}
+      onToggleFolder={onToggleFolder}
+      onCreate={vi.fn()}
+      onRename={vi.fn()}
+      onDelete={vi.fn()}
+      onMove={onMove}
+      onRequestMove={vi.fn()}
+    />,
+  );
+  const tree = screen.getByLabelText("Vault files");
+  mockTreeViewport(tree, { left: 20, top: 40, height: 360 });
+  return {
+    source,
+    sourceRow: screen.getByRole("button", { name: "moved.md" }),
+    tree,
+    onMove,
+    onSelect,
+    onToggleFolder,
+  };
+}
 
 function fileNodes(count: number): FileNode[] {
   return Array.from({ length: count }, (_, index) => ({

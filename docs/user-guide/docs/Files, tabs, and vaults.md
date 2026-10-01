@@ -122,11 +122,18 @@ Files matched by `.gitignore` remain visible and usable, with reduced emphasis
 and an ignored description for screen readers. Rules apply within the closest
 explicit or implicit code project and never remove files from Denote.
 
-Drag a file or folder onto another folder to move it there, or onto empty tree
-space to move it to the vault root. Use **Move to folder…** from the context menu
-for the keyboard-accessible equivalent. Denote then updates relative inline
-links, images, and reference definitions in eligible Markdown files. It reports
-large, unreadable, or conflicting files that could not be rewritten.
+Drag a file or folder onto a folder, one of its files, or the surrounding file-row
+area to move it into that folder. Dropping onto a root-level file or empty tree
+space above or below the file list moves it to the vault root. The hovered row
+and destination folder or root are highlighted. Use **Move to folder…** from the
+context menu for the keyboard-accessible equivalent. Dropping beside a file moves
+into its folder; it does not change sibling order or replace that file.
+
+After a rename or move, Denote updates relative inline links, images, and reference
+definitions in eligible Markdown files. Skipped files and scan size limits appear
+in the status bar without marking the rename or move as failed. Link-write
+conflicts and other link-update failures remain errors; the renamed or moved item
+stays at its new location.
 
 Drag the divider beside the file tree to resize the sidebar. Focus it and use
 Left/Right arrows, or press Home to reset the default width.
