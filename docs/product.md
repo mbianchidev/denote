@@ -123,7 +123,13 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   WebAssembly are bundled with Denote. Runtime CDN and external network fallback
   are forbidden. PDF scripting, forms, annotations, signatures, embedded
   attachments, automatic links, and external link activation are disabled.
-- Source-only programming and markup files use one filename-driven core
+- Optional Code intelligence connects
+  explicitly approved local language servers and debuggers for Rust, Go,
+  Python, Java, C/C++, and JavaScript/TypeScript. It never installs tooling,
+  starts nothing on enablement, preserves independent language/debug enablement,
+  cancels stale document work, and uses core project roots or safe language
+  marker detection. Native tools are unavailable in encrypted vaults.
+- Baseline source syntax highlighting uses one filename-driven core
   CodeMirror language registry. Its bundled baseline covers JavaScript, JSX,
   TypeScript, TSX, Java, JSP, Go, Rust, Python, C/C++, C#, Kotlin, Swift, Ruby,
   PHP, Dart, Lua, R, Scala, Elixir, JSON, XML, HTML, CSS, Markdown, shell, YAML,

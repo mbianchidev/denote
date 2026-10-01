@@ -54,6 +54,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "diagram-renderer": "Render bounded diagrams in an isolated local sandbox",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",
+  "code-intelligence": "Read versioned source and use explicitly approved native language servers and debuggers",
   "source-control": "Provide source control status and actions",
   "automatic-local-commit": "Allow automatic local commits",
   "automatic-git-push": "Push new automatic commits to an existing upstream",

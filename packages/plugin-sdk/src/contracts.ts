@@ -30,6 +30,7 @@ export const PLUGIN_CAPABILITIES = [
   "diagram-renderer",
   "note-events",
   "project-context",
+  "code-intelligence",
   "source-control",
   "automatic-local-commit",
   "automatic-git-push",
@@ -2103,6 +2104,7 @@ export interface PluginCapabilities {
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
+  codeIntelligence?: import("./codeIntelligence").PluginCodeIntelligenceCapability;
   sourceControl?: PluginSourceControlCapability;
   automaticLocalCommit?: PluginAutomaticLocalCommitCapability;
   secureStorage?: PluginSecureStorage;

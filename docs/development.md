@@ -699,6 +699,44 @@ source commit with
 --release <Denote-tag>`, then commit only the generated catalog and
 `plugins/reminders/releases.json` metadata. Never commit the `.tgz`.
 
+### Code intelligence plugin development
+
+Use `npm run dev:plugin -- denote.code-intelligence` and the isolated development
+app's local archive picker. The package requests `code-intelligence`,
+`project-context`, and `sidebar`. It contains adapter metadata/protocol handling,
+not UI or native process implementations. Install tools yourself and explicitly
+approve them in the host; tests use synthetic Node protocol servers and never
+run a developer's real language/debug configuration.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/codeIntelligence.test.ts \
+  plugins/code-intelligence/tests \
+  src/plugins/codeHost.test.ts src/plugins/codeIntelligence.test.ts \
+  src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
+  src/plugins/hostOperations.test.ts src/plugins/usePlugins.test.tsx \
+  src/lib/codeTools.test.ts src/lib/codeEditor.test.tsx src/lib/tabs.test.ts \
+  src/components/CodeToolPanel.test.tsx src/components/PluginGuide.test.tsx \
+  src/components/PlainTextEditor.test.tsx src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml plugins::code_
+cargo test --manifest-path src-tauri/Cargo.toml plugin_v4_preserves
+```
+
+The native tests require the existing Node development prerequisite. Cover
+byte-count framing, headers/JSON bounds, response IDs, cancellation, source
+versions, folder markers/core project precedence, virtual URI/path translation,
+foreign plugin/vault/project/language rejection, executable reapproval, process
+groups and loopback teardown, DAP launch/configuration ordering, empty control
+responses, optional capabilities, suspended reference lifetimes, synthetic
+source edits, keyboard navigation and formatting, encrypted refusal and shutdown.
+
+The frozen `plugins-v4` Welcome inventory adds only the code intelligence
+exercise; previous markers/inventories and deleted examples stay untouched.
+Stage the package, commit all source/SDK/build/lock inputs, then pin its full
+source commit for the intended Denote release and commit the generated catalog
+and `plugins/code-intelligence/releases.json` separately. No tool executable or
+plugin archive belongs in Git or a desktop installer.
+
 ## Frontend bundle limits
 
 `npm run build` uses entry-aware Rolldown groups and rejects main-thread

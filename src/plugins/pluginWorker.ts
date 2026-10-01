@@ -34,6 +34,9 @@ import type {
   PluginTaskListToggleResult,
   PluginTextDocument,
   PluginUserActionContext,
+  PluginCodeProvider,
+  PluginCodeProtocolEvent,
+  PluginCodeTransport,
 } from "@denote/plugin-sdk";
 import type {
   PluginHostMessage,
@@ -74,6 +77,8 @@ import {
   isPluginTaskListRegistration,
   isPluginTaskListToggleRequest,
   isPluginTaskListToggleResult,
+  isPluginCodeRegistration,
+  isPluginCodeResult,
 } from "@denote/plugin-sdk";
 
 interface PendingRequest {
@@ -89,6 +94,8 @@ interface PendingRequest {
 const CANCEL_SOURCE_CONTROL_ACTION = "cancel-operation";
 
 const commandHandlers = new Map<string, PluginCommand["run"]>();
+const codeHandlers = new Map<string, PluginCodeProvider["run"]>();
+const codeAbortControllers = new Map<string, AbortController>();
 const sourceControlHandlers = new Map<
   string,
   PluginSourceControlProvider["runAction"]
@@ -801,6 +808,23 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (permissions.has("code-intelligence")) {
+    capabilities.codeIntelligence = {
+      register(provider) {
+        if (!isPluginCodeRegistration(provider) || typeof provider.run !== "function") {
+          throw new Error("Invalid code intelligence registration.");
+        }
+        validateContributionId(provider.id, "code intelligence");
+        if (codeHandlers.has(provider.id)) throw new Error("Code intelligence provider is already registered.");
+        codeHandlers.set(provider.id, provider.run);
+        send({ type: "register-code-intelligence", id: provider.id, title: provider.title, languages: provider.languages });
+        return disposable(() => {
+          codeHandlers.delete(provider.id);
+          send({ type: "unregister-code-intelligence", id: provider.id });
+        });
+      },
+    };
+  }
   if (permissions.has("secure-storage")) {
     capabilities.secureStorage = {
       get: (key) => hostRequest<string | null>("secret.get", key),
@@ -899,6 +923,9 @@ async function cleanup(): Promise<unknown[]> {
     return [];
   }
   cleaned = true;
+  for (const controller of codeAbortControllers.values()) controller.abort();
+  codeAbortControllers.clear();
+  codeHandlers.clear();
   const failures: unknown[] = [];
   try {
     await plugin?.deactivate?.();
@@ -940,6 +967,39 @@ async function cleanup(): Promise<unknown[]> {
 }
 
 async function handleMessage(message: PluginHostMessage): Promise<void> {
+  if (message.type === "cancel-code-request") {
+    codeAbortControllers.get(message.requestId)?.abort();
+    return;
+  }
+  if (message.type === "code-request") {
+    const controller = new AbortController();
+    codeAbortControllers.set(message.requestId, controller);
+    try {
+      const run = codeHandlers.get(message.providerId);
+      if (!run || cleaned) throw new Error("Code intelligence provider is no longer registered.");
+      const actionId = message.requestId;
+      const protocol = <T>(operation: string, sessionId: string, method?: string, params?: unknown) =>
+        hostRequest<T>("code.protocol", undefined, { operation, sessionId, method, params }, actionId);
+      const transport: PluginCodeTransport = {
+        start: (kind) => hostRequest("code.start", undefined, { kind }, actionId),
+        request: (id, method, params) => protocol("request", id, method, params),
+        notify: async (id, method, params) => { await protocol("notify", id, method, params); },
+        poll: (id) => protocol<PluginCodeProtocolEvent[]>("poll", id),
+        respond: async (id, requestId, result) => { await protocol("respond", id, undefined, { id: requestId, result }); },
+        stop: (id) => hostRequest<void>("code.stop", undefined, { sessionId: id }),
+        cancel: () => hostRequest<void>("code.cancel", undefined, { requestToken: actionId }),
+      };
+      const result = await run(message.request, { transport, signal: controller.signal });
+      if (controller.signal.aborted) throw new Error("Code request cancelled.");
+      if (!isPluginCodeResult(result)) throw new Error("Code intelligence returned an invalid result.");
+      send({ type: "code-result", requestId: message.requestId, result });
+    } catch (error) {
+      send({ type: "code-result", requestId: message.requestId, error: errorMessage(error) });
+    } finally {
+      codeAbortControllers.delete(message.requestId);
+    }
+    return;
+  }
   if (message.type === "host-response") {
     const request = pending.get(message.requestId);
     if (!request) {
@@ -1421,6 +1481,14 @@ self.onmessage = async (event: MessageEvent<unknown>) => {
     const hostMessage: PluginHostMessage = portEvent.data;
     if (hostMessage.type === "host-response") {
       void handleMessage(hostMessage);
+      return;
+    }
+    if (hostMessage.type === "code-request" || hostMessage.type === "cancel-code-request") {
+      if (!cleaned && codeHandlers.size > 0) {
+        void handleMessage(hostMessage).catch(reportRuntimeError);
+      } else {
+        hostMessageQueue = hostMessageQueue.then(() => handleMessage(hostMessage)).catch(reportRuntimeError);
+      }
       return;
     }
     if (

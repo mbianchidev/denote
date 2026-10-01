@@ -2,7 +2,10 @@ import type {
   PluginGitCloneVaultResult,
   PluginNetworkRequest,
   PluginProcessRequest,
+  PluginCodeRequest,
 } from "@denote/plugin-sdk";
+import { isCodeJson, record } from "@denote/plugin-sdk";
+import { codeProtocolAllowed } from "./codeIntelligence";
 import { api } from "../lib/api";
 import type { WorkspaceSnapshot } from "../types";
 import {
@@ -17,6 +20,8 @@ export interface PluginActionLeaseScope {
   workspaceScope: string;
   projectId: string | null;
   projectIds?: string[];
+  codeRequest?: PluginCodeRequest;
+  codeRequestToken?: string;
   /**
    * The source-control action this lease was opened for, or `null` for a
    * command.
@@ -54,6 +59,7 @@ export function privilegedHostOperation(operation: string): boolean {
     operation.startsWith("clipboard.") ||
     operation.startsWith("notifications.") ||
     operation.startsWith("process.") ||
+    (operation.startsWith("code.") && operation !== "code.stop" && operation !== "code.cancel") ||
     operation.startsWith("git.")
   );
 }
@@ -68,6 +74,49 @@ export async function runHostOperation(
   onVaultCloned?: PluginVaultClonedHandler,
 ): Promise<unknown> {
   switch (operation) {
+    case "code.start": {
+      const scope = requireActionScope(actionScope);
+      const request = scope.codeRequest;
+      if (!request || !record(value) || typeof value.kind !== "string" ||
+          !codeProtocolAllowed(request, "start", value.kind, {})) {
+        throw new Error("Code tools may start only after a matching explicit host action.");
+      }
+      return api.startCodeSession(pluginId, {
+        workspaceScope: scope.workspaceScope, projectId: request.scope.projectId,
+        documentPath: request.document?.path ?? null, language: request.language,
+      }, value.kind === "lsp" ? "lsp" : "dap");
+    }
+    case "code.protocol": {
+      const scope = requireActionScope(actionScope);
+      const request = scope.codeRequest;
+      if (!request || !record(value) || typeof value.sessionId !== "string" ||
+          typeof value.operation !== "string" || !["request", "notify", "poll", "respond"].includes(value.operation) ||
+          !isCodeJson(value.params ?? null) ||
+          !codeProtocolAllowed(request, value.operation, String(value.method ?? ""), value.params)) {
+        throw new Error("Code protocol operation does not match the host action lease.");
+      }
+      return api.codeProtocol(pluginId, {
+        operation: value.operation as "request" | "notify" | "poll" | "respond",
+        sessionId: value.sessionId, workspaceScope: scope.workspaceScope,
+        requestToken: scope.codeRequestToken ?? "",
+        scope: request.scope,
+        language: request.language,
+        ...(typeof value.method === "string" ? { method: value.method } : {}),
+        ...(value.params !== undefined ? { params: value.params } : {}),
+      });
+    }
+    case "code.stop":
+      if (!record(value) || typeof value.sessionId !== "string") throw new Error("Code cleanup requires a session ID.");
+      return api.codeProtocol(pluginId, {
+        operation: "stop", sessionId: value.sessionId, workspaceScope: "",
+        requestToken: "",
+      });
+    case "code.cancel":
+      if (!record(value) || typeof value.requestToken !== "string") throw new Error("Code cancellation requires a request token.");
+      return api.codeProtocol(pluginId, {
+        operation: "cancel", sessionId: "", workspaceScope: "",
+        requestToken: value.requestToken,
+      });
     case "storage.get":
       return api.pluginStorageGet(pluginId, requireKey(key));
     case "storage.set":
