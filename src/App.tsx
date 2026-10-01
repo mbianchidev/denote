@@ -416,6 +416,40 @@ interface LinkRewriteSave {
   lineEnding: EditorTab["lineEnding"];
 }
 
+interface LinkRewriteResult {
+  updates: Map<string, LinkRewriteSave>;
+  skippedCount: number;
+  truncated: boolean;
+  failedCount: number;
+}
+
+type EntryMoveAction = "Renamed" | "Moved";
+
+function entryMoveStatus(
+  action: EntryMoveAction,
+  name: string,
+  result: LinkRewriteResult,
+): string {
+  const updatedCount = result.updates.size;
+  const summary = `${action} ${name}${
+    updatedCount > 0
+      ? ` and updated ${updatedCount} linked file${updatedCount === 1 ? "" : "s"}`
+      : ""
+  }`;
+  const limitations: string[] = [];
+  if (result.skippedCount > 0) {
+    limitations.push(
+      `skipped ${result.skippedCount} file${result.skippedCount === 1 ? "" : "s"}`,
+    );
+  }
+  if (result.truncated) {
+    limitations.push("reached its size limit");
+  }
+  return limitations.length > 0
+    ? `${summary}; link scan ${limitations.join(" and ")}`
+    : summary;
+}
+
 interface OutlineCacheEntry {
   ready: boolean;
   snapshot: StableOutlineSnapshot | null;
@@ -6294,7 +6328,7 @@ function App() {
   });
 
   const rewriteLinksForMove = useCallback(
-    async (oldPath: string, newPath: string) => {
+    async (oldPath: string, newPath: string): Promise<LinkRewriteResult> => {
       const batch = await api.listLinkRewriteDocuments();
       const updates = new Map<string, LinkRewriteSave>();
       const failures: string[] = [];
@@ -6338,15 +6372,49 @@ function App() {
       }
       return {
         updates,
-        incomplete:
-          batch.truncated ||
-          batch.skippedCount > 0 ||
-          failures.length > 0,
         skippedCount: batch.skippedCount,
+        truncated: batch.truncated,
         failedCount: failures.length,
       };
     },
     [],
+  );
+
+  const rewriteMovedEntryLinks = useCallback(
+    async (
+      oldPath: string,
+      newPath: string,
+      rewriteToken: string,
+      action: EntryMoveAction,
+      name: string,
+    ): Promise<LinkRewriteResult | null> => {
+      let result: LinkRewriteResult | null = null;
+      const completedAction = `${action} ${name}`;
+      try {
+        result = await rewriteLinksForMove(oldPath, newPath);
+        if (result.failedCount > 0) {
+          showError(
+            `${completedAction}, but links in ${result.failedCount} file${
+              result.failedCount === 1 ? "" : "s"
+            } could not be updated.`,
+          );
+        }
+      } catch (caught) {
+        showError(
+          `${completedAction}, but links could not be updated: ${errorMessage(caught)}`,
+        );
+      } finally {
+        try {
+          await api.finishLinkRewrite(rewriteToken);
+        } catch (caught) {
+          showError(
+            `${completedAction}, but link update cleanup failed: ${errorMessage(caught)}`,
+          );
+        }
+      }
+      return result;
+    },
+    [rewriteLinksForMove, showError],
   );
 
   const createEntry = useCallback(
@@ -6557,28 +6625,15 @@ function App() {
         path === oldPath || path.startsWith(`${oldPath}/`)
           ? `${newPath}${path.slice(oldPath.length)}`
           : path;
-      let linkUpdates = new Map<string, LinkRewriteSave>();
-      let linksIncomplete = false;
-      try {
-        const rewritten = await rewriteLinksForMove(oldPath, newPath);
-        linkUpdates = rewritten.updates;
-        linksIncomplete = rewritten.incomplete;
-        if (linksIncomplete) {
-          showError(
-            `Renamed ${node.name}, but some linked files could not be updated (${rewritten.failedCount} failed, ${rewritten.skippedCount} skipped).`,
-          );
-        }
-      } catch (caught) {
-        linksIncomplete = true;
-        showError(caught);
-      } finally {
-        try {
-          await api.finishLinkRewrite(movedEntry.rewriteToken);
-        } catch (caught) {
-          linksIncomplete = true;
-          showError(caught);
-        }
-      }
+      const initialErrorSequence = errorSequence.current;
+      const rewritten = await rewriteMovedEntryLinks(
+        oldPath,
+        newPath,
+        movedEntry.rewriteToken,
+        "Renamed",
+        node.name,
+      );
+      const linkUpdates = rewritten?.updates ?? new Map<string, LinkRewriteSave>();
       const loadedPdfs = new Map<
         string,
         {
@@ -6721,13 +6776,11 @@ function App() {
       for (const tab of affectedTabs) {
         cancelPendingPath(tab.path);
       }
-      await refreshAndReindex();
-      if (!linksIncomplete && linkUpdates.size > 0) {
-        setStatus(
-          `Renamed ${node.name} and updated ${linkUpdates.size} linked file${
-            linkUpdates.size === 1 ? "" : "s"
-          }`,
-        );
+      const refreshed = await refreshAndReindex();
+      if (errorSequence.current !== initialErrorSequence) {
+        setStatus("Action failed");
+      } else if (refreshed && rewritten) {
+        setStatus(entryMoveStatus("Renamed", node.name, rewritten));
       }
     } catch (caught) {
       showError(caught);
@@ -6743,7 +6796,7 @@ function App() {
     invalidateOpenRequests,
     refreshAndReindex,
     requestText,
-    rewriteLinksForMove,
+    rewriteMovedEntryLinks,
     setWorkspaceLock,
     showError,
     workspace,
@@ -6786,28 +6839,15 @@ function App() {
           path === node.path || path.startsWith(`${node.path}/`)
             ? `${newPath}${path.slice(node.path.length)}`
             : path;
-        let linkUpdates = new Map<string, LinkRewriteSave>();
-        let linksIncomplete = false;
-        try {
-          const rewritten = await rewriteLinksForMove(node.path, newPath);
-          linkUpdates = rewritten.updates;
-          linksIncomplete = rewritten.incomplete;
-          if (linksIncomplete) {
-            showError(
-              `Moved ${node.name}, but some linked files could not be updated (${rewritten.failedCount} failed, ${rewritten.skippedCount} skipped).`,
-            );
-          }
-        } catch (caught) {
-          linksIncomplete = true;
-          showError(caught);
-        } finally {
-          try {
-            await api.finishLinkRewrite(movedEntry.rewriteToken);
-          } catch (caught) {
-            linksIncomplete = true;
-            showError(caught);
-          }
-        }
+        const initialErrorSequence = errorSequence.current;
+        const rewritten = await rewriteMovedEntryLinks(
+          node.path,
+          newPath,
+          movedEntry.rewriteToken,
+          "Moved",
+          node.name,
+        );
+        const linkUpdates = rewritten?.updates ?? new Map<string, LinkRewriteSave>();
         commitTabs((current) =>
           current.map((tab) => {
             if (tab.transient) {
@@ -6886,15 +6926,11 @@ function App() {
         if (targetParentPath) {
           setExpandedPaths((current) => new Set(current).add(targetParentPath));
         }
-        await refreshAndReindex();
-        if (!linksIncomplete) {
-          setStatus(
-            linkUpdates.size > 0
-              ? `Moved ${node.name} and updated ${linkUpdates.size} linked file${
-                  linkUpdates.size === 1 ? "" : "s"
-                }`
-              : `Moved ${node.name}`,
-          );
+        const refreshed = await refreshAndReindex();
+        if (errorSequence.current !== initialErrorSequence) {
+          setStatus("Action failed");
+        } else if (refreshed && rewritten) {
+          setStatus(entryMoveStatus("Moved", node.name, rewritten));
         }
       } catch (caught) {
         showError(caught);
@@ -6910,7 +6946,7 @@ function App() {
       flushTab,
       invalidateOpenRequests,
       refreshAndReindex,
-      rewriteLinksForMove,
+      rewriteMovedEntryLinks,
       setWorkspaceLock,
       showError,
       workspace,

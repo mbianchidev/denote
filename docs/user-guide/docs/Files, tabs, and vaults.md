@@ -124,9 +124,11 @@ explicit or implicit code project and never remove files from Denote.
 
 Drag a file or folder onto another folder to move it there, or onto empty tree
 space to move it to the vault root. Use **Move to folder…** from the context menu
-for the keyboard-accessible equivalent. Denote then updates relative inline
-links, images, and reference definitions in eligible Markdown files. It reports
-large, unreadable, or conflicting files that could not be rewritten.
+for the keyboard-accessible equivalent. After a rename or move, Denote updates
+relative inline links, images, and reference definitions in eligible Markdown
+files. Skipped files and scan size limits appear in the status bar without
+marking the rename or move as failed. Link-write conflicts and other link-update
+failures remain errors; the renamed or moved item stays at its new location.
 
 Drag the divider beside the file tree to resize the sidebar. Focus it and use
 Left/Right arrows, or press Home to reset the default width.

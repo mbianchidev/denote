@@ -21,7 +21,7 @@ import type {
   PluginStructuredViewerContribution,
   PluginTaskListContribution,
 } from "./plugins/workerRuntime";
-import type { FileNode, PluginView, WorkspaceSnapshot } from "./types";
+import type { FileNode, PluginView, SearchDocument, WorkspaceSnapshot } from "./types";
 import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type LexicalEditor } from "lexical";
 import { syntheticEmojiPicker, syntheticEmojiPluginView } from "./lib/emoji.testFixtures";
 
@@ -47,6 +47,10 @@ const mockApi = vi.hoisted(() => ({
   saveNote: vi.fn(),
   saveTabSession: vi.fn(),
   createEntry: vi.fn(),
+  renameEntry: vi.fn(),
+  moveEntry: vi.fn(),
+  listLinkRewriteDocuments: vi.fn(),
+  finishLinkRewrite: vi.fn(),
   pluginCalendarOpenDailyNote: vi.fn(),
   trashEntry: vi.fn(),
   restoreTrashItem: vi.fn(),
@@ -147,8 +151,12 @@ const mockOpener = vi.hoisted(() => ({
 }));
 const trackAppRender = vi.hoisted(() => vi.fn());
 const observePdfData = vi.hoisted(() => vi.fn());
+const mockComputeLinkRewriteUpdates = vi.hoisted(() => vi.fn());
 
 vi.mock("@tauri-apps/plugin-opener", () => mockOpener);
+vi.mock("./lib/linkRewriteWorker", () => ({
+  computeLinkRewriteUpdates: mockComputeLinkRewriteUpdates,
+}));
 vi.mock("./plugins/usePlugins", () => ({
   usePlugins: (
     _reportError: unknown,
@@ -274,6 +282,8 @@ vi.mock("./components/FileTree", () => ({
     nodes,
     onSelect,
     onDelete,
+    onRename,
+    onRequestMove,
   }: {
     nodes: FileNode[];
     expandedPaths: Set<string>;
@@ -281,43 +291,70 @@ vi.mock("./components/FileTree", () => ({
     onMarkProject?: (path: string) => void;
     onSelect?: (node: FileNode) => void;
     onDelete?: (node: FileNode) => void;
-  }) => (
-    <>
-      <output data-testid="file-tree-expanded">
-        {[...expandedPaths].join(",")}
-      </output>
-      <output data-testid="file-tree-dotfiles">
-        {String(showDotfiles)}
-      </output>
-      {onMarkProject ? (
-        <button type="button" onClick={() => onMarkProject("code")}>
-          Mark synthetic project
-        </button>
-      ) : null}
-      {onSelect && nodes[0] ? (
-        <button type="button" onClick={() => onSelect(nodes[0])}>
-          Select synthetic entry
-        </button>
-      ) : null}
-      {onSelect
-        ? nodes.map((node) => (
-            <button
-              key={node.path}
-              type="button"
-              aria-label={`Open ${node.name}`}
-              onClick={() => onSelect(node)}
-            >
-              Open synthetic file
-            </button>
-          ))
-        : null}
-      {onDelete && nodes[0] ? (
-        <button type="button" onClick={() => onDelete(nodes[0])}>
-          Delete synthetic entry
-        </button>
-      ) : null}
-    </>
-  ),
+    onRename?: (node: FileNode) => void;
+    onRequestMove?: (node: FileNode) => void;
+  }) => {
+    const entries = [...nodes];
+    for (const node of entries) {
+      entries.push(...node.children);
+    }
+    return (
+      <>
+        <output data-testid="file-tree-expanded">
+          {[...expandedPaths].join(",")}
+        </output>
+        <output data-testid="file-tree-dotfiles">
+          {String(showDotfiles)}
+        </output>
+        {onMarkProject ? (
+          <button type="button" onClick={() => onMarkProject("code")}>
+            Mark synthetic project
+          </button>
+        ) : null}
+        {onSelect && nodes[0] ? (
+          <button type="button" onClick={() => onSelect(nodes[0])}>
+            Select synthetic entry
+          </button>
+        ) : null}
+        {entries.map((node) => (
+          <div key={node.path}>
+            {onSelect ? (
+              <button
+                type="button"
+                aria-label={`Open ${node.name}`}
+                onClick={() => onSelect(node)}
+              >
+                Open synthetic file
+              </button>
+            ) : null}
+            {onRename ? (
+              <button
+                type="button"
+                aria-label={`Rename ${node.name}`}
+                onClick={() => onRename(node)}
+              >
+                Rename synthetic entry
+              </button>
+            ) : null}
+            {onRequestMove ? (
+              <button
+                type="button"
+                aria-label={`Move ${node.name}`}
+                onClick={() => onRequestMove(node)}
+              >
+                Move synthetic entry
+              </button>
+            ) : null}
+          </div>
+        ))}
+        {onDelete && nodes[0] ? (
+          <button type="button" onClick={() => onDelete(nodes[0])}>
+            Delete synthetic entry
+          </button>
+        ) : null}
+      </>
+    );
+  },
 }));
 
 import App from "./App";
@@ -399,6 +436,16 @@ describe("App initial file-tree expansion", () => {
     mockApi.saveTabSession.mockResolvedValue(undefined);
     mockApi.prepareExit.mockResolvedValue(undefined);
     mockApi.createEntry.mockResolvedValue(fileNode(".gitignore"));
+    mockApi.renameEntry.mockReset();
+    mockApi.moveEntry.mockReset();
+    mockApi.listLinkRewriteDocuments.mockReset().mockResolvedValue({
+      documents: [],
+      availablePaths: [],
+      skippedCount: 0,
+      truncated: false,
+    });
+    mockApi.finishLinkRewrite.mockReset().mockResolvedValue(undefined);
+    mockComputeLinkRewriteUpdates.mockReset().mockResolvedValue([]);
     mockApi.trashEntry.mockResolvedValue({
       id: 7,
       originalPath: ".gitignore",
@@ -1287,6 +1334,377 @@ describe("App initial file-tree expansion", () => {
     expect(
       screen.getByRole("tab", { name: /alpha\.txt.*unsaved changes/i }),
     ).toBeInTheDocument();
+  });
+
+  describe.each(["rename", "move"] as const)("%s entry link feedback", (operation) => {
+    it.each([
+      {
+        description: "a complete scan",
+        skippedCount: 0,
+        truncated: false,
+        updatedCount: 0,
+        suffix: "",
+      },
+      {
+        description: "one skipped candidate",
+        skippedCount: 1,
+        truncated: false,
+        updatedCount: 0,
+        suffix: "; link scan skipped 1 file",
+      },
+      {
+        description: "a truncated scan without skipped candidates",
+        skippedCount: 0,
+        truncated: true,
+        updatedCount: 0,
+        suffix: "; link scan reached its size limit",
+      },
+      {
+        description: "a successful rewrite and one skipped candidate",
+        skippedCount: 1,
+        truncated: false,
+        updatedCount: 1,
+        suffix: " and updated 1 linked file; link scan skipped 1 file",
+      },
+      {
+        description: "multiple rewrites, skipped candidates, and truncation",
+        skippedCount: 2,
+        truncated: true,
+        updatedCount: 2,
+        suffix: " and updated 2 linked files; link scan skipped 2 files and reached its size limit",
+      },
+    ])("reports $description without an application error", async ({
+      skippedCount,
+      truncated,
+      updatedCount,
+      suffix,
+    }) => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      const documents = Array.from({ length: updatedCount }, (_, index) =>
+        linkRewriteDocument(`index-${index}.md`),
+      );
+      const updates = documents.map((document) => ({
+        path: document.path,
+        content: `[Note](${fixture.newPath}/note.txt)`,
+      }));
+      mockApi.listLinkRewriteDocuments.mockResolvedValue({
+        documents,
+        availablePaths: [
+          ...documents.map((document) => document.path),
+          `${fixture.newPath}/note.txt`,
+        ],
+        skippedCount,
+        truncated,
+      });
+      mockComputeLinkRewriteUpdates.mockResolvedValue(updates);
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open note.txt" }),
+      );
+      await screen.findByLabelText("Content of Edit note.txt");
+      await submitSyntheticEntryMutation(operation);
+
+      await waitFor(() => {
+        expectAppStatus(`${fixture.verb} drafts${suffix}`);
+      });
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Content of Edit note.txt")).toHaveTextContent(
+        "drafts/note.txt content",
+      );
+      expect(mockApi.finishLinkRewrite).toHaveBeenCalledExactlyOnceWith(
+        fixture.rewriteToken,
+      );
+      expect(fixture.mutation).toHaveBeenCalledExactlyOnceWith(
+        "drafts",
+        operation === "rename" ? "archive" : "storage",
+      );
+      for (const update of updates) {
+        expect(mockApi.saveNote).toHaveBeenCalledWith(
+          update.path,
+          update.content,
+          "utf8",
+          "lf",
+          "update links after move",
+          `${update.path}-hash`,
+        );
+      }
+      fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
+      await waitFor(() => {
+        expect(mockApi.saveNote).toHaveBeenCalledWith(
+          `${fixture.newPath}/note.txt`,
+          "drafts/note.txt content changed",
+          "utf8",
+          "lf",
+          "autosave",
+          "drafts/note.txt-hash",
+        );
+      });
+    });
+
+    it("saves pending edits before changing paths and preserves the new save hash", async () => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open note.txt" }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Change Edit note.txt" }),
+      );
+      await submitSyntheticEntryMutation(operation);
+
+      await waitFor(() => {
+        expectAppStatus(`${fixture.verb} drafts`);
+      });
+      expect(mockApi.saveNote).toHaveBeenCalledWith(
+        "drafts/note.txt",
+        "drafts/note.txt content changed",
+        "utf8",
+        "lf",
+        expect.stringMatching(/^(?:flush|autosave)$/),
+        "drafts/note.txt-hash",
+      );
+      expect(mockApi.saveNote.mock.invocationCallOrder[0]).toBeLessThan(
+        fixture.mutation.mock.invocationCallOrder[0],
+      );
+      expect(screen.getByLabelText("Content of Edit note.txt")).toHaveTextContent(
+        "drafts/note.txt content changed",
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
+      await waitFor(() => {
+        expect(mockApi.saveNote).toHaveBeenCalledWith(
+          `${fixture.newPath}/note.txt`,
+          "drafts/note.txt content changed changed",
+          "utf8",
+          "lf",
+          "autosave",
+          "saved-hash",
+        );
+      });
+    });
+
+    it("keeps a rewrite-save conflict visible after the filesystem operation succeeds", async () => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      const document = linkRewriteDocument("index.md");
+      mockApi.listLinkRewriteDocuments.mockResolvedValue({
+        documents: [document],
+        availablePaths: ["index.md", `${fixture.newPath}/note.txt`],
+        skippedCount: 1,
+        truncated: false,
+      });
+      mockComputeLinkRewriteUpdates.mockResolvedValue([
+        { path: "index.md", content: `[Note](${fixture.newPath}/note.txt)` },
+      ]);
+      mockApi.saveNote.mockRejectedValueOnce(new Error("Synthetic link-save conflict"));
+      mockApi.listSearchDocuments.mockResolvedValue({
+        documents: [],
+        skippedCount: 1,
+        truncated: false,
+      });
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open note.txt" }),
+      );
+      await screen.findByLabelText("Content of Edit note.txt");
+      await submitSyntheticEntryMutation(operation);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toHaveTextContent(
+          `${fixture.verb} drafts, but links in 1 file could not be updated.`,
+        );
+        expectAppStatus("Action failed");
+      });
+      expect(mockApi.finishLinkRewrite).toHaveBeenCalledExactlyOnceWith(
+        fixture.rewriteToken,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
+      await waitFor(() => {
+        expect(mockApi.saveNote).toHaveBeenCalledWith(
+          `${fixture.newPath}/note.txt`,
+          "drafts/note.txt content changed",
+          "utf8",
+          "lf",
+          "autosave",
+          "drafts/note.txt-hash",
+        );
+      });
+    });
+
+    it.each(["batch", "worker", "cleanup"] as const)(
+      "reports a %s failure without reverting the open file's path",
+      async (failure) => {
+        const fixture = setupSyntheticEntryMutation(operation);
+        const message = `Synthetic ${failure} failure`;
+        if (failure === "batch") {
+          mockApi.listLinkRewriteDocuments.mockRejectedValueOnce(new Error(message));
+        } else if (failure === "worker") {
+          mockComputeLinkRewriteUpdates.mockRejectedValueOnce(new Error(message));
+        } else {
+          mockApi.finishLinkRewrite.mockRejectedValueOnce(new Error(message));
+        }
+        mockApi.listSearchDocuments.mockResolvedValue({
+          documents: [],
+          skippedCount: 1,
+          truncated: false,
+        });
+
+        render(<App />);
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Open note.txt" }),
+        );
+        await screen.findByLabelText("Content of Edit note.txt");
+        await submitSyntheticEntryMutation(operation);
+
+        await waitFor(() => {
+          expect(screen.getByRole("alert")).toHaveTextContent(`${fixture.verb} drafts`);
+          expect(screen.getByRole("alert")).toHaveTextContent(message);
+          expectAppStatus("Action failed");
+          expect(screen.getByRole("button", { name: "Change Edit note.txt" })).toBeEnabled();
+        });
+        expect(mockApi.finishLinkRewrite).toHaveBeenCalledExactlyOnceWith(
+          fixture.rewriteToken,
+        );
+        fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
+        await waitFor(() => {
+          expect(mockApi.saveNote).toHaveBeenCalledWith(
+            `${fixture.newPath}/note.txt`,
+            "drafts/note.txt content changed",
+            "utf8",
+            "lf",
+            "autosave",
+            "drafts/note.txt-hash",
+          );
+        });
+      },
+    );
+
+    it("does not replace a refresh failure with a success summary", async () => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      fixture.mutation.mockResolvedValue({
+        path: fixture.newPath,
+        rewriteToken: fixture.rewriteToken,
+      });
+      mockApi.refreshVault.mockRejectedValueOnce(new Error("Synthetic refresh failure"));
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open note.txt" }),
+      );
+      await screen.findByLabelText("Content of Edit note.txt");
+      await submitSyntheticEntryMutation(operation);
+
+      await waitFor(() => {
+        expect(screen.getByRole("alert")).toHaveTextContent("Synthetic refresh failure");
+        expectAppStatus("Action failed");
+      });
+      expect(mockApi.finishLinkRewrite).toHaveBeenCalledExactlyOnceWith(
+        fixture.rewriteToken,
+      );
+    });
+
+    it("keeps the original path when the native mutation fails", async () => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      fixture.mutation.mockRejectedValueOnce(new Error("Synthetic mutation failure"));
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open note.txt" }),
+      );
+      await screen.findByLabelText("Content of Edit note.txt");
+      await submitSyntheticEntryMutation(operation);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Synthetic mutation failure");
+      expect(mockApi.listLinkRewriteDocuments).not.toHaveBeenCalled();
+      expect(mockApi.finishLinkRewrite).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
+      await waitFor(() => {
+        expect(mockApi.saveNote).toHaveBeenCalledWith(
+          "drafts/note.txt",
+          "drafts/note.txt content changed",
+          "utf8",
+          "lf",
+          "autosave",
+          "drafts/note.txt-hash",
+        );
+      });
+    });
+
+    it("cancels the mutation when pending edits cannot be saved", async () => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      mockApi.saveNote.mockRejectedValueOnce(new Error("Synthetic save conflict"));
+
+      render(<App />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Open note.txt" }),
+      );
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Change Edit note.txt" }),
+      );
+      await submitSyntheticEntryMutation(operation);
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("Synthetic save conflict");
+      expect(fixture.mutation).not.toHaveBeenCalled();
+      expect(mockApi.listLinkRewriteDocuments).not.toHaveBeenCalled();
+      expect(mockApi.finishLinkRewrite).not.toHaveBeenCalled();
+      expect(screen.getByLabelText("Content of Edit note.txt")).toHaveTextContent(
+        "drafts/note.txt content changed",
+      );
+    });
+
+    it("preserves both active panes and their file contents", async () => {
+      const fixture = setupSyntheticEntryMutation(operation);
+      const files = [
+        fileNode("outside.txt", "text"),
+        syntheticTextNode("drafts/left.txt"),
+        syntheticTextNode("drafts/right.txt"),
+      ];
+      mockApi.getLastVault.mockResolvedValue({
+        ...splitPaneSnapshot(files),
+        tree: [files[0], folderNode("drafts", files.slice(1)), folderNode("storage", [])],
+      });
+      fixture.mutation.mockResolvedValue({
+        path: fixture.newPath,
+        rewriteToken: fixture.rewriteToken,
+      });
+      mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([
+        files[0],
+        folderNode(fixture.newPath, [
+          syntheticTextNode(`${fixture.newPath}/left.txt`),
+          syntheticTextNode(`${fixture.newPath}/right.txt`),
+        ]),
+      ]));
+
+      render(<App />);
+      await screen.findByLabelText("Content of Edit left.txt");
+      await screen.findByLabelText("Content of Edit right.txt");
+      await submitSyntheticEntryMutation(operation);
+
+      await waitFor(() => {
+        expectAppStatus(`${fixture.verb} drafts`);
+      });
+      expect(screen.getByLabelText("Content of Edit left.txt")).toHaveTextContent(
+        "drafts/left.txt content",
+      );
+      expect(screen.getByLabelText("Content of Edit right.txt")).toHaveTextContent(
+        "drafts/right.txt content",
+      );
+      expect(screen.getByText("Pane 1 of 2")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Change Edit left.txt" }));
+      fireEvent.click(screen.getByRole("button", { name: "Change Edit right.txt" }));
+      await waitFor(() => {
+        for (const name of ["left", "right"]) {
+          expect(mockApi.saveNote).toHaveBeenCalledWith(
+            `${fixture.newPath}/${name}.txt`,
+            `drafts/${name}.txt content changed`,
+            "utf8",
+            "lf",
+            "autosave",
+            `drafts/${name}.txt-hash`,
+          );
+        }
+      });
+    });
   });
 
   it("applies a tab-local source language override without editing or saving", async () => {
@@ -3790,6 +4208,65 @@ function fileNode(
     modifiedAt: null,
     bookmarked: false,
     pinned: false,
+  };
+}
+
+function setupSyntheticEntryMutation(operation: "rename" | "move") {
+  const newPath = operation === "rename" ? "archive" : "storage/drafts";
+  const verb = operation === "rename" ? "Renamed" : "Moved";
+  const rewriteToken = `${operation}-synthetic-rewrite-token`;
+  const mutation = operation === "rename" ? mockApi.renameEntry : mockApi.moveEntry;
+  mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([
+    folderNode("drafts", [syntheticTextNode("drafts/note.txt")]),
+    folderNode("storage", []),
+  ]));
+  mutation.mockImplementation(async () => {
+    mockApi.refreshVault.mockResolvedValue(workspaceSnapshot([
+      folderNode(newPath, [syntheticTextNode(`${newPath}/note.txt`)]),
+      ...(operation === "rename" ? [folderNode("storage", [])] : []),
+    ]));
+    return { path: newPath, rewriteToken };
+  });
+  return { newPath, verb, rewriteToken, mutation };
+}
+
+function syntheticTextNode(path: string): FileNode {
+  return { ...fileNode(path, "text"), name: path.split("/").slice(-1)[0] ?? path };
+}
+
+async function submitSyntheticEntryMutation(operation: "rename" | "move") {
+  fireEvent.click(screen.getByRole("button", {
+    name: operation === "rename" ? "Rename drafts" : "Move drafts",
+  }));
+  const title = operation === "rename" ? "Rename item" : "Move to folder";
+  const dialog = await screen.findByRole("dialog", { name: title });
+  fireEvent.change(within(dialog).getByRole("textbox", { name: title }), {
+    target: { value: operation === "rename" ? "archive" : "storage" },
+  });
+  fireEvent.click(within(dialog).getByRole("button", {
+    name: operation === "rename" ? "Rename" : "Move",
+  }));
+}
+
+function expectAppStatus(message: string) {
+  const status = screen.getAllByRole("status").find(
+    (region) => region.getAttribute("aria-live") === "polite",
+  );
+  expect(status?.textContent).toBe(message);
+}
+
+function linkRewriteDocument(path: string): SearchDocument {
+  return {
+    path,
+    title: path,
+    content: "[Note](drafts/note.txt)",
+    contentHash: `${path}-hash`,
+    encoding: "utf8",
+    lineEnding: "lf",
+    tags: [],
+    kind: "markdown",
+    bookmarked: false,
+    lastOpenedAt: null,
   };
 }
 
