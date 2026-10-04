@@ -62,6 +62,11 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+The App integration suite preloads the real Markdown editor and formatted-diff
+modules with module-scope imports. Keep cold module transformation in test
+collection, outside timed hooks and UI interactions. Production loading remains
+lazy, and tests retain their normal interaction deadlines.
+
 PDF-focused checks are:
 
 ```bash
@@ -291,6 +296,11 @@ The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
+The root DOMPurify dependency and override pin
+[3.4.16](https://github.com/cure53/DOMPurify/releases/tag/3.4.16) to fix
+[GHSA-p98j-92pf-mc4p](https://github.com/advisories/GHSA-p98j-92pf-mc4p).
+The host sanitizer and Mermaid 0.2.3 use this patch. Earlier published plugin
+archives retain their immutable bytes and source provenance.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
