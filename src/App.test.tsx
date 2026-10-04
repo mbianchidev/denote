@@ -7,7 +7,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarDates, type PluginCalendarRequest, type PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import type {
   PluginCalendarContribution,
@@ -359,18 +359,11 @@ vi.mock("./components/FileTree", () => ({
 
 import App from "./App";
 
-describe("App initial file-tree expansion", () => {
-  beforeAll(
-    async () => {
-      // Module transformation is setup, not part of a UI interaction's deadline.
-      await Promise.all([
-        import("./components/MarkdownEditor"),
-        import("@pierre/diffs/react"),
-      ]);
-    },
-    30_000,
-  );
+// Preload lazy editors during collection, outside hook and UI deadlines.
+import "./components/MarkdownEditor";
+import "@pierre/diffs/react";
 
+describe("App initial file-tree expansion", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();

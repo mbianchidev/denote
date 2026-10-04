@@ -1351,9 +1351,11 @@ sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
 Its larger renderer requires Denote 0.5.2 or newer.
-Both Mermaid's dependency graph and the independent host sanitizer pin
-DOMPurify 3.4.15; Chevrotain's transitive `lodash-es` is overridden to patched
-4.18.1. The renderer fixes Mermaid to strict security, disables
+Mermaid 0.2.3 and the independent host sanitizer pin DOMPurify 3.4.16; the root
+override keeps Mermaid's dependency graph on the same patch. Older plugin
+archives retain their immutable bytes and source provenance.
+Chevrotain's transitive `lodash-es` is overridden to patched 4.18.1. The
+renderer fixes Mermaid to strict security, disables
 start-on-load, HTML labels, callback binding, and error diagrams, expands the
 secure configuration list, fixes themes and deterministic IDs, and never calls
 returned bind functions. Preflight accepts YAML frontmatter only when it contains a bounded scalar
