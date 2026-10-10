@@ -49,14 +49,14 @@
     "@mdxeditor/editor": "^4.3.2",
     "@mdxeditor/gurx": "^1.2.4",
     "@pierre/diffs": "^1.5.2",
-    "@tauri-apps/api": "2.12.1",
-    "@tauri-apps/plugin-deep-link": "^2.6.1",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-deep-link": "^2.4.10",
     "@tauri-apps/plugin-opener": "^2",
     "codemirror-lang-elixir": "^4.0.1",
     "codemirror-lang-hcl": "^0.2.0",
     "dompurify": "3.4.16",
     "lucide-react": "^1.52.0",
-    "mdast-util-from-markdown": "^2.1.0",
+    "mdast-util-from-markdown": "^2.0.3",
     "micromark-extension-mdx-jsx": "^3.0.2",
     "micromark-extension-mdx-md": "^2.0.0",
     "pdfjs-dist": "6.4.299",
@@ -65,7 +65,7 @@
     "zbsearch": "^4.0.1"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.12.1",
+    "@tauri-apps/cli": "2.11.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
@@ -82,7 +82,7 @@
     "tar": "^7.5.22",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.3.3",
+    "vite": "^8.3.0",
     "vitest": "^5.0.3"
   },
   "overrides": {

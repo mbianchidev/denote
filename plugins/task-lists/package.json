@@ -12,7 +12,7 @@
   ],
   "dependencies": {
     "@denote/plugin-sdk": "0.1.0",
-    "mdast-util-from-markdown": "^2.1.0",
+    "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm-task-list-item": "^2.0.0",
     "micromark-extension-gfm-task-list-item": "^2.1.0"
   }
