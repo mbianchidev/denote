@@ -26,6 +26,9 @@ on your device.
 - Browse daily, created, and last-updated calendars with the optional Calendar
   plugin. Create Markdown daily notes without overwriting existing files.
 - Use persistent Light, Dark, or System appearance on macOS, Windows, and Linux.
+- Approve local language servers and optional debuggers for Rust, Go, Python,
+  Java, C/C++, and JavaScript/TypeScript with the optional
+  [Code intelligence plugin](docs/user-guide/docs/Optional%20plugins.md#code-intelligence).
 
 Your vault remains a normal folder. Denote does not require an account, cloud
 storage, telemetry, or a proprietary document format.

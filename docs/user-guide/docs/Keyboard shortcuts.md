@@ -17,6 +17,12 @@
 | Paste without formatting | `Command-Shift-V` | `Ctrl-Shift-V` |
 | Create or edit link | `Command-K` | `Ctrl-K` |
 | Insert emoji (optional Emoji picker plugin) | `Command-Shift-E` | `Ctrl-Shift-E` |
+| Code completion (optional Code intelligence) | `Ctrl-Space` | `Ctrl-Space` |
+| Go to definition (optional Code intelligence) | `F12` | `F12` |
+| Find references (optional Code intelligence) | `Command-Shift-F12` | `Ctrl-Shift-F12` |
+| Signature help (optional Code intelligence) | `Command-Shift-Space` | `Ctrl-Shift-Space` |
+| Format source (optional Code intelligence) | `Option-Shift-F` | `Alt-Shift-F` |
+| Next diagnostic (optional Code intelligence) | `F8` | `F8` |
 | Close tab | `Command-W` | `Ctrl-W` |
 | Increase editor text / zoom active PDF | `Command-+` | `Ctrl-+` |
 | Decrease editor text / zoom active PDF | `Command--` | `Ctrl--` |

@@ -58,7 +58,12 @@ import type {
   PluginSourceControlDiffFile,
   PluginSourceControlDiffSource,
   PluginTaskListItem,
+  PluginCodeLocation,
+  PluginCodePosition,
 } from "@denote/plugin-sdk";
+import { codeLanguageForPath, isCodePath, isCodeRange } from "@denote/plugin-sdk";
+import { CodeIntelligenceHost } from "./plugins/codeHost";
+import { CodeTooltips } from "./lib/codeEditor";
 import { ActivityRail } from "./components/ActivityRail";
 import {
   AboutDialog,
@@ -219,6 +224,8 @@ import {
   tabReferencedPaths,
   tabsReferencePath,
   tabsInVisualOrder,
+  recordTabCursor,
+  pushTabLocation,
 } from "./lib/tabs";
 import {
   addPane,
@@ -384,6 +391,9 @@ const MarkdownEditor = lazy(() =>
   import("./components/MarkdownEditor").then((module) => ({
     default: module.MarkdownEditor,
   })),
+);
+const CodeToolPanel = lazy(() =>
+  import("./components/CodeToolPanel").then((module) => ({ default: module.CodeToolPanel })),
 );
 
 const DESIGN_CONTRACT = `<!--
@@ -858,6 +868,7 @@ function App() {
   const [themePreference, setThemePreference] = useState<ThemePreference>(() =>
     getThemePreference(),
   );
+
   const [currentSystemTheme, setCurrentSystemTheme] = useState<Theme>(() =>
     systemTheme(),
   );
@@ -971,6 +982,7 @@ function App() {
     (SourceEditorNavigation & { path: string }) | null
   >(null);
   const sourceNavigationSequence = useRef(0);
+  const codeCursorPositions = useRef(new Map<string, PluginCodePosition>());
   const [pdfSearchFocus, setPdfSearchFocus] = useState<{
     path: string;
     request: number;
@@ -1670,6 +1682,22 @@ function App() {
     workspace !== null &&
       (!workspace.encryption.enabled || workspace.encryption.unlocked),
   );
+  const [codeHost] = useState(() => new CodeIntelligenceHost(showError));
+  const codeProvider = (pluginController.codeProviders ?? []).find((provider) =>
+    !pluginController.busyPluginIds.has(provider.pluginId) &&
+    pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)) ?? null;
+  useLayoutEffect(() => {
+    codeHost.configure(codeProvider, pluginController.runCodeRequest, workspace?.vaultPath ?? null,
+      `${pluginProjectContext?.projectId ?? ""}:${pluginProjectContext?.rootPath ?? ""}`, workspace?.encryption.enabled ?? false);
+  }, [codeHost, codeProvider, pluginController.runCodeRequest, workspace?.vaultPath, workspace?.encryption.enabled,
+    pluginProjectContext?.projectId, pluginProjectContext?.rootPath]);
+  useEffect(() => () => codeHost.dispose(), [codeHost]);
+  const showCodeTools = useCallback(() => {
+    if (!codeProvider) return;
+    setActiveSourceControlProvider(null); setActiveNoteGraph(null); setActiveCalendar(null);
+    setActiveTaskList(null); setActiveReminder(null); setActivePluginSidebar(codeProvider.id);
+  }, [codeProvider]);
+  const activeCodeProvider = codeProvider?.id === activePluginSidebar ? codeProvider : null;
   const [noteGraphCoordinator] = useState(
     () => new NoteGraphCoordinator(),
   );
@@ -4369,7 +4397,10 @@ function App() {
           focusedPaneId: paneId,
           panes: updatePane(current.panes, paneId, (pane) => ({
             ...pane,
-            tabs: placeOpenedTab(pane.tabs, replacePath, tab),
+            tabs: placeOpenedTab(pane.tabs.map((entry) => {
+              const position = codeCursorPositions.current.get(entry.path);
+              return entry.path === replacePath && position ? recordTabCursor(entry, position) : entry;
+            }), replacePath, tab),
             activePath: path,
           })),
         }));
@@ -4460,6 +4491,38 @@ function App() {
       ),
     [openFileInPane],
   );
+
+  const openCodeLocation = useCallback(async (location: PluginCodeLocation) => {
+    if (!workspace || !isCodePath(location.path, false) || !isCodeRange(location.range)) {
+      throw new Error("Code navigation requires a safe vault-relative file and source position.");
+    }
+    const generation = vaultGeneration.current;
+    const originPane = focusedPaneOf(paneStateRef.current);
+    const origin = originPane.tabs.find((tab) => tab.path === originPane.activePath);
+    const captured = origin ? recordTabCursor(origin,
+      codeCursorPositions.current.get(origin.path) ?? origin.cursorPosition ?? { line: 0, character: 0 }) : null;
+    await openFile(location.path);
+    if (generation !== vaultGeneration.current || activePathRef.current !== location.path) {
+      throw new Error("Code navigation was cancelled or the target file could not be opened.");
+    }
+    const position = location.range.start;
+    commitPaneState((state) => ({
+      ...state, panes: state.panes.map((pane) => ({
+        ...pane, tabs: pane.tabs.map((tab) => {
+          if (tab.path !== location.path) return tab;
+          if (!captured || captured.placeholder || captured.transient) return recordTabCursor(tab, position);
+          if (captured.path === tab.path) return pushTabLocation({
+            ...tab, navigationHistory: captured.navigationHistory, navigationIndex: captured.navigationIndex,
+            navigationPositions: captured.navigationPositions, cursorPosition: captured.cursorPosition,
+          }, position);
+          const inherited = placeOpenedTab([captured], captured.path, tab, false)[0];
+          return recordTabCursor({ ...inherited, groupId: tab.groupId }, position);
+        }),
+      })),
+    }));
+    setSourceNavigation({ path: location.path, request: ++sourceNavigationSequence.current,
+      line: position.line + 1, column: position.character + 1 });
+  }, [workspace, openFile, commitPaneState]);
 
   const openSearchResult = useCallback(
     async (result: SearchResult) => {
@@ -4700,9 +4763,11 @@ function App() {
         const pane = paneStateRef.current.panes.find(
           (candidate) => candidate.id === paneId,
         );
-        const current = pane?.tabs.find(
+        const currentTab = pane?.tabs.find(
           (tab) => tab.path === pane.activePath,
         );
+        const position = currentTab ? codeCursorPositions.current.get(currentTab.path) : undefined;
+        const current = currentTab && position ? recordTabCursor(currentTab, position) : currentTab;
         if (!pane || !current || current.placeholder) {
           return;
         }
@@ -4722,7 +4787,26 @@ function App() {
           target.path,
         );
         if (otherPane && otherPane.id !== paneId) {
+          commitPaneState((state) => ({
+            ...state,
+            panes: state.panes.map((entry) => entry.id === otherPane.id ? {
+              ...entry, tabs: entry.tabs.map((tab) => tab.path === target.path ?
+                { ...restoreTabHistoryTarget(current, tab, target.index), groupId: tab.groupId } : tab),
+            } : entry),
+          }));
           activateTab(target.path);
+          if (target.position) setSourceNavigation({ path: target.path, request: ++sourceNavigationSequence.current,
+            line: target.position.line + 1, column: target.position.character + 1 });
+          return;
+        }
+        if (target.path === current.path) {
+          commitPaneState((state) => ({
+            ...state, panes: updatePane(state.panes, paneId, (entry) => ({
+              ...entry, tabs: entry.tabs.map((tab) => tab.path === current.path ? restoreTabHistoryTarget(current, tab, target.index) : tab),
+            })),
+          }));
+          if (target.position) setSourceNavigation({ path: target.path, request: ++sourceNavigationSequence.current,
+            line: target.position.line + 1, column: target.position.character + 1 });
           return;
         }
         const node = findNode(workspace.tree, target.path);
@@ -4763,7 +4847,7 @@ function App() {
           const loaded =
             existing ?? (await readEditorTab(target.path, kind, title));
           const opened = restoreTabHistoryTarget(
-            latestCurrent,
+            position ? recordTabCursor(latestCurrent, position) : latestCurrent,
             loaded,
             target.index,
           );
@@ -4806,6 +4890,8 @@ function App() {
             cancelPendingPath(current.path);
           }
           setSelectedPath(target.path);
+          if (target.position) setSourceNavigation({ path: target.path, request: ++sourceNavigationSequence.current,
+            line: target.position.line + 1, column: target.position.character + 1 });
           setStatus(`Opened ${title}`);
           setWorkspace((value) =>
             value
@@ -9375,6 +9461,28 @@ function App() {
     },
   ];
   commandPaletteCommands.push(
+    ...(codeProvider ? [
+      {
+        id: "code.tools", title: "Code: Open code intelligence", description: "Configure local language servers, navigation and optional debuggers.",
+        category: "Code", run: showCodeTools,
+      },
+      ...(["definition", "declaration", "implementation", "type-definition", "references", "hover", "signature"] as const).map((feature) => ({
+        id: `code.${feature}`, title: `Code: ${feature === "type-definition" ? "Type definition" : feature.charAt(0).toUpperCase() + feature.slice(1)}`,
+        description: "Use the approved language server for the focused source file.", category: "Code",
+        disabled: !activeFileTab || !codeLanguageForPath(activeFileTab.path) || workspace?.encryption.enabled,
+        run: async () => {
+          if (!activeFileTab) return;
+          const result = await codeHost.query(activeFileTab.path, feature, codeHost.cursor(activeFileTab.path));
+          if (!result) { showCodeTools(); throw new Error("Start a language server that supports this action in Code intelligence."); }
+          if (result.locations?.length === 1) await openCodeLocation(result.locations[0]);
+          else showCodeTools();
+        },
+      })),
+      { id: "code.symbols", title: "Code: Search symbols", description: "Search file, project or vault symbols.", category: "Code", run: showCodeTools },
+      { id: "code.jump", title: "Code: Jump to file, line and column", description: "Open an exact source location.", category: "Code", run: showCodeTools },
+      { id: "code.format", title: "Code: Format document", description: "Apply version-checked formatting from the approved server.", category: "Code",
+        disabled: !activeFileTab || !codeHost.canEdit(activeFileTab.path), run: () => activeFileTab ? codeHost.format(activeFileTab.path) : undefined },
+    ] : []),
     ...emojiPickers.map((picker) => ({
       id: `host.emoji.${picker.pluginId}.${picker.id}`,
       title: picker.title,
@@ -10026,6 +10134,11 @@ function App() {
                   ? sourceNavigation
                   : undefined
               }
+              code={codeProvider && !workspace.encryption.enabled && paneTab.encoding === "utf8" && codeLanguageForPath(paneTab.path) ? {
+                host: codeHost, path: paneTab.path, projectId: paneProject?.id ?? null,
+                onNavigate: openCodeLocation, onResults: showCodeTools, onError: showError,
+              } : undefined}
+              onCursorChange={(position) => codeCursorPositions.current.set(paneTab.path, position)}
               onChange={(content) => changeTabContent(paneTab.path, content)}
               onViewportChange={
                 pane.id === focusedPaneId &&
@@ -10148,6 +10261,7 @@ function App() {
         onAbout={() => setAboutOpen(true)}
         onThemeToggle={toggleTheme}
       />
+      <CodeTooltips host={codeHost} />
       <aside className="workspace-sidebar" aria-label="Vault sidebar">
         <header className="sidebar-header">
           <div>
@@ -10277,6 +10391,12 @@ function App() {
             onAction={activeSourceControlAction}
             onOpenFile={activeSourceControlFileOpen}
           />
+        ) : activeCodeProvider ? (
+          <Suspense fallback={<p role="status">Loading code tools…</p>}>
+            <CodeToolPanel provider={activeCodeProvider} host={codeHost} projectId={activeProject?.id ?? null}
+              documentPath={activeFileTab?.path ?? null} files={allFiles.filter((file) => file.kind !== "folder").map((file) => file.path)}
+              encrypted={workspace.encryption.enabled} onNavigate={openCodeLocation} />
+          </Suspense>
         ) : activePluginSidebarView ? (
           <div className="sidebar-view plugin-sidebar-view">
             <div className="sidebar-view__title">

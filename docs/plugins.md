@@ -283,9 +283,70 @@ start and does not use a plugin capability. Specialized future grammars would
 need a separately approved typed contribution contract and bundled package;
 plugins cannot inject parsers or download executable grammar code through API
 version 1.
-Persistent terminals, long-running language-server sessions, and their protocol
-APIs remain separate future plugin work rather than extensions of bounded
-`process.run`.
+Persistent terminals remain separate future plugin work. The additive
+`code-intelligence` contract below owns project-scoped LSP/DAP sessions; it does
+not extend bounded `process.run`.
+
+### Code intelligence and native protocol sessions
+
+`packages/plugin-sdk/src/codeIntelligence.ts` exports the shared registration,
+request, result, diagnostic, edit, navigation, debugger, and validation contracts.
+`capabilities.codeIntelligence.register({ id, title, languages, run })` registers
+declarative adapter metadata and one worker handler. Other approved integrations
+can use these host-facing contracts without importing another plugin package.
+There is no executable UI, editor object, filesystem root, socket, or process
+handle in the SDK.
+
+`run(request, { transport, signal })` receives a captured scope, optional
+versioned source document, operation, cursor/query, and a typed debugger action.
+Positions/ranges are zero-based UTF-16. Operations cover document open/change/
+save/close, explicit start/stop/restart, bounded polls, language features, and
+debug actions. Results contain literal data only: capability names, diagnostics,
+single-document edits, contextual locations, completion items, Markdown help,
+signatures, and bounded debug models.
+
+The transport exposes `start`, `request`, `notify`, `poll`, `respond`, `stop`,
+and `cancel`. Starting is legal only under the corresponding explicit host
+start/launch/attach action. Every request is rechecked against the captured
+operation; passive completion cannot evaluate or launch a debugger. Watch
+expressions, breakpoint conditions/logpoints, and exception filters remain
+bound to the exact host action. Native calls also bind plugin, vault, project
+identity/root, language, and session ID. Executables, launch/attach settings,
+hashes, and ports remain host-owned. Debugger restart uses approved configuration,
+and disconnect never terminates an independently attached target.
+
+`denote://vault/<encoded-relative-path>` is the only worker protocol file
+identity. The native bridge translates protocol path fields at the boundary,
+rejects metadata paths, escapes, links/reparse points, and foreign scopes, and
+converts safe replies back. External debug frame locations are removed while
+their frame names remain inspectable. General external navigation is refused.
+Enabling registers surfaces but cannot start a tool or edit source. The host
+applies only explicit, current-version, non-overlapping open-document edits with
+normal undo/autosave; server-requested workspace edits are rejected.
+
+User approval stores exact executable/argument configuration in application
+metadata, separately from Markdown. Installed native tools have ordinary OS
+privileges, not the worker sandbox; approval must therefore cover trusted tools
+and projects. The chosen executable's hash is rechecked at start. Interpreters
+and their installed script/jar arguments are explicit user configuration.
+Nothing installs tools. Native code tools are refused for encrypted vaults;
+there is no plaintext mirror.
+
+`src-tauri/src/plugins/code_intelligence.rs` owns strict byte-count framing,
+bounded queues, response correlation, cancellation, process groups, loopback
+connections, and teardown. `code_commands.rs` owns approval and scope
+revalidation. Limits are 8 MiB/frame, 8 KiB/header/log line, 256 queued events/
+2 MiB, 32 pending requests/session, 12 sessions, and 30 seconds/request.
+The frontend additionally caps source at 4 MiB, results at 500, logs at 200, and
+pending worker requests at 64. Code messages are independently cancellable and
+may execute concurrently; provider generation/version guards discard stale
+results. Project/vault changes and disable/crash/update/shutdown cancel requests
+and clean up child groups/connections before worker teardown completes.
+
+The first implementation is the separately downloadable
+`plugins/code-intelligence/` package. Its guide documents rust-analyzer, gopls,
+python-lsp-server, Eclipse JDT LS, clangd, TypeScript tooling, and maintained
+optional DAP adapters.
 
 Content-oriented capabilities remain unavailable while an encrypted vault is
 locked. Plugins must use host APIs rather than reading decrypted temporary

@@ -1,0 +1,174 @@
+.code-tool-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow-y: auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.code-tool-panel > p,
+.code-tool-panel details p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.code-tool-panel details {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.code-tool-panel summary {
+  cursor: pointer;
+  color: var(--text-primary);
+  font-weight: 650;
+  padding: 4px 0;
+}
+
+.code-tool-panel label,
+.code-tool-form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.code-tool-form {
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.code-tool-panel input:not([type="checkbox"]),
+.code-tool-panel textarea,
+.code-tool-panel select {
+  width: 100%;
+  min-width: 0;
+  padding: 7px 8px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.code-tool-panel select:focus-visible,
+.code-result-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.code-tool-panel textarea {
+  resize: vertical;
+  font-family: var(--editor-font-family, "SFMono-Regular", Consolas, monospace);
+}
+
+.code-tool-panel .code-tool-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.code-tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 8px 0;
+}
+
+.code-tool-actions .secondary-button,
+.code-tool-form .secondary-button,
+.code-tool-list .secondary-button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.code-tool-context,
+.code-tool-guidance,
+.code-result-button > span {
+  color: var(--text-secondary);
+}
+
+.code-tool-error {
+  color: var(--danger);
+}
+
+.code-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  margin: 8px 0;
+  list-style: none;
+}
+
+.code-tool-list li {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.code-result-button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.code-result-button:hover:not(:disabled) {
+  background: var(--panel-bg);
+  border-color: var(--border);
+}
+
+.code-tool-log,
+.code-tool-panel pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 8px;
+  background: var(--code-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--code-border);
+  border-radius: 5px;
+}
+
+.code-documentation-tooltip {
+  max-width: min(520px, 80vw);
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border: 1px solid var(--border-strong);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
+}
+
+@media (forced-colors: active) {
+  .code-tool-panel input,
+  .code-tool-panel textarea,
+  .code-tool-panel select,
+  .code-result-button,
+  .code-tool-panel pre,
+  .code-documentation-tooltip {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
+  }
+  .code-tool-error,
+  .code-tool-guidance,
+  .code-tool-context,
+  .code-result-button > span {
+    color: CanvasText;
+  }
+  .code-result-button:hover:not(:disabled) {
+    border-color: Highlight;
+  }
+}

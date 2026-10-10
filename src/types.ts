@@ -10,6 +10,7 @@ import type {
   PluginLifecycleState,
   PluginManifest,
   PluginPermissionRequest,
+  PluginCodePosition,
 } from "@denote/plugin-sdk";
 
 export type PluginBundleMetadata = PluginBundle;
@@ -429,6 +430,8 @@ export interface EditorTab {
   groupId: string | null;
   navigationHistory?: string[];
   navigationIndex?: number;
+  navigationPositions?: Array<PluginCodePosition | null>;
+  cursorPosition?: PluginCodePosition;
   stats?: NoteStats;
   imageDataUrl?: string;
   pdfData?: Uint8Array;

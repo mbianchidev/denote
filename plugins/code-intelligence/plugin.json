@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.code-intelligence",
+  "name": "Code intelligence",
+  "version": "0.1.0",
+  "description": "Use approved local language servers and optional debuggers for six language families.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "code",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.8.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [
+    { "capability": "code-intelligence" },
+    { "capability": "project-context" },
+    { "capability": "sidebar" }
+  ],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

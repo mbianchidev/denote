@@ -10,6 +10,8 @@ import {
   tabReferencedPaths,
   tabsReferencePath,
   tabsInVisualOrder,
+  recordTabCursor,
+  pushTabLocation,
 } from "./tabs";
 
 function tab(path: string, placeholder = false): EditorTab {
@@ -31,6 +33,21 @@ function tab(path: string, placeholder = false): EditorTab {
 }
 
 describe("tab placement", () => {
+  it("restores code cursor positions across files and same-file navigation", () => {
+    const origin = recordTabCursor(tab("sample/one.rs"), { line: 4, character: 7 });
+    const destination = recordTabCursor(placeOpenedTab([origin], origin.path, tab("sample/two.rs"))[0], { line: 2, character: 9 });
+    expect(tabHistoryTarget(destination, -1)).toEqual({
+      path: "sample/one.rs", index: 0, position: { line: 4, character: 7 },
+    });
+    const restored = restoreTabHistoryTarget(destination, tab("sample/one.rs"), 0);
+    expect(restored.cursorPosition).toEqual({ line: 4, character: 7 });
+    expect(tabHistoryTarget(restored, 1)?.position).toEqual({ line: 2, character: 9 });
+    const local = pushTabLocation(restored, { line: 9, character: 3 });
+    expect(local.navigationHistory).toEqual(["sample/one.rs", "sample/one.rs"]);
+    expect(tabHistoryTarget(local, -1)?.position).toEqual({ line: 4, character: 7 });
+    expect(removeTabNavigationPaths(destination, (path) => path.endsWith("one.rs")).navigationPositions)
+      .toEqual([{ line: 2, character: 9 }]);
+  });
   it("replaces the active tab during ordinary file navigation", () => {
     expect(
       placeOpenedTab([tab("one.md"), tab("two.md")], "one.md", tab("three.md")).map(

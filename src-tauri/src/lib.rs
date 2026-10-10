@@ -396,6 +396,12 @@ pub fn run() {
             plugins::plugin_clipboard_write,
             plugins::plugin_show_notification,
             plugins::plugin_process_request,
+            plugins::code_tool_environment,
+            plugins::choose_code_tool_executable,
+            plugins::save_code_tool_configuration,
+            plugins::start_code_session,
+            plugins::code_protocol,
+            plugins::stop_code_sessions,
             plugins::plugin_git_request,
             plugins::plugin_github_list_repositories,
             plugins::plugin_git_clone_vault,
@@ -410,6 +416,8 @@ pub fn run() {
             RunEvent::Exit => {
                 app.state::<plugins::PluginManager>()
                     .cancel_all_git_operations();
+                app.state::<plugins::PluginManager>()
+                    .stop_all_code_sessions();
             }
             RunEvent::ExitRequested { api, .. } => {
                 let state = app.state::<AppState>();
