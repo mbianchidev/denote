@@ -761,14 +761,20 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-09-29**.
+A build-only bump to `tauri-build` 2.7.0 also pulled `tauri-utils` 2.10.1
+while the runtime and Wry stayed pinned; the Windows renderer smoke again saw
+a uniform black frame. Keep the build dependency in the same exact pin.
 
-- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
-  release newer than 2.12.0.
+Last upstream check: **2026-10-10**.
+
+- [Tauri 2.12.2](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.2)
+  fixes macOS restart, event listeners, and menu actions, not the Windows
+  blank-webview regression.
 - [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
   Windows blank-webview fix for this regression.
-- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
-  than 0.57.0.
+- [Wry 0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
+  updates Windows bindings and iOS rendering, but does not report a fix for
+  this Windows regression.
 - [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
   Windows fix matching both the blank frame and orphaned process.
 
