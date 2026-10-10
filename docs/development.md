@@ -349,6 +349,11 @@ identical tar input differently. The pinned compatibility settings preserve
 existing source-archive bytes; changing the compressor or those settings is an
 archive-format change, not a routine dependency refresh. Golden-digest tests
 and all existing release pins must pass before changing compression.
+Plugin bundles also depend on the build toolchain: Vite 8.3.0 and Rolldown 1.2.6
+reproduce the pinned Mermaid renderer, while Vite 8.3.1 and Rolldown 1.2.12
+change its archive bytes. Keep both versions fixed until plugin build recipes
+can reproduce older releases with their original compiler; never replace an
+existing release's checksum to accommodate a toolchain upgrade.
 
 Pinning uses `.plugin-artifacts/pin.lock`, an exclusive cross-process lock
 containing the pin process's PID. If the process crashes, the lock remains and
