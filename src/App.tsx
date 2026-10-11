@@ -679,13 +679,21 @@ function sourceControlConfirmation(
         dangerous: operation === "rebase",
       };
     }
-    case "pull":
+    case "pull": {
+      const strategy = value("strategy");
+      const changing = from ? `"${from}"` : "the current branch";
+      const label = strategy === "rebase" ? "Pull with rebase" : strategy === "merge" ? "Pull with merge" : "Pull";
       return {
-        title: "Pull from a remote",
-        message: `Pull "${branch}" from "${remote}" into this vault? Denote saves open notes first, and the pull can change, add, or remove files in the vault.`,
-        confirmLabel: "Pull",
-        dangerous: false,
+        title: strategy === "rebase" || strategy === "merge" ? label : "Pull from a remote",
+        message: `Pull "${branch}" from "${remote}" into ${changing}? ${
+          strategy === "rebase" ? "Rebase rewrites your local commits on top of the remote branch; their identities change." :
+          strategy === "merge" ? "Merge keeps both histories and may record a merge commit." :
+          strategy === "fast-forward-only" ? "Fast-forward only stops if the histories have diverged." : ""
+        } Denote saves open notes first. The pull can change files and may stop with conflicts to resolve in the Git plugin.`,
+        confirmLabel: label,
+        dangerous: strategy === "rebase",
       };
+    }
     case "restore-from-upstream":
     case "restore-all-from-upstream":
       return {

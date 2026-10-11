@@ -365,6 +365,8 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             "pull",
             "--no-recurse-submodules",
             "--no-autostash",
+            "--no-edit",
+            "--no-rebase",
             "--ff-only",
             "origin",
             "main"
@@ -381,6 +383,7 @@ fn maps_every_operation_to_a_fixed_argument_template() {
         }),
         vec![
             "push",
+            "--porcelain",
             "--no-recurse-submodules",
             "--no-verify",
             "--set-upstream",
@@ -486,6 +489,48 @@ fn maps_every_operation_to_a_fixed_argument_template() {
             "synthetic"
         ]
     );
+}
+
+#[test]
+fn pull_strategy_overrides_repository_defaults_and_never_opens_a_merge_editor() {
+    for strategy in [
+        PluginGitPullStrategy::Merge,
+        PluginGitPullStrategy::Rebase,
+        PluginGitPullStrategy::FastForwardOnly,
+    ] {
+        let args = command_args(PluginGitRequest::Pull {
+            auth_mode: PluginGitAuthMode::Public,
+            scope: PluginGitScope::Vault,
+            remote: "origin".to_string(),
+            branch: "main".to_string(),
+            strategy,
+        });
+        assert!(args.iter().any(|argument| argument == "--no-edit"));
+        match strategy {
+            PluginGitPullStrategy::Merge => {
+                assert!(args.iter().any(|argument| argument == "--no-rebase"));
+                assert!(args.iter().any(|argument| argument == "--ff"));
+            }
+            PluginGitPullStrategy::Rebase => {
+                assert!(args.iter().any(|argument| argument == "--rebase"));
+                assert!(args.iter().any(|argument| argument == "--ff"));
+            }
+            PluginGitPullStrategy::FastForwardOnly => {
+                assert!(args.iter().any(|argument| argument == "--ff-only"));
+                assert!(args.iter().any(|argument| argument == "--no-rebase"));
+            }
+        }
+    }
+    let push = command_args(PluginGitRequest::Push {
+        auth_mode: PluginGitAuthMode::Public,
+        scope: PluginGitScope::Vault,
+        remote: "origin".to_string(),
+        branch: "main".to_string(),
+        set_upstream: false,
+        mode: Some(PluginGitPushMode::Normal),
+    });
+    assert!(push.iter().any(|argument| argument == "--porcelain"));
+    assert!(!push.iter().any(|argument| argument.starts_with("--force")));
 }
 
 #[test]

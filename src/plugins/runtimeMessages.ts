@@ -914,6 +914,7 @@ function isBranch(value: unknown): boolean {
 function isRemoteAccess(value: unknown): boolean {
   return (
     isRecord(value) &&
+    (value.pullStrategy === undefined || isPullStrategy(value.pullStrategy)) &&
     typeof value.authMode === "string" &&
     ["system", "public", "ssh-agent", "github-https"].includes(
       value.authMode,
@@ -1248,8 +1249,20 @@ function isRecovery(value: unknown): boolean {  if (!isRecord(value)) {
     ((value.retryActionId === undefined ||
       typeof value.retryActionId === "string") &&
       (value.dismissActionId === undefined ||
-        typeof value.dismissActionId === "string"))
+        typeof value.dismissActionId === "string") &&
+      (value.remoteSync === undefined || isRemoteSyncRecovery(value.remoteSync)))
   );
+}
+
+function isPullStrategy(value: unknown): boolean {
+  return value === "merge" || value === "rebase" || value === "fast-forward-only";
+}
+
+function isRemoteSyncRecovery(value: unknown): boolean {
+  const target = (name: unknown) => typeof name === "string" && name.length > 0 &&
+    name.length <= 255 && !name.startsWith("-") && !/[\u0000-\u001f\u007f]/.test(name);
+  return isRecord(value) && (value.reason === "remote-ahead" || value.reason === "diverged") &&
+    target(value.remote) && target(value.branch) && target(value.localBranch) && isPullStrategy(value.pullStrategy);
 }
 
 function isResourceStatus(value: unknown): boolean {

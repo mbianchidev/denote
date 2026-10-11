@@ -2725,6 +2725,33 @@ describe("App initial file-tree expansion", () => {
     });
   });
 
+  it("confirms a recovery pull with its exact rebase strategy and preserves the save barrier", async () => {
+    const user = userEvent.setup();
+    const model = appSourceControlModel("Synthetic repository");
+    model.recovery = {
+      state: "failed", operationId: "push-failure", message: "Remote has newer commits.",
+      remoteSync: { reason: "remote-ahead", remote: "origin", branch: "main", localBranch: "main", pullStrategy: "rebase" },
+    };
+    mockPluginController.sourceControlProviders = [{ pluginId: "denote.synthetic", id: "git", title: "Synthetic Git", model }];
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Source control: Synthetic Git" }));
+    mockPluginController.runSourceControlAction.mockClear();
+    await user.click(screen.getByRole("button", { name: "Pull with rebase" }));
+    const dialog = await screen.findByRole("dialog", { name: "Pull with rebase" });
+    expect(dialog).toHaveTextContent("origin");
+    expect(dialog).toHaveTextContent("main");
+    expect(dialog).toHaveTextContent(/rewrites.*local commits/i);
+    expect(mockPluginController.runSourceControlAction).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole("button", { name: "Pull with rebase" }));
+    await waitFor(() => expect(mockPluginController.runSourceControlAction).toHaveBeenCalledWith(
+      "denote.synthetic", "git",
+      { id: "pull", values: { remote: "origin", branch: "main", from: "main", strategy: "rebase" } },
+      "/synthetic-vault",
+    ));
+    expect(mockApi.refreshVault).toHaveBeenCalled();
+  });
+
   it("confirms a rebase as history rewriting before it starts", async () => {
     const user = userEvent.setup();
     const model = appSourceControlModel("Synthetic repository");

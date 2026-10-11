@@ -35,9 +35,10 @@ use super::transport::{
     GitTransportPolicy, PluginGitAuthMode, PluginGitPushMode, PluginGitRequest, PluginGitScope,
     RemoteDirection, apply_system_git_settings, assert_repository_config_is_safe,
     detect_operation_state, ensure_encrypted_repository_metadata, plan_git_request,
-    read_remote_urls, read_system_git_settings, redact, resolve_git_directory, run_git_command,
-    run_git_plan, validate_author_email, validate_author_name, validate_branch_name,
-    validate_commit_message, validate_operation_id, validate_remote_name, validated_path,
+    push_needs_pull, read_remote_urls, read_system_git_settings, redact, resolve_git_directory,
+    run_git_command, run_git_plan, validate_author_email, validate_author_name,
+    validate_branch_name, validate_commit_message, validate_operation_id, validate_remote_name,
+    validated_path,
 };
 
 /// Ceiling for every read of the index: the snapshot taken before staging
@@ -1112,7 +1113,12 @@ impl PluginManager {
         }
         if result.exit_code != 0 {
             return Ok(AutomaticPushOutcome::failed(
-                if result.stderr.trim().is_empty() {
+                if push_needs_pull(&result.stdout) {
+                    format!(
+                        "{}/{} contains commits you have not pulled. The automatic commit is safely recorded locally. Open the Git plugin and pull the latest commits using merge or rebase, resolve any conflicts there, then push again. Denote will not pull or force-push automatically.",
+                        target.remote, target.remote_branch,
+                    )
+                } else if result.stderr.trim().is_empty() {
                     "Git reported no details.".to_string()
                 } else {
                     result.stderr.trim().to_string()
