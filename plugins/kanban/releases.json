@@ -42,5 +42,16 @@
       "sha256": "24ff948143ec0e930c082da3cdac036f63a731d4888caab972c69e0e1336c244",
       "sizeBytes": 20814
     }
+  },
+  {
+    "version": "0.1.4",
+    "sourceCommit": "b7d81e48d883d7f518f43683d0027f806a590d59",
+    "kind": "source",
+    "sourcePath": "plugins/kanban",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.kanban-0.1.4.tgz",
+      "sha256": "9a2c258f90b731843bc4b39844cc2d7e690f9244f8f96f16be6c2395a9999211",
+      "sizeBytes": 23756
+    }
   }
 ]
