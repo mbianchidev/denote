@@ -171,10 +171,14 @@ export class CodeIntelligenceHost {
     }, 120);
   }
 
-  async saved(path: string): Promise<void> {
+  async saved(path: string, savedSource?: string): Promise<void> {
     const entry = this.documents.get(path);
-    if (!entry) return;
+    if (!entry || (savedSource !== undefined && entry.document.text !== savedSource) ||
+        ![...this.profiles.values()].some((profile) => profile.projectId === entry.projectId &&
+          profile.language === entry.document.language && this.active(profile.scope, profile.language))) return;
+    const version = entry.document.version;
     const environment = await this.environment(entry.document.language, entry.projectId, path);
+    if (this.documents.get(path) !== entry || entry.document.version !== version) return;
     if (this.active(environment.scope, entry.document.language)) await this.run(entry.document.language, entry.projectId, path, "save");
   }
 

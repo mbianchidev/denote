@@ -10,6 +10,9 @@ optional Debug Adapter Protocol session.
 
 ## Enablement and permissions
 
+Code intelligence 0.1.1 requires Denote 0.9.0, the first release containing its
+host and native contracts. Older applications refuse it before download.
+
 Enable **Code intelligence** in **Settings → Plugins**. The **Code intelligence**
 permission allows versioned source snapshots and the bounded native protocol
 bridge; **Project context** supplies opaque project identities and relative roots;
@@ -120,6 +123,8 @@ support. Executable changes require reapproval.
 Breakpoints and watches are project/language-scoped in-memory debug metadata.
 Source snapshots, diagnostics, logs, symbols, and variable references are
 bounded and discarded across the relevant document/session lifecycle.
+Successful current-version autosaves and manual saves also notify the running
+language server. Failed saves and stale saved versions never emit didSave.
 
 ## Disable behavior
 

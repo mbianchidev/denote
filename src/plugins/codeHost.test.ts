@@ -19,10 +19,30 @@ beforeEach(() => {
   vi.mocked(api.codeToolEnvironment).mockResolvedValue({
     scope: { projectId: "project-example", rootPath: "sample" }, language: "rust", lsp: configuration, dap: configuration,
   });
-  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 });
+afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
 
 describe("code intelligence host", () => {
+  it("notifies saves only for the successfully saved current source version", async () => {
+    const execute = vi.fn(async (_plugin: string, _id: string, _request: PluginCodeRequest): Promise<PluginCodeResult> => ({
+      status: "Ready", capabilities: ["hover"],
+    }));
+    const host = new CodeIntelligenceHost();
+    host.configure(provider, execute, "/synthetic/vault", "project-example", false);
+    host.attach("sample/main.rs", "project-example", "fn main() {}\n", { apply: vi.fn(), readOnly: () => false });
+    await host.saved("sample/main.rs", "fn main() {}\n");
+    expect(execute).not.toHaveBeenCalled();
+    await host.run("rust", "project-example", "sample/main.rs", "start");
+    await host.saved("sample/main.rs", "fn main() {}\n");
+    expect(execute).toHaveBeenLastCalledWith("denote.synthetic", "denote.synthetic.code",
+      expect.objectContaining({ operation: "save", document: expect.objectContaining({ text: "fn main() {}\n" }) }),
+      "/synthetic/vault", expect.any(AbortSignal));
+    const count = execute.mock.calls.length;
+    host.update("sample/main.rs", "fn edited() {}\n");
+    await host.saved("sample/main.rs", "fn main() {}\n");
+    expect(execute).toHaveBeenCalledTimes(count);
+    host.dispose();
+  });
   it("continues bounded polling and opens new documents only in an explicitly started scope", async () => {
     vi.useFakeTimers();
     const execute = vi.fn(async (_plugin: string, _id: string, _request: PluginCodeRequest): Promise<PluginCodeResult> => ({ status: "Ready", capabilities: ["hover"] }));

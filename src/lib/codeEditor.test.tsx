@@ -50,14 +50,18 @@ describe("source editor code intelligence", () => {
 
   it("restores the exact requested column without editing source", () => {
     const onChange = vi.fn();
+    const cursor = vi.fn();
     render(<PlainTextEditor
       value={"first\nsecond"} ariaLabel="Read synthetic source"
       readOnly spellCheck={false} binary={false} filePath="sample/main.rs"
       lineEnding="lf" displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS} onChange={onChange}
       sourceNavigation={{ request: 1, line: 2, column: 4 }}
+      onCursorChange={cursor}
     />);
     const view = EditorView.findFromDOM(screen.getByRole("textbox", { name: "Read synthetic source" }))!;
     expect(view.state.selection.main.head).toBe(9);
+    expect(cursor).toHaveBeenNthCalledWith(1, { line: 0, character: 0 });
+    expect(cursor).toHaveBeenLastCalledWith({ line: 1, character: 3 });
     expect(onChange).not.toHaveBeenCalled();
   });
 });

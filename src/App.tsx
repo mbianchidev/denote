@@ -62,7 +62,7 @@ import type {
   PluginCodePosition,
 } from "@denote/plugin-sdk";
 import { codeLanguageForPath, isCodePath, isCodeRange } from "@denote/plugin-sdk";
-import { CodeIntelligenceHost } from "./plugins/codeHost";
+import { CodeIntelligenceHost, codeRequestCancelled } from "./plugins/codeHost";
 import { CodeTooltips } from "./lib/codeEditor";
 import { ActivityRail } from "./components/ActivityRail";
 import {
@@ -226,6 +226,7 @@ import {
   tabsInVisualOrder,
   recordTabCursor,
   pushTabLocation,
+  pruneTabCursorPositions,
 } from "./lib/tabs";
 import {
   addPane,
@@ -991,6 +992,7 @@ function App() {
   >(null);
   const sourceNavigationSequence = useRef(0);
   const codeCursorPositions = useRef(new Map<string, PluginCodePosition>());
+  const cursorWorkspace = useRef<string | null>(null);
   const [pdfSearchFocus, setPdfSearchFocus] = useState<{
     path: string;
     request: number;
@@ -1265,6 +1267,12 @@ function App() {
   const focusedPaneId = paneState.focusedPaneId;
   const focusedPane = focusedPaneOf(paneState);
   const tabs = focusedPane.tabs;
+  const openCursorPaths = panes.flatMap((pane) => pane.tabs.map((tab) => tab.path)).join("\0");
+  useLayoutEffect(() => {
+    const changed = cursorWorkspace.current !== (workspace?.vaultPath ?? null);
+    pruneTabCursorPositions(codeCursorPositions.current, new Set(openCursorPaths.split("\0")), changed);
+    cursorWorkspace.current = workspace?.vaultPath ?? null;
+  }, [workspace?.vaultPath, openCursorPaths]);
   const tabGroups = focusedPane.groups;
   const activePath = focusedPane.activePath;
   useEffect(() => {
@@ -3774,6 +3782,13 @@ function App() {
               }
             }
             setStatus(outcome.changed ? "Saved" : "No changes");
+            if (expectedVaultGeneration === vaultGeneration.current) {
+              void codeHost.saved(path, content).catch((caught) => {
+                if (!codeRequestCancelled(caught)) showError(new Error(
+                  `Source was saved, but the language server did not receive the save notification: ${errorMessage(caught)}`,
+                ));
+              });
+            }
             scheduleIndexRebuild();
             if (isGitignorePath(path)) {
               await refreshIgnoredStatus(
@@ -3810,6 +3825,7 @@ function App() {
     },
     [
       commitTabs,
+      codeHost,
       refreshIgnoredStatus,
       scheduleIndexRebuild,
       showError,

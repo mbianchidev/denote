@@ -21,6 +21,8 @@ on your device.
 - Opt into isolated plugins for Git workflows and a local Unicode emoji picker.
 - Review staged and unstaged Git line counts, plus per-file change reports
   after pulling from a remote.
+- Recover rejected pushes with an explicit merge or rebase pull, then resolve
+  conflicts and continue or abort inside the Git plugin.
 - Sign commits with system OpenPGP or SSH keys and optionally save each key's
   passphrase in the operating-system credential store.
 - Browse daily, created, and last-updated calendars with the optional Calendar

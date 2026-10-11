@@ -112,6 +112,7 @@ export type {
 
 const ACTIVATION_TIMEOUT_MS = 10_000;
 const DEACTIVATION_TIMEOUT_MS = 5_000;
+const CODE_CANCELLATION_TIMEOUT_MS = 5_000;
 const COMMAND_TIMEOUT_MS = 30_000;
 // Source-control actions drive the bounded native Git transport, whose own hard
 // timeout is ten minutes. Only this lease is extended to match it.
@@ -153,7 +154,7 @@ interface PendingHandshake {
 interface Runtime {
   codeProviders: Map<string, PluginCodeContribution>;
   stagedCodeProviders: Map<string, PluginCodeContribution>;
-  cancelledCodeRequests: Set<string>;
+  cancelledCodeRequests: Map<string, number>;
   workspaceIdentity: string | null;
   manifest: PluginManifest;
   worker: Worker;
@@ -910,7 +911,8 @@ export class PluginWorkerRuntime {
     const runtime = this.requireRuntime(pluginId);
     if (runtime.phase !== "active" || !runtime.permissions.has("code-intelligence") ||
         !runtime.codeProviders.has(providerId) || !isPluginCodeRequest(request) ||
-        workspaceScope !== this.workspaceIdentity || runtime.pending.size >= 64) {
+        workspaceScope !== this.workspaceIdentity ||
+        runtime.pending.size + runtime.cancelledCodeRequests.size >= 64) {
       throw new Error("Code intelligence is unavailable, its scope changed, or its request limit was reached.");
     }
     if (signal?.aborted) throw new DOMException("Code request cancelled.", "AbortError");
@@ -925,7 +927,7 @@ export class PluginWorkerRuntime {
       const item = runtime.pending.get(requestId)!;
       window.clearTimeout(item.timeout);
       runtime.pending.delete(requestId);
-      runtime.cancelledCodeRequests.add(requestId);
+      this.retainCancelledCodeRequest(pluginId, runtime, requestId);
       runtime.activeActions.delete(requestId);
       item.reject(new DOMException("Code request cancelled.", "AbortError"));
       runtime.port.postMessage({ type: "cancel-code-request", requestId });
@@ -940,7 +942,7 @@ export class PluginWorkerRuntime {
       return result;
     } catch (error) {
       if (runtime.activeActions.has(requestId) && !(error instanceof DOMException && error.name === "AbortError")) {
-        runtime.cancelledCodeRequests.add(requestId);
+        this.retainCancelledCodeRequest(pluginId, runtime, requestId);
         runtime.port.postMessage({ type: "cancel-code-request", requestId });
         void api.codeProtocol(pluginId, { operation: "cancel", sessionId: "", workspaceScope: "", requestToken: requestId })
           .catch((failure) => this.onError(pluginId, failure));
@@ -950,6 +952,19 @@ export class PluginWorkerRuntime {
       signal?.removeEventListener("abort", cancel);
       runtime.activeActions.delete(requestId);
     }
+  }
+
+  private retainCancelledCodeRequest(pluginId: string, runtime: Runtime, requestId: string): void {
+    if (runtime.cancelledCodeRequests.has(requestId) || this.runtimes.get(pluginId) !== runtime) return;
+    const timeout = window.setTimeout(() => {
+      if (runtime.cancelledCodeRequests.has(requestId) &&
+          this.runtimes.get(pluginId) === runtime && runtime.phase === "active") {
+        void this.failRuntime(pluginId, new Error(
+          "Code intelligence provider did not settle within five seconds after cancellation. Restart the plugin.",
+        ));
+      }
+    }, CODE_CANCELLATION_TIMEOUT_MS);
+    runtime.cancelledCodeRequests.set(requestId, timeout);
   }
 
   getEmojiPicker(pluginId: string, pickerId: string): PluginEmojiPickerContribution {
@@ -1071,7 +1086,7 @@ export class PluginWorkerRuntime {
     const runtime: Runtime = {
       codeProviders: new Map(),
       stagedCodeProviders: new Map(),
-      cancelledCodeRequests: new Set(),
+      cancelledCodeRequests: new Map(),
       workspaceIdentity: this.workspaceIdentity,
       manifest,
       worker,
@@ -1289,7 +1304,14 @@ export class PluginWorkerRuntime {
         void api.stopCodeSessions(pluginId).catch((error) => this.onError(pluginId, error));
         return;
       case "code-result":
-        if (runtime.cancelledCodeRequests.delete(message.requestId)) return;
+        {
+          const timeout = runtime.cancelledCodeRequests.get(message.requestId);
+          if (timeout !== undefined) {
+            window.clearTimeout(timeout);
+            runtime.cancelledCodeRequests.delete(message.requestId);
+            return;
+          }
+        }
         if (!this.settle(runtime, message.requestId, "code-result", message.error, message.result)) {
           this.protocolViolation(pluginId, "unexpected code result");
         }
@@ -2227,6 +2249,8 @@ export class PluginWorkerRuntime {
       pending.reject(error);
     }
     runtime.pending.clear();
+    for (const timeout of runtime.cancelledCodeRequests.values()) window.clearTimeout(timeout);
+    runtime.cancelledCodeRequests.clear();
   }
 
   private publishCommands(): void {

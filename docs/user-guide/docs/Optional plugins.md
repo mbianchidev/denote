@@ -104,6 +104,8 @@ Opening an example never installs a plugin or initializes Git.
 
 ## Code intelligence
 
+Code intelligence requires Denote 0.9.0 or newer.
+
 Enable **Code intelligence** under **Code**, then open its activity-rail panel
 or find **Code:** in the command palette. The plugin supports Rust, Go, Python,
 Java, C/C++, and JavaScript/TypeScript through local Language Server Protocol
@@ -981,6 +983,28 @@ editor. Denote opens the file at the path it has now, so a file that a commit
 renamed opens under its current name, and a file that has been deleted since is
 still shown in the commit but cannot be opened. If the file is no longer in the
 vault, Denote says so instead of opening nothing.
+
+### Recover a rejected push
+
+Git 0.10.0 requires Denote 0.9.0. If origin or another remote has commits you
+have not pulled, **Remote has newer commits** names that branch and explains
+that your commits are still local. A successful commit followed by a rejected
+push is not reported as a failed commit. Authentication, network, and
+protected-branch failures keep their own errors.
+
+The recovery form uses your saved **Pull strategy**. Choose **Pull with merge**
+to keep both histories, or **Pull with rebase** to replay local commits on the
+latest remote branch. Rebase confirmation warns that those commit identities
+change. This choice applies to that pull only. Fast-forward only stops when both
+histories have new commits and asks for an explicit merge/rebase choice instead
+of silently choosing one.
+
+If a pull stops with conflicts, Denote immediately refreshes the repository and
+opens Changes. **Resolve:** buttons beside the conflicted paths open the
+three-way editor from any section. Mark every file resolved, then Continue;
+Abort undoes the integration. Push again explicitly once the pull finishes.
+Neither a rejection nor an automatic push failure starts a pull or force push.
+Switching branches invalidates an old recovery action.
 
 Merge and rebase act on a branch the repository already has, and cherry-pick and
 revert act on the commit you selected in the History tab. None of them starts

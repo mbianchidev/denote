@@ -221,6 +221,13 @@ export function recordTabCursor(tab: EditorTab, position: PluginCodePosition): E
   return { ...tab, ...navigation, cursorPosition: { ...position }, navigationPositions: positions };
 }
 
+export function pruneTabCursorPositions(
+  positions: Map<string, PluginCodePosition>, openPaths: ReadonlySet<string>, workspaceChanged: boolean,
+): void {
+  if (workspaceChanged) positions.clear();
+  for (const path of positions.keys()) if (!openPaths.has(path)) positions.delete(path);
+}
+
 export function pushTabLocation(tab: EditorTab, position: PluginCodePosition): EditorTab {
   if (tab.cursorPosition?.line === position.line && tab.cursorPosition.character === position.character) return recordTabCursor(tab, position);
   const current = recordTabCursor(tab, tab.cursorPosition ?? { line: 0, character: 0 });

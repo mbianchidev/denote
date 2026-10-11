@@ -9,6 +9,7 @@ import {
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { calendarDates, type PluginCalendarRequest, type PluginSourceControlViewModel } from "@denote/plugin-sdk";
+import { CodeIntelligenceHost } from "./plugins/codeHost";
 import type {
   PluginCalendarContribution,
   PluginEmojiPickerContribution,
@@ -1124,6 +1125,33 @@ describe("App initial file-tree expansion", () => {
     );
 
     expect(mockPluginController.emitNoteEvent).not.toHaveBeenCalled();
+  });
+
+  it.each(["autosave", "manual save"])("notifies code tooling only after %s successfully persists source", async (reason) => {
+    const user = userEvent.setup();
+    const saved = vi.spyOn(CodeIntelligenceHost.prototype, "saved").mockResolvedValue();
+    let completeSave: () => void = () => { throw new Error("No synthetic save pending."); };
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([fileNode("sample.rs", "text")]));
+    mockApi.saveNote.mockImplementation(() => new Promise((resolve) => {
+      completeSave = () => resolve({
+        path: "sample.rs", changed: true, savedAt: "2026-01-01T00:00:00Z",
+        contentHash: "saved-hash", historyCount: 1, stats: noteStats(),
+      });
+    }));
+    try {
+      render(<App />);
+      await user.click(await screen.findByRole("button", { name: "Open sample.rs" }));
+      await user.click(await screen.findByRole("button", { name: "Change Edit sample.rs" }));
+      if (reason === "manual save") {
+        fireEvent.keyDown(window, { key: "s", ctrlKey: true, metaKey: true });
+      }
+      await waitFor(() => expect(mockApi.saveNote).toHaveBeenCalled());
+      expect(saved).not.toHaveBeenCalled();
+      await act(async () => completeSave());
+      await waitFor(() => expect(saved).toHaveBeenCalledWith("sample.rs", "sample.rs content changed"));
+    } finally {
+      saved.mockRestore();
+    }
   });
 
   it("publishes note changes when an enabled plugin requests note events", async () => {

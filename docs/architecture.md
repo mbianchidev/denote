@@ -525,6 +525,15 @@ subcommand. Command-line configuration outranks every configuration file, so a
 repository cannot replace the identity a user configured, and a request that
 omits both leaves the repository-local identity untouched.
 
+Git push porcelain status distinguishes missing remote commits from
+authentication, network and remote-policy failures. Recoverable rejections
+carry exact remote/branch targets and the saved merge/rebase/fast-forward
+preference as typed recovery data. The host's one-pull override stays separate
+from persisted settings and confirms rebase risk. Pull flags override local
+repository defaults, and a failed pull refreshes conflicts and sequencer state
+before publishing its outcome. Successful local commits remain distinct from
+failed pushes; no remote recovery or force push starts automatically.
+
 Conflict resolution is gated on the index. Before either a stage or a content
 resolution touches the worktree, the transport requires that exact path to have
 unmerged index entries, so an ordinary tracked file, an untracked file, or a
@@ -938,6 +947,10 @@ tab's transient path history, including same-file jumps and already-open targets
 in other panes. Core file-open/save barriers and project resolution remain
 authoritative; histories rekey on moves and remove trashed paths. Positional
 histories retain at most 500 entries and are not persisted in vault content.
+The live cursor cache drops closed tabs and clears on vault changes; each editor
+initializes its cursor on mount. Current-version successful autosaves and manual
+saves send didSave without blocking the core save or misreporting a tooling
+notification failure as lost source.
 
 API version 1 intentionally excludes arbitrary host-DOM renderers, embedded
 plugin UI, menu injection, and general import/export hooks. Editor actions use command

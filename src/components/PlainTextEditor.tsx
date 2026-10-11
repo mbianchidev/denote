@@ -186,6 +186,9 @@ export function PlainTextEditor({
       }),
     });
     editorRef.current = editor;
+    const head = editor.state.selection.main.head;
+    const line = editor.state.doc.lineAt(head);
+    cursorCallback.current?.({ line: line.number - 1, character: head - line.from });
     const handleScroll = () => reportViewport(editor);
     editor.scrollDOM.addEventListener("scroll", handleScroll, {
       passive: true,

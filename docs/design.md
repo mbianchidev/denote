@@ -339,7 +339,18 @@ headers, added/removed columns, previous names for renames, and a written Binary
 label instead of numeric counts. The existing polite status region announces
 the file count without reading the entire table aloud.
 The always-visible branch button expands a searchable picker inside the plugin
-sidebar. One compact list labels local and remote branches, exposes
+sidebar.
+
+Recoverable remote-ahead errors appear above the section tabs, with a written
+alert, exact remote branch, native **Pull strategy** selector, and one primary
+pull action. A saved merge/rebase preference preselects that strategy;
+fast-forward-only divergence requires an explicit choice. Rebase copy warns
+that local commit identities change. Conflicted paths in operation progress
+have **Resolve:** buttons that open the existing editor without changing tabs
+first. Continue remains disabled until every conflict is resolved, while Abort
+stays available.
+
+The branch picker uses one compact list that labels local and remote branches, exposes
 create-and-switch with an explicit start-point selector when search has no exact
 match, and keeps icon buttons for rename and delete. Current branches remain
 visible but disabled, and every option keeps an exact accessible action name.

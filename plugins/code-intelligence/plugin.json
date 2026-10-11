@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.code-intelligence",
   "name": "Code intelligence",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Use approved local language servers and optional debuggers for six language families.",
   "publisher": {
     "name": "Denote",
@@ -14,7 +14,7 @@
   "category": "code",
   "compatibility": {
     "apiVersion": 1,
-    "minimumDenoteVersion": "0.8.0",
+    "minimumDenoteVersion": "0.9.0",
     "maximumDenoteVersion": "1.0.0"
   },
   "permissions": [

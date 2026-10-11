@@ -787,6 +787,56 @@ function pluginWithGitAndProjectContext(): PluginView {
 }
 
 describe("PluginWorkerRuntime", () => {
+  it("bounds cancelled code handlers and stops a provider that ignores cancellation", async () => {
+    vi.mocked(api.codeProtocol).mockResolvedValue(null);
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    await bridgeRealPluginWorker();
+    const source = { ...plugin(), approvedPermissions: [...plugin().approvedPermissions, { capability: "code-intelligence" as const }] };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          context.subscriptions.add(context.capabilities.codeIntelligence.register({
+            id: "denote.reference.code", title: "Synthetic code",
+            languages: [{id: "rust", title: "Rust", server: "Synthetic", debugger: "Synthetic", setup: "Choose a tool."}],
+            run() { return new Promise(() => {}); },
+          }));
+        },
+      };
+    `);
+    const errors = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), errors);
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(source);
+    vi.useFakeTimers();
+    const request = { operation: "poll" as const, language: "rust" as const, scope: { projectId: null, rootPath: "" } };
+    try {
+      for (let index = 0; index < 64; index += 1) {
+        const controller = new AbortController();
+        const pending = runtime.runCodeRequest("denote.reference", "denote.reference.code", request, VAULT_ALPHA, controller.signal);
+        const cancelled = expect(pending).rejects.toThrow(/cancelled/i);
+        controller.abort();
+        await cancelled;
+      }
+      const controller = new AbortController();
+      const excess = runtime.runCodeRequest("denote.reference", "denote.reference.code", request, VAULT_ALPHA, controller.signal);
+      const refused = expect(excess).rejects.toThrow(/request limit/i);
+      controller.abort();
+      await refused;
+      expect(runtime.isRunning("denote.reference")).toBe(true);
+      await vi.advanceTimersByTimeAsync(5001);
+      expect(runtime.isRunning("denote.reference")).toBe(false);
+      expect(errors).toHaveBeenCalledWith("denote.reference", expect.objectContaining({
+        message: expect.stringMatching(/did not settle.*cancellation/i),
+      }));
+      expect(api.stopCodeSessions).toHaveBeenCalledWith("denote.reference");
+      expect(BridgedWorker.instances[0].terminated).toBe(true);
+    } finally {
+      await runtime.forceStop("denote.reference");
+      vi.useRealTimers();
+    }
+  });
+
   it("binds real code-worker actions, cancellation and teardown without granting ambient native execution", async () => {
     vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
     await bridgeRealPluginWorker();

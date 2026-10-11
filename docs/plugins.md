@@ -338,7 +338,10 @@ connections, and teardown. `code_commands.rs` owns approval and scope
 revalidation. Limits are 8 MiB/frame, 8 KiB/header/log line, 256 queued events/
 2 MiB, 32 pending requests/session, 12 sessions, and 30 seconds/request.
 The frontend additionally caps source at 4 MiB, results at 500, logs at 200, and
-pending worker requests at 64. Code messages are independently cancellable and
+pending worker requests at 64, including cancelled handlers until they settle.
+A provider that ignores cancellation for five seconds fails and is torn down;
+cancellation cannot accumulate unbounded tombstones or free unlimited handler
+capacity. Code messages are independently cancellable and
 may execute concurrently; provider generation/version guards discard stale
 results. Project/vault changes and disable/crash/update/shutdown cancel requests
 and clean up child groups/connections before worker teardown completes.
@@ -753,6 +756,17 @@ configuration cannot replace the identity a user configured. Omitting both keeps
 whatever safe repository-local identity the repository already has.
 `PluginGitResult` returns the operation ID, exit code,
 standard output, standard error, and whether the operation was cancelled.
+Normal pushes request Git's porcelain status. Git 0.10.0/Denote 0.9.0 recognize
+only fetch-first/non-fast-forward rejections as missing remote commits, not
+authentication, network, or protected-branch failures. An additive failed
+recovery `remoteSync` record contains the exact remote, remote branch, local
+branch, reason, and saved pull strategy. The host renders the recovery above
+the section tabs, permits a one-pull strategy override, and confirms rebase as
+history rewriting. A captured local branch is rechecked before execution.
+Explicit pull flags override repository pull defaults and suppress merge-editor
+prompts. No rejection triggers an automatic fetch, pull, push retry, or force
+push. A failed merge/rebase pull refreshes operation/conflict state immediately
+and exposes the existing resolve/continue/skip/abort workflow.
 Conflict resolution requires the path to be genuinely unmerged in the index, so
 it can never overwrite an ordinary tracked or untracked file, and a resolution
 that is written but not staged is rolled back. `list-conflicts` runs

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.mermaid",
   "name": "Mermaid diagrams",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Render local Mermaid fenced blocks in Markdown rich view with strict source and SVG safety boundaries.",
   "publisher": {
     "name": "Denote",
@@ -28,7 +28,8 @@
   "legal": [
     "legal/THIRD_PARTY_NOTICES.md",
     "legal/mermaid-MIT.txt",
-    "legal/dompurify-APACHE-2.0.txt"
+    "legal/dompurify-APACHE-2.0.txt",
+    "legal/katex-MIT.txt"
   ],
   "documentation": "guide.md"
 }
