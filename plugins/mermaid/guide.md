@@ -59,5 +59,5 @@ unlock.
 ## Third-party licenses
 
 The downloaded renderer bundles Mermaid 12.0.0 under the MIT License and
-DOMPurify 3.4.15 under its Apache License 2.0 option. Source notices and license
+DOMPurify 3.4.16 under its Apache License 2.0 option. Source notices and license
 texts ship in the verified archive under `legal/`.

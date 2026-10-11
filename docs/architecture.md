@@ -1392,9 +1392,11 @@ sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
 Its larger renderer requires Denote 0.5.2 or newer.
-Both Mermaid's dependency graph and the independent host sanitizer pin
-DOMPurify 3.4.15; Chevrotain's transitive `lodash-es` is overridden to patched
-4.18.1. The renderer fixes Mermaid to strict security, disables
+Mermaid 0.2.3 and the independent host sanitizer pin DOMPurify 3.4.16; the root
+override keeps Mermaid's dependency graph on the same patch. Older plugin
+archives retain their immutable bytes and source provenance.
+Chevrotain's transitive `lodash-es` is overridden to patched 4.18.1. The
+renderer fixes Mermaid to strict security, disables
 start-on-load, HTML labels, callback binding, and error diagrams, expands the
 secure configuration list, fixes themes and deterministic IDs, and never calls
 returned bind functions. Preflight accepts YAML frontmatter only when it contains a bounded scalar
@@ -2170,18 +2172,31 @@ canonical vault, reject self/descendant folder moves and conflicts, then reuse
 the rename recovery journal around one filesystem rename plus transactional
 metadata path rekeying. The frontend flushes affected tabs first and rewrites
 their paths after the move. Pointer capture plus coordinate hit-testing drives
-folder/root drop targets; **Move to folder…** is the keyboard alternative.
+folder/root drop targets; **Move to folder…** is the keyboard alternative. Folder
+rows target themselves, while file rows target their containing folder. The same
+resolver drives hover and release. Tree padding and pointer-transparent virtual
+spacers resolve against logical row bands using live viewport bounds and scroll
+offsets, not a blanket root fallback. Only blank space above or below the complete
+logical list targets root. Outside-tree and scrollbar positions are excluded;
+same-parent and self/descendant destinations remain no-ops. The hovered row and
+destination folder/root share existing drop styling, and source/target row
+retention stays bounded during virtualized scrolling. Scrolling or viewport
+remeasurement refreshes an active drag from its last pointer position, keeping
+feedback aligned without requiring another pointer move.
 
 After a successful rename or move, Rust returns a bounded batch containing only
 UTF-8 `.md` and `.markdown` files up to 1 MB each and 32 MB total. A bundled Web
 Worker parses those files and rewrites inline links, images, and reference
 definitions by resolving against pre-move source paths and recalculating paths
 after both source and target moves. MDX is excluded. Updated files use ordinary
-hash-checked saves and revision history; oversized, unreadable, truncated, or
-conflicting rewrites are surfaced without reverting the completed filesystem
-move. A dedicated cross-process link-rewrite lease starts before the filesystem
-move and remains held through those saves, preventing another Denote process
-from interleaving a second topology change.
+hash-checked saves and revision history. Skipped files and truncated scans appear
+as non-blocking status limitations, not application errors or proof of broken
+links. Failed link writes, worker failures, and lease-release failures remain
+errors that identify the completed rename or move. Final status is published
+after refresh without masking new errors. None of these outcomes reverts the
+completed filesystem move. A dedicated cross-process link-rewrite lease starts
+before the filesystem move and remains held through those saves, preventing
+another Denote process from interleaving a second topology change.
 
 Create, trash, and restore commands return the changed file node or trash
 record. The frontend updates the tree, Trash view, open tabs, navigation

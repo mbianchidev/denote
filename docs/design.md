@@ -447,9 +447,13 @@ focused folder's surface. Whole-vault and unavailable project/workspace actions
 remain keyboard-operable in the command palette.
 Markdown file menus can also set the vault welcome page or return to the
 root `.denote.md` convention.
-Dragging an entry highlights folder or root drop targets; the menu move action
-preserves a keyboard path. The sidebar divider is visually one pixel but keeps a
-larger pointer target and exposes arrow-key resizing.
+Dragging an entry highlights its destination folder or vault root and the
+hovered row. File rows and their surrounding row area target the containing
+folder rather than the file itself, including when the folder heading has
+scrolled out of view. Root-level files and genuine blank root space target the
+vault root. The menu move action preserves a keyboard path. The sidebar divider
+is visually one pixel but keeps a larger pointer target and exposes arrow-key
+resizing.
 The vault switcher is a compact recent-folder list with clear current and
 unavailable states; adding a new folder remains a separate native-picker action.
 An app link opens its file without adding another dialog when a known vault owns
