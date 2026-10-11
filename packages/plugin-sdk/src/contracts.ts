@@ -30,6 +30,7 @@ export const PLUGIN_CAPABILITIES = [
   "diagram-renderer",
   "note-events",
   "project-context",
+  "code-intelligence",
   "source-control",
   "automatic-local-commit",
   "automatic-git-push",
@@ -1403,6 +1404,8 @@ export interface PluginSourceControlOperationReview {
  * and the credentials.
  */
 export interface PluginSourceControlRemoteAccess {
+  /** Saved default; an explicit pull action may choose a strategy for that pull. */
+  pullStrategy?: PluginGitPullStrategy;
   /**
    * The authentication mode that is configured for this plugin in Settings.
    *
@@ -1471,6 +1474,14 @@ export interface PluginSourceControlPendingBranchSwitch {
   cancelActionId: string;
 }
 
+export interface PluginSourceControlRemoteSyncRecovery {
+  reason: "remote-ahead" | "diverged";
+  remote: string;
+  branch: string;
+  localBranch: string;
+  pullStrategy: PluginGitPullStrategy;
+}
+
 export type PluginSourceControlRecoveryState =
   | { state: "idle" }
   | {
@@ -1484,6 +1495,7 @@ export type PluginSourceControlRecoveryState =
       message: string;
       retryActionId?: string;
       dismissActionId?: string;
+      remoteSync?: PluginSourceControlRemoteSyncRecovery;
     };
 
 interface PluginSourceControlViewModelBase {
@@ -2103,6 +2115,7 @@ export interface PluginCapabilities {
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;
+  codeIntelligence?: import("./codeIntelligence").PluginCodeIntelligenceCapability;
   sourceControl?: PluginSourceControlCapability;
   automaticLocalCommit?: PluginAutomaticLocalCommitCapability;
   secureStorage?: PluginSecureStorage;

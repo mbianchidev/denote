@@ -77,8 +77,8 @@ workspace-discovered implicit projects alike, it receives only a stable opaque
 project ID and vault-relative root, plus change events—never an absolute path or
 Denote implementation object. A plugin command captures that project identity.
 Existing bounded process actions revalidate it and use the current project root
-as their working directory. Persistent terminal and language-server APIs remain
-future plugin work.
+as their working directory. Persistent terminals remain future plugin work.
+Code intelligence has its own explicitly approved native protocol sessions.
 
 With a focused active project, **Settings → Plugins** shows a non-blocking
 **Code tooling** recommendation for Git, Terminal, Language server, Linter,
@@ -101,6 +101,105 @@ missing paths once, including after unlock as ciphertext in encrypted Welcome
 vaults. Existing files and earlier migration markers stay untouched; samples
 deleted after their set was applied are not restored on later launches.
 Opening an example never installs a plugin or initializes Git.
+
+## Code intelligence
+
+Code intelligence requires Denote 0.9.0 or newer.
+
+Enable **Code intelligence** under **Code**, then open its activity-rail panel
+or find **Code:** in the command palette. The plugin supports Rust, Go, Python,
+Java, C/C++, and JavaScript/TypeScript through local Language Server Protocol
+tools. Debugging is separately optional. Syntax highlighting and ordinary
+editing still work when no tool is installed or running.
+
+Denote installs no language server, debugger, adapter, runtime, or project
+dependency. Install the maintained tool yourself, select its real executable,
+review arguments/options, check **Enable language server**, and choose **Save
+and approve**. Then choose **Start language server**. Approval and execution are
+different actions. Each language's server and debugger are independent.
+Native tools and project configuration have your operating-system permissions;
+approve only trusted tools and projects. Never paste secrets into configuration:
+use the operating-system environment or your tool's secure credential support.
+
+| Language | Language server | Installed executable arguments |
+| --- | --- | --- |
+| Rust | rust-analyzer | Usually `[]` |
+| Go | gopls | `["serve"]` |
+| Python | python-lsp-server | Choose the project's Python interpreter with `["-m","pylsp"]` |
+| Java | Eclipse JDT Language Server | Choose Java with the installed launcher jar, platform configuration, and private data-directory arguments |
+| C/C++ | clangd | Usually `[]`; provide compile_commands.json |
+| JavaScript/TypeScript | typescript-language-server | `["--stdio"]`; TypeScript must also be installed |
+
+On Windows choose node.exe, python.exe, or java.exe and include the installed
+script/jar in its arguments. Denote never executes batch or PowerShell wrappers.
+The plugin's in-app guide includes upstream links and adapter-specific setup.
+
+The active marked project is authoritative. Without one, Denote detects the
+nearest safe language marker and otherwise uses the vault root. **Current file**,
+**Active project**, and **Entire vault** choose symbol scope; vault-wide tooling
+has separate approval. Configuration is local application metadata, never
+Markdown or a generated project file.
+
+Completion and hover work in the source editor after starting a capable server.
+Use **Show documentation**, **Signature help**, and **Format document** in the
+panel. Formatting is explicit, undoable, and discarded if source changed while
+the server answered; read mode never edits. Servers cannot apply unsolicited
+workspace changes.
+
+Use Definition, Declaration, Implementation, Type definition, or References.
+Search symbols and filter up to 500 contextual results. Every result includes
+path, project, language, symbol/container, and position. Enter
+`path:line:column` to navigate without a server. Back/Forward restore the prior
+file, cursor position, and project, including same-file jumps and targets already
+open in another pane. External filesystem targets are not opened.
+
+### Optional debugging
+
+Approve the debugger separately, with independent per-project **Launch
+configuration** and **Attach configuration** JSON. `${workspaceFolder}` and
+`${file}` are host-expanded placeholders. Choose **Launch** or **Attach**
+explicitly; missing debugging never disables language intelligence.
+
+| Language | Maintained adapter | Transport |
+| --- | --- | --- |
+| Rust | CodeLLDB or lldb-dap | CodeLLDB uses Loopback TCP and `["--port","%PORT%"]`; lldb-dap uses stdio |
+| Go | Delve | Loopback TCP and `["dap","--listen=127.0.0.1:%PORT%"]` |
+| Python | debugpy | Python interpreter, stdio, `["-m","debugpy.adapter"]` |
+| Java | java-debug in Eclipse JDT LS | Java language server transport; load its installed jar in the server's initialization `bundles` |
+| C/C++ | lldb-dap or DAP-capable GDB | stdio; GDB uses `["--interpreter=dap"]` |
+| JavaScript/TypeScript | vscode-js-debug standalone server | Node plus installed dapDebugServer.js and `%PORT%`, Loopback TCP |
+
+Denote chooses the loopback port. Adapter connections are never remote, and
+debugger-requested terminal/child-session launches are refused. Use an adapter's
+internal console and its documented launch/attach fields.
+
+Add source-line breakpoints, optional conditions, and log messages. Continue,
+Pause, Step over/into/out, Restart, and Stop follow adapter capabilities.
+Stopped sessions show threads, call stacks, scopes, variables, explicit watches,
+exceptions, and console output. Select a frame or scope to inspect it. External
+library frames keep their names but do not expose or open outside-vault paths.
+Attach disconnect does not terminate an independently launched target.
+
+### Recovery and limits
+
+Missing executables, changed executable bytes, invalid arguments, unsupported
+capabilities, crashes, and exhausted limits show errors/logs and restart
+controls. **Cancel code request** cancels current work. Source changes and close
+discard stale results. Native sessions and child groups/connections end when
+stopped, disabled, updated, or torn down.
+
+Source is limited to 4 MiB, results to 500, logs to 200 entries, and native
+sessions to 12. Versionless push diagnostics are ignored after edits unless a
+pull response can establish the current document. Snippets and additional
+cross-file completion edits are not executed. Native code tooling is unavailable
+in encrypted vaults even after unlock; no plaintext mirror is created.
+
+Stopping only debugging keeps the language server. Stopping a language
+integration also stops its debugger. Disabling removes downloaded package code,
+not source or user-installed tools. Configuration remains for explicit later
+starts; **Clear plugin data** forgets approvals.
+
+Try the [code intelligence exercise](<../plugins/Code intelligence.md>).
 
 ## Emoji picker
 
@@ -884,6 +983,28 @@ editor. Denote opens the file at the path it has now, so a file that a commit
 renamed opens under its current name, and a file that has been deleted since is
 still shown in the commit but cannot be opened. If the file is no longer in the
 vault, Denote says so instead of opening nothing.
+
+### Recover a rejected push
+
+Git 0.10.0 requires Denote 0.9.0. If origin or another remote has commits you
+have not pulled, **Remote has newer commits** names that branch and explains
+that your commits are still local. A successful commit followed by a rejected
+push is not reported as a failed commit. Authentication, network, and
+protected-branch failures keep their own errors.
+
+The recovery form uses your saved **Pull strategy**. Choose **Pull with merge**
+to keep both histories, or **Pull with rebase** to replay local commits on the
+latest remote branch. Rebase confirmation warns that those commit identities
+change. This choice applies to that pull only. Fast-forward only stops when both
+histories have new commits and asks for an explicit merge/rebase choice instead
+of silently choosing one.
+
+If a pull stops with conflicts, Denote immediately refreshes the repository and
+opens Changes. **Resolve:** buttons beside the conflicted paths open the
+three-way editor from any section. Mark every file resolved, then Continue;
+Abort undoes the integration. Push again explicitly once the pull finishes.
+Neither a rejection nor an automatic push failure starts a pull or force push.
+Switching branches invalidates an old recovery action.
 
 Merge and rebase act on a branch the repository already has, and cherry-pick and
 revert act on the commit you selected in the History tab. None of them starts

@@ -19,6 +19,7 @@ import type {
   PluginSourceControlPendingBranchSwitch,
   PluginSourceControlPendingOperation,
   PluginSourceControlRemoteAccess,
+  PluginSourceControlRemoteSyncRecovery,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
 import {
@@ -76,7 +77,8 @@ import {
   type MergeResult,
   type MergeSide,
 } from "./threeWayMerge";
-import { readGitSettings } from "./settings";
+import { readGitSettings, type GitPluginSettings, type GitPullStrategy } from "./settings";
+import { remoteFailureDetail, remoteSyncReason } from "./remoteErrors";
 
 const MAX_REPORTED_ERROR_LENGTH = 200;
 const REPOSITORY_LIST_LIMIT = 50;
@@ -146,6 +148,20 @@ class GitFailure extends Error {
 /** Refuses an action that cannot be attempted, before any Git command runs. */
 class GitRefused extends Error {}
 
+class GitRemoteSyncFailure extends GitFailure {
+  constructor(
+    operation: "push" | "pull",
+    result: PluginGitResult,
+    readonly remoteSync: PluginSourceControlRemoteSyncRecovery,
+  ) {
+    super(operation, result.exitCode, remoteFailureDetail(result));
+    const source = `${remoteSync.remote}/${remoteSync.branch}`;
+    this.message = remoteSync.reason === "diverged"
+      ? `Your branch and ${source} have diverged: both contain commits the other does not have. Choose merge or rebase to pull the latest commits. Your commits remain local; no force push is needed.`
+      : `Push rejected: ${source} contains newer commits you have not pulled. Your commits remain local. Pull the latest commits before pushing again; choose merge or rebase if the histories have diverged.`;
+  }
+}
+
 class GitCancelled extends Error {
   constructor(readonly operationId: string) {
     super("The Git operation was cancelled.");
@@ -164,6 +180,7 @@ class GitPreservedWork extends Error {
   constructor(
     readonly operation: string,
     message: string,
+    readonly remoteSync?: PluginSourceControlRemoteSyncRecovery,
   ) {
     super(message);
   }
@@ -439,18 +456,22 @@ export class GitRepositoryController {
    */
   async syncRemoteAccess(): Promise<void> {
     const generation = this.generation;
-    const authMode = await this.authMode();
+    const settings = readGitSettings(await this.options.readSettings());
     if (generation !== this.generation) {
       return;
     }
+    this.applyRemoteSettings(settings);
+  }
+
+  private applyRemoteSettings(settings: GitPluginSettings): void {
+    const { authMode, pullStrategy } = settings;
     const remoteAccess = this.remoteAccess;
-    if (remoteAccess.authMode === authMode) {
-      return;
-    }
+    if (remoteAccess.authMode === authMode && remoteAccess.pullStrategy === pullStrategy) return;
     this.publish(
       withRemoteAccess(this.current, {
         ...remoteAccess,
         authMode,
+        pullStrategy,
         githubAvailable: authMode === "github-https",
         // A listing was made under the previous mode, so it is dropped rather
         // than offered as if it still applied.
@@ -810,12 +831,15 @@ export class GitRepositoryController {
         );
         return;
       case "pull":
+        if (this.refusesForUnsavedConflict("pull remote changes")) return;
         await this.withOperation(git, (capability, generation) =>
           this.pull(
             capability,
             generation,
             text(action, "remote"),
             text(action, "branch"),
+            text(action, "strategy"),
+            text(action, "from"),
           ),
         );
         return;
@@ -1352,7 +1376,7 @@ export class GitRepositoryController {
         conflictDetail: this.conflict ? detailOf(this.conflict, false) : null,
         operationProgress,
         operationPlan,
-        recovery: interruptedOperation(operationState, operationProgress),
+        recovery: this.refreshedRecovery(operationState, operationProgress, report.branch),
         remoteAccess: this.remoteAccess,
         pendingBranchSwitch: this.pendingSwitch
           ? this.current.pendingBranchSwitch
@@ -1409,7 +1433,7 @@ export class GitRepositoryController {
         conflictDetail: this.conflict ? detailOf(this.conflict, false) : null,
         operationProgress,
         operationPlan,
-        recovery: interruptedOperation(operationState, operationProgress),
+        recovery: this.refreshedRecovery(operationState, operationProgress, report.branch),
         remoteAccess: this.remoteAccess,
         pendingBranchSwitch: this.pendingSwitch
           ? this.current.pendingBranchSwitch
@@ -1754,9 +1778,7 @@ export class GitRepositoryController {
       );
     }
     const settings = readGitSettings(await this.options.readSettings());
-    let committed = false;
-    try {
-      await this.perform(git, generation, "Committing staged changes", {
+    await this.perform(git, generation, "Committing staged changes", {
         operation: "commit",
         scope: this.scope.kind,
         message: trimmed,
@@ -1766,22 +1788,26 @@ export class GitRepositoryController {
               authorEmail: settings.identity.authorEmail,
             }
           : {}),
-      });
-      committed = true;
-      await this.perform(git, generation, `Pushing ${target} to ${name}`, {
-        operation: "push",
-        scope: this.scope.kind,
-        remote: name,
-        branch: target,
-        setUpstream: this.current.repository.upstream === null,
-        mode: "normal",
-        authMode: settings.authMode,
-      });
-    } finally {
-      if (committed && generation === this.generation) {
+    });
+    try {
+      await this.performPush(git, generation, name, target, settings);
+    } catch (error) {
+      if (generation !== this.generation || error instanceof StaleScope) throw error;
+      let refreshDetail = "";
+      try {
         await this.refresh(git, generation);
+      } catch (refreshError) {
+        if (generation !== this.generation || refreshError instanceof StaleScope) throw refreshError;
+        refreshDetail = ` The repository refresh also failed: ${describe(refreshError)} Refresh to read the current state.`;
       }
+      const reason = error instanceof GitRemoteSyncFailure ? error.message
+        : error instanceof GitFailure ? `${error.message} ${error.detail}`.trim() : describe(error);
+      throw new GitPreservedWork("commit-and-push",
+        `The commit was created and remains safely recorded locally, but the push did not complete. ${reason}${refreshDetail}`,
+        error instanceof GitRemoteSyncFailure ? error.remoteSync : undefined);
     }
+    this.publish(withRecovery(this.current, { state: "idle" }));
+    await this.refresh(git, generation);
     this.reviewed(
       "Commit and push",
       "succeeded",
@@ -3267,23 +3293,55 @@ export class GitRepositoryController {
     generation: number,
     remote: string,
     branch: string,
+    chosenStrategy = "",
+    expectedBranch = "",
   ): Promise<void> {
     const name = requireRemote(remote);
     const target = requireBranch(branch);
     const settings = readGitSettings(await this.options.readSettings());
+    const strategy = pullStrategy(chosenStrategy, settings.pullStrategy);
+    if (generation !== this.generation) throw new StaleScope();
+    this.applyRemoteSettings(settings);
+    this.requireNoOperationInProgress();
     this.publish(withReview(this.current, null));
-    const before = await this.readHead(git, generation);
-    await this.perform(git, generation, `Pulling ${target} from ${name}`, {
+    const before = await this.readHead(git, generation, expectedBranch);
+    const result = await this.perform(git, generation, `Pulling ${target} from ${name}`, {
       operation: "pull",
       scope: this.scope.kind,
       remote: name,
       branch: target,
-      strategy: settings.pullStrategy,
+      strategy,
       authMode: settings.authMode,
-    });
+    }, true);
     // A pull moves the branch, and can rewrite the worktree, so a review
     // prepared before it no longer describes what an operation would change.
     this.discardPreparedOperation();
+    this.openDiff = null;
+    this.leaveConflict();
+    if (result.exitCode !== 0) {
+      try {
+        await this.refresh(git, generation);
+      } catch (refreshError) {
+        if (generation !== this.generation || refreshError instanceof StaleScope) throw refreshError;
+        throw new GitFailure("pull", result.exitCode,
+          `${remoteFailureDetail(result)} The repository state could not be refreshed: ${describe(refreshError)} Refresh to inspect any interrupted merge or rebase before retrying.`);
+      }
+      if (this.current.conflicts.length > 0 || this.current.operationProgress) {
+        this.publish(withSelection(this.current, { tab: "changes", view: { kind: "repository" } }));
+        this.reviewed("Pull", "failed", stoppedSummary(
+          this.current.operationProgress?.operation ?? (strategy === "rebase" ? "rebase" : "merge"),
+          `${name}/${target}`, this.current.conflicts.length), remoteFailureDetail(result));
+        return;
+      }
+      const reason = remoteSyncReason("pull", result);
+      if (reason) throw new GitRemoteSyncFailure("pull", result, {
+        reason, remote: name, branch: target,
+        localBranch: this.current.repository.branch ?? (expectedBranch || target),
+        pullStrategy: settings.pullStrategy,
+      });
+      throw new GitFailure("pull", result.exitCode, remoteFailureDetail(result));
+    }
+    this.publish(withRecovery(this.current, { state: "idle" }));
     let review: PluginSourceControlOperationReview = {
       operation: "Pull",
       outcome: "succeeded",
@@ -3345,6 +3403,7 @@ export class GitRepositoryController {
   private async readHead(
     git: PluginGitCapability,
     generation: number,
+    expectedBranch = "",
   ): Promise<string | null> {
     const result = await this.perform(
       git,
@@ -3352,7 +3411,11 @@ export class GitRepositoryController {
       "Reading the current commit",
       { operation: "status", scope: this.scope.kind },
     );
-    const head = parseStatus(result.stdout).head;
+    const status = parseStatus(result.stdout);
+    if (expectedBranch && status.branch !== expectedBranch) {
+      throw new GitRefused(`The branch changed since this recovery was shown. Switch to ${expectedBranch}, or refresh and review the current branch before pulling.`);
+    }
+    const head = status.head;
     if (head === undefined) {
       throw new GitRefused(
         "Git did not identify the current commit. Refresh the repository before pulling.",
@@ -3373,21 +3436,40 @@ export class GitRepositoryController {
   ): Promise<void> {
     const name = requireRemote(remote);
     const target = requireBranch(branch);
-    const authMode = await this.authMode();
+    const settings = readGitSettings(await this.options.readSettings());
+    if (generation !== this.generation) throw new StaleScope();
+    this.applyRemoteSettings(settings);
+    await this.performPush(git, generation, name, target, settings);
+    this.publish(withRecovery(this.current, { state: "idle" }));
+    await this.refresh(git, generation);
+    this.reviewed("Push", "succeeded", `Pushed ${target} to ${name}.`);
+  }
+
+  private async performPush(
+    git: PluginGitCapability,
+    generation: number,
+    name: string,
+    target: string,
+    settings: GitPluginSettings,
+  ): Promise<void> {
     // A branch with no upstream records one on its first push, so the next
     // fetch reports ahead and behind counts instead of nothing.
     const setUpstream = this.current.repository.upstream === null;
-    await this.perform(git, generation, `Pushing ${target} to ${name}`, {
+    const result = await this.perform(git, generation, `Pushing ${target} to ${name}`, {
       operation: "push",
       scope: this.scope.kind,
       remote: name,
       branch: target,
       setUpstream,
       mode: "normal",
-      authMode,
+      authMode: settings.authMode,
+    }, true);
+    if (result.exitCode === 0) return;
+    const reason = remoteSyncReason("push", result);
+    if (reason) throw new GitRemoteSyncFailure("push", result, {
+      reason, remote: name, branch: target, localBranch: target, pullStrategy: settings.pullStrategy,
     });
-    await this.refresh(git, generation);
-    this.reviewed("Push", "succeeded", `Pushed ${target} to ${name}.`);
+    throw new GitFailure("push", result.exitCode, remoteFailureDetail(result));
   }
 
   private async writeRemote(
@@ -3718,8 +3800,19 @@ export class GitRepositoryController {
           message: error.message,
           retryActionId: "refresh",
           dismissActionId: "dismiss",
+          ...(error.remoteSync ? { remoteSync: error.remoteSync } : {}),
         }),
       );
+      return;
+    }
+    if (error instanceof GitRemoteSyncFailure) {
+      this.options.report("Git requires remote changes to be integrated before pushing.", {
+        operation: error.operation, exitCode: error.exitCode,
+      });
+      this.publish(withRecovery(this.stable, {
+        state: "failed", operationId: `${error.operation}-failure`,
+        message: error.message, remoteSync: error.remoteSync, dismissActionId: "dismiss",
+      }));
       return;
     }
     if (error instanceof GitFailure) {
@@ -3815,6 +3908,24 @@ export class GitRepositoryController {
       ),
     });
   }
+
+  private refreshedRecovery(
+    state: GitOperationState | null,
+    progress: PluginSourceControlOperationProgress | null,
+    branch: string | null,
+  ): PluginSourceControlViewModel["recovery"] {
+    if (progress) return { state: "idle" };
+    const recovery = interruptedOperation(state, progress);
+    if (recovery.state !== "idle") return recovery;
+    const previous = this.current.recovery;
+    return previous.state === "failed" && previous.remoteSync?.localBranch === branch ? previous : recovery;
+  }
+}
+
+function pullStrategy(value: string, fallback: GitPullStrategy): GitPullStrategy {
+  if (!value) return fallback;
+  if (value === "merge" || value === "rebase" || value === "fast-forward-only") return value;
+  throw new GitRefused("Choose Merge, Rebase, or Fast-forward only before pulling.");
 }
 
 /**

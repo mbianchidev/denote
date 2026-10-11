@@ -122,6 +122,13 @@ cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
 cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
 ```
 
+Git 0.10.0 targets Denote 0.9.0. `plugins/git/tests/sync.test.ts` covers
+porcelain rejections, preference-aware recovery, stale branch guards and failed
+pull conflict state. Native synthetic-origin tests cover rejected automatic
+pushes and both real merge/rebase conflict resolution through the production
+typed transport. Every origin, note, commit and identity is invented; local
+transport remains test-only.
+
 Clone tests use local synthetic bare repositories. Folder selection alone must
 leave the directory empty; only the host-bound explicit clone may populate it.
 Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
@@ -307,6 +314,16 @@ Never replace a released version's bytes or provenance; its ledger entry
 remains tied to the original source commit.
 
 ### Prepare an immutable plugin version
+
+The 0.9.0 candidate introduces the code-intelligence and Git remote-recovery
+host contracts; those new packages require 0.9.0, not older released hosts.
+Security overrides pin KaTeX 0.18.2 for
+[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
+source-map-js 1.2.2 for
+[GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
+Mermaid 0.2.4 receives a separate immutable pin for the patched math dependency
+and its included license; previous Mermaid versions and recipes remain untouched.
+Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
 
 Build and stage one independently downloadable plugin artifact with:
 
@@ -708,6 +725,44 @@ source commit with
 `npm run pin:plugin -- denote.reminders --ref "$(git rev-parse HEAD)"
 --release <Denote-tag>`, then commit only the generated catalog and
 `plugins/reminders/releases.json` metadata. Never commit the `.tgz`.
+
+### Code intelligence plugin development
+
+Use `npm run dev:plugin -- denote.code-intelligence` and the isolated development
+app's local archive picker. The package requests `code-intelligence`,
+`project-context`, and `sidebar`. It contains adapter metadata/protocol handling,
+not UI or native process implementations. Install tools yourself and explicitly
+approve them in the host; tests use synthetic Node protocol servers and never
+run a developer's real language/debug configuration.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/codeIntelligence.test.ts \
+  plugins/code-intelligence/tests \
+  src/plugins/codeHost.test.ts src/plugins/codeIntelligence.test.ts \
+  src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
+  src/plugins/hostOperations.test.ts src/plugins/usePlugins.test.tsx \
+  src/lib/codeTools.test.ts src/lib/codeEditor.test.tsx src/lib/tabs.test.ts \
+  src/components/CodeToolPanel.test.tsx src/components/PluginGuide.test.tsx \
+  src/components/PlainTextEditor.test.tsx src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml plugins::code_
+cargo test --manifest-path src-tauri/Cargo.toml plugin_v4_preserves
+```
+
+The native tests require the existing Node development prerequisite. Cover
+byte-count framing, headers/JSON bounds, response IDs, cancellation, source
+versions, folder markers/core project precedence, virtual URI/path translation,
+foreign plugin/vault/project/language rejection, executable reapproval, process
+groups and loopback teardown, DAP launch/configuration ordering, empty control
+responses, optional capabilities, suspended reference lifetimes, synthetic
+source edits, keyboard navigation and formatting, encrypted refusal and shutdown.
+
+The frozen `plugins-v4` Welcome inventory adds only the code intelligence
+exercise; previous markers/inventories and deleted examples stay untouched.
+Stage the package, commit all source/SDK/build/lock inputs, then pin its full
+source commit for the intended Denote release and commit the generated catalog
+and `plugins/code-intelligence/releases.json` separately. No tool executable or
+plugin archive belongs in Git or a desktop installer.
 
 ## Frontend bundle limits
 

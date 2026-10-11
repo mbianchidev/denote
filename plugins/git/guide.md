@@ -139,6 +139,26 @@ remote, history, and diff data are retained unless that action could change
 them. When an operation fails, the last known good state stays on screen and the
 failure is reported with Git's own message.
 
+Git 0.10.0 requires Denote 0.9.0. A push rejected with **fetch first** or
+**non-fast-forward** shows **Remote has newer commits** above the section tabs,
+naming the exact remote branch and explaining that your commits remain local.
+If **Commit and push** created the commit before rejection, that successful
+local commit stays distinct from the failed push. Authentication, network, and
+protected-branch failures are not described as a missing pull.
+
+The recovery form starts with your saved **Pull strategy**. Choose **Pull with
+merge** to keep both histories, or **Pull with rebase** to replay local commits
+on top of the remote branch. A fast-forward-only pull that finds divergent
+histories asks you to choose merge or rebase; it never changes strategies on its
+own. The selection applies only to that pull, not your saved setting. Rebase
+confirmation explicitly warns that local commit identities change.
+
+Recovery pulls verify that you are still on the branch the error named.
+Successful integration clears the error; Refresh alone keeps the recovery
+available. Nothing automatically fetches, pulls, retries a push, or force-pushes.
+An automatic push rejection likewise tells you to open Git, pull the missing
+remote commits, resolve conflicts there, and push explicitly.
+
 A pull report compares the commits immediately before and after the pull, for
 fast-forward, merge, and rebase strategies alike. It excludes unrelated dirty
 worktree edits and lists up to 5,000 files without loading their patches. The
@@ -390,6 +410,12 @@ now is.
 
 Denote reads the repository's own state, so an operation that stopped is still
 there after a restart, a refresh, or a crash. Nothing resumes on its own.
+
+A pull that stops in a merge or rebase rereads that state immediately and opens
+Changes rather than leaving the pre-pull model on screen. **Resolve:** buttons
+on the operation's file list open the existing three-way conflict editor,
+including while another section is selected. Resolve and mark each file,
+then Continue; Abort remains available if you want to undo the integration.
 
 The view shows the operation Git reports and only the controls that are valid
 for it:

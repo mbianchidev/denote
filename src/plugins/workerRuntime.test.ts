@@ -36,6 +36,9 @@ vi.mock("../lib/api", () => ({
     pluginGithubListRepositories: vi.fn(),
     pluginGitCloneVault: vi.fn(),
     pluginGitCleanFailedClone: vi.fn(),
+    startCodeSession: vi.fn(),
+    codeProtocol: vi.fn(),
+    stopCodeSessions: vi.fn(async () => {}),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -784,6 +787,121 @@ function pluginWithGitAndProjectContext(): PluginView {
 }
 
 describe("PluginWorkerRuntime", () => {
+  it("bounds cancelled code handlers and stops a provider that ignores cancellation", async () => {
+    vi.mocked(api.codeProtocol).mockResolvedValue(null);
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    await bridgeRealPluginWorker();
+    const source = { ...plugin(), approvedPermissions: [...plugin().approvedPermissions, { capability: "code-intelligence" as const }] };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          context.subscriptions.add(context.capabilities.codeIntelligence.register({
+            id: "denote.reference.code", title: "Synthetic code",
+            languages: [{id: "rust", title: "Rust", server: "Synthetic", debugger: "Synthetic", setup: "Choose a tool."}],
+            run() { return new Promise(() => {}); },
+          }));
+        },
+      };
+    `);
+    const errors = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), errors);
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(source);
+    vi.useFakeTimers();
+    const request = { operation: "poll" as const, language: "rust" as const, scope: { projectId: null, rootPath: "" } };
+    try {
+      for (let index = 0; index < 64; index += 1) {
+        const controller = new AbortController();
+        const pending = runtime.runCodeRequest("denote.reference", "denote.reference.code", request, VAULT_ALPHA, controller.signal);
+        const cancelled = expect(pending).rejects.toThrow(/cancelled/i);
+        controller.abort();
+        await cancelled;
+      }
+      const controller = new AbortController();
+      const excess = runtime.runCodeRequest("denote.reference", "denote.reference.code", request, VAULT_ALPHA, controller.signal);
+      const refused = expect(excess).rejects.toThrow(/request limit/i);
+      controller.abort();
+      await refused;
+      expect(runtime.isRunning("denote.reference")).toBe(true);
+      await vi.advanceTimersByTimeAsync(5001);
+      expect(runtime.isRunning("denote.reference")).toBe(false);
+      expect(errors).toHaveBeenCalledWith("denote.reference", expect.objectContaining({
+        message: expect.stringMatching(/did not settle.*cancellation/i),
+      }));
+      expect(api.stopCodeSessions).toHaveBeenCalledWith("denote.reference");
+      expect(BridgedWorker.instances[0].terminated).toBe(true);
+    } finally {
+      await runtime.forceStop("denote.reference");
+      vi.useRealTimers();
+    }
+  });
+
+  it("binds real code-worker actions, cancellation and teardown without granting ambient native execution", async () => {
+    vi.stubGlobal("crypto", { randomUUID: vi.fn(sequentialUuids()) });
+    await bridgeRealPluginWorker();
+    const source = { ...plugin(), approvedPermissions: [...plugin().approvedPermissions, { capability: "code-intelligence" as const }] };
+    const registration = {
+      id: "denote.reference.code", title: "Code",
+      languages: [{ id: "rust", title: "Rust", server: "Synthetic", debugger: "Synthetic", setup: "Choose an installed tool." }],
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      let session;
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          context.subscriptions.add(context.capabilities.codeIntelligence.register({
+            ...${JSON.stringify(registration)},
+            async run(request, action) {
+              if (request.operation === "start") {
+                session = await action.transport.start("lsp");
+                return {status: "Ready", capabilities: ["hover"]};
+              }
+              if (request.operation === "poll") {
+                await new Promise((resolve, reject) => action.signal.addEventListener("abort", () => reject(Error("cancelled")), {once:true}));
+              }
+              const response = await action.transport.request(session.sessionId, "textDocument/hover", {});
+              return {status: "Ready", hover: response.contents};
+            },
+          }));
+        },
+      };
+    `);
+    vi.mocked(api.startCodeSession).mockResolvedValue({ sessionId: "session-example", rootPath: "sample" });
+    vi.mocked(api.codeProtocol).mockResolvedValue({ contents: "Synthetic hover" });
+    const changed = vi.fn(), errors = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), errors, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, changed);
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(source);
+    expect(changed).toHaveBeenLastCalledWith([{ pluginId: "denote.reference", ...registration }]);
+    const request = {
+      operation: "start" as const, language: "rust" as const,
+      scope: { projectId: "project-example", rootPath: "sample" },
+      document: { path: "sample/main.rs", language: "rust" as const, version: 1, text: "fn main() {}\n" },
+    };
+    await runtime.runCodeRequest("denote.reference", registration.id, request, VAULT_ALPHA);
+    expect(api.startCodeSession).toHaveBeenCalledWith("denote.reference", {
+      workspaceScope: VAULT_ALPHA, projectId: "project-example", documentPath: "sample/main.rs", language: "rust",
+    }, "lsp");
+    expect((await runtime.runCodeRequest("denote.reference", registration.id, { ...request, operation: "hover", position: { line: 0, character: 3 } }, VAULT_ALPHA)).hover)
+      .toBe("Synthetic hover");
+    expect(api.codeProtocol).toHaveBeenCalledWith("denote.reference", expect.objectContaining({
+      operation: "request", scope: request.scope, language: "rust", workspaceScope: VAULT_ALPHA,
+    }));
+    const controller = new AbortController();
+    const pending = runtime.runCodeRequest("denote.reference", registration.id, { ...request, operation: "poll" }, VAULT_ALPHA, controller.signal);
+    const rejection = expect(pending).rejects.toThrow(/cancelled/i);
+    controller.abort();
+    await rejection;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(errors).not.toHaveBeenCalled();
+    expect(runtime.isRunning("denote.reference")).toBe(true);
+    await runtime.stop("denote.reference");
+    expect(api.stopCodeSessions).toHaveBeenCalledWith("denote.reference");
+    expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     FakeWorker.instances = [];

@@ -525,6 +525,15 @@ subcommand. Command-line configuration outranks every configuration file, so a
 repository cannot replace the identity a user configured, and a request that
 omits both leaves the repository-local identity untouched.
 
+Git push porcelain status distinguishes missing remote commits from
+authentication, network and remote-policy failures. Recoverable rejections
+carry exact remote/branch targets and the saved merge/rebase/fast-forward
+preference as typed recovery data. The host's one-pull override stays separate
+from persisted settings and confirms rebase risk. Pull flags override local
+repository defaults, and a failed pull refreshes conflicts and sequencer state
+before publishing its outcome. Successful local commits remain distinct from
+failed pushes; no remote recovery or force push starts automatically.
+
 Conflict resolution is gated on the index. Before either a stage or a content
 resolution touches the worktree, the transport requires that exact path to have
 unmerged index entries, so an ordinary tracked file, an untracked file, or a
@@ -895,8 +904,53 @@ scope and active project identity. Changing project identity invalidates
 outstanding leases. Existing
 bounded process execution resolves the captured ID through native SQLite,
 revalidates that it still belongs to the active vault and names a safe available
-directory, and uses that directory as `cwd`. Persistent terminal sessions and
-language-server protocols are not part of this API.
+directory, and uses that directory as `cwd`. Persistent terminal sessions are
+not part of this bounded process API. The separate additive `code-intelligence`
+surface owns standing LSP/DAP sessions.
+
+### Code intelligence
+
+`plugins/code-intelligence/` owns language/DAP adaptation in its isolated worker.
+The SDK defines typed, bounded requests/results shared by all approved code
+providers. The host owns CodeMirror completion, safe Markdown hover, signature
+help, diagnostics, explicit version-checked formatting, searchable navigation,
+and accessible debugger controls. No package implementation is imported by the
+core. The sidebar is lazy; disabled plugins cannot start a native session.
+
+`src-tauri/src/plugins/code_commands.rs` owns user approval and per-vault,
+stable-project-or-detected-root configuration. Each language's server and
+debugger are independently disabled until approved. Native executable hashes,
+arguments, initialization options, and launch/attach configurations are never
+sent to plugin workers. Starting requires a matching explicit host action.
+`code_intelligence.rs` owns framing, ID correlation, bounded queues, cancellation,
+process groups and optional host-allocated loopback TCP. DAP terminal/child
+launch reverse requests and unsolicited LSP workspace edits are rejected.
+Installed tools still run with ordinary OS filesystem/network privileges, so
+trusted tools and projects are an explicit approval boundary, not a sandbox.
+
+Workers use virtual vault-relative URIs; the native bridge translates only
+protocol path fields and independently checks plugin/vault/project/language
+binding. It rejects traversal, metadata, links and reparse points. Files outside
+the vault cannot be opened; external debug frames keep names without locations.
+Encrypted vaults refuse all native code sessions, including while unlocked:
+neither ciphertext is treated as source nor plaintext materialized for tooling.
+
+Host/worker source versions and cancellation signals reject responses after
+edits, tab close/replacement, project/vault changes and teardown. Versionless
+push diagnostics are conservatively discarded after edits. Process exits clear
+derived state and expose recovery without taking down Denote or the independent
+language/debugger session. Native teardown precedes awaiting worker requests.
+Limits and SDK methods are documented in `docs/plugins.md`.
+
+Source navigation stores zero-based UTF-16 cursor positions alongside each
+tab's transient path history, including same-file jumps and already-open targets
+in other panes. Core file-open/save barriers and project resolution remain
+authoritative; histories rekey on moves and remove trashed paths. Positional
+histories retain at most 500 entries and are not persisted in vault content.
+The live cursor cache drops closed tabs and clears on vault changes; each editor
+initializes its cursor on mount. Current-version successful autosaves and manual
+saves send didSave without blocking the core save or misreporting a tooling
+notification failure as lost source.
 
 API version 1 intentionally excludes arbitrary host-DOM renderers, embedded
 plugin UI, menu injection, and general import/export hooks. Editor actions use command

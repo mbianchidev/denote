@@ -318,6 +318,7 @@ impl PluginManager {
         let _operation = self.begin_operation(plugin_id)?;
         self.catalog_entry(plugin_id)?;
         self.cancel_git_operations(plugin_id);
+        self.inner.code_sessions.stop_plugin(Some(plugin_id))?;
         self.remove_package(plugin_id)?;
         if clear_credentials {
             self.clear_credentials(plugin_id)?;
@@ -334,6 +335,9 @@ impl PluginManager {
                 state.settings.remove(plugin_id);
                 state.settings_versions.remove(plugin_id);
                 state.storage.remove(plugin_id);
+                state
+                    .code_tool_configurations
+                    .retain(|key, _| !key.starts_with(&format!("{plugin_id}:")));
             }
             Ok(())
         })
