@@ -9,5 +9,16 @@
       "sha256": "59c27004090efe114ee54b6873d8a2afb7275c7e689f8be13cd28b672aca91eb",
       "sizeBytes": 27197
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "d250ffbbb50c925a55e8464a2c92142418c541c2",
+    "kind": "source",
+    "sourcePath": "plugins/code-intelligence",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.code-intelligence-0.1.1.tgz",
+      "sha256": "70c24c31eda02be5250bb8310a0f8a683648fb8c2891d827e1938fb8eac9f66a",
+      "sizeBytes": 27309
+    }
   }
 ]

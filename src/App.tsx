@@ -3843,8 +3843,8 @@ function App() {
       await editQueues.current.get(path);
       for (let attempt = 0; attempt < 5; attempt += 1) {
         const pending = saveQueues.current.get(path);
-        if (pending) {
-          await pending;
+        if (pending && !(await pending)) {
+          return false;
         }
         const tab = tabsRef.current.find((candidate) => candidate.path === path);
         if (!tab || tab.content === tab.savedContent) {
