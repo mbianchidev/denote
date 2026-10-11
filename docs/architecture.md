@@ -1886,6 +1886,24 @@ heading analysis share one parsed tree inside that worker.
 
 Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
+The upstream Source view publishes both text changes and lifecycle/selection
+updates, including normalized Rich exports during a mode switch. Denote accepts
+Source callbacks only after a real CodeMirror document transaction, not its own
+non-history source synchronization. Unchanged output does not call
+`changeTabContent`. Opening, focusing, and view switches therefore cannot dirty
+a note or start autosave just because Rich serialization drops whitespace.
+The leading/trailing-whitespace snapshot refreshes after explicit Source edits,
+so a later Rich edit cannot resurrect deliberately deleted spaces or blank lines.
+
+The standard Markdown serialization extension adjusts only the directive-colon
+and character-reference safety rules through MDXEditor's supported export API.
+Directive syntax is not recognized in URI destinations or the `mailto:` scheme.
+An ampersand is escaped only when the following text can form a character
+reference, not for an ordinary `&cc=` query separator. The ordinary
+`mdast-util-to-markdown` root handler still serializes the tree; code, required
+escapes, reference nodes, callouts, and source-only fallbacks retain their
+existing boundaries.
+
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
 The Rich editor handles Command/Control-Shift-V before WebKit's default paste,

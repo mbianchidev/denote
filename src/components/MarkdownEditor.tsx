@@ -3,6 +3,7 @@ import {
   $isDirectiveNode,
   AdmonitionDirectiveDescriptor,
   addImportVisitor$,
+  addToMarkdownExtension$,
   BlockTypeSelect,
   BoldItalicUnderlineToggles,
   ChangeAdmonitionType,
@@ -54,6 +55,7 @@ import {
 } from "lexical";
 import { Link2 } from "lucide-react";
 import type { Html, Paragraph, Parent } from "mdast";
+import { defaultHandlers, type Unsafe } from "mdast-util-to-markdown";
 import {
   forwardRef,
   useCallback,
@@ -290,6 +292,47 @@ const standardMarkdownCompatibilityPlugin = realmPlugin({
       detailsSummaryParagraphVisitor,
       standardMarkdownHtmlVisitor,
     ]);
+    realm.pub(
+      addToMarkdownExtension$,
+      {
+        handlers: {
+          root(node, parent, state, info) {
+            state.unsafe = state.unsafe.map((rule): Unsafe => {
+              // A directive colon is not syntax inside a URI destination or mailto scheme.
+              if (
+                rule.character === ":" &&
+                rule.before === "[^:]" &&
+                rule.after === "[A-Za-z]"
+              ) {
+                return {
+                  character: ":",
+                  before: "[^:](?<!\\b[Mm][Aa][Ii][Ll][Tt][Oo])",
+                  after: rule.after,
+                  inConstruct: rule.inConstruct,
+                  notInConstruct: [
+                    ...(Array.isArray(rule.notInConstruct)
+                      ? rule.notInConstruct
+                      : rule.notInConstruct ? [rule.notInConstruct] : []),
+                    "destinationRaw",
+                    "destinationLiteral",
+                    "autolink",
+                  ],
+                };
+              }
+              if (rule.character === "&" && rule.after === "[#A-Za-z]") {
+                return {
+                  character: "&",
+                  after: "(?:#[0-9]{1,7}|#[xX][0-9A-Fa-f]{1,6}|[A-Za-z][A-Za-z0-9]{1,31});",
+                  inConstruct: rule.inConstruct,
+                };
+              }
+              return rule;
+            });
+            return defaultHandlers.root(node, parent, state, info);
+          },
+        },
+      },
+    );
   },
 });
 
@@ -399,6 +442,8 @@ export const MarkdownEditor = forwardRef<
   const [sourceLineBreak] = useState(() => markdown.includes("\r\n") ? "\r\n" : markdown.includes("\r") ? "\r" : "\n");
   emojiSourceRef.current = markdown;
   const [emojiSerialization] = useState(() => new EmojiSourceHistory());
+  const sourceChangePendingRef = useRef(false);
+  const synchronizingSourceRef = useRef(false);
   const emojiCompartment = useRef(new Compartment()).current;
   const configuredEmojiSource = useRef<{ view: EditorView; binding: EmojiEditorBinding | undefined } | null>(null);
   emojiRef.current = emoji && /\.(md|markdown)$/i.test(notePath) ? {
@@ -419,7 +464,12 @@ export const MarkdownEditor = forwardRef<
     prepare: (source) => { emojiSerialization.prepare(source); },
   }) : undefined, [emoji?.host, emoji?.scope, emojiSerialization]);
   const emojiSourceExtensions = useMemo(() => [
-    createEmojiSourceHistoryExtension((history) => emojiSerialization.beforeChange(history)),
+    createEmojiSourceHistoryExtension((history) => {
+      if (!synchronizingSourceRef.current) {
+        sourceChangePendingRef.current = true;
+        emojiSerialization.beforeChange(history);
+      }
+    }),
     emojiCompartment.of(emojiRef.current ? createEmojiSourceExtension(() => emojiRef.current) : []),
   ], [emojiCompartment, emojiSerialization]);
   const initialPreferredViewMode = useRef(preferredViewMode).current;
@@ -535,7 +585,12 @@ export const MarkdownEditor = forwardRef<
     () => createPluginDecorationExtensions(pluginDecorations),
     [pluginDecorations],
   );
-  const [boundaryWhitespace] = useState(() => captureMarkdownBoundaryWhitespace(markdown));
+  const boundaryWhitespaceRef = useRef<
+    ReturnType<typeof captureMarkdownBoundaryWhitespace> | null
+  >(null);
+  if (boundaryWhitespaceRef.current === null) {
+    boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(markdown);
+  }
   const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(
     null,
   );
@@ -653,6 +708,7 @@ export const MarkdownEditor = forwardRef<
         onChange: (mode) => callbacksRef.current.onViewModeChange(mode),
         onErrorCleared: () => callbacksRef.current.onMarkdownErrorCleared?.(),
         onModeChange: (mode) => {
+          sourceChangePendingRef.current = false;
           activeViewModeRef.current = mode;
           setActiveViewMode(mode);
           if (mode === "source" && searchForcedSourceRef.current) {
@@ -820,11 +876,16 @@ export const MarkdownEditor = forwardRef<
       }
       if (view.state.doc.toString() !== source.replace(/\r\n?/g, "\n")) {
         const anchor = Math.min(view.state.selection.main.head, source.length);
-        view.dispatch({
-          changes: { from: 0, to: view.state.doc.length, insert: source },
-          selection: { anchor },
-          annotations: Transaction.addToHistory.of(false),
-        });
+        synchronizingSourceRef.current = true;
+        try {
+          view.dispatch({
+            changes: { from: 0, to: view.state.doc.length, insert: source },
+            selection: { anchor },
+            annotations: Transaction.addToHistory.of(false),
+          });
+        } finally {
+          synchronizingSourceRef.current = false;
+        }
       }
     };
     timer = window.setTimeout(sync, 0);
@@ -1027,6 +1088,11 @@ export const MarkdownEditor = forwardRef<
               const serialization = emojiSerialization;
               if (initialNormalize) serialization.record(value, emojiSourceRef.current);
               if (!initialNormalize) {
+                if (activeViewModeRef.current === "source") {
+                  // The upstream source view also publishes lifecycle and selection updates.
+                  if (!sourceChangePendingRef.current) return;
+                  sourceChangePendingRef.current = false;
+                }
                 const parse = createMarkdownParser();
                 const exactSource = serialization.restore(value);
                 if (exactSource !== undefined) {
@@ -1035,9 +1101,14 @@ export const MarkdownEditor = forwardRef<
                     : exactSource;
                   tocMarkersRef.current = captureTocMarkers(output, parse);
                   thematicBreaksRef.current = captureThematicBreaks(output, parse);
+                  if (activeViewModeRef.current === "source") {
+                    boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
+                  }
                   serialization.record(value, output);
-                  emojiSourceRef.current = output;
-                  onChange(output);
+                  if (output !== emojiSourceRef.current) {
+                    emojiSourceRef.current = output;
+                    onChange(output);
+                  }
                   return;
                 }
                 let restoredMarkdown = restoreRichTextTagSyntax(
@@ -1071,12 +1142,17 @@ export const MarkdownEditor = forwardRef<
                   captureThematicBreaks(markerUpdate.markdown, parse);
                 let output = activeViewModeRef.current === "source" ? markerUpdate.markdown : restoreMarkdownBoundaryWhitespace(
                     markerUpdate.markdown,
-                    boundaryWhitespace,
+                    boundaryWhitespaceRef.current!,
                   );
                 if (sourceLineBreak !== "\n" && activeViewModeRef.current === "source") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
+                if (activeViewModeRef.current === "source") {
+                  boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
+                }
                 serialization.record(value, output);
-                emojiSourceRef.current = output;
-                onChange(output);
+                if (output !== emojiSourceRef.current) {
+                  emojiSourceRef.current = output;
+                  onChange(output);
+                }
               }
             }}
             onError={({ error, source }) => {

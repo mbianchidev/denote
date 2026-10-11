@@ -102,6 +102,11 @@ npx vitest run \
 
 These checks enforce parser-call budgets and streaming word segmentation rather
 than hardware-dependent wall-clock thresholds. No optional plugin is required.
+Markdown coverage also checks that opening, focus, and Rich/Source switches do
+not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF,
+and CR input. Explicit Source whitespace removal must survive later Rich edits.
+Keep `mailto:` destinations and query separators unescaped while preserving
+required directive/entity escapes and literal backslashes in code.
 
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:

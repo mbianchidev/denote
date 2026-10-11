@@ -32,6 +32,7 @@ on your device.
 
 Your vault remains a normal folder. Denote does not require an account, cloud
 storage, telemetry, or a proprietary document format.
+Opening a note or switching editor views does not rewrite its source.
 
 ## Download
 

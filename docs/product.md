@@ -135,6 +135,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Terraform/HCL, Helm templates, and common SQL dialects.
 - Images retain their visual preview and can switch to raw editing.
 - Rich Markdown editing is the default in every pane.
+- Opening, focusing, and switching Rich/Source views do not edit or autosave
+  a note. Original trailing spaces, tabs, and blank lines stay in its source.
+  Explicit Source whitespace edits remain authoritative after returning to Rich.
+  Rich serialization does not add directive escapes to `mailto:` destinations
+  or unnecessary escapes to ordinary URI query separators; required Markdown
+  escapes and literal backslashes in code remain intact.
 - Full, collapsed, and shortcut Markdown reference links render and remain
   editable in Rich mode. Definitions stay invisible and retain their exact
   source formatting and ordering.

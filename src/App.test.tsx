@@ -1178,6 +1178,36 @@ describe("App initial file-tree expansion", () => {
     }
   });
 
+  it("does not dirty or autosave Markdown when view switches normalize its whitespace", async () => {
+    const user = userEvent.setup();
+    const source = "# Synthetic \t\n\n[Email](mailto:mock@example.test) \t\n\n \t\n";
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("synthetic.md")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "synthetic.md",
+      content: source,
+      contentHash: "synthetic-whitespace-hash",
+      encoding: "utf8",
+      lineEnding: "crlf",
+      stats: noteStats(),
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    await screen.findByRole("link", { name: "Email" });
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+
+    await waitFor(() => {
+      const sourceView = document.querySelector(".cm-sourceView .cm-content");
+      expect(sourceView?.textContent).toContain("[Email](mailto:mock@example.test)");
+    });
+    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    expect(mockApi.recordEdit).not.toHaveBeenCalled();
+    expect(mockApi.saveNote).not.toHaveBeenCalled();
+  });
+
   it("opens emoji with the host shortcut and removes surfaces when disabled", async () => {
       mockPluginController.emojiPickers = [syntheticEmojiPicker()];
       mockPluginController.plugins = [syntheticEmojiPluginView()];
