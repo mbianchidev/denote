@@ -716,6 +716,18 @@ drag handle. Forced colors retain borders, visible focus, and selected toggle
 state; reduced motion adds no special case because board operations use no
 decorative animation.
 
+Legacy boards keep the same layout with a written **Legacy Kanban board** label
+and disabled mutation controls. Details remain expandable for reading and links
+remain actionable. A single **Migrate to native** primary action opens an inline
+confirmation explaining the in-place conversion and retained original-source
+recovery block. Cancel receives focus; Escape cancels and restores the trigger.
+Confirmation restores focus to the now-editable board title and announces the
+result. Read mode disables migration.
+
+Imported completion uses a labeled native checkbox, disabled in legacy or read
+mode. Native completion edits restore focus to that checkbox. Other native cards
+retain their existing checkbox-free presentation.
+
 ### Optional calendar and daily notes
 
 Calendar is a host-rendered sidebar, not executable plugin UI. A labelled Dates

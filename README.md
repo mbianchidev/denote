@@ -25,6 +25,9 @@ on your device.
   passphrase in the operating-system credential store.
 - Browse daily, created, and last-updated calendars with the optional Calendar
   plugin. Create Markdown daily notes without overwriting existing files.
+- Read existing Obsidian Kanban boards unchanged, including escaped exports,
+  and explicitly migrate them to editable native boards with the optional
+  Kanban plugin.
 - Use persistent Light, Dark, or System appearance on macOS, Windows, and Linux.
 
 Your vault remains a normal folder. Denote does not require an account, cloud

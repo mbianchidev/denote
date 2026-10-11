@@ -490,6 +490,15 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   note links and hashtags. Reordering moves the original marked block
   byte-for-byte; unrelated content outside the board and unknown content inside
   moved cards or columns is preserved.
+- Existing Obsidian Kanban `.md` and `.markdown` files open without renaming,
+  including exports with escaped headings, checkboxes, and tab entities.
+  Legacy Board view is read-only and never rewrites the source on open.
+  **Migrate to native** requires confirmation and preserves column/card order,
+  completion, links, tags, dates, and full card text. An inert fenced recovery
+  block retains the exact original source and Obsidian settings. Display settings
+  are not imported. Migration keeps the same path, uses normal autosave and
+  revision history, rejects stale or newly read-only results, and remains within
+  the 4 MiB source limit including recovery content.
 - Kanban columns and cards can be created, renamed, edited, deleted, and
   reordered. Titles and card details enter editing when clicked, without a
   separate edit icon or focus jumping between fields. Collapsed cards show at
@@ -504,6 +513,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   owns forms, lists, focus, links, autosave, revision history, and file writes.
   Locking a vault stops the worker; disabling the plugin leaves board files
   untouched and readable in the exact Markdown source editor.
+- Imported native cards expose their completion state as a checkbox backed by
+  an optional card-marker attribute. Completion edits change only that marker.
+  Existing native cards without it remain checkbox-free. Read-only boards keep
+  full detail expansion and links available without mounting an editable form.
 - The independently installable **Mermaid diagrams** plugin is disabled by
   default and requests only `diagram-renderer`. It renders fenced `mermaid`
   blocks in Markdown Rich view while the exact fence remains available through

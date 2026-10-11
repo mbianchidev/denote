@@ -2268,6 +2268,55 @@ describe("App initial file-tree expansion", () => {
     expect(mockApi.recordEdit).not.toHaveBeenCalledWith("Release.kanban.md");
   });
 
+  it("opens legacy Kanban Markdown without renaming or saving and keeps exact source after disablement", async () => {
+    const user = userEvent.setup();
+    const source = String.raw`\---
+
+kanban-plugin: board
+
+\---
+
+\## Planned
+\- \[ ] Write a synthetic example`;
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("Example tasks.md")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "Example tasks.md",
+      content: source,
+      contentHash: "legacy-example-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockPluginController.plugins = [kanbanPluginView()];
+    mockPluginController.kanbanBoards = [kanbanBoardContribution()];
+    const rendered = render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open Example tasks.md" }),
+    );
+    expect(await screen.findByRole("region", {
+      name: "Kanban Example tasks.md",
+    })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Markdown" }));
+    expect(screen.getByLabelText("Content of Edit Example tasks.md").textContent)
+      .toBe(source);
+    await user.click(screen.getByRole("button", { name: "Board" }));
+    expect(screen.getByLabelText("Kanban source Example tasks.md").textContent)
+      .toBe(source);
+    expect(mockApi.saveNote).not.toHaveBeenCalled();
+    expect(mockApi.recordEdit).not.toHaveBeenCalled();
+
+    mockPluginController.kanbanBoards = [];
+    rendered.rerender(<App />);
+    expect(await screen.findByLabelText("Content of Edit Example tasks.md"))
+      .toHaveTextContent(String.raw`\## Planned`);
+    expect(screen.getByLabelText("Content of Edit Example tasks.md").textContent)
+      .toBe(source);
+    expect(screen.queryByRole("button", { name: "Board" })).not.toBeInTheDocument();
+  });
+
   it("creates a Kanban-suffixed Markdown file from the command palette", async () => {
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
     mockApi.createEntry.mockResolvedValue(fileNode("Sprint.kanban.md"));
@@ -4279,6 +4328,7 @@ function kanbanBoardContribution(): PluginKanbanBoardContribution {
     title: "Kanban boards",
     fileSuffixes: [".kanban.md", ".kanban.markdown"],
     defaultFileName: "Board.kanban.md",
+    sourceFormats: ["denote-kanban-v1", "obsidian-kanban"],
   };
 }
 

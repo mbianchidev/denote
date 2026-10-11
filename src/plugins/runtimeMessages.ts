@@ -9,6 +9,7 @@ import type {
   PluginKanbanBoardRequest,
   PluginKanbanEditRequest,
   PluginKanbanEditResult,
+  PluginKanbanSourceFormat,
   PluginNoteGraphIndexRequest,
   PluginNoteGraphModel,
   PluginNoteGraphQuery,
@@ -120,6 +121,7 @@ export interface PluginKanbanBoardContribution {
   title: string;
   fileSuffixes: string[];
   defaultFileName: string;
+  sourceFormats?: PluginKanbanSourceFormat[];
 }
 
 export interface PluginNoteGraphContribution {
@@ -326,6 +328,7 @@ export type PluginRuntimeMessage =
       title: string;
       fileSuffixes: string[];
       defaultFileName: string;
+      sourceFormats?: PluginKanbanSourceFormat[];
     }
   | { type: "unregister-kanban-board"; id: string }
   | {
