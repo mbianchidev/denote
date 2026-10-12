@@ -304,8 +304,13 @@ until upstream removes those pins. After dependency updates, verify both
 The root DOMPurify dependency and override pin
 [3.4.16](https://github.com/cure53/DOMPurify/releases/tag/3.4.16) to fix
 [GHSA-p98j-92pf-mc4p](https://github.com/advisories/GHSA-p98j-92pf-mc4p).
-The host sanitizer and Mermaid 0.2.3 use this patch. Earlier published plugin
-archives retain their immutable bytes and source provenance.
+The host sanitizer and Mermaid 0.2.4 use this patch. The root `katex` override
+pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
+Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
+[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
+on 0.18.x until upstream Mermaid requires a patched release; KaTeX 0.19 changes
+strict-mode behavior. Earlier published plugin archives retain their immutable
+bytes and source provenance.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
