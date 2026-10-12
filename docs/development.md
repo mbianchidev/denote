@@ -145,6 +145,12 @@ leave the directory empty; only the host-bound explicit clone may populate it.
 Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
 folders, link replacement, visible failure state, and saved-note handoff covered.
 
+The native read-only cancellation regression waits for a synthetic descendant
+to start and keeps it behind a test-owned gate until cancellation. It checks
+the descendant's process state after cleanup; a zombie has terminated even if
+the operating system has not reaped it yet. Do not replace this synchronization
+with a fixed-duration sleep or infer process cleanup only from a missing marker.
+
 The signing integration tests require Git, GnuPG (including `gpgconf`), and
 OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary
 keyrings, exercise Denote's early-exit OpenPGP/SSH helpers, verify the resulting
