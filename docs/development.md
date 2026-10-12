@@ -62,6 +62,19 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+Vitest uses isolated forks with at most two concurrent workers, leaving one CPU
+available on smaller machines. This bounds cold `jsdom` startup pressure instead
+of scaling expensive environments to every available CPU. Each file still gets
+a fresh process, DOM, and module state; test and hook deadlines and unhandled-error
+reporting remain unchanged. Do not disable isolation or ignore unhandled errors
+to make a run pass.
+
+On a heavily loaded machine, run the same suite with one worker:
+
+```bash
+VITEST_MAX_WORKERS=1 npm test
+```
+
 The App integration suite preloads the real Markdown editor and formatted-diff
 modules with module-scope imports. Keep cold module transformation in test
 collection, outside timed hooks and UI interactions. Production loading remains
