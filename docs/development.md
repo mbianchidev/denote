@@ -145,6 +145,12 @@ leave the directory empty; only the host-bound explicit clone may populate it.
 Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
 folders, link replacement, visible failure state, and saved-note handoff covered.
 
+The native read-only cancellation regression waits for a synthetic descendant
+to start and keeps it behind a test-owned gate until cancellation. It checks
+the descendant's process state after cleanup; a zombie has terminated even if
+the operating system has not reaped it yet. Do not replace this synchronization
+with a fixed-duration sleep or infer process cleanup only from a missing marker.
+
 The signing integration tests require Git, GnuPG (including `gpgconf`), and
 OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary
 keyrings, exercise Denote's early-exit OpenPGP/SSH helpers, verify the resulting
@@ -783,6 +789,13 @@ packaged Windows renderer smoke gate passes. The known-good graph retains
 `tauri-utils` 2.9.3 and its URL-pattern implementation, so five unmaintained
 `unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
 minor. No vulnerability advisory is ignored.
+
+The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
+2026-10-12:
+[RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338),
+[RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340), and
+[RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
+This networking patch preserves the existing Windows/Tauri dependency graph.
 
 Seven warning-level findings remain:
 
