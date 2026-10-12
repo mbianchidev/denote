@@ -377,9 +377,11 @@ download uses only that exact ledger URL and fails if unavailable or invalid;
 it never falls back to a current catalog URL or another source. New versions
 are deterministically built from source rather than recovered from archive blobs
 in Git. The ledger is repository-only, not executable package or app metadata.
-Release preparation may rehost an unchanged artifact under a newer Denote tag
+Release preparation may rehost an unchanged artifact under the matching Denote tag
 by changing the current catalog URL; it must not change its ledger origin,
 source commit, size, or digest.
+Before packaging, `npm run release -- --check <version>` verifies that current
+catalog URLs and all application version sources match the intended Denote release.
 
 `provenance.sourceCommit` in the catalog and `sourceCommit` in the ledger mean
 source provenance: they identify the committed source and build inputs, not a
@@ -743,6 +745,11 @@ local `.wasm` asset instead of a Base64 JavaScript module. Neither path uses a
 CDN or removes languages. PDF.js's separately loaded, prebuilt worker remains
 one upstream module, not a main-thread chunk.
 `dist/.vite/manifest.json` records static and lazy imports.
+
+The frontend bundle integration tests run real in-memory Vite builds with a
+file-local 30-second timeout so full-suite worker contention does not exhaust
+the ordinary five-second deadline. Other test deadlines and byte limits stay
+unchanged.
 
 ```bash
 npx vitest run scripts/frontend-bundle.test.ts \

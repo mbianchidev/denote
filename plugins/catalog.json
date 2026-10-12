@@ -463,7 +463,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.3/denote.mermaid-0.2.4.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.mermaid-0.2.4.tgz",
       "sha256": "f57839d53fb1abe9d262f7599969315e244b317de50866ed2ee5b3b7267475bc",
       "sizeBytes": 1647513
     },
