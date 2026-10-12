@@ -790,6 +790,13 @@ packaged Windows renderer smoke gate passes. The known-good graph retains
 `unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
 minor. No vulnerability advisory is ignored.
 
+The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
+2026-10-12:
+[RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338),
+[RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340), and
+[RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
+This networking patch preserves the existing Windows/Tauri dependency graph.
+
 Seven warning-level findings remain:
 
 | Advisory | Dependency path | Status |
