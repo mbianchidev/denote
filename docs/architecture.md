@@ -16,6 +16,17 @@ A newer runtime may replace the pin only when that gate passes.
 procedure; dependency automation or an agent must follow it before changing any
 member of this family.
 
+Four source-level compatibility backports in `src-tauri/vendor/` preserve that
+runtime graph while fixing GLib's mutable iterator out-argument and replacing
+the unmaintained macro-error and Unicode-property dependencies. Original crate
+names, versions, licenses, and source provenance remain intact. Cargo's default
+workspace member is the application; GTK-specific regression tests are explicit
+and run optimized on Linux. The source-aware audit also scans the backports'
+original registry identities because RustSec skips path packages. The
+version-based GLib advisory remains visible, and CI rejects unmaintained
+dependencies. `docs/development.md` records each
+backport, original archive digest, and validation command.
+
 The frontend build caps emitted main-thread JavaScript chunks at 500,000 bytes.
 Entry-aware chunks preserve lazy dependency boundaries for Markdown editing,
 formatted Git diffs, PDF rendering, and individual syntax languages. Each pane

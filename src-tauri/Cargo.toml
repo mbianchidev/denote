@@ -14,6 +14,23 @@ edition = "2024"
 name = "denote_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[workspace]
+members = [
+    "vendor/glib",
+    "vendor/glib-macros",
+    "vendor/gtk3-macros",
+    "vendor/urlpattern",
+]
+default-members = ["."]
+exclude = ["target"]
+resolver = "3"
+
+[patch.crates-io]
+glib = { path = "vendor/glib" }
+glib-macros = { path = "vendor/glib-macros" }
+gtk3-macros = { path = "vendor/gtk3-macros" }
+urlpattern = { path = "vendor/urlpattern" }
+
 [build-dependencies]
 # Windows workaround: check Tauri/Wry upstream and follow docs/development.md
 # "Re-evaluate the Windows runtime pin" before changing this dependency family.

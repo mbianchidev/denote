@@ -771,34 +771,91 @@ npx vitest run scripts/frontend-bundle.test.ts \
 npx tsc --noEmit -p tsconfig.node.json
 ```
 
-## Rust dependency audits and GTK migration
+## Rust dependency audits and GTK backports
 
-Run `cargo audit --file src-tauri/Cargo.lock`. Windows releases temporarily pin
+Run `node scripts/audit-rust-dependencies.mjs`. Windows releases temporarily pin
 Tauri 2.11.6, tauri-build/codegen/macros 2.6.3, runtime 2.11.3,
 runtime-wry 2.11.4, Tao 0.35.3, and Wry 0.55.1. The npm Tauri API 2.11.1 and
 CLI 2.11.5 use the matching runtime minor. Tauri 2.12, including
 `tauri-utils` 2.10, opens a blank Windows webview and leaves the process alive
 after its last window closes. Do not float this runtime family until the
-packaged Windows renderer smoke gate passes. The known-good graph retains
-`tauri-utils` 2.9.3 and its URL-pattern implementation, so five unmaintained
-`unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
-minor. No vulnerability advisory is ignored.
+packaged Windows renderer smoke gate passes. Desktop packaging rejects a
+mismatched API minor. No vulnerability advisory is ignored.
 
-Seven warning-level findings remain:
+Four source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
+backports through `[patch.crates-io]`; their original package names and versions
+remain unchanged. The workspace defaults to the application only, so ordinary
+desktop builds do not acquire a macOS or Windows GTK build requirement. Its
+`target` tree is excluded so staged bundled Git source remains an independent
+Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
+package automatically, and an explicit root member overrides descendant
+exclusions.
 
-| Advisory | Dependency path | Status |
-| --- | --- | --- |
-| [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370) | GTK 0.18 / GLib macros -> `proc-macro-error` 1.0.4 | Unmaintained |
-| [RUSTSEC-2025-0081](https://rustsec.org/advisories/RUSTSEC-2025-0081) | Tauri utils 2.9 / URL pattern -> `unic-char-property` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0075](https://rustsec.org/advisories/RUSTSEC-2025-0075) | Tauri utils 2.9 / URL pattern -> `unic-char-range` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0080](https://rustsec.org/advisories/RUSTSEC-2025-0080) | Tauri utils 2.9 / URL pattern -> `unic-common` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
-| [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
+- GLib 0.18.5 applies the two-line
+  [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
+  the variadic C out-argument is a mutable pointer passed through `&mut p`,
+  not an immutable reference. Optimized iterator tests cover `next`, `nth`,
+  `last`, `next_back`, and `nth_back`, including mixed-direction iteration,
+  empty strings, and synthetic Unicode.
+- GLib macros 0.18.5 and GTK3 macros 0.18.2 use the maintained
+  [`proc-macro-error3` 3.1.1](https://github.com/gamma0987/proc-macro-error3)
+  implementation with explicit Syn 2 support. Both the original crate and
+  `proc-macro-error2` are unmaintained; do not replace one with the other.
+  This removes `proc-macro-error` and
+  [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370)
+  from the resolved dependency graph without changing macro interfaces.
+- URLPattern 0.3.0 backports the upstream
+  [ICU identifier-property replacement](https://github.com/denoland/rust-urlpattern/pull/67).
+  It uses Unicode `ID_Start` and `ID_Continue`, not the different Rust
+  `XID_*` properties, and preserves URLPattern's `$`, `_`, and joiner rules.
+  This removes all five unmaintained `unic-*` crates. Tests cover the current
+  Unicode middle-dot continuation rule, invalid identifier characters, and
+  the package's existing URLPattern conformance cases.
 
-The audit includes every platform in the lockfile, so macOS and Windows also
-report the Linux GTK dependencies. A successful exit does not resolve any of
-these warnings.
+The original registry archives were verified against the pre-backport
+`Cargo.lock` SHA-256 checksums before extraction. Each package retains its
+upstream license, copyright notices, and `.cargo_vcs_info.json`; these identify
+the original source, not the additional Denote changes.
+
+| Package | Original archive SHA-256 |
+| --- | --- |
+| `glib` 0.18.5 | `233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5` |
+| `glib-macros` 0.18.5 | `0bb0228f477c0900c880fd78c8759b95c7636dbd7842707f49e132378aa2acdc` |
+| `gtk3-macros` 0.18.2 | `52ff3c5b21f14f0736fed6dcfc0bfb4225ebf5725f3c0209edeec181e4d73e9d` |
+| `urlpattern` 0.3.0 | `70acd30e3aa1450bc2eece896ce2ad0d178e9c079493819301573dae3c37ba6d` |
+
+Raw `cargo audit --file src-tauri/Cargo.lock` skips local path packages.
+The source-aware audit script verifies that the resolver uses exactly these
+four local names, versions, and manifest paths, with only Denote selected by
+default. It rejects unreviewed non-registry dependency sources, audits the
+actual registry graph, then audits a standard-input projection containing the
+backports' original registry identities and archive checksums. It never edits
+`Cargo.lock`. This prevents vendoring from silently hiding an advisory.
+
+The published-baseline scan still reports
+[RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) because
+its version-based rule marks GLib 0.18.5 affected even with the source fix.
+This warning remains visible: it is not ignored, renamed, or hidden with a
+fabricated version. A successful audit exit alone is not proof that this bug
+is fixed. The release-mode regression tests must pass. The audit includes all
+platforms in the lockfile, so macOS and Windows also report this Linux dependency.
+CI rejects any unmaintained-crate warning in either scan.
+
+Run the backport checks with:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
+```
+
+The GTK checks require native GLib development libraries and run on Linux in CI
+and release validation, alongside the ordinary all-platform desktop tests and
+Windows renderer smoke. Historical tags without backports retain their original
+release checks.
+Keep backports limited to the documented fixes, retain upstream attribution,
+and remove them only when compatible upstream releases replace the patched
+sources. Do not replace source fixes with advisory suppression.
 
 ### Re-evaluate the Windows runtime pin
 
@@ -809,16 +866,21 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-09-29**.
+Last upstream check: **2026-10-12**.
 
-- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
-  release newer than 2.12.0.
-- [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
-  Windows blank-webview fix for this regression.
-- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
-  than 0.57.0.
-- [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
-  Windows fix matching both the blank frame and orphaned process.
+- [Tauri 2.12.3](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.3)
+  fixes channel delivery, iOS linking, and NSIS downgrade enforcement, but
+  identifies no Windows blank-webview fix.
+- [Tauri 2.12.2](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.2)
+  fixes macOS relaunch, one-shot listeners, and menu creation, not this Windows
+  regression.
+- [Wry 0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
+  remains the latest release. Its WebView2 changes and IPC-injection change
+  do not identify a fix for both observed Windows failures.
+- Searches of the official
+  [Tauri issues](https://github.com/tauri-apps/tauri/issues) and
+  [Wry issues](https://github.com/tauri-apps/wry/issues) identified no matching
+  blank-frame and orphan-process fix. Retain the verified 2.11 family.
 
 Any agent or contributor considering an upgrade must:
 

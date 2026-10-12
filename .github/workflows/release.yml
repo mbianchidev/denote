@@ -161,6 +161,13 @@ jobs:
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
+      - name: Rust backport tests
+        if: hashFiles('src-tauri/vendor/glib/Cargo.toml') != ''
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
+
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 

@@ -82,7 +82,7 @@ jobs:
         run: cargo install cargo-audit --version 0.22.2 --locked
 
       - name: Audit Rust dependencies
-        run: cargo audit --file src-tauri/Cargo.lock
+        run: node scripts/audit-rust-dependencies.mjs
 
   test:
     name: ${{ matrix.os }}
@@ -178,6 +178,15 @@ jobs:
 
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+
+      - name: URL pattern backport tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+
+      - name: GTK backport tests
+        if: runner.os == 'Linux'
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
