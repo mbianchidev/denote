@@ -145,6 +145,12 @@ leave the directory empty; only the host-bound explicit clone may populate it.
 Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
 folders, link replacement, visible failure state, and saved-note handoff covered.
 
+The native read-only cancellation regression waits for a synthetic descendant
+to start and keeps it behind a test-owned gate until cancellation. It checks
+the descendant's process state after cleanup; a zombie has terminated even if
+the operating system has not reaped it yet. Do not replace this synchronization
+with a fixed-duration sleep or infer process cleanup only from a missing marker.
+
 The signing integration tests require Git, GnuPG (including `gpgconf`), and
 OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary
 keyrings, exercise Denote's early-exit OpenPGP/SSH helpers, verify the resulting
@@ -782,6 +788,13 @@ after its last window closes. Do not float this runtime family until the
 packaged Windows renderer smoke gate passes. Desktop packaging rejects a
 mismatched API minor. No vulnerability advisory is ignored.
 
+The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
+2026-10-12:
+[RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338),
+[RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340), and
+[RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
+This networking patch preserves the existing Windows/Tauri dependency graph.
+
 Four source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
 backports through `[patch.crates-io]`; their original package names and versions
 remain unchanged. The workspace defaults to the application only, so ordinary
@@ -790,6 +803,9 @@ desktop builds do not acquire a macOS or Windows GTK build requirement. Its
 Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
 exclusions.
+
+These backports remove the six unmaintained dependencies from the resolved
+graph; the published GLib version-based warning remains visible below.
 
 - GLib 0.18.5 applies the two-line
   [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
