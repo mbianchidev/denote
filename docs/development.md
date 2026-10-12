@@ -857,6 +857,38 @@ Keep backports limited to the documented fixes, retain upstream attribution,
 and remove them only when compatible upstream releases replace the patched
 sources. Do not replace source fixes with advisory suppression.
 
+### Vendored-library availability check
+
+**TODO/FIXME: every agent must re-check upstream fixes at the start of every
+Denote development session, before editing files, including non-Rust tasks.**
+Inspect the current vendor inventory rather than assuming it still contains
+only the four packages above. Check official crate releases, upstream release
+notes and issue/PR trackers, and RustSec for each package. Record the date,
+versions examined, exact evidence links, and whether a compatible upstream
+release can replace the local source. Report a compatible fix explicitly.
+
+Last vendored-library check: **2026-10-12**.
+[GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
+published compatible GLib release; the
+[0.18 backport request](https://github.com/gtk-rs/gtk-rs-core/pull/2009)
+and [later request](https://github.com/gtk-rs/gtk-rs-core/pull/2022) were closed
+without merging.
+[GLib macros 0.18.5](https://crates.io/crates/glib-macros/0.18.5) and
+[GTK3 macros 0.18.2](https://crates.io/crates/gtk3-macros/0.18.2) still require
+the local macro-error replacement.
+[GTK3 macros 0.19.0](https://crates.io/crates/gtk3-macros/0.19.0) belongs to the
+GTK 0.19 / GLib 0.22 stack, not the pinned runtime's GTK 0.18 types. URLPattern
+0.4 and newer contain the
+[upstream ICU replacement](https://github.com/denoland/rust-urlpattern/pull/67),
+but the verified Tauri utils 2.9.3 graph requires
+[URLPattern 0.3.0](https://crates.io/crates/urlpattern/0.3.0).
+
+Keep the reviewed backports until a compatible replacement passes the
+source-aware audit, optimized GTK regressions, and all-platform validation.
+Any required runtime-family change must also follow the Windows pin procedure
+below and pass the packaged Windows renderer/shutdown smoke gate. Do not
+silently upgrade, remove source fixes, or suppress an advisory.
+
 ### Re-evaluate the Windows runtime pin
 
 The exact npm, Cargo manifest, and Cargo lock versions are one coordinated
