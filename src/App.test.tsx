@@ -1178,6 +1178,36 @@ describe("App initial file-tree expansion", () => {
     }
   });
 
+  it("does not dirty or autosave Markdown when view switches normalize its whitespace", async () => {
+    const user = userEvent.setup();
+    const source = "# Synthetic \t\n\n[Email](mailto:mock@example.test) \t\n\n \t\n";
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("synthetic.md")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "synthetic.md",
+      content: source,
+      contentHash: "synthetic-whitespace-hash",
+      encoding: "utf8",
+      lineEnding: "crlf",
+      stats: noteStats(),
+    });
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: "Open synthetic.md" }));
+    await screen.findByRole("link", { name: "Email" });
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+
+    await waitFor(() => {
+      const sourceView = document.querySelector(".cm-sourceView .cm-content");
+      expect(sourceView?.textContent).toContain("[Email](mailto:mock@example.test)");
+    });
+    expect(screen.queryByLabelText("Unsaved changes")).not.toBeInTheDocument();
+    expect(mockApi.recordEdit).not.toHaveBeenCalled();
+    expect(mockApi.saveNote).not.toHaveBeenCalled();
+  });
+
   it("opens emoji with the host shortcut and removes surfaces when disabled", async () => {
       mockPluginController.emojiPickers = [syntheticEmojiPicker()];
       mockPluginController.plugins = [syntheticEmojiPluginView()];
@@ -2266,6 +2296,55 @@ describe("App initial file-tree expansion", () => {
       screen.getByLabelText("Kanban source Release.kanban.md").textContent,
     ).toBe(source);
     expect(mockApi.recordEdit).not.toHaveBeenCalledWith("Release.kanban.md");
+  });
+
+  it("opens legacy Kanban Markdown without renaming or saving and keeps exact source after disablement", async () => {
+    const user = userEvent.setup();
+    const source = String.raw`\---
+
+kanban-plugin: board
+
+\---
+
+\## Planned
+\- \[ ] Write a synthetic example`;
+    mockApi.getLastVault.mockResolvedValue(
+      workspaceSnapshot([fileNode("Example tasks.md")]),
+    );
+    mockApi.readNote.mockResolvedValue({
+      path: "Example tasks.md",
+      content: source,
+      contentHash: "legacy-example-hash",
+      encoding: "utf8",
+      lineEnding: "lf",
+      stats: noteStats(),
+    });
+    mockPluginController.plugins = [kanbanPluginView()];
+    mockPluginController.kanbanBoards = [kanbanBoardContribution()];
+    const rendered = render(<App />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Open Example tasks.md" }),
+    );
+    expect(await screen.findByRole("region", {
+      name: "Kanban Example tasks.md",
+    })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Markdown" }));
+    expect(screen.getByLabelText("Content of Edit Example tasks.md").textContent)
+      .toBe(source);
+    await user.click(screen.getByRole("button", { name: "Board" }));
+    expect(screen.getByLabelText("Kanban source Example tasks.md").textContent)
+      .toBe(source);
+    expect(mockApi.saveNote).not.toHaveBeenCalled();
+    expect(mockApi.recordEdit).not.toHaveBeenCalled();
+
+    mockPluginController.kanbanBoards = [];
+    rendered.rerender(<App />);
+    expect(await screen.findByLabelText("Content of Edit Example tasks.md"))
+      .toHaveTextContent(String.raw`\## Planned`);
+    expect(screen.getByLabelText("Content of Edit Example tasks.md").textContent)
+      .toBe(source);
+    expect(screen.queryByRole("button", { name: "Board" })).not.toBeInTheDocument();
   });
 
   it("creates a Kanban-suffixed Markdown file from the command palette", async () => {
@@ -4279,6 +4358,7 @@ function kanbanBoardContribution(): PluginKanbanBoardContribution {
     title: "Kanban boards",
     fileSuffixes: [".kanban.md", ".kanban.markdown"],
     defaultFileName: "Board.kanban.md",
+    sourceFormats: ["denote-kanban-v1", "obsidian-kanban"],
   };
 }
 

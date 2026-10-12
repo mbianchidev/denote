@@ -1,10 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
 import { undo } from "@codemirror/commands";
 import type { MDXEditorMethods } from "@mdxeditor/editor";
 import userEvent from "@testing-library/user-event";
 import { createRef, StrictMode, useState } from "react";
+import { $getRoot, $getSelection, $isRangeSelection, type LexicalEditor } from "lexical";
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { api } from "../lib/api";
@@ -164,6 +165,197 @@ describe("MarkdownEditor literal punctuation", () => {
 });
 
 describe("MarkdownEditor links", () => {
+  it.each(
+    (["rich-text", "source"] as const).flatMap((mode) => [
+      { mode, ending: "\n", lineEnding: "lf" as const },
+      { mode, ending: "\r\n", lineEnding: "crlf" as const },
+      { mode, ending: "\r", lineEnding: "cr" as const },
+    ]),
+  )("does not rewrite trailing whitespace when opening or switching $mode / $lineEnding views", async ({ mode, ending, lineEnding }) => {
+    const user = userEvent.setup();
+    const source = "# Synthetic \t \n\nKept line \t\n\n[Email](mailto:mock@example.test) \t\n\n \t\n"
+      .replace(/\n/g, ending);
+    const changed = vi.fn();
+    function Editor() {
+      const [markdown, setMarkdown] = useState(source);
+      return (
+        <MarkdownEditor
+          notePath="synthetic.md"
+          markdown={markdown}
+          lineEnding={lineEnding}
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode={mode}
+          readOnly={false}
+          onChange={(value) => {
+            changed(value);
+            setMarkdown(value);
+          }}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />
+      );
+    }
+    const { container } = render(<Editor />);
+    if (mode === "rich-text") {
+      await user.click(await screen.findByText("Kept line"));
+      await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    } else {
+      await screen.findByRole("radio", { name: "Source mode", checked: true });
+    }
+    const view = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-sourceView .cm-editor");
+      expect(element).not.toBeNull();
+      return EditorView.findFromDOM(element!)!;
+    });
+    expect(view.state.doc.toString()).toBe(source.replace(/\r\n?/g, "\n"));
+    expect(changed).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    await user.click(screen.getByRole("radio", { name: "Source mode" }));
+    await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-sourceView .cm-editor");
+      expect(EditorView.findFromDOM(element!)?.state.doc.toString())
+        .toBe(source.replace(/\r\n?/g, "\n"));
+    });
+    expect(changed).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "[Email](mailto:mock@example.test)",
+    "[mock@example.test](mailto:mock@example.test)",
+    "[Email](MAILTO:mock@example.test)",
+    "[Email](mailto:mock+sample@example.test?subject=Hello%20world&cc=archive@example.test)",
+  ])("does not add directive escapes to a mailto link after a Rich edit: %s", async (link) => {
+    const onChange = vi.fn();
+    render(
+      <MarkdownEditor
+        notePath="synthetic.md"
+        markdown={`${link}\n\nEdit here`}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+
+    await appendSyntheticRichText("!");
+
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    expect(onChange.mock.lastCall?.[0])
+      .toBe(`${link}\n\nEdit here!`);
+  });
+
+  it.each([
+    "<mailto:mock@example.test>",
+    "<mock@example.test>",
+  ])("preserves exact email autolinks in their existing Source fallback: %s", async (link) => {
+    const onChange = vi.fn();
+    const source = `${link} \t\n\nEdit here`;
+    const { container } = render(
+      <MarkdownEditor
+        notePath="synthetic.md"
+        markdown={source}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    const view = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-sourceView .cm-editor");
+      expect(element).not.toBeNull();
+      return EditorView.findFromDOM(element!)!;
+    });
+    await waitFor(() => expect(view.state.doc.toString()).toBe(source));
+    expect(onChange).not.toHaveBeenCalled();
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: "!" } }));
+    await waitFor(() => expect(onChange).toHaveBeenLastCalledWith(`${source}!`));
+  });
+
+  it("keeps required directive/entity escapes and literal backslashes in code", async () => {
+    const onChange = vi.fn();
+    const source = [
+      String.raw`Literal \:sample and \&copy;.`,
+      "[Email](mailto:mock@example.test)",
+      String.raw`Inline code: ` + "`mailto\\:mock@example.test`",
+      "Edit here",
+    ].join("\n\n");
+    render(
+      <MarkdownEditor
+        notePath="synthetic.md"
+        markdown={source}
+        lineEnding="lf"
+        displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+        preferredViewMode="rich-text"
+        readOnly={false}
+        onChange={onChange}
+        onError={vi.fn()}
+        onLinkOpen={vi.fn()}
+        onViewModeChange={vi.fn()}
+        onImageUpload={vi.fn()}
+      />,
+    );
+    await appendSyntheticRichText("!");
+    await waitFor(() => expect(onChange).toHaveBeenCalled());
+    const output: string = onChange.mock.lastCall?.[0] ?? "";
+    expect(output).toContain(String.raw`\:sample`);
+    expect(output).toMatch(/(?:\\&|&#x26;)copy;/);
+    expect(output).toContain("`mailto\\:mock@example.test`");
+    expect(output).toContain("[Email](mailto:mock@example.test)");
+  });
+
+  it("does not restore whitespace deliberately removed in Source mode", async () => {
+    const user = userEvent.setup();
+    const source = "Keep this note.\n\nEdit here \t\n\n \t\n";
+    const changed = vi.fn();
+    function Editor() {
+      const [markdown, setMarkdown] = useState(source);
+      return (
+        <MarkdownEditor
+          notePath="synthetic.md"
+          markdown={markdown}
+          lineEnding="lf"
+          displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+          preferredViewMode="source"
+          readOnly={false}
+          onChange={(value) => {
+            changed(value);
+            setMarkdown(value);
+          }}
+          onError={vi.fn()}
+          onLinkOpen={vi.fn()}
+          onViewModeChange={vi.fn()}
+          onImageUpload={vi.fn()}
+        />
+      );
+    }
+    const { container } = render(<Editor />);
+    const view = await waitFor(() => {
+      const element = container.querySelector<HTMLElement>(".cm-sourceView .cm-editor");
+      expect(element).not.toBeNull();
+      return EditorView.findFromDOM(element!)!;
+    });
+    await act(async () => {});
+    act(() => view.dispatch({
+      changes: { from: "Keep this note.\n\nEdit here".length, to: view.state.doc.length },
+    }));
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith("Keep this note.\n\nEdit here"));
+    await user.click(screen.getByRole("radio", { name: "Rich text" }));
+    await appendSyntheticRichText("!");
+    await waitFor(() => expect(changed).toHaveBeenLastCalledWith("Keep this note.\n\nEdit here!"));
+  });
+
   it("renders full, collapsed, and shortcut references without processing errors", async () => {
     const onMarkdownError = vi.fn();
     const onLinkOpen = vi.fn();
@@ -2889,6 +3081,17 @@ describe("MarkdownEditor links", () => {
     applyTheme("dark");
   });
 });
+
+async function appendSyntheticRichText(text: string) {
+  const root = await screen.findByRole("textbox", { name: "editable markdown" });
+  const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+  act(() => editor.update(() => {
+    $getRoot().getLastDescendant()?.selectEnd();
+    const selection = $getSelection();
+    if (!$isRangeSelection(selection)) throw new Error("Expected a synthetic edit caret.");
+    selection.insertText(text);
+  }, { discrete: true }));
+}
 
 function ViewModeNavigationHarness() {
   const [path, setPath] = useState("one.md");

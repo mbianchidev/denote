@@ -5,6 +5,7 @@ import type {
   PluginKanbanEdit,
   PluginKanbanEditRequest,
   PluginKanbanEditResult,
+  PluginKanbanSourceFormat,
 } from "./contracts";
 
 export const MAX_PLUGIN_KANBAN_FILE_SUFFIXES = 4;
@@ -21,6 +22,60 @@ const SAFE_TEXT =
 const SAFE_ID = /^[a-z0-9][a-z0-9._-]{0,159}$/;
 const FILE_SUFFIX = /^\.[a-z0-9][a-z0-9.-]{0,30}\.(?:md|markdown)$/;
 
+export function detectPluginKanbanSourceFormat(
+  source: string,
+): PluginKanbanSourceFormat | null {
+  const sample = source.slice(0, 8 * 1024);
+  if (
+    !sample.includes("denote-kanban:board:v1:start") &&
+    !sample.includes("kanban-plugin:")
+  ) {
+    return null;
+  }
+  const bytes = new TextEncoder().encode(sample);
+  const prefix = new TextDecoder().decode(bytes.subarray(0, 8 * 1024));
+  const lines = prefix.split(/\r\n?|\n/);
+  if (source.length > sample.length || bytes.byteLength > 8 * 1024) {
+    lines.pop();
+  }
+  let fence: { marker: string; length: number } | null = null;
+  for (const line of lines) {
+    const match = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(line);
+    if (match) {
+      if (!fence) {
+        fence = { marker: match[1][0], length: match[1].length };
+      } else if (
+        match[1][0] === fence.marker &&
+        match[1].length >= fence.length &&
+        match[2].trim().length === 0
+      ) {
+        fence = null;
+      }
+      continue;
+    }
+    if (
+      !fence &&
+      !/^(?: {4}|\t)/.test(line) &&
+      line.replace(/^\uFEFF/, "").trim() ===
+        "<!-- denote-kanban:board:v1:start -->"
+    ) {
+      return "denote-kanban-v1";
+    }
+  }
+  const delimiter = lines[0]?.replace(/^\uFEFF/, "").trimEnd();
+  if (delimiter !== "---" && delimiter !== "\\---") {
+    return null;
+  }
+  const end = lines.findIndex(
+    (line, index) => index > 0 && line.trimEnd() === delimiter,
+  );
+  const legacy = end > 0 &&
+    lines.slice(1, end).some((line) =>
+      /^kanban-plugin:[ \t]*(?:board|"board"|'board')[ \t]*(?:#.*)?$/.test(line),
+    );
+  return legacy ? "obsidian-kanban" : null;
+}
+
 export function isPluginKanbanRegistration(
   value: unknown,
 ): value is {
@@ -28,6 +83,7 @@ export function isPluginKanbanRegistration(
   title: string;
   fileSuffixes: string[];
   defaultFileName: string;
+  sourceFormats?: PluginKanbanSourceFormat[];
 } {
   if (
     !isRecord(value) ||
@@ -36,7 +92,13 @@ export function isPluginKanbanRegistration(
     !Array.isArray(value.fileSuffixes) ||
     value.fileSuffixes.length === 0 ||
     value.fileSuffixes.length > MAX_PLUGIN_KANBAN_FILE_SUFFIXES ||
-    !safeSingleLine(value.defaultFileName, 128)
+    !safeSingleLine(value.defaultFileName, 128) ||
+    (value.sourceFormats !== undefined &&
+      (!Array.isArray(value.sourceFormats) ||
+        value.sourceFormats.length === 0 ||
+        value.sourceFormats.length > 2 ||
+        new Set(value.sourceFormats).size !== value.sourceFormats.length ||
+        !value.sourceFormats.every(isKanbanSourceFormat)))
   ) {
     return false;
   }
@@ -67,6 +129,8 @@ export function isPluginKanbanBoardModel(
   if (
     !isRecord(value) ||
     !safeDisplayText(value.title, 200) ||
+    (value.sourceFormat !== undefined &&
+      !isKanbanSourceFormat(value.sourceFormat)) ||
     typeof value.canInitialize !== "boolean" ||
     !Array.isArray(value.notices) ||
     value.notices.length > 16 ||
@@ -85,6 +149,7 @@ export function isPluginKanbanBoardModel(
       !value.canInitialize &&
       value.title === "" &&
       value.columns.length === 0 &&
+      value.sourceFormat === undefined &&
       isKanbanError(value.error) &&
       bytes + errorBytes(value.error as Record<string, unknown>) <=
         MAX_PLUGIN_KANBAN_MODEL_BYTES
@@ -94,6 +159,7 @@ export function isPluginKanbanBoardModel(
     return (
       value.title === "" &&
       value.columns.length === 0 &&
+      value.sourceFormat === undefined &&
       bytes <= MAX_PLUGIN_KANBAN_MODEL_BYTES
     );
   }
@@ -145,6 +211,8 @@ export function isPluginKanbanEdit(value: unknown): value is PluginKanbanEdit {
     return false;
   }
   switch (value.type) {
+    case "migrate":
+      return safeTitle(value.title);
     case "initialize":
       return (
         safeTitle(value.title) && safeTitle(value.initialColumnTitle)
@@ -172,6 +240,8 @@ export function isPluginKanbanEdit(value: unknown): value is PluginKanbanEdit {
         safeTitle(value.title) &&
         safeBody(value.body)
       );
+    case "set-card-completed":
+      return safeId(value.cardId) && typeof value.completed === "boolean";
     case "delete-card":
       return safeId(value.cardId);
     case "move-card":
@@ -223,6 +293,7 @@ function isKanbanCard(
     ids.has(value.id) ||
     !safeTitle(value.title) ||
     !safeBody(value.body) ||
+    (value.completed !== undefined && typeof value.completed !== "boolean") ||
     !Array.isArray(value.tags) ||
     value.tags.length > MAX_PLUGIN_KANBAN_TAGS_PER_CARD ||
     !value.tags.every((tag) => safeSingleLine(tag, 80)) ||
@@ -280,6 +351,10 @@ function columnBytes(column: PluginKanbanColumn): number {
 
 function safeId(value: unknown): value is string {
   return typeof value === "string" && SAFE_ID.test(value);
+}
+
+function isKanbanSourceFormat(value: unknown): value is PluginKanbanSourceFormat {
+  return value === "denote-kanban-v1" || value === "obsidian-kanban";
 }
 
 function nullableId(value: unknown): value is string | null {

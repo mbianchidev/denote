@@ -18,6 +18,7 @@ const plugin: DenotePlugin = {
         title: "Kanban boards",
         fileSuffixes: [".kanban.md", ".kanban.markdown"],
         defaultFileName: "Board.kanban.md",
+        sourceFormats: ["denote-kanban-v1", "obsidian-kanban"],
         parse: parseKanbanBoard,
         edit: editKanbanBoard,
       }),

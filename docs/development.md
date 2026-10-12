@@ -102,6 +102,11 @@ npx vitest run \
 
 These checks enforce parser-call budgets and streaming word segmentation rather
 than hardware-dependent wall-clock thresholds. No optional plugin is required.
+Markdown coverage also checks that opening, focus, and Rich/Source switches do
+not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF,
+and CR input. Explicit Source whitespace removal must survive later Rich edits.
+Keep `mailto:` destinations and query separators unescaped while preserving
+required directive/entity escapes and literal backslashes in code.
 
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:
@@ -550,6 +555,7 @@ Run focused coverage with:
 npx vitest run \
   packages/plugin-sdk/src/kanban.test.ts \
   src/plugins/kanbanBoards.test.ts \
+  src/lib/editorRouting.test.ts \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx \
@@ -564,6 +570,13 @@ note links and tags, add/edit/delete/move operations, byte-preserving reorder,
 stale worker responses, lock/unlock, disable/re-enable, exact Markdown fallback,
 pointer drag, every keyboard move alternative, announcements, and focus after
 move or deletion.
+Also cover ordinary `.md` discovery through explicit optional format metadata,
+standard and escaped Obsidian sources, encoded indentation, fenced examples,
+long titles with full details, completion state, read-only detail expansion,
+confirmation/cancellation, migration with exact-source recovery, recovery fence
+collisions, output-size refusal, and in-flight source/read-mode changes.
+Format ownership must be unique, released on stop, and preserved through the
+actual isolated worker bridge. Old suffix-only registrations must still work.
 
 Stage the source-only archive with
 `npm run package:plugin -- denote.kanban`. Commit source, SDK, host, tests, docs,

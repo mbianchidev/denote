@@ -6,6 +6,7 @@ import {
   type PluginCalendarView,
   type PluginKanbanBoardModel,
   type PluginKanbanEditResult,
+  type PluginKanbanSourceFormat,
   type PluginGitResult,
   type PluginEmojiPicker,
   type PluginNoteGraphModel,
@@ -279,6 +280,7 @@ class FakeWorker extends EventTarget {
     title: string;
     fileSuffixes: string[];
     defaultFileName: string;
+    sourceFormats?: PluginKanbanSourceFormat[];
   } | null = null;
   static kanbanBoardModel: PluginKanbanBoardModel = kanbanBoardModel;
   static kanbanEditResult: PluginKanbanEditResult = kanbanEditResult;
@@ -1009,6 +1011,51 @@ describe("PluginWorkerRuntime", () => {
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 
+  it("keeps content format ownership unique and releases it when a Kanban provider stops", async () => {
+    const onError = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), onError);
+    FakeWorker.kanbanBoardOnActivate = {
+      id: "denote.reference.kanban",
+      title: "First board",
+      fileSuffixes: [".kanban.md"],
+      defaultFileName: "Board.kanban.md",
+      sourceFormats: ["obsidian-kanban"],
+    };
+    const first = pluginWithKanbanBoard();
+    await runtime.start(first);
+    const secondId = "denote.reference.other";
+    const second = {
+      ...first,
+      catalog: {
+        ...first.catalog,
+        manifest: { ...first.catalog.manifest, id: secondId },
+      },
+    };
+    FakeWorker.commandIdOnActivate = `${secondId}.ping`;
+    FakeWorker.kanbanBoardOnActivate = {
+      id: `${secondId}.kanban`,
+      title: "Second board",
+      fileSuffixes: [".tasks.md"],
+      defaultFileName: "Board.tasks.md",
+      sourceFormats: ["obsidian-kanban"],
+    };
+
+    await expect(runtime.start(second)).rejects.toThrow();
+    await vi.waitFor(() => {
+      expect(onError).toHaveBeenCalledWith(
+        secondId,
+        expect.objectContaining({
+          message: expect.stringMatching(/Kanban board registration/),
+        }),
+      );
+    });
+    expect(FakeWorker.instances[0].terminated).toBe(false);
+    expect(FakeWorker.instances[1].terminated).toBe(true);
+    await runtime.stop("denote.reference");
+    await expect(runtime.start(second)).resolves.toBeUndefined();
+    await runtime.stop(secondId);
+  });
+
   it("queries an approved calendar and rejects models for a different selected date", async () => {
     const changed = vi.fn();
     const failed = vi.fn();
@@ -1468,7 +1515,7 @@ describe("PluginWorkerRuntime", () => {
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 
-  it("runs Kanban parsing and edits through the actual isolated worker capability", async () => {
+  it("runs legacy Kanban parsing and migration through the actual isolated worker capability", async () => {
     await bridgeRealPluginWorker();
     const source = pluginWithKanbanBoard();
     const registration = {
@@ -1476,6 +1523,15 @@ describe("PluginWorkerRuntime", () => {
       title: "Kanban boards",
       fileSuffixes: [".kanban.md"],
       defaultFileName: "Board.kanban.md",
+      sourceFormats: ["denote-kanban-v1", "obsidian-kanban"],
+    };
+    const legacyModel = {
+      ...kanbanBoardModel,
+      sourceFormat: "obsidian-kanban",
+    };
+    const migratedModel = {
+      ...kanbanBoardModel,
+      sourceFormat: "denote-kanban-v1",
     };
     vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
       export default {
@@ -1486,12 +1542,13 @@ describe("PluginWorkerRuntime", () => {
           context.subscriptions.add(kanban.register({
             ...${JSON.stringify(registration)},
             parse() {
-              return ${JSON.stringify(kanbanBoardModel)};
+              return ${JSON.stringify(legacyModel)};
             },
             edit(request) {
+              if (request.edit.type !== "migrate") throw Error("Expected migration");
               return {
                 source: request.source + "\\nupdated",
-                model: ${JSON.stringify(kanbanBoardModel)},
+                model: ${JSON.stringify(migratedModel)},
               };
             },
           }));
@@ -1524,19 +1581,19 @@ describe("PluginWorkerRuntime", () => {
         path: "Synthetic.kanban.md",
         source: "# Synthetic",
       }),
-    ).resolves.toEqual(kanbanBoardModel);
+    ).resolves.toEqual(legacyModel);
     await expect(
       runtime.editKanbanBoard("denote.reference", registration.id, {
         path: "Synthetic.kanban.md",
         source: "# Synthetic",
         edit: {
-          type: "rename-board",
+          type: "migrate",
           title: "Updated",
         },
       }),
     ).resolves.toEqual({
       source: "# Synthetic\nupdated",
-      model: kanbanBoardModel,
+      model: migratedModel,
     });
     await runtime.stop("denote.reference");
   });

@@ -43,6 +43,7 @@ describe("Kanban plugin activation", () => {
       id: "denote.kanban.board",
       fileSuffixes: [".kanban.md", ".kanban.markdown"],
       defaultFileName: "Board.kanban.md",
+      sourceFormats: ["denote-kanban-v1", "obsidian-kanban"],
     });
   });
 });

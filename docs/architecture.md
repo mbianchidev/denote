@@ -964,16 +964,27 @@ worker-owned parse and edit callbacks. It contains no React component, HTML,
 style, editor object, absolute path, native capability, or general workspace
 service. Suffix ownership is unique across active providers.
 
+An optional `sourceFormats` registration opts into the fixed
+`denote-kanban-v1` and `obsidian-kanban` formats; format ownership is also unique.
+The host sniffs only the first 8 KiB of an already-open `.md` or `.markdown`
+tab for an unfenced native marker or explicit Obsidian frontmatter. It does not
+give a provider every Markdown file, accept an arbitrary matcher, or expose a
+workspace read service. Old registrations without this field stay suffix-only.
+The SDK, worker messages, and host independently validate this optional metadata.
+
 For a matching open UTF-8 tab, the host sends the vault-relative path and
 current in-memory source to the isolated worker. Source is refused above 4 MiB.
 Parse returns either one bounded diagnostic, an initializable state, or one
 board containing a display-safe title, at most 128 columns and 5,000 cards,
 globally unique bounded IDs, 64 KiB of details per card, and at most 32 extracted
 tags and 32 Markdown links per card. The validated model is capped at 8 MiB.
+Optional `sourceFormat` identifies native or legacy presentation, and optional
+boolean `completed` carries imported checkbox state. Unknown formats and
+non-boolean completion values are protocol violations.
 
 Edit sends the same current source plus one closed operation union:
-initialize/rename board; add/rename/delete/move column; or
-add/edit/delete/move card. The worker returns replacement source and the
+initialize/migrate/rename board; add/rename/delete/move column; or
+add/edit/delete/move/set-completed card. The worker returns replacement source and the
 corresponding board model. Runtime validation applies the same source and model
 bounds to the response before the renderer receives it. A malformed
 registration, duplicate suffix, invalid request, invalid model, or mismatched
@@ -1004,6 +1015,8 @@ Markdown uses the ordinary exact source editor. The `.kanban.md` and
 `.kanban.markdown` compound suffixes also route to that exact source editor when
 no provider is active, so disabling the plugin never sends its marker comments
 through Rich Markdown conversion.
+The same exact-source fallback applies to content-identified ordinary Markdown
+boards, even with every plugin disabled.
 
 `denote.kanban` recognizes `.kanban.md` and `.kanban.markdown`. Its portable
 format has one versioned board start/end pair. Each column and card has paired
@@ -1014,6 +1027,33 @@ heading or body range; reorder operations splice the original complete marked
 range, preserving unknown Markdown byte-for-byte. Disabling or removing the
 plugin leaves the file unchanged. Locking an encrypted vault stops the worker
 and clears its contribution until unlock.
+
+Legacy parsing recognizes standard Obsidian frontmatter, level-two columns,
+top-level task items, completion markers, and trailing settings blocks. Escaped
+exports decode one Markdown-escape layer and numeric tab entities for the model,
+never on disk. Fenced examples and indented nested tasks are not structural
+columns or cards. Each card keeps its full item text in details; its display
+title is bounded to 200 characters. Obsidian display settings are not executed.
+
+Only the closed `migrate` operation may edit a legacy board. It creates native
+markers with new stable IDs and optional `completed="true"`/`"false"` card
+attributes, then retains the original source verbatim in an inert fenced recovery
+block. A `legacy-kanban-source:v1` comment records the original final-newline
+state so recovery can exclude an added fence separator, including after the
+host restores LF, CRLF, or CR line endings. The recovery fence is longer than
+every tilde run in the original;
+native marker discovery ignores fenced source outside the managed board. Within
+a native board, explicit card/column boundaries remain authoritative even while
+the user is typing an unfinished Markdown fence. Both native content and recovery
+must fit the existing source limit. `set-card-completed` changes only the card
+start marker, preserving details and the recovery copy. Other native operations
+keep moving complete original slices.
+
+The host's legacy surface disables mutation and drag controls while retaining
+read-only detail expansion and link activation. Migration uses an inline
+confirmation and the normal expected-path/source guards. A newly read-only tab
+or a result that is not a successful native model is rejected before
+`changeTabContent`, leaving the source unchanged.
 
 ### Calendars and daily notes
 
@@ -1846,6 +1886,24 @@ heading analysis share one parsed tree inside that worker.
 
 Each active Markdown pane owns an MDXEditor instance with rich editing and a
 source fallback.
+The upstream Source view publishes both text changes and lifecycle/selection
+updates, including normalized Rich exports during a mode switch. Denote accepts
+Source callbacks only after a real CodeMirror document transaction, not its own
+non-history source synchronization. Unchanged output does not call
+`changeTabContent`. Opening, focusing, and view switches therefore cannot dirty
+a note or start autosave just because Rich serialization drops whitespace.
+The leading/trailing-whitespace snapshot refreshes after explicit Source edits,
+so a later Rich edit cannot resurrect deliberately deleted spaces or blank lines.
+
+The standard Markdown serialization extension adjusts only the directive-colon
+and character-reference safety rules through MDXEditor's supported export API.
+Directive syntax is not recognized in URI destinations or the `mailto:` scheme.
+An ampersand is escaped only when the following text can form a character
+reference, not for an ordinary `&cc=` query separator. The ordinary
+`mdast-util-to-markdown` root handler still serializes the tree; code, required
+escapes, reference nodes, callouts, and source-only fallbacks retain their
+existing boundaries.
+
 Denote translates its compact callout syntax to Markdown directives while the
 editor is active and back to `>![type]` blocks before saving.
 The Rich editor handles Command/Control-Shift-V before WebKit's default paste,
