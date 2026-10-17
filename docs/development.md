@@ -809,8 +809,8 @@ affected by [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367
 [RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369). The
 upstream [zip 9 fix](https://github.com/tauri-apps/plugins-workspace/pull/3698)
 is merged, and [updater 2.14.1](https://github.com/tauri-apps/plugins-workspace/pull/3712)
-is pending publication. Its current source requires Tauri 2.12, conflicting with
-Denote's verified 2.11 runtime pin. Keep the pin and do not suppress these
+is pending publication. Its current source requires Tauri 2.12, which conflicts
+with Denote's verified 2.11 runtime pin. Keep the pin and do not suppress these
 advisories; adopt an updater release compatible with Tauri 2.11 when upstream
 publishes one.
 
