@@ -777,18 +777,16 @@ npx vitest run scripts/frontend-bundle.test.ts \
 npx tsc --noEmit -p tsconfig.node.json
 ```
 
-## Rust dependency audits and GTK migration
+## Rust dependency audits and Linux backports
 
-Run `cargo audit --file src-tauri/Cargo.lock`. Windows releases temporarily pin
+Run `node scripts/audit-rust-dependencies.mjs`. Windows releases temporarily pin
 Tauri 2.11.6, tauri-build/codegen/macros 2.6.3, runtime 2.11.3,
 runtime-wry 2.11.4, Tao 0.35.3, and Wry 0.55.1. The npm Tauri API 2.11.1 and
 CLI 2.11.5 use the matching runtime minor. Tauri 2.12, including
 `tauri-utils` 2.10, opens a blank Windows webview and leaves the process alive
 after its last window closes. Do not float this runtime family until the
-packaged Windows renderer smoke gate passes. The known-good graph retains
-`tauri-utils` 2.9.3 and its URL-pattern implementation, so five unmaintained
-`unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
-minor. No vulnerability advisory is ignored.
+packaged Windows renderer smoke gate passes. Desktop packaging rejects a
+mismatched API minor. No vulnerability advisory is ignored.
 
 The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 2026-10-12:
@@ -815,24 +813,179 @@ publishes raw `-setup.exe`, `.msi`, and `.AppImage` updater artifacts; macOS
 `system-proxy` enabled. Do not restore the default features unless the updater
 requires a patched `zip` release.
 
-Ten warning-level findings remain:
+Seven source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
+backports through `[patch.crates-io]`; their original package names and versions
+remain unchanged. The workspace defaults to the application only, so ordinary
+desktop builds do not acquire a macOS or Windows GTK build requirement. Its
+`target` tree is excluded so staged bundled Git source remains an independent
+Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
+package automatically, and an explicit root member overrides descendant
+exclusions.
 
-| Advisory | Dependency path | Status |
-| --- | --- | --- |
-| [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370) | GTK 0.18 / GLib macros -> `proc-macro-error` 1.0.4 | Unmaintained |
-| [RUSTSEC-2025-0081](https://rustsec.org/advisories/RUSTSEC-2025-0081) | Tauri utils 2.9 / URL pattern -> `unic-char-property` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0075](https://rustsec.org/advisories/RUSTSEC-2025-0075) | Tauri utils 2.9 / URL pattern -> `unic-char-range` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0080](https://rustsec.org/advisories/RUSTSEC-2025-0080) | Tauri utils 2.9 / URL pattern -> `unic-common` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
-| [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
-| [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
-| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | Keyring, notification, opener, and single-instance D-Bus -> `zbus` 5.19 -> `zvariant` 5.15.0 | Unmaintained; merged into `zbus` 6 |
-| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Linux D-Bus -> `zbus` 5.19 -> `zbus_names` 4.3.4 | Unmaintained; merged into `zbus` 6 |
-| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | Linux D-Bus -> `zvariant` 5.15.0 -> `zvariant_derive` 5.15.0 | Unmaintained; merged into `zbus` 6 |
+These backports and the maintained credential-store replacement remove all
+nine unmaintained dependencies from the GTK, URLPattern, and D-Bus graph.
+The published GLib version-based warning remains visible below.
 
-The audit includes every platform in the lockfile, so macOS and Windows also
-report the Linux GTK dependencies. A successful exit does not resolve any of
-these warnings.
+- GLib 0.18.5 applies the two-line
+  [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
+  the variadic C out-argument is a mutable pointer passed through `&mut p`,
+  not an immutable reference. Optimized iterator tests cover `next`, `nth`,
+  `last`, `next_back`, and `nth_back`, including mixed-direction iteration,
+  empty strings, and synthetic Unicode.
+- GLib macros 0.18.5 and GTK3 macros 0.18.2 use the maintained
+  [`proc-macro-error3` 3.1.1](https://github.com/gamma0987/proc-macro-error3)
+  implementation with explicit Syn 2 support. Both the original crate and
+  `proc-macro-error2` are unmaintained; do not replace one with the other.
+  This removes `proc-macro-error` and
+  [RUSTSEC-2024-0370](https://rustsec.org/advisories/RUSTSEC-2024-0370)
+  from the resolved dependency graph without changing macro interfaces.
+- URLPattern 0.3.0 backports the upstream
+  [ICU identifier-property replacement](https://github.com/denoland/rust-urlpattern/pull/67).
+  It uses Unicode `ID_Start` and `ID_Continue`, not the different Rust
+  `XID_*` properties, and preserves URLPattern's `$`, `_`, and joiner rules.
+  This removes all five unmaintained `unic-*` crates. Tests cover the current
+  Unicode middle-dot continuation rule, invalid identifier characters, and
+  the package's existing URLPattern conformance cases.
+- Tauri opener 2.5.5 and single-instance 2.4.5 migrate only their Linux D-Bus
+  adapters to maintained [zbus 6.0.0](https://github.com/z-galaxy/zbus/releases/tag/zbus-6.0.0).
+  Its wire types, derives, and names replace the unmaintained standalone
+  `zvariant`, `zvariant_derive`, and `zbus_names` crates:
+  [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370),
+  [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371), and
+  [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372).
+  The adapters follow the
+  [upstream migration guide](https://z-galaxy.github.io/zbus/upgrading-to-6.html):
+  they use asynchronous proxies on Tauri's persistent Tokio runtime rather
+  than the removed blocking API. Scoped workers prevent nested-runtime panics,
+  and single-instance ownership remains active between calls and is released
+  at shutdown. Registration and secondary-activation failures are returned
+  instead of silently dropping the launch.
+- Tauri notification 2.4.0 selects `notify-rust`'s maintained `d` (libdbus)
+  backend instead of its default zbus 5 backend. Linux delivery runs on a
+  blocking worker and logs errors. The macOS and Windows notification
+  implementations and native dependency versions remain unchanged.
+
+The host uses `keyring-core` with explicit platform stores instead of the
+all-in-one `keyring` facade. macOS and Windows keep the same native stores;
+Linux uses maintained
+[`dbus-secret-service-keyring-store` 1.0.1](https://docs.rs/dbus-secret-service-keyring-store/1.0.1/).
+It uses encrypted Secret Service sessions, the same `service` and `username`
+attributes, and the same default collection as the previous zbus store.
+Existing service names, account hashes, and cleanup journals are unchanged.
+Initialization remains lazy and failures are reported, without an unencrypted
+or memory-only fallback.
+
+The original registry archives were verified against the pre-backport
+`Cargo.lock` SHA-256 checksums before extraction. Each package retains its
+upstream license, copyright notices, and `.cargo_vcs_info.json`; these identify
+the original source, not the additional Denote changes.
+
+| Package | Original archive SHA-256 |
+| --- | --- |
+| `glib` 0.18.5 | `233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5` |
+| `glib-macros` 0.18.5 | `0bb0228f477c0900c880fd78c8759b95c7636dbd7842707f49e132378aa2acdc` |
+| `gtk3-macros` 0.18.2 | `52ff3c5b21f14f0736fed6dcfc0bfb4225ebf5725f3c0209edeec181e4d73e9d` |
+| `tauri-plugin-notification` 2.4.0 | `ad2fd40946aef810c4be9fd33a2d1b9b397cb79042b2d21c81a0a8f204354fd1` |
+| `tauri-plugin-opener` 2.5.5 | `60d60366174b745b4ef5824b8bbc1c457fd08f0ce101ff643c0a49181a9f4e91` |
+| `tauri-plugin-single-instance` 2.4.5 | `db817fe9295e19b7d8357e900af31edb93703dd9fb6de524b007b47b6afc63b0` |
+| `urlpattern` 0.3.0 | `70acd30e3aa1450bc2eece896ce2ad0d178e9c079493819301573dae3c37ba6d` |
+
+Raw `cargo audit --file src-tauri/Cargo.lock` skips local path packages.
+The source-aware audit script verifies that the resolver uses exactly these
+seven local names, versions, and manifest paths, with only Denote selected by
+default. It rejects unreviewed non-registry dependency sources, audits the
+actual registry graph, then audits a standard-input projection containing the
+backports' original registry identities and archive checksums. It never edits
+`Cargo.lock`. This prevents vendoring from silently hiding an advisory.
+
+The published-baseline scan still reports
+[RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) because
+its version-based rule marks GLib 0.18.5 affected even with the source fix.
+This warning remains visible: it is not ignored, renamed, or hidden with a
+fabricated version. A successful audit exit alone is not proof that this bug
+is fixed. The release-mode regression tests must pass. The audit includes all
+platforms in the lockfile, so macOS and Windows also report this Linux dependency.
+CI rejects any unmaintained-crate warning in either scan.
+
+Run the backport checks with:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
+DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+  --package tauri-plugin-opener --package tauri-plugin-single-instance \
+  --package tauri-plugin-notification --lib linux_backport
+```
+
+The GTK checks require native GLib development libraries. D-Bus tests require
+Linux and `dbus-run-session`; they use synthetic services on a private bus, never
+a user's desktop bus or real credentials. These checks run in Linux CI and
+release validation alongside the ordinary all-platform desktop tests and
+Windows renderer smoke. Historical tags without backports retain their
+original release checks.
+Recent Rust compilers also report upstream lifetime, parentheses, and
+deprecated-fixture lints in the legacy GLib packages. Nested macro test
+fixtures can report unused application patches because they deliberately build
+smaller dependency graphs. These compiler diagnostics remain visible and are
+distinct from RustSec findings; the source-aware audit verifies the actual
+application resolver rather than those isolated fixtures.
+Keep backports limited to the documented fixes, retain upstream attribution,
+and remove them only when compatible upstream releases replace the patched
+sources. Do not replace source fixes with advisory suppression.
+
+### Vendored-library availability check
+
+**TODO/FIXME: every agent must re-check upstream fixes at the start of every
+Denote development session, before editing files, including non-Rust tasks.**
+Inspect the current vendor inventory rather than assuming it still contains
+only the packages above. Check official crate releases, upstream release
+notes and issue/PR trackers, and RustSec for each package. Record the date,
+versions examined, exact evidence links, and whether a compatible upstream
+release can replace the local source. Report a compatible fix explicitly.
+
+Last vendored-library check: **2026-10-17**.
+[GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
+published compatible GLib release; the
+[0.18 backport request](https://github.com/gtk-rs/gtk-rs-core/pull/2009)
+and [later request](https://github.com/gtk-rs/gtk-rs-core/pull/2022) were closed
+without merging. The current
+[GLib 0.22.10 release](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.10)
+and [GLib macros 0.22.9](https://crates.io/crates/glib-macros/0.22.9) do not
+provide replacements compatible with the GTK 0.18 dependency graph.
+[GLib macros 0.18.5](https://crates.io/crates/glib-macros/0.18.5) and
+[GTK3 macros 0.18.2](https://crates.io/crates/gtk3-macros/0.18.2) still require
+the local macro-error replacement.
+[GTK3 macros 0.19.0](https://github.com/gtk-rs/gtk3-rs/releases/tag/0.19.0)
+belongs to the GTK 0.19 / GLib 0.22 stack, not the pinned runtime's GTK 0.18
+types. URLPattern 0.4 through the current
+[0.6.0 release](https://github.com/denoland/rust-urlpattern/releases/tag/0.6.0)
+contain the
+[upstream ICU replacement](https://github.com/denoland/rust-urlpattern/pull/67),
+but the verified Tauri utils 2.9.3 graph requires
+[URLPattern 0.3.0](https://crates.io/crates/urlpattern/0.3.0).
+
+Published
+[notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),
+[opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
+[single-instance 2.5.4](https://crates.io/crates/tauri-plugin-single-instance/2.5.4)
+require Tauri 2.12 and still use zbus 5. The
+[upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+is open; no compatible published plugin removes the local adapters.
+[notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2) also retains
+zbus 5 as its default Linux backend. Its existing libdbus backend and the
+maintained Secret Service store above are usable replacements and are selected
+locally. RustSec still marks the latest standalone
+[`zvariant` 5.15.1](https://crates.io/crates/zvariant/5.15.1),
+[`zvariant_derive` 5.15.1](https://crates.io/crates/zvariant_derive/5.15.1), and
+[`zbus_names` 4.3.5](https://crates.io/crates/zbus_names/4.3.5) unmaintained;
+a patch-only bump does not resolve their advisories.
+
+Keep the reviewed backports until a compatible replacement passes the
+source-aware audit, optimized GTK regressions, and all-platform validation.
+Any required runtime-family change must also follow the Windows pin procedure
+below and pass the packaged Windows renderer/shutdown smoke gate. Do not
+silently upgrade, remove source fixes, or suppress an advisory.
 
 ### Re-evaluate the Windows runtime pin
 
