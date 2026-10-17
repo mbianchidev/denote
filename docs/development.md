@@ -822,16 +822,20 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-09-29**.
+Last upstream check: **2026-10-17**.
 
-- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
-  release newer than 2.12.0.
-- [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
-  Windows blank-webview fix for this regression.
-- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
-  than 0.57.0.
-- [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
-  Windows fix matching both the blank frame and orphaned process.
+- [Tauri v2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
+  still uses `tauri-utils` 2.10.2 and runtime 2.12.2; its release notes do not
+  identify a fix for the blank renderer and orphaned process.
+- The [Tauri issue tracker](https://github.com/tauri-apps/tauri/issues) has no
+  identified matching fix. Open
+  [issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes a
+  separate Windows blank-webview case.
+- [Wry v0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
+  remains the latest stable release; its release notes do not identify a matching
+  Windows fix.
+- The [Wry issue tracker](https://github.com/tauri-apps/wry/issues) has no
+  identified Windows fix matching both the blank frame and orphaned process.
 
 Any agent or contributor considering an upgrade must:
 
