@@ -797,6 +797,12 @@ The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 [RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
 This networking patch preserves the existing Windows/Tauri dependency graph.
 
+The 2026-10-14 Rustls advisories
+[RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
+[RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
+[RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348), and
+[RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349) require
+`rustls` 0.23.46 or newer; the lockfile now pins that patched version.
 `tauri-plugin-updater` disables its default `zip` feature to remove `zip`
 4.6.1 and the advisories published on 2026-10-17:
 [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
@@ -840,17 +846,19 @@ supported upgrade.
 Last upstream check: **2026-10-17**.
 
 - [Tauri v2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
-  still uses `tauri-utils` 2.10.2 and runtime 2.12.2; its release notes do not
-  identify a fix for the blank renderer and orphaned process.
-- The [Tauri issue tracker](https://github.com/tauri-apps/tauri/issues) has no
-  identified matching fix. Open
-  [issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes a
-  separate Windows blank-webview case.
+  is the latest stable release; it uses `tauri-utils` 2.10.2 and runtime 2.12.2,
+  and its release notes do not identify a fix for the blank renderer and orphaned
+  process.
+- [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes
+  a separate Windows blank-webview case, not a fix for this regression.
+- [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232) concerns
+  a Linux WebKitGTK segfault, not this Windows regression.
 - [Wry v0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
   remains the latest stable release; its release notes do not identify a matching
-  Windows fix.
-- The [Wry issue tracker](https://github.com/tauri-apps/wry/issues) has no
-  identified Windows fix matching both the blank frame and orphaned process.
+  Windows fix. [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
+  concerns Linux WebKitGTK view retention, not this Windows regression.
+- No identified upstream release or issue fixes both the blank Windows frame and
+  orphaned process.
 
 Any agent or contributor considering an upgrade must:
 
