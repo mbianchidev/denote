@@ -795,6 +795,24 @@ The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 [RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
 This networking patch preserves the existing Windows/Tauri dependency graph.
 
+The 2026-10-14 Rustls advisories
+[RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
+[RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
+[RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348), and
+[RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349) require
+`rustls` 0.23.46 or newer; the lockfile now pins that patched version.
+`tauri-plugin-updater` disables its default `zip` feature to remove `zip`
+4.6.1 and the advisories published on 2026-10-17:
+[RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
+[RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368), and
+[RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369).
+That feature only extracts Tauri v1 `.zip` and Linux `.tar.gz` updater bundles,
+and every updater release through 2.14.0 still requires `zip` 4. Denote
+publishes raw `-setup.exe`, `.msi`, and `.AppImage` updater artifacts; macOS
+`.app.tar.gz` extraction does not depend on the feature. Keep `rustls-tls` and
+`system-proxy` enabled. Do not restore the default features unless the updater
+requires a patched `zip` release.
+
 Four source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
 backports through `[patch.crates-io]`; their original package names and versions
 remain unchanged. The workspace defaults to the application only, so ordinary
@@ -804,8 +822,11 @@ Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
 exclusions.
 
-These backports remove the six unmaintained dependencies from the resolved
-graph; the published GLib version-based warning remains visible below.
+These backports remove the six unmaintained dependencies from the original GTK
+and URLPattern graph; the published GLib version-based warning remains visible
+below. The newer D-Bus maintenance advisories require a separate migration away
+from `zbus` 5 and its standalone `zvariant`, `zvariant_derive`, and `zbus_names`
+dependencies.
 
 - GLib 0.18.5 applies the two-line
   [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
@@ -883,18 +904,23 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-12**.
+Last vendored-library check: **2026-10-17**.
 [GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
 published compatible GLib release; the
 [0.18 backport request](https://github.com/gtk-rs/gtk-rs-core/pull/2009)
 and [later request](https://github.com/gtk-rs/gtk-rs-core/pull/2022) were closed
-without merging.
+without merging. The current
+[GLib 0.22.10 release](https://github.com/gtk-rs/gtk-rs-core/releases/tag/0.22.10)
+and [GLib macros 0.22.9](https://crates.io/crates/glib-macros/0.22.9) do not
+provide replacements compatible with the GTK 0.18 dependency graph.
 [GLib macros 0.18.5](https://crates.io/crates/glib-macros/0.18.5) and
 [GTK3 macros 0.18.2](https://crates.io/crates/gtk3-macros/0.18.2) still require
 the local macro-error replacement.
-[GTK3 macros 0.19.0](https://crates.io/crates/gtk3-macros/0.19.0) belongs to the
+[GTK3 macros 0.19.0](https://github.com/gtk-rs/gtk3-rs/releases/tag/0.19.0) belongs to the
 GTK 0.19 / GLib 0.22 stack, not the pinned runtime's GTK 0.18 types. URLPattern
-0.4 and newer contain the
+0.4 through the current
+[0.6.0 release](https://github.com/denoland/rust-urlpattern/releases/tag/0.6.0)
+contain the
 [upstream ICU replacement](https://github.com/denoland/rust-urlpattern/pull/67),
 but the verified Tauri utils 2.9.3 graph requires
 [URLPattern 0.3.0](https://crates.io/crates/urlpattern/0.3.0).
@@ -914,21 +940,22 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-10-12**.
+Last upstream check: **2026-10-17**.
 
-- [Tauri 2.12.3](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.3)
-  fixes channel delivery, iOS linking, and NSIS downgrade enforcement, but
-  identifies no Windows blank-webview fix.
-- [Tauri 2.12.2](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.2)
-  fixes macOS relaunch, one-shot listeners, and menu creation, not this Windows
-  regression.
-- [Wry 0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
-  remains the latest release. Its WebView2 changes and IPC-injection change
-  do not identify a fix for both observed Windows failures.
-- Searches of the official
-  [Tauri issues](https://github.com/tauri-apps/tauri/issues) and
-  [Wry issues](https://github.com/tauri-apps/wry/issues) identified no matching
-  blank-frame and orphan-process fix. Retain the verified 2.11 family.
+- [Tauri v2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
+  is the latest stable release; it uses `tauri-utils` 2.10.2 and runtime 2.12.2,
+  and its release notes do not identify a fix for the blank renderer and orphaned
+  process.
+- [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes
+  a separate Windows blank-webview case, not a fix for this regression.
+- [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232) concerns
+  a Linux WebKitGTK segfault, not this Windows regression.
+- [Wry v0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
+  remains the latest stable release; its release notes do not identify a matching
+  Windows fix. [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
+  concerns Linux WebKitGTK view retention, not this Windows regression.
+- No identified upstream release or issue fixes both the blank Windows frame and
+  orphaned process.
 
 Any agent or contributor considering an upgrade must:
 
