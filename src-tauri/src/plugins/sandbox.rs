@@ -4,12 +4,13 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::Path,
     process::{Command, Stdio},
+    sync::{Arc, LazyLock},
     thread,
     time::{Duration, Instant},
 };
 
 use command_group::CommandGroup;
-use keyring::Entry;
+use keyring_core::{Entry, api::CredentialStore};
 use reqwest::blocking::Client;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -50,7 +51,7 @@ impl PluginManager {
         let entry = keychain_entry(&self.inner.keychain_service, plugin_id, key)?;
         match entry.get_password() {
             Ok(value) => Ok(Some(value)),
-            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(keyring_core::Error::NoEntry) => Ok(None),
             Err(error) => Err(AppError::Plugin(format!(
                 "Unable to read keychain entry for {plugin_id}: {error}"
             ))),
@@ -566,12 +567,49 @@ pub(crate) fn enforce_storage_quota(
 }
 
 pub(crate) fn keychain_entry(service: &str, plugin_id: &str, key: &str) -> AppResult<Entry> {
+    static STORE: LazyLock<keyring_core::Result<Arc<CredentialStore>>> =
+        LazyLock::new(create_keychain_store);
+    let store = STORE.as_ref().map_err(|error| {
+        AppError::Plugin(format!(
+            "Unable to initialize the operating-system keychain for {plugin_id}: {error}"
+        ))
+    })?;
+    keychain_entry_in_store(store.as_ref(), service, plugin_id, key)
+}
+
+fn create_keychain_store() -> keyring_core::Result<Arc<CredentialStore>> {
+    #[cfg(target_os = "macos")]
+    let store = apple_native_keyring_store::keychain::Store::new()?;
+    #[cfg(windows)]
+    let store = windows_native_keyring_store::Store::new()?;
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "ios", target_os = "android"))
+    ))]
+    let store = dbus_secret_service_keyring_store::Store::new()?;
+    #[cfg(all(any(unix, windows), not(any(target_os = "ios", target_os = "android"))))]
+    {
+        Ok(store)
+    }
+    #[cfg(not(all(any(unix, windows), not(any(target_os = "ios", target_os = "android")))))]
+    Err(keyring_core::Error::Invalid(
+        "platform".to_string(),
+        "The operating-system keychain is unavailable on this platform.".to_string(),
+    ))
+}
+
+fn keychain_entry_in_store(
+    store: &CredentialStore,
+    service: &str,
+    plugin_id: &str,
+    key: &str,
+) -> AppResult<Entry> {
     let mut identifier = Sha256::new();
     identifier.update(plugin_id.as_bytes());
     identifier.update([0]);
     identifier.update(key.as_bytes());
     let account = hex::encode(identifier.finalize());
-    Entry::new(service, &account).map_err(|error| {
+    store.build(service, &account, None).map_err(|error| {
         AppError::Plugin(format!(
             "Unable to access the operating-system keychain for {plugin_id}: {error}"
         ))
@@ -580,9 +618,81 @@ pub(crate) fn keychain_entry(service: &str, plugin_id: &str, key: &str) -> AppRe
 
 pub(crate) fn delete_keychain_entry(service: &str, plugin_id: &str, key: &str) -> AppResult<()> {
     match keychain_entry(service, plugin_id, key)?.delete_credential() {
-        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
         Err(error) => Err(AppError::Plugin(format!(
             "Unable to delete keychain entry for {plugin_id}: {error}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod keychain_tests {
+    use std::{any::Any, collections::HashMap, sync::Mutex};
+
+    use keyring_core::api::CredentialStoreApi;
+
+    use super::*;
+
+    #[derive(Default)]
+    struct SyntheticStore {
+        entries: Mutex<Vec<(String, String)>>,
+    }
+
+    impl CredentialStoreApi for SyntheticStore {
+        fn vendor(&self) -> String {
+            "synthetic".to_string()
+        }
+
+        fn id(&self) -> String {
+            "synthetic".to_string()
+        }
+
+        fn build(
+            &self,
+            service: &str,
+            user: &str,
+            modifiers: Option<&HashMap<&str, &str>>,
+        ) -> keyring_core::Result<Entry> {
+            assert!(modifiers.is_none());
+            self.entries
+                .lock()
+                .unwrap()
+                .push((service.to_string(), user.to_string()));
+            Err(keyring_core::Error::NotSupportedByStore(
+                "synthetic store unavailable".to_string(),
+            ))
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[test]
+    fn preserves_existing_keychain_service_and_hashed_account() {
+        let store = SyntheticStore::default();
+        let error =
+            keychain_entry_in_store(&store, "synthetic.service", "denote.synthetic", "api-key")
+                .unwrap_err();
+        assert_eq!(
+            *store.entries.lock().unwrap(),
+            vec![(
+                "synthetic.service".to_string(),
+                "91a2160b8440e2f8256cdf443af89364d76c671910ca1f9b9e6c30ac84cdf8ba".to_string()
+            )]
+        );
+        assert!(error.to_string().contains("denote.synthetic"));
+        assert!(error.to_string().contains("synthetic store unavailable"));
+    }
+
+    #[test]
+    fn keeps_plugin_and_secret_namespaces_distinct() {
+        let store = SyntheticStore::default();
+        for (plugin, key) in [("denote.ab", "c"), ("denote.a", "bc"), ("denote.ab", "d")] {
+            assert!(keychain_entry_in_store(&store, "synthetic.service", plugin, key).is_err());
+        }
+        let entries = store.entries.lock().unwrap();
+        assert_ne!(entries[0].1, entries[1].1);
+        assert_ne!(entries[0].1, entries[2].1);
     }
 }

@@ -71,7 +71,7 @@ link activation.
 
 Run Rust audits with `node scripts/audit-rust-dependencies.mjs` so local
 compatibility backports remain visible to RustSec. The
-[backport policy](docs/development.md#rust-dependency-audits-and-gtk-backports)
+[backport policy](docs/development.md#rust-dependency-audits-and-linux-backports)
 records their provenance, remaining version-based warning, and required checks.
 
 - [Built-in user guide](docs/user-guide/Welcome.md)

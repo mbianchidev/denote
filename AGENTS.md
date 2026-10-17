@@ -17,8 +17,9 @@ Rust. Do not skip this check or assume the previous check is still current.**
 Inspect `src-tauri/vendor/` and `[patch.crates-io]` in `src-tauri/Cargo.toml`.
 Check official crate releases, upstream release notes, issues/pull requests, and
 RustSec for **every vendored library**, currently `glib`, `glib-macros`,
-`gtk3-macros`, and `urlpattern`. Look specifically for a published upstream fix
-or maintained replacement that can remove each local backport.
+`gtk3-macros`, `urlpattern`, `tauri-plugin-notification`, `tauri-plugin-opener`,
+and `tauri-plugin-single-instance`. Look specifically for a published upstream
+fix or maintained replacement that can remove each local backport.
 
 Record the check date, versions examined, exact upstream links, and the outcome
 in **Vendored-library availability check** in `docs/development.md`. Explicitly

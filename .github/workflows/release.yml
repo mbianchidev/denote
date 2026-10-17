@@ -99,6 +99,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential \
+            dbus \
             curl \
             file \
             libayatana-appindicator3-dev \
@@ -167,6 +168,15 @@ jobs:
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
           cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
+
+      - name: Linux D-Bus backport tests
+        if: hashFiles('src-tauri/vendor/tauri-plugin-opener/Cargo.toml') != ''
+        env:
+          DENOTE_TEST_DBUS: "1"
+        run: |
+          dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+            --package tauri-plugin-opener --package tauri-plugin-single-instance \
+            --package tauri-plugin-notification --lib linux_backport
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml

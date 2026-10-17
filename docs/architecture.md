@@ -16,16 +16,32 @@ A newer runtime may replace the pin only when that gate passes.
 procedure; dependency automation or an agent must follow it before changing any
 member of this family.
 
-Four source-level compatibility backports in `src-tauri/vendor/` preserve that
+Seven source-level compatibility backports in `src-tauri/vendor/` preserve that
 runtime graph while fixing GLib's mutable iterator out-argument and replacing
-the unmaintained macro-error and Unicode-property dependencies. Original crate
-names, versions, licenses, and source provenance remain intact. Cargo's default
+the unmaintained macro-error, Unicode-property, and split D-Bus dependencies.
+Original crate names, versions, licenses, and source provenance remain intact. Cargo's default
 workspace member is the application; GTK-specific regression tests are explicit
 and run optimized on Linux. The source-aware audit also scans the backports'
 original registry identities because RustSec skips path packages. The
 version-based GLib advisory remains visible, and CI rejects unmaintained
 dependencies. `docs/development.md` records each
 backport, original archive digest, and validation command.
+
+The Linux opener and single-instance adapters use maintained `zbus` 6 on
+Tauri's persistent Tokio runtime. Their synchronous entry points run outside an
+already-entered Tokio context, and the single-instance connection stays alive
+after setup to receive secondary launches until its name is released at exit.
+Linux notifications use `notify-rust`'s maintained libdbus backend on a blocking
+worker. Linux regression tests use an isolated session bus and synthetic
+notification, file-manager, and single-instance services.
+
+Credential access uses `keyring-core` and explicit platform stores: the same
+Keychain Services and Windows Credential Manager implementations, plus the
+maintained libdbus Secret Service store on Linux. Store initialization remains
+lazy and fallible; no in-memory or plaintext fallback is allowed. Service names,
+SHA-256 account identifiers, Secret Service `service`/`username` attributes,
+default collections, and credential cleanup journals stay unchanged, so
+existing secrets remain discoverable across the backend migration.
 
 The frontend build caps emitted main-thread JavaScript chunks at 500,000 bytes.
 Entry-aware chunks preserve lazy dependency boundaries for Markdown editing,

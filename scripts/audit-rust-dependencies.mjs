@@ -17,6 +17,18 @@ const backports = new Map([
     version: "0.18.2",
     checksum: "52ff3c5b21f14f0736fed6dcfc0bfb4225ebf5725f3c0209edeec181e4d73e9d",
   }],
+  ["tauri-plugin-notification", {
+    version: "2.4.0",
+    checksum: "ad2fd40946aef810c4be9fd33a2d1b9b397cb79042b2d21c81a0a8f204354fd1",
+  }],
+  ["tauri-plugin-opener", {
+    version: "2.5.5",
+    checksum: "60d60366174b745b4ef5824b8bbc1c457fd08f0ce101ff643c0a49181a9f4e91",
+  }],
+  ["tauri-plugin-single-instance", {
+    version: "2.4.5",
+    checksum: "db817fe9295e19b7d8357e900af31edb93703dd9fb6de524b007b47b6afc63b0",
+  }],
   ["urlpattern", {
     version: "0.3.0",
     checksum: "70acd30e3aa1450bc2eece896ce2ad0d178e9c079493819301573dae3c37ba6d",

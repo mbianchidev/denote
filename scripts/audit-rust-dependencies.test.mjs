@@ -11,6 +11,9 @@ const versions = {
   glib: "0.18.5",
   "glib-macros": "0.18.5",
   "gtk3-macros": "0.18.2",
+  "tauri-plugin-notification": "2.4.0",
+  "tauri-plugin-opener": "2.5.5",
+  "tauri-plugin-single-instance": "2.4.5",
   urlpattern: "0.3.0",
 };
 
@@ -43,6 +46,13 @@ function lockfile() {
 describe("Rust source-backport audit", () => {
   it("requires the reviewed local packages and application-only default", () => {
     expect(() => verifyResolvedBackports(metadata(), root)).not.toThrow();
+  });
+
+  it.each(Object.keys(versions))("rejects a registry bypass for %s", (name) => {
+    const input = metadata();
+    input.packages.find((entry) => entry.name === name).source =
+      "registry+https://github.com/rust-lang/crates.io-index";
+    expect(() => verifyResolvedBackports(input, root)).toThrow(name);
   });
 
   it.each([

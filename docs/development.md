@@ -777,7 +777,7 @@ npx vitest run scripts/frontend-bundle.test.ts \
 npx tsc --noEmit -p tsconfig.node.json
 ```
 
-## Rust dependency audits and GTK backports
+## Rust dependency audits and Linux backports
 
 Run `node scripts/audit-rust-dependencies.mjs`. Windows releases temporarily pin
 Tauri 2.11.6, tauri-build/codegen/macros 2.6.3, runtime 2.11.3,
@@ -813,7 +813,7 @@ publishes raw `-setup.exe`, `.msi`, and `.AppImage` updater artifacts; macOS
 `system-proxy` enabled. Do not restore the default features unless the updater
 requires a patched `zip` release.
 
-Four source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
+Seven source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
 backports through `[patch.crates-io]`; their original package names and versions
 remain unchanged. The workspace defaults to the application only, so ordinary
 desktop builds do not acquire a macOS or Windows GTK build requirement. Its
@@ -822,11 +822,9 @@ Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
 exclusions.
 
-These backports remove the six unmaintained dependencies from the original GTK
-and URLPattern graph; the published GLib version-based warning remains visible
-below. The newer D-Bus maintenance advisories require a separate migration away
-from `zbus` 5 and its standalone `zvariant`, `zvariant_derive`, and `zbus_names`
-dependencies.
+These backports and the maintained credential-store replacement remove all
+nine unmaintained dependencies from the GTK, URLPattern, and D-Bus graph.
+The published GLib version-based warning remains visible below.
 
 - GLib 0.18.5 applies the two-line
   [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
@@ -848,6 +846,34 @@ dependencies.
   This removes all five unmaintained `unic-*` crates. Tests cover the current
   Unicode middle-dot continuation rule, invalid identifier characters, and
   the package's existing URLPattern conformance cases.
+- Tauri opener 2.5.5 and single-instance 2.4.5 migrate only their Linux D-Bus
+  adapters to maintained [zbus 6.0.0](https://github.com/z-galaxy/zbus/releases/tag/zbus-6.0.0).
+  Its wire types, derives, and names replace the unmaintained standalone
+  `zvariant`, `zvariant_derive`, and `zbus_names` crates:
+  [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370),
+  [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371), and
+  [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372).
+  The adapters follow the
+  [upstream migration guide](https://z-galaxy.github.io/zbus/upgrading-to-6.html):
+  they use asynchronous proxies on Tauri's persistent Tokio runtime rather
+  than the removed blocking API. Scoped workers prevent nested-runtime panics,
+  and single-instance ownership remains active between calls and is released
+  at shutdown. Registration and secondary-activation failures are returned
+  instead of silently dropping the launch.
+- Tauri notification 2.4.0 selects `notify-rust`'s maintained `d` (libdbus)
+  backend instead of its default zbus 5 backend. Linux delivery runs on a
+  blocking worker and logs errors. The macOS and Windows notification
+  implementations and native dependency versions remain unchanged.
+
+The host uses `keyring-core` with explicit platform stores instead of the
+all-in-one `keyring` facade. macOS and Windows keep the same native stores;
+Linux uses maintained
+[`dbus-secret-service-keyring-store` 1.0.1](https://docs.rs/dbus-secret-service-keyring-store/1.0.1/).
+It uses encrypted Secret Service sessions, the same `service` and `username`
+attributes, and the same default collection as the previous zbus store.
+Existing service names, account hashes, and cleanup journals are unchanged.
+Initialization remains lazy and failures are reported, without an unencrypted
+or memory-only fallback.
 
 The original registry archives were verified against the pre-backport
 `Cargo.lock` SHA-256 checksums before extraction. Each package retains its
@@ -859,11 +885,14 @@ the original source, not the additional Denote changes.
 | `glib` 0.18.5 | `233daaf6e83ae6a12a52055f568f9d7cf4671dabb78ff9560ab6da230ce00ee5` |
 | `glib-macros` 0.18.5 | `0bb0228f477c0900c880fd78c8759b95c7636dbd7842707f49e132378aa2acdc` |
 | `gtk3-macros` 0.18.2 | `52ff3c5b21f14f0736fed6dcfc0bfb4225ebf5725f3c0209edeec181e4d73e9d` |
+| `tauri-plugin-notification` 2.4.0 | `ad2fd40946aef810c4be9fd33a2d1b9b397cb79042b2d21c81a0a8f204354fd1` |
+| `tauri-plugin-opener` 2.5.5 | `60d60366174b745b4ef5824b8bbc1c457fd08f0ce101ff643c0a49181a9f4e91` |
+| `tauri-plugin-single-instance` 2.4.5 | `db817fe9295e19b7d8357e900af31edb93703dd9fb6de524b007b47b6afc63b0` |
 | `urlpattern` 0.3.0 | `70acd30e3aa1450bc2eece896ce2ad0d178e9c079493819301573dae3c37ba6d` |
 
 Raw `cargo audit --file src-tauri/Cargo.lock` skips local path packages.
 The source-aware audit script verifies that the resolver uses exactly these
-four local names, versions, and manifest paths, with only Denote selected by
+seven local names, versions, and manifest paths, with only Denote selected by
 default. It rejects unreviewed non-registry dependency sources, audits the
 actual registry graph, then audits a standard-input projection containing the
 backports' original registry identities and archive checksums. It never edits
@@ -884,12 +913,17 @@ Run the backport checks with:
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
 cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
+DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+  --package tauri-plugin-opener --package tauri-plugin-single-instance \
+  --package tauri-plugin-notification --lib linux_backport
 ```
 
-The GTK checks require native GLib development libraries and run on Linux in CI
-and release validation, alongside the ordinary all-platform desktop tests and
-Windows renderer smoke. Historical tags without backports retain their original
-release checks.
+The GTK checks require native GLib development libraries. D-Bus tests require
+Linux and `dbus-run-session`; they use synthetic services on a private bus, never
+a user's desktop bus or real credentials. These checks run in Linux CI and
+release validation alongside the ordinary all-platform desktop tests and
+Windows renderer smoke. Historical tags without backports retain their
+original release checks.
 Keep backports limited to the documented fixes, retain upstream attribution,
 and remove them only when compatible upstream releases replace the patched
 sources. Do not replace source fixes with advisory suppression.
@@ -899,7 +933,7 @@ sources. Do not replace source fixes with advisory suppression.
 **TODO/FIXME: every agent must re-check upstream fixes at the start of every
 Denote development session, before editing files, including non-Rust tasks.**
 Inspect the current vendor inventory rather than assuming it still contains
-only the four packages above. Check official crate releases, upstream release
+only the packages above. Check official crate releases, upstream release
 notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
@@ -916,14 +950,30 @@ provide replacements compatible with the GTK 0.18 dependency graph.
 [GLib macros 0.18.5](https://crates.io/crates/glib-macros/0.18.5) and
 [GTK3 macros 0.18.2](https://crates.io/crates/gtk3-macros/0.18.2) still require
 the local macro-error replacement.
-[GTK3 macros 0.19.0](https://github.com/gtk-rs/gtk3-rs/releases/tag/0.19.0) belongs to the
-GTK 0.19 / GLib 0.22 stack, not the pinned runtime's GTK 0.18 types. URLPattern
-0.4 through the current
+[GTK3 macros 0.19.0](https://github.com/gtk-rs/gtk3-rs/releases/tag/0.19.0)
+belongs to the GTK 0.19 / GLib 0.22 stack, not the pinned runtime's GTK 0.18
+types. URLPattern 0.4 through the current
 [0.6.0 release](https://github.com/denoland/rust-urlpattern/releases/tag/0.6.0)
 contain the
 [upstream ICU replacement](https://github.com/denoland/rust-urlpattern/pull/67),
 but the verified Tauri utils 2.9.3 graph requires
 [URLPattern 0.3.0](https://crates.io/crates/urlpattern/0.3.0).
+
+Published
+[notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),
+[opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
+[single-instance 2.5.4](https://crates.io/crates/tauri-plugin-single-instance/2.5.4)
+require Tauri 2.12 and still use zbus 5. The
+[upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+is open; no compatible published plugin removes the local adapters.
+[notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2) also retains
+zbus 5 as its default Linux backend. Its existing libdbus backend and the
+maintained Secret Service store above are usable replacements and are selected
+locally. RustSec still marks the latest standalone
+[`zvariant` 5.15.1](https://crates.io/crates/zvariant/5.15.1),
+[`zvariant_derive` 5.15.1](https://crates.io/crates/zvariant_derive/5.15.1), and
+[`zbus_names` 4.3.5](https://crates.io/crates/zbus_names/4.3.5) unmaintained;
+a patch-only bump does not resolve their advisories.
 
 Keep the reviewed backports until a compatible replacement passes the
 source-aware audit, optimized GTK regressions, and all-platform validation.

@@ -19,6 +19,9 @@ members = [
     "vendor/glib",
     "vendor/glib-macros",
     "vendor/gtk3-macros",
+    "vendor/tauri-plugin-notification",
+    "vendor/tauri-plugin-opener",
+    "vendor/tauri-plugin-single-instance",
     "vendor/urlpattern",
 ]
 default-members = ["."]
@@ -29,6 +32,9 @@ resolver = "3"
 glib = { path = "vendor/glib" }
 glib-macros = { path = "vendor/glib-macros" }
 gtk3-macros = { path = "vendor/gtk3-macros" }
+tauri-plugin-notification = { path = "vendor/tauri-plugin-notification" }
+tauri-plugin-opener = { path = "vendor/tauri-plugin-opener" }
+tauri-plugin-single-instance = { path = "vendor/tauri-plugin-single-instance" }
 urlpattern = { path = "vendor/urlpattern" }
 
 [build-dependencies]
@@ -69,7 +75,7 @@ libc = "0.2.189"
 reqwest = { version = "0.13.4", default-features = false, features = ["blocking", "rustls"] }
 tar = "0.4.46"
 flate2 = "1.1.10"
-keyring = "4.2.0"
+keyring-core = "1.0.1"
 semver = "1.0.27"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-notification = "2"
@@ -84,7 +90,11 @@ tauri-plugin-deep-link = "2"
 rlimit = "0.11.0"
 xattr = "1.6.1"
 
+[target.'cfg(all(unix, not(any(target_os = "macos", target_os = "ios", target_os = "android"))))'.dependencies]
+dbus-secret-service-keyring-store = { version = "1.0.1", features = ["crypto-rust", "vendored"] }
+
 [target."cfg(target_os = \"macos\")".dependencies]
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
 block2 = "0.6.2"
 dispatch2 = "0.3.1"
 objc2 = "0.6.4"
@@ -92,4 +102,5 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSArray", "NSString", "NSURL"] }
 
 [target."cfg(windows)".dependencies]
+windows-native-keyring-store = "1.1.0"
 windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_Security_Authorization"] }
