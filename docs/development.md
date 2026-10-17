@@ -797,7 +797,24 @@ The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 [RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
 This networking patch preserves the existing Windows/Tauri dependency graph.
 
-Seven warning-level findings remain:
+The 2026-10-14 Rustls advisories
+[RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
+[RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
+[RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348), and
+[RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349) require
+`rustls` 0.23.46 or newer; the lockfile now pins that patched version. The
+Windows updater's `zip` 4 dependency is also
+affected by [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
+[RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368), and
+[RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369). The
+upstream [zip 9 fix](https://github.com/tauri-apps/plugins-workspace/pull/3698)
+is merged, and [updater 2.14.1](https://github.com/tauri-apps/plugins-workspace/pull/3712)
+is pending publication. Its current source requires Tauri 2.12, conflicting with
+Denote's verified 2.11 runtime pin. Keep the pin and do not suppress these
+advisories; adopt an updater release compatible with Tauri 2.11 when upstream
+publishes one.
+
+Ten warning-level findings remain:
 
 | Advisory | Dependency path | Status |
 | --- | --- | --- |
@@ -807,6 +824,9 @@ Seven warning-level findings remain:
 | [RUSTSEC-2025-0080](https://rustsec.org/advisories/RUSTSEC-2025-0080) | Tauri utils 2.9 / URL pattern -> `unic-common` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
+| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | Tauri plugins / zbus -> `zvariant` 5.15.0 | Unmaintained |
+| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Tauri plugins / zbus -> `zbus_names` 4.3.4 | Unmaintained |
+| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | Tauri plugins / zbus -> `zvariant_derive` 5.15.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
@@ -822,16 +842,18 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-09-29**.
+Last upstream check: **2026-10-17**.
 
-- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
-  release newer than 2.12.0.
-- [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
-  Windows blank-webview fix for this regression.
-- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
-  than 0.57.0.
-- [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
-  Windows fix matching both the blank frame and orphaned process.
+- [Tauri 2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
+  is the latest stable release; it moves the runtime family to 2.12.2 and does
+  not report a Windows blank-webview fix.
+- [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232) concerns
+  a Linux WebKitGTK segfault, not this Windows regression.
+- [Wry 0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0) is the
+  latest release. [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
+  concerns Linux WebKitGTK view retention, not this Windows regression.
+- No identified upstream release or issue fixes both the blank Windows frame and
+  orphaned process.
 
 Any agent or contributor considering an upgrade must:
 
