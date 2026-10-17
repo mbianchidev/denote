@@ -797,7 +797,19 @@ The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 [RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
 This networking patch preserves the existing Windows/Tauri dependency graph.
 
-Seven warning-level findings remain:
+`tauri-plugin-updater` disables its default `zip` feature to remove `zip`
+4.6.1 and the advisories published on 2026-10-17:
+[RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
+[RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368), and
+[RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369).
+That feature only extracts Tauri v1 `.zip` and Linux `.tar.gz` updater bundles,
+and every updater release through 2.14.0 still requires `zip` 4. Denote
+publishes raw `-setup.exe`, `.msi`, and `.AppImage` updater artifacts; macOS
+`.app.tar.gz` extraction does not depend on the feature. Keep `rustls-tls` and
+`system-proxy` enabled. Do not restore the default features unless the updater
+requires a patched `zip` release.
+
+Ten warning-level findings remain:
 
 | Advisory | Dependency path | Status |
 | --- | --- | --- |
@@ -808,6 +820,9 @@ Seven warning-level findings remain:
 | [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
+| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | Keyring, notification, opener, and single-instance D-Bus -> `zbus` 5.19 -> `zvariant` 5.15.0 | Unmaintained; merged into `zbus` 6 |
+| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Linux D-Bus -> `zbus` 5.19 -> `zbus_names` 4.3.4 | Unmaintained; merged into `zbus` 6 |
+| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | Linux D-Bus -> `zvariant` 5.15.0 -> `zvariant_derive` 5.15.0 | Unmaintained; merged into `zbus` 6 |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
 report the Linux GTK dependencies. A successful exit does not resolve any of

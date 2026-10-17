@@ -79,7 +79,9 @@ DEB/RPM packages use the matching system package flow. macOS derives
 private recovery storage, and removes `com.apple.quarantine` only inside the
 exact verified replacement before relaunch. A finalization failure restores the
 recovery copy. No update accepts a caller path, arbitrary host, checksum-only
-integrity, or downgrade.
+integrity, or downgrade. The updater plugin excludes Tauri v1 compressed Windows
+and Linux bundles, so those platforms install only the raw signed artifacts
+named by the release contract.
 
 `release-assets.json` is the shared desktop download and updater naming
 contract. Release scripts stage architecture-qualified updater assets, require
