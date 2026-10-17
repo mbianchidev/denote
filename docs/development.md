@@ -924,6 +924,12 @@ a user's desktop bus or real credentials. These checks run in Linux CI and
 release validation alongside the ordinary all-platform desktop tests and
 Windows renderer smoke. Historical tags without backports retain their
 original release checks.
+Recent Rust compilers also report upstream lifetime, parentheses, and
+deprecated-fixture lints in the legacy GLib packages. Nested macro test
+fixtures can report unused application patches because they deliberately build
+smaller dependency graphs. These compiler diagnostics remain visible and are
+distinct from RustSec findings; the source-aware audit verifies the actual
+application resolver rather than those isolated fixtures.
 Keep backports limited to the documented fixes, retain upstream attribution,
 and remove them only when compatible upstream releases replace the patched
 sources. Do not replace source fixes with advisory suppression.
