@@ -58,7 +58,9 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-notification = "2"
 command-group = "5.0.1"
 tempfile = "3.27.0"
-tauri-plugin-updater = "2"
+# The default `zip` feature only extracts Tauri v1 `.zip` bundles through the
+# vulnerable `zip` 4 extractor. Denote publishes raw v2 updater artifacts.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-deep-link = "2"
 
 [target."cfg(unix)".dependencies]

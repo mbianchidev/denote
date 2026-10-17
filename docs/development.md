@@ -802,17 +802,18 @@ The 2026-10-14 Rustls advisories
 [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
 [RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348), and
 [RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349) require
-`rustls` 0.23.46 or newer; the lockfile now pins that patched version. The
-Windows updater's `zip` 4 dependency is also
-affected by [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
+`rustls` 0.23.46 or newer; the lockfile now pins that patched version.
+`tauri-plugin-updater` disables its default `zip` feature to remove `zip`
+4.6.1 and the advisories published on 2026-10-17:
+[RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
 [RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368), and
-[RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369). The
-upstream [zip 9 fix](https://github.com/tauri-apps/plugins-workspace/pull/3698)
-is merged. The open [release PR for updater 2.14.1](https://github.com/tauri-apps/plugins-workspace/pull/3712)
-has not published the crate; its current source requires Tauri 2.12, which
-conflicts with Denote's verified 2.11 runtime pin. Keep the pin and do not suppress these
-advisories; adopt an updater release compatible with Tauri 2.11 when upstream
-publishes one.
+[RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369).
+That feature only extracts Tauri v1 `.zip` and Linux `.tar.gz` updater bundles,
+and every updater release through 2.14.0 still requires `zip` 4. Denote
+publishes raw `-setup.exe`, `.msi`, and `.AppImage` updater artifacts; macOS
+`.app.tar.gz` extraction does not depend on the feature. Keep `rustls-tls` and
+`system-proxy` enabled. Do not restore the default features unless the updater
+requires a patched `zip` release.
 
 Ten warning-level findings remain:
 
@@ -824,10 +825,10 @@ Ten warning-level findings remain:
 | [RUSTSEC-2025-0080](https://rustsec.org/advisories/RUSTSEC-2025-0080) | Tauri utils 2.9 / URL pattern -> `unic-common` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
-| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | Tauri plugins / zbus -> `zvariant` 5.15.0 | Unmaintained |
-| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Tauri plugins / zbus -> `zbus_names` 4.3.4 | Unmaintained |
-| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | Tauri plugins / zbus -> `zvariant_derive` 5.15.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
+| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | Keyring, notification, opener, and single-instance D-Bus -> `zbus` 5.19 -> `zvariant` 5.15.0 | Unmaintained; merged into `zbus` 6 |
+| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Linux D-Bus -> `zbus` 5.19 -> `zbus_names` 4.3.4 | Unmaintained; merged into `zbus` 6 |
+| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | Linux D-Bus -> `zvariant` 5.15.0 -> `zvariant_derive` 5.15.0 | Unmaintained; merged into `zbus` 6 |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
 report the Linux GTK dependencies. A successful exit does not resolve any of
@@ -844,13 +845,17 @@ supported upgrade.
 
 Last upstream check: **2026-10-17**.
 
-- [Tauri 2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
-  is the latest stable release; it moves the runtime family to 2.12.2 and does
-  not report a Windows blank-webview fix.
+- [Tauri v2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
+  is the latest stable release; it uses `tauri-utils` 2.10.2 and runtime 2.12.2,
+  and its release notes do not identify a fix for the blank renderer and orphaned
+  process.
+- [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes
+  a separate Windows blank-webview case, not a fix for this regression.
 - [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232) concerns
   a Linux WebKitGTK segfault, not this Windows regression.
-- [Wry 0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0) is the
-  latest release. [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
+- [Wry v0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
+  remains the latest stable release; its release notes do not identify a matching
+  Windows fix. [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
   concerns Linux WebKitGTK view retention, not this Windows regression.
 - No identified upstream release or issue fixes both the blank Windows frame and
   orphaned process.
