@@ -41,9 +41,25 @@ macOS Apple Silicon, macOS Intel, Windows, and Linux downloads from the latest
 GitHub Release. Every release also publishes SHA-256 checksums, SBOMs, and build
 provenance.
 
-Current macOS releases are unsigned. Verify the disk image against its published
-checksum before using the documented quarantine workaround in the
-[getting-started guide](docs/user-guide/docs/Getting%20started.md).
+### Opening Denote on macOS
+
+Current macOS releases are unsigned. Only use this workaround for a trusted
+download from the [official Denote releases](https://github.com/mbianchidev/denote/releases).
+Verify the disk image against that release's `SHA256SUMS` before continuing.
+
+1. Open the disk image and drag `Denote.app` into **Applications**.
+2. If macOS blocks launch or reports that the app is damaged, open **Terminal**
+   and run:
+
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Denote.app"
+   ```
+
+3. Reopen Denote from **Applications**.
+
+This removes quarantine only from `Denote.app`, not system-wide Gatekeeper
+protection. See the [getting-started guide](docs/user-guide/docs/Getting%20started.md)
+for first steps.
 
 ## Start writing
 
