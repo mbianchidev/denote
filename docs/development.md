@@ -330,7 +330,7 @@ The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces --include-workspace-root` and
-`npm ls lodash-es`. The host sanitizer and Mermaid 0.2.5 use DOMPurify
+`npm ls lodash-es`. The host sanitizer and Mermaid 0.2.8 use DOMPurify
 [3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) to fix
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
@@ -355,16 +355,44 @@ them or change existing GitHub Release assets; release preparation still owns
 the final catalog URLs and uploads.
 
 The root `katex` override
-pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
+pins [0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because
 Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
-on 0.18.x until upstream Mermaid requires a patched release; KaTeX 0.19 changes
-strict-mode behavior. Earlier published plugin archives retain their immutable
-bytes and source provenance.
+on compatible 0.18.x until upstream Mermaid requires a patched release.
+Upstream deprecated 0.18.11 because it accidentally shipped breaking
+strict-mode changes; do not restore it or jump to 0.19 without reviewing that
+behavior. Earlier published plugin archives retain their immutable bytes and
+source provenance.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
 remains tied to the original source commit.
+
+### Cross-branch Mermaid reservations
+
+Mermaid 0.2.8 is the corrected KaTeX build for
+[#119](https://github.com/mbianchidev/denote/pull/119). It deliberately avoids
+the versions already prepared by
+[#105](https://github.com/mbianchidev/denote/pull/105), whose current Mermaid
+0.2.7 uses the same patched DOMPurify and compatible KaTeX versions.
+
+The branches independently prepared different 0.2.5 identities: #119 records
+source `b865816bdfc21c48fc7d74848fb6bbc5aa68641b` and digest
+`f5d33700ecb3610cac337ec4e2ce80aace6098c6c9677ab384f9ffef2a676a06`;
+#105 records source `62cc5f14e57fb62b22f6d530e59fec35c89d7ebc` and digest
+`3519981889816dee3ce96655eeb4294b3b97c038c1c8a749c18d36dc54b3c0a0`.
+Neither may silently replace the other, even though both are unpublished.
+A fresh current version does not resolve this historical collision; choosing
+which unpublished reservation to retire requires an explicit owner decision.
+
+Compiler inputs also differ: #105 uses Rolldown 1.2.6, while #119 uses 1.2.15.
+The existing builder pins historical SDK source, not a separate compiler and
+dependency environment per archive. Calendar drift was measured, but #105's
+Git 0.10.0 and Code intelligence 0.1.1 artifacts have not been verified under
+#119's compiler. Before integration, compare their exact bytes and, if they
+change, approve fresh affected versions or review a reproducible-build
+solution. Do not assume compatibility, weaken archive verification, or repin
+unchanged versions.
 
 ### Prepare an immutable plugin version
 
