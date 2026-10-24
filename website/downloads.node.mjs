@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
 import { detectRecommendedDownload, resolveReleaseDownloads } from "./downloads.js";
 
 const contract = {
@@ -30,44 +31,52 @@ describe("website downloads", () => {
         asset("Denote_1.2.3_x64-setup.exe"),
       ],
     });
-    expect(result.downloads["macos-aarch64"].url).toContain(
-      "/v1.2.3/Denote_1.2.3_aarch64.dmg",
+    assert.ok(
+      result.downloads["macos-aarch64"].url.includes(
+        "/v1.2.3/Denote_1.2.3_aarch64.dmg",
+      ),
     );
   });
 
   it("fails visibly when an expected artifact is absent or unofficial", () => {
-    expect(() =>
-      resolveReleaseDownloads(contract, {
-        tag_name: "v1.2.3",
-        draft: false,
-        prerelease: false,
-        assets: [asset("Denote_1.2.3_aarch64.dmg")],
-      }),
-    ).toThrow("Windows is unavailable");
-    expect(() =>
-      resolveReleaseDownloads(contract, {
-        tag_name: "v1.2.3",
-        draft: false,
-        prerelease: false,
-        assets: [
-          asset("Denote_1.2.3_aarch64.dmg"),
-          {
-            name: "Denote_1.2.3_x64-setup.exe",
-            browser_download_url: "https://example.test/installer.exe",
-          },
-        ],
-      }),
-    ).toThrow("Windows is unavailable");
+    assert.throws(
+      () =>
+        resolveReleaseDownloads(contract, {
+          tag_name: "v1.2.3",
+          draft: false,
+          prerelease: false,
+          assets: [asset("Denote_1.2.3_aarch64.dmg")],
+        }),
+      /Windows is unavailable/,
+    );
+    assert.throws(
+      () =>
+        resolveReleaseDownloads(contract, {
+          tag_name: "v1.2.3",
+          draft: false,
+          prerelease: false,
+          assets: [
+            asset("Denote_1.2.3_aarch64.dmg"),
+            {
+              name: "Denote_1.2.3_x64-setup.exe",
+              browser_download_url: "https://example.test/installer.exe",
+            },
+          ],
+        }),
+      /Windows is unavailable/,
+    );
   });
 
   it("recommends without hiding explicit platform choices", () => {
-    expect(detectRecommendedDownload("Win32", "Synthetic", "")).toBe(
+    assert.equal(
+      detectRecommendedDownload("Win32", "Synthetic", ""),
       "windows-x64",
     );
-    expect(detectRecommendedDownload("MacIntel", "Synthetic", "arm")).toBe(
+    assert.equal(
+      detectRecommendedDownload("MacIntel", "Synthetic", "arm"),
       "macos-aarch64",
     );
-    expect(detectRecommendedDownload("Unknown", "Synthetic", "")).toBeNull();
+    assert.equal(detectRecommendedDownload("Unknown", "Synthetic", ""), null);
   });
 });
 

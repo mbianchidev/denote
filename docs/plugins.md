@@ -1161,7 +1161,9 @@ Release preparation rewrites every current catalog URL to
 `https://github.com/mbianchidev/denote/releases/download/<tag>/<plugin-id>-<plugin-version>.tgz`.
 Only current catalog URLs change; source commits, digests, sizes, and ledger
 origins remain fixed. The release validation job runs `check:plugins`, then
-`package:plugins`, and uploads the verified archives as `plugin-release-assets`.
+`npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
+without rebuilding the validated entrypoints. It uploads the verified archives
+as `plugin-release-assets`.
 The publish job downloads this dedicated workflow artifact into ignored staging,
 rechecks its exact filename set, hashes, sizes, and release URLs, then uploads
 those exact bytes beside the desktop installers without rebuilding. Platform

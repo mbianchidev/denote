@@ -41,12 +41,19 @@ alone is not an operating-system scheme handler.
 Preview the dependency-free public website from the repository root:
 
 ```bash
+npm run test:website
 npm run build:website
 python3 -m http.server 4173 --directory dist/website
 ```
 
+Website tests use Node's built-in test runner and synthetic fixtures. Both
+website commands need only Node.js and npm, not a dependency install or the
+desktop toolchain. `npm test` includes these same tests on every CI platform.
+For website-only watch mode, run `node --test --watch website/*.node.mjs`.
+
 GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
-and builds pull requests, then deploys only from `main` or manual dispatch.
+and builds pull requests without installing desktop dependencies, then deploys
+only from `main` or manual dispatch.
 
 ## Validate changes
 
@@ -1206,8 +1213,11 @@ platform before it creates a GitHub Release. Every release dependency install is
 preceded by `node scripts/preinstall-validate-plugins.mjs` and uses
 `npm ci --ignore-scripts`.
 
-The validation job runs `check:plugins`, then `package:plugins`, and transfers
-the verified `.plugin-artifacts/*.tgz` files as the dedicated
+The validation job runs `check:plugins`, then
+`npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
+using the already-built plugin entrypoints. Standalone `package:plugins` still
+builds its own entrypoints first. The job transfers the verified
+`.plugin-artifacts/*.tgz` files as the dedicated
 `plugin-release-assets` workflow artifact. Platform builds never take those
 archives as installer inputs. The publish job downloads them into ignored
 staging, rechecks the exact filenames, sizes, SHA-256 digests, and catalog URLs
