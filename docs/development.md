@@ -22,6 +22,9 @@ the optional `fsevents` native rebuild is denied. Review any new warning with
 `npm install-scripts ls`; do not approve a new package or version without
 inspecting its published script and lockfile provenance.
 
+The root `undici@8.12.2` override patches jsdom's test-only HTTP transport
+without changing the immutable plugin dependency trees.
+
 `prepare:pdf-assets` verifies the installed Apache-2.0 `pdfjs-dist` package and
 copies its local CMaps, standard fonts, ICC profile, image-decoder WebAssembly,
 and license files into ignored `public/pdfjs-assets/`. It excludes QuickJS
@@ -41,12 +44,19 @@ alone is not an operating-system scheme handler.
 Preview the dependency-free public website from the repository root:
 
 ```bash
+npm run test:website
 npm run build:website
 python3 -m http.server 4173 --directory dist/website
 ```
 
+Website tests use Node's built-in test runner and synthetic fixtures. Both
+website commands need only Node.js and npm, not a dependency install or the
+desktop toolchain. `npm test` includes these same tests on every CI platform.
+For website-only watch mode, run `node --test --watch website/*.node.mjs`.
+
 GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
-and builds pull requests, then deploys only from `main` or manual dispatch.
+and builds pull requests without installing desktop dependencies, then deploys
+only from `main` or manual dispatch.
 
 ## Validate changes
 
@@ -1206,8 +1216,21 @@ platform before it creates a GitHub Release. Every release dependency install is
 preceded by `node scripts/preinstall-validate-plugins.mjs` and uses
 `npm ci --ignore-scripts`.
 
-The validation job runs `check:plugins`, then `package:plugins`, and transfers
-the verified `.plugin-artifacts/*.tgz` files as the dedicated
+Non-packaging Linux jobs use `ubuntu-latest`. The Linux release builder alone
+stays on `ubuntu-22.04` to preserve the existing glibc/WebKitGTK baseline for
+installers and on-demand Git. FUSE remains a packaging-only dependency.
+[Tauri's AppImage guidance](https://v2.tauri.app/distribute/appimage/) explains
+why a newer build system can raise the required glibc version. Both macOS
+release targets already use `macos-latest` with explicit Rust target triples;
+their architectures and minimum-OS settings remain unchanged. Use only
+[supported runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+not invented floating Intel-macOS or ARM-Linux aliases.
+
+The validation job runs `check:plugins`, then
+`npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
+using the already-built plugin entrypoints. Standalone `package:plugins` still
+builds its own entrypoints first. The job transfers the verified
+`.plugin-artifacts/*.tgz` files as the dedicated
 `plugin-release-assets` workflow artifact. Platform builds never take those
 archives as installer inputs. The publish job downloads them into ignored
 staging, rechecks the exact filenames, sizes, SHA-256 digests, and catalog URLs
