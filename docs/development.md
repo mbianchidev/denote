@@ -304,10 +304,19 @@ dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
 The root DOMPurify dependency and override pin
-[3.4.16](https://github.com/cure53/DOMPurify/releases/tag/3.4.16) to fix
-[GHSA-p98j-92pf-mc4p](https://github.com/advisories/GHSA-p98j-92pf-mc4p).
-The host sanitizer and Mermaid 0.2.3 use this patch. Earlier published plugin
+[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) to fix
+[GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
+[GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
+[GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
+The host sanitizer and Mermaid 0.2.5 use this patch. Earlier published plugin
 archives retain their immutable bytes and source provenance.
+The build/test lockfile also uses patched Vite 8.3.5 and Undici 8.12.3. Build
+tool updates must preserve every unchanged plugin's recorded archive bytes;
+never repin an existing version to accommodate a compiler change.
+The Rolldown override retains the archive-compatible 1.2.6 compiler while Vite's
+development server receives its security fixes. Newer Rolldown patches change
+unchanged plugin bytes; validate all plugin digests and the frontend build when
+changing either part of this toolchain.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
@@ -321,8 +330,9 @@ Security overrides pin KaTeX 0.18.2 for
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
 source-map-js 1.2.2 for
 [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
-Mermaid 0.2.4 receives a separate immutable pin for the patched math dependency
-and its included license; previous Mermaid versions and recipes remain untouched.
+Mermaid 0.2.4 retains its immutable pin for the patched math dependency and its
+included license. Mermaid 0.2.5 receives a new pin for DOMPurify 3.4.17; previous
+Mermaid versions and recipes remain untouched.
 Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
 
 Build and stage one independently downloadable plugin artifact with:
@@ -801,7 +811,19 @@ packaged Windows renderer smoke gate passes. The known-good graph retains
 `unic-*` warnings return temporarily. Desktop packaging rejects a mismatched API
 minor. No vulnerability advisory is ignored.
 
-Seven warning-level findings remain:
+The 2026-10-24 security refresh updates ctutils, Quinn, Rustls,
+rustls-webpki, webpki-root-certs, and Tokio to compatible patched releases, and
+replaces yanked clipboard-win 5.4.1 with 5.4.3. No vulnerability-level findings
+remain in that audit.
+
+`tauri-plugin-updater` disables default features and enables only `rustls-tls`
+and `system-proxy`. Its optional `zip` feature pulls vulnerable ZIP 4 extraction
+code for legacy Tauri v1 Windows ZIP and AppImage archives. Denote publishes raw
+EXE/MSI, AppImage, DEB/RPM, and macOS app tarballs instead; macOS tarball support
+remains available without that feature. Do not re-enable legacy ZIP support or
+add an unrelated ZIP dependency to mask its audit findings.
+
+Ten warning-level findings remain:
 
 | Advisory | Dependency path | Status |
 | --- | --- | --- |
@@ -812,6 +834,9 @@ Seven warning-level findings remain:
 | [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
+| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Opener / single-instance / notifications / Secret Service -> zbus 5 -> `zbus_names` 4.3.4 | Unmaintained; merged into zbus 6 |
+| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | The same zbus 5 consumers -> `zvariant` 5.15.0 | Unmaintained; merged into zbus 6 |
+| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | The same zbus 5 consumers -> `zvariant_derive` 5.15.0 | Unmaintained; merged into zbus 6 |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
 report the Linux GTK dependencies. A successful exit does not resolve any of
@@ -826,16 +851,21 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-09-29**.
+Last upstream check: **2026-10-24**.
 
-- [Tauri releases](https://github.com/tauri-apps/tauri/releases) had no stable
-  release newer than 2.12.0.
+- [Tauri 2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
+  is the current stable release. Its
+  [manifest](https://github.com/tauri-apps/tauri/blob/tauri-v2.12.5/crates/tauri/Cargo.toml)
+  still requires GTK 0.18.
 - [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
-  Windows blank-webview fix for this regression.
-- [Wry releases](https://github.com/tauri-apps/wry/releases) had no release newer
-  than 0.57.0.
-- [Wry issues](https://github.com/tauri-apps/wry/issues) had no identified
-  Windows fix matching both the blank frame and orphaned process.
+  Windows blank-webview fix matching this regression.
+- [Wry 0.57.1](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.1)
+  fixes macOS drag/drop and popup-controller handling plus Linux IPC injection;
+  it does not identify a Windows fix matching both the blank frame and orphaned
+  process.
+- [Tauri's GTK migration issue](https://github.com/tauri-apps/tauri/issues/16264#issuecomment-6131842560)
+  confirms that the maintained GTK bindings require coordinated work across
+  the runtime crates.
 
 Any agent or contributor considering an upgrade must:
 
@@ -854,7 +884,7 @@ Any agent or contributor considering an upgrade must:
    the Windows gate passes. If the candidate fails, restore the known-good graph
    exactly; never weaken, skip, or delete the smoke check to land an upgrade.
 
-Migration investigation, 2026-09-28: maintained
+Migration investigation, 2026-10-24: maintained
 [GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, the
 Tauri 2.11 and 2.12 runtime families, Tao, Wry, and WebKitGTK still use GTK 0.18
 types. A new direct GTK/GLib dependency cannot replace incompatible transitive
@@ -862,15 +892,28 @@ types and native
 `links` dependencies. The runtime, menu/dialog integrations, and WebKitGTK
 bindings need a coordinated upgrade.
 
-[Tauri 3.0.0-alpha.3](https://github.com/tauri-apps/tauri/releases/tag/tauri-v3.0.0-alpha.3)
+[Tauri 3.0.0-alpha.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v3.0.0-alpha.5)
 requires Rust 1.95, matching version-three runtime/plugins, and native plugin
 hooks that can run concurrently and require `Sync`. Its
-[Wry runtime](https://crates.io/crates/tauri-runtime-wry/3.0.0-alpha.3) still uses
+[Wry runtime manifest](https://github.com/tauri-apps/tauri/blob/tauri-v3.0.0-alpha.5/crates/tauri-runtime-wry/Cargo.toml) still uses
 GTK 0.18 and WebKitGTK 2.0: moving to that alpha alone does not fix the findings.
 Keep stable Tauri until a compatible maintained GTK stack is available. That
 migration must cover Linux menus, dialogs, clipboard, deep links, single-instance
 behavior, updater shutdown, and vault/plugin lifecycles across all platforms.
 Do not relabel crates or suppress advisories to bypass this dependency boundary.
+
+[zbus 6](https://github.com/z-galaxy/zbus/issues/2043) merges the deprecated
+wire/name crates into `zbus::wire` and `zbus::names`. A direct dependency bump
+cannot remove the older graph: the released Tauri opener and single-instance
+plugins, notify-rust, secret-service, and zbus-secret-service-keyring-store still
+require zbus 5. The coordinated
+[Tauri plugin migration](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+and [dependency update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
+remain open, as does
+[notify-rust's update](https://github.com/hoodie/notify-rust/pull/294).
+Until compatible published clients or separately reviewed source backports are
+adopted together, keep those warnings visible and preserve the Windows-safe
+runtime family.
 
 ## Build a desktop bundle
 

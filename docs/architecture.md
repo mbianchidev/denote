@@ -1405,7 +1405,7 @@ sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
 Its larger renderer requires Denote 0.5.2 or newer.
-Mermaid 0.2.3 and the independent host sanitizer pin DOMPurify 3.4.16; the root
+Mermaid 0.2.5 and the independent host sanitizer pin DOMPurify 3.4.17; the root
 override keeps Mermaid's dependency graph on the same patch. Older plugin
 archives retain their immutable bytes and source provenance.
 Chevrotain's transitive `lodash-es` is overridden to patched 4.18.1. The
