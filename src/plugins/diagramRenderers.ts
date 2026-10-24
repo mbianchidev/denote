@@ -1,4 +1,4 @@
-import createDOMPurify from "dompurify";
+import createDOMPurify from "dompurify-host";
 import { api, errorMessage } from "../lib/api";
 import type {
   PluginDiagramRenderRequest,

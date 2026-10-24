@@ -54,7 +54,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "codemirror-lang-elixir": "^4.0.1",
     "codemirror-lang-hcl": "^0.2.0",
-    "dompurify": "3.4.16",
+    "dompurify-host": "npm:dompurify@3.4.17",
     "lucide-react": "^1.57.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-to-markdown": "^2.1.2",
