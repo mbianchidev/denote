@@ -303,7 +303,7 @@ For Mermaid changes, run:
 
 ```bash
 npm audit --audit-level=high
-npm ls mermaid dompurify
+npm ls mermaid dompurify dompurify-host
 npx vitest run \
   packages/plugin-sdk/src/diagramRenderer.test.ts \
   plugins/mermaid/tests/compatibility.test.ts \
@@ -320,10 +320,20 @@ The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
-The root DOMPurify dependency and override pin
-[3.4.16](https://github.com/cure53/DOMPurify/releases/tag/3.4.16) to fix
-[GHSA-p98j-92pf-mc4p](https://github.com/advisories/GHSA-p98j-92pf-mc4p).
-The host sanitizer and Mermaid 0.2.4 use this patch. The root `katex` override
+The independent host sanitizer pins DOMPurify
+[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) through the
+`dompurify-host` npm alias to fix
+[GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
+[GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
+[GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
+The separate alias preserves Mermaid 0.2.4's immutable dependency tree and
+archive bytes. That plugin and the root `dompurify` override still pin 3.4.16,
+so its security finding continues to fail npm audit. A new plugin version is
+deferred and tracked in [#130](https://github.com/mbianchidev/denote/issues/130);
+remove the temporary alias and `AGENTS.md` follow-up only after the approved
+plugin patch is pinned and its audit passes.
+
+The root `katex` override
 pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
 Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
@@ -797,6 +807,20 @@ The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 [RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
 This networking patch preserves the existing Windows/Tauri dependency graph.
 
+Compatible lockfile patches also fix:
+
+- `ctutils` 0.4.4:
+  [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385).
+- `rustls-webpki` 0.103.16:
+  [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382).
+- `webpki-root-certs` 1.0.10:
+  [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383).
+- `tokio` 1.53.3:
+  [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386).
+
+`clipboard-win` moves from yanked 5.4.1 to 5.4.3. These updates preserve the
+complete pinned Tauri, Tao, Wry, WebView2, and URL-pattern package records.
+
 The 2026-10-14 Rustls advisories
 [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
 [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
@@ -832,7 +856,11 @@ Ten warning-level findings remain:
 
 The audit includes every platform in the lockfile, so macOS and Windows also
 report the Linux GTK dependencies. A successful exit does not resolve any of
-these warnings.
+these warnings. GLib's fix requires 0.20 or newer, while the pinned Tauri runtime
+requires GTK 0.18 and its GLib 0.18 types. The standalone D-Bus crates have no
+patched versions; their replacements moved into `zbus` 6. Removing these
+findings requires coordinated upstream runtime or D-Bus integration changes,
+not a compatible lockfile patch or an advisory ignore.
 
 ### Re-evaluate the Windows runtime pin
 
