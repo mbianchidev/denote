@@ -332,7 +332,7 @@ The root DOMPurify dependency and override pin
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-The host sanitizer and Mermaid 0.2.6 use this patch. Earlier published plugin
+The host sanitizer and Mermaid 0.2.7 use this patch. Earlier published plugin
 archives retain their immutable bytes and source provenance.
 The build/test lockfile also uses patched Vite 8.3.5 and Undici 8.12.3. Build
 tool updates must preserve every unchanged plugin's recorded archive bytes;
@@ -343,12 +343,14 @@ unchanged plugin bytes; validate all plugin digests and the frontend build when
 changing either part of this toolchain.
 
 The root `katex` override
-pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
+pins [0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because
 Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
-on 0.18.x until upstream Mermaid requires a patched release; KaTeX 0.19 changes
-strict-mode behavior. Earlier published plugin archives retain their immutable
-bytes and source provenance.
+at this compatible patch until strict-mode changes are reviewed. KaTeX 0.18.11
+was deprecated after accidentally shipping the
+[0.19 breaking changes](https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0);
+it is not a safe patch-only upgrade. Earlier published plugin archives retain
+their immutable bytes and source provenance.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
@@ -358,15 +360,18 @@ remains tied to the original source commit.
 
 The 0.9.0 candidate introduces the code-intelligence and Git remote-recovery
 host contracts; those new packages require 0.9.0, not older released hosts.
-Security overrides pin KaTeX 0.18.11 for
+Security overrides pin KaTeX 0.18.10 for
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
 source-map-js 1.2.2 for
 [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
 Mermaid 0.2.4 retains main's canonical immutable pin for its math dependency
-patch. The prepared 0.2.5 entry also stays unchanged. Mermaid 0.2.6 combines
-DOMPurify 3.4.17, KaTeX 0.18.11, and the included math license in a new source
-pin; previous canonical versions and recipes remain untouched.
+patch. The prepared 0.2.5 and 0.2.6 entries also stay unchanged. Mermaid 0.2.7
+combines DOMPurify 3.4.17, compatible KaTeX 0.18.10, and the included math license
+in a new source pin; previous canonical versions and recipes remain untouched.
 Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
+After changing an override, use `npm update <package> --package-lock-only`
+and verify `npm ls <package>` before committing and pinning; a lockfile-only
+install can otherwise retain an older overridden transitive version.
 
 Build and stage one independently downloadable plugin artifact with:
 
@@ -1009,6 +1014,8 @@ runtime family.
 CI runs on pull requests, pushes to `main`, and manual dispatch. The plugin
 archive guard, JavaScript and Rust security audits, and macOS, Windows, and Linux
 validation remain mandatory within each run.
+The JavaScript audit includes the workspace root as well as plugins, so Vite
+and jsdom/Undici development dependencies cannot escape the security gate.
 
 The security job caches the pinned `cargo-audit` installation and Cargo
 downloads, not the advisory database or audit results. The cache key includes

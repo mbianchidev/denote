@@ -1447,10 +1447,10 @@ sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
 Its larger renderer requires Denote 0.5.2 or newer.
-Mermaid 0.2.6 and the independent host sanitizer pin DOMPurify 3.4.17; the root
+Mermaid 0.2.7 and the independent host sanitizer pin DOMPurify 3.4.17; the root
 override keeps Mermaid's dependency graph on the same patch. Older plugin
 archives retain their immutable bytes and source provenance.
-A root override also pins Mermaid's math dependency to KaTeX 0.18.11.
+A root override also pins Mermaid's math dependency to compatible KaTeX 0.18.10.
 Chevrotain's transitive `lodash-es` is overridden to patched 4.18.1. The
 renderer fixes Mermaid to strict security, disables
 start-on-load, HTML labels, callback binding, and error diagrams, expands the
