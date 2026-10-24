@@ -303,7 +303,7 @@ For Mermaid changes, run:
 
 ```bash
 npm audit --audit-level=high
-npm ls mermaid dompurify dompurify-host
+npm ls mermaid dompurify
 npx vitest run \
   packages/plugin-sdk/src/diagramRenderer.test.ts \
   plugins/mermaid/tests/compatibility.test.ts \
@@ -319,19 +319,27 @@ cargo test --manifest-path src-tauri/Cargo.toml diagram_renderer
 The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
-`npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
-The independent host sanitizer pins DOMPurify
-[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) through the
-`dompurify-host` npm alias to fix
+`npm audit --audit-level=high --workspaces --include-workspace-root` and
+`npm ls lodash-es`. The host sanitizer and Mermaid 0.2.5 use DOMPurify
+[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) to fix
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-The separate alias preserves Mermaid 0.2.4's immutable dependency tree and
-archive bytes. That plugin and the root `dompurify` override still pin 3.4.16,
-so its security finding continues to fail npm audit. A new plugin version is
-deferred and tracked in [#130](https://github.com/mbianchidev/denote/issues/130);
-remove the temporary alias and `AGENTS.md` follow-up only after the approved
-plugin patch is pinned and its audit passes.
+The root dependency and override use the same patched version, so the temporary
+`dompurify-host` alias is removed. Historical Mermaid versions, including
+0.2.4, retain their original archives and source pins; new bytes use a new
+immutable plugin version.
+
+The build lockfile uses patched
+[Vite 8.3.5](https://github.com/vitejs/vite/releases/tag/v8.3.5),
+Rolldown 1.2.15, and
+[Undici 8.12.3](https://github.com/nodejs/undici/releases/tag/v8.12.3).
+The Vite/Rolldown update changes every plugin's generated output, so each
+current plugin receives a patch version and a new source-first pin rather than
+replacing its existing digest. Do not retain vulnerable build tools to reproduce
+current packages. Earlier release recipes remain tied to their historical
+commits. Include the workspace root in npm audits so development dependencies
+such as Vite and jsdom's Undici are covered as well as plugin workspaces.
 
 The root `katex` override
 pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
@@ -846,9 +854,22 @@ Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
 exclusions.
 
+The workspace has one authoritative `src-tauri/Cargo.lock`. Redundant lockfiles
+from the original Tauri plugin archives are omitted because Cargo ignores them
+inside this workspace and they retain unrelated, stale dependency graphs.
+The source-aware audit rejects reintroducing nested vendor lockfiles and
+continues to audit every resolved vendor package's original registry identity.
+
 These backports and the maintained credential-store replacement remove all
 nine unmaintained dependencies from the GTK, URLPattern, and D-Bus graph.
 The published GLib version-based warning remains visible below.
+
+The GLib and GLib-macro regression suites use maintained `trybuild` 1.0.122
+instead of `trybuild2`, whose TOML parser is unmaintained
+([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374)).
+The same 29 invalid clone expressions and four unit-return forms remain covered
+by checked-in compiler-diagnostic fixtures; the unit-return fixture denies
+warnings. This is a test-tool migration only, not a change to the GLib runtime.
 
 - GLib 0.18.5 applies the two-line
   [upstream iterator fix](https://github.com/gtk-rs/gtk-rs-core/pull/1343):
@@ -976,8 +997,8 @@ and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
 remain unreleased. The latest `trybuild2` 1.3.0 additionally depends on
 unmaintained `basic-toml`
 ([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374));
-the macro regression tooling must retain equivalent checks while replacing
-that dependency, not suppress the warning.
+the local regression tooling uses maintained `trybuild` instead, with equivalent
+positive and negative fixtures rather than a warning suppression.
 
 [GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
 published compatible GLib release; the

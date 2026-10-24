@@ -1420,11 +1420,10 @@ sandbox immediately, including while initialization is still pending.
 
 `denote.mermaid` bundles Mermaid 12.0.0 in the downloaded renderer package.
 Its larger renderer requires Denote 0.5.2 or newer.
-The independent host sanitizer uses DOMPurify 3.4.17 through the
-`dompurify-host` npm alias. Mermaid 0.2.4 still bundles DOMPurify 3.4.16; the root
-override preserves that immutable plugin dependency tree until a new plugin
-version is approved. Its outstanding security findings remain visible in npm
-audit and are tracked in [#130](https://github.com/mbianchidev/denote/issues/130).
+The independent host sanitizer and Mermaid 0.2.5 use DOMPurify 3.4.17 through
+the canonical dependency and root override. The earlier host-only npm alias is
+no longer needed. The current plugin is rebuilt with patched Vite/Rolldown;
+older plugin versions keep their immutable archives, digests, and source pins.
 A root override also pins Mermaid's math dependency to KaTeX 0.18.11. Older
 plugin archives retain their immutable bytes and source provenance.
 Chevrotain's transitive `lodash-es` is overridden to patched 4.18.1. The

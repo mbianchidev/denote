@@ -1,0 +1,179 @@
+error: proc macro panicked
+ --> tests/clone/failures.rs:7:5
+  |
+7 |     clone!( => move || {});
+  |     ^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = help: message: If you have nothing to clone, no need to use this macro!
+
+error: proc macro panicked
+ --> tests/clone/failures.rs:8:5
+  |
+8 |     clone!(|| {});
+  |     ^^^^^^^^^^^^^
+  |
+  = help: message: If you have nothing to clone, no need to use this macro!
+
+error: proc macro panicked
+ --> tests/clone/failures.rs:9:5
+  |
+9 |     clone!(|a, b| {});
+  |     ^^^^^^^^^^^^^^^^^
+  |
+  = help: message: If you have nothing to clone, no need to use this macro!
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:10:32
+   |
+10 |     clone!(@weak a, @weak b => |x| {});
+   |                                ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:11:32
+   |
+11 |     clone!(@weak a, @weak b => || {});
+   |                                ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:12:32
+   |
+12 |     clone!(@weak a, @weak b => |x| println!("a"));
+   |                                ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:13:32
+   |
+13 |     clone!(@weak a, @weak b => || println!("a"));
+   |                                ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:14:23
+   |
+14 |     clone!(@weak a => |x| {});
+   |                       ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:15:23
+   |
+15 |     clone!(@weak a => || {});
+   |                       ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:16:23
+   |
+16 |     clone!(@weak a => |x| println!("a"));
+   |                       ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:17:23
+   |
+17 |     clone!(@weak a => || println!("a"));
+   |                       ^
+
+error: Can't use `self` as variable name. Try storing it in a temporary variable or rename it using `as`.
+  --> tests/clone/failures.rs:18:20
+   |
+18 |     clone!(@strong self => move |x| {});
+   |                    ^^^^
+
+error: `self.v`: Field accesses are not allowed as is, you must rename it!
+  --> tests/clone/failures.rs:19:25
+   |
+19 |     clone!(@strong self.v => move |x| {});
+   |                         ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:20:46
+   |
+20 |     clone!(@weak v => @default-return false, || {});
+   |                                              ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:21:46
+   |
+21 |     clone!(@weak v => @default-return false, || println!("a"));
+   |                                              ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:22:46
+   |
+22 |     clone!(@weak v => @default-return false, |bla| {});
+   |                                              ^
+
+error: Closure needs to be "moved" so please add `move` before closure
+  --> tests/clone/failures.rs:23:46
+   |
+23 |     clone!(@weak v => @default-return false, |bla| println!("a"));
+   |                                              ^
+
+error: Missing `@` before `default-return`
+  --> tests/clone/failures.rs:24:23
+   |
+24 |     clone!(@weak v => default-return false, move || {});
+   |                       ^^^^^^^
+
+error: Expected `,` after `@default-return false`, found `move`
+  --> tests/clone/failures.rs:25:45
+   |
+25 |     clone!(@weak v => @default-return false move || {});
+   |                                             ^^^^
+
+error: Unknown keyword `yolo`, only `weak`, `weak-allow-none`, `to-owned` and `strong` are allowed
+  --> tests/clone/failures.rs:26:13
+   |
+26 |     clone!(@yolo v => move || {});
+   |             ^^^^
+
+error: Unexpected ident `v`: you need to specify if this is a weak or a strong clone.
+  --> tests/clone/failures.rs:27:12
+   |
+27 |     clone!(v => move || {});
+   |            ^
+
+error: Missing `move` and closure declaration
+  --> tests/clone/failures.rs:28:25
+   |
+28 |     clone!(@strong v => {println!("foo");});
+   |                         ^^^^^^^^^^^^^^^^^^
+
+error: `@default-return` should be after `=>`
+  --> tests/clone/failures.rs:29:24
+   |
+29 |     clone!(@strong v, @default-return lol => move || {println!("foo");});
+   |                        ^^^^^^^
+
+error: `@default-return` should be after `=>`
+  --> tests/clone/failures.rs:30:13
+   |
+30 |     clone!(@default-return lol, @strong v => move || {println!("foo");});
+   |             ^^^^^^^
+
+error: Expected `move` after `async`, found `|`
+  --> tests/clone/failures.rs:31:31
+   |
+31 |     clone!(@strong v => async || {println!("foo");});
+   |                               ^
+
+error: Expected `move` after `async`, found `{`
+  --> tests/clone/failures.rs:32:31
+   |
+32 |     clone!(@strong v => async {println!("foo");});
+   |                               ^^^^^^^^^^^^^^^^^^
+
+error: Expected `move` after `async`, found `{`
+  --> tests/clone/failures.rs:33:39
+   |
+33 |     clone!(@strong v => move || async {println!("foo");});
+   |                                       ^^^^^^^^^^^^^^^^^^
+
+error: Expected `move` after `async`, found `println`
+  --> tests/clone/failures.rs:34:39
+   |
+34 |     clone!(@strong v => move || async println!("foo"););
+   |                                       ^^^^^^^
+
+error: Expected block after `| async move`
+  --> tests/clone/failures.rs:35:44
+   |
+35 |     clone!(@strong v => move || async move println!("foo"););
+   |                                            ^^^^^^^

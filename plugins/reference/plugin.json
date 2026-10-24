@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.reference",
   "name": "Reference plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Exercises the plugin lifecycle without adding a production feature.",
   "publisher": {
     "name": "Denote",

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,6 +50,9 @@ export function verifyResolvedBackports(metadata, root) {
   }
   const approvedLocalIds = new Set([application.id]);
   for (const [name, backport] of backports) {
+    if (existsSync(join(root, "vendor", name, "Cargo.lock"))) {
+      throw new Error(`Vendored ${name} must use the workspace Cargo.lock, not a stale nested lockfile.`);
+    }
     const matches = metadata.packages.filter((entry) => entry.name === name);
     if (matches.length !== 1
       || matches[0].version !== backport.version

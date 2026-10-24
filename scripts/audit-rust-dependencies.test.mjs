@@ -1,5 +1,7 @@
 // @vitest-environment node
 import { join, resolve } from "node:path";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   projectVendoredSources,
@@ -17,20 +19,20 @@ const versions = {
   urlpattern: "0.3.0",
 };
 
-function metadata() {
+function metadata(workspace = root) {
   return {
     packages: [
       {
         id: "synthetic-application",
         name: "denote",
-        manifest_path: join(root, "Cargo.toml"),
+        manifest_path: join(workspace, "Cargo.toml"),
       },
       ...Object.entries(versions).map(([name, version]) => ({
         id: `synthetic-${name}`,
         name,
         version,
         source: null,
-        manifest_path: join(root, "vendor", name, "Cargo.toml"),
+        manifest_path: join(workspace, "vendor", name, "Cargo.toml"),
       })),
     ],
     workspace_default_members: ["synthetic-application"],
@@ -46,6 +48,19 @@ function lockfile() {
 describe("Rust source-backport audit", () => {
   it("requires the reviewed local packages and application-only default", () => {
     expect(() => verifyResolvedBackports(metadata(), root)).not.toThrow();
+  });
+
+  it("rejects inactive vendor lockfiles that can retain an unaudited dependency graph", () => {
+    const workspace = mkdtempSync(join(tmpdir(), "denote-synthetic-audit-"));
+    try {
+      const vendor = join(workspace, "vendor", "glib");
+      mkdirSync(vendor, { recursive: true });
+      writeFileSync(join(vendor, "Cargo.lock"), lockfile());
+      expect(() => verifyResolvedBackports(metadata(workspace), workspace))
+        .toThrow(/workspace Cargo.lock/);
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it.each(Object.keys(versions))("rejects a registry bypass for %s", (name) => {
