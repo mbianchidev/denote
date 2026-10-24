@@ -33,6 +33,8 @@ import type {
   PluginSourceControlRemote,
   PluginSourceControlRemoteAccess,
   PluginSourceControlRecoveryState,
+  PluginSourceControlRemoteSyncRecovery,
+  PluginGitPullStrategy,
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
 } from "@denote/plugin-sdk";
@@ -143,6 +145,63 @@ function action(
   values?: PluginSourceControlAction["values"],
 ): PluginSourceControlAction {
   return values ? { id, values } : { id };
+}
+
+function RemoteSyncRecovery({
+  recovery, message, currentBranch, busy, onAction,
+}: {
+  recovery: PluginSourceControlRemoteSyncRecovery;
+  message: string;
+  currentBranch: string | null;
+  busy: boolean;
+  onAction: SourceControlPanelProps["onAction"];
+}) {
+  const id = useId();
+  const [strategy, setStrategy] = useState<PluginGitPullStrategy | "">(
+    recovery.reason === "diverged" && recovery.pullStrategy === "fast-forward-only" ? "" : recovery.pullStrategy,
+  );
+  const wrongBranch = currentBranch !== recovery.localBranch;
+  const label = strategy === "merge" ? "Pull with merge" : strategy === "rebase" ? "Pull with rebase" : "Pull latest";
+  return (
+    <section className="source-control__recovery" aria-labelledby={id}>
+      <h3 id={id}>{recovery.reason === "diverged" ? "Branches have diverged" : "Remote has newer commits"}</h3>
+      <p role="alert">{message}</p>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (!strategy || wrongBranch || busy) return;
+        onAction(action("pull", {
+          remote: recovery.remote, branch: recovery.branch, from: recovery.localBranch, strategy,
+        }));
+      }}>
+        <label className="source-control__field">
+          <span>Pull strategy</span>
+          <select value={strategy} disabled={busy || wrongBranch}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              if (value === "merge" || value === "rebase" || value === "fast-forward-only") setStrategy(value);
+            }}>
+            {recovery.reason === "diverged" ? <option value="" disabled>Choose merge or rebase</option> :
+              <option value="fast-forward-only">Fast-forward only</option>}
+            <option value="merge">Merge</option>
+            <option value="rebase">Rebase</option>
+          </select>
+        </label>
+        <p className="source-control__hint">
+          {strategy === "rebase" ? "Rebase rewrites your local commits on top of the remote branch." :
+            strategy === "merge" ? "Merge keeps both histories and may create a merge commit." :
+              recovery.reason === "diverged" ? "Fast-forward only cannot combine divergent histories." :
+                "Fast-forward only stops if both branches have new commits."}
+          {" "}This choice applies to this pull only. Review the confirmation before it starts.
+        </p>
+        {wrongBranch ? <p className="source-control__hint">Switch to {recovery.localBranch} before recovering this push.</p> : null}
+        <div className="source-control__actions">
+          <button type="submit" className="primary-button" disabled={busy || wrongBranch || !strategy}>{label}</button>
+          <button type="button" className="secondary-button" disabled={busy}
+            onClick={() => onAction(action("dismiss"))}>Dismiss</button>
+        </div>
+      </form>
+    </section>
+  );
 }
 
 function WorkspaceRepositories({
@@ -1489,7 +1548,11 @@ function OperationProgress({
       {progress.conflictedPaths.length > 0 ? (
         <ul className="source-control__pending-paths">
           {progress.conflictedPaths.map((path) => (
-            <li key={path}>{path}</li>
+            <li key={path}>
+              <button type="button" className="secondary-button source-control__conflict-path"
+                disabled={busy} aria-label={`Resolve conflict ${path}`} title={`Open conflict ${path}`}
+                onClick={() => onAction(action("open-conflict", { path }))}>Resolve: {path}</button>
+            </li>
           ))}
         </ul>
       ) : null}
@@ -2130,6 +2193,7 @@ function SourceControlPanelComponent({
                       action("pull", {
                         remote: activeRemote,
                         branch: remoteBranch,
+                        ...(remoteAccess.pullStrategy ? { strategy: remoteAccess.pullStrategy, from: repository.branch ?? "" } : {}),
                       }),
                     )
                   }
@@ -2204,6 +2268,15 @@ function SourceControlPanelComponent({
             </div>
           ) : null}
         </section>
+
+        {model.recovery.state === "failed" && model.recovery.remoteSync ? (
+          <RemoteSyncRecovery
+            key={`${model.recovery.remoteSync.remote}:${model.recovery.remoteSync.branch}:${model.recovery.remoteSync.localBranch}:${model.recovery.remoteSync.reason}:${model.recovery.remoteSync.pullStrategy}`}
+            recovery={model.recovery.remoteSync} message={model.recovery.message}
+            currentBranch={repository.branch} busy={repository.busy || model.operationProgress !== null}
+            onAction={onAction}
+          />
+        ) : null}
 
         {model.operationProgress ? (
           <OperationProgress
@@ -2571,13 +2644,13 @@ function SourceControlPanelComponent({
           onAction={onAction}
         />
 
-        {model.recovery.state !== "idle" ? (
+        {model.recovery.state !== "idle" && !(model.recovery.state === "failed" && model.recovery.remoteSync) ? (
           <section
             className="source-control__recovery"
             aria-labelledby="source-control-recovery"
           >
             <h3 id="source-control-recovery">Recovery</h3>
-            <p role="status">{model.recovery.message}</p>
+            <p role={model.recovery.state === "failed" ? "alert" : "status"}>{model.recovery.message}</p>
             <div className="source-control__actions">
               {model.recovery.state === "running" ? null : (
                 <>
@@ -2585,6 +2658,7 @@ function SourceControlPanelComponent({
                     <button
                       type="button"
                       className="primary-button"
+                      disabled={repository.busy}
                       onClick={() => onAction(action(retryActionId))}
                     >
                       Retry
@@ -2594,6 +2668,7 @@ function SourceControlPanelComponent({
                     <button
                       type="button"
                       className="secondary-button"
+                      disabled={repository.busy}
                       onClick={() => onAction(action(dismissActionId))}
                     >
                       Dismiss

@@ -32,6 +32,21 @@ describe("calendar runtime messages", () => {
   });
 });
 
+describe("remote synchronization recovery messages", () => {
+  it("validates exact remote targets and closed strategy/reason values", () => {
+    const recovery = { state: "failed", operationId: "push-failure", message: "Remote has newer commits.",
+      remoteSync: { remote: "origin", branch: "main", localBranch: "main", reason: "remote-ahead", pullStrategy: "rebase" } };
+    const message = { type: "update-source-control", id: "denote.synthetic.git", model: { ...model, recovery } };
+    expect(isPluginRuntimeMessage(message)).toBe(true);
+    for (const remoteSync of [
+      { ...recovery.remoteSync, pullStrategy: "--force" },
+      { ...recovery.remoteSync, reason: "guessed" },
+      { ...recovery.remoteSync, remote: "" },
+      { ...recovery.remoteSync, branch: "main\nextra" },
+    ]) expect(isPluginRuntimeMessage({ ...message, model: { ...model, recovery: { ...recovery, remoteSync } } })).toBe(false);
+  });
+});
+
 const model: PluginSourceControlViewModel = {
   selectedTab: "changes",
   selectedView: { kind: "repository" },

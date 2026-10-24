@@ -201,6 +201,7 @@ pub(crate) struct PersistentPluginState {
     pub(crate) credential_keys: BTreeMap<String, BTreeSet<String>>,
     pub(crate) pending_credential_keys: BTreeMap<String, BTreeSet<String>>,
     pub(crate) errors: BTreeMap<String, String>,
+    pub(crate) code_tool_configurations: BTreeMap<String, Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]

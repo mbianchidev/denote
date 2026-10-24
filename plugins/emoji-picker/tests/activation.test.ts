@@ -165,7 +165,7 @@ describe("independent optional package contract", () => {
   it("requests only the additive emoji picker permission on a compatible Denote release", () => {
     expect(plugin.manifest).toMatchObject({
       id: "denote.emoji-picker",
-      version: "0.1.2",
+      version: "0.1.3",
       category: "editor-writing",
       license: "MIT AND Unicode-3.0",
       compatibility: { apiVersion: 1, minimumDenoteVersion: "0.1.3" },

@@ -7,6 +7,11 @@ interface GuideSection {
   blocks: RootContent[];
 }
 
+export function PluginMarkdown({ markdown }: { markdown: string }) {
+  const blocks = useMemo(() => fromMarkdown(markdown).children, [markdown]);
+  return <div className="plugin-guide__content">{blocks.map((block, index) => renderBlock(block, `help-${index}`))}</div>;
+}
+
 export function PluginGuide({ guide }: { guide: string }) {
   const sections = useMemo(() => guideSections(guide), [guide]);
 

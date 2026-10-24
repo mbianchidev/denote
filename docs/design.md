@@ -339,7 +339,18 @@ headers, added/removed columns, previous names for renames, and a written Binary
 label instead of numeric counts. The existing polite status region announces
 the file count without reading the entire table aloud.
 The always-visible branch button expands a searchable picker inside the plugin
-sidebar. One compact list labels local and remote branches, exposes
+sidebar.
+
+Recoverable remote-ahead errors appear above the section tabs, with a written
+alert, exact remote branch, native **Pull strategy** selector, and one primary
+pull action. A saved merge/rebase preference preselects that strategy;
+fast-forward-only divergence requires an explicit choice. Rebase copy warns
+that local commit identities change. Conflicted paths in operation progress
+have **Resolve:** buttons that open the existing editor without changing tabs
+first. Continue remains disabled until every conflict is resolved, while Abort
+stays available.
+
+The branch picker uses one compact list that labels local and remote branches, exposes
 create-and-switch with an explicit start-point selector when search has no exact
 match, and keeps icon buttons for rename and delete. Current branches remain
 visible but disabled, and every option keeps an exact accessible action name.
@@ -912,6 +923,29 @@ directory, a non-modal suggestion appears in the workspace chrome. It offers
 **Mark as project** and **No thanks**, never marks automatically, and disappears
 permanently for that vault after either dismissal or manual root
 project/workspace marking.
+
+### Optional code intelligence
+
+Code intelligence extends the existing compact plugin sidebar, not a separate
+IDE shell. Native language/scope selectors precede a written status and
+progress/error region. Setup is progressively disclosed, with one **Save and
+approve** primary action per form; starting and debugger actions remain secondary.
+Executable selection never executes a tool. Inputs, JSON code fields, focus,
+disabled state and forced colors reuse the workbench tokens and button hierarchy.
+
+Navigation results are named buttons in semantic lists, with symbol/container,
+path, project, language and line/column. File/position jumps stay searchable and
+keyboard reachable. Diagnostics expose written severity and exact positions;
+source underlines/gutters supplement rather than replace the list. Hover/help
+uses the existing safe host-rendered Markdown subset, never literal formatting
+markers or injected HTML.
+
+Debugger controls are text-labelled, capability-gated and independently opt-in.
+Threads, frames, scopes, variables, watches and output remain compact inspectable
+data. Unsupported/external source locations never masquerade as working links.
+Native disclosure sections contain setup and logs without traps or custom
+dialogs. No-server, disabled, busy, stale, crash, unsupported and encrypted states
+keep ordinary source editing available.
 
 ### Source Outline
 

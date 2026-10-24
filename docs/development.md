@@ -150,6 +150,13 @@ cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
 cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
 ```
 
+Git 0.10.1 targets Denote 0.9.0. `plugins/git/tests/sync.test.ts` covers
+porcelain rejections, preference-aware recovery, stale branch guards and failed
+pull conflict state. Native synthetic-origin tests cover rejected automatic
+pushes and both real merge/rebase conflict resolution through the production
+typed transport. Every origin, note, commit and identity is invented; local
+transport remains test-only.
+
 Clone tests use local synthetic bare repositories. Folder selection alone must
 leave the directory empty; only the host-bound explicit clone may populate it.
 Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
@@ -330,71 +337,71 @@ The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces --include-workspace-root` and
-`npm ls lodash-es`. The host sanitizer and Mermaid 0.2.8 use DOMPurify
+`npm ls lodash-es`. The host sanitizer and Mermaid 0.2.9 use DOMPurify
 [3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) to fix
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-The root dependency and override use the same patched version, so the temporary
-`dompurify-host` alias is removed. Historical Mermaid versions, including
-0.2.4, retain their original archives and source pins; new bytes use a new
-immutable plugin version.
-
-The build lockfile uses patched
-[Vite 8.3.5](https://github.com/vitejs/vite/releases/tag/v8.3.5),
-Rolldown 1.2.15, and
-[Undici 8.12.3](https://github.com/nodejs/undici/releases/tag/v8.12.3).
-The Vite/Rolldown update changes every plugin's generated output, so each
-current plugin receives a patch version and a new source-first pin rather than
-replacing its existing digest. Do not retain vulnerable build tools to reproduce
-current packages. Earlier release recipes remain tied to their historical
-commits. Include the workspace root in npm audits so development dependencies
-such as Vite and jsdom's Undici are covered as well as plugin workspaces.
-The new patch archives are staged for Denote v0.8.3. Pinning does not publish
-them or change existing GitHub Release assets; release preparation still owns
-the final catalog URLs and uploads.
+The host sanitizer and Mermaid 0.2.9 use this patch. Earlier published plugin
+archives retain their immutable bytes and source provenance.
+The build/test toolchain pins Vite 8.3.5 and Rolldown 1.2.15 together, with
+patched Undici 8.12.3. This compiler refresh uses new patch versions for all
+11 plugin packages, including Git 0.10.1 and Code intelligence 0.1.2. Earlier
+archive identities remain unchanged. Pin compatible compiler inputs and
+validate all plugin digests plus the frontend build when updating the toolchain;
+never repin an existing version to accommodate different compiler output.
+Include the workspace root in npm audits so development dependencies such as
+Vite and jsdom's Undici are covered as well as plugin workspaces.
 
 The root `katex` override
 pins [0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because
 Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
-on compatible 0.18.x until upstream Mermaid requires a patched release.
-Upstream deprecated 0.18.11 because it accidentally shipped breaking
-strict-mode changes; do not restore it or jump to 0.19 without reviewing that
-behavior. Earlier published plugin archives retain their immutable bytes and
-source provenance.
+at this compatible patch until strict-mode changes are reviewed. KaTeX 0.18.11
+was deprecated after accidentally shipping the
+[0.19 breaking changes](https://github.com/KaTeX/KaTeX/releases/tag/v0.19.0);
+it is not a safe patch-only upgrade. Earlier published plugin archives retain
+their immutable bytes and source provenance.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
 remains tied to the original source commit.
 
-### Cross-branch Mermaid reservations
+### Landed plugin release history
 
-Mermaid 0.2.8 is the corrected KaTeX build for
-[#119](https://github.com/mbianchidev/denote/pull/119). It deliberately avoids
-the versions already prepared by
-[#105](https://github.com/mbianchidev/denote/pull/105), whose current Mermaid
-0.2.7 uses the same patched DOMPurify and compatible KaTeX versions.
+The user-directed merge of
+[#105](https://github.com/mbianchidev/denote/pull/105) establishes the canonical
+0.9.0 catalog: all eleven current plugin versions retain source
+`4e180efefe2801ac3b200c0b9915dc093990b4ff` and the matching Vite 8.3.5 /
+Rolldown 1.2.15 inputs. The Rust-backport integration adopts those exact
+manifests, guides, digests, and source pins, without rebuilding a different
+identity at an existing version.
 
-The branches independently prepared different 0.2.5 identities: #119 records
-source `b865816bdfc21c48fc7d74848fb6bbc5aa68641b` and digest
-`f5d33700ecb3610cac337ec4e2ce80aace6098c6c9677ab384f9ffef2a676a06`;
-#105 records source `62cc5f14e57fb62b22f6d530e59fec35c89d7ebc` and digest
-`3519981889816dee3ce96655eeb4294b3b97c038c1c8a749c18d36dc54b3c0a0`.
-Neither may silently replace the other, even though both are unpublished.
-A fresh current version does not resolve this historical collision; choosing
-which unpublished reservation to retire requires an explicit owner decision.
-
-Compiler inputs also differ: #105 uses Rolldown 1.2.6, while #119 uses 1.2.15.
-The existing builder pins historical SDK source, not a separate compiler and
-dependency environment per archive. Calendar drift was measured, but #105's
-Git 0.10.0 and Code intelligence 0.1.1 artifacts have not been verified under
-#119's compiler. Before integration, compare their exact bytes and, if they
-change, approve fresh affected versions or review a reproducible-build
-solution. Do not assume compatibility, weaken archive verification, or repin
-unchanged versions.
+That merge also selects main's prepared Mermaid 0.2.5 record from source
+`62cc5f14e57fb62b22f6d530e59fec35c89d7ebc`. The conflicting, never-published
+#119 reservation from source `b865816bdfc21c48fc7d74848fb6bbc5aa68641b`
+is abandoned, not substituted for main's artifact. Its original record remains
+in Git history. Nonconflicting older #119 reservations, including Mermaid
+0.2.8, remain unchanged in the ledgers but are not current catalog entries.
+No published asset, main ledger entry, or current plugin source pin is
+rewritten.
 
 ### Prepare an immutable plugin version
+
+The 0.9.0 candidate introduces the code-intelligence and Git remote-recovery
+host contracts; those new packages require 0.9.0, not older released hosts.
+Security overrides pin KaTeX 0.18.10 for
+[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
+source-map-js 1.2.2 for
+[GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
+Mermaid 0.2.9 combines DOMPurify 3.4.17, compatible KaTeX 0.18.10, and the included
+math license in a new source pin. All canonical main ledger entries stay
+unchanged. Select fresh versions above existing reservations in parallel
+plugin PRs; an unpublished prepared version must not be silently reused.
+Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
+After changing an override, use `npm update <package> --package-lock-only`
+and verify `npm ls <package>` before committing and pinning; a lockfile-only
+install can otherwise retain an older overridden transitive version.
 
 Build and stage one independently downloadable plugin artifact with:
 
@@ -807,6 +814,44 @@ source commit with
 --release <Denote-tag>`, then commit only the generated catalog and
 `plugins/reminders/releases.json` metadata. Never commit the `.tgz`.
 
+### Code intelligence plugin development
+
+Use `npm run dev:plugin -- denote.code-intelligence` and the isolated development
+app's local archive picker. The package requests `code-intelligence`,
+`project-context`, and `sidebar`. It contains adapter metadata/protocol handling,
+not UI or native process implementations. Install tools yourself and explicitly
+approve them in the host; tests use synthetic Node protocol servers and never
+run a developer's real language/debug configuration.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/codeIntelligence.test.ts \
+  plugins/code-intelligence/tests \
+  src/plugins/codeHost.test.ts src/plugins/codeIntelligence.test.ts \
+  src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
+  src/plugins/hostOperations.test.ts src/plugins/usePlugins.test.tsx \
+  src/lib/codeTools.test.ts src/lib/codeEditor.test.tsx src/lib/tabs.test.ts \
+  src/components/CodeToolPanel.test.tsx src/components/PluginGuide.test.tsx \
+  src/components/PlainTextEditor.test.tsx src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml plugins::code_
+cargo test --manifest-path src-tauri/Cargo.toml plugin_v4_preserves
+```
+
+The native tests require the existing Node development prerequisite. Cover
+byte-count framing, headers/JSON bounds, response IDs, cancellation, source
+versions, folder markers/core project precedence, virtual URI/path translation,
+foreign plugin/vault/project/language rejection, executable reapproval, process
+groups and loopback teardown, DAP launch/configuration ordering, empty control
+responses, optional capabilities, suspended reference lifetimes, synthetic
+source edits, keyboard navigation and formatting, encrypted refusal and shutdown.
+
+The frozen `plugins-v4` Welcome inventory adds only the code intelligence
+exercise; previous markers/inventories and deleted examples stay untouched.
+Stage the package, commit all source/SDK/build/lock inputs, then pin its full
+source commit for the intended Denote release and commit the generated catalog
+and `plugins/code-intelligence/releases.json` separately. No tool executable or
+plugin archive belongs in Git or a desktop installer.
+
 ## Frontend bundle limits
 
 `npm run build` uses entry-aware Rolldown groups and rejects main-thread
@@ -847,7 +892,12 @@ after its last window closes. Do not float this runtime family until the
 packaged Windows renderer smoke gate passes. Desktop packaging rejects a
 mismatched API minor. No vulnerability advisory is ignored.
 
-The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
+The 2026-10-24 security refresh updates ctutils, Quinn, Rustls,
+rustls-webpki, webpki-root-certs, and Tokio to compatible patched releases, and
+replaces yanked clipboard-win 5.4.1 with 5.4.3. No vulnerability-level findings
+remain in that audit.
+
+The lockfile keeps `quinn-proto` at 0.11.19 to fix the advisories published on
 2026-10-12:
 [RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338),
 [RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340), and
@@ -856,17 +906,17 @@ This networking patch preserves the existing Windows/Tauri dependency graph.
 
 Compatible lockfile patches also fix:
 
-- `ctutils` 0.4.4:
+- `ctutils` 0.4.5:
   [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385).
 - `rustls-webpki` 0.103.16:
   [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382).
-- `webpki-root-certs` 1.0.10:
+- `webpki-root-certs` 1.0.11:
   [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383).
-- `tokio` 1.53.3:
+- `tokio` 1.54.1:
   [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386).
 
-`clipboard-win` moves from yanked 5.4.1 to 5.4.3. These updates preserve the
-complete pinned Tauri, Tao, Wry, WebView2, and URL-pattern package records.
+These updates preserve the complete pinned Tauri, Tao, Wry, WebView2, and
+URL-pattern package records.
 
 The 2026-10-14 Rustls advisories
 [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
@@ -879,12 +929,11 @@ The 2026-10-14 Rustls advisories
 [RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
 [RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368), and
 [RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369).
-That feature only extracts Tauri v1 `.zip` and Linux `.tar.gz` updater bundles,
-and every updater release through 2.14.0 still requires `zip` 4. Denote
-publishes raw `-setup.exe`, `.msi`, and `.AppImage` updater artifacts; macOS
-`.app.tar.gz` extraction does not depend on the feature. Keep `rustls-tls` and
-`system-proxy` enabled. Do not restore the default features unless the updater
-requires a patched `zip` release.
+That feature only extracts legacy Tauri v1 Windows ZIP and AppImage archives.
+Denote publishes raw `-setup.exe`, `.msi`, `.AppImage`, DEB, and RPM updater
+artifacts; macOS `.app.tar.gz` extraction does not depend on the feature. Keep
+only `rustls-tls` and `system-proxy` enabled. Do not restore the default features
+or add an unrelated ZIP dependency to mask its audit findings.
 
 Seven source packages in `src-tauri/vendor/` carry narrowly scoped compatibility
 backports through `[patch.crates-io]`; their original package names and versions
@@ -1093,23 +1142,26 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-10-24**.
+Last upstream check: **2026-10-25**.
 
-- [Tauri v2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
-  fixes NSIS language strings and downgrade checks and updates the 2.12 build
-  family. Its release notes do not identify a fix for the blank renderer and
-  orphaned process.
-- [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes
-  a separate Windows blank-webview case, not a fix for this regression.
-- [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232) concerns
-  a Linux WebKitGTK segfault, not this Windows regression.
-- [Wry v0.57.1](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.1)
-  changes Android initialization, Linux download/IPC handling, and macOS focus
-  and webview handling; its release notes identify no matching Windows fix.
-  [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
-  concerns Linux WebKitGTK view retention, not this Windows regression.
-- No identified upstream release or issue fixes both the blank Windows frame and
-  orphaned process.
+- [Tauri 2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
+  is the current stable release. Its
+  [manifest](https://github.com/tauri-apps/tauri/blob/tauri-v2.12.5/crates/tauri/Cargo.toml)
+  still requires GTK 0.18.
+- [Tauri issues](https://github.com/tauri-apps/tauri/issues) had no identified
+  Windows blank-webview fix matching this regression.
+- [Wry 0.57.1](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.1)
+  fixes macOS drag/drop and popup-controller handling plus Linux IPC injection;
+  it does not identify a Windows fix matching both the blank frame and orphaned
+  process.
+- [Tauri's GTK migration issue](https://github.com/tauri-apps/tauri/issues/16264#issuecomment-6131842560)
+  confirms that the maintained GTK bindings require coordinated work across
+  the runtime crates.
+- Earlier investigations of
+  [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846),
+  [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232), and
+  [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871) found separate
+  Windows blank-webview or Linux WebKitGTK problems, not a matching fix.
 
 Any agent or contributor considering an upgrade must:
 
@@ -1128,7 +1180,7 @@ Any agent or contributor considering an upgrade must:
    the Windows gate passes. If the candidate fails, restore the known-good graph
    exactly; never weaken, skip, or delete the smoke check to land an upgrade.
 
-Migration investigation, 2026-09-28: maintained
+Migration investigation, 2026-10-24: maintained
 [GTK 0.19.0](https://crates.io/crates/gtk/0.19.0) uses GLib 0.22. However, the
 Tauri 2.11 and 2.12 runtime families, Tao, Wry, and WebKitGTK still use GTK 0.18
 types. A new direct GTK/GLib dependency cannot replace incompatible transitive
@@ -1136,21 +1188,37 @@ types and native
 `links` dependencies. The runtime, menu/dialog integrations, and WebKitGTK
 bindings need a coordinated upgrade.
 
-[Tauri 3.0.0-alpha.3](https://github.com/tauri-apps/tauri/releases/tag/tauri-v3.0.0-alpha.3)
+[Tauri 3.0.0-alpha.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v3.0.0-alpha.5)
 requires Rust 1.95, matching version-three runtime/plugins, and native plugin
 hooks that can run concurrently and require `Sync`. Its
-[Wry runtime](https://crates.io/crates/tauri-runtime-wry/3.0.0-alpha.3) still uses
+[Wry runtime manifest](https://github.com/tauri-apps/tauri/blob/tauri-v3.0.0-alpha.5/crates/tauri-runtime-wry/Cargo.toml)
+still uses
 GTK 0.18 and WebKitGTK 2.0: moving to that alpha alone does not fix the findings.
 Keep stable Tauri until a compatible maintained GTK stack is available. That
 migration must cover Linux menus, dialogs, clipboard, deep links, single-instance
 behavior, updater shutdown, and vault/plugin lifecycles across all platforms.
 Do not relabel crates or suppress advisories to bypass this dependency boundary.
 
+[zbus 6](https://github.com/z-galaxy/zbus/issues/2043) merges the deprecated
+wire/name crates into `zbus::wire` and `zbus::names`. A direct dependency bump
+cannot remove the older graph: the released Tauri opener and single-instance
+plugins, notify-rust, secret-service, and zbus-secret-service-keyring-store still
+require zbus 5. The coordinated
+[Tauri plugin migration](https://github.com/tauri-apps/plugins-workspace/issues/3716)
+and [dependency update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
+remain open, as does
+[notify-rust's update](https://github.com/hoodie/notify-rust/pull/294).
+Until compatible published clients or separately reviewed source backports are
+adopted together, keep those warnings visible and preserve the Windows-safe
+runtime family.
+
 ## GitHub Actions validation
 
 CI runs on pull requests, pushes to `main`, and manual dispatch. The plugin
 archive guard, JavaScript and Rust security audits, and macOS, Windows, and Linux
 validation remain mandatory within each run.
+The JavaScript audit includes the workspace root as well as plugins, so Vite
+and jsdom/Undici development dependencies cannot escape the security gate.
 
 The security job caches the pinned `cargo-audit` installation and Cargo
 downloads, not the advisory database or audit results. The cache key includes

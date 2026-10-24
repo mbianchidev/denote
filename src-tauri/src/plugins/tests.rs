@@ -171,6 +171,7 @@ pub(super) fn manager(
             operations: Mutex::new(HashSet::new()),
             initialization_error: Mutex::new(None),
             git_operations: Default::default(),
+            code_sessions: Default::default(),
             clone_cleanups: Default::default(),
             clone_destinations: Default::default(),
             _process_lock: None,
@@ -1032,12 +1033,22 @@ fn embedded_bundle_metadata_is_valid_and_exposes_code_tooling_roles() {
         .find(|role| role.id == "git")
         .expect("git role");
     assert_eq!(git.candidate_plugin_ids, vec!["denote.git".to_string()]);
-    // Every other code role is still waiting for its first candidate.
+    for role_id in ["language-server", "code-navigation"] {
+        let role = code_tooling
+            .roles
+            .iter()
+            .find(|role| role.id == role_id)
+            .expect("code intelligence role");
+        assert_eq!(
+            role.candidate_plugin_ids,
+            vec!["denote.code-intelligence".to_string()]
+        );
+    }
     assert!(
         code_tooling
             .roles
             .iter()
-            .filter(|role| role.id != "git")
+            .filter(|role| matches!(role.id.as_str(), "terminal" | "linter" | "compiler"))
             .all(|role| role.candidate_plugin_ids.is_empty())
     );
 }

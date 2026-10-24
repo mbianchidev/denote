@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.json-yaml-viewer",
   "name": "JSON and YAML viewer",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "View JSON and YAML as a safe, local, keyboard-accessible structured tree.",
   "publisher": {
     "name": "Denote",

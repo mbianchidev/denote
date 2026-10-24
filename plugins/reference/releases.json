@@ -10,6 +10,17 @@
     }
   },
   {
+    "version": "0.1.2",
+    "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+    "kind": "source",
+    "sourcePath": "plugins/reference",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.reference-0.1.2.tgz",
+      "sha256": "f8685b04180a2029d899c341ee0bd50ceb1ce4d44fe9d2c0bc069a57c77f38f9",
+      "sizeBytes": 16084
+    }
+  },
+  {
     "version": "0.1.1",
     "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
     "kind": "source",

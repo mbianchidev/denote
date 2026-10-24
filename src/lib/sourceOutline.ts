@@ -33,6 +33,7 @@ export interface SourceMinimapLine {
 export interface SourceEditorNavigation {
   request: number;
   line?: number;
+  column?: number;
   progress?: number;
 }
 

@@ -29,7 +29,7 @@ The default board starts with one Backlog column.
 
 ### Existing Obsidian boards
 
-In Denote 0.8.2 or newer, Kanban 0.1.4 reads ordinary `.md` and `.markdown`
+In Denote 0.8.2 or newer, Kanban reads ordinary `.md` and `.markdown`
 files with `kanban-plugin: board` frontmatter without renaming or rewriting
 them. Escaped exports with `\---`, `\##`, `\- \[x]`, and encoded tab indentation
 also open directly. **Legacy Kanban board** is read-only: checked states, note

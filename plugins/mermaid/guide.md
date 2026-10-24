@@ -59,6 +59,5 @@ unlock.
 ## Third-party licenses
 
 The downloaded renderer bundles Mermaid 12.0.0 under the MIT License and
-DOMPurify 3.4.17 under its Apache License 2.0 option. Mermaid's KaTeX 0.18.10
-math renderer uses the MIT License. Source notices and license texts ship in
-the verified archive under `legal/`.
+DOMPurify 3.4.17 under its Apache License 2.0 option. Source notices and license
+texts ship in the verified archive under `legal/`.

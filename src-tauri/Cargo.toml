@@ -1,6 +1,6 @@
 [package]
 name = "denote"
-version = "0.8.2"
+version = "0.9.0"
 description = "A local-first Markdown vault for desktop"
 authors = ["Matteo Bianchi"]
 edition = "2024"
@@ -81,8 +81,8 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 tauri-plugin-notification = "2"
 command-group = "5.0.1"
 tempfile = "3.27.0"
-# The default `zip` feature only extracts Tauri v1 `.zip` bundles through the
-# vulnerable `zip` 4 extractor. Denote publishes raw v2 updater artifacts.
+# Keep legacy v1 ZIP/AppImage extraction disabled: it pulls vulnerable zip 4.
+# Denote uses raw v2 updater artifacts; macOS tarballs remain supported.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls", "system-proxy"] }
 tauri-plugin-deep-link = "2"
 

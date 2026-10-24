@@ -22,6 +22,17 @@
     }
   },
   {
+    "version": "0.1.3",
+    "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+    "kind": "source",
+    "sourcePath": "plugins/task-lists",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.task-lists-0.1.3.tgz",
+      "sha256": "d08eca65f2247986702c20ccf854828374a34a394799a55427d0e61f3803511a",
+      "sizeBytes": 70002
+    }
+  },
+  {
     "version": "0.1.2",
     "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
     "kind": "source",

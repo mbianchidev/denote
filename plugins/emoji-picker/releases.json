@@ -21,6 +21,17 @@
     }
   },
   {
+    "version": "0.1.3",
+    "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+    "kind": "source",
+    "sourcePath": "plugins/emoji-picker",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.emoji-picker-0.1.3.tgz",
+      "sha256": "442a2737c78f971db58a4fb6d8405a05bf997b5475496b7986ce579e682f95d0",
+      "sizeBytes": 105664
+    }
+  },
+  {
     "version": "0.1.2",
     "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
     "kind": "source",
