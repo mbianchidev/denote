@@ -895,14 +895,27 @@ migration must cover Linux menus, dialogs, clipboard, deep links, single-instanc
 behavior, updater shutdown, and vault/plugin lifecycles across all platforms.
 Do not relabel crates or suppress advisories to bypass this dependency boundary.
 
-## Build a desktop bundle
+## GitHub Actions validation
 
-```bash
-npm run tauri build
-```
+CI runs on pull requests, pushes to `main`, and manual dispatch. The plugin
+archive guard, JavaScript and Rust security audits, and macOS, Windows, and Linux
+validation remain mandatory within each run.
 
-The GitHub Actions workflow runs the validation commands on macOS, Windows, and
-Linux.
+The security job caches the pinned `cargo-audit` installation and Cargo
+downloads, not the advisory database or audit results. The cache key includes
+the tool version and Rust toolchain. Locked installation and the audit still
+run on every revision; an audit failure remains a failed check. This tool cache
+is saved even when the subsequent audit fails.
+
+Platform jobs restore compatible Cargo caches on every branch but save new
+entries only from `main`. This avoids uploading large, PR-scoped caches that
+other PRs cannot reuse. Dependency-changing PR reruns may rebuild dependencies
+until their changes reach `main`; no tests or checks are skipped on cache hits
+or misses.
+
+Windows builds the frontend once through Tauri's `beforeBuildCommand` when
+building the renderer smoke binary, before Rust tests consume the generated
+assets. macOS and Linux retain their standalone frontend build step.
 
 Windows CI additionally builds the embedded application without installers and
 runs:
@@ -917,6 +930,12 @@ The hosted runner launches this at medium integrity, isolates application and
 WebView2 data, captures the client area, rejects a uniform blank frame or browser
 error page, closes the last window, and requires `denote.exe` to exit. Failure
 uploads the screenshot and measured frame evidence.
+
+## Build a desktop bundle
+
+```bash
+npm run tauri build
+```
 
 ### Preview an unpublished plugin on macOS
 
