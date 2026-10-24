@@ -6,6 +6,7 @@ import {
   type PluginKanbanBoardModel,
   type PluginKanbanBoardRequest,
   type PluginKanbanCard,
+  type PluginKanbanColumn,
   type PluginKanbanEditRequest,
   type PluginKanbanEditResult,
 } from "@denote/plugin-sdk";
@@ -17,7 +18,7 @@ const CARD_END = "<!-- denote-kanban:card:end -->";
 const COLUMN_START =
   /^<!-- denote-kanban:column:start id="([a-z0-9][a-z0-9._-]{0,159})" -->$/;
 const CARD_START =
-  /^<!-- denote-kanban:card:start id="([a-z0-9][a-z0-9._-]{0,159})" -->$/;
+  /^<!-- denote-kanban:card:start id="([a-z0-9][a-z0-9._-]{0,159})"(?: completed="(true|false)")? -->$/;
 const RESERVED_MARKER = /<!--\s*denote-kanban:/;
 const MARKDOWN_LINK = /(?<!!)\[([^\]\r\n]{1,160})\]\(([^)\r\n]{1,1024})\)/g;
 const HASHTAG =
@@ -31,10 +32,17 @@ interface SourceLine {
   end: number;
   nextStart: number;
   number: number;
+  inFence: boolean;
+}
+
+interface MarkdownFence {
+  marker: string;
+  length: number;
 }
 
 interface ParsedCard {
   id: string;
+  startMarker: SourceLine;
   titleLine: SourceLine;
   bodyStart: number;
   bodyEnd: number;
@@ -77,19 +85,30 @@ class KanbanParseError extends Error {
 export function parseKanbanBoard(
   request: PluginKanbanBoardRequest,
 ): PluginKanbanBoardModel {
-  return parseDocument(request.source).model;
+  return parseDocument(request.source, request.path).model;
 }
 
 export function editKanbanBoard(
   request: PluginKanbanEditRequest,
 ): PluginKanbanEditResult {
-  const parsed = parseDocument(request.source);
+  const parsed = parseDocument(request.source, request.path);
   if (parsed.model.error) {
     throw new Error(parsed.model.error.message);
   }
   const lineEnding = parsed.board?.lineEnding ?? detectLineEnding(request.source);
   const edit = request.edit;
   let source = request.source;
+
+  if (edit.type === "migrate") {
+    if (parsed.model.sourceFormat !== "obsidian-kanban") {
+      throw new Error("Only a legacy Kanban board can be migrated to native.");
+    }
+    assertSafeEditableText(edit.title, "Board title");
+    return result(migrateLegacyBoard(source, parsed.model, edit.title, lineEnding));
+  }
+  if (parsed.model.sourceFormat === "obsidian-kanban") {
+    throw new Error("Legacy Kanban boards are read-only. Migrate to native first.");
+  }
 
   if (edit.type === "initialize") {
     if (parsed.board) {
@@ -197,6 +216,15 @@ export function editKanbanBoard(
       );
       break;
     }
+    case "set-card-completed": {
+      const card = requireBoardCard(board, edit.cardId);
+      source = replaceLine(
+        source,
+        card.startMarker,
+        `<!-- denote-kanban:card:start id="${card.id}" completed="${edit.completed}" -->`,
+      );
+      break;
+    }
     case "delete-card": {
       const card = requireBoardCard(board, edit.cardId);
       source = replaceRange(source, card.start, card.end, "");
@@ -221,7 +249,7 @@ export function editKanbanBoard(
   return result(source);
 }
 
-function parseDocument(source: string): ParsedDocument {
+function parseDocument(source: string, path = "Board.kanban.md"): ParsedDocument {
   if (stringBytes(source) > MAX_PLUGIN_KANBAN_SOURCE_BYTES) {
     return {
       board: null,
@@ -239,12 +267,18 @@ function parseDocument(source: string): ParsedDocument {
     if (boardStarts.length === 0) {
       if (
         boardEnds.length > 0 ||
-        lines.some((line) => isReservedStructureMarker(line.text.trim()))
+        lines.some(
+          (line) => !line.inFence && isReservedStructureMarker(line.text.trim()),
+        )
       ) {
         throw new KanbanParseError(
           "Kanban marker found without a matching board start marker.",
           boardEnds[0]?.number,
         );
+      }
+      const legacy = parseLegacyBoard(lines, path);
+      if (legacy) {
+        return { board: null, model: legacy };
       }
       return {
         board: null,
@@ -320,6 +354,7 @@ function parseDocument(source: string): ParsedDocument {
         columns,
       },
       model: {
+        sourceFormat: "denote-kanban-v1",
         title,
         columns: columns.map((column) => ({
           id: column.id,
@@ -347,6 +382,252 @@ function parseDocument(source: string): ParsedDocument {
       ),
     };
   }
+}
+
+function parseLegacyBoard(
+  lines: SourceLine[],
+  path: string,
+): PluginKanbanBoardModel | null {
+  const delimiter = lines[0]?.text.replace(/^\uFEFF/, "").trimEnd();
+  if (delimiter !== "---" && delimiter !== "\\---") {
+    return null;
+  }
+  const escaped = delimiter === "\\---";
+  const closingIndex = lines.findIndex(
+    (line, index) => index > 0 && line.text.trimEnd() === delimiter,
+  );
+  const header = lines.slice(1, closingIndex < 0 ? undefined : closingIndex);
+  if (
+    !header.some((line) =>
+      /^kanban-plugin:[ \t]*(?:board|"board"|'board')[ \t]*(?:#.*)?$/.test(
+        line.text,
+      ),
+    )
+  ) {
+    return null;
+  }
+  if (closingIndex < 0) {
+    throw new KanbanParseError(
+      "Legacy Kanban frontmatter is missing its closing delimiter.",
+      1,
+      "INVALID_LEGACY_BOARD",
+    );
+  }
+
+  const columns: PluginKanbanColumn[] = [];
+  let column: PluginKanbanColumn | null = null;
+  let card: {
+    title: string;
+    completed: boolean;
+    lines: string[];
+    line: number;
+  } | null = null;
+  let cardCount = 0;
+  let hasSettings = false;
+  let fence: MarkdownFence | null = null;
+  const finishCard = () => {
+    if (!card || !column) {
+      return;
+    }
+    const body = card.lines.join("\n").replace(/(?:\n[ \t]*)+$/, "");
+    if (stringBytes(body) > MAX_PLUGIN_KANBAN_CARD_BODY_BYTES) {
+      throw new KanbanParseError(
+        "Legacy Kanban card details exceed the 64 KiB limit.",
+        card.line,
+        "CARD_BODY_LIMIT",
+      );
+    }
+    column.cards.push({
+      id: `legacy-card-${cardCount}`,
+      title: card.title,
+      completed: card.completed,
+      body,
+      tags: extractTags(body),
+      links: extractLinks(body),
+    });
+    cardCount += 1;
+    if (cardCount > MAX_PLUGIN_KANBAN_CARDS) {
+      throw new KanbanParseError(
+        `Kanban boards support at most ${MAX_PLUGIN_KANBAN_CARDS} cards.`,
+        card.line,
+        "CARD_LIMIT",
+      );
+    }
+    card = null;
+  };
+
+  for (let index = closingIndex + 1; index < lines.length; index += 1) {
+    const text = legacyMarkdown(lines[index].text, escaped);
+    const nextFence = markdownFence(text, fence);
+    const inFence = fence !== null || nextFence !== null;
+    fence = nextFence;
+    if (inFence) {
+      if (card) {
+        card.lines.push(text.replace(/^(?:\t| {1,4})/, ""));
+      }
+      continue;
+    }
+    if (text.trim() === "%% kanban:settings") {
+      finishCard();
+      if (!lines.slice(index + 1).some((line) => line.text.trim() === "%%")) {
+        throw new KanbanParseError(
+          "Legacy Kanban settings are missing their closing %% line.",
+          lines[index].number,
+          "INVALID_LEGACY_BOARD",
+        );
+      }
+      hasSettings = true;
+      break;
+    }
+    const columnMatch = /^##(?!#)[ \t]+(.+?)[ \t]*$/.exec(text);
+    if (columnMatch) {
+      finishCard();
+      if (columns.length >= MAX_PLUGIN_KANBAN_COLUMNS) {
+        throw new KanbanParseError(
+          `Kanban boards support at most ${MAX_PLUGIN_KANBAN_COLUMNS} columns.`,
+          lines[index].number,
+          "COLUMN_LIMIT",
+        );
+      }
+      column = {
+        id: `legacy-column-${columns.length}`,
+        title: legacyTitle(columnMatch[1], lines[index].number, "Column"),
+        cards: [],
+      };
+      columns.push(column);
+      continue;
+    }
+    const task = /^[-*+][ \t]+\[([ xX])\][ \t]+(.*)$/.exec(text);
+    if (task) {
+      finishCard();
+      if (!column) {
+        throw new KanbanParseError(
+          "Legacy Kanban cards must follow a level 2 column heading.",
+          lines[index].number,
+          "INVALID_LEGACY_BOARD",
+        );
+      }
+      card = {
+        title: legacyTitle(task[2], lines[index].number, "Card"),
+        completed: task[1].toLowerCase() === "x",
+        lines: [task[2]],
+        line: lines[index].number,
+      };
+    } else if (card) {
+      card.lines.push(text.replace(/^(?:\t| {1,4})/, ""));
+    }
+  }
+  finishCard();
+  const parts = path.split("/");
+  const name = parts[parts.length - 1] ?? "Board";
+  return {
+    sourceFormat: "obsidian-kanban",
+    title: legacyTitle(
+      name.replace(/(?:\.kanban)?\.(?:md|markdown)$/i, "").replace(/[-_]+/g, " "),
+      1,
+      "Board",
+    ),
+    columns,
+    error: null,
+    canInitialize: false,
+    notices: [
+      "Legacy board is read-only. Migrate to native to edit it.",
+      ...(hasSettings
+        ? ["Obsidian display settings are retained but not applied."]
+        : []),
+    ],
+  };
+}
+
+function legacyMarkdown(text: string, escaped: boolean): string {
+  const decoded = text.replace(/&#(?:x0*9|0*9);/gi, "\t");
+  return escaped
+    ? decoded.replace(
+        /\\([\u0021-\u002f\u003a-\u0040\u005b-\u0060\u007b-\u007e])/g,
+        "$1",
+      )
+    : decoded;
+}
+
+function legacyTitle(text: string, line: number, label: string): string {
+  const title = text
+    .replace(MARKDOWN_LINK, "$1")
+    .replace(/(\*\*|__|`)(.+?)\1/g, "$2")
+    .replace(/(?<![\p{L}\p{N}])([*_])(.+?)\1(?![\p{L}\p{N}])/gu, "$2")
+    .trim();
+  if (!title || !SAFE_MODEL_TEXT.test(title)) {
+    throw new KanbanParseError(
+      `${label} title is empty or contains unsupported control characters.`,
+      line,
+      "INVALID_LEGACY_BOARD",
+    );
+  }
+  if (title.length <= 200) {
+    return title;
+  }
+  let end = 199;
+  if (/[\uD800-\uDBFF]/.test(title[end - 1])) {
+    end -= 1;
+  }
+  return `${title.slice(0, end)}…`;
+}
+
+function migrateLegacyBoard(
+  original: string,
+  model: PluginKanbanBoardModel,
+  title: string,
+  lineEnding: string,
+): string {
+  const columns = model.columns.map((column) => {
+    const cards = column.cards.map((card) => {
+      assertSafeCardBody(card.body);
+      return cardBlock(
+        createId("card"),
+        card.title,
+        card.body,
+        lineEnding,
+        card.completed,
+      );
+    });
+    return [
+      `<!-- denote-kanban:column:start id="${createId("column")}" -->`,
+      `## ${column.title}`,
+      "",
+      cards.join(lineEnding),
+      COLUMN_END,
+      "",
+    ].join(lineEnding);
+  });
+  let fenceLength = 3;
+  for (const match of original.matchAll(/~+/g)) {
+    fenceLength = Math.max(fenceLength, match[0].length + 1);
+  }
+  const fence = "~".repeat(fenceLength);
+  const finalNewline = original.endsWith("\n") || original.endsWith("\r");
+  const board = [
+    BOARD_START,
+    `# ${title.trim()}`,
+    "",
+    columns.join(lineEnding),
+    BOARD_END,
+    "",
+    "## Legacy Kanban source (recovery)",
+    "",
+    "Original source and Obsidian settings. This copy is not used by Board view.",
+    "",
+    `<!-- legacy-kanban-source:v1 final-newline="${finalNewline}" -->`,
+    `${fence}markdown`,
+    "",
+  ].join(lineEnding);
+  const migrated = `${board}${original}${
+    finalNewline ? "" : lineEnding
+  }${fence}${lineEnding}`;
+  if (stringBytes(migrated) > MAX_PLUGIN_KANBAN_SOURCE_BYTES) {
+    throw new Error(
+      "The migrated board and recovery copy exceed 4 MiB. Keep using legacy mode or split the board before migrating.",
+    );
+  }
+  return migrated;
 }
 
 function parseColumn(
@@ -479,6 +760,7 @@ function parseCard(
   return {
     card: {
       id,
+      startMarker: lines[startIndex],
       titleLine,
       bodyStart: rawBodyStart,
       bodyEnd: rawBodyEnd,
@@ -490,6 +772,7 @@ function parseCard(
         body,
         tags: extractTags(searchable),
         links: extractLinks(searchable),
+        ...(match[2] !== undefined ? { completed: match[2] === "true" } : {}),
       },
     },
     nextIndex: endIndex + 1,
@@ -615,6 +898,9 @@ function sourceLines(source: string): SourceLine[] {
   const lines: SourceLine[] = [];
   let start = 0;
   let number = 1;
+  let fence: MarkdownFence | null = null;
+  let managedBoard = false;
+  const escapedLegacy = source.replace(/^\uFEFF/, "").startsWith("\\---");
   while (start < source.length) {
     let end = start;
     while (
@@ -630,13 +916,31 @@ function sourceLines(source: string): SourceLine[] {
     } else if (source[end] === "\r" || source[end] === "\n") {
       nextStart += 1;
     }
+    const text = source.slice(start, end);
+    const marker = text.trim();
+    const managedMarker =
+      managedBoard &&
+      (marker === BOARD_START ||
+        marker === BOARD_END ||
+        isReservedStructureMarker(marker));
+    const nextFence: MarkdownFence | null = managedMarker
+      ? null
+      : markdownFence(escapedLegacy ? legacyMarkdown(text, true) : text, fence);
+    const inFence = !managedMarker && (fence !== null || nextFence !== null);
     lines.push({
-      text: source.slice(start, end),
+      text,
       start,
       end,
       nextStart,
       number,
+      inFence,
     });
+    if (!inFence && marker === BOARD_START) {
+      managedBoard = true;
+    } else if (managedMarker && marker === BOARD_END) {
+      managedBoard = false;
+    }
+    fence = nextFence;
     start = nextStart;
     number += 1;
   }
@@ -644,7 +948,25 @@ function sourceLines(source: string): SourceLine[] {
 }
 
 function markerLines(lines: SourceLine[], marker: string): SourceLine[] {
-  return lines.filter((line) => line.text.trim() === marker);
+  return lines.filter((line) => !line.inFence && line.text.trim() === marker);
+}
+
+function markdownFence(
+  text: string,
+  fence: MarkdownFence | null,
+): MarkdownFence | null {
+  const match = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(text);
+  if (!match) {
+    return fence;
+  }
+  if (!fence) {
+    return { marker: match[1][0], length: match[1].length };
+  }
+  return match[1][0] === fence.marker &&
+    match[1].length >= fence.length &&
+    match[2].trim().length === 0
+    ? null
+    : fence;
 }
 
 function isReservedStructureMarker(text: string): boolean {
@@ -709,9 +1031,12 @@ function cardBlock(
   title: string,
   body: string,
   lineEnding: string,
+  completed?: boolean,
 ): string {
   return [
-    `<!-- denote-kanban:card:start id="${id}" -->`,
+    `<!-- denote-kanban:card:start id="${id}"${
+      completed === undefined ? "" : ` completed="${completed}"`
+    } -->`,
     `### ${title.trim()}`,
     "",
     ...(body.length > 0 ? [normalizeToLineEnding(body, lineEnding)] : []),

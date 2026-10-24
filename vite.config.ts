@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import { availableParallelism } from "node:os";
 import { sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -147,6 +148,10 @@ export default defineConfig(async ({ command }) => ({
     },
   },
   test: {
+    pool: "forks",
+    isolate: true,
+    // Bound cold jsdom startup without sharing globals or weakening timeouts.
+    maxWorkers: Math.max(1, Math.min(2, availableParallelism() - 1)),
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
     css: true,

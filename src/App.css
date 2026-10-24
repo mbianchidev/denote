@@ -2295,6 +2295,14 @@ button:disabled {
   line-height: 1.35;
 }
 
+.kanban-card__completion {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
 .kanban-card__body-shell {
   position: relative;
   min-height: 1.5em;
@@ -2340,6 +2348,11 @@ button:disabled {
   -webkit-box-orient: vertical;
   background: transparent;
   border-radius: 3px;
+}
+
+.kanban-card__body-shell[data-expanded="true"] .kanban-card__body {
+  display: block;
+  max-height: none;
 }
 
 .kanban-card__inline-link {

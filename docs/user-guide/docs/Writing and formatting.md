@@ -3,6 +3,10 @@
 Markdown files use a rich editor in each pane. Files containing MDX, unsupported
 raw HTML, footnotes, or math stay in source mode so
 Denote cannot silently rewrite unsupported syntax.
+Opening a note, focusing it, or switching between Rich and Source does not edit
+or autosave it. Trailing spaces, tabs, and blank lines remain in the source.
+If you remove whitespace explicitly in Source, Denote does not restore it after
+you switch back to Rich.
 
 ## Common Markdown
 
@@ -220,6 +224,9 @@ an unknown domain. Choose **Allow domain** or **Allow all external domains**;
 manage permissions later in **Settings**. Email, telephone, hostless local file,
 and confirmed custom application protocols use their operating system handlers.
 Remote file hosts are blocked.
+Write email links as `[Email](mailto:mock@example.test)`. Rich edits keep the
+`mailto:` scheme and ordinary query separators without adding backslashes.
+Escapes that are needed to preserve literal Markdown or code remain unchanged.
 
 When the active file contains web links, choose **Open all external links** in
 the editor toolbar or command palette. Denote deduplicates destinations, opens

@@ -2007,7 +2007,7 @@ function App() {
       : null;
   const activeKanbanBoard =
     activeFileTab?.encoding === "utf8" && !activeFileTab.transient
-      ? kanbanBoardForPath(kanbanBoards, activeFileTab.path)
+      ? kanbanBoardForPath(kanbanBoards, activeFileTab.path, activeFileTab.content)
       : null;
   const effectiveOutlineAvailable =
     outlineAvailable &&
@@ -8022,7 +8022,7 @@ function App() {
         (tab.kind === "image" ||
           (tab.encoding === "utf8" &&
             (structuredViewerForPath(structuredViewers, tab.path) ||
-              kanbanBoardForPath(kanbanBoards, tab.path))))
+              kanbanBoardForPath(kanbanBoards, tab.path, tab.content))))
           ? { ...tab, rawEditing }
           : tab,
       ),
@@ -9930,7 +9930,7 @@ function App() {
       paneProject ? projectDisplaySettings : editorDisplaySettings;
     const paneKanbanBoard =
       paneTab.encoding === "utf8" && !paneTab.transient
-        ? kanbanBoardForPath(kanbanBoards, paneTab.path)
+        ? kanbanBoardForPath(kanbanBoards, paneTab.path, paneTab.content)
         : null;
     const paneUsesRichMarkdown =
       usesRichMarkdownEditor(paneTab, paneProject) &&

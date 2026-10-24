@@ -1,4 +1,8 @@
 import type { EditorTab, ProjectRoot } from "../types";
+import { detectPluginKanbanSourceFormat } from "@denote/plugin-sdk";
+
+type MarkdownRoutingTab = Pick<EditorTab, "kind" | "encoding" | "path"> &
+  Partial<Pick<EditorTab, "content">>;
 
 function isUtf8MarkdownSource(
   tab: Pick<EditorTab, "kind" | "encoding" | "path">,
@@ -11,16 +15,17 @@ function isUtf8MarkdownSource(
 }
 
 function isPortablePluginMarkdown(
-  tab: Pick<EditorTab, "kind" | "encoding" | "path">,
+  tab: MarkdownRoutingTab,
 ): boolean {
   return (
     isUtf8MarkdownSource(tab) &&
-    /\.kanban\.(?:md|markdown)$/i.test(tab.path)
+    (/\.kanban\.(?:md|markdown)$/i.test(tab.path) ||
+      detectPluginKanbanSourceFormat(tab.content ?? "") !== null)
   );
 }
 
 export function usesRichMarkdownEditor(
-  tab: Pick<EditorTab, "kind" | "encoding" | "path">,
+  tab: MarkdownRoutingTab,
   project: ProjectRoot | null,
 ): boolean {
   return (
@@ -31,7 +36,7 @@ export function usesRichMarkdownEditor(
 }
 
 export function usesMarkdownSourceEditor(
-  tab: Pick<EditorTab, "kind" | "encoding" | "path">,
+  tab: MarkdownRoutingTab,
   project: ProjectRoot | null,
 ): boolean {
   return (

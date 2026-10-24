@@ -437,13 +437,20 @@ The additive API version 1 `kanban-board` permission accepts one namespaced
 provider per plugin. A registration declares a title, one to four lowercase
 Markdown filename suffixes, a default filename, and worker-owned parse and edit
 callbacks. Active providers cannot claim the same suffix.
+Optional `sourceFormats` may name only `denote-kanban-v1` or `obsidian-kanban`;
+active providers cannot share a format either. This opt-in permits host detection
+in the first 8 KiB of an already-open ordinary Markdown file. It never grants
+general note access or an arbitrary content matcher. Old providers stay
+suffix-only.
 
 For a matching open UTF-8 tab, the host sends only its vault-relative path and
 current in-memory source. Parse returns a bounded declarative board model:
 one title, at most 128 columns and 5,000 cards, unique bounded IDs, card titles,
 up to 64 KiB of card details, and bounded extracted tags and Markdown links.
-Edit receives that same source plus one fixed operation to initialize or rename
-a board, add/rename/delete/move a column, or add/edit/delete/move a card. It
+Optional `sourceFormat` and boolean card `completed` identify legacy presentation
+and checkbox state. Edit receives that same source plus one fixed operation to
+initialize, migrate, or rename a board, add/rename/delete/move a column, or
+add/edit/delete/move/set-completed a card. It
 returns replacement source and the corresponding validated model. Source and
 model are each bounded before they cross the worker boundary; malformed
 registration, requests, models, or edits are runtime protocol violations.
@@ -471,6 +478,18 @@ stable IDs plus ordinary level-two and level-three headings. Card details remain
 ordinary Markdown. Initialization appends the managed block after existing
 content. Reordering moves an original marked slice byte-for-byte, so unknown
 Markdown inside it and all content outside the board remain unchanged.
+
+Kanban 0.1.4 requires Denote 0.8.2. It also reads Obsidian boards and escaped
+exports unchanged in legacy mode, without requiring a compound filename suffix.
+Legacy parsing and source repair for an explicit migration belong to the
+downloaded plugin, not the host. The only permitted legacy edit is `migrate`.
+That operation preserves card order, checked states, links, tags, dates, and
+full item text, creates native markers, and retains the exact original source
+and settings in an inert fenced recovery block. Recovery content counts toward
+the same 4 MiB source limit; settings are never executed or applied as preferences.
+Native imported checkboxes use optional card-marker completion attributes.
+The host owns migration confirmation, read-only expansion, stale/read-mode result
+rejection, and lossless Markdown fallback after disablement.
 
 ### Calendar and daily notes
 

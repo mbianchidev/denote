@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type {
@@ -83,6 +83,189 @@ function renderBoard(options: {
 }
 
 describe("KanbanBoardEditor", () => {
+  it("shows legacy boards read-only while keeping full details and note links available", async () => {
+    const user = userEvent.setup();
+    const legacy: PluginKanbanBoardModel = {
+      ...model,
+      sourceFormat: "obsidian-kanban",
+      notices: ["Legacy board is read-only. Migrate to native to edit it."],
+      columns: [{
+        ...model.columns[0],
+        cards: [{
+          ...model.columns[0].cards[0],
+          completed: true,
+          body: [
+            model.columns[0].cards[0].body,
+            ...Array.from({ length: 8 }, (_, index) => `Invented detail ${index + 1}`),
+          ].join("\n"),
+        }],
+      }],
+    };
+    const { edit, onChange, onLinkOpen } = renderBoard({ initialModel: legacy });
+
+    await screen.findByRole("heading", { name: "Release board" });
+    expect(screen.getByText("Legacy Kanban board")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Add column" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Write specification" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reorder card Write specification" }))
+      .toBeDisabled();
+    const details = screen.getByRole("button", {
+      name: /Show full details for Write specification/,
+    });
+    await user.click(details);
+    expect(details).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByRole("textbox", { name: "Card details (Markdown)" }))
+      .not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Specification" }));
+    expect(onLinkOpen).toHaveBeenCalledWith("Specification.md", "Specification");
+    expect(edit).not.toHaveBeenCalled();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("migrates a legacy board only after confirmation and restores native keyboard focus", async () => {
+    const user = userEvent.setup();
+    const edit = vi.fn(async () => ({
+      source: "synthetic migrated source",
+      model: { ...model, sourceFormat: "denote-kanban-v1" as const },
+    }));
+    const { onChange } = renderBoard({
+      initialModel: { ...model, sourceFormat: "obsidian-kanban" },
+      edit,
+    });
+    const migrate = await screen.findByRole("button", { name: "Migrate to native" });
+    expect(edit).not.toHaveBeenCalled();
+
+    await user.click(migrate);
+    let confirmation = screen.getByRole("group", { name: "Migrate legacy board" });
+    expect(within(confirmation).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    expect(confirmation).toHaveTextContent("original source");
+    expect(edit).not.toHaveBeenCalled();
+    await user.click(within(confirmation).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(migrate).toHaveFocus());
+    expect(onChange).not.toHaveBeenCalled();
+
+    await user.keyboard("{Enter}");
+    confirmation = screen.getByRole("group", { name: "Migrate legacy board" });
+    await user.tab();
+    expect(within(confirmation).getByRole("button", { name: "Migrate to native" }))
+      .toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(edit).toHaveBeenCalledWith({
+      path: "Release.kanban.md",
+      source: "synthetic source",
+      edit: { type: "migrate", title: "Release board" },
+    });
+    expect(onChange).toHaveBeenCalledWith("synthetic migrated source");
+    expect(screen.queryByText("Legacy Kanban board")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Release board" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Release board" })).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("Migrated board to native");
+  });
+
+  it("shows imported completion state and edits it only in native mode", async () => {
+    const user = userEvent.setup();
+    const completed: PluginKanbanBoardModel = {
+      ...model,
+      sourceFormat: "denote-kanban-v1",
+      columns: [{
+        ...model.columns[0],
+        cards: [{ ...model.columns[0].cards[0], completed: true }],
+      }],
+    };
+    const edit = vi.fn(async () => ({
+      source: "synthetic unchecked source",
+      model: {
+        ...completed,
+        columns: [{
+          ...completed.columns[0],
+          cards: [{ ...completed.columns[0].cards[0], completed: false }],
+        }],
+      },
+    }));
+    const native = renderBoard({ initialModel: completed, edit });
+    const checkbox = await screen.findByRole("checkbox", {
+      name: "Complete Write specification",
+    });
+    expect(checkbox).toBeChecked();
+    await user.click(checkbox);
+    expect(edit).toHaveBeenCalledWith(expect.objectContaining({
+      edit: { type: "set-card-completed", cardId: "card-spec", completed: false },
+    }));
+    expect(checkbox).not.toBeChecked();
+    expect(checkbox).toHaveFocus();
+    native.unmount();
+
+    const legacy = renderBoard({
+      initialModel: { ...completed, sourceFormat: "obsidian-kanban" },
+    });
+    const legacyCheckbox = await screen.findByRole("checkbox", {
+      name: "Complete Write specification",
+    });
+    expect(legacyCheckbox).toBeChecked();
+    expect(legacyCheckbox).toBeDisabled();
+    await user.click(legacyCheckbox);
+    expect(legacy.edit).not.toHaveBeenCalled();
+    expect(legacy.onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps the legacy source when a migration does not return a native board", async () => {
+    const user = userEvent.setup();
+    const legacy: PluginKanbanBoardModel = { ...model, sourceFormat: "obsidian-kanban" };
+    const edit = vi.fn(async () => ({
+      source: "invalid replacement source",
+      model: legacy,
+    }));
+    const { onChange, onError } = renderBoard({ initialModel: legacy, edit });
+    await user.click(await screen.findByRole("button", { name: "Migrate to native" }));
+    await user.click(within(
+      screen.getByRole("group", { name: "Migrate legacy board" }),
+    ).getByRole("button", { name: "Migrate to native" }));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/did not return a native Kanban board/),
+    }));
+    expect(screen.getByText("Legacy Kanban board")).toBeInTheDocument();
+  });
+
+  it("discards a migration if the board becomes read-only while the worker is running", async () => {
+    const user = userEvent.setup();
+    let finish: ((result: { source: string; model: PluginKanbanBoardModel }) => void) | null =
+      null;
+    const pending = new Promise<{ source: string; model: PluginKanbanBoardModel }>(
+      (resolve) => { finish = resolve; },
+    );
+    const props = {
+      title: "Kanban boards",
+      path: "Example.md",
+      source: "synthetic source",
+      readOnly: false,
+      parse: vi.fn(async () => ({ ...model, sourceFormat: "obsidian-kanban" as const })),
+      edit: vi.fn(() => pending),
+      onChange: vi.fn(),
+      onLinkOpen: vi.fn(),
+      onError: vi.fn(),
+    };
+    const rendered = render(<KanbanBoardEditor {...props} />);
+    await user.click(await screen.findByRole("button", { name: "Migrate to native" }));
+    await user.click(within(
+      screen.getByRole("group", { name: "Migrate legacy board" }),
+    ).getByRole("button", { name: "Migrate to native" }));
+    expect(props.edit).toHaveBeenCalledOnce();
+    rendered.rerender(<KanbanBoardEditor {...props} readOnly />);
+    await act(async () => {
+      finish?.({
+        source: "stale migrated source",
+        model: { ...model, sourceFormat: "denote-kanban-v1" },
+      });
+    });
+
+    expect(props.onChange).not.toHaveBeenCalled();
+    expect(props.onError).toHaveBeenCalledWith(expect.objectContaining({
+      message: expect.stringMatching(/read-only before this edit completed/),
+    }));
+  });
+
   it("renders semantic columns, cards, tags, and host-opened note links", async () => {
     const user = userEvent.setup();
     const { onLinkOpen } = renderBoard();

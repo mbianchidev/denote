@@ -1522,6 +1522,9 @@ export class PluginWorkerRuntime {
           title: message.title,
           fileSuffixes: message.fileSuffixes,
           defaultFileName: message.defaultFileName,
+          ...(message.sourceFormats !== undefined
+            ? { sourceFormats: message.sourceFormats }
+            : {}),
         };
         if (
           (runtime.phase !== "activating" && runtime.phase !== "active") ||
@@ -1529,9 +1532,7 @@ export class PluginWorkerRuntime {
           !message.id.startsWith(`${pluginId}.`) ||
           !isPluginKanbanRegistration(registration) ||
           runtime.kanbanBoards.size + runtime.stagedKanbanBoards.size > 0 ||
-          message.fileSuffixes.some((suffix) =>
-            this.kanbanFileSuffixRegistered(suffix),
-          )
+          this.kanbanRegistrationConflicts(registration)
         ) {
           void this.failRuntime(
             pluginId,
@@ -2147,13 +2148,25 @@ export class PluginWorkerRuntime {
     return false;
   }
 
-  private kanbanFileSuffixRegistered(suffix: string): boolean {
+  private kanbanRegistrationConflicts(
+    registration: Pick<
+      PluginKanbanBoardContribution,
+      "fileSuffixes" | "sourceFormats"
+    >,
+  ): boolean {
     for (const runtime of this.runtimes.values()) {
       for (const board of [
         ...runtime.kanbanBoards.values(),
         ...runtime.stagedKanbanBoards.values(),
       ]) {
-        if (board.fileSuffixes.includes(suffix)) {
+        if (
+          board.fileSuffixes.some((suffix) =>
+            registration.fileSuffixes.includes(suffix),
+          ) ||
+          board.sourceFormats?.some((format) =>
+            registration.sourceFormats?.includes(format),
+          )
+        ) {
           return true;
         }
       }

@@ -3437,11 +3437,21 @@ fn cancels_a_running_read_only_operation_and_leaves_no_child() {
     let hooks = directory.path().join("hooks");
     fs::create_dir_all(&hooks).expect("hooks");
     let global_config = empty_global_config(directory.path());
+    let gate = directory.path().join("running");
+    fs::write(&gate, b"").expect("gate");
+    let started = directory.path().join("started");
+    let child_pid = directory.path().join("child-pid");
     let marker = directory.path().join("finished");
     let slow = write_script(
         directory.path(),
         "slow-git",
-        &format!("#!/bin/sh\nsleep 30\ntouch {}\n", marker.display()),
+        &format!(
+            "#!/bin/sh\n(\n  while [ -e \"{}\" ]; do\n    sleep 1\n  done\n  : > \"{}\"\n) &\nprintf '%s\\n' \"$!\" > \"{}\"\n: > \"{}\"\nwait \"$!\"\n",
+            gate.display(),
+            marker.display(),
+            child_pid.display(),
+            started.display(),
+        ),
     );
     let registry = Arc::new(GitOperationRegistry::default());
     let token = registry
@@ -3471,7 +3481,11 @@ fn cancels_a_running_read_only_operation_and_leaves_no_child() {
         result_tx.send(result).expect("result");
     });
 
-    thread::sleep(Duration::from_millis(300));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !started.exists() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(10));
+    }
+    let child_started = started.exists();
     assert!(
         registry.cancel(PLUGIN_ID, &operation_id).expect("cancel"),
         "the plugin must be able to cancel its own operation"
@@ -3483,9 +3497,42 @@ fn cancels_a_running_read_only_operation_and_leaves_no_child() {
         .expect("result");
     worker.join().expect("worker");
 
+    assert!(child_started, "the synthetic Git child must start");
     assert!(result.cancelled);
     assert_eq!(result.exit_code, -1);
     assert!(result.stdout.contains("mergeInProgress"));
+    let child_pid = fs::read_to_string(&child_pid)
+        .expect("child PID")
+        .trim()
+        .parse::<u32>()
+        .expect("valid child PID")
+        .to_string();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let output = Command::new("/bin/ps")
+            .args(["-o", "stat=", "-p", &child_pid])
+            .output()
+            .expect("child process state");
+        assert!(
+            output.status.success() || output.status.code() == Some(1),
+            "unable to inspect the child: {}",
+            String::from_utf8_lossy(&output.stderr),
+        );
+        assert!(
+            output.stderr.is_empty(),
+            "unexpected process inspection error"
+        );
+        let state = String::from_utf8(output.stdout).expect("process state");
+        let state = state.trim();
+        if state.is_empty() || state.starts_with('Z') {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the child process must be killed, but its state is {state}",
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
     assert!(!marker.exists(), "the child process must be killed");
 }
 

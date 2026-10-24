@@ -56,6 +56,9 @@ export const KANBAN_CARD_PREVIEW_LINES = 5;
 
 type EditorState =
   | {
+      kind: "migrate";
+    }
+  | {
       kind: "board-title";
       title: string;
     }
@@ -145,6 +148,7 @@ export function KanbanBoardEditor({
   const onErrorRef = useRef(onError);
   const currentPathRef = useRef(path);
   const currentSourceRef = useRef(source);
+  const currentReadOnlyRef = useRef(readOnly);
   const mountedRef = useRef(true);
   const lastAppliedSource = useRef<string | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -152,15 +156,18 @@ export function KanbanBoardEditor({
   const boardRef = useRef<HTMLElement | null>(null);
   const pointerDrag = useRef<PointerDragSession | null>(null);
   const pointerDropTarget = useRef<PointerDropTarget | null>(null);
-  const focusTargets = useRef(new Map<string, HTMLButtonElement>());
+  const focusTargets = useRef(new Map<string, HTMLElement>());
   const focusAfterUpdate = useRef<string | null>(null);
   const [focusRequest, setFocusRequest] = useState(0);
+  const legacy = model?.sourceFormat === "obsidian-kanban";
+  const editingDisabled = readOnly || busy || legacy;
   parseRef.current = parse;
   editRef.current = edit;
   onChangeRef.current = onChange;
   onErrorRef.current = onError;
   currentPathRef.current = path;
   currentSourceRef.current = source;
+  currentReadOnlyRef.current = readOnly;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -223,7 +230,7 @@ export function KanbanBoardEditor({
   };
 
   const registerFocusTarget =
-    (key: string) => (element: HTMLButtonElement | null) => {
+    (key: string) => (element: HTMLElement | null) => {
       if (element) {
         focusTargets.current.set(key, element);
       } else {
@@ -236,7 +243,7 @@ export function KanbanBoardEditor({
     message: string,
     focusKey?: string | ((next: PluginKanbanBoardModel) => string | null),
   ) => {
-    if (readOnly || busy) {
+    if (readOnly || busy || (legacy && operation.type !== "migrate")) {
       return;
     }
     setBusy(true);
@@ -258,6 +265,21 @@ export function KanbanBoardEditor({
       ) {
         throw new Error(
           "The Kanban board changed before this edit completed. Try again.",
+        );
+      }
+      if (currentReadOnlyRef.current) {
+        throw new Error(
+          "The Kanban board became read-only before this edit completed. The source is unchanged.",
+        );
+      }
+      if (
+        operation.type === "migrate" &&
+        (result.model.sourceFormat !== "denote-kanban-v1" ||
+          result.model.error !== null ||
+          result.model.canInitialize)
+      ) {
+        throw new Error(
+          "The plugin did not return a native Kanban board. The original source is unchanged.",
         );
       }
       lastAppliedSource.current = result.source;
@@ -365,7 +387,7 @@ export function KanbanBoardEditor({
     event: React.PointerEvent<HTMLButtonElement>,
     item: DraggedItem,
   ) => {
-    if (readOnly || busy || event.button !== 0) {
+    if (editingDisabled || event.button !== 0) {
       return;
     }
     event.preventDefault();
@@ -739,14 +761,16 @@ export function KanbanBoardEditor({
         ) : (
           <div className="kanban-board-editor__title">
             <div>
-              <span className="dialog-kicker">Kanban board</span>
+              <span className="dialog-kicker">
+                {legacy ? "Legacy Kanban board" : "Kanban board"}
+              </span>
               <h1 id={boardHeadingId}>
                 <button
                   ref={registerFocusTarget("board")}
                   type="button"
                   className="kanban-title-button"
                   title="Edit board title"
-                  disabled={readOnly || busy}
+                  disabled={editingDisabled}
                   onClick={(event) => {
                     rememberTrigger(event.currentTarget);
                     setEditor({ kind: "board-title", title: model.title });
@@ -766,7 +790,7 @@ export function KanbanBoardEditor({
           <button
             type="button"
             className="secondary-button"
-            disabled={readOnly || busy}
+            disabled={editingDisabled}
             onClick={(event) => {
               rememberTrigger(event.currentTarget);
               setEditor({ kind: "add-column", title: "" });
@@ -775,7 +799,70 @@ export function KanbanBoardEditor({
             <Plus aria-hidden="true" size={15} />
             Add column
           </button>
+          {legacy ? (
+            <button
+              type="button"
+              className={
+                editor?.kind === "migrate" ? "secondary-button" : "primary-button"
+              }
+              disabled={readOnly || busy || editor?.kind === "migrate"}
+              aria-expanded={editor?.kind === "migrate"}
+              onClick={(event) => {
+                rememberTrigger(event.currentTarget);
+                setEditor({ kind: "migrate" });
+              }}
+            >
+              Migrate to native
+            </button>
+          ) : null}
         </div>
+        {legacy && editor?.kind === "migrate" ? (
+          <form
+            className="kanban-inline-form"
+            role="group"
+            aria-label="Migrate legacy board"
+            onKeyDown={(event) => {
+              if (event.key === "Escape" && !busy) {
+                event.preventDefault();
+                closeEditor();
+              }
+            }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void performEdit(
+                { type: "migrate", title: model.title },
+                "Migrated board to native",
+                "board",
+              );
+            }}
+          >
+            <p>
+              Convert this board in place, keeping cards, checked states, links,
+              and details. The original source and Obsidian settings stay in a
+              recovery block below the native board.
+            </p>
+            <div className="kanban-inline-form__actions">
+              <button
+                ref={(element) => {
+                  editorFocus.current = element;
+                }}
+                type="button"
+                className="secondary-button"
+                disabled={busy}
+                onClick={closeEditor}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="primary-button"
+                disabled={readOnly || busy}
+              >
+                {busy ? "Migrating…" : "Migrate to native"}
+              </button>
+            </div>
+          </form>
+        ) : null}
         {editor?.kind === "add-column" ? (
           <form
             className="kanban-inline-form"
@@ -821,6 +908,11 @@ export function KanbanBoardEditor({
             />
           </form>
         ) : null}
+        {model.notices.map((notice) => (
+          <p key={notice} className="kanban-board-editor__notice" role="note">
+            {notice}
+          </p>
+        ))}
       </header>
 
       <ol className="kanban-board-editor__columns" aria-label="Board columns">
@@ -857,7 +949,7 @@ export function KanbanBoardEditor({
                     grabbedItem.id === column.id
                   }
                   title="Drag to reorder. Press Space, then use Left or Right."
-                  disabled={readOnly || busy}
+                  disabled={editingDisabled}
                   onPointerDown={(event) =>
                     startPointerDrag(event, {
                       kind: "column",
@@ -926,7 +1018,7 @@ export function KanbanBoardEditor({
                           type="button"
                           className="kanban-title-button"
                           title={`Rename ${column.title}`}
-                          disabled={readOnly || busy}
+                          disabled={editingDisabled}
                           onClick={(event) => {
                             rememberTrigger(event.currentTarget);
                             setEditor({
@@ -950,7 +1042,7 @@ export function KanbanBoardEditor({
                         className="icon-button"
                         title={`Delete ${column.title}`}
                         aria-label={`Delete ${column.title}`}
-                        disabled={readOnly || busy}
+                        disabled={editingDisabled}
                         onClick={(event) => {
                           rememberTrigger(event.currentTarget);
                           setEditor({
@@ -1057,7 +1149,7 @@ export function KanbanBoardEditor({
                               grabbedItem.id === card.id
                             }
                             title="Drag to move. Press Space, then use arrow keys."
-                            disabled={readOnly || busy}
+                            disabled={editingDisabled}
                             onPointerDown={(event) =>
                               startPointerDrag(event, {
                                 kind: "card",
@@ -1078,12 +1170,30 @@ export function KanbanBoardEditor({
                           >
                             <GripVertical aria-hidden="true" size={14} />
                           </button>
+                          {card.completed !== undefined ? (
+                            <input
+                              ref={registerFocusTarget(`card-completed:${card.id}`)}
+                              type="checkbox"
+                              className="kanban-card__completion"
+                              aria-label={`Complete ${card.title}`}
+                              checked={card.completed}
+                              disabled={editingDisabled}
+                              onChange={(event) => {
+                                const completed = event.currentTarget.checked;
+                                void performEdit(
+                                  { type: "set-card-completed", cardId: card.id, completed },
+                                  `Marked ${card.title} ${completed ? "complete" : "incomplete"}`,
+                                  `card-completed:${card.id}`,
+                                );
+                              }}
+                            />
+                          ) : null}
                           <h3>
                             <button
                               type="button"
                               className="kanban-title-button"
                               title={`Rename ${card.title}`}
-                              disabled={readOnly || busy}
+                              disabled={editingDisabled}
                               onClick={(event) => {
                                 rememberTrigger(event.currentTarget);
                                 setEditor({
@@ -1102,7 +1212,8 @@ export function KanbanBoardEditor({
                         </header>
                         <CardBody
                           card={card}
-                          disabled={readOnly || busy}
+                          disabled={busy}
+                          readOnly={readOnly || legacy}
                           onOpen={(trigger) => {
                             rememberTrigger(trigger);
                             setEditor({
@@ -1126,7 +1237,7 @@ export function KanbanBoardEditor({
                             className="icon-button"
                             title={`Delete ${card.title}`}
                             aria-label={`Delete ${card.title}`}
-                            disabled={readOnly || busy}
+                            disabled={editingDisabled}
                             onClick={(event) => {
                               rememberTrigger(event.currentTarget);
                               setEditor({
@@ -1219,7 +1330,7 @@ export function KanbanBoardEditor({
                   type="button"
                   className="kanban-column__add-card"
                   aria-label={`Add card to ${column.title}`}
-                  disabled={readOnly || busy}
+                  disabled={editingDisabled}
                   onClick={(event) => {
                     rememberTrigger(event.currentTarget);
                     setEditor({
@@ -1369,15 +1480,22 @@ const DeleteConfirmation = ({
 function CardBody({
   card,
   disabled,
+  readOnly,
   onOpen,
   onLinkOpen,
 }: {
   card: PluginKanbanCard;
   disabled: boolean;
+  readOnly: boolean;
   onOpen: (trigger: HTMLButtonElement) => void;
   onLinkOpen: (href: string, label: string) => void;
 }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const detailsExpanded = readOnly && expanded;
+  const label = readOnly
+    ? `${detailsExpanded ? "Hide" : "Show"} full details for ${card.title}`
+    : `Open and edit details for ${card.title}`;
   const [overflowing, setOverflowing] = useState(() =>
     hasExplicitCardOverflow(card.body),
   );
@@ -1411,29 +1529,37 @@ function CardBody({
           : "kanban-card__body-shell kanban-card__empty"
       }
       data-overflowing={overflowing}
+      data-expanded={detailsExpanded}
     >
       <button
         type="button"
         className="kanban-card__body-open"
-        title={`Open and edit details for ${card.title}`}
-        aria-label={`Open and edit details for ${card.title}${
-          overflowing ? "; more text available" : ""
+        title={label}
+        aria-label={`${label}${
+          overflowing && !detailsExpanded ? "; more text available" : ""
         }`}
+        aria-expanded={readOnly ? detailsExpanded : undefined}
         disabled={disabled}
-        onClick={(event) => onOpen(event.currentTarget)}
+        onClick={(event) => {
+          if (readOnly) {
+            setExpanded((current) => !current);
+          } else {
+            onOpen(event.currentTarget);
+          }
+        }}
       />
       <div
         ref={contentRef}
         className="kanban-card__body"
         style={{
-          WebkitLineClamp: KANBAN_CARD_PREVIEW_LINES,
+          WebkitLineClamp: detailsExpanded ? "unset" : KANBAN_CARD_PREVIEW_LINES,
         }}
       >
         {card.body
           ? renderCardBody(card, onLinkOpen)
           : "No details"}
       </div>
-      {overflowing ? (
+      {overflowing && !detailsExpanded ? (
         <span className="kanban-card__more" aria-hidden="true">
           More…
         </span>
@@ -1520,6 +1646,7 @@ function editorSessionKey(editor: EditorState): string {
     return "";
   }
   switch (editor.kind) {
+    case "migrate":
     case "board-title":
     case "add-column":
       return editor.kind;

@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.reference-0.1.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.reference-0.1.0.tgz",
       "sha256": "9086c08e8f29a030e0d591f104de50c23e29ed0e3053374d3631d8739106d5ed",
       "sizeBytes": 15687
     },
@@ -376,7 +376,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.emoji-picker-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.emoji-picker-0.1.1.tgz",
       "sha256": "501acb6a911f2aa85fd47adc8709fd867d3482b495209dc490cd4b54aca0dbf6",
       "sizeBytes": 105317
     },
@@ -416,7 +416,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.json-yaml-viewer-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.json-yaml-viewer-0.1.1.tgz",
       "sha256": "c7809c1cd27ac62eb5fa3a05e501f95d1334fdf357be91a6b71c5b43dcc8fcdf",
       "sizeBytes": 66485
     },
@@ -480,7 +480,7 @@
       "schemaVersion": 1,
       "id": "denote.kanban",
       "name": "Kanban boards",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "description": "Create and edit keyboard-accessible Kanban boards stored as portable Markdown.",
       "publisher": {
         "name": "Denote",
@@ -492,7 +492,7 @@
       "category": "productivity",
       "compatibility": {
         "apiVersion": 1,
-        "minimumDenoteVersion": "0.3.4",
+        "minimumDenoteVersion": "0.8.2",
         "maximumDenoteVersion": "1.0.0"
       },
       "permissions": [
@@ -504,16 +504,16 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.kanban-0.1.3.tgz",
-      "sha256": "24ff948143ec0e930c082da3cdac036f63a731d4888caab972c69e0e1336c244",
-      "sizeBytes": 20814
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.kanban-0.1.4.tgz",
+      "sha256": "9a2c258f90b731843bc4b39844cc2d7e690f9244f8f96f16be6c2395a9999211",
+      "sizeBytes": 23756
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "27b9375e64ef07b8a98237702a51368273d4c009",
+      "sourceCommit": "b7d81e48d883d7f518f43683d0027f806a590d59",
       "trusted": true
     },
-    "guide": "# Kanban boards\n\n## Purpose\n\nCreate visual Kanban boards without replacing portable Markdown. Board titles,\ncolumns, cards, note links, tags, and card details remain readable in any text\neditor.\n\n## Enablement and permissions\n\nThe plugin requests **Kanban board** permission. Denote sends only the current\nmatching `.kanban.md` or `.kanban.markdown` source to the isolated plugin worker.\nThe worker returns a bounded declarative board model and rewritten Markdown only\nafter you use a board control. It receives no vault path, DOM access, network\naccess, process access, encryption key, or general workspace read/write access.\n\nEnabling the plugin never changes a file.\n\n## Usage\n\nCreate a file whose name ends in `.kanban.md` or `.kanban.markdown`, or run\n**Create Kanban board** from the command palette. Open the file and choose\n**Board**.\n\nAn empty or ordinary Markdown file first shows **Initialize board**. Initialization\nappends the managed board after any existing content instead of replacing it.\nThe default board starts with one Backlog column.\n\nUse **Add column** and **Add card** to build the board. Click the board, column,\nor card title to edit it. Click a card's details to edit its Markdown without\nmoving focus back to the title. Relative links such as `[Design](Design.md)`\nappear as note links, and hashtags such as `#planning` appear as tags. Choose a\nnote link to open it through Denote's normal safe link handling.\n\nCollapsed cards show at most five wrapped detail lines and display **More…**\nwhen content continues. Markdown links render in their original position.\nChoosing a link opens it without opening the card editor; click the title or\nanother part of the details area to edit the complete Markdown.\n\nDrag a column or card to reorder it or move a card between columns. The grip is\nalso the complete keyboard alternative: focus it, press Space, use Left/Right\nfor columns or any arrow key for cards, then press Space again to drop. Home and\nEnd move to the first or last position, and Escape cancels.\n\nThe Markdown representation is:\n\n```markdown\n<!-- denote-kanban:board:v1:start -->\n# Release board\n\n<!-- denote-kanban:column:start id=\"column-example\" -->\n## Backlog\n\n<!-- denote-kanban:card:start id=\"card-example\" -->\n### Write the specification\n\nSee [Specification](Specification.md). #planning\n<!-- denote-kanban:card:end -->\n\n<!-- denote-kanban:column:end -->\n<!-- denote-kanban:board:end -->\n```\n\nDenote changes only the explicit board, column, card, and heading ranges.\nReordering moves the original marked block byte-for-byte. Markdown outside the\nboard and unrecognized Markdown inside a moved card or column remains unchanged.\nEditing a card replaces only that card's title and details.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling removes the Board view and deletes the downloaded plugin package.\nBoard files remain untouched and continue to open as Markdown.\n\n## Troubleshooting\n\nIf Board view reports malformed markers, switch to **Markdown** and restore the\nmissing matching end marker shown in the error. Marker IDs must be unique.\n\nReserved `denote-kanban` marker lines cannot be placed inside card details. Use\nordinary Markdown comments with another name instead.\n\nFiles larger than 4 MiB, card details larger than 64 KiB, more than 128 columns,\nor more than 5,000 cards remain editable as Markdown but are not rendered as a\nboard.\n"
+    "guide": "# Kanban boards\n\n## Purpose\n\nCreate visual Kanban boards without replacing portable Markdown. Board titles,\ncolumns, cards, note links, tags, and card details remain readable in any text\neditor.\n\n## Enablement and permissions\n\nThe plugin requests **Kanban board** permission. Denote sends only the current\nmatching `.kanban.md` or `.kanban.markdown` source, or an ordinary Markdown file\nwith an explicit native or Obsidian board marker, to the isolated plugin worker.\nThe worker returns a bounded declarative board model and rewritten Markdown only\nafter you use a board control. It receives no vault path, DOM access, network\naccess, process access, encryption key, or general workspace read/write access.\n\nEnabling the plugin never changes a file.\n\n## Usage\n\nCreate a file whose name ends in `.kanban.md` or `.kanban.markdown`, or run\n**Create Kanban board** from the command palette. Open the file and choose\n**Board**.\n\nAn empty or ordinary Markdown file first shows **Initialize board**. Initialization\nappends the managed board after any existing content instead of replacing it.\nThe default board starts with one Backlog column.\n\n### Existing Obsidian boards\n\nIn Denote 0.8.2 or newer, Kanban 0.1.4 reads ordinary `.md` and `.markdown`\nfiles with `kanban-plugin: board` frontmatter without renaming or rewriting\nthem. Escaped exports with `\\---`, `\\##`, `\\- \\[x]`, and encoded tab indentation\nalso open directly. **Legacy Kanban board** is read-only: checked states, note\nlinks, tags, dates, and multiline card text remain available. Choose card\ndetails to show the full text without opening an editor.\n\nChoose **Migrate to native**, then confirm. Migration converts the open file in\nplace, preserving column/card order, checked states, links, and full card text.\nLong card titles use a bounded preview; the complete item stays in its details.\nThe untouched original source, including Obsidian settings and any other\nMarkdown, remains in a fenced **Legacy Kanban source (recovery)** block below\nthe native board. That copy is not used by Board view.\nIts newline marker preserves the original end-of-file newline state.\n\nMigration is never automatic. Cancel leaves the source unchanged. If the file\nchanges or becomes read-only before migration completes, Denote rejects the\nresult. Use revision history or the recovery block to restore the original\nsource. Migration is refused if the new board plus recovery copy exceed 4 MiB.\nObsidian colors, collapsed-list settings, and other display preferences are\nretained for recovery but are not applied in Denote.\n\n### Native boards\n\nUse **Add column** and **Add card** to build the board. Click the board, column,\nor card title to edit it. Click a card's details to edit its Markdown without\nmoving focus back to the title. Relative links such as `[Design](Design.md)`\nappear as note links, and hashtags such as `#planning` appear as tags. Choose a\nnote link to open it through Denote's normal safe link handling.\n\nCollapsed cards show at most five wrapped detail lines and display **More…**\nwhen content continues. Markdown links render in their original position.\nChoosing a link opens it without opening the card editor; click the title or\nanother part of the details area to edit the complete Markdown.\n\nDrag a column or card to reorder it or move a card between columns. The grip is\nalso the complete keyboard alternative: focus it, press Space, use Left/Right\nfor columns or any arrow key for cards, then press Space again to drop. Home and\nEnd move to the first or last position, and Escape cancels.\n\nThe Markdown representation is:\n\n```markdown\n<!-- denote-kanban:board:v1:start -->\n# Release board\n\n<!-- denote-kanban:column:start id=\"column-example\" -->\n## Backlog\n\n<!-- denote-kanban:card:start id=\"card-example\" -->\n### Write the specification\n\nSee [Specification](Specification.md). #planning\n<!-- denote-kanban:card:end -->\n\n<!-- denote-kanban:column:end -->\n<!-- denote-kanban:board:end -->\n```\n\nDenote changes only the explicit board, column, card, and heading ranges.\nReordering moves the original marked block byte-for-byte. Markdown outside the\nboard and unrecognized Markdown inside a moved card or column remains unchanged.\nEditing a card replaces only that card's title and details.\nImported cards also have a completion checkbox. Changing it updates only the\ncard marker's `completed=\"true\"` or `completed=\"false\"` attribute; moving or\nediting the card preserves its checked state. Cards without that optional\nattribute keep the original checkbox-free presentation.\n\n## Settings\n\nThis plugin has no settings. Legacy Obsidian settings are preserved as source,\nnot executed or imported as Denote preferences.\n\n## Disable behavior\n\nDisabling removes the Board view and deletes the downloaded plugin package.\nBoard files remain untouched and continue to open as Markdown.\n\n## Troubleshooting\n\nIf Board view reports malformed markers, switch to **Markdown** and restore the\nmissing matching end marker shown in the error. Marker IDs must be unique.\n\nReserved `denote-kanban` marker lines cannot be placed inside card details. Use\nordinary Markdown comments with another name instead.\n\nFiles larger than 4 MiB, card details larger than 64 KiB, more than 128 columns,\nor more than 5,000 cards remain editable as Markdown but are not rendered as a\nboard.\n"
   },
   {
     "manifest": {
@@ -544,7 +544,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.note-graph-0.1.4.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.note-graph-0.1.4.tgz",
       "sha256": "8a86259b050b837932ab5d7e7ab4bec0165d6dd6739e3ea3fe5a59c3f8f3a4f1",
       "sizeBytes": 74349
     },
@@ -610,7 +610,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.calendar-0.2.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.calendar-0.2.0.tgz",
       "sha256": "bdd340c4b9c969eb75d956d67c67ee64c9c4f0b6bce5cc50eddd2ca0a80a38c0",
       "sizeBytes": 68477
     },
@@ -650,7 +650,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.task-lists-0.1.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.task-lists-0.1.1.tgz",
       "sha256": "e66f7adb2d0c34e408cdca0ba129266866ce0dc23993152c6802a2a6e30f01ac",
       "sizeBytes": 69997
     },
@@ -706,7 +706,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.1/denote.reminders-0.3.0.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.2/denote.reminders-0.3.0.tgz",
       "sha256": "b6b80cf5121cc66a644d104ec2cef90dd54002a0df018e56fc7ad9c36d12f9eb",
       "sizeBytes": 74068
     },

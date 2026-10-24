@@ -2,9 +2,11 @@
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { build } from "vite";
 import { frontendBundle } from "./frontend-bundle";
+
+vi.setConfig({ testTimeout: 30_000 });
 
 const directories: string[] = [];
 

@@ -511,6 +511,25 @@ h1 {
   color: var(--ink);
 }
 
+.unsigned-note p {
+  margin: 0;
+}
+
+.unsigned-note ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.unsigned-note li + li {
+  margin-top: 8px;
+}
+
+.unsigned-note pre {
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .site-footer {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;

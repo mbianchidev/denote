@@ -82,4 +82,30 @@ describe("editor routing", () => {
     expect(usesMarkdownSourceEditor(board, null)).toBe(true);
     expect(usesMarkdownSourceEditor(board, project)).toBe(true);
   });
+
+  it("keeps legacy and migrated ordinary Markdown in exact source mode without a provider", () => {
+    const tab = {
+      kind: "markdown" as const,
+      encoding: "utf8" as const,
+      path: "Example tasks.md",
+      content: String.raw`\---
+
+kanban-plugin: board
+
+\---
+
+\## Planned
+\- \[ ] Invent a sample`,
+    };
+    expect(usesRichMarkdownEditor(tab, null)).toBe(false);
+    expect(usesMarkdownSourceEditor(tab, null)).toBe(true);
+    expect(usesRichMarkdownEditor({
+      ...tab,
+      content: "<!-- denote-kanban:board:v1:start -->\n# Example",
+    }, null)).toBe(false);
+    expect(usesMarkdownSourceEditor({
+      ...tab,
+      content: "~~~markdown\n<!-- denote-kanban:board:v1:start -->\n~~~",
+    }, null)).toBe(false);
+  });
 });

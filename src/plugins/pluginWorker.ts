@@ -468,6 +468,9 @@ function runtimeContext(): PluginActivationContext {
           title: provider?.title,
           fileSuffixes: provider?.fileSuffixes,
           defaultFileName: provider?.defaultFileName,
+          ...(provider?.sourceFormats !== undefined
+            ? { sourceFormats: provider.sourceFormats }
+            : {}),
         };
         if (
           cleaned ||

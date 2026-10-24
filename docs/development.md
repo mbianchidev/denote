@@ -62,6 +62,19 @@ cargo test --manifest-path src-tauri/Cargo.toml
 cargo check --manifest-path src-tauri/Cargo.toml
 ```
 
+Vitest uses isolated forks with at most two concurrent workers, leaving one CPU
+available on smaller machines. This bounds cold `jsdom` startup pressure instead
+of scaling expensive environments to every available CPU. Each file still gets
+a fresh process, DOM, and module state; test and hook deadlines and unhandled-error
+reporting remain unchanged. Do not disable isolation or ignore unhandled errors
+to make a run pass.
+
+On a heavily loaded machine, run the same suite with one worker:
+
+```bash
+VITEST_MAX_WORKERS=1 npm test
+```
+
 The App integration suite preloads the real Markdown editor and formatted-diff
 modules with module-scope imports. Keep cold module transformation in test
 collection, outside timed hooks and UI interactions. Production loading remains
@@ -102,6 +115,11 @@ npx vitest run \
 
 These checks enforce parser-call budgets and streaming word segmentation rather
 than hardware-dependent wall-clock thresholds. No optional plugin is required.
+Markdown coverage also checks that opening, focus, and Rich/Source switches do
+not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF,
+and CR input. Explicit Source whitespace removal must survive later Rich edits.
+Keep `mailto:` destinations and query separators unescaped while preserving
+required directive/entity escapes and literal backslashes in code.
 
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:
@@ -133,6 +151,12 @@ Clone tests use local synthetic bare repositories. Folder selection alone must
 leave the directory empty; only the host-bound explicit clone may populate it.
 Keep cancellation, one-shot destination tokens, scope changes, changed/non-empty
 folders, link replacement, visible failure state, and saved-note handoff covered.
+
+The native read-only cancellation regression waits for a synthetic descendant
+to start and keeps it behind a test-owned gate until cancellation. It checks
+the descendant's process state after cleanup; a zombie has terminated even if
+the operating system has not reaped it yet. Do not replace this synchronization
+with a fixed-duration sleep or infer process cleanup only from a missing marker.
 
 The signing integration tests require Git, GnuPG (including `gpgconf`), and
 OpenSSH `ssh-keygen`. They generate encrypted synthetic keys in temporary
@@ -308,7 +332,7 @@ The root DOMPurify dependency and override pin
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-The host sanitizer and Mermaid 0.2.5 use this patch. Earlier published plugin
+The host sanitizer and Mermaid 0.2.6 use this patch. Earlier published plugin
 archives retain their immutable bytes and source provenance.
 The build/test lockfile also uses patched Vite 8.3.5 and Undici 8.12.3. Build
 tool updates must preserve every unchanged plugin's recorded archive bytes;
@@ -317,6 +341,14 @@ The Rolldown override retains the archive-compatible 1.2.6 compiler while Vite's
 development server receives its security fixes. Newer Rolldown patches change
 unchanged plugin bytes; validate all plugin digests and the frontend build when
 changing either part of this toolchain.
+
+The root `katex` override
+pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
+Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
+[GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
+on 0.18.x until upstream Mermaid requires a patched release; KaTeX 0.19 changes
+strict-mode behavior. Earlier published plugin archives retain their immutable
+bytes and source provenance.
 Changes to a plugin's own dependencies require an explicitly approved new
 plugin version and committed source pin before `check:plugins` can succeed.
 Never replace a released version's bytes or provenance; its ledger entry
@@ -326,13 +358,14 @@ remains tied to the original source commit.
 
 The 0.9.0 candidate introduces the code-intelligence and Git remote-recovery
 host contracts; those new packages require 0.9.0, not older released hosts.
-Security overrides pin KaTeX 0.18.2 for
+Security overrides pin KaTeX 0.18.11 for
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
 source-map-js 1.2.2 for
 [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
-Mermaid 0.2.4 retains its immutable pin for the patched math dependency and its
-included license. Mermaid 0.2.5 receives a new pin for DOMPurify 3.4.17; previous
-Mermaid versions and recipes remain untouched.
+Mermaid 0.2.4 retains main's canonical immutable pin for its math dependency
+patch. The prepared 0.2.5 entry also stays unchanged. Mermaid 0.2.6 combines
+DOMPurify 3.4.17, KaTeX 0.18.11, and the included math license in a new source
+pin; previous canonical versions and recipes remain untouched.
 Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
 
 Build and stage one independently downloadable plugin artifact with:
@@ -394,9 +427,11 @@ download uses only that exact ledger URL and fails if unavailable or invalid;
 it never falls back to a current catalog URL or another source. New versions
 are deterministically built from source rather than recovered from archive blobs
 in Git. The ledger is repository-only, not executable package or app metadata.
-Release preparation may rehost an unchanged artifact under a newer Denote tag
+Release preparation may rehost an unchanged artifact under the matching Denote tag
 by changing the current catalog URL; it must not change its ledger origin,
 source commit, size, or digest.
+Before packaging, `npm run release -- --check <version>` verifies that current
+catalog URLs and all application version sources match the intended Denote release.
 
 `provenance.sourceCommit` in the catalog and `sourceCommit` in the ledger mean
 source provenance: they identify the committed source and build inputs, not a
@@ -577,6 +612,7 @@ Run focused coverage with:
 npx vitest run \
   packages/plugin-sdk/src/kanban.test.ts \
   src/plugins/kanbanBoards.test.ts \
+  src/lib/editorRouting.test.ts \
   src/plugins/runtimeMessages.test.ts \
   src/plugins/workerRuntime.test.ts \
   src/plugins/usePlugins.test.tsx \
@@ -591,6 +627,13 @@ note links and tags, add/edit/delete/move operations, byte-preserving reorder,
 stale worker responses, lock/unlock, disable/re-enable, exact Markdown fallback,
 pointer drag, every keyboard move alternative, announcements, and focus after
 move or deletion.
+Also cover ordinary `.md` discovery through explicit optional format metadata,
+standard and escaped Obsidian sources, encoded indentation, fenced examples,
+long titles with full details, completion state, read-only detail expansion,
+confirmation/cancellation, migration with exact-source recovery, recovery fence
+collisions, output-size refusal, and in-flight source/read-mode changes.
+Format ownership must be unique, released on stop, and preserved through the
+actual isolated worker bridge. Old suffix-only registrations must still work.
 
 Stage the source-only archive with
 `npm run package:plugin -- denote.kanban`. Commit source, SDK, host, tests, docs,
@@ -791,6 +834,11 @@ CDN or removes languages. PDF.js's separately loaded, prebuilt worker remains
 one upstream module, not a main-thread chunk.
 `dist/.vite/manifest.json` records static and lazy imports.
 
+The frontend bundle integration tests run real in-memory Vite builds with a
+file-local 30-second timeout so full-suite worker contention does not exhaust
+the ordinary five-second deadline. Other test deadlines and byte limits stay
+unchanged.
+
 ```bash
 npx vitest run scripts/frontend-bundle.test.ts \
   src/components/ErrorBoundary.test.tsx \
@@ -816,12 +864,43 @@ rustls-webpki, webpki-root-certs, and Tokio to compatible patched releases, and
 replaces yanked clipboard-win 5.4.1 with 5.4.3. No vulnerability-level findings
 remain in that audit.
 
-`tauri-plugin-updater` disables default features and enables only `rustls-tls`
-and `system-proxy`. Its optional `zip` feature pulls vulnerable ZIP 4 extraction
-code for legacy Tauri v1 Windows ZIP and AppImage archives. Denote publishes raw
-EXE/MSI, AppImage, DEB/RPM, and macOS app tarballs instead; macOS tarball support
-remains available without that feature. Do not re-enable legacy ZIP support or
-add an unrelated ZIP dependency to mask its audit findings.
+The lockfile keeps `quinn-proto` at 0.11.19 to fix the advisories published on
+2026-10-12:
+[RUSTSEC-2026-0338](https://rustsec.org/advisories/RUSTSEC-2026-0338),
+[RUSTSEC-2026-0340](https://rustsec.org/advisories/RUSTSEC-2026-0340), and
+[RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
+This networking patch preserves the existing Windows/Tauri dependency graph.
+
+Compatible lockfile patches also fix:
+
+- `ctutils` 0.4.5:
+  [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385).
+- `rustls-webpki` 0.103.16:
+  [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382).
+- `webpki-root-certs` 1.0.11:
+  [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383).
+- `tokio` 1.54.1:
+  [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386).
+
+These updates preserve the complete pinned Tauri, Tao, Wry, WebView2, and
+URL-pattern package records.
+
+The 2026-10-14 Rustls advisories
+[RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
+[RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
+[RUSTSEC-2026-0348](https://rustsec.org/advisories/RUSTSEC-2026-0348), and
+[RUSTSEC-2026-0349](https://rustsec.org/advisories/RUSTSEC-2026-0349) require
+`rustls` 0.23.46 or newer; the lockfile now pins that patched version.
+`tauri-plugin-updater` disables its default `zip` feature to remove `zip`
+4.6.1 and the advisories published on 2026-10-17:
+[RUSTSEC-2026-0367](https://rustsec.org/advisories/RUSTSEC-2026-0367),
+[RUSTSEC-2026-0368](https://rustsec.org/advisories/RUSTSEC-2026-0368), and
+[RUSTSEC-2026-0369](https://rustsec.org/advisories/RUSTSEC-2026-0369).
+That feature only extracts legacy Tauri v1 Windows ZIP and AppImage archives.
+Denote publishes raw `-setup.exe`, `.msi`, `.AppImage`, DEB, and RPM updater
+artifacts; macOS `.app.tar.gz` extraction does not depend on the feature. Keep
+only `rustls-tls` and `system-proxy` enabled. Do not restore the default features
+or add an unrelated ZIP dependency to mask its audit findings.
 
 Ten warning-level findings remain:
 
@@ -834,13 +913,17 @@ Ten warning-level findings remain:
 | [RUSTSEC-2025-0100](https://rustsec.org/advisories/RUSTSEC-2025-0100) | Tauri utils 2.9 / URL pattern -> `unic-ucd-ident` 0.9.0 | Unmaintained |
 | [RUSTSEC-2025-0098](https://rustsec.org/advisories/RUSTSEC-2025-0098) | Tauri utils 2.9 / URL pattern -> `unic-ucd-version` 0.9.0 | Unmaintained |
 | [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) | Tauri / Wry / WebKitGTK -> `glib` 0.18.5 | Unsound `VariantStrIter` |
-| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Opener / single-instance / notifications / Secret Service -> zbus 5 -> `zbus_names` 4.3.4 | Unmaintained; merged into zbus 6 |
-| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | The same zbus 5 consumers -> `zvariant` 5.15.0 | Unmaintained; merged into zbus 6 |
-| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | The same zbus 5 consumers -> `zvariant_derive` 5.15.0 | Unmaintained; merged into zbus 6 |
+| [RUSTSEC-2026-0370](https://rustsec.org/advisories/RUSTSEC-2026-0370) | Keyring, notification, opener, and single-instance D-Bus -> `zbus` 5.19 -> `zvariant` 5.15.0 | Unmaintained; merged into `zbus` 6 |
+| [RUSTSEC-2026-0371](https://rustsec.org/advisories/RUSTSEC-2026-0371) | Linux D-Bus -> `zbus` 5.19 -> `zbus_names` 4.3.4 | Unmaintained; merged into `zbus` 6 |
+| [RUSTSEC-2026-0372](https://rustsec.org/advisories/RUSTSEC-2026-0372) | Linux D-Bus -> `zvariant` 5.15.0 -> `zvariant_derive` 5.15.0 | Unmaintained; merged into `zbus` 6 |
 
 The audit includes every platform in the lockfile, so macOS and Windows also
 report the Linux GTK dependencies. A successful exit does not resolve any of
-these warnings.
+these warnings. GLib's fix requires 0.20 or newer, while the pinned Tauri runtime
+requires GTK 0.18 and its GLib 0.18 types. The standalone D-Bus crates have no
+patched versions; their replacements moved into `zbus` 6. Removing these
+findings requires coordinated upstream runtime or D-Bus integration changes,
+not a compatible lockfile patch or an advisory ignore.
 
 ### Re-evaluate the Windows runtime pin
 
@@ -866,6 +949,11 @@ Last upstream check: **2026-10-24**.
 - [Tauri's GTK migration issue](https://github.com/tauri-apps/tauri/issues/16264#issuecomment-6131842560)
   confirms that the maintained GTK bindings require coordinated work across
   the runtime crates.
+- Earlier investigations of
+  [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846),
+  [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232), and
+  [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871) found separate
+  Windows blank-webview or Linux WebKitGTK problems, not a matching fix.
 
 Any agent or contributor considering an upgrade must:
 
@@ -895,7 +983,8 @@ bindings need a coordinated upgrade.
 [Tauri 3.0.0-alpha.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v3.0.0-alpha.5)
 requires Rust 1.95, matching version-three runtime/plugins, and native plugin
 hooks that can run concurrently and require `Sync`. Its
-[Wry runtime manifest](https://github.com/tauri-apps/tauri/blob/tauri-v3.0.0-alpha.5/crates/tauri-runtime-wry/Cargo.toml) still uses
+[Wry runtime manifest](https://github.com/tauri-apps/tauri/blob/tauri-v3.0.0-alpha.5/crates/tauri-runtime-wry/Cargo.toml)
+still uses
 GTK 0.18 and WebKitGTK 2.0: moving to that alpha alone does not fix the findings.
 Keep stable Tauri until a compatible maintained GTK stack is available. That
 migration must cover Linux menus, dialogs, clipboard, deep links, single-instance
@@ -915,14 +1004,27 @@ Until compatible published clients or separately reviewed source backports are
 adopted together, keep those warnings visible and preserve the Windows-safe
 runtime family.
 
-## Build a desktop bundle
+## GitHub Actions validation
 
-```bash
-npm run tauri build
-```
+CI runs on pull requests, pushes to `main`, and manual dispatch. The plugin
+archive guard, JavaScript and Rust security audits, and macOS, Windows, and Linux
+validation remain mandatory within each run.
 
-The GitHub Actions workflow runs the validation commands on macOS, Windows, and
-Linux.
+The security job caches the pinned `cargo-audit` installation and Cargo
+downloads, not the advisory database or audit results. The cache key includes
+the tool version and Rust toolchain. Locked installation and the audit still
+run on every revision; an audit failure remains a failed check. This tool cache
+is saved even when the subsequent audit fails.
+
+Platform jobs restore compatible Cargo caches on every branch but save new
+entries only from `main`. This avoids uploading large, PR-scoped caches that
+other PRs cannot reuse. Dependency-changing PR reruns may rebuild dependencies
+until their changes reach `main`; no tests or checks are skipped on cache hits
+or misses.
+
+Windows builds the frontend once through Tauri's `beforeBuildCommand` when
+building the renderer smoke binary, before Rust tests consume the generated
+assets. macOS and Linux retain their standalone frontend build step.
 
 Windows CI additionally builds the embedded application without installers and
 runs:
@@ -937,6 +1039,12 @@ The hosted runner launches this at medium integrity, isolates application and
 WebView2 data, captures the client area, rejects a uniform blank frame or browser
 error page, closes the last window, and requires `denote.exe` to exit. Failure
 uploads the screenshot and measured frame evidence.
+
+## Build a desktop bundle
+
+```bash
+npm run tauri build
+```
 
 ### Preview an unpublished plugin on macOS
 

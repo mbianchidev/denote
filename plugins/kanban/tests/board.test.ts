@@ -166,6 +166,20 @@ describe("Kanban Markdown board", () => {
     expect(edited.model.columns[0].cards[0].tags).toEqual(["release"]);
   });
 
+  it("keeps native card boundaries authoritative while typing an unfinished code fence", () => {
+    const body = "~~~javascript\nconst syntheticExample = true;";
+    const edited = editKanbanBoard({
+      path: "Release.kanban.md",
+      source,
+      edit: { type: "edit-card", cardId: "card-spec", title: "Write the specification", body },
+    });
+
+    expect(edited.model.error).toBeNull();
+    expect(edited.model.columns[0].cards[0].body).toBe(body);
+    expect(edited.model.columns[0].cards[1].id).toBe("card-review");
+    expect(edited.source).toContain("Keep this footer too.");
+  });
+
   it("adds and deletes columns and cards with the file's line endings", () => {
     vi.stubGlobal("crypto", {
       randomUUID: vi

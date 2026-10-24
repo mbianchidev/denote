@@ -348,6 +348,7 @@ export interface PluginKanbanCard {
   body: string;
   tags: string[];
   links: PluginKanbanLink[];
+  completed?: boolean;
 }
 
 export interface PluginKanbanColumn {
@@ -363,12 +364,15 @@ export interface PluginKanbanError {
   code?: string;
 }
 
+export type PluginKanbanSourceFormat = "denote-kanban-v1" | "obsidian-kanban";
+
 export interface PluginKanbanBoardModel {
   title: string;
   columns: PluginKanbanColumn[];
   error: PluginKanbanError | null;
   notices: string[];
   canInitialize: boolean;
+  sourceFormat?: PluginKanbanSourceFormat;
 }
 
 export interface PluginKanbanBoardRequest {
@@ -377,6 +381,10 @@ export interface PluginKanbanBoardRequest {
 }
 
 export type PluginKanbanEdit =
+  | {
+      type: "migrate";
+      title: string;
+    }
   | {
       type: "initialize";
       title: string;
@@ -419,6 +427,11 @@ export type PluginKanbanEdit =
       body: string;
     }
   | {
+      type: "set-card-completed";
+      cardId: string;
+      completed: boolean;
+    }
+  | {
       type: "delete-card";
       cardId: string;
     }
@@ -443,6 +456,7 @@ export interface PluginKanbanBoardProvider {
   title: string;
   fileSuffixes: string[];
   defaultFileName: string;
+  sourceFormats?: PluginKanbanSourceFormat[];
   parse: (
     request: PluginKanbanBoardRequest,
   ) => PluginKanbanBoardModel | Promise<PluginKanbanBoardModel>;

@@ -290,6 +290,33 @@ toolbar. A new or ordinary Markdown file first shows **Initialize board**.
 Initialization appends the managed board after any existing Markdown instead of
 replacing it, then creates one Backlog column.
 
+### Legacy boards
+
+Denote 0.8.2 with Kanban 0.1.4 opens existing Obsidian `.md` or `.markdown`
+boards directly when their frontmatter contains `kanban-plugin: board`.
+Escaped exports with `\---`, `\##`, `\- \[x]`, and encoded tabs also work as
+they are. You do not need to rename or repair the file first.
+
+**Legacy Kanban board** is read-only. Opening it, expanding card details, and
+following links do not change the source. Cards retain their checked states,
+tags, dates, links, and multiline text. Obsidian colors and collapsed-list
+preferences are preserved as source but are not applied in Denote.
+
+Choose **Migrate to native**, then confirm, to edit the board in Denote.
+Migration keeps the filename, column/card order, checked states, links, and
+complete card text. Long titles use a short preview; full text remains in the
+card details. The exact original source, including all Obsidian settings and
+other Markdown, stays in a fenced **Legacy Kanban source (recovery)** block
+below the native board. Board view never reads that copy as active cards.
+Its newline marker preserves the original end-of-file newline state.
+
+Cancel leaves the file unchanged. A file change or read-mode switch before
+migration completes rejects the result. Restore the original through revision
+history or by replacing the file with the recovery block's contents. Migration
+is refused if the native board plus recovery copy exceed the 4 MiB file limit.
+
+### Native boards
+
 Use **Add column** and **Add card** to build the board. Click the board, column,
 or card title to edit it. Click card details to edit their ordinary Markdown;
 typing stays in the details field instead of jumping back to the title. Write a
@@ -334,6 +361,12 @@ moves the original complete card or column block byte-for-byte. Markdown outside
 the board and unknown Markdown inside a moved card or column remains unchanged.
 Renaming changes only that heading. Editing a card changes only its title and
 details.
+
+Migrated cards show their completion checkbox. Toggling it changes only the
+card marker's optional `completed="true"` or `completed="false"` attribute.
+Moving or editing the card preserves that state. Older native cards without a
+completion attribute keep their checkbox-free presentation. In read mode,
+details can expand for reading without opening an editor.
 
 Board view is limited to 4 MiB of source, 128 columns, 5,000 cards, and 64 KiB
 of details per card. A malformed marker or exhausted limit keeps **Markdown**
