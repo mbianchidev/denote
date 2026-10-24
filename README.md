@@ -97,9 +97,13 @@ you need. Plugin code is downloaded from verified GitHub Release assets after
 approval; it is not included in the desktop installer or enabled by default.
 
 - **Git vault versioning:** manual or automatic commits, staged and unstaged
-  diffs and line counts, pull change reports, branches, and conflict resolution.
+  diffs and line counts, pull change reports, branches, and merge/rebase recovery
+  after rejected pushes.
   Sign with system OpenPGP or SSH keys and optionally store key passphrases in
   the operating-system credential store.
+- **[Code intelligence](docs/user-guide/docs/Optional%20plugins.md#code-intelligence):**
+  approve local language servers and optional debuggers for Rust, Go, Python,
+  Java, C/C++, and JavaScript/TypeScript.
 - **Writing and planning:** Emoji picker, Calendar and daily notes, Advanced
   task lists, Reminders, and Note graph. Calendar includes daily, created, and
   last-updated views; daily-note creation never overwrites existing files.
@@ -133,8 +137,9 @@ Important limits:
   timestamps, or operational metadata. It does not erase earlier plaintext
   backups or Git history. Keep recovery codes outside the vault and read the
   [encryption guide](docs/user-guide/docs/Vault%20encryption.md) before enabling it.
-- Project organization and syntax highlighting are implemented. Persistent
-  terminal and language-server integrations remain future plugin work.
+- Project organization, syntax highlighting, and optional language-server
+  integration are implemented. Persistent terminal sessions remain future
+  plugin work.
 
 ## Run from source
 

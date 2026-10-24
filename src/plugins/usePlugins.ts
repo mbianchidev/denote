@@ -31,7 +31,10 @@ import type {
   PluginTaskListQuery,
   PluginTaskListToggleRequest,
   PluginTaskListToggleResult,
+  PluginCodeRequest,
+  PluginCodeResult,
 } from "@denote/plugin-sdk";
+import type { PluginCodeContribution } from "./codeIntelligence";
 import {
   PluginWorkerRuntime,
   type PluginCalendarContribution,
@@ -110,6 +113,7 @@ function permissionRequestEqual(
     case "diagram-renderer":
     case "note-events":
     case "project-context":
+    case "code-intelligence":
     case "source-control":
     case "automatic-local-commit":
     case "automatic-git-push":
@@ -155,6 +159,8 @@ function permissionsUnchanged(
 }
 
 export interface PluginController {
+  codeProviders: PluginCodeContribution[];
+  runCodeRequest: (pluginId: string, providerId: string, request: PluginCodeRequest, workspaceScope: string, signal?: AbortSignal) => Promise<PluginCodeResult>;
   plugins: PluginView[];
   bundles: PluginBundleMetadata[];
   commands: PluginCommandContribution[];
@@ -304,6 +310,7 @@ export function usePlugins(
   projectRepositories: PluginProjectRepositoryContext[] = EMPTY_PROJECT_REPOSITORIES,
   contentAvailable = true,
 ): PluginController {
+  const [codeProviders, setCodeProviders] = useState<PluginCodeContribution[]>([]);
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const pluginsRef = useRef(plugins);
   pluginsRef.current = plugins;
@@ -431,6 +438,7 @@ export function usePlugins(
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
       }),
+      setCodeProviders,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -1295,6 +1303,12 @@ export function usePlugins(
     runtimeRef.current?.releaseDiagramScope(scopeId);
   }, []);
 
+  const runCodeRequest = useCallback((pluginId: string, providerId: string, request: PluginCodeRequest, workspaceScope: string, signal?: AbortSignal) => {
+    const runtime = runtimeRef.current;
+    if (!runtime || !contentAvailableRef.current) throw new Error("Code intelligence is unavailable.");
+    return runtime.runCodeRequest(pluginId, providerId, request, workspaceScope, signal);
+  }, []);
+
   const shutdown = useCallback(async () => {
     startsAllowedRef.current = false;
     await Promise.allSettled([...emojiWritesRef.current.values()]);
@@ -1312,6 +1326,8 @@ export function usePlugins(
   }, []);
 
   return {
+    codeProviders: contentAvailable ? codeProviders : [],
+    runCodeRequest,
     plugins,
     bundles,
     commands,
@@ -1369,7 +1385,7 @@ export function usePlugins(
 
 function requiresContent(plugin: PluginView): boolean {
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer"].includes(
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence"].includes(
       permission.capability,
     ),
   );

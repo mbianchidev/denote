@@ -14,8 +14,13 @@ use super::{
         validate_automatic_commit,
     },
     git_tests::{GitFixture, encrypt_fixture, fixture, identify, new_operation_id},
-    transport::{GitTransportPolicy, git_cli_path, resolve_git_executable},
+    transport::{
+        GitRequestTarget, GitTransportPolicy, PluginGitAuthMode, PluginGitConflictResolution,
+        PluginGitPullStrategy, PluginGitPushMode, PluginGitRequest, PluginGitScope,
+        PluginGitSequencer, git_cli_path, resolve_git_executable,
+    },
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 
 const PLUGIN_ID: &str = "denote.reference";
 
@@ -425,6 +430,185 @@ fn pushes_a_new_commit_to_the_current_upstream_when_enabled() {
         git_output(&remote, &["rev-parse", "refs/heads/main"]),
         git_output(&fixture.vault_root, &["rev-parse", "HEAD"])
     );
+}
+
+#[test]
+fn rejected_automatic_push_explains_missing_remote_commits_and_preserves_local_work() {
+    let Some(fixture) = fixture() else {
+        return;
+    };
+    let remote = remote_with_incoming_change(&fixture);
+    let remote_head = git_output(&remote, &["rev-parse", "refs/heads/main"]);
+    fs::write(
+        fixture.vault_root.join("alpha.md"),
+        "Synthetic local change\n",
+    )
+    .expect("local change");
+    let mut scheduled = request("Record synthetic local change");
+    scheduled.push_after_commit = true;
+    let outcome = run_observed(&fixture, scheduled, &()).expect("automatic commit");
+    assert_eq!(outcome.status, AutomaticCommitStatus::Committed);
+    let push = outcome.push.expect("push result");
+    assert_eq!(push.status, AutomaticPushStatus::Failed);
+    assert!(push.message.contains("origin/main"), "{}", push.message);
+    assert!(
+        push.message.contains("merge") && push.message.contains("rebase"),
+        "{}",
+        push.message
+    );
+    assert!(push.message.contains("local"), "{}", push.message);
+    assert_eq!(
+        git_output(&remote, &["rev-parse", "refs/heads/main"]),
+        remote_head
+    );
+    assert_eq!(
+        fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("source"),
+        "Synthetic local change\n"
+    );
+    assert_eq!(
+        git_output(&fixture.vault_root, &["status", "--porcelain"]),
+        ""
+    );
+}
+
+fn remote_with_incoming_change(fixture: &GitFixture) -> PathBuf {
+    initialized(&fixture);
+    let remote = fixture.data.path().join("synthetic-remote.git");
+    fs::create_dir(&remote).expect("remote");
+    git(&remote, &["init", "--bare", "--initial-branch", "main"]);
+    let remote_path = remote.to_string_lossy().to_string();
+    git(
+        &fixture.vault_root,
+        &["remote", "add", "origin", &remote_path],
+    );
+    git(
+        &fixture.vault_root,
+        &["push", "--set-upstream", "origin", "main"],
+    );
+    let incoming = fixture.data.path().join("synthetic-incoming");
+    let incoming_path = incoming.to_string_lossy().to_string();
+    git(&remote, &["clone", &remote_path, &incoming_path]);
+    identify(&incoming);
+    fs::write(incoming.join("alpha.md"), "Synthetic remote change\n").expect("remote change");
+    git(&incoming, &["add", "alpha.md"]);
+    git(
+        &incoming,
+        &["commit", "--message", "Record synthetic remote change"],
+    );
+    git(&incoming, &["push", "origin", "main"]);
+    remote
+}
+
+#[test]
+fn manual_origin_recovery_can_merge_or_rebase_and_finish_a_real_conflict() {
+    for (strategy, sequencer) in [
+        (PluginGitPullStrategy::Merge, PluginGitSequencer::Merge),
+        (PluginGitPullStrategy::Rebase, PluginGitSequencer::Rebase),
+    ] {
+        let Some(fixture) = fixture() else {
+            return;
+        };
+        let remote = remote_with_incoming_change(&fixture);
+        let remote_head = git_output(&remote, &["rev-parse", "refs/heads/main"]);
+        fs::write(
+            fixture.vault_root.join("alpha.md"),
+            "Synthetic local change\n",
+        )
+        .expect("local source");
+        git(&fixture.vault_root, &["add", "alpha.md"]);
+        git(
+            &fixture.vault_root,
+            &["commit", "--message", "Record synthetic local change"],
+        );
+        git(&fixture.vault_root, &["config", "pull.ff", "only"]);
+        git(&fixture.vault_root, &["config", "pull.rebase", "true"]);
+        let run = |request| {
+            fixture
+                .manager
+                .git_request_with_transport(
+                    PLUGIN_ID,
+                    request,
+                    GitRequestTarget {
+                        repository_root: &fixture.vault_root,
+                        redacted_roots: vec![fixture.vault_root.clone()],
+                        encrypted: false,
+                    },
+                    &new_operation_id(),
+                    GitTransportPolicy::AllowLocal,
+                )
+                .expect("typed manual Git request")
+        };
+        let push = run(PluginGitRequest::Push {
+            scope: PluginGitScope::Vault,
+            remote: "origin".to_string(),
+            branch: "main".to_string(),
+            auth_mode: PluginGitAuthMode::Public,
+            mode: Some(PluginGitPushMode::Normal),
+            set_upstream: false,
+        });
+        assert_ne!(push.exit_code, 0);
+        assert!(
+            super::transport::push_needs_pull(&push.stdout),
+            "{}",
+            push.stdout
+        );
+        let pull = run(PluginGitRequest::Pull {
+            scope: PluginGitScope::Vault,
+            remote: "origin".to_string(),
+            branch: "main".to_string(),
+            auth_mode: PluginGitAuthMode::Public,
+            strategy,
+        });
+        assert_ne!(pull.exit_code, 0, "Synthetic edits should conflict.");
+        let state = run(PluginGitRequest::OperationState {
+            scope: PluginGitScope::Vault,
+        });
+        let state: serde_json::Value =
+            serde_json::from_str(&state.stdout).expect("operation state");
+        let flag = if strategy == PluginGitPullStrategy::Rebase {
+            "rebaseInProgress"
+        } else {
+            "mergeInProgress"
+        };
+        assert_eq!(state[flag], true);
+        let resolved = run(PluginGitRequest::ResolveConflict {
+            scope: PluginGitScope::Vault,
+            path: "alpha.md".to_string(),
+            resolution: PluginGitConflictResolution::Content {
+                content_base64: STANDARD
+                    .encode(b"Synthetic local change\nSynthetic remote change\n"),
+            },
+        });
+        assert_eq!(resolved.exit_code, 0, "{}", resolved.stderr);
+        let continued = run(PluginGitRequest::Continue {
+            scope: PluginGitScope::Vault,
+            sequencer,
+        });
+        assert_eq!(continued.exit_code, 0, "{}", continued.stderr);
+        let finished = run(PluginGitRequest::OperationState {
+            scope: PluginGitScope::Vault,
+        });
+        let finished: serde_json::Value =
+            serde_json::from_str(&finished.stdout).expect("finished state");
+        assert_eq!(finished["mergeInProgress"], false);
+        assert_eq!(finished["rebaseInProgress"], false);
+        assert_eq!(
+            fs::read_to_string(fixture.vault_root.join("alpha.md")).expect("merged source"),
+            "Synthetic local change\nSynthetic remote change\n"
+        );
+        assert_eq!(
+            git_output(&fixture.vault_root, &["merge-base", &remote_head, "HEAD"]),
+            remote_head
+        );
+        assert!(
+            git_output(&fixture.vault_root, &["log", "--format=%s"])
+                .contains("Record synthetic local change")
+        );
+        assert_eq!(
+            git_output(&fixture.vault_root, &["status", "--porcelain"]),
+            ""
+        );
+    }
 }
 
 #[test]

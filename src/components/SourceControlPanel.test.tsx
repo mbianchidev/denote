@@ -5,6 +5,66 @@ import type { PluginSourceControlViewModel } from "@denote/plugin-sdk";
 import { CloneOnboarding, SourceControlPanel } from "./SourceControlPanel";
 
 describe("SourceControlPanel", () => {
+  it("opens interrupted pull conflicts directly even when another section is selected", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const base = changesModel();
+    const model: PluginSourceControlViewModel = {
+      ...base, selectedTab: "branches", selectedView: { kind: "branches" }, conflictDetail: null,
+      operationProgress: {
+        operation: "rebase", summary: "Rebase stopped on a conflicted source file.",
+        conflictedPaths: ["notes/example.md"], continueAvailable: false,
+        continueUnavailableReason: "Resolve conflicts first.", skipAvailable: true, abortAvailable: true,
+      },
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+    const recovery = screen.getByRole("region", { name: "Rebase in progress" });
+    expect(within(recovery).getByRole("button", { name: "Continue the rebase" })).toBeDisabled();
+    expect(within(recovery).getByRole("button", { name: "Abort the rebase" })).toBeEnabled();
+    await user.click(within(recovery).getByRole("button", { name: "Resolve conflict notes/example.md" }));
+    expect(onAction).toHaveBeenCalledWith({ id: "open-conflict", values: { path: "notes/example.md" } });
+  });
+  it("surfaces remote-ahead recovery above the tabs and honors merge/rebase selection", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = changesModel();
+    model.operationProgress = null;
+    model.recovery = {
+      state: "failed", operationId: "push-failure",
+      message: "origin/main contains newer commits. Your commits remain local.",
+      remoteSync: { reason: "remote-ahead", remote: "origin", branch: "main", localBranch: "main", pullStrategy: "rebase" },
+      dismissActionId: "dismiss",
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+    const recovery = screen.getByRole("region", { name: "Remote has newer commits" });
+    expect(within(recovery).getByRole("alert")).toHaveTextContent("origin/main");
+    const strategy = within(recovery).getByRole("combobox", { name: "Pull strategy" });
+    expect(strategy).toHaveValue("rebase");
+    await user.selectOptions(strategy, "merge");
+    await user.click(within(recovery).getByRole("button", { name: "Pull with merge" }));
+    expect(onAction).toHaveBeenCalledWith({
+      id: "pull", values: { remote: "origin", branch: "main", from: "main", strategy: "merge" },
+    });
+    expect(onAction).not.toHaveBeenCalledWith(expect.objectContaining({ id: "push" }));
+  });
+
+  it("requires an explicit integration choice for divergent fast-forward-only histories", async () => {
+    const user = userEvent.setup();
+    const onAction = vi.fn();
+    const model = changesModel();
+    model.operationProgress = null;
+    model.recovery = {
+      state: "failed", operationId: "pull-failure", message: "Branches have diverged.",
+      remoteSync: { reason: "diverged", remote: "origin", branch: "main", localBranch: "main", pullStrategy: "fast-forward-only" },
+    };
+    render(<SourceControlPanel title="Git" model={model} onAction={onAction} />);
+    const recovery = screen.getByRole("region", { name: "Branches have diverged" });
+    expect(within(recovery).getByRole("button", { name: "Pull latest" })).toBeDisabled();
+    await user.selectOptions(within(recovery).getByRole("combobox", { name: "Pull strategy" }), "rebase");
+    expect(within(recovery).getByText(/rewrites.*local commits/i)).toBeInTheDocument();
+    expect(within(recovery).getByRole("button", { name: "Pull with rebase" })).toBeEnabled();
+    expect(onAction).not.toHaveBeenCalled();
+  });
   it("shows per-file pull statistics in an accessible report, including renames and binary files", () => {
     const model = changesModel();
     const review = {

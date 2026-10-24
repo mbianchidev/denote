@@ -1,0 +1,35 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "34196ffe7f1c99f6569b14c4c51e9b7931f73a07",
+    "kind": "source",
+    "sourcePath": "plugins/code-intelligence",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.code-intelligence-0.1.0.tgz",
+      "sha256": "59c27004090efe114ee54b6873d8a2afb7275c7e689f8be13cd28b672aca91eb",
+      "sizeBytes": 27197
+    }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "d250ffbbb50c925a55e8464a2c92142418c541c2",
+    "kind": "source",
+    "sourcePath": "plugins/code-intelligence",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.code-intelligence-0.1.1.tgz",
+      "sha256": "70c24c31eda02be5250bb8310a0f8a683648fb8c2891d827e1938fb8eac9f66a",
+      "sizeBytes": 27309
+    }
+  },
+  {
+    "version": "0.1.2",
+    "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+    "kind": "source",
+    "sourcePath": "plugins/code-intelligence",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.code-intelligence-0.1.2.tgz",
+      "sha256": "b5a2f08fcaa0049eb828907b72d65b2bcc447ad811d0dc75b8f98b40fcc437cc",
+      "sizeBytes": 27285
+    }
+  }
+]

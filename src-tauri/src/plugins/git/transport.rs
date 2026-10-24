@@ -1019,16 +1019,18 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
         } => {
             validate_remote_name(remote)?;
             validate_branch_name(branch)?;
-            let strategy_flag = match strategy {
-                PluginGitPullStrategy::Merge => "--no-rebase",
-                PluginGitPullStrategy::Rebase => "--rebase",
-                PluginGitPullStrategy::FastForwardOnly => "--ff-only",
+            let (rebase_flag, fast_forward_flag) = match strategy {
+                PluginGitPullStrategy::Merge => ("--no-rebase", "--ff"),
+                PluginGitPullStrategy::Rebase => ("--rebase", "--ff"),
+                PluginGitPullStrategy::FastForwardOnly => ("--no-rebase", "--ff-only"),
             };
             vec![mutating(vec![
                 "pull".into(),
                 "--no-recurse-submodules".into(),
                 "--no-autostash".into(),
-                strategy_flag.into(),
+                "--no-edit".into(),
+                rebase_flag.into(),
+                fast_forward_flag.into(),
                 remote.clone(),
                 branch.clone(),
             ])]
@@ -1044,6 +1046,7 @@ pub(crate) fn plan_git_request(request: &PluginGitRequest) -> AppResult<Vec<GitP
             validate_branch_name(branch)?;
             let mut args = vec![
                 "push".into(),
+                "--porcelain".into(),
                 "--no-recurse-submodules".into(),
                 "--no-verify".into(),
             ];
@@ -2775,6 +2778,18 @@ pub(crate) struct GitExecution<'a> {
     /// offers them.
     pub(crate) encrypted: bool,
     pub(crate) transport: GitTransportPolicy,
+}
+
+pub(crate) fn push_needs_pull(stdout: &str) -> bool {
+    stdout.lines().any(|line| {
+        let mut fields = line.split('\t');
+        fields.next() == Some("!")
+            && fields.next().is_some()
+            && matches!(
+                fields.next(),
+                Some("[rejected] (fetch first)" | "[rejected] (non-fast-forward)")
+            )
+    })
 }
 
 pub(crate) fn run_git_plan(

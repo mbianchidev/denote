@@ -23,6 +23,7 @@ import type {
   PluginSourceControlResourceGroup,
   PluginSourceControlViewModel,
   PluginSourceControlWorkspaceRepository,
+  PluginGitPullStrategy,
 } from "@denote/plugin-sdk";
 import type { GitStatusReport } from "./statusOutput";
 
@@ -98,9 +99,11 @@ export function emptyHistoryPage(): PluginSourceControlHistoryPage {
  */
 export function initialRemoteAccess(
   authMode: PluginSourceControlAuthMode = "system",
+  pullStrategy: PluginGitPullStrategy = "fast-forward-only",
 ): PluginSourceControlRemoteAccess {
   return {
     authMode,
+    pullStrategy,
     cloneAvailable: true,
     githubAvailable: authMode === "github-https",
     repositories: [],

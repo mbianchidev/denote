@@ -174,6 +174,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "diagram-renderer"
             | "note-events"
             | "project-context"
+            | "code-intelligence"
             | "source-control"
             | "automatic-local-commit"
             | "automatic-git-push"

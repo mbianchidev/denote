@@ -21,7 +21,9 @@
       {
         "id": "language-server",
         "name": "Language server",
-        "candidatePluginIds": []
+        "candidatePluginIds": [
+          "denote.code-intelligence"
+        ]
       },
       {
         "id": "linter",
@@ -36,7 +38,9 @@
       {
         "id": "code-navigation",
         "name": "Code navigation",
-        "candidatePluginIds": []
+        "candidatePluginIds": [
+          "denote.code-intelligence"
+        ]
       }
     ]
   }

@@ -1,8 +1,15 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { PluginGuide } from "./PluginGuide";
+import { PluginGuide, PluginMarkdown } from "./PluginGuide";
 
 describe("PluginGuide", () => {
+  it("uses the same safe Markdown subset for code documentation", () => {
+    const { container } = render(<PluginMarkdown markdown={"**Synthetic** help\n\n- `sample`\n\n<script>synthetic()</script>"} />);
+    expect(screen.getByText("Synthetic").tagName).toBe("STRONG");
+    expect(screen.getByText("sample").tagName).toBe("CODE");
+    expect(container.querySelector("script")).toBeNull();
+    expect(container).not.toHaveTextContent("**");
+  });
   it("renders safe inline and block Markdown without exposing syntax markers", () => {
     render(
       <PluginGuide

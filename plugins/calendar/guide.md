@@ -3,7 +3,7 @@
 ## Purpose
 
 Browse a local month calendar and agenda, find notes associated with a date, and
-create or open daily notes as ordinary Markdown. Calendar 0.2.0 adds separate
+create or open daily notes as ordinary Markdown. It also provides separate
 Created and Last updated views for ordinary notes. Requires Denote 0.6.0 or newer.
 
 ## Enablement and permissions

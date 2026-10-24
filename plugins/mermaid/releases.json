@@ -64,5 +64,49 @@
       "sha256": "f57839d53fb1abe9d262f7599969315e244b317de50866ed2ee5b3b7267475bc",
       "sizeBytes": 1647513
     }
+  },
+  {
+    "version": "0.2.5",
+    "sourceCommit": "62cc5f14e57fb62b22f6d530e59fec35c89d7ebc",
+    "kind": "source",
+    "sourcePath": "plugins/mermaid",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.mermaid-0.2.5.tgz",
+      "sha256": "3519981889816dee3ce96655eeb4294b3b97c038c1c8a749c18d36dc54b3c0a0",
+      "sizeBytes": 1647821
+    }
+  },
+  {
+    "version": "0.2.6",
+    "sourceCommit": "1c00e362ee988b94948b3e2dfa6d69dcfa08bd69",
+    "kind": "source",
+    "sourcePath": "plugins/mermaid",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.mermaid-0.2.6.tgz",
+      "sha256": "d880afcc5cf4aeb81fcf88c86940621544ba6b742b3fb82392c359f0e78fd325",
+      "sizeBytes": 1647817
+    }
+  },
+  {
+    "version": "0.2.7",
+    "sourceCommit": "ad7f4443f1bd4e7055f26b8103a1ff9ddd2d172e",
+    "kind": "source",
+    "sourcePath": "plugins/mermaid",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.mermaid-0.2.7.tgz",
+      "sha256": "82ef52741d1880c30b011a2f7f17f82d719d307739ab772cd1898a289220c231",
+      "sizeBytes": 1647985
+    }
+  },
+  {
+    "version": "0.2.9",
+    "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+    "kind": "source",
+    "sourcePath": "plugins/mermaid",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.mermaid-0.2.9.tgz",
+      "sha256": "47e75c91bffc7e8e9f81a3a70518fe6c9f67f234c044d1c9ce6e0cc3eafc6fe5",
+      "sizeBytes": 1647229
+    }
   }
 ]

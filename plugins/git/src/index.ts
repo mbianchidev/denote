@@ -61,7 +61,7 @@ const plugin: DenotePlugin = {
         report: (message, details) => context.logger.info(message, details),
       },
       repositories.length > 0 ? repositories : [selectedScope],
-      initialRemoteAccess(settings.authMode),
+      initialRemoteAccess(settings.authMode, settings.pullStrategy),
     );
 
     statusItem.set(statusText(controller.model));
