@@ -27,8 +27,8 @@
     "package:plugins": "npm run build:plugins && tsx scripts/package-plugins.ts",
     "pin:plugin": "tsx scripts/pin-plugin.ts",
     "preview": "vite preview",
-    "test": "vitest run && npm run test:bundled-tools",
-    "test:website": "vitest run website",
+    "test": "vitest run && npm run test:website && npm run test:bundled-tools",
+    "test:website": "node --test website/*.node.mjs",
     "test:watch": "vitest",
     "check:plugin-archives": "node scripts/check-plugin-archives.mjs",
     "check:plugins": "npm run check:plugin-archives && tsx scripts/validate-plugins.ts && tsc --noEmit -p plugins/tsconfig.json && npm run build:plugins && tsx scripts/validate-plugins.ts --artifacts && tsx scripts/package-plugins.ts --check",
@@ -106,7 +106,8 @@
     "dompurify": "3.4.17",
     "js-yaml": "4.3.2",
     "katex": "0.18.11",
-    "lodash-es": "4.18.1"
+    "lodash-es": "4.18.1",
+    "undici": "8.12.3"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
