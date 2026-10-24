@@ -20,5 +20,16 @@
       "sha256": "bdd340c4b9c969eb75d956d67c67ee64c9c4f0b6bce5cc50eddd2ca0a80a38c0",
       "sizeBytes": 68477
     }
+  },
+  {
+    "version": "0.2.1",
+    "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
+    "kind": "source",
+    "sourcePath": "plugins/calendar",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.3/denote.calendar-0.2.1.tgz",
+      "sha256": "9cf9cd864936af303c8b9296a5b2491cbb66994dc6ca7ac0db8749d36d302415",
+      "sizeBytes": 68422
+    }
   }
 ]

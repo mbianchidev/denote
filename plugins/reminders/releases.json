@@ -53,5 +53,16 @@
       "sha256": "b6b80cf5121cc66a644d104ec2cef90dd54002a0df018e56fc7ad9c36d12f9eb",
       "sizeBytes": 74068
     }
+  },
+  {
+    "version": "0.3.1",
+    "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
+    "kind": "source",
+    "sourcePath": "plugins/reminders",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.3/denote.reminders-0.3.1.tgz",
+      "sha256": "849cb77094f4ce8ce51ebaf52773087f4ad05a3dd560f477726eefd8a29cc090",
+      "sizeBytes": 73985
+    }
   }
 ]

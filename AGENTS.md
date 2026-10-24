@@ -32,20 +32,6 @@ family and follow **Re-evaluate the Windows runtime pin** before changing any
 related version. Never hide the remaining GLib advisory, relabel a crate, or
 invent a patched version to make an audit look clean.
 
-## Important: deferred Mermaid security fix
-
-**High priority:** [#130](https://github.com/mbianchidev/denote/issues/130)
-tracks Mermaid 0.2.4's bundled DOMPurify 3.4.16 security findings. The independent
-host sanitizer uses the patched `dompurify-host` alias at 3.4.17. The root
-`dompurify` override still preserves Mermaid's immutable dependency tree; its
-remaining finding must continue to fail npm audit. Never suppress it or rewrite
-the existing plugin version, archive, ledger, or source provenance.
-
-Obtain explicit approval for a new plugin version, patch and pin it through the
-documented source-first release process, then retire the temporary host alias
-and vulnerable override. Remove this entire temporary section and close #130
-only after the new plugin pin is verified and the affected npm audit is clean.
-
 ## Interface and copy
 
 Before changing interface code or user-visible text, read the relevant section

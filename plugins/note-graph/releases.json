@@ -53,5 +53,16 @@
       "sha256": "8a86259b050b837932ab5d7e7ab4bec0165d6dd6739e3ea3fe5a59c3f8f3a4f1",
       "sizeBytes": 74349
     }
+  },
+  {
+    "version": "0.1.5",
+    "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
+    "kind": "source",
+    "sourcePath": "plugins/note-graph",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.3/denote.note-graph-0.1.5.tgz",
+      "sha256": "700005ab6ded6b6e49bbf21a606cfff245b63036125a472614defac69a12e101",
+      "sizeBytes": 74340
+    }
   }
 ]

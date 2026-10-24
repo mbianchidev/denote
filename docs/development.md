@@ -340,6 +340,9 @@ replacing its existing digest. Do not retain vulnerable build tools to reproduce
 current packages. Earlier release recipes remain tied to their historical
 commits. Include the workspace root in npm audits so development dependencies
 such as Vite and jsdom's Undici are covered as well as plugin workspaces.
+The new patch archives are staged for Denote v0.8.3. Pinning does not publish
+them or change existing GitHub Release assets; release preparation still owns
+the final catalog URLs and uploads.
 
 The root `katex` override
 pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
@@ -957,6 +960,7 @@ Run the backport checks with:
 ```bash
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
 cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
 DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
   --package tauri-plugin-opener --package tauri-plugin-single-instance \

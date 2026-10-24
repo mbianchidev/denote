@@ -167,6 +167,7 @@ jobs:
         run: |
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
           cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
 
       - name: Linux D-Bus backport tests
