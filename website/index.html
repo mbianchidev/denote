@@ -226,11 +226,30 @@
             </div>
           </article>
         </div>
-        <aside class="unsigned-note">
-          <strong>Current macOS releases are unsigned.</strong>
-          Verify the disk image against its published SHA-256 checksum before
-          using the documented quarantine workaround. Developer ID signing and
-          notarization are not enabled yet.
+        <aside class="unsigned-note" aria-label="Opening Denote on macOS">
+          <p>
+            <strong>Current macOS releases are unsigned and not notarized.</strong>
+            Only use this workaround for a trusted download from the
+            <a href="https://github.com/mbianchidev/denote/releases">official Denote releases</a>.
+            Verify the disk image against that release's SHA-256 checksum in
+            <code>SHA256SUMS</code> before continuing.
+          </p>
+          <ol>
+            <li>
+              Open the disk image and drag <code>Denote.app</code> into
+              <strong>Applications</strong>.
+            </li>
+            <li>
+              If macOS blocks launch or reports that the app is damaged, open
+              <strong>Terminal</strong> and run:
+              <pre><code>xattr -dr com.apple.quarantine "/Applications/Denote.app"</code></pre>
+            </li>
+            <li>Reopen Denote from <strong>Applications</strong>.</li>
+          </ol>
+          <p>
+            This removes quarantine only from <code>Denote.app</code>, not
+            system-wide Gatekeeper protection.
+          </p>
         </aside>
       </section>
     </main>

@@ -25,17 +25,23 @@ operating system Trash. The current vault and built-in guide cannot be removed.
 
 ## Opening an unsigned macOS build
 
-If you downloaded an unsigned Denote build, macOS may report that the app is
-damaged. First verify the download against the release's `SHA256SUMS`, copy
-`Denote.app` to Applications, then run:
+Only use this workaround for a trusted download from the
+[official Denote releases](https://github.com/mbianchidev/denote/releases).
+Verify the disk image against that release's `SHA256SUMS` before continuing.
 
-```bash
-xattr -dr com.apple.quarantine "/Applications/Denote.app"
-```
+1. Open the disk image and drag `Denote.app` into **Applications**.
+2. If macOS blocks launch or reports that the app is damaged, open **Terminal**
+   and run:
 
-This removes quarantine only from that app bundle. Do not use it for a download
-whose origin or checksum you have not verified. A Developer ID-signed and
-notarized build opens without this workaround.
+   ```bash
+   xattr -dr com.apple.quarantine "/Applications/Denote.app"
+   ```
+
+3. Reopen Denote from **Applications**.
+
+This removes quarantine only from `Denote.app`, not system-wide Gatekeeper
+protection. Do not use it for a download whose origin or checksum you have not
+verified. A Developer ID-signed and notarized build opens without this workaround.
 
 ## First steps
 

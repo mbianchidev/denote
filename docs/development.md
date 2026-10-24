@@ -303,7 +303,7 @@ For Mermaid changes, run:
 
 ```bash
 npm audit --audit-level=high
-npm ls mermaid dompurify
+npm ls mermaid dompurify dompurify-host
 npx vitest run \
   packages/plugin-sdk/src/diagramRenderer.test.ts \
   plugins/mermaid/tests/compatibility.test.ts \
@@ -320,10 +320,20 @@ The root `lodash-es` override pins 4.18.1 because Mermaid 12's Chevrotain 11
 dependencies otherwise require vulnerable 4.17.23 copies. Keep the override
 until upstream removes those pins. After dependency updates, verify both
 `npm audit --audit-level=high --workspaces` and `npm ls lodash-es`.
-The root DOMPurify dependency and override pin
-[3.4.16](https://github.com/cure53/DOMPurify/releases/tag/3.4.16) to fix
-[GHSA-p98j-92pf-mc4p](https://github.com/advisories/GHSA-p98j-92pf-mc4p).
-The host sanitizer and Mermaid 0.2.4 use this patch. The root `katex` override
+The independent host sanitizer pins DOMPurify
+[3.4.17](https://github.com/cure53/DOMPurify/releases/tag/3.4.17) through the
+`dompurify-host` npm alias to fix
+[GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
+[GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
+[GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
+The separate alias preserves Mermaid 0.2.4's immutable dependency tree and
+archive bytes. That plugin and the root `dompurify` override still pin 3.4.16,
+so its security finding continues to fail npm audit. A new plugin version is
+deferred and tracked in [#130](https://github.com/mbianchidev/denote/issues/130);
+remove the temporary alias and `AGENTS.md` follow-up only after the approved
+plugin patch is pinned and its audit passes.
+
+The root `katex` override
 pins [0.18.11](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.11) because
 Mermaid 12 otherwise requires KaTeX 0.16, which is affected by
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7). Keep it
@@ -795,6 +805,20 @@ The lockfile keeps `quinn-proto` at 0.11.18 to fix the advisories published on
 [RUSTSEC-2026-0343](https://rustsec.org/advisories/RUSTSEC-2026-0343).
 This networking patch preserves the existing Windows/Tauri dependency graph.
 
+Compatible lockfile patches also fix:
+
+- `ctutils` 0.4.4:
+  [RUSTSEC-2026-0385](https://rustsec.org/advisories/RUSTSEC-2026-0385).
+- `rustls-webpki` 0.103.16:
+  [RUSTSEC-2026-0382](https://rustsec.org/advisories/RUSTSEC-2026-0382).
+- `webpki-root-certs` 1.0.10:
+  [RUSTSEC-2026-0383](https://rustsec.org/advisories/RUSTSEC-2026-0383).
+- `tokio` 1.53.3:
+  [RUSTSEC-2026-0386](https://rustsec.org/advisories/RUSTSEC-2026-0386).
+
+`clipboard-win` moves from yanked 5.4.1 to 5.4.3. These updates preserve the
+complete pinned Tauri, Tao, Wry, WebView2, and URL-pattern package records.
+
 The 2026-10-14 Rustls advisories
 [RUSTSEC-2026-0346](https://rustsec.org/advisories/RUSTSEC-2026-0346),
 [RUSTSEC-2026-0347](https://rustsec.org/advisories/RUSTSEC-2026-0347),
@@ -944,7 +968,17 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-17**.
+Last vendored-library check: **2026-10-24**.
+All seven crates and their RustSec baselines were rechecked. No compatible
+published replacement removes a local backport. The open
+[zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
+and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
+remain unreleased. The latest `trybuild2` 1.3.0 additionally depends on
+unmaintained `basic-toml`
+([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374));
+the macro regression tooling must retain equivalent checks while replacing
+that dependency, not suppress the warning.
+
 [GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
 published compatible GLib release; the
 [0.18 backport request](https://github.com/gtk-rs/gtk-rs-core/pull/2009)
@@ -996,19 +1030,20 @@ window closed. Restoring the complete 0.7.1 Tauri graph fixed both behaviors.
 Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not a
 supported upgrade.
 
-Last upstream check: **2026-10-17**.
+Last upstream check: **2026-10-24**.
 
-- [Tauri v2.12.4](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.4)
-  is the latest stable release; it uses `tauri-utils` 2.10.2 and runtime 2.12.2,
-  and its release notes do not identify a fix for the blank renderer and orphaned
-  process.
+- [Tauri v2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
+  fixes NSIS language strings and downgrade checks and updates the 2.12 build
+  family. Its release notes do not identify a fix for the blank renderer and
+  orphaned process.
 - [Tauri issue #14846](https://github.com/tauri-apps/tauri/issues/14846) describes
   a separate Windows blank-webview case, not a fix for this regression.
 - [Tauri issue #16232](https://github.com/tauri-apps/tauri/issues/16232) concerns
   a Linux WebKitGTK segfault, not this Windows regression.
-- [Wry v0.57.0](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.0)
-  remains the latest stable release; its release notes do not identify a matching
-  Windows fix. [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
+- [Wry v0.57.1](https://github.com/tauri-apps/wry/releases/tag/wry-v0.57.1)
+  changes Android initialization, Linux download/IPC handling, and macOS focus
+  and webview handling; its release notes identify no matching Windows fix.
+  [Wry issue #1871](https://github.com/tauri-apps/wry/issues/1871)
   concerns Linux WebKitGTK view retention, not this Windows regression.
 - No identified upstream release or issue fixes both the blank Windows frame and
   orphaned process.
@@ -1048,14 +1083,27 @@ migration must cover Linux menus, dialogs, clipboard, deep links, single-instanc
 behavior, updater shutdown, and vault/plugin lifecycles across all platforms.
 Do not relabel crates or suppress advisories to bypass this dependency boundary.
 
-## Build a desktop bundle
+## GitHub Actions validation
 
-```bash
-npm run tauri build
-```
+CI runs on pull requests, pushes to `main`, and manual dispatch. The plugin
+archive guard, JavaScript and Rust security audits, and macOS, Windows, and Linux
+validation remain mandatory within each run.
 
-The GitHub Actions workflow runs the validation commands on macOS, Windows, and
-Linux.
+The security job caches the pinned `cargo-audit` installation and Cargo
+downloads, not the advisory database or audit results. The cache key includes
+the tool version and Rust toolchain. Locked installation and the audit still
+run on every revision; an audit failure remains a failed check. This tool cache
+is saved even when the subsequent audit fails.
+
+Platform jobs restore compatible Cargo caches on every branch but save new
+entries only from `main`. This avoids uploading large, PR-scoped caches that
+other PRs cannot reuse. Dependency-changing PR reruns may rebuild dependencies
+until their changes reach `main`; no tests or checks are skipped on cache hits
+or misses.
+
+Windows builds the frontend once through Tauri's `beforeBuildCommand` when
+building the renderer smoke binary, before Rust tests consume the generated
+assets. macOS and Linux retain their standalone frontend build step.
 
 Windows CI additionally builds the embedded application without installers and
 runs:
@@ -1070,6 +1118,12 @@ The hosted runner launches this at medium integrity, isolates application and
 WebView2 data, captures the client area, rejects a uniform blank frame or browser
 error page, closes the last window, and requires `denote.exe` to exit. Failure
 uploads the screenshot and measured frame evidence.
+
+## Build a desktop bundle
+
+```bash
+npm run tauri build
+```
 
 ### Preview an unpublished plugin on macOS
 
