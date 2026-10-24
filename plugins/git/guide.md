@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Version 0.9.0 requires Denote 0.7.1 or newer.
+This version requires Denote 0.9.0 or newer.
 
 This plugin keeps a Git history of your vault and configured projects without
 leaving Denote. It adds one source control view that lists every safe detected
@@ -139,7 +139,7 @@ remote, history, and diff data are retained unless that action could change
 them. When an operation fails, the last known good state stays on screen and the
 failure is reported with Git's own message.
 
-Git 0.10.0 requires Denote 0.9.0. A push rejected with **fetch first** or
+A push rejected with **fetch first** or
 **non-fast-forward** shows **Remote has newer commits** above the section tabs,
 naming the exact remote branch and explaining that your commits remain local.
 If **Commit and push** created the commit before rejection, that successful

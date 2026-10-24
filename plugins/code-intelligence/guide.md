@@ -10,7 +10,7 @@ optional Debug Adapter Protocol session.
 
 ## Enablement and permissions
 
-Code intelligence 0.1.1 requires Denote 0.9.0, the first release containing its
+Code intelligence requires Denote 0.9.0, the first release containing its
 host and native contracts. Older applications refuse it before download.
 
 Enable **Code intelligence** in **Settings → Plugins**. The **Code intelligence**

@@ -22,6 +22,9 @@ the optional `fsevents` native rebuild is denied. Review any new warning with
 `npm install-scripts ls`; do not approve a new package or version without
 inspecting its published script and lockfile provenance.
 
+The root `undici@8.12.2` override patches jsdom's test-only HTTP transport
+without changing the immutable plugin dependency trees.
+
 `prepare:pdf-assets` verifies the installed Apache-2.0 `pdfjs-dist` package and
 copies its local CMaps, standard fonts, ICC profile, image-decoder WebAssembly,
 and license files into ignored `public/pdfjs-assets/`. It excludes QuickJS
@@ -41,12 +44,19 @@ alone is not an operating-system scheme handler.
 Preview the dependency-free public website from the repository root:
 
 ```bash
+npm run test:website
 npm run build:website
 python3 -m http.server 4173 --directory dist/website
 ```
 
+Website tests use Node's built-in test runner and synthetic fixtures. Both
+website commands need only Node.js and npm, not a dependency install or the
+desktop toolchain. `npm test` includes these same tests on every CI platform.
+For website-only watch mode, run `node --test --watch website/*.node.mjs`.
+
 GitHub Pages must use **GitHub Actions** as its source. The Pages workflow tests
-and builds pull requests, then deploys only from `main` or manual dispatch.
+and builds pull requests without installing desktop dependencies, then deploys
+only from `main` or manual dispatch.
 
 ## Validate changes
 
@@ -140,7 +150,7 @@ cargo test --manifest-path src-tauri/Cargo.toml plugins::git::
 cargo test --manifest-path src-tauri/Cargo.toml --test git_signing
 ```
 
-Git 0.10.0 targets Denote 0.9.0. `plugins/git/tests/sync.test.ts` covers
+Git 0.10.1 targets Denote 0.9.0. `plugins/git/tests/sync.test.ts` covers
 porcelain rejections, preference-aware recovery, stale branch guards and failed
 pull conflict state. Native synthetic-origin tests cover rejected automatic
 pushes and both real merge/rebase conflict resolution through the production
@@ -332,15 +342,14 @@ The root DOMPurify dependency and override pin
 [GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7),
 [GHSA-mrv2-3pqr-j5jr](https://github.com/advisories/GHSA-mrv2-3pqr-j5jr), and
 [GHSA-c6gr-qvv4-5v3f](https://github.com/advisories/GHSA-c6gr-qvv4-5v3f).
-The host sanitizer and Mermaid 0.2.7 use this patch. Earlier published plugin
+The host sanitizer and Mermaid 0.2.9 use this patch. Earlier published plugin
 archives retain their immutable bytes and source provenance.
-The build/test lockfile also uses patched Vite 8.3.5 and Undici 8.12.3. Build
-tool updates must preserve every unchanged plugin's recorded archive bytes;
-never repin an existing version to accommodate a compiler change.
-The Rolldown override retains the archive-compatible 1.2.6 compiler while Vite's
-development server receives its security fixes. Newer Rolldown patches change
-unchanged plugin bytes; validate all plugin digests and the frontend build when
-changing either part of this toolchain.
+The build/test toolchain pins Vite 8.3.5 and Rolldown 1.2.15 together, with
+patched Undici 8.12.3. This compiler refresh uses new patch versions for all
+11 plugin packages, including Git 0.10.1 and Code intelligence 0.1.2. Earlier
+archive identities remain unchanged. Pin compatible compiler inputs and
+validate all plugin digests plus the frontend build when updating the toolchain;
+never repin an existing version to accommodate different compiler output.
 
 The root `katex` override
 pins [0.18.10](https://github.com/KaTeX/KaTeX/releases/tag/v0.18.10) because
@@ -364,10 +373,10 @@ Security overrides pin KaTeX 0.18.10 for
 [GHSA-238p-pmpm-9mq7](https://github.com/advisories/GHSA-238p-pmpm-9mq7) and
 source-map-js 1.2.2 for
 [GHSA-68fv-2mgg-jv7q](https://github.com/advisories/GHSA-68fv-2mgg-jv7q).
-Mermaid 0.2.4 retains main's canonical immutable pin for its math dependency
-patch. The prepared 0.2.5 and 0.2.6 entries also stay unchanged. Mermaid 0.2.7
-combines DOMPurify 3.4.17, compatible KaTeX 0.18.10, and the included math license
-in a new source pin; previous canonical versions and recipes remain untouched.
+Mermaid 0.2.9 combines DOMPurify 3.4.17, compatible KaTeX 0.18.10, and the included
+math license in a new source pin. All previous canonical and prepared entries
+stay unchanged. Select fresh versions above existing reservations in parallel
+plugin PRs; an unpublished prepared version must not be silently reused.
 Validate with the full `npm audit --audit-level=low`, not only workspace auditing.
 After changing an override, use `npm update <package> --package-lock-only`
 and verify `npm ls <package>` before committing and pinning; a lockfile-only
@@ -1294,8 +1303,21 @@ platform before it creates a GitHub Release. Every release dependency install is
 preceded by `node scripts/preinstall-validate-plugins.mjs` and uses
 `npm ci --ignore-scripts`.
 
-The validation job runs `check:plugins`, then `package:plugins`, and transfers
-the verified `.plugin-artifacts/*.tgz` files as the dedicated
+Non-packaging Linux jobs use `ubuntu-latest`. The Linux release builder alone
+stays on `ubuntu-22.04` to preserve the existing glibc/WebKitGTK baseline for
+installers and on-demand Git. FUSE remains a packaging-only dependency.
+[Tauri's AppImage guidance](https://v2.tauri.app/distribute/appimage/) explains
+why a newer build system can raise the required glibc version. Both macOS
+release targets already use `macos-latest` with explicit Rust target triples;
+their architectures and minimum-OS settings remain unchanged. Use only
+[supported runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+not invented floating Intel-macOS or ARM-Linux aliases.
+
+The validation job runs `check:plugins`, then
+`npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
+using the already-built plugin entrypoints. Standalone `package:plugins` still
+builds its own entrypoints first. The job transfers the verified
+`.plugin-artifacts/*.tgz` files as the dedicated
 `plugin-release-assets` workflow artifact. Platform builds never take those
 archives as installer inputs. The publish job downloads them into ignored
 staging, rechecks the exact filenames, sizes, SHA-256 digests, and catalog URLs

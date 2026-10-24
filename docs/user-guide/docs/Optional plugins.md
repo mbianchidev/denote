@@ -1019,7 +1019,7 @@ vault, Denote says so instead of opening nothing.
 
 ### Recover a rejected push
 
-Git 0.10.0 requires Denote 0.9.0. If origin or another remote has commits you
+Git 0.10.1 requires Denote 0.9.0. If origin or another remote has commits you
 have not pulled, **Remote has newer commits** names that branch and explains
 that your commits are still local. A successful commit followed by a rejected
 push is not reported as a failed commit. Authentication, network, and
