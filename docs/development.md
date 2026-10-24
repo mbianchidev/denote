@@ -22,6 +22,9 @@ the optional `fsevents` native rebuild is denied. Review any new warning with
 `npm install-scripts ls`; do not approve a new package or version without
 inspecting its published script and lockfile provenance.
 
+The root `undici@8.12.2` override patches jsdom's test-only HTTP transport
+without changing the immutable plugin dependency trees.
+
 `prepare:pdf-assets` verifies the installed Apache-2.0 `pdfjs-dist` package and
 copies its local CMaps, standard fonts, ICC profile, image-decoder WebAssembly,
 and license files into ignored `public/pdfjs-assets/`. It excludes QuickJS
