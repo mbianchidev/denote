@@ -1213,6 +1213,16 @@ platform before it creates a GitHub Release. Every release dependency install is
 preceded by `node scripts/preinstall-validate-plugins.mjs` and uses
 `npm ci --ignore-scripts`.
 
+Non-packaging Linux jobs use `ubuntu-latest`. The Linux release builder alone
+stays on `ubuntu-22.04` to preserve the existing glibc/WebKitGTK baseline for
+installers and on-demand Git. FUSE remains a packaging-only dependency.
+[Tauri's AppImage guidance](https://v2.tauri.app/distribute/appimage/) explains
+why a newer build system can raise the required glibc version. Both macOS
+release targets already use `macos-latest` with explicit Rust target triples;
+their architectures and minimum-OS settings remain unchanged. Use only
+[supported runner labels](https://docs.github.com/en/actions/reference/runners/github-hosted-runners),
+not invented floating Intel-macOS or ARM-Linux aliases.
+
 The validation job runs `check:plugins`, then
 `npm exec --no -- tsx scripts/package-plugins.ts` to recheck and stage archives
 using the already-built plugin entrypoints. Standalone `package:plugins` still

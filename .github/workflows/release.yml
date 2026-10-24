@@ -26,7 +26,7 @@ concurrency:
 jobs:
   validate:
     name: Validate release
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.source.outputs.sha }}
       updater_enabled: ${{ steps.updater.outputs.enabled }}
@@ -104,7 +104,6 @@ jobs:
             libayatana-appindicator3-dev \
             libcurl4-openssl-dev \
             libexpat1-dev \
-            libfuse2 \
             libssl-dev \
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
@@ -180,6 +179,7 @@ jobs:
       matrix:
         include:
           - name: Linux x64
+            # Preserve the shipped glibc/WebKitGTK baseline; control jobs can float.
             platform: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
             artifact: linux-x64
@@ -513,7 +513,7 @@ jobs:
     needs:
       - validate
       - build
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
