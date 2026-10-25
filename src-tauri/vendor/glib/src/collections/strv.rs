@@ -1476,44 +1476,46 @@ mod test {
 
     #[test]
     fn test_into_strv() {
+        fn check(input: impl IntoStrV, expected: &[&str]) {
+            input.run_with_strv(|slice| {
+                assert_eq!(slice.len(), expected.len());
+                unsafe {
+                    // The allocation includes the terminator; the Rust slice does not.
+                    assert!((*slice.as_ptr().add(slice.len())).is_null());
+                    let borrowed = StrV::from_glib_borrow(slice.as_ptr() as *const *const c_char);
+                    assert_eq!(borrowed.len(), expected.len());
+                    for (actual, expected) in borrowed.iter().zip(expected) {
+                        assert_eq!(actual.as_str(), *expected);
+                    }
+                }
+            });
+        }
+
         let items = ["str1", "str2", "str3", "str4"];
+        check(items, &items);
 
-        items[..].run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
-            assert_eq!(s.len(), items.len());
-            let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
-            assert_eq!(s, items);
-        });
-
-        Vec::from(&items[..]).run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
-            assert_eq!(s.len(), items.len());
-            let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
-            assert_eq!(s, items);
-        });
-
-        StrV::from(&items[..]).run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
-            assert_eq!(s.len(), items.len());
-            let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
-            assert_eq!(s, items);
-        });
-
-        let v = items.iter().copied().map(String::from).collect::<Vec<_>>();
-        items.run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
-            assert_eq!(s.len(), v.len());
-            let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
-            assert_eq!(s, items);
-        });
-
-        let v = items.iter().copied().map(GString::from).collect::<Vec<_>>();
-        items.run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
-            assert_eq!(s.len(), v.len());
-            let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
-            assert_eq!(s, items);
-        });
+        for count in [
+            0,
+            1,
+            4,
+            MAX_STACK_ALLOCATION - 2,
+            MAX_STACK_ALLOCATION - 1,
+            MAX_STACK_ALLOCATION,
+            MAX_STACK_ALLOCATION + 1,
+        ] {
+            let strings = (0..count)
+                .map(|index| format!("s{index}"))
+                .collect::<Vec<_>>();
+            let items = strings.iter().map(String::as_str).collect::<Vec<_>>();
+            check(items.as_slice(), &items);
+            check(items.clone(), &items);
+            check(StrV::from(items.as_slice()), &items);
+            check(strings.clone(), &items);
+            check(
+                items.iter().copied().map(GString::from).collect::<Vec<_>>(),
+                &items,
+            );
+        }
     }
 
     #[test]

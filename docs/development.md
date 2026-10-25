@@ -1133,10 +1133,11 @@ Run the backport checks with:
 
 ```bash
 cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
+cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --lib
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
-cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter
+cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
 DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
   --package tauri-plugin-opener --package tauri-plugin-single-instance \
   --package tauri-plugin-notification --lib linux_backport
@@ -1148,6 +1149,20 @@ a user's desktop bus or real credentials. These checks run in Linux CI and
 release validation alongside the ordinary all-platform desktop tests and
 Windows renderer smoke. Historical tags without backports retain their
 original release checks.
+
+The complete GLib library unit suite runs unfiltered in debug mode. The separate
+optimized gate retains all iterator safety tests and the `IntoStrV` fixture.
+That fixture checks the null terminator through the underlying allocation
+pointer, not
+`slice.get_unchecked(slice.len())`: the callback's Rust slice intentionally
+excludes the allocated terminator. This follows the
+[upstream GLib 0.22.10 fixture](https://github.com/gtk-rs/gtk-rs-core/blob/0.22.10/glib/src/collections/strv.rs)
+without changing production code or the pinned 0.18.5 identity. Coverage includes
+empty, short, and stack/heap-boundary inputs for slices, vectors, owned `StrV`,
+`String`, and `GString`, plus the fixed-array adapter. The owned-string cases
+exercise their actual vectors rather than accidentally reusing the string-slice
+array. Length, null termination, and every returned string remain asserted.
+
 The local GLib source explicitly spells its previously elided return lifetimes
 and removes unnecessary trait-object type parentheses without changing borrowing
 semantics or upstream package identity. CI and release validation compile that
@@ -1173,8 +1188,8 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for the compiler-lint and registry-audit maintenance. Compatible
-and latest versions below are unchanged. No compatible
+were rechecked for the compiler-lint, registry-audit, and StrV-fixture
+maintenance. Compatible and latest versions below are unchanged. No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
