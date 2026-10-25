@@ -64,6 +64,44 @@ describe("markdown utilities", () => {
     expect(fromMarkdown).not.toHaveBeenCalled();
   });
 
+  it("does not parse frontmatter as a candidate thematic break", () => {
+    const source = "---\ntitle: Synthetic note\n---\n\n" + "Ordinary prose.\n\n".repeat(100);
+    vi.mocked(fromMarkdown).mockClear();
+
+    expect(captureThematicBreaks(source).delimiters).toEqual([]);
+    expect(restoreThematicBreaks(source, { delimiters: [] })).toBe(source);
+    expect(restoreThematicBreaks("New\n\n***\n\nRule", { delimiters: [] }))
+      .toBe("New\n\n***\n\nRule");
+    expect(fromMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("does not parse comment delimiters as ordinary or incomplete angle text", () => {
+    const source = "<!-- toc -->\n- [Heading](#heading)\n<!-- /toc -->\n\n" +
+      "Ordinary prose.\n\n".repeat(100);
+    vi.mocked(fromMarkdown).mockClear();
+
+    expect(restoreStandardMarkdownAngles(source, source)).toBe(source);
+    expect(hasIncompleteStandardMarkdownAngle(source)).toBe(false);
+    expect(maskSafeRichHtml(source)).toBe(source);
+    expect(fromMarkdown).not.toHaveBeenCalled();
+  });
+
+  it("validates a TOC and ordinary references with only one full-note tree", () => {
+    const source = "<!-- toc -->\n- [Heading](#heading)\n<!-- /toc -->\n\n" +
+      "# Heading\n\n" + "Read [the guide][guide].\n\n".repeat(100) +
+      "[guide]: https://example.test/guide";
+    vi.mocked(fromMarkdown).mockClear();
+
+    expect(hasUnsupportedRichMarkdown(source)).toBe(false);
+
+    const fullParses = vi.mocked(fromMarkdown).mock.calls.filter(
+      ([value]) => value.length > source.length / 2,
+    );
+    expect(fullParses).toHaveLength(1);
+    expect(fullParses[0][0]).toBe(source);
+    expect(hasUnsupportedRichMarkdown("<!-- arbitrary comment -->")).toBe(true);
+  });
+
   it("parses each source variant only once when validating disclosure sections", () => {
     const source =
       "# Synthetic heading\n\n<details>\n<summary>More</summary>\n\n[Guide](https://example.test)\n\n</details>";

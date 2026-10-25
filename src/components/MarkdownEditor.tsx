@@ -128,7 +128,7 @@ import {
   captureReferenceMarkdown,
   type ReferenceMarkdownSnapshot,
 } from "../lib/referenceMarkdown";
-import { createMarkdownParser } from "../lib/markdownParser";
+import { createMarkdownParser, type MarkdownParser } from "../lib/markdownParser";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
@@ -406,20 +406,34 @@ export const MarkdownEditor = forwardRef<
   },
   ref,
 ) {
+  const boundaryWhitespaceRef = useRef<
+    ReturnType<typeof captureMarkdownBoundaryWhitespace> | null
+  >(null);
+  const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(null);
+  const thematicBreaksRef = useRef<ReturnType<typeof captureThematicBreaks> | null>(null);
+  const referenceSnapshotCache = useRef<ReferenceMarkdownSnapshot | null>(null);
+  const preparedAnalysis = useRef<{
+    source: string;
+    analysis: ReturnType<typeof analyzeEditorMarkdown>;
+  } | null>(null);
   const { editorMarkdown, editorSource, detectedSourceOnly, renderDetails } =
     useMemo(() => {
+      const prepared = preparedAnalysis.current;
+      preparedAnalysis.current = null;
       const parse = createMarkdownParser();
-      const editorMarkdown = normalizeBareSpaceLinkDestinations(markdown, parse);
-      return {
-        editorMarkdown,
-        editorSource: markdownEditorSource(markdown, parse),
-        detectedSourceOnly: hasUnsupportedRichMarkdown(markdown, parse),
-        renderDetails: hasSupportedDetailsMarkdown(markdown, parse),
-      };
+      const analysis = prepared?.source === markdown
+        ? prepared.analysis
+        : analyzeEditorMarkdown(markdown, parse);
+      if (boundaryWhitespaceRef.current === null) {
+        boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(markdown);
+        tocMarkersRef.current = captureTocMarkers(markdown, parse);
+        thematicBreaksRef.current = captureThematicBreaks(markdown, parse);
+        referenceSnapshotCache.current = captureReferenceMarkdown(analysis.editorSource, parse);
+      }
+      return analysis;
     }, [markdown]);
   const editorSourceRef = useRef(editorSource);
   editorSourceRef.current = editorSource;
-  const referenceSnapshotCache = useRef<ReferenceMarkdownSnapshot | null>(null);
   if (referenceSnapshotCache.current?.source !== editorSource) {
     referenceSnapshotCache.current = null;
   }
@@ -437,10 +451,21 @@ export const MarkdownEditor = forwardRef<
     [],
   );
   const shellRef = useRef<HTMLDivElement>(null);
+  const styledTagElements = useRef(new Set<HTMLElement>());
   const emojiRef = useRef(emoji);
   const emojiSourceRef = useRef(markdown);
   const [sourceLineBreak] = useState(() => markdown.includes("\r\n") ? "\r\n" : markdown.includes("\r") ? "\r" : "\n");
   emojiSourceRef.current = markdown;
+  const publishMarkdownChange = (output: string, parse: MarkdownParser) => {
+    if (output === emojiSourceRef.current) return;
+    emojiSourceRef.current = output;
+    // Only the small analysis result crosses the controlled-prop update.
+    preparedAnalysis.current = {
+      source: output,
+      analysis: analyzeEditorMarkdown(output, parse),
+    };
+    onChange(output);
+  };
   const [emojiSerialization] = useState(() => new EmojiSourceHistory());
   const sourceChangePendingRef = useRef(false);
   const synchronizingSourceRef = useRef(false);
@@ -585,24 +610,6 @@ export const MarkdownEditor = forwardRef<
     () => createPluginDecorationExtensions(pluginDecorations),
     [pluginDecorations],
   );
-  const boundaryWhitespaceRef = useRef<
-    ReturnType<typeof captureMarkdownBoundaryWhitespace> | null
-  >(null);
-  if (boundaryWhitespaceRef.current === null) {
-    boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(markdown);
-  }
-  const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(
-    null,
-  );
-  if (tocMarkersRef.current === null) {
-    tocMarkersRef.current = captureTocMarkers(markdown);
-  }
-  const thematicBreaksRef = useRef<
-    ReturnType<typeof captureThematicBreaks> | null
-  >(null);
-  if (thematicBreaksRef.current === null) {
-    thematicBreaksRef.current = captureThematicBreaks(markdown);
-  }
   const diagramRenderers = diagrams?.renderers;
   const codeBlockEditorDescriptors = useMemo<CodeBlockEditorDescriptor[]>(
     () => [
@@ -897,15 +904,36 @@ export const MarkdownEditor = forwardRef<
     if (!shell) {
       return;
     }
-    applyTagPills(shell, tagColors);
+    applyTagPills(shell, tagColors, styledTagElements.current);
     applyHeadingAnchors(shell);
     applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
     normalizeRenderedImageDimensions(shell);
-    const observer = new MutationObserver(() => {
-      applyTagPills(shell, tagColors);
-      applyHeadingAnchors(shell);
-      applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
-      normalizeRenderedImageDimensions(shell);
+    const observer = new MutationObserver((records) => {
+      let headingsChanged = false;
+      let listsChanged = false;
+      for (const record of records) {
+        const target = record.target instanceof Element
+          ? record.target
+          : record.target.parentElement;
+        headingsChanged ||= Boolean(target?.closest("h1, h2, h3, h4, h5, h6"));
+        listsChanged ||= Boolean(target?.closest("[data-denote-generated-toc]"));
+        if (record.type === "attributes") {
+          if (target instanceof HTMLImageElement) normalizeRenderedImageDimensions(target);
+          continue;
+        }
+        if (record.type === "childList") {
+          for (const node of [...record.addedNodes, ...record.removedNodes]) {
+            headingsChanged ||= matchesOrContains(node, "h1, h2, h3, h4, h5, h6");
+            listsChanged ||= matchesOrContains(node, "ul, ol");
+            if (node instanceof HTMLElement && node.isConnected) {
+              normalizeRenderedImageDimensions(node);
+            }
+          }
+        }
+      }
+      applyTagPills(shell, tagColors, styledTagElements.current);
+      if (headingsChanged) applyHeadingAnchors(shell);
+      if (listsChanged) applyGeneratedTocPresentation(shell, tocMarkersRef.current!);
     });
 
     observer.observe(shell, {
@@ -1105,10 +1133,7 @@ export const MarkdownEditor = forwardRef<
                     boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
                   }
                   serialization.record(value, output);
-                  if (output !== emojiSourceRef.current) {
-                    emojiSourceRef.current = output;
-                    onChange(output);
-                  }
+                  publishMarkdownChange(output, parse);
                   return;
                 }
                 let restoredMarkdown = restoreRichTextTagSyntax(
@@ -1149,10 +1174,7 @@ export const MarkdownEditor = forwardRef<
                   boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
                 }
                 serialization.record(value, output);
-                if (output !== emojiSourceRef.current) {
-                  emojiSourceRef.current = output;
-                  onChange(output);
-                }
+                publishMarkdownChange(output, parse);
               }
             }}
             onError={({ error, source }) => {
@@ -1225,6 +1247,15 @@ function RestorePreferredViewMode({
 
 const EMPTY_TAG_COLORS: TagColorMap = {};
 
+function analyzeEditorMarkdown(markdown: string, parse: MarkdownParser) {
+  return {
+    editorMarkdown: normalizeBareSpaceLinkDestinations(markdown, parse),
+    editorSource: markdownEditorSource(markdown, parse),
+    detectedSourceOnly: hasUnsupportedRichMarkdown(markdown, parse),
+    renderDetails: hasSupportedDetailsMarkdown(markdown, parse),
+  };
+}
+
 function applyHeadingAnchors(root: HTMLElement) {
   const usedSlugs = new Set<string>();
   for (const heading of root.querySelectorAll<HTMLElement>(
@@ -1234,10 +1265,18 @@ function applyHeadingAnchors(root: HTMLElement) {
   }
 }
 
+function matchesOrContains(node: Node, selector: string): boolean {
+  return node instanceof Element &&
+    (node.matches(selector) || node.querySelector(selector) !== null);
+}
+
 function normalizeRenderedImageDimensions(root: HTMLElement) {
-  for (const image of root.querySelectorAll<HTMLImageElement>(
-    'img[width="inherit"], img[height="inherit"]',
-  )) {
+  const images = root instanceof HTMLImageElement
+    ? [root]
+    : root.querySelectorAll<HTMLImageElement>('img[width="inherit"], img[height="inherit"]');
+  for (const image of images) {
+    if (image.getAttribute("width") !== "inherit" &&
+        image.getAttribute("height") !== "inherit") continue;
     image
       .closest<HTMLElement>('[data-editor-block-type="image"]')
       ?.classList.add("denote-image-block");
@@ -1485,15 +1524,17 @@ function revealRichTextSearch(
 const TAG_ONLY_LINE =
   /^\s*#[\p{L}\p{N}\p{M}_/-]+(?:[ \t]+#[\p{L}\p{N}\p{M}_/-]+)*\s*$/u;
 
-function applyTagPills(root: HTMLElement, colors: TagColorMap) {
-  const hashtags = [
-    ...root.querySelectorAll<HTMLElement>(".denote-hashtag"),
-  ];
-  for (const element of hashtags) {
+function applyTagPills(
+  root: HTMLElement,
+  colors: TagColorMap,
+  styledElements: Set<HTMLElement>,
+) {
+  for (const element of styledElements) {
     element.classList.remove("denote-inline-tag");
     delete element.dataset.tag;
     element.style.removeProperty("--tag-color");
   }
+  styledElements.clear();
   const editor = root.querySelector<HTMLElement>(".denote-editor-content");
   const finalBlock = editor ? lastContentBlock(editor) : null;
   if (!(finalBlock instanceof HTMLParagraphElement)) {
@@ -1520,20 +1561,19 @@ function applyTagPills(root: HTMLElement, colors: TagColorMap) {
     }
     element.classList.add("denote-inline-tag");
     applyInlineTagColor(element, colors);
+    styledElements.add(element);
   }
 }
 
 function lastContentBlock(editor: HTMLElement): HTMLElement | null {
-  return (
-    [...editor.children]
-      .reverse()
-      .find(
-        (child): child is HTMLElement =>
-          child instanceof HTMLElement &&
-          (renderedLineText(child).trim() !== "" ||
-            child.matches("hr, pre, table, ul, ol, blockquote")),
-      ) ?? null
-  );
+  let child = editor.lastElementChild;
+  while (child) {
+    if (child instanceof HTMLElement &&
+        (renderedLineText(child).trim() !== "" ||
+         child.matches("hr, pre, table, ul, ol, blockquote"))) return child;
+    child = child.previousElementSibling;
+  }
+  return null;
 }
 
 function renderedLineText(node: Node): string {
@@ -1656,7 +1696,13 @@ function RichCodeBlockCopyButtons({
       );
     };
     scan();
-    const observer = new MutationObserver(scan);
+    const observer = new MutationObserver((records) => {
+      if (records.some((record) =>
+        [...record.addedNodes, ...record.removedNodes].some((node) =>
+          matchesOrContains(node, "pre, [data-denote-code-block-editor], .cm-editor"),
+        ),
+      )) scan();
+    });
     observer.observe(root, { childList: true, subtree: true });
     return () => {
       observer.disconnect();

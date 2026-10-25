@@ -16,6 +16,36 @@ A newer runtime may replace the pin only when that gate passes.
 procedure; dependency automation or an agent must follow it before changing any
 member of this family.
 
+Seven source-level compatibility backports in `src-tauri/vendor/` preserve that
+runtime graph while fixing GLib's mutable iterator out-argument and replacing
+the unmaintained macro-error, Unicode-property, and split D-Bus dependencies.
+Original crate names, versions, licenses, and source provenance remain intact. Cargo's default
+workspace member is the application; GTK-specific regression tests are explicit
+and run optimized on Linux. The source-aware audit also scans the backports'
+original registry identities because RustSec skips path packages. The
+version-based GLib advisory remains visible, and CI rejects unmaintained
+dependencies and yanked versions. Both audit passes fetch registry metadata,
+including the backports' published identities; missing metadata, failed lookups,
+or other incomplete-check diagnostics fail the wrapper even if `cargo-audit`
+returns zero. `docs/development.md` records each
+backport, original archive digest, and validation command.
+
+The Linux opener and single-instance adapters use maintained `zbus` 6 on
+Tauri's persistent Tokio runtime. Their synchronous entry points run outside an
+already-entered Tokio context, and the single-instance connection stays alive
+after setup to receive secondary launches until its name is released at exit.
+Linux notifications use `notify-rust`'s maintained libdbus backend on a blocking
+worker. Linux regression tests use an isolated session bus and synthetic
+notification, file-manager, and single-instance services.
+
+Credential access uses `keyring-core` and explicit platform stores: the same
+Keychain Services and Windows Credential Manager implementations, plus the
+maintained libdbus Secret Service store on Linux. Store initialization remains
+lazy and fallible; no in-memory or plaintext fallback is allowed. Service names,
+SHA-256 account identifiers, Secret Service `service`/`username` attributes,
+default collections, and credential cleanup journals stay unchanged, so
+existing secrets remain discoverable across the backend migration.
+
 The frontend build caps emitted main-thread JavaScript chunks at 500,000 bytes.
 Entry-aware chunks preserve lazy dependency boundaries for Markdown editing,
 formatted Git diffs, PDF rendering, and individual syntax languages. Each pane
@@ -1827,6 +1857,16 @@ a per-vault generation in SQLite and updates the cache only if that generation
 is still current, preventing an older concurrent scan from replacing newer
 results.
 
+Individual note, PDF, and image reads, note saves, edit tracking, and last-vault
+restoration also use asynchronous commands backed by the blocking pool. A
+JavaScript invoke promise alone does not move a synchronous Rust handler off the
+UI dispatcher. File commands capture the expected vault identity before queueing,
+then acquire the workspace access guard inside the worker and reject a switched
+vault before touching its files. The guard and zeroizing key remain alive through
+the operation, preserving save, switch, and encryption boundaries. Last-vault
+restoration retains its exclusive guard on the worker. Real MockRuntime IPC tests
+hold that guard from another thread and enforce a dispatch-responsiveness budget.
+
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.
@@ -1920,6 +1960,25 @@ validation still uses the complete parser and existing safety rules.
 Each analysis or serialization operation shares parsed trees for identical
 source variants, including masked HTML and restored TOCs. Those caches live only
 for that operation, never globally or across an editor's history.
+
+Initial reference, TOC, and thematic-break snapshots share the opening analysis
+parser instead of parsing the same document independently. The parser itself is
+not retained; later reference snapshots remain lazy and discard their previous
+tree on source changes. Presentation observers inspect mutation targets and
+changed subtrees: ordinary body typing does not rebuild unrelated heading IDs or
+TOC decoration, and image normalization is limited to changed images/subtrees.
+Tag presentation tracks only styled final-line tags and walks backward from the
+last content block instead of copying every editor child. Code-copy controls
+rescan only when code-editor structure is added or removed, not for each syntax
+highlighting or body-text mutation.
+
+Serialization prepares the next controlled-render analysis with that operation's
+existing parser. Only its string/boolean result crosses the prop update, not a
+parser, AST, or source-history cache; mismatched external content is analyzed
+normally. Frontmatter and comment-only delimiters no longer trigger unrelated
+thematic-break or ordinary-angle scans. Approved TOC comments still undergo the
+complete structural validation, and actual HTML, details, angle, and reference
+syntax keeps its existing safety checks.
 
 Rich/source eligibility is memoized by content, and stable callback bridges keep
 MDXEditor plugin configuration from being rebuilt when only parent callback

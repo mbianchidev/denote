@@ -8,7 +8,7 @@ use std::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use clipboard_rs::{Clipboard, ClipboardContext};
 use fs2::FileExt as Fs2FileExt;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, Runtime, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 use uuid::Uuid;
@@ -29,6 +29,9 @@ use crate::{
     },
     vault,
 };
+
+#[cfg(test)]
+mod editor_performance_tests;
 
 #[derive(Clone)]
 pub struct FileClipboard(Arc<Mutex<Result<ClipboardContext, String>>>);
@@ -96,7 +99,7 @@ impl FileClipboard {
 }
 
 pub(crate) fn active_key(
-    state: &State<'_, AppState>,
+    state: &AppState,
     root: &std::path::Path,
 ) -> AppResult<Option<Zeroizing<[u8; 32]>>> {
     let Some(manifest) = crypto::load_manifest(root)? else {
@@ -159,17 +162,17 @@ fn with_expected_project_configuration_vault<T>(
     operation(&root)
 }
 
-fn with_expected_project_configuration_vault_read<T>(
+fn with_expected_vault_read<T>(
     state: &AppState,
-    expected_vault_path: &str,
+    expected_vault_path: &Path,
     operation: impl FnOnce(&Path) -> AppResult<T>,
 ) -> AppResult<T> {
     let _vault_access = state.read_vault_access()?;
     let root = state.active_vault()?;
-    if root != Path::new(expected_vault_path) {
+    if root != expected_vault_path {
         return Err(AppError::State(format!(
-            "Project configuration request belongs to vault \"{}\", but the active vault is \"{}\"",
-            expected_vault_path,
+            "Request belongs to vault \"{}\", but the active vault is \"{}\"",
+            expected_vault_path.display(),
             root.display()
         )));
     }
@@ -177,15 +180,19 @@ fn with_expected_project_configuration_vault_read<T>(
 }
 
 #[tauri::command]
-pub fn get_last_vault(state: State<'_, AppState>) -> AppResult<Option<WorkspaceSnapshot>> {
-    let _vault_access = state.write_vault_access()?;
-    let Some(path) = vault::get_last_vault(&state.db_path)? else {
-        return Ok(None);
-    };
-    let mut snapshot = vault::open_cached_vault(&state.db_path, &path)?;
-    state.set_active_vault(snapshot.vault_path.clone().into())?;
-    populate_encryption_status(&state, &mut snapshot)?;
-    Ok(Some(snapshot))
+pub async fn get_last_vault<R: Runtime>(app: AppHandle<R>) -> AppResult<Option<WorkspaceSnapshot>> {
+    run_blocking(move || {
+        let state = app.state::<AppState>();
+        let _vault_access = state.write_vault_access()?;
+        let Some(path) = vault::get_last_vault(&state.db_path)? else {
+            return Ok(None);
+        };
+        let mut snapshot = vault::open_cached_vault(&state.db_path, &path)?;
+        state.set_active_vault(snapshot.vault_path.clone().into())?;
+        populate_encryption_status(&state, &mut snapshot)?;
+        Ok(Some(snapshot))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -725,34 +732,36 @@ pub async fn copy_file_for_attachment(
 }
 
 #[tauri::command]
-pub fn read_note(state: State<'_, AppState>, path: String) -> AppResult<NoteDocument> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let key = active_key(&state, &root)?;
-    vault::read_note(
-        &state.db_path,
-        &root.to_string_lossy(),
-        &path,
-        key.as_deref(),
-    )
+pub async fn read_note<R: Runtime>(app: AppHandle<R>, path: String) -> AppResult<NoteDocument> {
+    run_vault_read(app, move |state, root| {
+        let key = active_key(state, root)?;
+        vault::read_note(
+            &state.db_path,
+            &root.to_string_lossy(),
+            &path,
+            key.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn read_pdf(state: State<'_, AppState>, path: String) -> AppResult<PdfDocument> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let key = active_key(&state, &root)?;
-    vault::read_pdf(
-        &state.db_path,
-        &root.to_string_lossy(),
-        &path,
-        key.as_deref(),
-    )
+pub async fn read_pdf<R: Runtime>(app: AppHandle<R>, path: String) -> AppResult<PdfDocument> {
+    run_vault_read(app, move |state, root| {
+        let key = active_key(state, root)?;
+        vault::read_pdf(
+            &state.db_path,
+            &root.to_string_lossy(),
+            &path,
+            key.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn save_note(
-    state: State<'_, AppState>,
+pub async fn save_note<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
     content: String,
     encoding: FileEncoding,
@@ -760,20 +769,21 @@ pub fn save_note(
     reason: Option<String>,
     expected_hash: Option<String>,
 ) -> AppResult<SaveOutcome> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let key = active_key(&state, &root)?;
-    vault::save_note(
-        &state.db_path,
-        &root.to_string_lossy(),
-        &path,
-        &content,
-        encoding,
-        line_ending,
-        reason.as_deref().unwrap_or("autosave"),
-        expected_hash.as_deref(),
-        key.as_deref(),
-    )
+    run_vault_read(app, move |state, root| {
+        let key = active_key(state, root)?;
+        vault::save_note(
+            &state.db_path,
+            &root.to_string_lossy(),
+            &path,
+            &content,
+            encoding,
+            line_ending,
+            reason.as_deref().unwrap_or("autosave"),
+            expected_hash.as_deref(),
+            key.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -921,13 +931,14 @@ pub fn set_bookmark(state: State<'_, AppState>, path: String, bookmarked: bool) 
 }
 
 #[tauri::command]
-pub fn record_edit(
-    state: State<'_, AppState>,
+pub async fn record_edit<R: Runtime>(
+    app: AppHandle<R>,
     path: String,
 ) -> AppResult<crate::models::NoteStats> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    vault::record_edit(&state.db_path, &root.to_string_lossy(), &path)
+    run_vault_read(app, move |state, root| {
+        vault::record_edit(&state.db_path, &root.to_string_lossy(), &path)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1056,7 +1067,7 @@ pub fn refresh_gitignore_status(
     expected_vault_path: String,
     scope_paths: Vec<String>,
 ) -> AppResult<GitignoreStatusUpdate> {
-    with_expected_project_configuration_vault_read(&state, &expected_vault_path, |root| {
+    with_expected_vault_read(&state, Path::new(&expected_vault_path), |root| {
         let key = if state.vault_is_unlocked()? {
             active_key(&state, root)?
         } else {
@@ -1163,22 +1174,38 @@ where
         .map_err(|error| AppError::State(format!("Background task failed: {error}")))?
 }
 
+async fn run_vault_read<R, T, F>(app: AppHandle<R>, operation: F) -> AppResult<T>
+where
+    R: Runtime,
+    T: Send + 'static,
+    F: FnOnce(&AppState, &Path) -> AppResult<T> + Send + 'static,
+{
+    let expected_vault = app.state::<AppState>().active_vault()?;
+    run_blocking(move || {
+        let state = app.state::<AppState>();
+        // Acquire and retain the access guard on the worker, never the UI thread.
+        with_expected_vault_read(&state, &expected_vault, |root| operation(&state, root))
+    })
+    .await
+}
+
 #[tauri::command]
-pub fn read_image_data_url(
-    state: State<'_, AppState>,
+pub async fn read_image_data_url<R: Runtime>(
+    app: AppHandle<R>,
     note_path: Option<String>,
     image_source: String,
 ) -> AppResult<String> {
-    let _vault_access = state.read_vault_access()?;
-    let root = state.active_vault()?;
-    let key = active_key(&state, &root)?;
-    vault::read_image_data_url(
-        &state.db_path,
-        &root.to_string_lossy(),
-        note_path.as_deref(),
-        &image_source,
-        key.as_deref(),
-    )
+    run_vault_read(app, move |state, root| {
+        let key = active_key(state, root)?;
+        vault::read_image_data_url(
+            &state.db_path,
+            &root.to_string_lossy(),
+            note_path.as_deref(),
+            &image_source,
+            key.as_deref(),
+        )
+    })
+    .await
 }
 
 #[tauri::command]
@@ -1294,12 +1321,11 @@ mod tests {
         );
         let mut read = false;
 
-        let error =
-            with_expected_project_configuration_vault_read(&state, old.to_str().unwrap(), |_| {
-                read = true;
-                Ok(())
-            })
-            .expect_err("old vault request must be rejected");
+        let error = with_expected_vault_read(&state, &old, |_| {
+            read = true;
+            Ok(())
+        })
+        .expect_err("old vault request must be rejected");
 
         assert!(!read);
         assert!(error.to_string().contains("belongs to vault"));
@@ -1323,15 +1349,11 @@ mod tests {
         let reader_one_state = Arc::clone(&state);
         let reader_one_expected = expected.clone();
         let reader_one = thread::spawn(move || {
-            with_expected_project_configuration_vault_read(
-                &reader_one_state,
-                &reader_one_expected,
-                |_| {
-                    reader_one_entered_tx.send(()).expect("reader one entered");
-                    reader_one_release_rx.recv().expect("release reader one");
-                    Ok(())
-                },
-            )
+            with_expected_vault_read(&reader_one_state, Path::new(&reader_one_expected), |_| {
+                reader_one_entered_tx.send(()).expect("reader one entered");
+                reader_one_release_rx.recv().expect("release reader one");
+                Ok(())
+            })
             .expect("reader one");
         });
         reader_one_entered_rx.recv().expect("reader one started");
@@ -1341,15 +1363,11 @@ mod tests {
         let reader_two_state = Arc::clone(&state);
         let reader_two_expected = expected.clone();
         let reader_two = thread::spawn(move || {
-            with_expected_project_configuration_vault_read(
-                &reader_two_state,
-                &reader_two_expected,
-                |_| {
-                    reader_two_entered_tx.send(()).expect("reader two entered");
-                    reader_two_release_rx.recv().expect("release reader two");
-                    Ok(())
-                },
-            )
+            with_expected_vault_read(&reader_two_state, Path::new(&reader_two_expected), |_| {
+                reader_two_entered_tx.send(()).expect("reader two entered");
+                reader_two_release_rx.recv().expect("release reader two");
+                Ok(())
+            })
             .expect("reader two");
         });
         reader_two_entered_rx

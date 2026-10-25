@@ -97,6 +97,7 @@ export function restoreThematicBreaks(
   snapshot: ThematicBreakSnapshot,
   parse: MarkdownParser = fromMarkdown,
 ): string {
+  if (snapshot.delimiters.length === 0) return markdown;
   const ranges = thematicBreakRanges(markdown, parse);
   if (ranges.length !== snapshot.delimiters.length) {
     return markdown;
@@ -116,14 +117,14 @@ function thematicBreakRanges(
   markdown: string,
   parse: MarkdownParser,
 ): Array<{ start: number; end: number; delimiter: string }> {
-  if (!/[-*_][ \t]*[-*_][ \t]*[-*_]/.test(markdown)) return [];
+  const frontmatterEnd =
+    markdown.match(/^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1(?=\r?\n|$)/)?.[0]
+      .length ?? 0;
+  if (!/[-*_][ \t]*[-*_][ \t]*[-*_]/.test(markdown.slice(frontmatterEnd))) return [];
   const root = markdownRoot(markdown, parse);
   if (!root) {
     return [];
   }
-  const frontmatterEnd =
-    markdown.match(/^(---|\+\+\+)\r?\n[\s\S]*?\r?\n\1(?=\r?\n|$)/)?.[0]
-      .length ?? 0;
   const ranges: Array<{ start: number; end: number; delimiter: string }> = [];
   visitMarkdownAst(root, (node) => {
     if (node.type !== "thematicBreak") {
@@ -1479,7 +1480,7 @@ function containsUnsafeAngleSyntax(
   markdown: string,
   parse: MarkdownParser,
 ): boolean {
-  if (!markdown.includes("<")) return false;
+  if (!/<(?!\!--)/.test(markdown)) return false;
   const matches = [
     ...markdown.matchAll(/<\/?[a-z][^<>]*>/gi),
     ...markdown.matchAll(/<![a-z][^<>]*>/gi),

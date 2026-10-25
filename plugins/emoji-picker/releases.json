@@ -30,5 +30,16 @@
       "sha256": "442a2737c78f971db58a4fb6d8405a05bf997b5475496b7986ce579e682f95d0",
       "sizeBytes": 105664
     }
+  },
+  {
+    "version": "0.1.2",
+    "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
+    "kind": "source",
+    "sourcePath": "plugins/emoji-picker",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.3/denote.emoji-picker-0.1.2.tgz",
+      "sha256": "cb76b9626f25aab7605ab6a90f43abad89655f68665bf6df6771b1d047ab6841",
+      "sizeBytes": 105659
+    }
   }
 ]

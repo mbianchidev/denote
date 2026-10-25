@@ -90,7 +90,7 @@ jobs:
         run: cargo install cargo-audit --version 0.22.2 --locked
 
       - name: Audit Rust dependencies
-        run: cargo audit --file src-tauri/Cargo.lock
+        run: node scripts/audit-rust-dependencies.mjs
 
   test:
     name: ${{ matrix.os }}
@@ -112,6 +112,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes \
             build-essential \
+            dbus \
             curl \
             file \
             libayatana-appindicator3-dev \
@@ -187,12 +188,54 @@ jobs:
         if: runner.os != 'Windows'
         run: npm run build
 
+      - name: Install editor benchmark browser
+        if: runner.os == 'Linux'
+        run: npm exec --no -- playwright install --with-deps chromium
+
+      - name: Editor responsiveness benchmarks
+        id: editor-performance
+        if: runner.os == 'Linux'
+        run: |
+          npx tsc --noEmit -p tsconfig.benchmarks.json
+          npm exec --no -- playwright test
+
+      - name: Upload editor benchmark failure evidence
+        if: runner.os == 'Linux' && failure() && steps.editor-performance.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: editor-performance-attempt-${{ github.run_attempt }}
+          path: .performance-artifacts/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Rust format
         run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
 
       - name: Build Windows renderer smoke binary
         if: runner.os == 'Windows'
         run: npm run tauri build -- --no-bundle
+
+      - name: URL pattern backport tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
+
+      - name: GTK backport tests
+        if: runner.os == 'Linux'
+        run: |
+          cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --lib
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
+          cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
+
+      - name: Linux D-Bus backport tests
+        if: runner.os == 'Linux'
+        env:
+          DENOTE_TEST_DBUS: "1"
+        run: |
+          dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
+            --package tauri-plugin-opener --package tauri-plugin-single-instance \
+            --package tauri-plugin-notification --lib linux_backport
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml

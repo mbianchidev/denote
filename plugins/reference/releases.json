@@ -19,5 +19,16 @@
       "sha256": "f8685b04180a2029d899c341ee0bd50ceb1ce4d44fe9d2c0bc069a57c77f38f9",
       "sizeBytes": 16084
     }
+  },
+  {
+    "version": "0.1.1",
+    "sourceCommit": "b865816bdfc21c48fc7d74848fb6bbc5aa68641b",
+    "kind": "source",
+    "sourcePath": "plugins/reference",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.8.3/denote.reference-0.1.1.tgz",
+      "sha256": "2650f09ca8ae6f84a5a445e07cebb888613193d5e21621375ddb19bb6e398c3b",
+      "sizeBytes": 16072
+    }
   }
 ]

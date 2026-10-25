@@ -8,6 +8,30 @@ Read these documents before changing Denote:
 - `docs/development.md` lists setup and validation commands.
 - `docs/user-guide/` contains the canonical in-app documentation.
 
+## TODO/FIXME: re-check vendored Rust fixes at every development startup
+
+**MANDATORY: every agent must do this at the start of EVERY Denote development
+session, before editing files, even when the requested task is unrelated to
+Rust. Do not skip this check or assume the previous check is still current.**
+
+Inspect `src-tauri/vendor/` and `[patch.crates-io]` in `src-tauri/Cargo.toml`.
+Check official crate releases, upstream release notes, issues/pull requests, and
+RustSec for **every vendored library**, currently `glib`, `glib-macros`,
+`gtk3-macros`, `urlpattern`, `tauri-plugin-notification`, `tauri-plugin-opener`,
+and `tauri-plugin-single-instance`. Look specifically for a published upstream
+fix or maintained replacement that can remove each local backport.
+
+Record the check date, versions examined, exact upstream links, and the outcome
+in **Vendored-library availability check** in `docs/development.md`. Explicitly
+report any compatible fix found; otherwise record why the backport remains
+necessary. A newer version alone is not evidence of a compatible fix.
+
+Do not remove a backport until its documented source-aware audit, optimized
+regression tests, and all-platform checks pass. Preserve the Windows-safe Tauri
+family and follow **Re-evaluate the Windows runtime pin** before changing any
+related version. Never hide the remaining GLib advisory, relabel a crate, or
+invent a patched version to make an audit look clean.
+
 ## Interface and copy
 
 Before changing interface code or user-visible text, read the relevant section

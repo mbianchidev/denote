@@ -226,7 +226,10 @@ concurrent.
 - Secure-storage access is plugin-scoped. The host-provided API exposes no
   plugin ID argument, preventing a plugin from selecting another namespace.
 - macOS uses Keychain Services, Windows uses Credential Manager, and Linux uses
-  Secret Service through the cross-platform native keyring implementation.
+  Secret Service through explicit `keyring-core` platform stores. The Linux
+  libdbus store retains the same service/username search attributes and default
+  collection as the earlier zbus store. Initialization failures remain errors;
+  there is no memory-only or plaintext credential fallback.
 - Keychain account identifiers are SHA-256-derived from the plugin ID and key,
   preventing delimiter collisions between plugin namespaces. Cleanup keys and
   in-progress writes also live in a separate atomic credential journal so a
