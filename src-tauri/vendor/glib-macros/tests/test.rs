@@ -267,9 +267,9 @@ fn subclassable() {
         }
 
         pub trait FooExt: IsA<Foo> + 'static {
-            fn test(&self) {
-                let _self = self.as_ref().downcast_ref::<Foo>().unwrap().imp();
-                unimplemented!()
+            fn test(&self) -> glib::Type {
+                let implementation = self.as_ref().downcast_ref::<Foo>().unwrap().imp();
+                implementation.obj().type_()
             }
         }
 
@@ -279,6 +279,9 @@ fn subclassable() {
             pub struct Foo(ObjectSubclass<imp::Foo>);
         }
     }
+
+    let object = glib::Object::new::<foo::Foo>();
+    assert_eq!(foo::FooExt::test(&object), foo::Foo::static_type());
 }
 
 #[test]

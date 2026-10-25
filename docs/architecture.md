@@ -30,6 +30,12 @@ or other incomplete-check diagnostics fail the wrapper even if `cargo-audit`
 returns zero. `docs/development.md` records each
 backport, original archive digest, and validation command.
 
+GTK regression builds use exact source copies in a temporary two-crate
+workspace, derived offline from the reviewed lockfile and checked against the
+application's resolved identities. This keeps application-only patches out of
+nested compile-test graphs without changing production resolution. Compiler
+warnings are denied rather than hidden, and optimized safety coverage remains.
+
 The Linux opener and single-instance adapters use maintained `zbus` 6 on
 Tauri's persistent Tokio runtime. Their synchronous entry points run outside an
 already-entered Tokio context, and the single-instance connection stays alive

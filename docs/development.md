@@ -1235,12 +1235,8 @@ CI rejects any unmaintained-crate or yanked-version warning in either scan.
 Run the backport checks with:
 
 ```bash
-cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --lib
+node scripts/test-gtk-backports.mjs
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
-cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
 DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
   --package tauri-plugin-opener --package tauri-plugin-single-instance \
   --package tauri-plugin-notification --lib linux_backport
@@ -1269,12 +1265,26 @@ array. Length, null termination, and every returned string remain asserted.
 The local GLib source explicitly spells its previously elided return lifetimes
 and removes unnecessary trait-object type parentheses without changing borrowing
 semantics or upstream package identity. CI and release validation compile that
-library with `unused_parens` and `mismatched_lifetime_syntaxes` denied. Recent
-compilers may still report deprecated-fixture lints in upstream tests; nested
-macro fixtures can report unused application patches because they deliberately
-build smaller graphs. Those diagnostics are distinct from RustSec findings;
-the source-aware audit verifies the actual application resolver rather than
-those isolated fixtures.
+library with `unused_parens` and `mismatched_lifetime_syntaxes` denied.
+`scripts/test-gtk-backports.mjs` also denies compiler warnings across the GLib
+and macro suites and checks the original GTK3 macro library. Numeric fixtures
+use `MAX`; extension-trait getters put `must_use` on trait declarations, not
+trait implementations; the subclass fixture exercises its extension method;
+and unused GTK3 parser fields are removed without changing error spans.
+
+The driver copies the exact two GLib source packages into an excluded temporary
+workspace under `src-tauri/target/`, with only their two required patches.
+It seeds that workspace from the authoritative lockfile, resolves offline, and
+rejects any local identity or registry dependency version absent from the
+reviewed application graph before running tests with the derived lock frozen.
+Nested `trybuild` projects therefore do not inherit unrelated GTK3, Tauri, or
+URLPattern patches. Production keeps all seven patches and its original
+resolver; no Cargo or compiler diagnostics are filtered. Generated source
+copies are cleaned up, while a dedicated GTK target cache remains reusable.
+Source copies stay outside that cache so `trybuild` retains the original
+relative diagnostic paths and unchanged golden files.
+These checks preserve the full debug suite, macro fixtures, subclass
+compile-fail/pass fixtures, and optimized iterator/string-vector regressions.
 The full library suite also keeps ownership of the synthetic main context
 while its cross-thread `spawn_from_within` fixture runs, retains the caller's
 context reference, and joins the worker before teardown. It asserts that a
@@ -1299,8 +1309,8 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for Timer, Countdowns, and Alarm development and the
-frontend dependency CI repair in
+were rechecked for vendored GTK compiler and isolated-fixture warning cleanup,
+following Timer, Countdowns, and Alarm development and the frontend CI repair in
 [#138](https://github.com/mbianchidev/denote/pull/138), including the
 [official registry index](https://github.com/rust-lang/crates.io-index),
 because the crates.io API returned HTTP 403. Compatible and latest stable
