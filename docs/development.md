@@ -189,6 +189,19 @@ return control to the dispatcher within 100 ms, even when I/O cannot proceed.
 After releasing the lock, responses and saved bytes must still be correct.
 The budget measures UI dispatch, not total disk or encryption completion time.
 
+Windows MSVC tests also need Common Controls v6 before the test harness starts;
+linking Tauri's mock-window API otherwise exits with
+`STATUS_ENTRYPOINT_NOT_FOUND` (`0xc0000139`). `src-tauri/build.rs` links
+`windows-app-manifest.xml` for every package artifact, including library unit
+tests, instead of relying on Tauri's bins-only resource directive. The XML
+matches the pinned `tauri-build` 2.6.3 default; icons, version resources, runtime
+pins, and the existing manifest's lack of a UAC override are preserved.
+Cargo's `rustc-link-arg-tests` alone does not cover library unit tests. See
+[tauri-apps/tauri#13419](https://github.com/tauri-apps/tauri/issues/13419)
+and [tauri-apps/tauri#14580](https://github.com/tauri-apps/tauri/issues/14580).
+Compare this manifest with upstream when re-evaluating the coordinated runtime
+pin, and keep the Windows renderer/shutdown smoke gate.
+
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:
 
