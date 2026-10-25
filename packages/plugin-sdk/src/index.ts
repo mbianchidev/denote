@@ -13,3 +13,4 @@ export * from "./calendar";
 export * from "./reminders";
 export * from "./diagramRenderer";
 export * from "./codeIntelligence";
+export * from "./timeTracking";

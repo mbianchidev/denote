@@ -33,7 +33,10 @@ import type {
   PluginTaskListToggleResult,
   PluginCodeRequest,
   PluginCodeResult,
+  PluginTimeTrackingRequest,
+  PluginTimeTrackingModel,
 } from "@denote/plugin-sdk";
+import { TIME_TRACKING_STOP_KEY } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
 import {
   PluginWorkerRuntime,
@@ -51,6 +54,7 @@ import {
   type PluginKanbanBoardContribution,
   type PluginNoteGraphContribution,
   type PluginReminderContribution,
+  type PluginTimeTrackingContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
   type PluginTaskListContribution,
@@ -64,6 +68,7 @@ import {
 const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 const EMPTY_CALENDARS: PluginCalendarContribution[] = [];
 const EMPTY_TASK_LISTS: PluginTaskListContribution[] = [];
+const EMPTY_TIME_TRACKERS: PluginTimeTrackingContribution[] = [];
 
 /**
  * Compares two permission requests for exact equality, independent of key
@@ -110,6 +115,7 @@ function permissionRequestEqual(
     case "note-graph":
     case "calendar":
     case "reminders":
+    case "time-tracking":
     case "diagram-renderer":
     case "note-events":
     case "project-context":
@@ -172,6 +178,10 @@ export interface PluginController {
   kanbanBoards: PluginKanbanBoardContribution[];
   noteGraphs: PluginNoteGraphContribution[];
   reminders: PluginReminderContribution[];
+  timeTrackers: PluginTimeTrackingContribution[];
+  requestTimeTracking: (
+    pluginId: string, providerId: string, request: PluginTimeTrackingRequest,
+  ) => Promise<PluginTimeTrackingModel>;
   parseReminderTargets: (
     pluginId: string,
     providerId: string,
@@ -309,6 +319,7 @@ export function usePlugins(
   onVaultCloned: PluginVaultClonedHandler = () => {},
   projectRepositories: PluginProjectRepositoryContext[] = EMPTY_PROJECT_REPOSITORIES,
   contentAvailable = true,
+  confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ): PluginController {
   const [codeProviders, setCodeProviders] = useState<PluginCodeContribution[]>([]);
   const [plugins, setPlugins] = useState<PluginView[]>([]);
@@ -332,6 +343,14 @@ export function usePlugins(
   >([]);
   const [noteGraphs, setNoteGraphs] = useState<PluginNoteGraphContribution[]>([]);
   const [reminders, setReminders] = useState<PluginReminderContribution[]>([]);
+  const [timeTrackingState, setTimeTrackingState] = useState<{
+    workspaceIdentity: string | null;
+    contributions: PluginTimeTrackingContribution[];
+  }>({ workspaceIdentity, contributions: [] });
+  const timeTrackers = contentAvailable && timeTrackingState.workspaceIdentity === workspaceIdentity
+    ? timeTrackingState.contributions : EMPTY_TIME_TRACKERS;
+  const confirmTimeTrackingStopRef = useRef(confirmTimeTrackingStop);
+  confirmTimeTrackingStopRef.current = confirmTimeTrackingStop;
   const [taskListState, setTaskListState] = useState<{
     workspaceIdentity: string | null;
     contributions: PluginTaskListContribution[];
@@ -439,6 +458,10 @@ export function usePlugins(
         contributions,
       }),
       setCodeProviders,
+      (contributions) => setTimeTrackingState({
+        workspaceIdentity: workspaceIdentityRef.current,
+        contributions,
+      }),
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -536,7 +559,7 @@ export function usePlugins(
         try {
           const retainsWorkspaceContent = plugin.approvedPermissions.some(
             (permission) =>
-              ["note-graph", "calendar", "task-list"].includes(
+              ["note-graph", "calendar", "task-list", "time-tracking"].includes(
                 permission.capability,
               ),
           );
@@ -744,9 +767,24 @@ export function usePlugins(
     [plugins, refresh, reportError, withBusy],
   );
 
+  const prepareTimeTrackingDisable = useCallback(async (pluginIds: string[]) => {
+    const timers = pluginsRef.current.filter((plugin) =>
+      plugin.enabled && pluginIds.includes(plugin.catalog.manifest.id) &&
+      plugin.approvedPermissions.some((permission) => permission.capability === "time-tracking"));
+    if (timers.length === 0) return true;
+    if (!await confirmTimeTrackingStopRef.current(timers.map((plugin) => plugin.catalog.manifest.name))) return false;
+    for (const plugin of timers) {
+      const pluginId = plugin.catalog.manifest.id;
+      const clock = await api.pluginTimeTrackingClock(pluginId);
+      await api.pluginStorageSet(pluginId, TIME_TRACKING_STOP_KEY, clock);
+    }
+    return true;
+  }, []);
+
   const disable = useCallback(
     async (pluginId: string) => {
       await withBusy(pluginId, async () => {
+        if (!await prepareTimeTrackingDisable([pluginId])) return;
         const staleTransaction = pendingTransactionsRef.current.get(pluginId);
         if (staleTransaction) {
           await api.rollbackPluginEnable(
@@ -769,7 +807,7 @@ export function usePlugins(
         }
       });
     },
-    [refresh, withBusy],
+    [prepareTimeTrackingDisable, refresh, withBusy],
   );
 
   const updateAll = useCallback(async () => {
@@ -873,14 +911,18 @@ export function usePlugins(
   const clearData = useCallback(
     async (pluginId: string) => {
       await withBusy(pluginId, async () => {
+        if (!await prepareTimeTrackingDisable([pluginId])) return;
+        await runtimeRef.current?.stop(pluginId);
         await api.disablePlugin(pluginId, true, false);
         await refresh();
       });
     },
-    [refresh, withBusy],
+    [prepareTimeTrackingDisable, refresh, withBusy],
   );
 
   const disableAll = useCallback(async () => {
+    if (!await prepareTimeTrackingDisable(plugins.filter((plugin) => plugin.enabled)
+      .map((plugin) => plugin.catalog.manifest.id))) return;
     bulkDisableInFlightRef.current = true;
     try {
       startsAllowedRef.current = false;
@@ -900,16 +942,18 @@ export function usePlugins(
     } finally {
       bulkDisableInFlightRef.current = false;
     }
-  }, [plugins, refresh, reportError]);
+  }, [plugins, prepareTimeTrackingDisable, refresh, reportError]);
 
   const clearCredentials = useCallback(
     async (pluginId: string) => {
       await withBusy(pluginId, async () => {
+        if (!await prepareTimeTrackingDisable([pluginId])) return;
+        await runtimeRef.current?.stop(pluginId);
         await api.disablePlugin(pluginId, false, true);
         await refresh();
       });
     },
-    [refresh, withBusy],
+    [prepareTimeTrackingDisable, refresh, withBusy],
   );
 
   const reloadSettings = useCallback(async (pluginId: string) => {
@@ -1238,6 +1282,18 @@ export function usePlugins(
     [],
   );
 
+  const requestTimeTracking = useCallback(
+    async (pluginId: string, providerId: string, request: PluginTimeTrackingRequest) => {
+      const runtime = runtimeRef.current;
+      if (!runtime || !contentAvailableRef.current ||
+        contentRuntimeWorkspaceRef.current !== workspaceIdentityRef.current) {
+        throw new Error("Time tracking is unavailable after a vault switch or lock.");
+      }
+      return runtime.requestTimeTracking(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const parseReminderTargets = useCallback(
     (
       pluginId: string,
@@ -1339,6 +1395,8 @@ export function usePlugins(
     kanbanBoards,
     noteGraphs,
     reminders,
+    timeTrackers,
+    requestTimeTracking,
     parseReminderTargets,
     queryReminders,
     mutateReminders,
@@ -1385,7 +1443,7 @@ export function usePlugins(
 
 function requiresContent(plugin: PluginView): boolean {
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence"].includes(
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "time-tracking", "diagram-renderer", "code-intelligence"].includes(
       permission.capability,
     ),
   );

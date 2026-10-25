@@ -1262,6 +1262,57 @@ conflicts leave the original row focused and unchanged. Disabling or removing
 the plugin clears code and the in-memory index but never edits, deletes, or
 reformats task Markdown. Recurring syntax is deliberately uninterpreted.
 
+### Time tracking
+
+The additive API version 1 `time-tracking` contract lives in
+`packages/plugin-sdk/src/timeTracking.ts`. A separately downloaded worker
+registers one typed request handler; it receives only an opaque vault scope,
+host-sampled continuous time, and explicit note-metadata/timer operations.
+`plugins/time-tracking/src/timeTracking.ts` owns the bounded, serialized,
+versioned state machine and auditable corrections in plugin-scoped storage.
+One running or paused session spans vault switches without revealing foreign
+note metadata. No implementation is bundled with the desktop application.
+
+`src/plugins/useTimeTracking.ts` coordinates native samples and worker requests
+one at a time per plugin, rechecks every 30 seconds and on focus/visibility,
+and discards stale vault/provider generations. `TimeTrackingPanel` and core
+command-palette/status/rail adapters own all controls. The one-second readout
+is presentation only; persisted duration always comes from native samples.
+Daily/weekly summaries intersect actual running segments with local civil
+boundaries, including daylight-saving days; weeks start Monday.
+
+`src-tauri/src/plugins/time_tracking.rs` uses macOS `mach_continuous_time`,
+Linux `CLOCK_BOOTTIME`, or Windows
+[`GetTickCount64`](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-gettickcount64).
+Each includes suspend time independently of the wall clock. Boot identities
+come from `kern.bootsessionuuid`, the Linux kernel boot ID, or Windows
+`SystemBootEnvironmentInformation`'s boot GUID. The Windows adapter uses the
+verified [32-byte Windows 8+ layout](https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi/system_boot_environment_information.htm);
+failure is explicit, never a guessed wall-clock fallback. Boot identities are
+hashed separately per plugin and do not expose machine identifiers.
+
+Application restart during the same boot continues the saved checkpoint.
+System reboot or continuous-clock regression pauses at the last saved duration
+and records a recovery notice. Explicit disable/disable-all/data cleanup first
+confirm, then write an authoritative clock cutoff even when a vault is locked.
+The package applies that cutoff before recovery and keeps a barrier against
+queued pre-disable mutations. Updates, settings reloads, and ordinary shutdown
+retain the running checkpoint.
+
+Stopped-session corrections require a revision and reason and preserve exact
+before/after values. Corrected duration is attributed from the corrected start,
+replacing pause details. A single value stores at most 500 sessions, 512 segments
+and 32 corrections per session, with space reserved below native storage limits
+for checkpoints/stops. CSV/JSON exports contain current-vault records and audit
+history. CSV formula-like cells are neutralized without altering JSON values.
+Native exports validate bounds and recheck permission, vault, and encryption
+state after an asynchronous save dialog before an atomic write. Session
+metadata and exports are outside vault encryption; the UI and guide state this.
+
+The frozen Welcome `plugins-v5` inventory adds only the time-tracking exercise.
+Earlier inventories/marker bytes, edited files, and previously deleted samples
+remain unchanged. Locked additions wait for unlock and are written encrypted.
+
 ### Reminders
 
 The additive API version 1 `reminders` permission accepts one declarative

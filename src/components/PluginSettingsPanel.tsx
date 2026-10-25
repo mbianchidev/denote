@@ -51,6 +51,7 @@ const PERMISSION_LABELS: Record<string, string> = {
   "note-graph": "Index and visualize bounded local note connections",
   calendar: "Read filesystem dates and bounded frontmatter; create daily Markdown after an explicit action, without overwriting existing notes",
   reminders: "Store local reminder metadata and schedule host-owned reminder delivery",
+  "time-tracking": "Track the active note, tags, and project with a continuous clock; store local sessions and export them after an explicit action",
   "diagram-renderer": "Render bounded diagrams in an isolated local sandbox",
   "note-events": "Observe note lifecycle events",
   "project-context": "Observe the focused project root",

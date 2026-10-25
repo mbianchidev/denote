@@ -9,6 +9,7 @@ mod lifecycle;
 mod package;
 mod sandbox;
 mod settings;
+mod time_tracking;
 mod types;
 
 #[cfg(test)]
@@ -25,6 +26,7 @@ mod tests;
 pub use code_commands::*;
 pub use commands::*;
 pub use git::tools::ToolStatus;
+pub use time_tracking::*;
 pub use types::*;
 
 use catalog::{validate_bundles, validate_catalog};

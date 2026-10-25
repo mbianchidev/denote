@@ -308,6 +308,13 @@ export function restoreRichTextBoundarySpaces(
   parse: MarkdownParser = fromMarkdown,
 ): string {
   if (!/&#(?:x20|32);/iu.test(markdown)) return markdown;
+  const leadingSpace = /^&#(?:x20|32);(?!&#(?:x20|32);)(?=[\p{L}&(])/iu;
+  const trailingSpace = /(?<=[\p{L}\p{N}\p{M}&])&#(?:x20|32);(?=[ \r\n]*$)/iu;
+  if (!/[\\`*_\[\]<>~|:+=\-]|\t|(?<!&)#|(?:^|\n) {4}/u.test(markdown)) {
+    return markdown.split(/(\n{2,})/u)
+      .map((paragraph) => paragraph.replace(leadingSpace, " ").replace(trailingSpace, " "))
+      .join("");
+  }
   const replacements: Array<{ start: number; end: number }> = [];
   visitMarkdownAst(parse(markdown), (node) => {
     if (node.type !== "paragraph") return;
@@ -316,13 +323,13 @@ export function restoreRichTextBoundarySpaces(
     if (first?.type === "text" && first.position?.start.offset !== undefined) {
       const start = first.position.start.offset;
       const source = markdown.slice(start, first.position.end.offset);
-      const match = /^&#(?:x20|32);(?!&#(?:x20|32);)(?=[\p{L}&(])/iu.exec(source);
+      const match = leadingSpace.exec(source);
       if (match) replacements.push({ start, end: start + match[0].length });
     }
     if (last?.type === "text" && last.position?.end.offset !== undefined) {
       const end = last.position.end.offset;
       const source = markdown.slice(last.position.start.offset, end);
-      const match = /(?<=[\p{L}\p{N}\p{M}&])&#(?:x20|32);$/iu.exec(source);
+      const match = trailingSpace.exec(source);
       if (match) replacements.push({ start: end - match[0].length, end });
     }
   });

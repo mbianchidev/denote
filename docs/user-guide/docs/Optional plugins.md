@@ -102,6 +102,55 @@ vaults. Existing files and earlier migration markers stay untouched; samples
 deleted after their set was applied are not restored on later launches.
 Opening an example never installs a plugin or initializes Git.
 
+## Time tracking
+
+Time tracking requires Denote 0.9.0 or newer and is off by default. Enable it
+under **Productivity**, then open **Time tracking** in the activity rail.
+From an active Markdown note, optionally enter a description and choose
+**Start timer**. **Pause timer**, **Resume timer**, and **Stop timer** are also
+available in the command palette. The status bar returns to an active timer.
+
+One running or paused session exists across all vaults. Switching notes does
+not change its original note, tags, or project. Return to the original vault
+to control its timer; other vaults never show that note's metadata.
+
+Running time includes sleep and time while Denote is closed. An application
+restart during the same system boot recovers it using the native continuous
+clock. Changing the system clock does not change elapsed time. A system reboot
+pauses the timer at its last checkpoint and shows a recovery notice rather than
+guessing missing duration.
+
+Choose **Daily** or **Weekly**, a date, and a grouping by note, project, or tag.
+Weeks begin Monday in your current time zone. Running segments are split across
+period boundaries and paused time is excluded. Multi-tag sessions contribute to
+each tag, so tag subtotals can overlap.
+
+Stopped sessions offer **Correct session**. Change start/end time, elapsed
+minutes, description, or tags and enter a reason. **Save correction** retains
+the exact previous and new values in **Correction history**. A correction
+replaces pause details and attributes corrected duration from its corrected
+start. Note and project references retain their historical values.
+
+**Export CSV** and **Export JSON** save all sessions in the current vault,
+including audit history and active checkpoints, to a location you choose.
+CSV protects formula-like cells when opened in a spreadsheet; JSON retains
+original text. Neither format changes notes.
+
+Session metadata lives in local application data outside vault encryption.
+Exports are also unencrypted. Disabling, disabling all, or clearing this plugin
+asks for confirmation before stopping a timer, including in a locked vault.
+Cancelling leaves it running. Re-enabling does not count disabled time.
+Ordinary application shutdown, plugin updates, and settings reloads retain the
+running checkpoint instead.
+
+There are no plugin settings. History is bounded to 500 sessions across vaults,
+32 corrections and 512 running segments per session, plus normal plugin-storage
+limits. Export every vault's history before **Delete saved data**, which removes
+all stored sessions and corrections. Storage failures are visible and corrupt
+data is never silently reset.
+
+Try the [time tracking practice](<../plugins/Time tracking.md>).
+
 ## Code intelligence
 
 Code intelligence requires Denote 0.9.0 or newer.

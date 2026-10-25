@@ -21,6 +21,7 @@ import {
   Search,
   Sun,
   Trash2,
+  Timer,
 } from "lucide-react";
 import { memo, useEffect, useMemo, useState } from "react";
 import type { SidebarView } from "../types";
@@ -31,6 +32,7 @@ import type {
   PluginReminderContribution,
   PluginSourceControlContribution,
   PluginTaskListContribution,
+  PluginTimeTrackingContribution,
 } from "../plugins/workerRuntime";
 
 interface ActivityRailProps {
@@ -55,11 +57,13 @@ interface ActivityRailProps {
     pluginId: string;
     providerId: string;
   } | null;
+  activeTimeTracking?: { pluginId: string; providerId: string } | null;
   pluginViews: Array<{ id: string; title: string }>;
   sourceControlProviders: PluginSourceControlContribution[];
   noteGraphs: PluginNoteGraphContribution[];
   taskLists: PluginTaskListContribution[];
   reminders?: PluginReminderContribution[];
+  timeTrackers?: PluginTimeTrackingContribution[];
   reminderDueCounts?: Record<string, number>;
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
@@ -71,6 +75,7 @@ interface ActivityRailProps {
   onNoteGraphChange: (pluginId: string, providerId: string) => void;
   onTaskListChange: (pluginId: string, providerId: string) => void;
   onReminderChange?: (pluginId: string, providerId: string) => void;
+  onTimeTrackingChange?: (pluginId: string, providerId: string) => void;
   onAbout: () => void;
   onThemeToggle: () => void;
 }
@@ -92,7 +97,8 @@ interface PluginRailItem {
     | "note-graph"
     | "task-list"
     | "calendar"
-    | "reminders";
+    | "reminders"
+    | "time-tracking";
   ariaLabel?: string;
   badgeCount?: number;
   onSelect: () => void;
@@ -123,11 +129,13 @@ function ActivityRailComponent({
   activeNoteGraph,
   activeTaskList,
   activeReminder = null,
+  activeTimeTracking = null,
   pluginViews,
   sourceControlProviders,
   noteGraphs,
   taskLists,
   reminders = [],
+  timeTrackers = [],
   reminderDueCounts = {},
   theme,
   onViewChange,
@@ -136,6 +144,7 @@ function ActivityRailComponent({
   onNoteGraphChange,
   onTaskListChange,
   onReminderChange = () => {},
+  onTimeTrackingChange = () => {},
   onAbout,
   onThemeToggle,
 }: ActivityRailProps) {
@@ -230,6 +239,13 @@ function ActivityRailComponent({
       ...taskItems,
       ...calendarItems,
       ...reminderItems,
+      ...timeTrackers.map((provider) => ({
+        key: `time-tracking:${provider.pluginId}:${provider.id}`,
+        title: provider.title,
+        selected: activeTimeTracking?.pluginId === provider.pluginId && activeTimeTracking.providerId === provider.id,
+        kind: "time-tracking" as const,
+        onSelect: () => onTimeTrackingChange(provider.pluginId, provider.id),
+      })),
     ];
     const rank = new Map(
       preferences.order.map((key, index) => [key, index] as const),
@@ -247,14 +263,17 @@ function ActivityRailComponent({
     activePluginView,
     activeNoteGraph,
     activeReminder,
+    activeTimeTracking,
     activeTaskList,
     activeSourceControlProvider,
     noteGraphs,
     reminders,
+    timeTrackers,
     reminderDueCounts,
     taskLists,
     onNoteGraphChange,
     onReminderChange,
+    onTimeTrackingChange,
     onTaskListChange,
     onPluginViewChange,
     onSourceControlProviderChange,
@@ -387,6 +406,8 @@ function ActivityRailComponent({
                         <CalendarDays aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "reminders" ? (
                         <Bell aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "time-tracking" ? (
+                        <Timer aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : (
                         <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
                       )}

@@ -53,7 +53,7 @@ pub struct PluginCloneVaultResponse {
     pub snapshot: Option<WorkspaceSnapshot>,
 }
 
-async fn run_blocking<T, F>(operation: F) -> AppResult<T>
+pub(super) async fn run_blocking<T, F>(operation: F) -> AppResult<T>
 where
     T: Send + 'static,
     F: FnOnce() -> AppResult<T> + Send + 'static,

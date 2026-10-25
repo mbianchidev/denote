@@ -236,6 +236,13 @@ describe("markdown utilities", () => {
     }
   });
 
+  it("restores ordinary Rich spaces without parsing the document", () => {
+    const parse = vi.fn(() => { throw new Error("Ordinary typing must not parse the document."); });
+    expect(restoreRichTextBoundarySpaces("Synthetic everyday&#x20; \n\nA &&#x20;", parse))
+      .toBe("Synthetic everyday  \n\nA & ");
+    expect(parse).not.toHaveBeenCalled();
+  });
+
   it("allows Markdown references and generated definition destinations in rich mode", () => {
     expect(
       hasUnsupportedRichMarkdown(

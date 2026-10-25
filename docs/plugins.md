@@ -263,7 +263,7 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, task-list, calendar, reminders, note-graph, and diagram-renderer
+`kanban-board`, task-list, calendar, reminders, time-tracking, note-graph, and diagram-renderer
 registrations. Approved plugins
 may also observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations otherwise
@@ -533,6 +533,50 @@ modification dates. Opening an activity result never creates or edits a note.
 Calendar workers and models are withdrawn on vault switch/lock and discarded on
 disable/update/crash. Enabled workers restart for the current unlocked vault.
 Disabling deletes package code and archives but never dates, notes, or folders.
+
+### Local time tracking
+
+The additive API version 1 `time-tracking` permission exposes only
+`context.capabilities.timeTracking.register(provider)`. A provider registers a
+namespaced ID, title, and serialized request handler. Only one time-tracking
+provider may be registered across enabled plugins. Requests carry a
+host-issued opaque vault scope, a native continuous-clock sample, and optionally
+one closed start/pause/resume/stop/correct operation. Starting supplies only the
+active Markdown note's relative path, tags, project identity/root, and optional
+description. No note body, absolute path, DOM, filesystem, process, network, or
+timer API is exposed.
+
+Models contain at most 500 sessions with bounded running segments and
+before/after correction histories. Worker and host validate registration,
+requests, records, state transitions, one active session, and serialized size.
+The host withdraws providers and stale responses on vault switch/lock and
+deterministically unregisters them on teardown.
+
+The host owns accessible rail/status/command-palette controls, native
+continuous-clock samples, 30-second checkpoints, focus/wake catch-up, summaries,
+correction forms, and explicit CSV/JSON save dialogs. Native clocks include
+sleep and ignore wall-clock adjustments. A per-plugin hashed boot identity
+allows recovery across ordinary app restarts; a changed boot pauses at the
+last checkpoint instead of substituting wall-clock duration.
+
+`plugins/time-tracking/` owns the session state machine and persistence. Its
+single versioned plugin-storage value enforces one running or paused session
+across vaults. A query for another vault returns no foreign note metadata.
+Corrections require a matching revision, a reason, and a valid stopped interval;
+prior values remain immutable. Storage reserves room for stop/recovery writes.
+Sessions are application metadata, not encrypted vault files.
+
+Explicit disablement, disable-all, and data cleanup first confirm stopping
+timers, then persist a host clock cutoff under `TIME_TRACKING_STOP_KEY` before
+removing execution. The worker applies that cutoff before recovery, including
+after disablement while locked. A persisted barrier rejects pre-disable queued
+mutations. Updates, settings reloads, and ordinary shutdown do not stop a timer.
+Only explicit data cleanup deletes history.
+
+Exports refresh the current-vault snapshot, preserve audit data, and neutralize
+formula-like CSV cells. Native export rechecks permission, vault, and unlock
+state after the asynchronous save dialog and atomically writes a bounded text
+file. The plugin cannot choose a destination or call this export adapter.
 
 ### Local reminders
 

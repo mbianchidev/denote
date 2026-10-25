@@ -12,6 +12,22 @@ import type {
   PluginTaskListModel,
 } from "@denote/plugin-sdk";
 
+describe("time-tracking runtime messages", () => {
+  it("validates registrations, scoped requests, and mutually exclusive results", () => {
+    const request = {
+      workspaceId: "vault-alpha",
+      clock: { bootId: "synthetic-boot", wallTimeMs: 1_000, monotonicMs: 0 },
+    };
+    const model = { sessions: [], activeSessionId: null, activeElsewhere: false, notices: [] };
+    expect(isPluginRuntimeMessage({ type: "register-time-tracking", id: "denote.synthetic.timer", title: "Time tracking" })).toBe(true);
+    expect(isPluginHostMessage({ type: "time-tracking-request", providerId: "denote.synthetic.timer", requestId: "query", request })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "time-tracking-result", requestId: "query", model })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "time-tracking-result", requestId: "query", error: "Storage failed." })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "time-tracking-result", requestId: "query", model, error: "Failure" })).toBe(false);
+    expect(isPluginHostMessage({ type: "time-tracking-request", providerId: "denote.synthetic.timer", requestId: "query", request: { ...request, clock: { ...request.clock, monotonicMs: -1 } } })).toBe(false);
+  });
+});
+
 describe("calendar runtime messages", () => {
   it("validates registrations, bounded requests, models, and error alternatives", () => {
     const request = {

@@ -171,9 +171,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   plugin.
 - Rich edits keep safe literal punctuation such as isolated `~`, `&`, and
   comparison-operator sequences without adding backslashes or numeric character
-  references. A single ordinary space before or after plain paragraph text
-  stays a space, including while typing `&`; code and meaningful Markdown
-  whitespace remain protected. Escaping remains only where removing it would change Markdown
+  references. Safe single boundary spaces typed around an ampersand remain
+  ordinary spaces; code and meaningful Markdown whitespace stay protected.
+  Escaping remains where removing it would change Markdown
   meaning, such as a real line-leading blockquote.
 - Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
   clipboard text without carrying rich formatting into the note. The Rich
@@ -465,6 +465,21 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   hash, encoding, line endings, revision history, and vault-generation guards.
   Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
   uninterpreted Markdown.
+- The independently installable **Time tracking** plugin is disabled by default
+  and receives only explicit active-note metadata plus a host continuous clock.
+  One running or paused timer exists across vaults. Sessions retain relative
+  note paths, tags, project snapshots, start/end times, duration, and optional
+  descriptions locally, outside vault encryption. Notes are never rewritten.
+- Time tracking supports start, pause, resume, stop, daily/weekly summaries,
+  note/project/tag grouping, CSV/JSON exports, and reasoned corrections with
+  immutable before/after history. Weeks begin Monday in the current local time
+  zone; segments split across summary boundaries and paused time is excluded.
+- Timer duration includes sleep and application-closed time during the same
+  system boot, without trusting wall-clock changes. After a system reboot,
+  recovery pauses at the last saved checkpoint and requires review rather than
+  fabricating elapsed time. Explicit disablement, disable-all, and data cleanup
+  require confirmation and persist a stop cutoff even while the vault is locked.
+  Re-enabling never counts time spent disabled.
 - The independently installable **Reminders** plugin is disabled by default and
   requests separate Reminders and Notifications approvals. Its host-rendered
   activity-rail view creates standalone reminders or optional links to the

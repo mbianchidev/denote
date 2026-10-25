@@ -924,6 +924,44 @@ source commit for the intended Denote release and commit the generated catalog
 and `plugins/code-intelligence/releases.json` separately. No tool executable or
 plugin archive belongs in Git or a desktop installer.
 
+### Time tracking plugin development
+
+Use `npm run dev:plugin -- denote.time-tracking` with the isolated development
+application. The package requests only `time-tracking`; its worker owns session
+state and correction history, while the host owns UI, continuous clocks,
+checkpoint scheduling, and explicit exports.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/timeTracking.test.ts plugins/time-tracking/tests \
+  src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx src/plugins/useTimeTracking.test.tsx \
+  src/components/TimeTrackingPanel.test.tsx src/components/ActivityRail.test.tsx \
+  src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugins::time_tracking::tests
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugin_v5_
+```
+
+Use synthetic notes, project IDs, scopes, clock samples, and histories. Cover
+one active timer across vaults, pause exclusion, sleep/wake and wall-clock
+changes, same-boot restart, reboot recovery without guessing, stale requests,
+locked disablement, cancelled confirmation, immutable revisioned corrections,
+CSV formula safety, midnight/daylight-saving summary bounds, atomic storage
+failures, and native export authorization/bounds.
+
+macOS uses `mach_continuous_time`, Linux uses `CLOCK_BOOTTIME`, and Windows uses
+`GetTickCount64` plus the 32-byte boot-environment GUID query. These require no
+new dependency or Tauri-family upgrade. Native clock tests run on all desktop
+CI platforms. A clock/boot-identity failure must stay visible; never substitute
+wall-clock duration.
+
+The Welcome `plugins-v5` inventory contains only `plugins/Time tracking.md`.
+Keep earlier inventories/markers and edited/deleted examples unchanged.
+Commit source, SDK, build inputs, documentation, and lockfile first, then pin
+`denote.time-tracking` 0.1.0 for the unreleased Denote `v0.9.0` candidate and
+commit its catalog/ledger separately. Existing plugin source pins and archive
+identities stay unchanged.
+
 ## Frontend bundle limits
 
 `npm run build` uses entry-aware Rolldown groups and rejects main-thread

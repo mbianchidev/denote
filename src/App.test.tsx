@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { calendarDates, type PluginCalendarRequest, type PluginSourceControlViewModel } from "@denote/plugin-sdk";
+import { calendarDates, type PluginCalendarRequest, type PluginSourceControlViewModel, type PluginTimeTrackingModel } from "@denote/plugin-sdk";
 import { CodeIntelligenceHost } from "./plugins/codeHost";
 import type {
   PluginCalendarContribution,
@@ -21,6 +21,7 @@ import type {
   PluginSourceControlContribution,
   PluginStructuredViewerContribution,
   PluginTaskListContribution,
+  PluginTimeTrackingContribution,
 } from "./plugins/workerRuntime";
 import type { FileNode, PluginView, SearchDocument, WorkspaceSnapshot } from "./types";
 import { $getRoot, $getSelection, $isRangeSelection, KEY_DOWN_COMMAND, type LexicalEditor } from "lexical";
@@ -53,6 +54,7 @@ const mockApi = vi.hoisted(() => ({
   listLinkRewriteDocuments: vi.fn(),
   finishLinkRewrite: vi.fn(),
   pluginCalendarOpenDailyNote: vi.fn(),
+  pluginTimeTrackingClock: vi.fn(),
   trashEntry: vi.fn(),
   restoreTrashItem: vi.fn(),
   openExternalUri: vi.fn(),
@@ -75,6 +77,8 @@ const mockPluginController = vi.hoisted(() => ({
   kanbanBoards: [] as PluginKanbanBoardContribution[],
   noteGraphs: [] as PluginNoteGraphContribution[],
   reminders: [] as PluginReminderContribution[],
+  timeTrackers: [] as PluginTimeTrackingContribution[],
+  requestTimeTracking: vi.fn(),
   parseReminderTargets: vi.fn(),
   queryReminders: vi.fn(),
   mutateReminders: vi.fn(),
@@ -459,6 +463,9 @@ describe("App initial file-tree expansion", () => {
     mockPluginController.queryTaskList.mockReset();
     mockPluginController.toggleTaskListItem.mockReset();
     mockPluginController.calendars = [];
+    mockPluginController.timeTrackers = [];
+    mockPluginController.requestTimeTracking.mockReset();
+    mockApi.pluginTimeTrackingClock.mockReset();
     mockPluginController.queryCalendar.mockReset();
     mockApi.pluginCalendarOpenDailyNote.mockReset();
     mockPluginController.plugins = [];
@@ -1819,6 +1826,58 @@ describe("App initial file-tree expansion", () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  it("opens opt-in time tracking and captures only the active note's metadata without changing it", async () => {
+    const user = userEvent.setup();
+    const note = fileNode("project/Plan.md");
+    const snapshot = workspaceSnapshot([note]);
+    snapshot.projectRoots = [{
+      id: "project-alpha", rootPath: "project", available: true, explicit: true, workspaceId: null,
+    }];
+    mockApi.getLastVault.mockResolvedValue(snapshot);
+    mockApi.readNote.mockResolvedValue({
+      path: note.path, content: "# Invented plan\n\n#work", contentHash: "synthetic-plan",
+      encoding: "utf8", lineEnding: "lf", stats: noteStats(),
+    });
+    const base = syntheticEmojiPluginView();
+    mockPluginController.plugins = [{
+      ...base, enabled: true, status: "enabled", approvedPermissions: [{ capability: "time-tracking" }],
+      catalog: { ...base.catalog, manifest: {
+        ...base.catalog.manifest, id: "denote.time-tracking", permissions: [{ capability: "time-tracking" }],
+      } },
+    }];
+    mockPluginController.timeTrackers = [{
+      pluginId: "denote.time-tracking", id: "denote.time-tracking.main", title: "Time tracking",
+    }];
+    const model: PluginTimeTrackingModel = {
+      sessions: [], activeSessionId: null, activeElsewhere: false, notices: [],
+    };
+    mockPluginController.requestTimeTracking.mockResolvedValue(model);
+    const clock = { bootId: "synthetic-boot", wallTimeMs: 1_000, monotonicMs: 0 };
+    mockApi.pluginTimeTrackingClock.mockResolvedValue(clock);
+    const rendered = render(<App />);
+    await user.click(await screen.findByRole("button", { name: `Open ${note.name}` }));
+    await user.click(screen.getByRole("button", { name: "Time tracking" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start timer" })).toBeEnabled());
+    expect(mockPluginController.requestTimeTracking).not.toHaveBeenCalledWith(
+      expect.anything(), expect.anything(), expect.objectContaining({ mutation: expect.anything() }),
+    );
+    await user.click(screen.getByRole("button", { name: "Start timer" }));
+    await waitFor(() => expect(mockPluginController.requestTimeTracking).toHaveBeenCalledWith(
+      "denote.time-tracking", "denote.time-tracking.main", {
+        workspaceId: snapshot.pluginScopeId, clock,
+        mutation: {
+          type: "start", id: expect.any(String), description: "",
+          target: { path: note.path, tags: ["work"], project: { projectId: "project-alpha", rootPath: "project" } },
+        },
+      },
+    ));
+    expect(mockApi.saveNote).not.toHaveBeenCalled();
+    mockPluginController.timeTrackers = [];
+    rendered.rerender(<App />);
+    expect(screen.queryByRole("button", { name: "Time tracking" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start timer" })).not.toBeInTheDocument();
   });
 
   it("opens calendar daily notes through the native create-or-open boundary only after an explicit action", async () => {

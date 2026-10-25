@@ -171,6 +171,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "note-graph"
             | "calendar"
             | "reminders"
+            | "time-tracking"
             | "diagram-renderer"
             | "note-events"
             | "project-context"

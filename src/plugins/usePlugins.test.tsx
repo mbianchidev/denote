@@ -71,6 +71,8 @@ vi.mock("../lib/api", () => ({
     getPluginSettings: vi.fn(),
     importPluginSettings: vi.fn(),
     chooseDevelopmentPluginArchive: vi.fn(),
+    pluginTimeTrackingClock: vi.fn(),
+    pluginStorageSet: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -261,6 +263,7 @@ async function mountReady(
   projectContext: PluginProjectContext | null = null,
   workspaceIdentity: string | null = "/synthetic/vault-alpha",
   contentAvailable = true,
+  confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
@@ -282,6 +285,7 @@ async function mountReady(
         () => {},
         [],
         currentContentAvailable ?? true,
+        confirmTimeTrackingStop,
       ),
     {
       initialProps: {
@@ -466,7 +470,7 @@ describe("usePlugins", () => {
     },
   );
 
-  it.each(["note-graph", "calendar", "task-list"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
+  it.each(["note-graph", "calendar", "task-list", "time-tracking"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
     const enabled = makePlugin({
       enabled: true,
       approvedPermissions: [{ capability }],
@@ -493,6 +497,30 @@ describe("usePlugins", () => {
     );
     await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
   });
+
+  it.each(["disable", "disableAll", "clearData"] as const)(
+      "confirms %s and checkpoints timers before removing code, including while locked",
+      async (operation) => {
+        const enabled = makePlugin({ enabled: true, approvedPermissions: [{ capability: "time-tracking" }] });
+        const confirmation = vi.fn().mockResolvedValue(false);
+        const { result } = await mountReady([enabled], null, "/synthetic/vault-alpha", false, confirmation);
+        const clock = { bootId: "synthetic-boot", wallTimeMs: 10_000, monotonicMs: 5_000 };
+        vi.mocked(api.pluginTimeTrackingClock).mockResolvedValue(clock);
+        vi.mocked(api.pluginStorageSet).mockImplementation(async () => { callOrder.push("checkpoint"); });
+        vi.mocked(api.disablePlugin).mockImplementation(async () => { callOrder.push("disable"); });
+        const run = () => operation === "disableAll" ? result.current.disableAll() : result.current[operation](pluginId);
+        await act(async () => { await run(); });
+        expect(confirmation).toHaveBeenCalledWith([enabled.catalog.manifest.name]);
+        expect(api.disablePlugin).not.toHaveBeenCalled();
+        expect(api.pluginStorageSet).not.toHaveBeenCalled();
+
+        confirmation.mockResolvedValue(true);
+        queueListPlugins([{ ...enabled, enabled: false }]);
+        await act(async () => { await run(); });
+        expect(api.pluginStorageSet).toHaveBeenCalledWith(pluginId, "host.time-tracking-stop.v1", clock);
+        expect(callOrder.indexOf("checkpoint")).toBeLessThan(callOrder.indexOf("disable"));
+      },
+    );
 
   it("withdraws calendar models immediately on a vault switch or lock", async () => {
     const enabled = makePlugin({ enabled: true, approvedPermissions: [{ capability: "calendar" }] });

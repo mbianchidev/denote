@@ -372,6 +372,8 @@ pub fn run() {
             plugins::read_plugin_entrypoint,
             plugins::read_plugin_diagram_renderer,
             plugins::export_diagram_svg,
+            plugins::plugin_time_tracking_clock,
+            plugins::export_time_tracking,
             plugins::get_plugin_settings,
             plugins::set_plugin_settings,
             plugins::import_plugin_settings,

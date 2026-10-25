@@ -27,6 +27,7 @@ export const PLUGIN_CAPABILITIES = [
   "note-graph",
   "calendar",
   "reminders",
+  "time-tracking",
   "diagram-renderer",
   "note-events",
   "project-context",
@@ -2126,6 +2127,7 @@ export interface PluginCapabilities {
   noteGraph?: PluginNoteGraphCapability;
   calendar?: PluginCalendarCapability;
   reminders?: PluginReminderCapability;
+  timeTracking?: import("./timeTracking").PluginTimeTrackingCapability;
   diagramRenderer?: PluginDiagramRendererCapability;
   noteEvents?: PluginNoteEventsCapability;
   projectContext?: PluginProjectContextCapability;

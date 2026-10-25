@@ -309,6 +309,7 @@ class FakeWorker extends EventTarget {
     title: string;
     defaultSnoozeMinutes: number;
   } | null = null;
+  static timeTrackingOnActivate: { id: string; title: string } | null = null;
   static reminderTargetsModel = reminderTargetsModel;
   static reminderModel = reminderModel;
   static completeNoteGraphIndexes = true;
@@ -391,6 +392,9 @@ class FakeWorker extends EventTarget {
         }
         if (FakeWorker.calendarOnActivate) {
           port.postMessage({ type: "register-calendar", ...FakeWorker.calendarOnActivate });
+        }
+        if (FakeWorker.timeTrackingOnActivate) {
+          port.postMessage({ type: "register-time-tracking", ...FakeWorker.timeTrackingOnActivate });
         }
         if (FakeWorker.remindersOnActivate) {
           port.postMessage({
@@ -932,6 +936,7 @@ describe("PluginWorkerRuntime", () => {
     FakeWorker.taskListModel = taskListModel;
     FakeWorker.taskListToggleResult = taskListToggleResult;
     FakeWorker.remindersOnActivate = null;
+    FakeWorker.timeTrackingOnActivate = null;
     FakeWorker.reminderTargetsModel = reminderTargetsModel;
     FakeWorker.reminderModel = reminderModel;
     FakeWorker.completeNoteGraphIndexes = true;
@@ -1510,6 +1515,67 @@ describe("PluginWorkerRuntime", () => {
 
     await runtime.stop("denote.reference");
     expect(changed).toHaveBeenLastCalledWith([]);
+  });
+
+  it("runs time tracking in the real isolated worker and expires its vault scope", async () => {
+    await bridgeRealPluginWorker();
+    const source = plugin();
+    source.approvedPermissions = [{ capability: "time-tracking" }];
+    source.catalog = {
+      ...source.catalog,
+      manifest: { ...source.catalog.manifest, permissions: source.approvedPermissions },
+    };
+    const model = { sessions: [], activeSessionId: null, activeElsewhere: false, notices: [] };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`
+      export default {
+        manifest: ${JSON.stringify(source.catalog.manifest)},
+        activate(context) {
+          if (context.capabilities.workspaceRead || context.capabilities.network) throw Error("Unexpected privileges");
+          context.subscriptions.add(context.capabilities.timeTracking.register({
+            id: "denote.reference.timer", title: "Time tracking",
+            request() { return ${JSON.stringify(model)}; },
+          }));
+        },
+      };
+    `);
+    const error = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), error);
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(source);
+    const request = {
+      workspaceId: "vault-alpha",
+      clock: { bootId: "synthetic-boot", wallTimeMs: 1_000, monotonicMs: 0 },
+    };
+    await expect(runtime.requestTimeTracking("denote.reference", "denote.reference.timer", request)).resolves.toEqual(model);
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+    await expect(runtime.requestTimeTracking("denote.reference", "denote.reference.timer", request)).rejects.toThrow(/registered|vault/i);
+    await runtime.stop("denote.reference");
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("allows only one time-tracking provider across enabled plugins", async () => {
+    const first = plugin();
+    const second = plugin();
+    for (const [source, id] of [[first, "denote.reference"], [second, "denote.other"]] as const) {
+      source.approvedPermissions = [...catalog.manifest.permissions, { capability: "time-tracking" }];
+      source.catalog = {
+        ...source.catalog,
+        manifest: { ...source.catalog.manifest, id, permissions: source.approvedPermissions },
+      };
+    }
+    const failed = vi.fn();
+    const runtime = new PluginWorkerRuntime(vi.fn(), failed);
+    FakeWorker.timeTrackingOnActivate = { id: "denote.reference.timer", title: "Time tracking" };
+    await runtime.start(first);
+    FakeWorker.commandIdOnActivate = "denote.other.command";
+    FakeWorker.timeTrackingOnActivate = { id: "denote.other.timer", title: "Time tracking" };
+    await expect(runtime.start(second)).rejects.toThrow();
+    expect(failed).toHaveBeenCalledWith("denote.other", expect.objectContaining({
+      message: expect.stringContaining("duplicate time-tracking"),
+    }));
+    expect(runtime.isRunning("denote.reference")).toBe(true);
+    expect(runtime.isRunning("denote.other")).toBe(false);
+    await runtime.stopAll();
   });
 
   it("exposes reminders through the actual isolated worker capability", async () => {
