@@ -953,6 +953,23 @@ npx vitest run scripts/frontend-bundle.test.ts \
 npx tsc --noEmit -p tsconfig.node.json
 ```
 
+## Dependency update boundaries
+
+Dependabot excludes `plugins/**` and `packages/plugin-sdk/**` from npm version
+updates, and `vendor/**` relative to `/src-tauri` from Cargo version updates.
+These are immutable plugin source inputs or reviewed compatibility backports,
+not independently upgradable manifests. The shared `mdast-util-from-markdown`
+dependency also requires explicitly approved new plugin versions before its
+resolved bytes change. Keep existing catalog entries, release ledgers, and
+archive digests unchanged when updating host-only dependencies.
+
+The npm `@tauri-apps/*` packages and Cargo Tauri, Tao, Wry, WebView2, and
+URLPattern families remain manual updates under **Re-evaluate the Windows
+runtime pin** below. Do not accept a partial npm or Cargo runtime upgrade.
+These automation boundaries do not replace the JavaScript and source-aware
+Rust audits; any security fix crossing them still requires the documented
+compatibility or plugin-release procedure.
+
 ## Rust dependency audits and Linux backports
 
 Run `node scripts/audit-rust-dependencies.mjs`. Windows releases temporarily pin
@@ -1021,6 +1038,13 @@ from the original Tauri plugin archives are omitted because Cargo ignores them
 inside this workspace and they retain unrelated, stale dependency graphs.
 The source-aware audit rejects reintroducing nested vendor lockfiles and
 continues to audit every resolved vendor package's original registry identity.
+
+Keep the vendored manifests on their reviewed dependency API lines. In
+particular, GLib/GTK macros use Syn 2, and the opener build script uses
+`schemars` 0.8 because pinned `tauri-plugin` 2.6.3 accepts its `RootSchema`,
+not the incompatible `Schema` returned by `schemars` 1. Updating these
+dependencies independently of their vendored source is not a compatibility
+backport.
 
 These backports and the maintained credential-store replacement remove all
 nine unmaintained dependencies from the GTK, URLPattern, and D-Bus graph.
@@ -1188,8 +1212,8 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for the compiler-lint, registry-audit, and StrV-fixture
-maintenance. Compatible and latest versions below are unchanged. No compatible
+were rechecked while repairing Dependabot's incompatible vendor and runtime
+updates. Compatible and latest versions below are unchanged. No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
@@ -1255,6 +1279,11 @@ Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not 
 supported upgrade.
 
 Last upstream check: **2026-10-25**.
+
+The Dependabot repair rechecked the releases and Windows issue/PR trackers
+below. No published fix was identified for both the blank renderer and
+orphaned process. The npm API 2.11.1, CLI 2.11.5, and complete Cargo runtime
+family therefore stay at their verified versions.
 
 - [Tauri 2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
   is the current stable release. Its
