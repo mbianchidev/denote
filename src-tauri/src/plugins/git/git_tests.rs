@@ -3936,7 +3936,10 @@ fn oversized_conflict_stage_output_is_never_written_to_the_worktree() {
     )
     .expect_err("bounded output");
 
-    assert!(error.to_string().contains("8 MiB"));
+    assert!(
+        error.to_string().contains("8 MiB"),
+        "oversized conflict output must fail at the output cap: {error}"
+    );
     assert_eq!(
         fs::read_to_string(repository.join("alpha.md")).expect("note"),
         "original\n",

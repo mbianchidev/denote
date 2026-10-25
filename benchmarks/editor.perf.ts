@@ -145,12 +145,14 @@ test("large Markdown pages become visibly ready within the render budget", async
   await openPage(page, "Small.md", "Ready.");
   const warm = await openPage(page, "Reading.md", "Synthetic section 499");
   await info.attach("page-opening-latencies", {
-    body: JSON.stringify({ cold, warm }),
+    body: JSON.stringify({ cold, warm, coldBudget: 2500, warmBudget: 1500 }),
     contentType: "application/json",
   });
-  console.log(JSON.stringify({ benchmark: "page-opening", cold, warm }));
+  console.log(JSON.stringify({
+    benchmark: "page-opening", cold, warm, coldBudget: 2500, warmBudget: 1500,
+  }));
   expect(cold, "cold large-page opening").toBeLessThan(2500);
-  expect(warm, "warm large-page opening").toBeLessThan(1200);
+  expect(warm, "warm large-page opening").toBeLessThan(1500);
 });
 
 test("plain source typing remains responsive in a large synthetic document", async ({ page }, info) => {

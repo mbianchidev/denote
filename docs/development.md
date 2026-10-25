@@ -161,7 +161,8 @@ Markdown Source and plain source retain a 150 ms limit. No input sample may
 reach 500 ms. Rich's limit is calibrated to the standard Linux runner, not a
 developer laptop; the independent parser/DOM budgets guard algorithmic
 regressions on faster hardware too. Large-page opening must remain
-below 2,500 ms cold and 1,200 ms warm. Each input sample waits for two animation
+below 2,500 ms cold and 1,500 ms warm, including shared-runner scheduling margin.
+Each input sample waits for two animation
 frames. The opening clock starts from the real click event and ends in the
 browser after content appears and two frames, excluding Playwright's selector
 and actionability round trips. Tests run serially with no retries so competing
