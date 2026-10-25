@@ -81,12 +81,13 @@ export function useClocks({
 
   useEffect(() => {
     for (const provider of providers) {
-      const model = engine.stateFor(provider).model;
-      if (!model) continue;
+      const state = engine.stateFor(provider);
+      if (!state.model || state.loading || state.error) continue;
+      const model = state.model;
       const token = engine.token(provider);
       const keyFor = (target: PluginClockTarget) => `${token}\u0000${target.kind}\u0000${target.id}\u0000${target.occurrence}`;
       const due = ringingClocks(model).filter((row) =>
-        row.delivery.status === "pending" && !inFlight.current.has(keyFor(row)));
+        (row.delivery.status === "pending" || row.delivery.status === "sending") && !inFlight.current.has(keyFor(row)));
       if (due.length === 0) continue;
       due.forEach((row) => inFlight.current.add(keyFor(row)));
       const run = async () => {
@@ -94,6 +95,13 @@ export function useClocks({
         for (const row of due) {
           if (!engine.isCurrent(provider, token)) return;
           try {
+            if (row.delivery.status === "sending") {
+              await engine.mutate(provider, {
+                type: "notification-failed", kind: row.kind, id: row.id, occurrence: row.occurrence,
+                error: "Notification status could not be confirmed. It may already have appeared; retry only if needed.",
+              });
+              continue;
+            }
             const next = await engine.mutate(provider, {
               type: "notification-started", kind: row.kind, id: row.id, occurrence: row.occurrence,
             });

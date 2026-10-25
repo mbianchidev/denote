@@ -108,7 +108,8 @@ approval; it is not included in the desktop installer or enabled by default.
   task lists, Reminders, Time tracking, and Note graph. Calendar includes daily, created, and
   last-updated views; daily-note creation never overwrites existing files.
   [Time tracking](docs/user-guide/docs/Optional%20plugins.md#time-tracking)
-  keeps note/project timers, summaries, audited corrections, and local exports.
+  adds a standalone timer, countdowns, and alarms alongside note/project sessions,
+  summaries, audited corrections, and local exports.
 - **Structured and visual content:** JSON and YAML viewer, Mermaid diagrams,
   and Kanban boards. Existing Obsidian Kanban boards, including escaped exports,
   open read-only without changing their source; explicit migration makes them

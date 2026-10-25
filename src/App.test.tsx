@@ -1839,6 +1839,32 @@ describe("App initial file-tree expansion", () => {
     );
   });
 
+  it("keeps global clock alerts during plugin confirmation instead of withdrawing them before consent", async () => {
+    mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));
+    const base = syntheticEmojiPluginView();
+    mockPluginController.plugins = [{
+      ...base, enabled: true, status: "enabled",
+      approvedPermissions: [{ capability: "clocks" }, { capability: "notifications" }],
+      catalog: { ...base.catalog, manifest: { ...base.catalog.manifest, id: "denote.time-tracking" } },
+    }];
+    mockPluginController.clocks = [{
+      pluginId: "denote.time-tracking", id: "denote.time-tracking.clocks", title: "Time tracking",
+    }];
+    mockPluginController.requestClocks.mockResolvedValue({
+      stopwatch: { status: "idle", elapsedMs: 0, recoveryNotice: null }, alarms: [], notices: [],
+      countdowns: [{
+        id: "synthetic-break", title: "Synthetic break", durationMs: 1_000, remainingMs: 0,
+        status: "ringing", sound: false, occurrence: 1, createdAt: 1_000, updatedAt: 2_000,
+        recoveryNotice: null, delivery: { status: "sent", attempts: 1, error: null },
+      }],
+    });
+    const rendered = render(<App />);
+    expect(await screen.findByRole("region", { name: "Clock alerts" })).toHaveTextContent("Synthetic break");
+    mockPluginController.busyPluginIds = new Set(["denote.time-tracking"]);
+    rendered.rerender(<App />);
+    expect(screen.getByRole("region", { name: "Clock alerts" })).toHaveTextContent("Synthetic break");
+  });
+
   it("offers Timer, Countdowns, Alarm, and Notes without requiring an open note for clocks", async () => {
     const user = userEvent.setup();
     mockApi.getLastVault.mockResolvedValue(workspaceSnapshot([]));

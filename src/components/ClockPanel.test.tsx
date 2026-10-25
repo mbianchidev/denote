@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { emptyClockModel } from "@denote/plugin-sdk";
+import { civilDateTimeAt, emptyClockModel, pendingClockDelivery } from "@denote/plugin-sdk";
 import { ClockPanel } from "./ClockPanel";
 
 function props() {
@@ -71,5 +71,20 @@ describe("clock modes", () => {
     expect(screen.getByRole("button", { name: "Countdowns" })).toHaveFocus();
     await user.keyboard(" ");
     expect(screen.getByLabelText("Countdown name")).toBeInTheDocument();
+  });
+
+  it("displays an alarm in its retained time zone rather than relabelling the current system time", () => {
+    const options = props();
+    const dueAt = Date.parse("2026-12-04T09:30:00Z");
+    const timeZone = new Intl.DateTimeFormat().resolvedOptions().timeZone === "Pacific/Honolulu"
+      ? "Asia/Tokyo" : "Pacific/Honolulu";
+    options.controller.stateFor().model.alarms.push({
+      id: "synthetic-alarm", title: "Synthetic check", localDateTime: civilDateTimeAt(dueAt, timeZone), timeZone,
+      repeatDaily: false, sound: false, dueAt, snoozedUntil: null, status: "scheduled", occurrence: 1,
+      revision: 0, createdAt: dueAt - 60_000, updatedAt: dueAt - 60_000, delivery: pendingClockDelivery(),
+    });
+    render(<ClockPanel {...options} mode="alarm" />);
+    expect(screen.getByText(new Date(dueAt).toLocaleString(undefined, { timeZone }))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`${timeZone} · Once`, "u"))).toBeInTheDocument();
   });
 });

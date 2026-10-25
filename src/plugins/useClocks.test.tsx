@@ -79,4 +79,93 @@ describe("clock host scheduling", () => {
     await waitFor(() => expect(result.current.stateFor(provider).model?.countdowns[0].delivery.status).toBe("failed"));
     expect(result.current.alerts[0].error).toBeTruthy();
   });
+
+  it("does not spin or dispatch when the delivery checkpoint cannot be saved", async () => {
+    const model = ringing();
+    let starts = 0;
+    const request = vi.fn(async (_plugin: string, _provider: string, input: PluginClockRequest) => {
+      if (input.mutation?.type === "notification-started") {
+        starts += 1;
+        if (starts === 1) throw new Error("Synthetic storage failure");
+        model.countdowns[0].delivery = { status: "sending", attempts: 1, error: null };
+      }
+      if (input.mutation?.type === "notification-succeeded") model.countdowns[0].delivery.status = "sent";
+      return structuredClone(model);
+    });
+    const reportError = vi.fn();
+    const notify = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useClocks({
+      providers: [provider], request, notify, audio: audio(), clock: sampleClock, reportError,
+    }));
+    await waitFor(() => expect(reportError).toHaveBeenCalled());
+    await act(async () => {});
+    expect(starts).toBe(1);
+    expect(notify).not.toHaveBeenCalled();
+    expect(result.current.stateFor(provider).error).toBe("Synthetic storage failure");
+    await act(async () => { await result.current.refresh(provider); });
+    await waitFor(() => expect(notify).toHaveBeenCalledOnce());
+  });
+
+  it("makes a lost dispatch acknowledgement explicitly retryable without automatically sending again", async () => {
+    const model = ringing();
+    let failAcknowledgement = true;
+    const request = vi.fn(async (_plugin: string, _provider: string, input: PluginClockRequest) => {
+      const mutation = input.mutation;
+      if (mutation?.type === "notification-started") model.countdowns[0].delivery.status = "sending";
+      if (mutation?.type === "notification-succeeded") {
+        if (failAcknowledgement) throw new Error("Synthetic acknowledgement storage failure");
+        model.countdowns[0].delivery.status = "sent";
+      }
+      if (mutation?.type === "notification-failed") {
+        model.countdowns[0].delivery = { status: "failed", attempts: 1, error: mutation.error };
+      }
+      if (mutation?.type === "notification-retry") model.countdowns[0].delivery = pendingClockDelivery();
+      return structuredClone(model);
+    });
+    const notify = vi.fn().mockResolvedValue(undefined);
+    const { result } = renderHook(() => useClocks({
+      providers: [provider], request, notify, audio: audio(), clock: sampleClock, reportError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.stateFor(provider).error).toBe("Synthetic acknowledgement storage failure"));
+    failAcknowledgement = false;
+    await act(async () => { await result.current.refresh(provider); });
+    await waitFor(() => expect(result.current.alerts[0].error).toMatch(/may already have appeared/u));
+    expect(notify).toHaveBeenCalledOnce();
+    await act(async () => {
+      await result.current.mutate(provider, { type: "notification-retry", kind: "countdown", id: "break", occurrence: 1 });
+    });
+    await waitFor(() => expect(notify).toHaveBeenCalledTimes(2));
+  });
+
+  it("batches an overdue backlog and limits stop-sound to current occurrences", async () => {
+    const model = ringing();
+    const original = model.countdowns[0];
+    model.countdowns = Array.from({ length: 6 }, (_, index) => ({ ...structuredClone(original), id: `break-${index}` }));
+    const request = vi.fn(async (_plugin: string, _provider: string, input: PluginClockRequest) => {
+      const mutation = input.mutation;
+      if (mutation && "id" in mutation) {
+        const row = model.countdowns.find((item) => item.id === mutation.id)!;
+        if (mutation.type === "notification-started") row.delivery.status = "sending";
+        if (mutation.type === "notification-succeeded") row.delivery.status = "sent";
+      }
+      return structuredClone(model);
+    });
+    const notify = vi.fn().mockResolvedValue(undefined);
+    const player = audio();
+    const { result } = renderHook(() => useClocks({
+      providers: [provider], request, notify, audio: player, clock: sampleClock, reportError: vi.fn(),
+    }));
+    await waitFor(() => expect(result.current.stateFor(provider).model?.countdowns.every((row) => row.delivery.status === "sent")).toBe(true));
+    expect(notify).toHaveBeenCalledExactlyOnceWith(
+      provider.pluginId, "6 clocks need attention", "Open Denote to dismiss the alert or snooze an alarm.", true,
+    );
+    act(() => result.current.silence());
+    expect(player.setRinging).toHaveBeenLastCalledWith(false);
+    expect(result.current.alerts).toHaveLength(6);
+    model.countdowns[0].occurrence += 1;
+    model.countdowns[0].delivery = pendingClockDelivery();
+    await act(async () => { await result.current.refresh(provider); });
+    await waitFor(() => expect(player.setRinging).toHaveBeenLastCalledWith(true));
+    await waitFor(() => expect(notify).toHaveBeenCalledTimes(2));
+  });
 });

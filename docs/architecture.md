@@ -1273,7 +1273,8 @@ versioned state machine and auditable corrections in plugin-scoped storage.
 One running or paused session spans vault switches without revealing foreign
 note metadata. No implementation is bundled with the desktop application.
 
-`src/plugins/useTimeTracking.ts` coordinates native samples and worker requests
+`src/plugins/useTimeTracking.ts` uses the shared
+`useContinuousClockRequests.ts` coordinator for native samples and worker requests
 one at a time per plugin, rechecks every 30 seconds and on focus/visibility,
 and discards stale vault/provider generations. `TimeTrackingPanel` and core
 command-palette/status/rail adapters own all controls. The one-second readout
@@ -1308,6 +1309,44 @@ history. CSV formula-like cells are neutralized without altering JSON values.
 Native exports validate bounds and recheck permission, vault, and encryption
 state after an asynchronous save dialog before an atomic write. Session
 metadata and exports are outside vault encryption; the UI and guide state this.
+
+The additive `clocks` contract in `packages/plugin-sdk/src/clocks.ts` provides a
+separate global model without a vault scope or document. Time tracking 0.2.0
+registers both providers; `ClockPanel` composes Timer, Countdowns, Alarm, and the
+existing Notes panel. The plugin-owned `clocks.v1` store contains one stopwatch,
+32 countdowns, 32 alarms, native duration anchors, revision/occurrence identities,
+and bounded delivery state. Models are capped at 128 KiB. Empty queries do not
+create storage or issue notifications.
+
+`useClocks` shares request serialization and generation guards with note
+tracking. Its one-second heartbeat samples near deadlines, after wall-clock
+drift, on focus/visibility, and at 30-second checkpoints. Duration modes use
+continuous time; alarms intentionally use civil schedules. The shared SDK
+`civilTime.ts` preserves Reminders' time-zone/DST resolution and recurrence
+rules. Daily alarms skip nonexistent future civil occurrences. Five-minute
+snooze is an explicit instant override. A closed or sleeping application cannot
+issue an alarm; the next available host check catches it up.
+
+Clocks-enabled metadata-only workers survive vault switch/lock, while note
+requests and returned note metadata remain vault/unlock guarded. Clocks cannot
+be combined with structured-viewer, kanban-board, task-list, note-graph,
+calendar, diagram-renderer, or code-intelligence capabilities. SDK and native
+manifest validation enforce this boundary. Old note-only workers retain their
+content-scoped lifecycle. Confirmed disablement samples one native cutoff and
+writes both applicable `TIME_TRACKING_STOP_KEY` and `CLOCKS_STOP_KEY` markers
+before unloading. Clocks apply their marker before recovery, pause the
+stopwatch, cancel countdowns, disable alarms, and reject older queued actions.
+
+Notification dispatch requires `notifications`; requesting native sound also
+requires `clocks`. The host persists `sending` before dispatch and correlates
+completion by provider generation, kind, ID, and occurrence. More than five
+overdue alerts use one system summary without removing individual banners.
+Interrupted dispatch becomes an explicit uncertain failure on restart rather
+than an automatic duplicate. OS acceptance is not proof of delivery.
+`ClockSound` creates WebAudio only after a gesture, repeats a local tone while
+unmuted alerts ring, and disposes oscillators, intervals, and contexts.
+`ClockBanners` keeps dismiss/snooze/sound actions available while locked without
+revealing note metadata. Clock names and schedules are outside vault encryption.
 
 The frozen Welcome `plugins-v5` inventory adds only the time-tracking exercise.
 Earlier inventories/marker bytes, edited files, and previously deleted samples

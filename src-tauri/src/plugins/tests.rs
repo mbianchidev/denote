@@ -1146,6 +1146,37 @@ fn catalog_accepts_unconstrained_task_list_capability() {
 }
 
 #[test]
+fn catalog_checks_global_clock_notification_and_content_boundaries() {
+    let mut entry = catalog();
+    let permission = |capability: &str| PluginPermission {
+        capability: capability.to_string(),
+        hosts: vec![],
+        executables: BTreeMap::new(),
+    };
+    entry.manifest.permissions = vec![permission("clocks")];
+    assert!(validate_catalog(&[entry.clone()]).is_err());
+    entry.manifest.permissions.push(permission("notifications"));
+    entry.manifest.permissions.push(permission("time-tracking"));
+    validate_catalog(&[entry.clone()]).expect("metadata-only global clocks");
+    for capability in [
+        "structured-viewer",
+        "kanban-board",
+        "task-list",
+        "note-graph",
+        "calendar",
+        "diagram-renderer",
+        "code-intelligence",
+    ] {
+        let mut incompatible = entry.clone();
+        incompatible
+            .manifest
+            .permissions
+            .push(permission(capability));
+        assert!(validate_catalog(&[incompatible]).is_err(), "{capability}");
+    }
+}
+
+#[test]
 fn catalog_rejects_project_context_constraints() {
     let mut catalog = catalog();
     catalog.manifest.permissions.push(PluginPermission {

@@ -927,15 +927,18 @@ plugin archive belongs in Git or a desktop installer.
 ### Time tracking plugin development
 
 Use `npm run dev:plugin -- denote.time-tracking` with the isolated development
-application. The package requests only `time-tracking`; its worker owns session
-state and correction history, while the host owns UI, continuous clocks,
-checkpoint scheduling, and explicit exports.
+application. Version 0.2.0 requests `time-tracking`, `clocks`, and `notifications`;
+its worker owns note sessions, correction history, and the standalone stopwatch,
+countdowns, and alarms. The host owns UI, native clock samples, scheduling,
+notification dispatch, gesture-enabled sound, and explicit exports.
 
 ```bash
 npx vitest run \
-  packages/plugin-sdk/src/timeTracking.test.ts plugins/time-tracking/tests \
+  packages/plugin-sdk/src/timeTracking.test.ts packages/plugin-sdk/src/clocks.test.ts \
+  packages/plugin-sdk/src/civilTime.test.ts plugins/time-tracking/tests \
   src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
-  src/plugins/usePlugins.test.tsx src/plugins/useTimeTracking.test.tsx \
+  src/plugins/usePlugins.test.tsx src/plugins/useTimeTracking.test.tsx src/plugins/useClocks.test.tsx \
+  src/lib/clockSound.test.ts src/components/ClockPanel.test.tsx src/components/ClockBanners.test.tsx \
   src/components/TimeTrackingPanel.test.tsx src/components/ActivityRail.test.tsx \
   src/App.test.tsx
 cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugins::time_tracking::tests
@@ -948,6 +951,11 @@ changes, same-boot restart, reboot recovery without guessing, stale requests,
 locked disablement, cancelled confirmation, immutable revisioned corrections,
 CSV formula safety, midnight/daylight-saving summary bounds, atomic storage
 failures, and native export authorization/bounds.
+Also cover independent simultaneous clocks without an active note, countdown
+pause/resume/restart and limits, civil alarms and DST, revision/occurrence races,
+notification batching/failure/retry, interrupted dispatch, locked banner actions,
+sound gesture/cleanup, and writing both disable cutoffs before unloading.
+Mock sound and system notifications; never ring real alarms during tests.
 
 macOS uses `mach_continuous_time`, Linux uses `CLOCK_BOOTTIME`, and Windows uses
 `GetTickCount64` plus the 32-byte boot-environment GUID query. These require no
@@ -958,9 +966,10 @@ wall-clock duration.
 The Welcome `plugins-v5` inventory contains only `plugins/Time tracking.md`.
 Keep earlier inventories/markers and edited/deleted examples unchanged.
 Commit source, SDK, build inputs, documentation, and lockfile first, then pin
-`denote.time-tracking` 0.1.0 for the unreleased Denote `v0.9.0` candidate and
-commit its catalog/ledger separately. Existing plugin source pins and archive
-identities stay unchanged.
+`denote.time-tracking` 0.2.0 for Denote `v0.10.0` and commit its catalog/ledger
+separately. The earlier prepared 0.1.0 reservation remains immutable, even
+though it was not published. Existing plugin source pins and archive identities
+stay unchanged.
 
 ## Frontend bundle limits
 
@@ -1007,6 +1016,31 @@ runtime pin** below. Do not accept a partial npm or Cargo runtime upgrade.
 These automation boundaries do not replace the JavaScript and source-aware
 Rust audits; any security fix crossing them still requires the documented
 compatibility or plugin-release procedure.
+
+The Denote 0.10.0 refresh updates Mermaid to 12.2.0 and the shared
+`mdast-util-from-markdown` graph to 2.1.0. Fresh plugin identities are Mermaid
+0.2.10, Note graph 0.1.7, Reminders 0.3.3, and Advanced task lists 0.1.4.
+Reminders also adopts the shared civil-time helpers. Commit all source,
+SDK/build inputs, guides, legal notices, and the installed lock graph first;
+pin these four packages and Time tracking 0.2.0 to that full source SHA with
+`--release v0.10.0`, then commit appended ledgers/catalog separately.
+Unchanged packages retain their existing source identities and bytes.
+
+Keep the published v0.9.0 DOMPurify remediation from issue #130: canonical
+DOMPurify 3.4.17, KaTeX 0.18.10, lodash-es 4.18.1, source-map-js 1.2.2, and
+Undici 8.12.3 remain security overrides. Deprecated KaTeX 0.18.11 accidentally
+included breaking 0.19 changes and is not a routine patch upgrade. Retain Vite
+8.3.5, archive-compatible Rolldown 1.2.15, and pako 3.0.2. Do not rewrite old
+ledger entries or repin old versions to fix already-published remediation.
+The host-only compatible updates are autocomplete 6.20.4, @pierre/diffs 1.6.1,
+and jsdom 30.1.3; no Tauri-family upgrade is implied.
+
+After pinning, inspect `npm ls mermaid mdast-util-from-markdown dompurify katex
+lodash-es rolldown`, run full and workspace-root `npm audit --audit-level=low`,
+the affected plugin tests and full suite, `check:plugins`, `package:plugins`,
+`check:plugin-downloads -- --source`, `check:plugin-archives -- --base
+<full-origin-main-SHA>`, and `npm run build`. Check the real Mermaid entrypoint
+and archive limits, native/CI gates, and macOS DMG handoff as usual.
 
 ## Rust dependency audits and Linux backports
 

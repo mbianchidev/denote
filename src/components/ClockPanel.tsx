@@ -131,7 +131,7 @@ export function ClockPanel({
       </div>
       <nav className="clock-panel__modes" aria-label="Clock modes">
         {(["timer", "countdowns", "alarm", ...(noteTracking ? ["notes" as const] : [])] as const).map((value) => (
-          <button className="secondary-button" type="button" key={value} aria-pressed={selected === value} disabled={working}
+          <button className="secondary-button" type="button" key={value} aria-pressed={selected === value} disabled={disabled || working}
             onClick={() => changeMode(value)}>{value === "timer" ? "Timer" : value === "countdowns" ? "Countdowns" : value === "alarm" ? "Alarm" : "Notes"}</button>
         ))}
       </nav>
@@ -246,7 +246,7 @@ export function ClockPanel({
                 {model?.alarms.map((row) => (
                   <li key={row.id}>
                     <h3>{row.title}</h3>
-                    <p><time dateTime={new Date(row.dueAt).toISOString()}>{new Date(row.dueAt).toLocaleString()}</time></p>
+                    <p><time dateTime={new Date(row.dueAt).toISOString()}>{new Date(row.dueAt).toLocaleString(undefined, { timeZone: row.timeZone })}</time></p>
                     <p>{row.timeZone} · {row.repeatDaily ? "Daily" : "Once"} · {row.status === "scheduled" ? row.snoozedUntil ? "Snoozed" : "Scheduled" : row.status === "ringing" ? "Ringing" : "Disabled"}</p>
                     {row.delivery.error ? <p className="clock-panel__error">{row.delivery.error}</p> : null}
                     <div className="clock-panel__actions">

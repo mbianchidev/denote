@@ -104,11 +104,49 @@ Opening an example never installs a plugin or initializes Git.
 
 ## Time tracking
 
-Time tracking requires Denote 0.9.0 or newer and is off by default. Enable it
-under **Productivity**, then open **Time tracking** in the activity rail.
-From an active Markdown note, optionally enter a description and choose
+Time tracking 0.2.0 requires Denote 0.10.0 or newer and is off by default.
+Enable it under **Productivity** and approve **Time tracking**, **Clocks**, and
+**Notifications**. Open **Time tracking** in the activity rail to choose
+**Timer**, **Countdowns**, **Alarm**, or **Notes**.
+
+### Timer, countdowns, and alarms
+
+**Timer** is a standalone elapsed timer with start, pause, resume, and confirmed
+reset. It does not require an open note. **Countdowns** supports up to 32 named
+countdowns, each from one second to seven days, with pause, resume, restart,
+cancel, dismiss, and delete controls. **Alarm** supports up to 32 one-off or
+daily alarms, explicit date/time, edit, enable/disable, five-minute snooze,
+dismiss, and delete. These modes can run alongside a note session.
+
+Alarms keep the displayed IANA time zone. A repeated daylight-saving time uses
+its earlier occurrence; a nonexistent local time is refused. Dismissing a daily
+alarm advances to the next valid future civil occurrence. Countdown and timer
+duration includes sleep and closed-application time during the same boot.
+After a system reboot they pause at the last saved checkpoint instead of
+guessing missing duration.
+
+Denote must be running to issue alerts. It catches up after sleep, throttling,
+or restart; it does not install a closed-application alarm service. Operating
+system notifications and sounds depend on system settings. **Repeat alarm
+sound** enables an in-app repeating tone after a gesture. After restart, use
+**Enable alarm sound** if needed. **Stop sound** mutes current occurrences only;
+their banners remain until dismissal or snooze. A later occurrence can sound
+again. Dispatch failures offer **Retry notification**; an interrupted dispatch
+may already have appeared, so retry only if needed.
+
+Global banners keep dismiss, snooze, and sound controls available while a vault
+is locked. Clock names and schedules are stored outside vault encryption;
+avoid secrets in names. Confirmed disablement pauses the standalone timer,
+cancels countdowns, and disables alarms. Re-enabling never resumes them
+automatically. **Delete saved data** removes all clocks and session history.
+
+### Note sessions
+
+Choose **Notes** with an active Markdown note, optionally enter a description,
+and choose
 **Start timer**. **Pause timer**, **Resume timer**, and **Stop timer** are also
-available in the command palette. The status bar returns to an active timer.
+available as **Note tracking** commands in the command palette. The status bar
+returns to an active timer.
 
 One running or paused session exists across all vaults. Switching notes does
 not change its original note, tags, or project. Return to the original vault

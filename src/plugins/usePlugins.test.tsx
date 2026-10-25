@@ -508,14 +508,21 @@ describe("usePlugins", () => {
     await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
   });
 
-  it.each(["disable", "disableAll", "clearData"] as const)(
-      "confirms %s and checkpoints timers before removing code, including while locked",
-      async (operation) => {
-        const enabled = makePlugin({ enabled: true, approvedPermissions: [{ capability: "time-tracking" }] });
+  it.each([
+    ["disable", false], ["disableAll", false], ["clearData", false],
+    ["disable", true], ["disableAll", true], ["clearData", true],
+  ] as const)(
+      "confirms %s and checkpoints timers before removing code while locked (combined clocks: %s)",
+      async (operation, combined) => {
+        const enabled = makePlugin({ enabled: true, approvedPermissions: [
+          { capability: "time-tracking" },
+          ...(combined ? [{ capability: "clocks" as const }, { capability: "notifications" as const }] : []),
+        ] });
         const confirmation = vi.fn().mockResolvedValue(false);
         const { result } = await mountReady([enabled], null, "/synthetic/vault-alpha", false, confirmation);
         const clock = { bootId: "synthetic-boot", wallTimeMs: 10_000, monotonicMs: 5_000 };
         vi.mocked(api.pluginTimeTrackingClock).mockResolvedValue(clock);
+        vi.mocked(api.pluginClockSample).mockResolvedValue(clock);
         vi.mocked(api.pluginStorageSet).mockImplementation(async () => { callOrder.push("checkpoint"); });
         vi.mocked(api.disablePlugin).mockImplementation(async () => { callOrder.push("disable"); });
         const run = () => operation === "disableAll" ? result.current.disableAll() : result.current[operation](pluginId);
@@ -528,7 +535,13 @@ describe("usePlugins", () => {
         queueListPlugins([{ ...enabled, enabled: false }]);
         await act(async () => { await run(); });
         expect(api.pluginStorageSet).toHaveBeenCalledWith(pluginId, "host.time-tracking-stop.v1", clock);
-        expect(callOrder.indexOf("checkpoint")).toBeLessThan(callOrder.indexOf("disable"));
+        if (combined) {
+          expect(api.pluginStorageSet).toHaveBeenCalledWith(pluginId, "host.clocks-stop.v1", clock);
+          expect(api.pluginClockSample).toHaveBeenCalledOnce();
+          expect(api.pluginTimeTrackingClock).not.toHaveBeenCalled();
+        }
+        expect(api.pluginStorageSet).toHaveBeenCalledTimes(combined ? 2 : 1);
+        expect(callOrder.lastIndexOf("checkpoint")).toBeLessThan(callOrder.indexOf("disable"));
       },
     );
 

@@ -466,8 +466,12 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
   uninterpreted Markdown.
 - The independently installable **Time tracking** plugin is disabled by default
-  and receives only explicit active-note metadata plus a host continuous clock.
-  One running or paused timer exists across vaults. Sessions retain relative
+  and provides **Timer**, **Countdowns**, **Alarm**, and **Notes** modes. Clocks
+  work without an open note: one standalone elapsed timer, up to 32 independent
+  countdowns of at most seven days, and up to 32 one-off or daily alarms.
+  The plugin receives a host continuous clock and only explicit active-note
+  metadata for note sessions. One running or paused note timer exists across
+  vaults. Sessions retain relative
   note paths, tags, project snapshots, start/end times, duration, and optional
   descriptions locally, outside vault encryption. Notes are never rewritten.
 - Time tracking supports start, pause, resume, stop, daily/weekly summaries,
@@ -480,6 +484,19 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   fabricating elapsed time. Explicit disablement, disable-all, and data cleanup
   require confirmation and persist a stop cutoff even while the vault is locked.
   Re-enabling never counts time spent disabled.
+- Countdown expiry and civil-time alarms remain visible until dismissed.
+  Alarms retain their IANA time zone, allow five-minute snooze, reject nonexistent
+  daylight-saving times, and select the earlier repeated local time. Daily
+  alarms advance to the next valid future civil occurrence after dismissal.
+  The host catches up after sleep, throttling, and restart; Denote must be
+  running to issue alerts. No closed-application alarm daemon is installed.
+- **Clocks** and **Notifications** are separate approvals. System delivery and
+  sound depend on operating-system settings. Repeating in-app sound needs an
+  explicit gesture, including after restart; **Stop sound** mutes only current
+  occurrences without dismissing their alerts. Global banners retain dismiss,
+  snooze, and sound controls while a vault is locked. Clock names and schedules,
+  like session metadata, live outside vault encryption. Confirmed disablement
+  pauses the standalone timer, cancels countdowns, and disables alarms.
 - The independently installable **Reminders** plugin is disabled by default and
   requests separate Reminders and Notifications approvals. Its host-rendered
   activity-rail view creates standalone reminders or optional links to the

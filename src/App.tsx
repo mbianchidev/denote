@@ -1876,9 +1876,8 @@ function App() {
   timeTrackersRef.current = timeTrackers;
   const clocks = useMemo(
     () => pluginController.clocks.filter((provider) =>
-      !pluginController.busyPluginIds.has(provider.pluginId) &&
       pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
-    [pluginController.clocks, pluginController.busyPluginIds, pluginController.plugins],
+    [pluginController.clocks, pluginController.plugins],
   );
   const timeViews = useMemo(() => [
     ...timeTrackers,
@@ -10487,7 +10486,8 @@ function App() {
             key={`${activeClockContribution.pluginId}:${activeClockContribution.id}:${workspace.pluginScopeId}`}
             provider={activeClockContribution} controller={clockController}
             mode={clockMode} onModeChange={setClockMode}
-            noteTracking={noteTrackingPanel} disabled={workspaceLocked}
+            noteTracking={noteTrackingPanel}
+            disabled={workspaceLocked || pluginController.busyPluginIds.has(activeClockContribution.pluginId)}
             confirmAction={requestConfirmation} onError={showError}
           />
         ) : noteTrackingPanel ? noteTrackingPanel : activeReminderContribution ? (
