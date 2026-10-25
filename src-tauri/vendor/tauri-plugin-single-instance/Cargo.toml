@@ -98,7 +98,7 @@ default-features = false
 features = ["test"]
 
 [target.'cfg(target_os = "windows")'.dependencies.windows-sys]
-version = "0.61"
+version = "0.60"
 features = [
     "Win32_System_Threading",
     "Win32_System_DataExchange",
