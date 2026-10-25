@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "id": "denote.time-tracking",
   "name": "Time tracking",
-  "version": "0.1.0",
-  "description": "Track note and project time locally, review daily and weekly totals, and export auditable sessions.",
+  "version": "0.2.0",
+  "description": "Use a timer, countdowns, and alarms alongside note time tracking, summaries, and auditable session exports.",
   "publisher": {
     "name": "Denote",
     "url": "https://github.com/mbianchidev/denote"
@@ -14,10 +14,14 @@
   "category": "productivity",
   "compatibility": {
     "apiVersion": 1,
-    "minimumDenoteVersion": "0.9.0",
+    "minimumDenoteVersion": "0.10.0",
     "maximumDenoteVersion": "1.0.0"
   },
-  "permissions": [{ "capability": "time-tracking" }],
+  "permissions": [
+    { "capability": "time-tracking" },
+    { "capability": "clocks" },
+    { "capability": "notifications" }
+  ],
   "entrypoint": "dist/index.js",
   "documentation": "guide.md"
 }

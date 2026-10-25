@@ -58,6 +58,8 @@ import type { CodeProtocolInvocation, CodeToolConfiguration, CodeToolEnvironment
 export const api = {
   pluginTimeTrackingClock: (pluginId: string) =>
     invoke<PluginTimeTrackingClock>("plugin_time_tracking_clock", { pluginId }),
+  pluginClockSample: (pluginId: string) =>
+    invoke<PluginTimeTrackingClock>("plugin_clock_sample", { pluginId }),
   exportTimeTracking: (
     pluginId: string, workspaceScope: string, format: "csv" | "json", content: string,
   ) => invoke<boolean>("export_time_tracking", { pluginId, workspaceScope, format, content }),
@@ -405,11 +407,13 @@ export const api = {
     pluginId: string,
     title: string,
     body?: string,
+    sound?: boolean,
   ) =>
     invoke<void>("plugin_show_notification", {
       pluginId,
       title,
       body: body ?? null,
+      sound: sound ?? false,
     }),
   pluginProcessRequest: (
     pluginId: string,

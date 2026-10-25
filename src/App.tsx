@@ -101,7 +101,10 @@ import { TaskListPanel } from "./components/TaskListPanel";
 import { ReminderPanel } from "./components/ReminderPanel";
 import { TimeTrackingPanel } from "./components/TimeTrackingPanel";
 import { useTimeTracking } from "./plugins/useTimeTracking";
-import type { PluginTimeTrackingTarget } from "@denote/plugin-sdk";
+import { useClocks } from "./plugins/useClocks";
+import { ClockPanel } from "./components/ClockPanel";
+import { ClockBanners } from "./components/ClockBanners";
+import type { PluginTimeTrackingTarget, PluginClockMode } from "@denote/plugin-sdk";
 import { ReminderBanners } from "./components/ReminderBanners";
 import { createCalendarSnapshot } from "./plugins/calendars";
 import { calendarToday } from "./lib/calendar";
@@ -916,6 +919,9 @@ function App() {
   const [activeTimeTracking, setActiveTimeTracking] = useState<{
     pluginId: string; providerId: string;
   } | null>(null);
+  const [clockMode, setClockMode] = useState<PluginClockMode>("timer");
+  const clockModeRef = useRef(clockMode);
+  clockModeRef.current = clockMode;
   const showSidebarView = useCallback((view: SidebarView) => {
     setActiveSourceControlProvider(null);
     setActivePluginSidebar(null);
@@ -1705,9 +1711,9 @@ function App() {
     workspace !== null &&
       (!workspace.encryption.enabled || workspace.encryption.unlocked),
     (names) => requestConfirmation({
-      title: "Stop time tracking?",
-      message: `Disabling ${names.join(", ")} stops any active timer, including one in another or locked vault. Sessions remain unless you also chose to clear plugin data.`,
-      confirmLabel: "Stop timers and disable",
+      title: "Stop timers and alarms?",
+      message: `Disabling ${names.join(", ")} stops note timers, the standalone timer, countdowns, and alarms, including while a vault is locked. Saved data remains unless you also chose to delete it.`,
+      confirmLabel: "Stop clocks and disable",
       dangerous: false,
     }),
   );
@@ -1866,6 +1872,26 @@ function App() {
       pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
     [pluginController.timeTrackers, pluginController.busyPluginIds, pluginController.plugins],
   );
+  const timeTrackersRef = useRef(timeTrackers);
+  timeTrackersRef.current = timeTrackers;
+  const clocks = useMemo(
+    () => pluginController.clocks.filter((provider) =>
+      !pluginController.busyPluginIds.has(provider.pluginId) &&
+      pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
+    [pluginController.clocks, pluginController.busyPluginIds, pluginController.plugins],
+  );
+  const timeViews = useMemo(() => [
+    ...timeTrackers,
+    ...clocks.filter((provider) => !timeTrackers.some((notes) => notes.pluginId === provider.pluginId)),
+  ], [clocks, timeTrackers]);
+  const clockController = useClocks({
+    providers: clocks, request: pluginController.requestClocks, reportError: showError,
+  });
+  const clockAlertCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const alert of clockController.alerts) counts[alert.provider.pluginId] = (counts[alert.provider.pluginId] ?? 0) + 1;
+    return counts;
+  }, [clockController.alerts]);
   const timeTracking = useTimeTracking({
     providers: timeTrackers,
     workspaceId: workspace?.pluginScopeId ?? null,
@@ -4811,9 +4837,12 @@ function App() {
     setActiveReminder({ pluginId, providerId });
   }, []);
 
-  const showTimeTracking = useCallback((pluginId: string, providerId: string) => {
+  const showTimeTracking = useCallback((pluginId: string, providerId: string, mode?: PluginClockMode) => {
     showSidebarView("files");
-    setActiveTimeTracking({ pluginId, providerId });
+    const notes = timeTrackersRef.current.find((provider) => provider.pluginId === pluginId);
+    setActiveTimeTracking({ pluginId, providerId: notes?.id ?? providerId });
+    const selected = mode ?? clockModeRef.current;
+    setClockMode(selected === "notes" && !notes ? "timer" : selected);
   }, [showSidebarView]);
 
   const navigateTabHistory = useCallback(
@@ -8830,6 +8859,8 @@ function App() {
   const primaryTaskList = taskLists[0] ?? null;
   const primaryCalendar = calendars[0] ?? null;
   const primaryTimeTracker = timeTrackers[0] ?? null;
+  const primaryClock = clocks[0] ?? null;
+  const primaryClockModel = primaryClock ? clockController.stateFor(primaryClock).model : null;
   const primaryTimeTrackingState = primaryTimeTracker ? timeTracking.stateFor(primaryTimeTracker) : null;
   const primaryTimer = primaryTimeTrackingState?.model?.sessions.find(
     (session) => session.id === primaryTimeTrackingState.model?.activeSessionId,
@@ -8901,6 +8932,16 @@ function App() {
       },
     },
     ...projectCommands,
+    ...(primaryClock ? (["timer", "countdowns", "alarm"] as const).map((mode) => ({
+      id: `clocks.${mode}`,
+      title: mode === "timer" ? "Show timer" : mode === "countdowns" ? "Show countdowns" : "Show alarm",
+      description: mode === "timer" ? "Use a standalone elapsed timer without an open note."
+        : mode === "countdowns" ? "Create and control local countdowns." : "Set, snooze, and dismiss local alarms.",
+      category: "View",
+      keywords: ["clocks", "stopwatch", "time"],
+      disabled: !workspaceReady,
+      run: () => showTimeTracking(primaryClock.pluginId, primaryClock.id, mode),
+    })) satisfies CommandPaletteCommand[] : []),
     ...(primaryTimeTracker ? [
       {
         id: "time-tracking.open", title: "Show time tracking", category: "View",
@@ -8909,7 +8950,7 @@ function App() {
         run: () => showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id),
       },
       {
-        id: "time-tracking.start", title: "Time tracking: Start timer", category: "Plugins",
+        id: "time-tracking.start", title: "Note tracking: Start timer", category: "Plugins",
         description: "Track time for the active Markdown note.",
         disabled: !workspaceReady || !timeTrackingTarget || !primaryTimeTrackingState?.model ||
           primaryTimer !== null || primaryTimeTrackingState.model.activeElsewhere,
@@ -8918,12 +8959,12 @@ function App() {
           await timeTracking.mutate(primaryTimeTracker, {
             type: "start", id: crypto.randomUUID(), target: timeTrackingTarget, description: "",
           });
-          showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id);
+          showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id, "notes");
         },
       },
       ...(["pause", "resume", "stop"] as const).map((type) => ({
         id: `time-tracking.${type}`,
-        title: `Time tracking: ${type === "pause" ? "Pause" : type === "resume" ? "Resume" : "Stop"} timer`,
+        title: `Note tracking: ${type === "pause" ? "Pause" : type === "resume" ? "Resume" : "Stop"} timer`,
         category: "Plugins",
         description: type === "pause" ? "Keep the current session without counting paused time."
           : type === "resume" ? "Continue the paused session." : "Finish and save the current session.",
@@ -8933,7 +8974,7 @@ function App() {
         run: async () => {
           if (!primaryTimer) throw new Error("No timer is active in this vault.");
           await timeTracking.mutate(primaryTimeTracker, { type, id: primaryTimer.id });
-          showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id);
+          showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id, "notes");
         },
       })),
     ] satisfies CommandPaletteCommand[] : []),
@@ -9751,6 +9792,12 @@ function App() {
       onDismiss={reminderScheduler.dismissBump}
     />
   );
+  const clockBanners = (
+    <ClockBanners controller={clockController}
+      canOpen={workspace !== null && !workspaceLocked}
+      onOpen={(alert) => showTimeTracking(alert.provider.pluginId, alert.provider.id, alert.kind === "alarm" ? "alarm" : "countdowns")}
+      onError={showError} />
+  );
   const activePluginSidebarView =
     pluginController.sidebarViews.find(
       (view) => view.id === activePluginSidebar,
@@ -9783,6 +9830,7 @@ function App() {
     ) ?? null;
   const activeTimeTrackingContribution = timeTrackers.find((provider) =>
     provider.pluginId === activeTimeTracking?.pluginId && provider.id === activeTimeTracking.providerId) ?? null;
+  const activeClockContribution = clocks.find((provider) => provider.pluginId === activeTimeTracking?.pluginId) ?? null;
   const activeSourceControlAction = useCallback(
     (
       action: PluginSourceControlAction,
@@ -9862,8 +9910,8 @@ function App() {
     }
   }, [activeReminder, activeReminderContribution, showSidebarView]);
   useEffect(() => {
-    if (activeTimeTracking && !activeTimeTrackingContribution) showSidebarView("files");
-  }, [activeTimeTracking, activeTimeTrackingContribution, showSidebarView]);
+    if (activeTimeTracking && !activeTimeTrackingContribution && !activeClockContribution) showSidebarView("files");
+  }, [activeTimeTracking, activeTimeTrackingContribution, activeClockContribution, showSidebarView]);
 
   if (!workspace) {
     return (
@@ -9875,6 +9923,7 @@ function App() {
         />
         {errorBanner}
         {reminderBanners}
+        {clockBanners}
         <Welcome
           loading={initializing}
           onChooseVault={chooseVault}
@@ -9897,6 +9946,7 @@ function App() {
         />
         {errorBanner}
         {reminderBanners}
+        {clockBanners}
         <VaultUnlockScreen
           vaultName={workspace.vaultName}
           theme={theme}
@@ -10309,6 +10359,24 @@ function App() {
     );
   };
 
+  const noteTrackingPanel = activeTimeTrackingContribution ? (
+    <TimeTrackingPanel
+      key={`${activeTimeTrackingContribution.pluginId}:${activeTimeTrackingContribution.id}:${workspace.pluginScopeId}`}
+      provider={activeTimeTrackingContribution}
+      target={timeTrackingTarget}
+      controller={timeTracking}
+      encrypted={workspace.encryption.enabled}
+      disabled={workspaceLocked}
+      embedded={activeClockContribution !== null}
+      onOpenFile={async (path) => {
+        if (workspaceLockedRef.current || workspaceVaultPathRef.current !== workspace.vaultPath) throw new Error("The time-tracking vault changed.");
+        await openFile(path);
+      }}
+      onExport={(format, content) => api.exportTimeTracking(activeTimeTrackingContribution.pluginId, workspace.vaultPath, format, content)}
+      onError={showError}
+    />
+  ) : undefined;
+
   return (
     <div
       className="app-shell"
@@ -10338,13 +10406,17 @@ function App() {
         activeNoteGraph={activeNoteGraph}
         activeTaskList={activeTaskList}
         activeReminder={activeReminder}
-        activeTimeTracking={activeTimeTracking}
+        activeTimeTracking={activeTimeTracking ? {
+          ...activeTimeTracking,
+          providerId: timeViews.find((provider) => provider.pluginId === activeTimeTracking.pluginId)?.id ?? activeTimeTracking.providerId,
+        } : null}
         pluginViews={pluginController.sidebarViews}
         sourceControlProviders={pluginController.sourceControlProviders}
         noteGraphs={noteGraphs}
         taskLists={taskLists}
         reminders={reminders}
-        timeTrackers={timeTrackers}
+        timeTrackers={timeViews}
+        clockAlertCounts={clockAlertCounts}
         reminderDueCounts={reminderDueCounts}
         theme={theme}
         onViewChange={(view) => {
@@ -10410,26 +10482,15 @@ function App() {
             </button>
           </div>
         </header>
-        {activeTimeTrackingContribution ? (
-          <TimeTrackingPanel
-            key={`${activeTimeTrackingContribution.pluginId}:${activeTimeTrackingContribution.id}:${workspace.pluginScopeId}`}
-            provider={activeTimeTrackingContribution}
-            target={timeTrackingTarget}
-            controller={timeTracking}
-            encrypted={workspace.encryption.enabled}
-            disabled={workspaceLocked}
-            onOpenFile={async (path) => {
-              if (workspaceLockedRef.current || workspaceVaultPathRef.current !== workspace.vaultPath) {
-                throw new Error("The time-tracking vault changed.");
-              }
-              await openFile(path);
-            }}
-            onExport={(format, content) => api.exportTimeTracking(
-              activeTimeTrackingContribution.pluginId, workspace.vaultPath, format, content,
-            )}
-            onError={showError}
+        {activeClockContribution ? (
+          <ClockPanel
+            key={`${activeClockContribution.pluginId}:${activeClockContribution.id}:${workspace.pluginScopeId}`}
+            provider={activeClockContribution} controller={clockController}
+            mode={clockMode} onModeChange={setClockMode}
+            noteTracking={noteTrackingPanel} disabled={workspaceLocked}
+            confirmAction={requestConfirmation} onError={showError}
           />
-        ) : activeReminderContribution ? (
+        ) : noteTrackingPanel ? noteTrackingPanel : activeReminderContribution ? (
           <ReminderPanel
             key={`${activeReminderContribution.pluginId}:${activeReminderContribution.id}:${workspace.pluginScopeId}`}
             provider={activeReminderContribution}
@@ -11073,6 +11134,7 @@ function App() {
         </header>
         {errorBanner}
         {reminderBanners}
+        {clockBanners}
         {workspace.suggestGitProject && !workspaceLocked ? (
           <GitProjectSuggestion
             onAccept={() => markProject("")}
@@ -11262,9 +11324,13 @@ function App() {
           <span className="status-bar__spacer" />
           {primaryTimeTracker && (primaryTimer || primaryTimeTrackingState?.model?.activeElsewhere) ? (
             <button className="secondary-button status-bar__timer" type="button"
-              onClick={() => showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id)}>
+              onClick={() => showTimeTracking(primaryTimeTracker.pluginId, primaryTimeTracker.id, "notes")}>
               {primaryTimer ? primaryTimer.status === "running" ? "Timer running" : "Timer paused" : "Timer in another vault"}
             </button>
+          ) : null}
+          {primaryClock && primaryClockModel?.stopwatch.status === "running" ? (
+            <button className="secondary-button status-bar__timer" type="button"
+              onClick={() => showTimeTracking(primaryClock.pluginId, primaryClock.id, "timer")}>Standalone timer running</button>
           ) : null}
           {activeProject ? (
             <span

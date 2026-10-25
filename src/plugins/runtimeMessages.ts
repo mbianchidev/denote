@@ -35,6 +35,8 @@ import type {
   PluginCodeResult,
   PluginTimeTrackingModel,
   PluginTimeTrackingRequest,
+  PluginClockModel,
+  PluginClockRequest,
 } from "@denote/plugin-sdk";
 import {
   PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS,
@@ -72,6 +74,9 @@ import {
   isPluginTimeTrackingModel,
   isPluginTimeTrackingRequest,
   isPluginTimeTrackingRegistration,
+  isPluginClockModel,
+  isPluginClockRequest,
+  isPluginClockRegistration,
 } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
 export type { PluginCodeContribution } from "./codeIntelligence";
@@ -168,6 +173,12 @@ export interface PluginTimeTrackingContribution {
   title: string;
 }
 
+export interface PluginClockContribution {
+  pluginId: string;
+  id: string;
+  title: string;
+}
+
 export interface PluginDiagramRendererContribution extends PluginDiagramRenderer {
   pluginId: string;
 }
@@ -181,6 +192,7 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
+  | { type: "clock-request"; providerId: string; request: PluginClockRequest; requestId: string }
   | { type: "time-tracking-request"; providerId: string; request: PluginTimeTrackingRequest; requestId: string }
   | { type: "code-request"; providerId: string; request: PluginCodeRequest; requestId: string }
   | { type: "cancel-code-request"; requestId: string }
@@ -282,6 +294,9 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | ({ type: "register-clocks" } & Omit<PluginClockContribution, "pluginId">)
+  | { type: "unregister-clocks"; id: string }
+  | { type: "clock-result"; requestId: string; model?: PluginClockModel; error?: string }
   | ({ type: "register-time-tracking" } & Omit<PluginTimeTrackingContribution, "pluginId">)
   | { type: "unregister-time-tracking"; id: string }
   | { type: "time-tracking-result"; requestId: string; model?: PluginTimeTrackingModel; error?: string }
@@ -543,6 +558,14 @@ export function isPluginRuntimeMessage(
           (value.error === undefined &&
             isPluginReminderTargetsModel(value.model)))
       );
+    case "clock-result":
+      return typeof value.requestId === "string" &&
+        ((typeof value.error === "string" && value.model === undefined) ||
+          (value.error === undefined && isPluginClockModel(value.model)));
+    case "register-clocks":
+      return isPluginClockRegistration(value);
+    case "unregister-clocks":
+      return typeof value.id === "string";
     case "time-tracking-result":
       return (
         typeof value.requestId === "string" &&
@@ -745,6 +768,9 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
         typeof value.requestId === "string" &&
         isPluginTaskListToggleRequest(value.request)
       );
+    case "clock-request":
+      return typeof value.providerId === "string" && typeof value.requestId === "string" &&
+        isPluginClockRequest(value.request);
     case "time-tracking-request":
       return (
         typeof value.providerId === "string" &&

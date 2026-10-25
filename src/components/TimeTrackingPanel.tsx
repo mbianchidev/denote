@@ -6,6 +6,7 @@ import {
   type PluginTimeTrackingTarget,
 } from "@denote/plugin-sdk";
 import { errorMessage } from "../lib/api";
+import { formatClockDuration as duration } from "../lib/clockFormat";
 import type { PluginTimeTrackingContribution } from "../plugins/workerRuntime";
 import type { TimeTrackingController } from "../plugins/useTimeTracking";
 
@@ -15,6 +16,7 @@ interface Props {
   controller: TimeTrackingController;
   encrypted: boolean;
   disabled?: boolean;
+  embedded?: boolean;
   onOpenFile: (path: string) => Promise<void>;
   onExport: (format: "csv" | "json", content: string) => Promise<boolean>;
   onError: (error: unknown) => void;
@@ -23,7 +25,7 @@ interface Props {
 const EMPTY_SESSIONS: PluginTimeTrackingSession[] = [];
 
 export function TimeTrackingPanel({
-  provider, target, controller, encrypted, disabled = false, onOpenFile, onExport, onError,
+  provider, target, controller, encrypted, disabled = false, embedded = false, onOpenFile, onExport, onError,
 }: Props) {
   const state = controller.stateFor(provider);
   const sessions = state.model?.sessions ?? EMPTY_SESSIONS;
@@ -112,9 +114,9 @@ export function TimeTrackingPanel({
     (active.status === "running" ? Math.max(0, tick - state.sampledAt) : 0) : 0;
 
   return (
-    <section className="time-tracking-panel" aria-label={provider.title}>
+    <section className={`time-tracking-panel${embedded ? " time-tracking-panel--embedded" : ""}`} aria-label={embedded ? "Note time tracking" : provider.title}>
       <div className="sidebar-view__title">
-        <h2>{provider.title}</h2>
+        {embedded ? <h3>Note tracking</h3> : <h2>{provider.title}</h2>}
         <button className="secondary-button" type="button" disabled={disabled || working || state.loading}
           onClick={() => void run(async () => {
             await controller.refresh(provider);
@@ -284,11 +286,6 @@ export function TimeTrackingPanel({
       </section>
     </section>
   );
-}
-
-function duration(milliseconds: number): string {
-  const seconds = Math.floor(milliseconds / 1_000);
-  return `${Math.floor(seconds / 3_600)}:${String(Math.floor(seconds / 60) % 60).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
 }
 
 function localDateTime(timestamp: number): string {

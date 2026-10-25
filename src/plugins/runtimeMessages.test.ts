@@ -12,6 +12,23 @@ import type {
   PluginTaskListModel,
 } from "@denote/plugin-sdk";
 
+describe("global clock runtime messages", () => {
+  it("validates global requests, registrations, models, and error alternatives", () => {
+    const request = {
+      clock: { bootId: "synthetic", wallTimeMs: 1_000, monotonicMs: 0 },
+      mutation: { type: "stopwatch-start" },
+    };
+    const model = {
+      stopwatch: { status: "idle", elapsedMs: 0, recoveryNotice: null },
+      countdowns: [], alarms: [], notices: [],
+    };
+    expect(isPluginRuntimeMessage({ type: "register-clocks", id: "denote.synthetic.clocks", title: "Clocks" })).toBe(true);
+    expect(isPluginHostMessage({ type: "clock-request", providerId: "denote.synthetic.clocks", requestId: "clock", request })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "clock-result", requestId: "clock", model })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "clock-result", requestId: "clock", model, error: "Failure" })).toBe(false);
+  });
+});
+
 describe("time-tracking runtime messages", () => {
   it("validates registrations, scoped requests, and mutually exclusive results", () => {
     const request = {

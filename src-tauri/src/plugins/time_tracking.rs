@@ -65,6 +65,15 @@ fn read_clock(plugin_id: &str) -> AppResult<TimeTrackingClock> {
     })
 }
 
+#[tauri::command]
+pub fn plugin_clock_sample(
+    state: State<'_, PluginManager>,
+    plugin_id: String,
+) -> AppResult<TimeTrackingClock> {
+    state.enabled_permission(&plugin_id, "clocks")?;
+    read_clock(&plugin_id)
+}
+
 #[cfg(target_os = "macos")]
 fn continuous_clock() -> AppResult<(Vec<u8>, u64)> {
     #[repr(C)]

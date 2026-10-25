@@ -153,6 +153,34 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             "Plugin {id} requests reminders without notifications"
         )));
     }
+    let has_clocks = entry
+        .manifest
+        .permissions
+        .iter()
+        .any(|permission| permission.capability == "clocks");
+    if has_clocks && !has_notification_permission {
+        return Err(AppError::Plugin(format!(
+            "Plugin {id} requests clocks without notifications"
+        )));
+    }
+    if has_clocks
+        && entry.manifest.permissions.iter().any(|permission| {
+            matches!(
+                permission.capability.as_str(),
+                "structured-viewer"
+                    | "kanban-board"
+                    | "task-list"
+                    | "note-graph"
+                    | "calendar"
+                    | "diagram-renderer"
+                    | "code-intelligence"
+            )
+        })
+    {
+        return Err(AppError::Plugin(format!(
+            "Plugin {id} combines clocks with content-based capabilities"
+        )));
+    }
     validate_relative_path(&entry.manifest.documentation)?;
     validate_relative_path(&entry.manifest.icon)?;
     for legal in &entry.manifest.legal {
@@ -172,6 +200,7 @@ fn validate_catalog_entry(entry: &PluginCatalogEntry) -> AppResult<()> {
             | "calendar"
             | "reminders"
             | "time-tracking"
+            | "clocks"
             | "diagram-renderer"
             | "note-events"
             | "project-context"

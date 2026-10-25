@@ -1,4 +1,5 @@
 import { compare, valid } from "semver";
+import { CLOCK_CONTENT_CAPABILITIES } from "./clocks";
 import {
   PLUGIN_CAPABILITIES,
   PLUGIN_CATEGORIES,
@@ -208,6 +209,13 @@ export function validatePluginManifest(
     );
   if (hasReminderPermission && !hasNotificationPermission) {
     errors.push("reminders permission requires notifications permission.");
+  }
+  const hasClocks = Array.isArray(value.permissions) &&
+    value.permissions.some((permission) => isRecord(permission) && permission.capability === "clocks");
+  if (hasClocks && !hasNotificationPermission) errors.push("clocks permission requires notifications permission.");
+  if (hasClocks && Array.isArray(value.permissions) && value.permissions.some((permission) =>
+    isRecord(permission) && CLOCK_CONTENT_CAPABILITIES.some((capability) => capability === permission.capability))) {
+    errors.push("clocks cannot share a worker with content-based capabilities.");
   }
   if (value.legal !== undefined) {
     if (!Array.isArray(value.legal) || value.legal.length === 0) {

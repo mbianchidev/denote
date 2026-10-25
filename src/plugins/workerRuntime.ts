@@ -34,6 +34,8 @@ import type {
   PluginCodeResult,
   PluginTimeTrackingModel,
   PluginTimeTrackingRequest,
+  PluginClockModel,
+  PluginClockRequest,
 } from "@denote/plugin-sdk";
 import {
   isPluginCalendarModel,
@@ -63,6 +65,9 @@ import {
   isPluginTimeTrackingModel,
   isPluginTimeTrackingRequest,
   isPluginTimeTrackingRegistration,
+  isPluginClockModel,
+  isPluginClockRequest,
+  isPluginClockRegistration,
 } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
 export type { PluginCodeContribution } from "./codeIntelligence";
@@ -84,6 +89,7 @@ import {
   type PluginNoteGraphContribution,
   type PluginReminderContribution,
   type PluginTimeTrackingContribution,
+  type PluginClockContribution,
   type PluginRuntimeMessage,
   type PluginSidebarContribution,
   type PluginSourceControlContribution,
@@ -105,6 +111,7 @@ export type {
   PluginNoteGraphContribution,
   PluginReminderContribution,
   PluginTimeTrackingContribution,
+  PluginClockContribution,
   PluginSidebarContribution,
   PluginSourceControlContribution,
   PluginStatusContribution,
@@ -151,6 +158,7 @@ interface PendingRequest {
     | "reminder-query-result"
     | "reminder-mutation-result"
     | "time-tracking-result"
+    | "clock-result"
     | "deactivated";
 }
 
@@ -191,6 +199,8 @@ interface Runtime {
   stagedReminders: Map<string, PluginReminderContribution>;
   timeTrackers: Map<string, PluginTimeTrackingContribution>;
   stagedTimeTrackers: Map<string, PluginTimeTrackingContribution>;
+  clocks: Map<string, PluginClockContribution>;
+  stagedClocks: Map<string, PluginClockContribution>;
   diagramRenderers: Map<string, PluginDiagramRendererContribution>;
   stagedDiagramRenderers: Map<string, PluginDiagramRendererContribution>;
   sourceControlProviders: Map<string, PluginSourceControlContribution>;
@@ -279,6 +289,7 @@ export class PluginWorkerRuntime {
     ) => void = () => {},
     private readonly onCodeProvidersChanged: (providers: PluginCodeContribution[]) => void = () => {},
     private readonly onTimeTrackersChanged: (providers: PluginTimeTrackingContribution[]) => void = () => {},
+    private readonly onClocksChanged: (providers: PluginClockContribution[]) => void = () => {},
   ) {}
 
   async start(plugin: PluginView): Promise<void> {
@@ -350,6 +361,7 @@ export class PluginWorkerRuntime {
     this.publishCalendars();
     this.publishReminders();
     this.publishTimeTrackers();
+    this.publishClocks();
     this.publishDiagramRenderers();
     runtime.activeActions.clear();
     const requestId = crypto.randomUUID();
@@ -853,6 +865,26 @@ export class PluginWorkerRuntime {
     return model;
   }
 
+  async requestClocks(pluginId: string, providerId: string, request: PluginClockRequest): Promise<PluginClockModel> {
+    const runtime = this.requireRuntime(pluginId);
+    if (runtime.phase !== "active" || !runtime.permissions.has("clocks") ||
+      !runtime.permissions.has("notifications") || !runtime.clocks.has(providerId)) {
+      throw new Error(`Clocks ${providerId} is not registered.`);
+    }
+    if (!isPluginClockRequest(request)) throw new Error("Invalid clock request.");
+    const requestId = crypto.randomUUID();
+    const result = this.waitForRequest(runtime, requestId, 15_000, "clock-result");
+    runtime.port.postMessage({ type: "clock-request", providerId, request, requestId });
+    const model = await result;
+    if (runtime.phase !== "active" || !runtime.clocks.has(providerId)) throw new Error("Clocks is no longer registered.");
+    if (!isPluginClockModel(model)) {
+      const error = new Error("Clocks returned an invalid model.");
+      await this.failRuntime(pluginId, error);
+      throw error;
+    }
+    return model;
+  }
+
   async requestTimeTracking(
     pluginId: string,
     providerId: string,
@@ -1067,6 +1099,9 @@ export class PluginWorkerRuntime {
       return;
     }
     this.workspaceIdentity = identity;
+    for (const runtime of this.runtimes.values()) {
+      if (runtime.permissions.has("clocks")) runtime.workspaceIdentity = identity;
+    }
     this.stopNativeCodeTools();
     this.publishCalendars();
     this.publishTimeTrackers();
@@ -1155,6 +1190,8 @@ export class PluginWorkerRuntime {
       stagedReminders: new Map(),
       timeTrackers: new Map(),
       stagedTimeTrackers: new Map(),
+      clocks: new Map(),
+      stagedClocks: new Map(),
       diagramRenderers: new Map(),
       stagedDiagramRenderers: new Map(),
       sourceControlProviders: new Map(),
@@ -1288,6 +1325,8 @@ export class PluginWorkerRuntime {
         runtime.timeTrackers.set(id, provider);
       }
       runtime.stagedTimeTrackers.clear();
+      for (const [id, provider] of runtime.stagedClocks) runtime.clocks.set(id, provider);
+      runtime.stagedClocks.clear();
       for (const [id, renderer] of runtime.stagedDiagramRenderers) {
         runtime.diagramRenderers.set(id, renderer);
       }
@@ -1314,6 +1353,7 @@ export class PluginWorkerRuntime {
       this.publishCalendars();
       this.publishReminders();
       this.publishTimeTrackers();
+      this.publishClocks();
       this.publishDiagramRenderers();
     } catch (error) {
       await this.teardownRuntime(pluginId);
@@ -1631,6 +1671,25 @@ export class PluginWorkerRuntime {
         runtime.calendars.delete(message.id);
         runtime.stagedCalendars.delete(message.id);
         this.publishCalendars();
+        return;
+      case "register-clocks": {
+        const registration = { id: message.id, title: message.title };
+        if ((runtime.phase !== "activating" && runtime.phase !== "active") ||
+          !runtime.permissions.has("clocks") || !runtime.permissions.has("notifications") ||
+          !message.id.startsWith(`${pluginId}.`) || !isPluginClockRegistration(registration) ||
+          runtime.clocks.size + runtime.stagedClocks.size > 0) {
+          this.protocolViolation(pluginId, "unauthorized or duplicate clock registration");
+          return;
+        }
+        const providers = runtime.activated ? runtime.clocks : runtime.stagedClocks;
+        providers.set(message.id, { pluginId, ...registration });
+        if (runtime.activated) this.publishClocks();
+        return;
+      }
+      case "unregister-clocks":
+        runtime.clocks.delete(message.id);
+        runtime.stagedClocks.delete(message.id);
+        this.publishClocks();
         return;
       case "register-time-tracking": {
         const registration = { id: message.id, title: message.title };
@@ -1976,7 +2035,8 @@ export class PluginWorkerRuntime {
       case "reminder-targets-result":
       case "reminder-query-result":
       case "reminder-mutation-result":
-      case "time-tracking-result": {
+      case "time-tracking-result":
+      case "clock-result": {
         if (
           !this.settle(
             runtime,
@@ -1994,7 +2054,8 @@ export class PluginWorkerRuntime {
                     : message.type === "reminder-targets-result" ||
                         message.type === "reminder-query-result" ||
                         message.type === "reminder-mutation-result" ||
-                        message.type === "time-tracking-result"
+                        message.type === "time-tracking-result" ||
+                        message.type === "clock-result"
                       ? message.model
                   : message.type === "note-graph-query-result" ||
                         message.type === "task-list-query-result" ||
@@ -2287,6 +2348,7 @@ export class PluginWorkerRuntime {
     this.publishCalendars();
     this.publishReminders();
     this.publishTimeTrackers();
+    this.publishClocks();
     this.publishDiagramRenderers();
   }
 
@@ -2322,6 +2384,7 @@ export class PluginWorkerRuntime {
     this.publishCalendars();
     this.publishReminders();
     this.publishTimeTrackers();
+    this.publishClocks();
     this.publishDiagramRenderers();
     await Promise.allSettled([...runtime.hostRequests]);
     this.terminate(pluginId);
@@ -2434,6 +2497,11 @@ export class PluginWorkerRuntime {
           ? [...runtime.calendars.values()] : [],
       ),
     );
+  }
+
+  private publishClocks(): void {
+    this.onClocksChanged([...this.runtimes.values()].flatMap((runtime) =>
+      runtime.phase === "active" ? [...runtime.clocks.values()] : []));
   }
 
   private publishTimeTrackers(): void {

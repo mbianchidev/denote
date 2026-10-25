@@ -1517,6 +1517,36 @@ describe("PluginWorkerRuntime", () => {
     expect(changed).toHaveBeenLastCalledWith([]);
   });
 
+  it("keeps global clocks available across vault changes in the real isolated worker", async () => {
+    await bridgeRealPluginWorker();
+    const source = plugin();
+    source.approvedPermissions = [{ capability: "clocks" }, { capability: "notifications" }];
+    source.catalog = { ...source.catalog, manifest: { ...source.catalog.manifest, permissions: source.approvedPermissions } };
+    const model = {
+      stopwatch: { status: "idle", elapsedMs: 0, recoveryNotice: null },
+      countdowns: [], alarms: [], notices: [],
+    };
+    vi.mocked(api.readPluginEntrypoint).mockResolvedValue(`export default {
+      manifest: ${JSON.stringify(source.catalog.manifest)},
+      activate(context) {
+        if (context.capabilities.workspaceRead || context.capabilities.network) throw Error("Unexpected privilege");
+        context.subscriptions.add(context.capabilities.clocks.register({
+          id: "denote.reference.clocks", title: "Clocks",
+          request() { return ${JSON.stringify(model)}; }
+        }));
+      }
+    };`);
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    await runtime.start(source);
+    const request = { clock: { bootId: "synthetic", wallTimeMs: 1_000, monotonicMs: 0 } };
+    await expect(runtime.requestClocks("denote.reference", "denote.reference.clocks", request)).resolves.toEqual(model);
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+    await expect(runtime.requestClocks("denote.reference", "denote.reference.clocks", request)).resolves.toEqual(model);
+    await runtime.stop("denote.reference");
+    await expect(runtime.requestClocks("denote.reference", "denote.reference.clocks", request)).rejects.toThrow(/running|registered/i);
+  });
+
   it("runs time tracking in the real isolated worker and expires its vault scope", async () => {
     await bridgeRealPluginWorker();
     const source = plugin();

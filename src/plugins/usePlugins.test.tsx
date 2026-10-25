@@ -13,6 +13,7 @@ import type {
   PluginNoteGraphContribution,
   PluginReminderContribution,
   PluginTaskListContribution,
+  PluginClockContribution,
 } from "./workerRuntime";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
@@ -28,6 +29,8 @@ interface MockRuntimeInstance {
   onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void;
   onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void;
   onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void;
+  onClocksChanged?: (clocks: PluginClockContribution[]) => void;
+  requestClocks: ReturnType<typeof vi.fn>;
   queryCalendar: ReturnType<typeof vi.fn>;
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
@@ -72,6 +75,7 @@ vi.mock("../lib/api", () => ({
     importPluginSettings: vi.fn(),
     chooseDevelopmentPluginArchive: vi.fn(),
     pluginTimeTrackingClock: vi.fn(),
+    pluginClockSample: vi.fn(),
     pluginStorageSet: vi.fn(),
   },
   errorMessage: (error: unknown) =>
@@ -177,6 +181,9 @@ vi.mock("./workerRuntime", () => {
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
     invalidateActionLeases = vi.fn();
+    requestClocks = vi.fn(async () => ({
+      stopwatch: { status: "idle", elapsedMs: 0, recoveryNotice: null }, countdowns: [], alarms: [], notices: [],
+    }));
     getEmojiPicker = vi.fn();
 
     constructor(
@@ -196,6 +203,9 @@ vi.mock("./workerRuntime", () => {
       public onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void,
       public onRemindersChanged?: (reminders: PluginReminderContribution[]) => void,
       public onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void,
+      public onCodeProvidersChanged?: unknown,
+      public onTimeTrackersChanged?: unknown,
+      public onClocksChanged?: (clocks: PluginClockContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -521,6 +531,25 @@ describe("usePlugins", () => {
         expect(callOrder.indexOf("checkpoint")).toBeLessThan(callOrder.indexOf("disable"));
       },
     );
+
+  it("keeps combined clock workers running across vault switches and locks", async () => {
+    const enabled = makePlugin({ enabled: true, approvedPermissions: [
+      { capability: "time-tracking" }, { capability: "clocks" }, { capability: "notifications" },
+    ] });
+    const rendered = await mountReady([enabled]);
+    const runtime = runtimeInstances[0];
+    const clocks = [{ pluginId, id: `${pluginId}.clocks`, title: "Clocks" }];
+    act(() => runtime.onClocksChanged?.(clocks));
+    runtime.stop.mockClear();
+    runtime.forceStop.mockClear();
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: false,
+    });
+    expect(rendered.result.current.clocks).toEqual(clocks);
+    await act(async () => { await Promise.resolve(); });
+    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.forceStop).not.toHaveBeenCalled();
+  });
 
   it("withdraws calendar models immediately on a vault switch or lock", async () => {
     const enabled = makePlugin({ enabled: true, approvedPermissions: [{ capability: "calendar" }] });

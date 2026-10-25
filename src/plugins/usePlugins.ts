@@ -35,8 +35,10 @@ import type {
   PluginCodeResult,
   PluginTimeTrackingRequest,
   PluginTimeTrackingModel,
+  PluginClockRequest,
+  PluginClockModel,
 } from "@denote/plugin-sdk";
-import { TIME_TRACKING_STOP_KEY } from "@denote/plugin-sdk";
+import { CLOCKS_STOP_KEY, TIME_TRACKING_STOP_KEY } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
 import {
   PluginWorkerRuntime,
@@ -55,6 +57,7 @@ import {
   type PluginNoteGraphContribution,
   type PluginReminderContribution,
   type PluginTimeTrackingContribution,
+  type PluginClockContribution,
   type PluginSourceControlContribution,
   type PluginStructuredViewerContribution,
   type PluginTaskListContribution,
@@ -116,6 +119,7 @@ function permissionRequestEqual(
     case "calendar":
     case "reminders":
     case "time-tracking":
+    case "clocks":
     case "diagram-renderer":
     case "note-events":
     case "project-context":
@@ -182,6 +186,8 @@ export interface PluginController {
   requestTimeTracking: (
     pluginId: string, providerId: string, request: PluginTimeTrackingRequest,
   ) => Promise<PluginTimeTrackingModel>;
+  clocks: PluginClockContribution[];
+  requestClocks: (pluginId: string, providerId: string, request: PluginClockRequest) => Promise<PluginClockModel>;
   parseReminderTargets: (
     pluginId: string,
     providerId: string,
@@ -343,6 +349,7 @@ export function usePlugins(
   >([]);
   const [noteGraphs, setNoteGraphs] = useState<PluginNoteGraphContribution[]>([]);
   const [reminders, setReminders] = useState<PluginReminderContribution[]>([]);
+  const [clocks, setClocks] = useState<PluginClockContribution[]>([]);
   const [timeTrackingState, setTimeTrackingState] = useState<{
     workspaceIdentity: string | null;
     contributions: PluginTimeTrackingContribution[];
@@ -462,6 +469,7 @@ export function usePlugins(
         workspaceIdentity: workspaceIdentityRef.current,
         contributions,
       }),
+      setClocks,
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -770,13 +778,17 @@ export function usePlugins(
   const prepareTimeTrackingDisable = useCallback(async (pluginIds: string[]) => {
     const timers = pluginsRef.current.filter((plugin) =>
       plugin.enabled && pluginIds.includes(plugin.catalog.manifest.id) &&
-      plugin.approvedPermissions.some((permission) => permission.capability === "time-tracking"));
+      plugin.approvedPermissions.some((permission) => permission.capability === "time-tracking" || permission.capability === "clocks"));
     if (timers.length === 0) return true;
     if (!await confirmTimeTrackingStopRef.current(timers.map((plugin) => plugin.catalog.manifest.name))) return false;
     for (const plugin of timers) {
       const pluginId = plugin.catalog.manifest.id;
-      const clock = await api.pluginTimeTrackingClock(pluginId);
-      await api.pluginStorageSet(pluginId, TIME_TRACKING_STOP_KEY, clock);
+      const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
+      const clock = hasClocks ? await api.pluginClockSample(pluginId) : await api.pluginTimeTrackingClock(pluginId);
+      if (plugin.approvedPermissions.some((permission) => permission.capability === "time-tracking")) {
+        await api.pluginStorageSet(pluginId, TIME_TRACKING_STOP_KEY, clock);
+      }
+      if (hasClocks) await api.pluginStorageSet(pluginId, CLOCKS_STOP_KEY, clock);
     }
     return true;
   }, []);
@@ -1282,6 +1294,15 @@ export function usePlugins(
     [],
   );
 
+  const requestClocks = useCallback(
+    async (pluginId: string, providerId: string, request: PluginClockRequest) => {
+      const runtime = runtimeRef.current;
+      if (!runtime) throw new Error("Plugin runtime is unavailable.");
+      return runtime.requestClocks(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const requestTimeTracking = useCallback(
     async (pluginId: string, providerId: string, request: PluginTimeTrackingRequest) => {
       const runtime = runtimeRef.current;
@@ -1397,6 +1418,8 @@ export function usePlugins(
     reminders,
     timeTrackers,
     requestTimeTracking,
+    clocks,
+    requestClocks,
     parseReminderTargets,
     queryReminders,
     mutateReminders,
@@ -1442,8 +1465,10 @@ export function usePlugins(
 }
 
 function requiresContent(plugin: PluginView): boolean {
+  const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
   return plugin.approvedPermissions.some((permission) =>
-    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "time-tracking", "diagram-renderer", "code-intelligence"].includes(
+    (permission.capability === "time-tracking" && !hasClocks) ||
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence"].includes(
       permission.capability,
     ),
   );

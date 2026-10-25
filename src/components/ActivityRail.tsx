@@ -64,6 +64,7 @@ interface ActivityRailProps {
   taskLists: PluginTaskListContribution[];
   reminders?: PluginReminderContribution[];
   timeTrackers?: PluginTimeTrackingContribution[];
+  clockAlertCounts?: Record<string, number>;
   reminderDueCounts?: Record<string, number>;
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
@@ -136,6 +137,7 @@ function ActivityRailComponent({
   taskLists,
   reminders = [],
   timeTrackers = [],
+  clockAlertCounts = {},
   reminderDueCounts = {},
   theme,
   onViewChange,
@@ -242,6 +244,9 @@ function ActivityRailComponent({
       ...timeTrackers.map((provider) => ({
         key: `time-tracking:${provider.pluginId}:${provider.id}`,
         title: provider.title,
+        ariaLabel: clockAlertCounts[provider.pluginId]
+          ? `${provider.title}, ${clockAlertCounts[provider.pluginId]} clock alerts` : provider.title,
+        badgeCount: clockAlertCounts[provider.pluginId] ?? 0,
         selected: activeTimeTracking?.pluginId === provider.pluginId && activeTimeTracking.providerId === provider.id,
         kind: "time-tracking" as const,
         onSelect: () => onTimeTrackingChange(provider.pluginId, provider.id),
@@ -269,6 +274,7 @@ function ActivityRailComponent({
     noteGraphs,
     reminders,
     timeTrackers,
+    clockAlertCounts,
     reminderDueCounts,
     taskLists,
     onNoteGraphChange,
