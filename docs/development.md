@@ -130,6 +130,10 @@ than hardware-dependent wall-clock thresholds. No optional plugin is required.
 Opening a document must share the original parse with its reference, TOC, and
 thematic-break snapshots. Ordinary paragraph edits must not rescan the entire
 page for headings, TOCs, tags, or image dimensions.
+Frontmatter/TOC/reference notes retain separate controlled Rich/Source work
+budgets: two edits may require at most four full-note trees, not ten. Comment
+delimiters are not ordinary HTML angles, and frontmatter is not a thematic-break
+candidate. Actual TOC and HTML safety validation remains mandatory.
 Markdown coverage also checks that opening, focus, and Rich/Source switches do
 not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF,
 and CR input. Explicit Source whitespace removal must survive later Rich edits.
@@ -154,9 +158,13 @@ or application error alerts fail the run.
 Rich, Markdown Source, and plain-source input-to-paint latency must remain below
 150 ms at the 95th percentile, with no sample reaching 500 ms. Large-page opening must remain
 below 2,500 ms cold and 1,200 ms warm. Each input sample waits for two animation
-frames. Tests run serially with no retries so competing benchmark browsers cannot
-contaminate timings or hide a regression. Results, failure screenshots, and
-traces stay in ignored `.performance-artifacts/`.
+frames. The opening clock starts from the real click event and ends in the
+browser after content appears and two frames, excluding Playwright's selector
+and actionability round trips. Tests run serially with no retries so competing
+benchmark browsers cannot contaminate timings or hide a regression.
+Whole-DOM tracing is disabled during measurements because it changes input and
+render timings; collect a separate `--trace on` run only for functional diagnosis.
+Results and failure screenshots stay in ignored `.performance-artifacts/`.
 
 CI runs the browser gate once on Linux, reusing its existing frontend build
 instead of building again, and uploads evidence on failure. After an existing

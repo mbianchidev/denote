@@ -128,7 +128,7 @@ import {
   captureReferenceMarkdown,
   type ReferenceMarkdownSnapshot,
 } from "../lib/referenceMarkdown";
-import { createMarkdownParser } from "../lib/markdownParser";
+import { createMarkdownParser, type MarkdownParser } from "../lib/markdownParser";
 import { findCaseInsensitiveMatches } from "../lib/textMatch";
 import {
   normalizeTag,
@@ -412,23 +412,25 @@ export const MarkdownEditor = forwardRef<
   const tocMarkersRef = useRef<ReturnType<typeof captureTocMarkers> | null>(null);
   const thematicBreaksRef = useRef<ReturnType<typeof captureThematicBreaks> | null>(null);
   const referenceSnapshotCache = useRef<ReferenceMarkdownSnapshot | null>(null);
+  const preparedAnalysis = useRef<{
+    source: string;
+    analysis: ReturnType<typeof analyzeEditorMarkdown>;
+  } | null>(null);
   const { editorMarkdown, editorSource, detectedSourceOnly, renderDetails } =
     useMemo(() => {
+      const prepared = preparedAnalysis.current;
+      preparedAnalysis.current = null;
       const parse = createMarkdownParser();
-      const editorMarkdown = normalizeBareSpaceLinkDestinations(markdown, parse);
-      const editorSource = markdownEditorSource(markdown, parse);
+      const analysis = prepared?.source === markdown
+        ? prepared.analysis
+        : analyzeEditorMarkdown(markdown, parse);
       if (boundaryWhitespaceRef.current === null) {
         boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(markdown);
         tocMarkersRef.current = captureTocMarkers(markdown, parse);
         thematicBreaksRef.current = captureThematicBreaks(markdown, parse);
-        referenceSnapshotCache.current = captureReferenceMarkdown(editorSource, parse);
+        referenceSnapshotCache.current = captureReferenceMarkdown(analysis.editorSource, parse);
       }
-      return {
-        editorMarkdown,
-        editorSource,
-        detectedSourceOnly: hasUnsupportedRichMarkdown(markdown, parse),
-        renderDetails: hasSupportedDetailsMarkdown(markdown, parse),
-      };
+      return analysis;
     }, [markdown]);
   const editorSourceRef = useRef(editorSource);
   editorSourceRef.current = editorSource;
@@ -454,6 +456,16 @@ export const MarkdownEditor = forwardRef<
   const emojiSourceRef = useRef(markdown);
   const [sourceLineBreak] = useState(() => markdown.includes("\r\n") ? "\r\n" : markdown.includes("\r") ? "\r" : "\n");
   emojiSourceRef.current = markdown;
+  const publishMarkdownChange = (output: string, parse: MarkdownParser) => {
+    if (output === emojiSourceRef.current) return;
+    emojiSourceRef.current = output;
+    // Only the small analysis result crosses the controlled-prop update.
+    preparedAnalysis.current = {
+      source: output,
+      analysis: analyzeEditorMarkdown(output, parse),
+    };
+    onChange(output);
+  };
   const [emojiSerialization] = useState(() => new EmojiSourceHistory());
   const sourceChangePendingRef = useRef(false);
   const synchronizingSourceRef = useRef(false);
@@ -1121,10 +1133,7 @@ export const MarkdownEditor = forwardRef<
                     boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
                   }
                   serialization.record(value, output);
-                  if (output !== emojiSourceRef.current) {
-                    emojiSourceRef.current = output;
-                    onChange(output);
-                  }
+                  publishMarkdownChange(output, parse);
                   return;
                 }
                 let restoredMarkdown = restoreRichTextTagSyntax(
@@ -1165,10 +1174,7 @@ export const MarkdownEditor = forwardRef<
                   boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);
                 }
                 serialization.record(value, output);
-                if (output !== emojiSourceRef.current) {
-                  emojiSourceRef.current = output;
-                  onChange(output);
-                }
+                publishMarkdownChange(output, parse);
               }
             }}
             onError={({ error, source }) => {
@@ -1240,6 +1246,15 @@ function RestorePreferredViewMode({
 }
 
 const EMPTY_TAG_COLORS: TagColorMap = {};
+
+function analyzeEditorMarkdown(markdown: string, parse: MarkdownParser) {
+  return {
+    editorMarkdown: normalizeBareSpaceLinkDestinations(markdown, parse),
+    editorSource: markdownEditorSource(markdown, parse),
+    detectedSourceOnly: hasUnsupportedRichMarkdown(markdown, parse),
+    renderDetails: hasSupportedDetailsMarkdown(markdown, parse),
+  };
+}
 
 function applyHeadingAnchors(root: HTMLElement) {
   const usedSlugs = new Set<string>();

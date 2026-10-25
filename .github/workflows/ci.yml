@@ -205,6 +205,7 @@ jobs:
         with:
           name: editor-performance-attempt-${{ github.run_attempt }}
           path: .performance-artifacts/
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 7
 

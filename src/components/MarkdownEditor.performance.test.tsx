@@ -102,19 +102,23 @@ describe("MarkdownEditor typing work", () => {
 
   it.each(
     (["rich-text", "source"] as const).flatMap((mode) =>
-      (["inline", "reference"] as const).map((kind) => ({ mode, kind })),
+      (["inline", "reference", "toc"] as const).map((kind) => ({ mode, kind })),
     ),
   )(
-    "does not reparse $kind links for each $mode keystroke",
+    "bounds whole-note work for $kind links on each $mode keystroke",
     async ({ mode, kind }) => {
       const changed = vi.fn();
       const link = kind === "inline"
         ? "[the guide](https://example.test/guide)"
         : "[the guide][guide]";
-      const definitions = kind === "reference"
+      const definitions = kind !== "inline"
         ? "[guide]: https://example.test/guide\n\n"
         : "";
       const source =
+        (kind === "toc"
+          ? "---\ntitle: Synthetic document\n---\n\n" +
+            "<!-- toc -->\n- [Synthetic document](#synthetic-document)\n<!-- /toc -->\n\n"
+          : "") +
         "# Synthetic document\n\n" +
         `Read ${link} and keep writing.\n\n`.repeat(100) +
         definitions +
@@ -185,7 +189,15 @@ describe("MarkdownEditor typing work", () => {
       expect(changed.mock.lastCall?.[0]).toContain("Edit herexx");
       expect(changed.mock.lastCall?.[0]).toContain(link);
       if (definitions) expect(changed.mock.lastCall?.[0]).toContain(definitions);
-      expect(fromMarkdown).not.toHaveBeenCalled();
+      expect(changed.mock.lastCall?.[0].match(/keep writing/g)).toHaveLength(100);
+      if (kind === "toc") {
+        const fullParses = vi.mocked(fromMarkdown).mock.calls.filter(
+          ([value]) => value.length > source.length / 2,
+        );
+        expect(fullParses.length).toBeLessThanOrEqual(4);
+      } else {
+        expect(fromMarkdown).not.toHaveBeenCalled();
+      }
     },
   );
 });

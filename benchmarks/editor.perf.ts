@@ -47,12 +47,34 @@ async function painted(page: Page): Promise<void> {
 }
 
 async function openPage(page: Page, name: string, expectedText: string): Promise<number> {
-  const start = await page.evaluate(() => performance.now());
-  await page.getByRole("button", { name, exact: true }).click();
-  const editor = page.getByRole("textbox", { name: "editable markdown", exact: true });
-  await expect(editor).toContainText(expectedText);
-  await painted(page);
-  return page.evaluate((started) => performance.now() - started, start);
+  const button = page.getByRole("button", { name, exact: true });
+  await button.evaluate((element, readyText) => {
+    window.__DENOTE_BENCHMARK__.openingLatency = null;
+    element.addEventListener("click", (event) => {
+      const started = event.timeStamp;
+      const observer = new MutationObserver(() => {
+        const editor = document.querySelector<HTMLElement>(".denote-editor-content");
+        if (!editor?.textContent?.includes(readyText)) return;
+        observer.disconnect();
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+          if (!editor.isConnected || editor.getClientRects().length === 0) {
+            throw new Error("Synthetic page became hidden before its ready paint");
+          }
+          window.__DENOTE_BENCHMARK__.openingLatency = performance.now() - started;
+        }));
+      });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    }, { once: true, capture: true });
+  }, expectedText);
+  await button.click();
+  await expect.poll(() => page.evaluate(() =>
+    window.__DENOTE_BENCHMARK__.openingLatency,
+  )).not.toBeNull();
+  await expect(page.getByRole("textbox", { name: "editable markdown", exact: true }))
+    .toContainText(expectedText);
+  const elapsed = await page.evaluate(() => window.__DENOTE_BENCHMARK__.openingLatency);
+  if (elapsed === null) throw new Error("Missing synthetic page-opening measurement");
+  return elapsed;
 }
 
 async function typeSample(page: Page, editor: Locator, target?: Locator): Promise<number[]> {

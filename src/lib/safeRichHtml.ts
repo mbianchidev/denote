@@ -90,7 +90,7 @@ export function safeRichHtmlRanges(
   markdown: string,
   parse: MarkdownParser = fromMarkdown,
 ): SafeRichHtmlRange[] {
-  if (!markdown.includes("<")) return [];
+  if (!/<(?!\!--)/.test(markdown)) return [];
   let root: MarkdownNode;
   try {
     root = parse(markdown) as MarkdownNode;

@@ -39,15 +39,18 @@ export function hasIncompleteStandardMarkdownAngle(
   markdown: string,
 ): boolean {
   if (!markdown.includes("<")) return false;
+  const matches = markdown.matchAll(/<\/?[A-Za-z][^<>\n]*(?=\r?$)/gm);
+  let current = matches.next();
+  if (current.done) return false;
   const protectedIndex = createRangeIndex(markdownCodeRanges(markdown));
-  for (const match of markdown.matchAll(
-    /<\/?[A-Za-z][^<>\n]*(?=\r?$)/gm,
-  )) {
+  do {
+    const match = current.value;
     const start = match.index ?? 0;
     if (!rangeContains(protectedIndex, start, start + match[0].length)) {
       return true;
     }
-  }
+    current = matches.next();
+  } while (!current.done);
   return false;
 }
 
@@ -100,7 +103,7 @@ function markdownAngleOccurrences(
   markdown: string,
   parse: MarkdownParser,
 ): MarkdownAngleOccurrence[] {
-  if (!markdown.includes("<")) return [];
+  if (!/<(?!\!--)/.test(markdown)) return [];
   const protectedRanges = markdownCodeRanges(markdown, parse);
   const protectedRangeIndex = createRangeIndex(protectedRanges);
   const occurrences: MarkdownAngleOccurrence[] = [];

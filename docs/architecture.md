@@ -1969,6 +1969,14 @@ last content block instead of copying every editor child. Code-copy controls
 rescan only when code-editor structure is added or removed, not for each syntax
 highlighting or body-text mutation.
 
+Serialization prepares the next controlled-render analysis with that operation's
+existing parser. Only its string/boolean result crosses the prop update, not a
+parser, AST, or source-history cache; mismatched external content is analyzed
+normally. Frontmatter and comment-only delimiters no longer trigger unrelated
+thematic-break or ordinary-angle scans. Approved TOC comments still undergo the
+complete structural validation, and actual HTML, details, angle, and reference
+syntax keeps its existing safety checks.
+
 Rich/source eligibility is memoized by content, and stable callback bridges keep
 MDXEditor plugin configuration from being rebuilt when only parent callback
 identities change. Starting debounced outline analysis does not publish an

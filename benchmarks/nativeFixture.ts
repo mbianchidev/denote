@@ -3,6 +3,7 @@ import type { FileNode, NoteStats, WorkspaceSnapshot } from "../src/types";
 
 interface BenchmarkState {
   inputLatencies: number[];
+  openingLatency: number | null;
   unexpectedCommands: string[];
   documents: Record<string, string>;
 }
@@ -53,6 +54,7 @@ const documents = {
 };
 const state: BenchmarkState = {
   inputLatencies: [],
+  openingLatency: null,
   unexpectedCommands: [],
   documents,
 };
