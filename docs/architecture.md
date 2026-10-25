@@ -24,7 +24,10 @@ workspace member is the application; GTK-specific regression tests are explicit
 and run optimized on Linux. The source-aware audit also scans the backports'
 original registry identities because RustSec skips path packages. The
 version-based GLib advisory remains visible, and CI rejects unmaintained
-dependencies. `docs/development.md` records each
+dependencies and yanked versions. Both audit passes fetch registry metadata,
+including the backports' published identities; missing metadata, failed lookups,
+or other incomplete-check diagnostics fail the wrapper even if `cargo-audit`
+returns zero. `docs/development.md` records each
 backport, original archive digest, and validation command.
 
 The Linux opener and single-instance adapters use maintained `zbus` 6 on

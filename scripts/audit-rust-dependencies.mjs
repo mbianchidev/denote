@@ -1,7 +1,8 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { stripVTControlCharacters } from "node:util";
 
 const registry = "registry+https://github.com/rust-lang/crates.io-index";
 const backports = new Map([
@@ -100,6 +101,38 @@ export function projectVendoredSources(lockfile) {
   return projected;
 }
 
+export function runCargoAudit(file, input) {
+  const result = spawnSync("cargo", [
+    "audit", "--file", file, "--color", "never",
+    "--deny", "unmaintained", "--deny", "yanked",
+  ], {
+    input,
+    encoding: "utf8",
+    maxBuffer: 16 * 1024 * 1024,
+    timeout: 180_000,
+  });
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  if (result.error) {
+    throw new Error(`Could not run cargo audit: ${result.error.message}`, { cause: result.error });
+  }
+  if (result.signal) {
+    throw new Error(`cargo audit terminated by ${result.signal}`);
+  }
+  if (result.status !== 0) {
+    throw new Error(`cargo audit failed for ${file} (exit ${result.status ?? "unknown"})`);
+  }
+  // cargo-audit 0.22.2 can log incomplete registry checks but still exit zero.
+  const failures = stripVTControlCharacters(`${result.stdout ?? ""}\n${result.stderr ?? ""}`)
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => /^(?:error|warning):/.test(line)
+      && !/^warning: \d+ allowed warnings? found$/.test(line));
+  if (failures.length > 0) {
+    throw new Error(`Rust dependency audit is incomplete:\n${failures.join("\n")}`);
+  }
+}
+
 function audit() {
   const root = fileURLToPath(new URL("../src-tauri", import.meta.url));
   const manifest = join(root, "Cargo.toml");
@@ -113,17 +146,12 @@ function audit() {
   const projected = projectVendoredSources(readFileSync(lockfile, "utf8"));
 
   console.log("Auditing resolved registry dependencies.");
-  execFileSync("cargo", ["audit", "--file", lockfile, "--deny", "unmaintained"], {
-    stdio: "inherit",
-  });
+  runCargoAudit(lockfile);
 
   // RustSec skips path sources. Audit their original registry identities too,
   // without changing Cargo.lock or hiding the version-based GLib advisory.
   console.log("Auditing published backport baselines; optimized tests verify the GLib source fix.");
-  execFileSync("cargo", ["audit", "--file", "-", "--no-fetch", "--deny", "unmaintained"], {
-    input: projected,
-    stdio: ["pipe", "inherit", "inherit"],
-  });
+  runCargoAudit("-", projected);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -2,11 +2,18 @@
 import { join, resolve } from "node:path";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   projectVendoredSources,
+  runCargoAudit,
   verifyResolvedBackports,
 } from "./audit-rust-dependencies.mjs";
+
+vi.mock("node:child_process", async (importOriginal) => ({
+  ...await importOriginal(),
+  spawnSync: vi.fn(),
+}));
 
 const root = resolve("synthetic-native");
 const versions = {
@@ -48,6 +55,85 @@ function lockfile() {
 describe("Rust source-backport audit", () => {
   it("requires the reviewed local packages and application-only default", () => {
     expect(() => verifyResolvedBackports(metadata(), root)).not.toThrow();
+  });
+
+  describe("required Rust registry checks", () => {
+    beforeEach(() => {
+      vi.mocked(spawnSync).mockReset();
+      vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    function result(overrides = {}) {
+      return {
+        status: 0,
+        signal: null,
+        stdout: "",
+        stderr: "    Updating crates.io index\n    Scanning synthetic.lock for vulnerabilities\n",
+        ...overrides,
+      };
+    }
+
+    it("fetches registry metadata for the published identities and denies yanked releases", () => {
+      vi.mocked(spawnSync).mockReturnValue(result());
+      const projected = projectVendoredSources(lockfile());
+
+      runCargoAudit("-", projected);
+
+      expect(spawnSync).toHaveBeenCalledWith("cargo", [
+        "audit", "--file", "-", "--color", "never",
+        "--deny", "unmaintained", "--deny", "yanked",
+      ], expect.objectContaining({ input: projected, encoding: "utf8" }));
+    });
+
+    it("keeps the version-based unsoundness warning visible without ignoring its advisory", () => {
+      const diagnostic = "Crate: glib\nWarning: unsound\nID: RUSTSEC-2024-0429\n" +
+        "warning: 1 allowed warning found\n";
+      vi.mocked(spawnSync).mockReturnValue(result({ stderr: diagnostic }));
+
+      expect(() => runCargoAudit("synthetic.lock")).not.toThrow();
+
+      expect(process.stderr.write).toHaveBeenCalledWith(diagnostic);
+      expect(spawnSync.mock.calls[0][1]).not.toContain("--ignore");
+    });
+
+    it.each([
+      "error: couldn't check if the package is yanked: No such crate: synthetic-crate",
+      "error: couldn't check if the package is yanked: No such version: synthetic-crate 1.2.3",
+      "warning: couldn't update crates.io index: synthetic network failure",
+      "warning: couldn't open crates.io index: synthetic cache failure",
+      "error: Failed to download crates.io index",
+      "warning: synthetic required check could not run",
+      "\u001b[31merror:\u001b[0m couldn't check if the package is yanked: synthetic failure",
+    ])("rejects an incomplete check even when cargo-audit returns zero: %s", (diagnostic) => {
+      vi.mocked(spawnSync).mockReturnValue(result({ stderr: `${diagnostic}\n` }));
+
+      expect(() => runCargoAudit("synthetic.lock")).toThrow(/incomplete/i);
+      expect(process.stderr.write).toHaveBeenCalledWith(`${diagnostic}\n`);
+    });
+
+    it("also rejects required-check errors printed on stdout", () => {
+      vi.mocked(spawnSync).mockReturnValue(result({
+        stdout: "error: synthetic registry lookup failed\n",
+      }));
+
+      expect(() => runCargoAudit("synthetic.lock")).toThrow(/incomplete/i);
+    });
+
+    it.each([
+      ["denied yanked release", { status: 1, stderr: "warning: 1 denied warning found\n" }, /cargo audit failed/],
+      ["missing cargo executable", { status: null, error: new Error("synthetic ENOENT") }, /Could not run cargo audit/],
+      ["terminated audit", { status: null, signal: "SIGTERM" }, /cargo audit terminated by SIGTERM/],
+      ["audit timeout", { status: null, error: new Error("synthetic ETIMEDOUT") }, /Could not run cargo audit/],
+    ])("fails explicitly for a %s", (_label, outcome, message) => {
+      vi.mocked(spawnSync).mockReturnValue(result(outcome));
+
+      expect(() => runCargoAudit("synthetic.lock")).toThrow(message);
+    });
   });
 
   it("rejects inactive vendor lockfiles that can retain an unaudited dependency graph", () => {

@@ -222,6 +222,7 @@ jobs:
       - name: GTK backport tests
         if: runner.os == 'Linux'
         run: |
+          cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
           cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib variant_iter

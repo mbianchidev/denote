@@ -1104,6 +1104,21 @@ default. It rejects unreviewed non-registry dependency sources, audits the
 actual registry graph, then audits a standard-input projection containing the
 backports' original registry identities and archive checksums. It never edits
 `Cargo.lock`. This prevents vendoring from silently hiding an advisory.
+Both passes fetch the advisory database and crates.io registry metadata. The
+published-baseline pass must not use `--no-fetch`: in `cargo-audit` 0.22.2 that
+also prevents downloading missing index records for the seven local packages.
+Yanked versions and unmaintained crates fail either pass.
+
+`cargo-audit` 0.22.2 can print failed index downloads or missing crate/version
+lookups but still exit zero. The wrapper preserves its diagnostics and also
+fails on error or non-summary warning output, process-launch failures,
+termination, or timeout. The ordinary allowed-advisory summary remains visible;
+the GLib warning below is not ignored. A cold Cargo index must fetch the
+published metadata successfully rather than relying on an already warm cache.
+Synthetic success/failure coverage runs with
+`npx vitest run scripts/audit-rust-dependencies.test.mjs`, including zero-exit
+registry errors, unavailable metadata, yanked-version rejection, and the retained
+GLib advisory.
 
 The published-baseline scan still reports
 [RUSTSEC-2024-0429](https://rustsec.org/advisories/RUSTSEC-2024-0429) because
@@ -1112,11 +1127,12 @@ This warning remains visible: it is not ignored, renamed, or hidden with a
 fabricated version. A successful audit exit alone is not proof that this bug
 is fixed. The release-mode regression tests must pass. The audit includes all
 platforms in the lockfile, so macOS and Windows also report this Linux dependency.
-CI rejects any unmaintained-crate warning in either scan.
+CI rejects any unmaintained-crate or yanked-version warning in either scan.
 
 Run the backport checks with:
 
 ```bash
+cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
@@ -1132,12 +1148,15 @@ a user's desktop bus or real credentials. These checks run in Linux CI and
 release validation alongside the ordinary all-platform desktop tests and
 Windows renderer smoke. Historical tags without backports retain their
 original release checks.
-Recent Rust compilers also report upstream lifetime, parentheses, and
-deprecated-fixture lints in the legacy GLib packages. Nested macro test
-fixtures can report unused application patches because they deliberately build
-smaller dependency graphs. These compiler diagnostics remain visible and are
-distinct from RustSec findings; the source-aware audit verifies the actual
-application resolver rather than those isolated fixtures.
+The local GLib source explicitly spells its previously elided return lifetimes
+and removes unnecessary trait-object type parentheses without changing borrowing
+semantics or upstream package identity. CI and release validation compile that
+library with `unused_parens` and `mismatched_lifetime_syntaxes` denied. Recent
+compilers may still report deprecated-fixture lints in upstream tests; nested
+macro fixtures can report unused application patches because they deliberately
+build smaller graphs. Those diagnostics are distinct from RustSec findings;
+the source-aware audit verifies the actual application resolver rather than
+those isolated fixtures.
 Keep backports limited to the documented fixes, retain upstream attribution,
 and remove them only when compatible upstream releases replace the patched
 sources. Do not replace source fixes with advisory suppression.
@@ -1153,7 +1172,9 @@ versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
-All seven crates and their RustSec baselines were rechecked. No compatible
+All seven crates, official release notes/trackers, and their RustSec baselines
+were rechecked for the compiler-lint and registry-audit maintenance. Compatible
+and latest versions below are unchanged. No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
@@ -1188,6 +1209,10 @@ Published
 [opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
 [single-instance 2.5.4](https://crates.io/crates/tauri-plugin-single-instance/2.5.4)
 require Tauri 2.12 and still use zbus 5. The
+[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.7.0),
+[opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
+and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.4)
+do not provide compatible releases removing the D-Bus backports. The
 [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 is open; no compatible published plugin removes the local adapters.
 [notify-rust 4.18.2](https://crates.io/crates/notify-rust/4.18.2) also retains
