@@ -963,6 +963,13 @@ dependency also requires explicitly approved new plugin versions before its
 resolved bytes change. Keep existing catalog entries, release ledgers, and
 archive digests unchanged when updating host-only dependencies.
 
+Root dependency updates must retain every SDK and plugin workspace in
+`package-lock.json`, including their links and transitive dependencies.
+Dependabot's excluded manifest paths do not exclude those workspaces from
+`npm ci` or the audit. Regenerate from the last complete reviewed lockfile with
+`npm install --package-lock-only --ignore-scripts --workspaces --include-workspace-root`;
+verify plugin archive identities before accepting the result.
+
 The npm `@tauri-apps/*` packages and Cargo Tauri, Tao, Wry, WebView2, and
 URLPattern families remain manual updates under **Re-evaluate the Windows
 runtime pin** below. Do not accept a partial npm or Cargo runtime upgrade.
@@ -1220,8 +1227,9 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked while repairing Dependabot's incompatible vendor and runtime
-updates. Compatible and latest versions below are unchanged. No compatible
+were rechecked for the frontend dependency CI repair in
+[#138](https://github.com/mbianchidev/denote/pull/138). Compatible and latest
+versions below are unchanged. No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
@@ -1245,6 +1253,11 @@ provide replacements compatible with the GTK 0.18 dependency graph.
 [GLib macros 0.18.5](https://crates.io/crates/glib-macros/0.18.5) and
 [GTK3 macros 0.18.2](https://crates.io/crates/gtk3-macros/0.18.2) still require
 the local macro-error replacement.
+The [upstream macro-error removal](https://github.com/gtk-rs/gtk-rs-core/pull/1288)
+was not backported to those compatible releases. GTK3's own
+[maintenance advisory](https://rustsec.org/advisories/RUSTSEC-2024-0419)
+was withdrawn on 2026-08-14; that does not fix their `proc-macro-error`
+dependency or GLib's retained iterator advisory.
 [GTK3 macros 0.19.0](https://github.com/gtk-rs/gtk3-rs/releases/tag/0.19.0)
 belongs to the GTK 0.19 / GLib 0.22 stack, not the pinned runtime's GTK 0.18
 types. URLPattern 0.4 through the current
