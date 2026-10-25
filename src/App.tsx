@@ -1140,6 +1140,7 @@ function App() {
       vaultGeneration.current += 1;
       rebuildRequest.current += 1;
       searchIndex.current.dispose();
+      previousCalendarSnapshot.current = null;
       if (indexTimer.current !== null) window.clearTimeout(indexTimer.current);
       if (tabSessionTimer.current !== null) window.clearTimeout(tabSessionTimer.current);
       for (const timer of saveTimers.current.values()) window.clearTimeout(timer);
@@ -1932,9 +1933,9 @@ function App() {
     () => {
       const key = `${workspace?.vaultPath}\u0000${vaultGeneration.current}`;
       const value = createCalendarSnapshot(
-      allFiles.filter((file) => file.kind === "markdown"),
-      searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
-      previousCalendarSnapshot.current?.key === key ? previousCalendarSnapshot.current.value : null,
+        allFiles.filter((file) => file.kind === "markdown"),
+        searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
+        previousCalendarSnapshot.current?.key === key ? previousCalendarSnapshot.current.value : null,
       );
       previousCalendarSnapshot.current = { key, value };
       return value;

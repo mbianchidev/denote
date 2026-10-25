@@ -46,7 +46,11 @@ Supported filters:
 - `recent:Nd`
 
 Automatic indexing reads up to 10 MB per file and stops at a 64 MB aggregate
-content budget.
+content budget. Initial indexing runs in bounded background batches so you can
+keep editing large vaults. Saved edits update only the changed files rather than
+rebuilding every note. Renames, moves, trash, and restores update the affected
+paths; a full file refresh reconciles external changes. Search and related
+calendar, graph, and task-list views reuse unchanged note metadata.
 
 Opening a search result clears errors that belonged to the previous file.
 

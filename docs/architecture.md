@@ -1933,7 +1933,7 @@ A full vault scan serializes the ordered file tree into SQLite. Known-vault open
 commands deserialize that cache, overlay current bookmark/pin/order metadata,
 and return immediately. The frontend releases the switch barrier without
 waiting for content indexing, then performs a generation-guarded full disk scan
-and ZBSearch rebuild in the background. Missing or invalid caches fall back to a
+and bounded search-index reconciliation in the background. Missing or invalid caches fall back to a
 full scan once and are replaced. Pending filesystem recovery operations also
 force a full scan before a cached tree can be used.
 
@@ -1983,15 +1983,41 @@ aggregate content budget.
 PDFs are excluded from this generic content index and from editable-document
 replace batches. Filename discovery in the command palette still finds them,
 while the active PDF toolbar owns text-layer search.
-The frontend builds an in-memory ZBSearch index. ZBSearch provides ranked,
+The workspace inventory drives native reads in batches of at most 128 file
+paths and roughly 512 KiB of predicted payload; a larger permitted file travels
+alone. Initial loading never requires one vault-sized IPC response. Ordinary
+saves and known mutations reread only changed paths or affected subtrees,
+including both sides of a rename and any link-rewrite results. Targeted reads
+query only the relevant SQLite statistics, not the entire vault's statistics.
+The remaining global content budget is passed to each native batch.
+
+A dedicated worker builds and queries the in-memory ZBSearch index. ZBSearch provides ranked,
 typo-tolerant full-text retrieval; Denote applies metadata filters and a Unicode
 substring fallback so mixed-script queries still find local content.
-Index insertion is split into overlapping chunks no larger than roughly 512 KB
-and yields to the webview between batches, including for individual files near
-the 10 MB search limit.
+Insertion is split into overlapping chunks of roughly 64 KiB and yields between
+batches, including for individual files near the 10 MB search limit. Changed
+documents replace only their old chunk IDs; unchanged bodies are not tokenized
+again, and metadata-only changes do not rebuild their text entries. Mutations
+are serialized, superseded queries cancel, and replies contain compact paths,
+scores, snippets, and ranges that the host hydrates from its current snapshot
+rather than cloning full note bodies back to the UI.
 
-The index rebuilds when a vault opens and shortly after content or file
-structure changes. Search requests keep text, a location glob, and visual filter
+`VaultSearchDocuments` retains unchanged document identities, enforces the
+64 MiB budget across deltas, and guards native reads with scope and deletion
+revisions. A file removed while a scan is in flight cannot reappear from that
+scan. Full external refreshes reconcile the current index rather than recreating
+it. Vault lock/switch and unmount release the worker, pending requests, snapshots,
+and metadata overrides.
+
+Graph and task-list host projections reuse unchanged per-note records and native
+UTF-8 byte counts, and stop normalizing beyond their existing caps. Their
+existing provider coordinators still send serialized changed/removed deltas.
+Calendar projections likewise reuse per-note metadata; a semantically unchanged
+calendar snapshot retains its identity rather than triggering another query.
+Created/modified dates still refresh when their actual indexed values change.
+No downloadable plugin input contract or release identity changes are needed.
+
+Search requests keep text, a location glob, and visual filter
 state separate. `*` includes every indexed document; glob matching without a
 slash targets basenames (`*.html`), while path patterns and exact relative paths
 match the full vault-relative path. Existing inline filters are merged with the

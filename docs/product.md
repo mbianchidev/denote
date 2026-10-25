@@ -219,6 +219,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - ZBSearch provides local full-text search with a separate location glob and
   visual filters for tags, filename, path, content, file type, bookmarks, and
   recency.
+- Vault indexing reads and retokenizes only changed files after ordinary saves
+  or known mutations. Initial loading uses bounded native batches, while search
+  building and querying run off the UI thread. Unchanged note metadata is reused
+  by calendar, graph, and task-list views; stale vault work is cancelled and
+  concurrent deletions cannot be resurrected by an older scan.
 - Command-F / Control-F opens search with the active file selected in the
   location field and keyboard focus in the search-text field. Every content
   occurrence has its own result and navigates to that exact term. `*` searches

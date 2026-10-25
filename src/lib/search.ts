@@ -89,13 +89,18 @@ export class VaultSearchIndex {
       await removeMultiple(this.database, ids);
       this.chunkCount -= ids.length;
     }
+    const chunkPositions = new Map<string, number>();
     for (const batch of searchInsertionBatches(changed)) {
       const inserted = await insertMultiple(
         this.database,
-        batch.map((document) => ({
-          ...document,
-          lastOpenedAt: document.lastOpenedAt ?? "",
-        })),
+        batch.map((document) => {
+          const position = chunkPositions.get(document.path) ?? 0;
+          chunkPositions.set(document.path, position + 1);
+          return {
+            ...document, id: JSON.stringify([document.path, position]),
+            lastOpenedAt: document.lastOpenedAt ?? "",
+          };
+        }),
       );
       inserted.forEach((id, position) => {
         const path = batch[position].path;
@@ -183,7 +188,8 @@ export class VaultSearchIndex {
         (left, right) =>
           right.score - left.score ||
           compareRecent(right.document, left.document) ||
-          left.document.title.localeCompare(right.document.title),
+          left.document.title.localeCompare(right.document.title) ||
+          left.document.path.localeCompare(right.document.path),
       );
     const results: SearchResult[] = [];
     for (const result of rankedDocuments) {
@@ -216,18 +222,18 @@ function* searchInsertionBatches(documents: SearchDocument[]): Generator<SearchD
   let bytes = 0;
   for (const source of documents) {
     for (const document of searchDocumentsForIndex(source)) {
-    const documentBytes =
-      document.path.length +
-      document.title.length +
-      document.content.length +
-      document.tags.join("").length;
-    if (batch.length > 0 && bytes + documentBytes > 64 * 1024) {
-      yield batch;
-      batch = [];
-      bytes = 0;
-    }
-    batch.push(document);
-    bytes += documentBytes;
+      const documentBytes =
+        document.path.length +
+        document.title.length +
+        document.content.length +
+        document.tags.join("").length;
+      if (batch.length > 0 && bytes + documentBytes > 64 * 1024) {
+        yield batch;
+        batch = [];
+        bytes = 0;
+      }
+      batch.push(document);
+      bytes += documentBytes;
     }
   }
   if (batch.length > 0) {

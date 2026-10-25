@@ -171,6 +171,29 @@ Whole-DOM tracing is disabled during measurements because it changes input and
 render timings; collect a separate `--trace on` run only for functional diagnosis.
 Results and failure screenshots stay in ignored `.performance-artifacts/`.
 
+The same browser command also measures a 20,000-note synthetic vault below the
+existing content budget. It requires a real search worker, bounded native read
+requests covering the complete inventory, unchanged Rich input-to-paint limits,
+and exactly one saved-file read after editing one note. The final note must
+remain searchable. A second gate updates graph, task-list, and calendar
+projections over 20,000 source records: only one graph/task document may change,
+every unchanged bounded projection must retain its object identity, and the
+combined warm projection pass must finish below 200 ms.
+
+Deterministic index and scope checks run with:
+
+```bash
+npx vitest run src/lib/search.test.ts src/lib/searchDocuments.test.ts \
+  src/lib/searchWorker.test.ts src/plugins/noteGraphs.test.ts \
+  src/plugins/taskLists.test.ts src/plugins/calendars.test.ts src/App.test.tsx
+```
+
+These checks count actual ZBSearch chunk insertions/removals, exercise worker
+failure/recovery and teardown, reject stale deletion snapshots, and retain the
+64 MiB global budget across changed-path reads. Native scoped-reader tests cover
+subtree deduplication, traversal/internal-path refusal, and small remaining
+budgets. No real vault content is used.
+
 CI runs the browser gate once on Linux, reusing its existing frontend build
 instead of building again, and uploads evidence on failure. After an existing
 local build, use `npx tsc --noEmit -p tsconfig.benchmarks.json` followed by
@@ -185,7 +208,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked \
 
 This regression invokes the real registered Tauri commands through MockRuntime
 IPC while another thread holds a synthetic vault access lock. Reads, PDF and
-image delivery, saves, edit tracking, refresh, and last-vault restoration must
+image delivery, saves, edit tracking, refresh, last-vault restoration, content
+index/replace/link scans, and global filename discovery must
 return control to the dispatcher within 100 ms, even when I/O cannot proceed.
 After releasing the lock, responses and saved bytes must still be correct.
 The budget measures UI dispatch, not total disk or encryption completion time.

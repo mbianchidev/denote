@@ -59,6 +59,15 @@ const documents: SearchDocument[] = [
 ];
 
 describe("vault search", () => {
+  it("reuses stable path/chunk identities across repeated edits", async () => {
+    const index = new VaultSearchIndex();
+    await index.rebuild([documents[0]]);
+    expect(vi.mocked(insertMultiple).mock.calls[0][1][0]).toHaveProperty("id", JSON.stringify([documents[0].path, 0]));
+    vi.clearAllMocks();
+    await index.update([{ ...documents[0], content: "changed", contentHash: "changed" }], []);
+    expect(vi.mocked(insertMultiple).mock.calls[0][1][0]).toHaveProperty("id", JSON.stringify([documents[0].path, 0]));
+  });
+
   it("retokenizes only changed files and removes old chunks from the actual search database", async () => {
     const index = new VaultSearchIndex();
     const large = Array.from({ length: 2_000 }, (_, position) => ({

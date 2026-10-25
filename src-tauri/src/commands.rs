@@ -222,12 +222,18 @@ pub fn list_known_vaults(state: State<'_, AppState>) -> AppResult<Vec<KnownVault
 }
 
 #[tauri::command]
-pub async fn list_known_vault_files(state: State<'_, AppState>) -> AppResult<KnownVaultFileBatch> {
-    let (db_path, current) = {
+pub async fn list_known_vault_files<R: Runtime>(
+    app: AppHandle<R>,
+) -> AppResult<KnownVaultFileBatch> {
+    run_blocking(move || {
+        let state = app.state::<AppState>();
         let _vault_access = state.read_vault_access()?;
-        (state.db_path.clone(), state.active_vault_optional()?)
-    };
-    run_blocking(move || vault::list_known_vault_files(&db_path, current.as_deref())).await
+        let db_path = state.db_path.clone();
+        let current = state.active_vault_optional()?;
+        drop(_vault_access);
+        vault::list_known_vault_files(&db_path, current.as_deref())
+    })
+    .await
 }
 
 #[tauri::command]

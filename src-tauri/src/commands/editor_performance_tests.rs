@@ -71,6 +71,7 @@ fn editor_file_ipc_dispatch_stays_responsive_while_vault_io_waits() {
             super::list_search_documents,
             super::list_editable_documents,
             super::list_link_rewrite_documents,
+            super::list_known_vault_files,
         ])
         .build(mock_context(noop_assets()))
         .unwrap();
@@ -101,6 +102,7 @@ fn editor_file_ipc_dispatch_stays_responsive_while_vault_io_waits() {
         ("list_search_documents", json!({ "paths": ["typing.md"] })),
         ("list_editable_documents", json!({})),
         ("list_link_rewrite_documents", json!({})),
+        ("list_known_vault_files", json!({})),
     ];
     let mut slow = Vec::new();
     for (command, body) in cases {
@@ -154,7 +156,9 @@ fn editor_file_ipc_dispatch_stays_responsive_while_vault_io_waits() {
                     assert_eq!(value["vaultPath"], root.to_str().unwrap());
                     assert_eq!(value["tree"].as_array().unwrap().len(), 3);
                 }
-                if command.starts_with("list_") {
+                if command == "list_known_vault_files" {
+                    assert!(!value["files"].as_array().unwrap().is_empty());
+                } else if command.starts_with("list_") {
                     assert!(!value["documents"].as_array().unwrap().is_empty());
                 }
             }

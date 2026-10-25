@@ -33,6 +33,9 @@ test("twenty thousand notes index off-thread while edits remain responsive and u
   await expect(editor).toContainText("Ready.");
   await expect.poll(() => searchWorkers).toBe(1);
   const initialReads = await page.evaluate(() => window.__DENOTE_BENCHMARK__.indexReads.length);
+  const initialPaths = await page.evaluate(() => window.__DENOTE_BENCHMARK__.indexReads.flat());
+  expect(new Set(initialPaths).size).toBe(20_004);
+  expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.indexReads.every((paths) => paths.length <= 128))).toBe(true);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await page.getByText("Ready.", { exact: true }).click();
   await page.getByText("Ready.", { exact: true }).evaluate((element) => {
@@ -63,6 +66,8 @@ test("twenty thousand notes index off-thread while edits remain responsive and u
   expect(updates.flat()).toEqual(["Small.md"]);
   await page.getByRole("textbox", { name: "Search text", exact: true }).fill("x".repeat(20));
   await expect(page.locator(".search-result").first()).toBeVisible({ timeout: 20_000 });
+  await page.getByRole("textbox", { name: "Search text", exact: true }).fill("19999");
+  await expect(page.locator(".search-result").filter({ hasText: "Synthetic-19999.md" })).toBeVisible({ timeout: 20_000 });
   expect(await page.evaluate(() => window.__DENOTE_BENCHMARK__.unexpectedCommands)).toEqual([]);
   expect(errors).toEqual([]);
   await expect(page.getByRole("alert")).toHaveCount(0);

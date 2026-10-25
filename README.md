@@ -84,6 +84,9 @@ vaults and focusing the linked file. See
 [files, tabs, and vaults](docs/user-guide/docs/Files,%20tabs,%20and%20vaults.md)
 and the [keyboard shortcuts](docs/user-guide/docs/Keyboard%20shortcuts.md).
 
+Search indexes saved changes incrementally and keeps large-vault work in the
+background; see [search and replace](docs/user-guide/docs/Search%20and%20replace.md).
+
 Project files always show line numbers, and project Markdown uses Source mode.
 A workspace discovers its direct child folders as projects. These marks are
 local metadata, not changes to your folder structure. Display guides can also
