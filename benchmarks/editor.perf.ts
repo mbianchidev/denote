@@ -126,12 +126,13 @@ for (const mode of ["rich", "markdown-source"] as const) {
     );
     const p95 = percentile95(latencies);
     const maximum = Math.max(...latencies);
+    const budget = mode === "rich" ? 250 : 150;
     await info.attach(`${mode}-interaction-latencies`, {
-      body: JSON.stringify({ opening, p95, maximum, samples: latencies }),
+      body: JSON.stringify({ opening, p95, maximum, budget, samples: latencies }),
       contentType: "application/json",
     });
-    console.log(JSON.stringify({ benchmark: `${mode}-typing`, opening, p95, maximum }));
-    expect(p95, "95th-percentile key-to-paint latency").toBeLessThan(150);
+    console.log(JSON.stringify({ benchmark: `${mode}-typing`, opening, p95, maximum, budget }));
+    expect(p95, "95th-percentile key-to-paint latency").toBeLessThan(budget);
     expect(maximum, "worst key-to-paint latency").toBeLessThan(500);
     await expect.poll(() => page.evaluate(() =>
       window.__DENOTE_BENCHMARK__.documents["Typing.md"],

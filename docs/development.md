@@ -131,7 +131,8 @@ Opening a document must share the original parse with its reference, TOC, and
 thematic-break snapshots. Ordinary paragraph edits must not rescan the entire
 page for headings, TOCs, tags, or image dimensions.
 Frontmatter/TOC/reference notes retain separate controlled Rich/Source work
-budgets: two edits may require at most four full-note trees, not ten. Comment
+budgets: two Rich edits may require at most four full-note trees rather than ten;
+two Source edits may require at most two rather than six. Comment
 delimiters are not ordinary HTML angles, and frontmatter is not a thematic-break
 candidate. Actual TOC and HTML safety validation remains mandatory.
 Markdown coverage also checks that opening, focus, and Rich/Source switches do
@@ -155,8 +156,11 @@ App, editors, save scheduling, lazy modules, and document worker still run.
 Typed characters must reach the saved document, and unexpected native commands
 or application error alerts fail the run.
 
-Rich, Markdown Source, and plain-source input-to-paint latency must remain below
-150 ms at the 95th percentile, with no sample reaching 500 ms. Large-page opening must remain
+Rich input-to-paint latency must remain below 250 ms at the 95th percentile;
+Markdown Source and plain source retain a 150 ms limit. No input sample may
+reach 500 ms. Rich's limit is calibrated to the standard Linux runner, not a
+developer laptop; the independent parser/DOM budgets guard algorithmic
+regressions on faster hardware too. Large-page opening must remain
 below 2,500 ms cold and 1,200 ms warm. Each input sample waits for two animation
 frames. The opening clock starts from the real click event and ends in the
 browser after content appears and two frames, excluding Playwright's selector

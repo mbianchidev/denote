@@ -194,7 +194,7 @@ describe("MarkdownEditor typing work", () => {
         const fullParses = vi.mocked(fromMarkdown).mock.calls.filter(
           ([value]) => value.length > source.length / 2,
         );
-        expect(fullParses.length).toBeLessThanOrEqual(4);
+        expect(fullParses.length).toBeLessThanOrEqual(mode === "rich-text" ? 4 : 2);
       } else {
         expect(fromMarkdown).not.toHaveBeenCalled();
       }
