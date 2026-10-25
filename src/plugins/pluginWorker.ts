@@ -37,6 +37,8 @@ import type {
   PluginCodeProvider,
   PluginCodeProtocolEvent,
   PluginCodeTransport,
+  PluginTimeTrackingProvider,
+  PluginClockProvider,
 } from "@denote/plugin-sdk";
 import type {
   PluginHostMessage,
@@ -79,6 +81,12 @@ import {
   isPluginTaskListToggleResult,
   isPluginCodeRegistration,
   isPluginCodeResult,
+  isPluginTimeTrackingModel,
+  isPluginTimeTrackingRequest,
+  isPluginTimeTrackingRegistration,
+  isPluginClockModel,
+  isPluginClockRequest,
+  isPluginClockRegistration,
 } from "@denote/plugin-sdk";
 
 interface PendingRequest {
@@ -133,6 +141,8 @@ const taskListToggleHandlers = new Map<
   PluginTaskListProvider["toggle"]
 >();
 const calendarHandlers = new Map<string, PluginCalendarProvider["query"]>();
+const timeTrackingHandlers = new Map<string, PluginTimeTrackingProvider["request"]>();
+const clockHandlers = new Map<string, PluginClockProvider["request"]>();
 const reminderTargetHandlers = new Map<
   string,
   PluginReminderProvider["targets"]
@@ -529,6 +539,42 @@ function runtimeContext(): PluginActivationContext {
           disposed = true;
           calendarHandlers.delete(provider.id);
           send({ type: "unregister-calendar", id: provider.id });
+        });
+      },
+    };
+  }
+  if (permissions.has("clocks") && permissions.has("notifications")) {
+    capabilities.clocks = {
+      register(provider) {
+        const registration = { id: provider?.id, title: provider?.title };
+        if (cleaned || !isPluginClockRegistration(registration) ||
+          typeof provider.request !== "function" || clockHandlers.size > 0) {
+          throw new Error("Invalid or duplicate clock registration.");
+        }
+        validateContributionId(provider.id, "clocks");
+        clockHandlers.set(provider.id, provider.request);
+        send({ type: "register-clocks", ...registration });
+        return disposable(() => {
+          if (!clockHandlers.delete(provider.id)) return;
+          send({ type: "unregister-clocks", id: provider.id });
+        });
+      },
+    };
+  }
+  if (permissions.has("time-tracking")) {
+    capabilities.timeTracking = {
+      register(provider) {
+        const registration = { id: provider?.id, title: provider?.title };
+        if (cleaned || !isPluginTimeTrackingRegistration(registration) ||
+          typeof provider.request !== "function" || timeTrackingHandlers.size > 0) {
+          throw new Error("Invalid or duplicate time-tracking registration.");
+        }
+        validateContributionId(provider.id, "time-tracking");
+        timeTrackingHandlers.set(provider.id, provider.request);
+        send({ type: "register-time-tracking", ...registration });
+        return disposable(() => {
+          if (!timeTrackingHandlers.delete(provider.id)) return;
+          send({ type: "unregister-time-tracking", id: provider.id });
         });
       },
     };
@@ -955,6 +1001,8 @@ async function cleanup(): Promise<unknown[]> {
   taskListQueryHandlers.clear();
   taskListToggleHandlers.clear();
   calendarHandlers.clear();
+  timeTrackingHandlers.clear();
+  clockHandlers.clear();
   reminderTargetHandlers.clear();
   reminderQueryHandlers.clear();
   reminderMutationHandlers.clear();
@@ -1210,6 +1258,32 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
         requestId: message.requestId,
         error: errorMessage(error),
       });
+    }
+    return;
+  }
+  if (message.type === "clock-request") {
+    try {
+      const request = clockHandlers.get(message.providerId);
+      if (!request || !isPluginClockRequest(message.request)) throw new Error("Clocks is no longer registered or its request is invalid.");
+      const model = await request(message.request);
+      if (!isPluginClockModel(model)) throw new Error("Clocks returned an invalid model.");
+      send({ type: "clock-result", requestId: message.requestId, model });
+    } catch (error) {
+      send({ type: "clock-result", requestId: message.requestId, error: errorMessage(error) });
+    }
+    return;
+  }
+  if (message.type === "time-tracking-request") {
+    try {
+      const request = timeTrackingHandlers.get(message.providerId);
+      if (!request || !isPluginTimeTrackingRequest(message.request)) {
+        throw new Error("Time tracking is no longer registered or its request is invalid.");
+      }
+      const model = await request(message.request);
+      if (!isPluginTimeTrackingModel(model)) throw new Error("Time tracking returned an invalid model.");
+      send({ type: "time-tracking-result", requestId: message.requestId, model });
+    } catch (error) {
+      send({ type: "time-tracking-result", requestId: message.requestId, error: errorMessage(error) });
     }
     return;
   }

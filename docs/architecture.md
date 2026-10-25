@@ -30,6 +30,12 @@ or other incomplete-check diagnostics fail the wrapper even if `cargo-audit`
 returns zero. `docs/development.md` records each
 backport, original archive digest, and validation command.
 
+GTK regression builds use exact source copies in a temporary two-crate
+workspace, derived offline from the reviewed lockfile and checked against the
+application's resolved identities. This keeps application-only patches out of
+nested compile-test graphs without changing production resolution. Compiler
+warnings are denied rather than hidden, and optimized safety coverage remains.
+
 The Linux opener and single-instance adapters use maintained `zbus` 6 on
 Tauri's persistent Tokio runtime. Their synchronous entry points run outside an
 already-entered Tokio context, and the single-instance connection stays alive
@@ -1262,6 +1268,96 @@ conflicts leave the original row focused and unchanged. Disabling or removing
 the plugin clears code and the in-memory index but never edits, deletes, or
 reformats task Markdown. Recurring syntax is deliberately uninterpreted.
 
+### Time tracking
+
+The additive API version 1 `time-tracking` contract lives in
+`packages/plugin-sdk/src/timeTracking.ts`. A separately downloaded worker
+registers one typed request handler; it receives only an opaque vault scope,
+host-sampled continuous time, and explicit note-metadata/timer operations.
+`plugins/time-tracking/src/timeTracking.ts` owns the bounded, serialized,
+versioned state machine and auditable corrections in plugin-scoped storage.
+One running or paused session spans vault switches without revealing foreign
+note metadata. No implementation is bundled with the desktop application.
+
+`src/plugins/useTimeTracking.ts` uses the shared
+`useContinuousClockRequests.ts` coordinator for native samples and worker requests
+one at a time per plugin, rechecks every 30 seconds and on focus/visibility,
+and discards stale vault/provider generations. `TimeTrackingPanel` and core
+command-palette/status/rail adapters own all controls. The one-second readout
+is presentation only; persisted duration always comes from native samples.
+Daily/weekly summaries intersect actual running segments with local civil
+boundaries, including daylight-saving days; weeks start Monday.
+
+`src-tauri/src/plugins/time_tracking.rs` uses macOS `mach_continuous_time`,
+Linux `CLOCK_BOOTTIME`, or Windows
+[`GetTickCount64`](https://learn.microsoft.com/en-us/windows/win32/api/sysinfoapi/nf-sysinfoapi-gettickcount64).
+Each includes suspend time independently of the wall clock. Boot identities
+come from `kern.bootsessionuuid`, the Linux kernel boot ID, or Windows
+`SystemBootEnvironmentInformation`'s boot GUID. The Windows adapter uses the
+verified [32-byte Windows 8+ layout](https://www.geoffchappell.com/studies/windows/km/ntoskrnl/inc/api/ntexapi/system_boot_environment_information.htm);
+failure is explicit, never a guessed wall-clock fallback. Boot identities are
+hashed separately per plugin and do not expose machine identifiers.
+
+Application restart during the same boot continues the saved checkpoint.
+System reboot or continuous-clock regression pauses at the last saved duration
+and records a recovery notice. Explicit disable/disable-all/data cleanup first
+confirm, then write an authoritative clock cutoff even when a vault is locked.
+The package applies that cutoff before recovery and keeps a barrier against
+queued pre-disable mutations. Updates, settings reloads, and ordinary shutdown
+retain the running checkpoint.
+
+Stopped-session corrections require a revision and reason and preserve exact
+before/after values. Corrected duration is attributed from the corrected start,
+replacing pause details. A single value stores at most 500 sessions, 512 segments
+and 32 corrections per session, with space reserved below native storage limits
+for checkpoints/stops. CSV/JSON exports contain current-vault records and audit
+history. CSV formula-like cells are neutralized without altering JSON values.
+Native exports validate bounds and recheck permission, vault, and encryption
+state after an asynchronous save dialog before an atomic write. Session
+metadata and exports are outside vault encryption; the UI and guide state this.
+
+The additive `clocks` contract in `packages/plugin-sdk/src/clocks.ts` provides a
+separate global model without a vault scope or document. Time tracking 0.2.0
+registers both providers; `ClockPanel` composes Timer, Countdowns, Alarm, and the
+existing Notes panel. The plugin-owned `clocks.v1` store contains one stopwatch,
+32 countdowns, 32 alarms, native duration anchors, revision/occurrence identities,
+and bounded delivery state. Models are capped at 128 KiB. Empty queries do not
+create storage or issue notifications.
+
+`useClocks` shares request serialization and generation guards with note
+tracking. Its one-second heartbeat samples near deadlines, after wall-clock
+drift, on focus/visibility, and at 30-second checkpoints. Duration modes use
+continuous time; alarms intentionally use civil schedules. The shared SDK
+`civilTime.ts` preserves Reminders' time-zone/DST resolution and recurrence
+rules. Daily alarms skip nonexistent future civil occurrences. Five-minute
+snooze is an explicit instant override. A closed or sleeping application cannot
+issue an alarm; the next available host check catches it up.
+
+Clocks-enabled metadata-only workers survive vault switch/lock, while note
+requests and returned note metadata remain vault/unlock guarded. Clocks cannot
+be combined with structured-viewer, kanban-board, task-list, note-graph,
+calendar, diagram-renderer, or code-intelligence capabilities. SDK and native
+manifest validation enforce this boundary. Old note-only workers retain their
+content-scoped lifecycle. Confirmed disablement samples one native cutoff and
+writes both applicable `TIME_TRACKING_STOP_KEY` and `CLOCKS_STOP_KEY` markers
+before unloading. Clocks apply their marker before recovery, pause the
+stopwatch, cancel countdowns, disable alarms, and reject older queued actions.
+
+Notification dispatch requires `notifications`; requesting native sound also
+requires `clocks`. The host persists `sending` before dispatch and correlates
+completion by provider generation, kind, ID, and occurrence. More than five
+overdue alerts use one system summary without removing individual banners.
+Interrupted dispatch becomes an explicit uncertain failure on restart rather
+than an automatic duplicate. OS acceptance is not proof of delivery.
+`ClockSound` creates WebAudio only after a gesture, repeats a local tone while
+unmuted alerts ring, and disposes oscillators, intervals, and contexts.
+`ClockBanners` keeps dismiss/snooze/sound actions available while locked without
+revealing note metadata. Clock names and schedules are outside vault encryption.
+
+The frozen Welcome `plugins-v5` inventory adds only the time-tracking exercise.
+Earlier inventories/marker bytes, edited files, and previously deleted samples
+remain unchanged. Locked additions wait for unlock and are written encrypted.
+
 ### Reminders
 
 The additive API version 1 `reminders` permission accepts one declarative
@@ -1837,7 +1933,7 @@ A full vault scan serializes the ordered file tree into SQLite. Known-vault open
 commands deserialize that cache, overlay current bookmark/pin/order metadata,
 and return immediately. The frontend releases the switch barrier without
 waiting for content indexing, then performs a generation-guarded full disk scan
-and ZBSearch rebuild in the background. Missing or invalid caches fall back to a
+and bounded search-index reconciliation in the background. Missing or invalid caches fall back to a
 full scan once and are replaced. Pending filesystem recovery operations also
 force a full scan before a cached tree can be used.
 
@@ -1887,15 +1983,41 @@ aggregate content budget.
 PDFs are excluded from this generic content index and from editable-document
 replace batches. Filename discovery in the command palette still finds them,
 while the active PDF toolbar owns text-layer search.
-The frontend builds an in-memory ZBSearch index. ZBSearch provides ranked,
+The workspace inventory drives native reads in batches of at most 128 file
+paths and roughly 512 KiB of predicted payload; a larger permitted file travels
+alone. Initial loading never requires one vault-sized IPC response. Ordinary
+saves and known mutations reread only changed paths or affected subtrees,
+including both sides of a rename and any link-rewrite results. Targeted reads
+query only the relevant SQLite statistics, not the entire vault's statistics.
+The remaining global content budget is passed to each native batch.
+
+A dedicated worker builds and queries the in-memory ZBSearch index. ZBSearch provides ranked,
 typo-tolerant full-text retrieval; Denote applies metadata filters and a Unicode
 substring fallback so mixed-script queries still find local content.
-Index insertion is split into overlapping chunks no larger than roughly 512 KB
-and yields to the webview between batches, including for individual files near
-the 10 MB search limit.
+Insertion is split into overlapping chunks of roughly 64 KiB and yields between
+batches, including for individual files near the 10 MB search limit. Changed
+documents replace only their old chunk IDs; unchanged bodies are not tokenized
+again, and metadata-only changes do not rebuild their text entries. Mutations
+are serialized, superseded queries cancel, and replies contain compact paths,
+scores, snippets, and ranges that the host hydrates from its current snapshot
+rather than cloning full note bodies back to the UI.
 
-The index rebuilds when a vault opens and shortly after content or file
-structure changes. Search requests keep text, a location glob, and visual filter
+`VaultSearchDocuments` retains unchanged document identities, enforces the
+64 MiB budget across deltas, and guards native reads with scope and deletion
+revisions. A file removed while a scan is in flight cannot reappear from that
+scan. Full external refreshes reconcile the current index rather than recreating
+it. Vault lock/switch and unmount release the worker, pending requests, snapshots,
+and metadata overrides.
+
+Graph and task-list host projections reuse unchanged per-note records and native
+UTF-8 byte counts, and stop normalizing beyond their existing caps. Their
+existing provider coordinators still send serialized changed/removed deltas.
+Calendar projections likewise reuse per-note metadata; a semantically unchanged
+calendar snapshot retains its identity rather than triggering another query.
+Created/modified dates still refresh when their actual indexed values change.
+No downloadable plugin input contract or release identity changes are needed.
+
+Search requests keep text, a location glob, and visual filter
 state separate. `*` includes every indexed document; glob matching without a
 slash targets basenames (`*.html`), while path patterns and exact relative paths
 match the full vault-relative path. Existing inline filters are merged with the

@@ -1831,6 +1831,32 @@ pub fn list_search_documents(
         false,
         true,
         vault_key,
+        None,
+    )
+    .map(|(batch, _)| batch)
+}
+
+pub fn list_search_documents_at_paths(
+    db_path: &Path,
+    vault_path: &str,
+    paths: &[String],
+    max_bytes: usize,
+    vault_key: Option<&[u8; 32]>,
+) -> AppResult<DocumentBatch> {
+    if paths.len() > 256 || max_bytes > MAX_SEARCH_AGGREGATE_BYTES {
+        return Err(AppError::InvalidData(
+            "Search update exceeds its path or byte budget".to_string(),
+        ));
+    }
+    list_documents(
+        db_path,
+        vault_path,
+        MAX_SEARCH_BYTES,
+        max_bytes,
+        false,
+        true,
+        vault_key,
+        Some(paths),
     )
     .map(|(batch, _)| batch)
 }
@@ -1848,6 +1874,7 @@ pub fn list_editable_documents(
         false,
         true,
         vault_key,
+        None,
     )
     .map(|(batch, _)| batch)
 }
@@ -1865,6 +1892,7 @@ pub fn list_link_rewrite_documents(
         true,
         false,
         vault_key,
+        None,
     )?;
     Ok(LinkRewriteBatch {
         documents: batch.documents,
@@ -1882,34 +1910,73 @@ fn list_documents(
     markdown_only: bool,
     skip_pdf: bool,
     vault_key: Option<&[u8; 32]>,
+    selected_paths: Option<&[String]>,
 ) -> AppResult<(DocumentBatch, Vec<String>)> {
     let root = canonical_vault(vault_path)?;
     let _vault_lock = acquire_vault_lock(&root, false)?;
     let connection = db::open(db_path)?;
     let (vault_id, _) = ensure_vault(&connection, &root)?;
-    let stats = db::stats_map(&connection, vault_id)?;
+    let stats = if selected_paths.is_none() {
+        Some(db::stats_map(&connection, vault_id)?)
+    } else {
+        None
+    };
     let mut documents = Vec::new();
     let mut skipped_count = 0;
+    let mut skipped_paths = Vec::new();
     let mut loaded_bytes: usize = 0;
     let mut truncated = false;
     let mut available_paths = Vec::new();
 
-    let walker = WalkDir::new(&root)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|entry| {
-            entry.depth() == 0
-                || !entry.file_type().is_dir()
-                || !entry
-                    .file_name()
-                    .to_string_lossy()
-                    .eq_ignore_ascii_case(".denote")
-        });
+    let mut scan_roots = Vec::new();
+    if let Some(paths) = selected_paths {
+        for path in paths {
+            let relative = normalized_relative(path, false)?;
+            if root.join(relative).try_exists()? {
+                let path = existing_entry(&root, path)?;
+                if !scan_roots.contains(&path) {
+                    scan_roots.push(path);
+                }
+            }
+        }
+        scan_roots.sort();
+        let mut unique = Vec::new();
+        for path in scan_roots {
+            if !unique
+                .iter()
+                .any(|parent: &PathBuf| path.starts_with(parent))
+            {
+                unique.push(path);
+            }
+        }
+        scan_roots = unique;
+    } else {
+        scan_roots.push(root.clone());
+    }
+    let walker = scan_roots.into_iter().flat_map(|scan_root| {
+        WalkDir::new(scan_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|entry| {
+                entry.depth() == 0
+                    || !entry.file_type().is_dir()
+                    || !entry
+                        .file_name()
+                        .to_string_lossy()
+                        .eq_ignore_ascii_case(".denote")
+            })
+    });
     for entry in walker {
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
                 skipped_count += 1;
+                if let Some(path) = error
+                    .path()
+                    .and_then(|path| relative_internal_string(&root, path).ok())
+                {
+                    skipped_paths.push(path);
+                }
                 eprintln!("Skipping unreadable vault entry: {error}");
                 continue;
             }
@@ -1932,6 +1999,7 @@ fn list_documents(
             Ok(metadata) => metadata,
             Err(error) => {
                 skipped_count += 1;
+                skipped_paths.push(relative.clone());
                 eprintln!("Skipping unreadable vault metadata for {relative}: {error}");
                 continue;
             }
@@ -1961,29 +2029,34 @@ fn list_documents(
             Ok(length) => length,
             Err(error) => {
                 skipped_count += 1;
+                skipped_paths.push(relative.clone());
                 eprintln!("Skipping unreadable file length for {relative}: {error}");
                 continue;
             }
         };
         if plaintext_len > max_bytes {
             skipped_count += 1;
+            skipped_paths.push(relative.clone());
             continue;
         }
         let bytes = match read_plain_file(entry.path(), vault_key) {
             Ok(bytes) => bytes,
             Err(error) => {
                 skipped_count += 1;
+                skipped_paths.push(relative.clone());
                 eprintln!("Skipping unreadable file {relative}: {error}");
                 continue;
             }
         };
         if bytes.len() as u64 > max_bytes {
             skipped_count += 1;
+            skipped_paths.push(relative.clone());
             continue;
         }
         let (content, encoding, line_ending) = decode_file_content(&bytes);
         if markdown_only && encoding != FileEncoding::Utf8 {
             skipped_count += 1;
+            skipped_paths.push(relative.clone());
             continue;
         }
         if loaded_bytes.saturating_add(content.len()) > max_aggregate_bytes {
@@ -2004,7 +2077,10 @@ fn list_documents(
         } else {
             (Vec::new(), title_from_file_path(&relative))
         };
-        let stored = stats.get(&relative).cloned().unwrap_or_default();
+        let stored = match &stats {
+            Some(stats) => stats.get(&relative).cloned().unwrap_or_default(),
+            None => db::get_stats(&connection, vault_id, &relative)?,
+        };
         documents.push(SearchDocument {
             created_at: file_created_at(&symlink_metadata, Some(&stored)),
             modified_at: symlink_metadata
@@ -2015,6 +2091,7 @@ fn list_documents(
             title,
             tags,
             content_hash: hash_bytes(&bytes),
+            content_bytes: content.len(),
             content,
             encoding,
             line_ending,
@@ -2027,6 +2104,7 @@ fn list_documents(
         DocumentBatch {
             documents,
             skipped_count,
+            skipped_paths,
             truncated,
         },
         available_paths,
@@ -6581,6 +6659,74 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn incremental_search_reads_only_requested_subtrees_and_deduplicates_roots() {
+        let directory = tempdir().expect("temp directory");
+        let root = directory.path().join("vault");
+        fs::create_dir_all(root.join("notes")).unwrap();
+        fs::create_dir_all(root.join("unrelated")).unwrap();
+        fs::write(
+            root.join("notes/Changed.md"),
+            "# Synthetic changed\n\n#incremental",
+        )
+        .unwrap();
+        for index in 0..1_000 {
+            fs::write(
+                root.join(format!("unrelated/{index}.md")),
+                "Synthetic unrelated",
+            )
+            .unwrap();
+        }
+        let database = directory.path().join("index.sqlite3");
+        db::initialize(&database).unwrap();
+        let batch = super::list_search_documents_at_paths(
+            &database,
+            root.to_str().unwrap(),
+            &[
+                "notes".to_string(),
+                "notes/Changed.md".to_string(),
+                "missing.md".to_string(),
+            ],
+            MAX_SEARCH_AGGREGATE_BYTES,
+            None,
+        )
+        .unwrap();
+        assert_eq!(batch.documents.len(), 1);
+        assert_eq!(batch.documents[0].path, "notes/Changed.md");
+        assert_eq!(batch.skipped_count, 0);
+        assert!(!batch.truncated);
+        assert!(
+            super::list_search_documents_at_paths(
+                &database,
+                root.to_str().unwrap(),
+                &["../outside.md".to_string()],
+                MAX_SEARCH_AGGREGATE_BYTES,
+                None,
+            )
+            .is_err()
+        );
+        assert!(
+            super::list_search_documents_at_paths(
+                &database,
+                root.to_str().unwrap(),
+                &[".denote/private.md".to_string()],
+                MAX_SEARCH_AGGREGATE_BYTES,
+                None,
+            )
+            .is_err()
+        );
+        let bounded = super::list_search_documents_at_paths(
+            &database,
+            root.to_str().unwrap(),
+            &["notes".to_string()],
+            1,
+            None,
+        )
+        .unwrap();
+        assert!(bounded.documents.is_empty());
+        assert!(bounded.truncated);
     }
 
     #[test]

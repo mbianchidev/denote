@@ -46,6 +46,7 @@ impl SelectionOptions {
 }
 
 type Completion = Box<dyn FnOnce(AppResult<Option<PathBuf>>) + Send>;
+static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 struct PickerLease<'a>(&'a AtomicBool);
 
@@ -83,7 +84,6 @@ pub(crate) async fn select(
     kind: SelectionKind,
     options: SelectionOptions,
 ) -> AppResult<Option<PathBuf>> {
-    static ACTIVE: AtomicBool = AtomicBool::new(false);
     let lease = PickerLease::acquire(&ACTIVE)?;
     let app = app.clone();
     select_with_callback(move |complete| {
@@ -96,6 +96,43 @@ pub(crate) async fn select(
                 complete(result);
             }),
         );
+    })
+    .await
+}
+
+pub(crate) async fn save(
+    app: &tauri::AppHandle,
+    title: &'static str,
+    file_name: &'static str,
+    extension: &'static str,
+) -> AppResult<Option<PathBuf>> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let lease = PickerLease::acquire(&ACTIVE)?;
+    let app = app.clone();
+    select_with_callback(move |complete| {
+        let open = move || {
+            app.dialog()
+                .file()
+                .set_title(title)
+                .set_file_name(file_name)
+                .add_filter(extension.to_ascii_uppercase(), &[extension])
+                .save_file(move |selected| {
+                    drop(lease);
+                    complete(
+                        selected
+                            .map(|path| {
+                                path.into_path()
+                                    .map_err(|error| AppError::InvalidPath(error.to_string()))
+                            })
+                            .transpose(),
+                    );
+                });
+        };
+        #[cfg(target_os = "macos")]
+        dispatch2::DispatchQueue::main().exec_async(open);
+        #[cfg(not(target_os = "macos"))]
+        open();
     })
     .await
 }

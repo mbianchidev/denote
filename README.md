@@ -84,6 +84,9 @@ vaults and focusing the linked file. See
 [files, tabs, and vaults](docs/user-guide/docs/Files,%20tabs,%20and%20vaults.md)
 and the [keyboard shortcuts](docs/user-guide/docs/Keyboard%20shortcuts.md).
 
+Search indexes saved changes incrementally and keeps large-vault work in the
+background; see [search and replace](docs/user-guide/docs/Search%20and%20replace.md).
+
 Project files always show line numbers, and project Markdown uses Source mode.
 A workspace discovers its direct child folders as projects. These marks are
 local metadata, not changes to your folder structure. Display guides can also
@@ -105,8 +108,11 @@ approval; it is not included in the desktop installer or enabled by default.
   approve local language servers and optional debuggers for Rust, Go, Python,
   Java, C/C++, and JavaScript/TypeScript.
 - **Writing and planning:** Emoji picker, Calendar and daily notes, Advanced
-  task lists, Reminders, and Note graph. Calendar includes daily, created, and
+  task lists, Reminders, Time tracking, and Note graph. Calendar includes daily, created, and
   last-updated views; daily-note creation never overwrites existing files.
+  [Time tracking](docs/user-guide/docs/Optional%20plugins.md#time-tracking)
+  adds a standalone timer, countdowns, and alarms alongside note/project sessions,
+  summaries, audited corrections, and local exports.
 - **Structured and visual content:** JSON and YAML viewer, Mermaid diagrams,
   and Kanban boards. Existing Obsidian Kanban boards, including escaped exports,
   open read-only without changing their source; explicit migration makes them

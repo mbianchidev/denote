@@ -263,7 +263,7 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, task-list, calendar, reminders, note-graph, and diagram-renderer
+`kanban-board`, task-list, calendar, reminders, time-tracking, clocks, note-graph, and diagram-renderer
 registrations. Approved plugins
 may also observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations otherwise
@@ -533,6 +533,94 @@ modification dates. Opening an activity result never creates or edits a note.
 Calendar workers and models are withdrawn on vault switch/lock and discarded on
 disable/update/crash. Enabled workers restart for the current unlocked vault.
 Disabling deletes package code and archives but never dates, notes, or folders.
+
+### Local time tracking
+
+The additive API version 1 `time-tracking` permission exposes only
+`context.capabilities.timeTracking.register(provider)`. A provider registers a
+namespaced ID, title, and serialized request handler. Only one time-tracking
+provider may be registered across enabled plugins. Requests carry a
+host-issued opaque vault scope, a native continuous-clock sample, and optionally
+one closed start/pause/resume/stop/correct operation. Starting supplies only the
+active Markdown note's relative path, tags, project identity/root, and optional
+description. No note body, absolute path, DOM, filesystem, process, network, or
+timer API is exposed.
+
+Models contain at most 500 sessions with bounded running segments and
+before/after correction histories. Worker and host validate registration,
+requests, records, state transitions, one active session, and serialized size.
+The host withdraws providers and stale responses on vault switch/lock and
+deterministically unregisters them on teardown.
+
+The host owns accessible rail/status/command-palette controls, native
+continuous-clock samples, 30-second checkpoints, focus/wake catch-up, summaries,
+correction forms, and explicit CSV/JSON save dialogs. Native clocks include
+sleep and ignore wall-clock adjustments. A per-plugin hashed boot identity
+allows recovery across ordinary app restarts; a changed boot pauses at the
+last checkpoint instead of substituting wall-clock duration.
+
+`plugins/time-tracking/` owns the session state machine and persistence. Its
+single versioned plugin-storage value enforces one running or paused session
+across vaults. A query for another vault returns no foreign note metadata.
+Corrections require a matching revision, a reason, and a valid stopped interval;
+prior values remain immutable. Storage reserves room for stop/recovery writes.
+Sessions are application metadata, not encrypted vault files.
+
+Explicit disablement, disable-all, and data cleanup first confirm stopping
+timers, then persist a host clock cutoff under `TIME_TRACKING_STOP_KEY` before
+removing execution. The worker applies that cutoff before recovery, including
+after disablement while locked. A persisted barrier rejects pre-disable queued
+mutations. Updates, settings reloads, and ordinary shutdown do not stop a timer.
+Only explicit data cleanup deletes history.
+
+Exports refresh the current-vault snapshot, preserve audit data, and neutralize
+formula-like CSV cells. Native export rechecks permission, vault, and unlock
+state after the asynchronous save dialog and atomically writes a bounded text
+file. The plugin cannot choose a destination or call this export adapter.
+
+### Global clocks
+
+The additive API version 1 `clocks` permission exposes only
+`context.capabilities.clocks.register(provider)` and also requires
+`notifications`. Each plugin may register one namespaced provider with a title
+and typed request handler. A request carries a host continuous-clock sample
+and an optional closed stopwatch, countdown, alarm, or delivery mutation, never
+a document or vault identifier. Native `plugin_clock_sample` checks the enabled
+grant and reuses the per-plugin hashed boot identity.
+
+The host and worker validate requests and models, including one standalone
+stopwatch, at most 32 countdowns of up to seven days, at most 32 alarms, bounded
+names/errors, civil date/time and IANA zones, native clock anchors, revisions,
+occurrences, and a 128 KiB serialized-model limit. Alarm editing requires a
+matching revision. Delivery and row actions carry occurrence identities so
+stale responses cannot acknowledge a later alarm.
+
+Clock providers are global. Their workers remain available on vault switch and
+lock, but any paired time-tracking provider remains guarded by the current
+unlocked vault. A manifest cannot combine `clocks` with `structured-viewer`,
+`kanban-board`, `task-list`, `note-graph`, `calendar`, `diagram-renderer`, or
+`code-intelligence`; SDK and native checks reject those content-retention
+combinations. The host never grants DOM access, a worker timer, or a direct
+notification service.
+
+`plugins/time-tracking/src/clocks.ts` owns persistent clock state. Continuous
+duration recovery follows note tracking's same-boot/reboot rules. Civil alarm
+scheduling uses the SDK helpers also used by Reminders, including earlier-DST
+ambiguity resolution, gap rejection, and daily recurrence that skips gaps.
+Snooze is five minutes from the current instant. Confirmed disablement writes
+`CLOCKS_STOP_KEY` before unloading, pauses the stopwatch, cancels countdowns,
+and disables alarms. Re-enabling requires explicit resume/restart/enable
+actions; it never adds disabled time.
+
+The host owns Timer, Countdowns, Alarm, Notes, global banners, adaptive deadline
+checks, OS notifications, and optional gesture-enabled repeating sound.
+System sound additionally requires `clocks`; OS notification acceptance does
+not guarantee delivery. No background daemon schedules alerts while Denote is
+closed. Catch-up retains all visible occurrences and batches a large backlog.
+Delivery first persists `sending`; failures and interrupted dispatch remain
+explicitly retryable without automatic duplicate notifications. Dismiss and
+snooze are authoritative host controls, including while locked. Stopping sound
+mutes current occurrences only. All clock metadata is outside vault encryption.
 
 ### Local reminders
 

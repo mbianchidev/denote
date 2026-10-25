@@ -164,12 +164,16 @@ jobs:
       - name: Rust backport tests
         if: hashFiles('src-tauri/vendor/glib/Cargo.toml') != ''
         run: |
-          cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --lib
+          if [ -f scripts/test-gtk-backports.mjs ]; then
+            node scripts/test-gtk-backports.mjs
+          else
+            cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --lib
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
+          fi
           cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
-          cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
 
       - name: Linux D-Bus backport tests
         if: hashFiles('src-tauri/vendor/tauri-plugin-opener/Cargo.toml') != ''

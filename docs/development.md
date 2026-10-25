@@ -171,6 +171,29 @@ Whole-DOM tracing is disabled during measurements because it changes input and
 render timings; collect a separate `--trace on` run only for functional diagnosis.
 Results and failure screenshots stay in ignored `.performance-artifacts/`.
 
+The same browser command also measures a 20,000-note synthetic vault below the
+existing content budget. It requires a real search worker, bounded native read
+requests covering the complete inventory, unchanged Rich input-to-paint limits,
+and exactly one saved-file read after editing one note. The final note must
+remain searchable. A second gate updates graph, task-list, and calendar
+projections over 20,000 source records: only one graph/task document may change,
+every unchanged bounded projection must retain its object identity, and the
+combined warm projection pass must finish below 200 ms.
+
+Deterministic index and scope checks run with:
+
+```bash
+npx vitest run src/lib/search.test.ts src/lib/searchDocuments.test.ts \
+  src/lib/searchWorker.test.ts src/plugins/noteGraphs.test.ts \
+  src/plugins/taskLists.test.ts src/plugins/calendars.test.ts src/App.test.tsx
+```
+
+These checks count actual ZBSearch chunk insertions/removals, exercise worker
+failure/recovery and teardown, reject stale deletion snapshots, and retain the
+64 MiB global budget across changed-path reads. Native scoped-reader tests cover
+subtree deduplication, traversal/internal-path refusal, and small remaining
+budgets. No real vault content is used.
+
 CI runs the browser gate once on Linux, reusing its existing frontend build
 instead of building again, and uploads evidence on failure. After an existing
 local build, use `npx tsc --noEmit -p tsconfig.benchmarks.json` followed by
@@ -185,7 +208,8 @@ cargo test --manifest-path src-tauri/Cargo.toml --locked \
 
 This regression invokes the real registered Tauri commands through MockRuntime
 IPC while another thread holds a synthetic vault access lock. Reads, PDF and
-image delivery, saves, edit tracking, refresh, and last-vault restoration must
+image delivery, saves, edit tracking, refresh, last-vault restoration, content
+index/replace/link scans, and global filename discovery must
 return control to the dispatcher within 100 ms, even when I/O cannot proceed.
 After releasing the lock, responses and saved bytes must still be correct.
 The budget measures UI dispatch, not total disk or encryption completion time.
@@ -924,6 +948,53 @@ source commit for the intended Denote release and commit the generated catalog
 and `plugins/code-intelligence/releases.json` separately. No tool executable or
 plugin archive belongs in Git or a desktop installer.
 
+### Time tracking plugin development
+
+Use `npm run dev:plugin -- denote.time-tracking` with the isolated development
+application. Version 0.2.0 requests `time-tracking`, `clocks`, and `notifications`;
+its worker owns note sessions, correction history, and the standalone stopwatch,
+countdowns, and alarms. The host owns UI, native clock samples, scheduling,
+notification dispatch, gesture-enabled sound, and explicit exports.
+
+```bash
+npx vitest run \
+  packages/plugin-sdk/src/timeTracking.test.ts packages/plugin-sdk/src/clocks.test.ts \
+  packages/plugin-sdk/src/civilTime.test.ts plugins/time-tracking/tests \
+  src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts \
+  src/plugins/usePlugins.test.tsx src/plugins/useTimeTracking.test.tsx src/plugins/useClocks.test.tsx \
+  src/lib/clockSound.test.ts src/components/ClockPanel.test.tsx src/components/ClockBanners.test.tsx \
+  src/components/TimeTrackingPanel.test.tsx src/components/ActivityRail.test.tsx \
+  src/App.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugins::time_tracking::tests
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugin_v5_
+```
+
+Use synthetic notes, project IDs, scopes, clock samples, and histories. Cover
+one active timer across vaults, pause exclusion, sleep/wake and wall-clock
+changes, same-boot restart, reboot recovery without guessing, stale requests,
+locked disablement, cancelled confirmation, immutable revisioned corrections,
+CSV formula safety, midnight/daylight-saving summary bounds, atomic storage
+failures, and native export authorization/bounds.
+Also cover independent simultaneous clocks without an active note, countdown
+pause/resume/restart and limits, civil alarms and DST, revision/occurrence races,
+notification batching/failure/retry, interrupted dispatch, locked banner actions,
+sound gesture/cleanup, and writing both disable cutoffs before unloading.
+Mock sound and system notifications; never ring real alarms during tests.
+
+macOS uses `mach_continuous_time`, Linux uses `CLOCK_BOOTTIME`, and Windows uses
+`GetTickCount64` plus the 32-byte boot-environment GUID query. These require no
+new dependency or Tauri-family upgrade. Native clock tests run on all desktop
+CI platforms. A clock/boot-identity failure must stay visible; never substitute
+wall-clock duration.
+
+The Welcome `plugins-v5` inventory contains only `plugins/Time tracking.md`.
+Keep earlier inventories/markers and edited/deleted examples unchanged.
+Commit source, SDK, build inputs, documentation, and lockfile first, then pin
+`denote.time-tracking` 0.2.0 for Denote `v0.10.0` and commit its catalog/ledger
+separately. The earlier prepared 0.1.0 reservation remains immutable, even
+though it was not published. Existing plugin source pins and archive identities
+stay unchanged.
+
 ## Frontend bundle limits
 
 `npm run build` uses entry-aware Rolldown groups and rejects main-thread
@@ -976,6 +1047,31 @@ runtime pin** below. Do not accept a partial npm or Cargo runtime upgrade.
 These automation boundaries do not replace the JavaScript and source-aware
 Rust audits; any security fix crossing them still requires the documented
 compatibility or plugin-release procedure.
+
+The Denote 0.10.0 refresh updates Mermaid to 12.2.0 and the shared
+`mdast-util-from-markdown` graph to 2.1.0. Fresh plugin identities are Mermaid
+0.2.10, Note graph 0.1.7, Reminders 0.3.3, and Advanced task lists 0.1.4.
+Reminders also adopts the shared civil-time helpers. Commit all source,
+SDK/build inputs, guides, legal notices, and the installed lock graph first;
+pin these four packages and Time tracking 0.2.0 to that full source SHA with
+`--release v0.10.0`, then commit appended ledgers/catalog separately.
+Unchanged packages retain their existing source identities and bytes.
+
+Keep the published v0.9.0 DOMPurify remediation from issue #130: canonical
+DOMPurify 3.4.17, KaTeX 0.18.10, lodash-es 4.18.1, source-map-js 1.2.2, and
+Undici 8.12.3 remain security overrides. Deprecated KaTeX 0.18.11 accidentally
+included breaking 0.19 changes and is not a routine patch upgrade. Retain Vite
+8.3.5, archive-compatible Rolldown 1.2.15, and pako 3.0.2. Do not rewrite old
+ledger entries or repin old versions to fix already-published remediation.
+The host-only compatible updates are autocomplete 6.20.4, @pierre/diffs 1.6.1,
+and jsdom 30.1.3; no Tauri-family upgrade is implied.
+
+After pinning, inspect `npm ls mermaid mdast-util-from-markdown dompurify katex
+lodash-es rolldown`, run full and workspace-root `npm audit --audit-level=low`,
+the affected plugin tests and full suite, `check:plugins`, `package:plugins`,
+`check:plugin-downloads -- --source`, `check:plugin-archives -- --base
+<full-origin-main-SHA>`, and `npm run build`. Check the real Mermaid entrypoint
+and archive limits, native/CI gates, and macOS DMG handoff as usual.
 
 ## Rust dependency audits and Linux backports
 
@@ -1163,12 +1259,8 @@ CI rejects any unmaintained-crate or yanked-version warning in either scan.
 Run the backport checks with:
 
 ```bash
-cargo rustc --manifest-path src-tauri/Cargo.toml --locked --package glib --lib -- -Dunused_parens -Dmismatched_lifetime_syntaxes
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --lib
+node scripts/test-gtk-backports.mjs
 cargo test --manifest-path src-tauri/Cargo.toml --locked --package urlpattern
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib-macros
-cargo test --manifest-path src-tauri/Cargo.toml --locked --package glib --features compiletests --test subclass_compiletest
-cargo test --manifest-path src-tauri/Cargo.toml --locked --release --package glib --lib -- variant_iter collections::strv::test::test_into_strv
 DENOTE_TEST_DBUS=1 dbus-run-session -- cargo test --manifest-path src-tauri/Cargo.toml --locked \
   --package tauri-plugin-opener --package tauri-plugin-single-instance \
   --package tauri-plugin-notification --lib linux_backport
@@ -1197,12 +1289,26 @@ array. Length, null termination, and every returned string remain asserted.
 The local GLib source explicitly spells its previously elided return lifetimes
 and removes unnecessary trait-object type parentheses without changing borrowing
 semantics or upstream package identity. CI and release validation compile that
-library with `unused_parens` and `mismatched_lifetime_syntaxes` denied. Recent
-compilers may still report deprecated-fixture lints in upstream tests; nested
-macro fixtures can report unused application patches because they deliberately
-build smaller graphs. Those diagnostics are distinct from RustSec findings;
-the source-aware audit verifies the actual application resolver rather than
-those isolated fixtures.
+library with `unused_parens` and `mismatched_lifetime_syntaxes` denied.
+`scripts/test-gtk-backports.mjs` also denies compiler warnings across the GLib
+and macro suites and checks the original GTK3 macro library. Numeric fixtures
+use `MAX`; extension-trait getters put `must_use` on trait declarations, not
+trait implementations; the subclass fixture exercises its extension method;
+and unused GTK3 parser fields are removed without changing error spans.
+
+The driver copies the exact two GLib source packages into an excluded temporary
+workspace under `src-tauri/target/`, with only their two required patches.
+It seeds that workspace from the authoritative lockfile, resolves offline, and
+rejects any local identity or registry dependency version absent from the
+reviewed application graph before running tests with the derived lock frozen.
+Nested `trybuild` projects therefore do not inherit unrelated GTK3, Tauri, or
+URLPattern patches. Production keeps all seven patches and its original
+resolver; no Cargo or compiler diagnostics are filtered. Generated source
+copies are cleaned up, while a dedicated GTK target cache remains reusable.
+Source copies stay outside that cache so `trybuild` retains the original
+relative diagnostic paths and unchanged golden files.
+These checks preserve the full debug suite, macro fixtures, subclass
+compile-fail/pass fixtures, and optimized iterator/string-vector regressions.
 The full library suite also keeps ownership of the synthetic main context
 while its cross-thread `spawn_from_within` fixture runs, retains the caller's
 context reference, and joins the worker before teardown. It asserts that a
@@ -1227,9 +1333,14 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for the frontend dependency CI repair in
-[#138](https://github.com/mbianchidev/denote/pull/138). Compatible and latest
-versions below are unchanged. No compatible
+were rechecked for incremental large-vault indexing after the GTK compiler and
+isolated-fixture warning cleanup, following the frontend CI repair in
+[#138](https://github.com/mbianchidev/denote/pull/138), including the
+[official registry index](https://github.com/rust-lang/crates.io-index),
+because the crates.io API returned HTTP 403. Compatible and latest stable
+versions below are unchanged. The three plugins also publish 3.0.0-alpha.3,
+which requires Tauri 3 and still uses zbus 5, so it is not a compatible
+replacement. No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
@@ -1266,6 +1377,13 @@ contain the
 [upstream ICU replacement](https://github.com/denoland/rust-urlpattern/pull/67),
 but the verified Tauri utils 2.9.3 graph requires
 [URLPattern 0.3.0](https://crates.io/crates/urlpattern/0.3.0).
+The direct
+[GTK3-macros advisory](https://rustsec.org/advisories/RUSTSEC-2024-0419)
+is withdrawn; the separate
+[macro-error advisory](https://rustsec.org/advisories/RUSTSEC-2024-0370)
+and [Unicode advisory](https://rustsec.org/advisories/RUSTSEC-2025-0100)
+remain applicable to the original dependency graphs. Neither withdrawal nor
+a newer incompatible release removes the need for these local replacements.
 
 Published
 [notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),

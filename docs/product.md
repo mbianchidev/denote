@@ -171,7 +171,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   plugin.
 - Rich edits keep safe literal punctuation such as isolated `~`, `&`, and
   comparison-operator sequences without adding backslashes or numeric character
-  references. Escaping remains only where removing it would change Markdown
+  references. Safe single boundary spaces typed around an ampersand remain
+  ordinary spaces; code and meaningful Markdown whitespace stay protected.
+  Escaping remains where removing it would change Markdown
   meaning, such as a real line-leading blockquote.
 - Command-Shift-V on macOS and Control-Shift-V on Windows and Linux paste
   clipboard text without carrying rich formatting into the note. The Rich
@@ -217,6 +219,11 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
 - ZBSearch provides local full-text search with a separate location glob and
   visual filters for tags, filename, path, content, file type, bookmarks, and
   recency.
+- Vault indexing reads and retokenizes only changed files after ordinary saves
+  or known mutations. Initial loading uses bounded native batches, while search
+  building and querying run off the UI thread. Unchanged note metadata is reused
+  by calendar, graph, and task-list views; stale vault work is cancelled and
+  concurrent deletions cannot be resurrected by an older scan.
 - Command-F / Control-F opens search with the active file selected in the
   location field and keyboard focus in the search-text field. Every content
   occurrence has its own result and navigates to that exact term. `*` searches
@@ -463,6 +470,38 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   hash, encoding, line endings, revision history, and vault-generation guards.
   Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
   uninterpreted Markdown.
+- The independently installable **Time tracking** plugin is disabled by default
+  and provides **Timer**, **Countdowns**, **Alarm**, and **Notes** modes. Clocks
+  work without an open note: one standalone elapsed timer, up to 32 independent
+  countdowns of at most seven days, and up to 32 one-off or daily alarms.
+  The plugin receives a host continuous clock and only explicit active-note
+  metadata for note sessions. One running or paused note timer exists across
+  vaults. Sessions retain relative
+  note paths, tags, project snapshots, start/end times, duration, and optional
+  descriptions locally, outside vault encryption. Notes are never rewritten.
+- Time tracking supports start, pause, resume, stop, daily/weekly summaries,
+  note/project/tag grouping, CSV/JSON exports, and reasoned corrections with
+  immutable before/after history. Weeks begin Monday in the current local time
+  zone; segments split across summary boundaries and paused time is excluded.
+- Timer duration includes sleep and application-closed time during the same
+  system boot, without trusting wall-clock changes. After a system reboot,
+  recovery pauses at the last saved checkpoint and requires review rather than
+  fabricating elapsed time. Explicit disablement, disable-all, and data cleanup
+  require confirmation and persist a stop cutoff even while the vault is locked.
+  Re-enabling never counts time spent disabled.
+- Countdown expiry and civil-time alarms remain visible until dismissed.
+  Alarms retain their IANA time zone, allow five-minute snooze, reject nonexistent
+  daylight-saving times, and select the earlier repeated local time. Daily
+  alarms advance to the next valid future civil occurrence after dismissal.
+  The host catches up after sleep, throttling, and restart; Denote must be
+  running to issue alerts. No closed-application alarm daemon is installed.
+- **Clocks** and **Notifications** are separate approvals. System delivery and
+  sound depend on operating-system settings. Repeating in-app sound needs an
+  explicit gesture, including after restart; **Stop sound** mutes only current
+  occurrences without dismissing their alerts. Global banners retain dismiss,
+  snooze, and sound controls while a vault is locked. Clock names and schedules,
+  like session metadata, live outside vault encryption. Confirmed disablement
+  pauses the standalone timer, cancels countdowns, and disables alarms.
 - The independently installable **Reminders** plugin is disabled by default and
   requests separate Reminders and Notifications approvals. Its host-rendered
   activity-rail view creates standalone reminders or optional links to the

@@ -2,15 +2,13 @@ import {
   MAX_PLUGIN_REMINDERS,
   MAX_PLUGIN_REMINDER_TARGETS,
   isPluginReminderModel,
-  isReminderLocalDateTime,
-  isReminderTimeZone,
+  nextRecurringSchedule,
+  resolveReminderSchedule,
   type PluginReminderLink,
   type PluginReminderModel,
   type PluginReminderMutationRequest,
   type PluginReminderQuery,
-  type PluginReminderRecurrence,
   type PluginReminderRecord,
-  type PluginReminderSchedule,
   type PluginReminderTarget,
   type PluginReminderTargetsModel,
   type PluginReminderTargetsRequest,
@@ -19,6 +17,8 @@ import {
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmTaskListItemFromMarkdown } from "mdast-util-gfm-task-list-item";
 import { gfmTaskListItem } from "micromark-extension-gfm-task-list-item";
+
+export { addRecurrence, nextRecurringSchedule, resolveWallClock } from "@denote/plugin-sdk";
 
 interface MarkdownNode {
   type: string;
@@ -60,7 +60,6 @@ const STORAGE_PREFIX = "reminders-v1-";
 const MAX_STORED_BYTES = 240 * 1024;
 const STALE_DELIVERY_MS = 2 * 60_000;
 const TASK_LINE = /^\s*[-*+]\s+\[[ xX]\]\s+(.+)$/u;
-const FORMATTERS = new Map<string, Intl.DateTimeFormat>();
 
 export class ReminderStore {
   constructor(private readonly storage: PluginStorage) {}
@@ -481,63 +480,6 @@ export function parseReminderTargets(
   };
 }
 
-export function resolveReminderSchedule(
-  schedule: PluginReminderSchedule,
-): number {
-  if (schedule.kind === "instant") {
-    return schedule.dueAt;
-  }
-  return resolveWallClock(schedule.localDateTime, schedule.timeZone);
-}
-
-export function resolveWallClock(
-  localDateTime: string,
-  timeZone: string,
-): number {
-  if (
-    !isReminderLocalDateTime(localDateTime) ||
-    !isReminderTimeZone(timeZone)
-  ) {
-    throw new Error("The reminder date, time, or time zone is invalid.");
-  }
-  const [date, time] = localDateTime.split("T");
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const naive = Date.UTC(year, month - 1, day, hour, minute);
-  const offsets = new Set<number>();
-  for (const delta of [
-    -36 * 60 * 60_000,
-    -24 * 60 * 60_000,
-    -12 * 60 * 60_000,
-    0,
-    12 * 60 * 60_000,
-    24 * 60 * 60_000,
-    36 * 60 * 60_000,
-  ]) {
-    const instant = naive + delta;
-    offsets.add(partsAsUtc(zonedParts(instant, timeZone)) - instant);
-  }
-  const candidates = [...offsets]
-    .map((offset) => naive - offset)
-    .filter((instant) =>
-      sameWallClock(zonedParts(instant, timeZone), {
-        year,
-        month,
-        day,
-        hour,
-        minute,
-      }),
-    )
-    .sort((left, right) => left - right);
-  const resolved = candidates[0];
-  if (resolved === undefined) {
-    throw new Error(
-      `The local time ${localDateTime} does not exist in ${timeZone} because of a daylight-saving transition.`,
-    );
-  }
-  return resolved;
-}
-
 function toModel(
   reminders: StoredReminder[],
   notices: string[] = [],
@@ -612,143 +554,6 @@ function pruneArchivedReminder(reminders: StoredReminder[]): void {
     );
   }
   reminders.splice(archived.index, 1);
-}
-
-export function nextRecurringSchedule(
-  schedule: PluginReminderSchedule,
-  recurrence: PluginReminderRecurrence,
-  after: number,
-): PluginReminderSchedule {
-  if (recurrence.unit === "minute" || recurrence.unit === "hour") {
-    const base = resolveReminderSchedule(schedule);
-    const interval =
-      recurrence.interval *
-      (recurrence.unit === "minute" ? 60_000 : 60 * 60_000);
-    const elapsed = Math.max(0, after - base);
-    const steps = Math.floor(elapsed / interval) + 1;
-    return {
-      kind: "instant",
-      dueAt: base + steps * interval,
-      timeZone: schedule.timeZone,
-    };
-  }
-  let localDateTime =
-    schedule.kind === "wall-clock"
-      ? schedule.localDateTime
-      : localDateTimeForInstant(schedule.dueAt, schedule.timeZone);
-  for (let iteration = 0; iteration < 10_000; iteration += 1) {
-    localDateTime = addRecurrence(localDateTime, recurrence);
-    const next: PluginReminderSchedule = {
-      kind: "wall-clock",
-      localDateTime,
-      timeZone: schedule.timeZone,
-    };
-    try {
-      if (resolveReminderSchedule(next) > after) {
-        return next;
-      }
-    } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        !error.message.includes("does not exist")
-      ) {
-        throw error;
-      }
-    }
-  }
-  throw new Error("The recurring reminder could not reach a future date.");
-}
-
-export function addRecurrence(
-  localDateTime: string,
-  recurrence: PluginReminderRecurrence,
-): string {
-  if (!isReminderLocalDateTime(localDateTime)) {
-    throw new Error("The recurring reminder date is invalid.");
-  }
-  const [datePart, timePart] = localDateTime.split("T");
-  const [year, month, day] = datePart.split("-").map(Number);
-  const [hour, minute] = timePart.split(":").map(Number);
-  let targetYear = year;
-  let targetMonth = month;
-  let targetDay = day;
-  switch (recurrence.unit) {
-    case "minute": {
-      const date = new Date(
-        Date.UTC(
-          year,
-          month - 1,
-          day,
-          hour,
-          minute + recurrence.interval,
-        ),
-      );
-      targetYear = date.getUTCFullYear();
-      targetMonth = date.getUTCMonth() + 1;
-      targetDay = date.getUTCDate();
-      return `${String(targetYear).padStart(4, "0")}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
-    }
-    case "hour": {
-      const date = new Date(
-        Date.UTC(
-          year,
-          month - 1,
-          day,
-          hour + recurrence.interval,
-          minute,
-        ),
-      );
-      targetYear = date.getUTCFullYear();
-      targetMonth = date.getUTCMonth() + 1;
-      targetDay = date.getUTCDate();
-      return `${String(targetYear).padStart(4, "0")}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}T${String(date.getUTCHours()).padStart(2, "0")}:${String(date.getUTCMinutes()).padStart(2, "0")}`;
-    }
-    case "day": {
-      const date = new Date(
-        Date.UTC(year, month - 1, day + recurrence.interval, hour, minute),
-      );
-      targetYear = date.getUTCFullYear();
-      targetMonth = date.getUTCMonth() + 1;
-      targetDay = date.getUTCDate();
-      break;
-    }
-    case "week": {
-      const date = new Date(
-        Date.UTC(
-          year,
-          month - 1,
-          day + recurrence.interval * 7,
-          hour,
-          minute,
-        ),
-      );
-      targetYear = date.getUTCFullYear();
-      targetMonth = date.getUTCMonth() + 1;
-      targetDay = date.getUTCDate();
-      break;
-    }
-    case "month": {
-      const monthIndex = month - 1 + recurrence.interval;
-      targetYear = year + Math.floor(monthIndex / 12);
-      targetMonth = ((monthIndex % 12) + 12) % 12 + 1;
-      targetDay = Math.min(day, daysInMonth(targetYear, targetMonth));
-      break;
-    }
-    case "year":
-      targetYear = year + recurrence.interval;
-      targetDay = Math.min(day, daysInMonth(targetYear, month));
-      break;
-  }
-  return `${String(targetYear).padStart(4, "0")}-${String(targetMonth).padStart(2, "0")}-${String(targetDay).padStart(2, "0")}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-}
-
-function localDateTimeForInstant(instant: number, timeZone: string): string {
-  const parts = zonedParts(instant, timeZone);
-  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}T${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
-}
-
-function daysInMonth(year: number, month: number): number {
-  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function recoverInterruptedDeliveries(
@@ -841,78 +646,6 @@ function requireReminder(
 
 function storageKey(workspaceId: string): string {
   return `${STORAGE_PREFIX}${workspaceId}`;
-}
-
-function formatter(timeZone: string): Intl.DateTimeFormat {
-  const existing = FORMATTERS.get(timeZone);
-  if (existing) {
-    return existing;
-  }
-  const created = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    calendar: "gregory",
-    numberingSystem: "latn",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hourCycle: "h23",
-  });
-  FORMATTERS.set(timeZone, created);
-  return created;
-}
-
-function zonedParts(
-  instant: number,
-  timeZone: string,
-): {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-} {
-  const values = new Map(
-    formatter(timeZone)
-      .formatToParts(new Date(instant))
-      .map((part) => [part.type, part.value]),
-  );
-  return {
-    year: Number(values.get("year")),
-    month: Number(values.get("month")),
-    day: Number(values.get("day")),
-    hour: Number(values.get("hour")),
-    minute: Number(values.get("minute")),
-    second: Number(values.get("second")),
-  };
-}
-
-function partsAsUtc(parts: ReturnType<typeof zonedParts>): number {
-  return Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-}
-
-function sameWallClock(
-  actual: ReturnType<typeof zonedParts>,
-  expected: Omit<ReturnType<typeof zonedParts>, "second">,
-): boolean {
-  return (
-    actual.year === expected.year &&
-    actual.month === expected.month &&
-    actual.day === expected.day &&
-    actual.hour === expected.hour &&
-    actual.minute === expected.minute &&
-    actual.second === 0
-  );
 }
 
 function maskFrontmatter(source: string): string {

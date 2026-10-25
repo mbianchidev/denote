@@ -3577,6 +3577,359 @@ button.tag-chip:active,
   font-size: 11px;
 }
 
+.clock-panel,
+.time-tracking-panel {
+  min-width: 0;
+  padding: 0 12px 16px;
+  overflow-y: auto;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.clock-panel .sidebar-view__title {
+  padding-inline: 0;
+}
+
+.clock-panel h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.clock-panel p {
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.clock-panel > form,
+.clock-panel label {
+  display: grid;
+  gap: 8px;
+}
+
+.clock-panel > form {
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.clock-panel label {
+  min-width: 0;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.clock-panel :is(input:not([type="checkbox"]), select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.clock-panel :is(.primary-button, .secondary-button),
+.clock-bumps .secondary-button {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.clock-panel__modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin-bottom: 12px;
+}
+
+.clock-panel__modes button[aria-pressed="true"] {
+  color: var(--accent-strong);
+  background: var(--accent-muted);
+  border-color: var(--accent);
+}
+
+.clock-panel__actions,
+.clock-panel__sound {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.clock-panel__sound {
+  margin-top: 12px;
+}
+
+.clock-panel__sound p {
+  width: 100%;
+}
+
+.clock-panel__duration {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.clock-panel .clock-panel__check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.clock-panel__check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.clock-panel__readout {
+  display: block;
+  padding-block: 8px;
+  font: 32px/1.25 SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.clock-panel__readout--small {
+  font-size: 24px;
+}
+
+.clock-panel__status,
+.clock-panel__notice {
+  color: var(--text-secondary);
+}
+
+.clock-panel__notice {
+  margin-top: 12px;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.clock-panel__error {
+  color: var(--danger);
+}
+
+.clock-panel__records {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clock-panel__records > li {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.time-tracking-panel--embedded {
+  padding: 0;
+  overflow: visible;
+}
+
+.clock-panel :is(button, input, select):focus-visible,
+.clock-bumps button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.clock-bumps {
+  position: fixed;
+  z-index: 70;
+  right: 16px;
+  bottom: 40px;
+  width: min(580px, calc(100vw - 32px));
+  padding: 12px;
+  color: var(--text-primary);
+  background: var(--panel-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: var(--shadow);
+  font-size: 11px;
+}
+
+.clock-bumps ul {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.clock-bumps li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.clock-bumps li > div {
+  display: grid;
+  flex: 1 1 120px;
+  min-width: 0;
+  gap: 3px;
+  overflow-wrap: anywhere;
+}
+
+@media (forced-colors: active) {
+  .clock-panel :is(button, input, select):focus-visible,
+  .clock-bumps button:focus-visible {
+    outline-color: Highlight;
+  }
+}
+
+.time-tracking-panel .sidebar-view__title {
+  padding-inline: 0;
+}
+
+.time-tracking-panel h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+}
+
+.time-tracking-panel p {
+  margin: 4px 0 8px;
+  overflow-wrap: anywhere;
+}
+
+.time-tracking-panel form,
+.time-tracking-panel__filters {
+  display: grid;
+  gap: 8px;
+}
+
+.time-tracking-panel label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.time-tracking-panel :is(input, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 6px;
+  color: var(--text-primary);
+  background: var(--app-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.time-tracking-panel :is(.primary-button, .secondary-button) {
+  min-height: 30px;
+  padding: 5px 9px;
+  font-size: 11px;
+}
+
+.time-tracking-panel__timer,
+.time-tracking-panel__correction,
+.time-tracking-panel__summary {
+  padding-block: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.time-tracking-panel__timer output {
+  display: block;
+  font-family: SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 32px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+}
+
+.time-tracking-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.time-tracking-panel__note {
+  padding: 0;
+  color: var(--accent-strong);
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+
+.time-tracking-panel__status,
+.time-tracking-panel__notice {
+  color: var(--text-secondary);
+}
+
+.time-tracking-panel__notice {
+  padding-left: 8px;
+  border-left: 2px solid var(--warning);
+}
+
+.time-tracking-panel__error {
+  color: var(--danger);
+}
+
+.time-tracking-panel__filters {
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+}
+
+.time-tracking-panel__totals {
+  margin: 8px 0 0;
+}
+
+.time-tracking-panel__totals > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.time-tracking-panel__totals dt {
+  overflow-wrap: anywhere;
+}
+
+.time-tracking-panel__totals dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.time-tracking-panel__sessions {
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.time-tracking-panel__sessions > li {
+  padding-block: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.time-tracking-panel details {
+  margin-top: 8px;
+}
+
+.time-tracking-panel summary {
+  cursor: pointer;
+}
+
+.time-tracking-panel pre {
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.time-tracking-panel :is(button, input, select, summary):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .time-tracking-panel :is(button, input, select, summary):focus-visible {
+    outline-color: Highlight;
+  }
+}
+
 .reminder-panel {
   min-width: 0;
   padding: 0 12px 16px;
@@ -5255,6 +5608,14 @@ button.tag-chip:active,
   overflow: hidden;
   color: var(--text-secondary);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.status-bar .status-bar__timer {
+  min-height: 20px;
+  height: 20px;
+  padding: 0 5px;
+  font-size: inherit;
   white-space: nowrap;
 }
 

@@ -15,9 +15,11 @@ trying its view. Opening an example never installs or enables a plugin.
 | Note graph | [Note graph](<Note graph.md>) | Explore three linked notes with a tag filter and Local depth |
 | Advanced task lists | [Advanced tasks](<Advanced tasks.md>) | Filter open/completed tasks, tags, paths, and due dates |
 | Reminders | [Reminder targets](<Reminders.md>) | Create standalone or linked reminders, edit them, and repeat them on a schedule |
+| Time tracking | [Time tracking practice](<Time tracking.md>) | Start, pause, resume, and stop a note timer; inspect totals, audit a correction, and export sessions |
 | Code intelligence | [Code intelligence exercise](<Code intelligence.md>) | Explicitly approve an installed language server; inspect source and navigate without installing tools automatically |
 
-Disable a plugin at any time; the files remain. Git is a written, opt-in
+Disable a plugin at any time; the files remain. Time tracking asks for
+confirmation before stopping an active timer. Git is a written, opt-in
 exercise: do not initialize a repository in this Welcome vault. No sample
 contains an executable setup script or configures a remote.
 

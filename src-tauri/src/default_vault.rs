@@ -16,6 +16,7 @@ const PLUGIN_EXAMPLE_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v1";
 const PLUGIN_EXAMPLE_V2_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v2";
 const PLUGIN_EXAMPLE_V3_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v3";
 const PLUGIN_EXAMPLE_V4_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v4";
+const PLUGIN_EXAMPLE_V5_FIXTURE_MARKER: &str = ".denote/fixtures/plugins-v5";
 const PLUGIN_EXAMPLE_V1_PATH: &str = "plugins/Kanban board.kanban.md";
 const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
     "plugins/README.md",
@@ -33,7 +34,12 @@ const PLUGIN_EXAMPLE_V2_PATHS: &[&str] = &[
 ];
 const PLUGIN_EXAMPLE_V3_PATHS: &[&str] = &["plugins/Reminders.md"];
 const PLUGIN_EXAMPLE_V4_PATHS: &[&str] = &["plugins/Code intelligence.md"];
+const PLUGIN_EXAMPLE_V5_PATHS: &[&str] = &["plugins/Time tracking.md"];
 const SEED_FILES: &[(&str, &[u8])] = &[
+    (
+        "plugins/Time tracking.md",
+        include_bytes!("../../docs/user-guide/plugins/Time tracking.md"),
+    ),
     (
         "plugins/Code intelligence.md",
         include_bytes!("../../docs/user-guide/plugins/Code intelligence.md"),
@@ -651,6 +657,13 @@ fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -
         PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
         |path| PLUGIN_EXAMPLE_V4_PATHS.contains(&path),
         "plugin example v4",
+    )?;
+    add_missing_seed_collection_once(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V5_FIXTURE_MARKER,
+        |path| PLUGIN_EXAMPLE_V5_PATHS.contains(&path),
+        "plugin example v5",
     )
 }
 
@@ -769,6 +782,12 @@ fn write_plugin_example_fixture_markers(
         vault_key,
         PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
         "plugin example v4",
+    )?;
+    write_seed_collection_marker(
+        root,
+        vault_key,
+        PLUGIN_EXAMPLE_V5_FIXTURE_MARKER,
+        "plugin example v5",
     )
 }
 
@@ -1025,6 +1044,7 @@ mod tests {
             ),
             ("denote.task-lists", &["plugins/Advanced tasks.md"]),
             ("denote.reminders", &["plugins/Reminders.md"]),
+            ("denote.time-tracking", &["plugins/Time tracking.md"]),
             (
                 "denote.code-intelligence",
                 &["plugins/Code intelligence.md"],
@@ -1064,12 +1084,14 @@ mod tests {
         );
         assert_eq!(PLUGIN_EXAMPLE_V3_PATHS, &["plugins/Reminders.md"]);
         assert_eq!(PLUGIN_EXAMPLE_V4_PATHS, &["plugins/Code intelligence.md"]);
+        assert_eq!(PLUGIN_EXAMPLE_V5_PATHS, &["plugins/Time tracking.md"]);
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS.len(),
             expected_paths.len()
                 - 1
                 - PLUGIN_EXAMPLE_V3_PATHS.len()
                 - PLUGIN_EXAMPLE_V4_PATHS.len()
+                - PLUGIN_EXAMPLE_V5_PATHS.len()
         );
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS
@@ -1082,6 +1104,7 @@ mod tests {
                     *path != PLUGIN_EXAMPLE_V1_PATH
                         && !PLUGIN_EXAMPLE_V3_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V4_PATHS.contains(path)
+                        && !PLUGIN_EXAMPLE_V5_PATHS.contains(path)
                 })
                 .collect::<BTreeSet<_>>()
         );
@@ -1292,6 +1315,39 @@ mod tests {
     }
 
     #[test]
+    fn plugin_v5_adds_only_time_tracking_and_preserves_deleted_or_edited_samples() {
+        let directory = tempdir().expect("synthetic directory");
+        let vault = directory.path().join(DEFAULT_VAULT_NAME);
+        fs::create_dir_all(vault.join(".denote/fixtures")).expect("fixtures");
+        fs::create_dir(vault.join("plugins")).expect("plugins");
+        for marker in [
+            PLUGIN_EXAMPLE_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
+        ] {
+            fs::write(vault.join(marker), b"Original synthetic marker\n").expect("marker");
+        }
+        add_missing_plugin_examples_once(&vault, None).expect("new example");
+        let sample = vault.join("plugins/Time tracking.md");
+        assert!(sample.is_file());
+        assert!(!vault.join("plugins/Reminders.md").exists());
+        fs::write(&sample, b"Edited synthetic time example\n").expect("edit");
+        add_missing_plugin_examples_once(&vault, None).expect("repeat");
+        assert_eq!(
+            fs::read(&sample).expect("sample"),
+            b"Edited synthetic time example\n"
+        );
+        fs::remove_file(&sample).expect("delete");
+        add_missing_plugin_examples_once(&vault, None).expect("repeat after deletion");
+        assert!(!sample.exists());
+        assert_eq!(
+            fs::read(vault.join(PLUGIN_EXAMPLE_V4_FIXTURE_MARKER)).expect("prior marker"),
+            b"Original synthetic marker\n"
+        );
+    }
+
+    #[test]
     fn plugin_v3_adds_only_reminders_and_never_restores_it() {
         let directory = tempdir().expect("temp directory");
         let vault = directory.path().join(DEFAULT_VAULT_NAME);
@@ -1431,6 +1487,8 @@ mod tests {
         assert!(!resolved.join(PLUGIN_EXAMPLE_FIXTURE_MARKER).exists());
         assert!(!resolved.join(PLUGIN_EXAMPLE_V2_FIXTURE_MARKER).exists());
         assert!(!resolved.join(PLUGIN_EXAMPLE_V3_FIXTURE_MARKER).exists());
+        assert!(!resolved.join(PLUGIN_EXAMPLE_V4_FIXTURE_MARKER).exists());
+        assert!(!resolved.join(PLUGIN_EXAMPLE_V5_FIXTURE_MARKER).exists());
 
         let key = vault_key.copy_bytes();
         add_missing_plugin_examples_after_unlock(
@@ -1454,6 +1512,8 @@ mod tests {
             PLUGIN_EXAMPLE_FIXTURE_MARKER,
             PLUGIN_EXAMPLE_V2_FIXTURE_MARKER,
             PLUGIN_EXAMPLE_V3_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V4_FIXTURE_MARKER,
+            PLUGIN_EXAMPLE_V5_FIXTURE_MARKER,
         ] {
             let encrypted = fs::read(resolved.join(marker)).expect("encrypted marker");
             assert_ne!(encrypted, b"applied\n");

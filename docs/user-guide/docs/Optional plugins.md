@@ -102,6 +102,93 @@ vaults. Existing files and earlier migration markers stay untouched; samples
 deleted after their set was applied are not restored on later launches.
 Opening an example never installs a plugin or initializes Git.
 
+## Time tracking
+
+Time tracking 0.2.0 requires Denote 0.10.0 or newer and is off by default.
+Enable it under **Productivity** and approve **Time tracking**, **Clocks**, and
+**Notifications**. Open **Time tracking** in the activity rail to choose
+**Timer**, **Countdowns**, **Alarm**, or **Notes**.
+
+### Timer, countdowns, and alarms
+
+**Timer** is a standalone elapsed timer with start, pause, resume, and confirmed
+reset. It does not require an open note. **Countdowns** supports up to 32 named
+countdowns, each from one second to seven days, with pause, resume, restart,
+cancel, dismiss, and delete controls. **Alarm** supports up to 32 one-off or
+daily alarms, explicit date/time, edit, enable/disable, five-minute snooze,
+dismiss, and delete. These modes can run alongside a note session.
+
+Alarms keep the displayed IANA time zone. A repeated daylight-saving time uses
+its earlier occurrence; a nonexistent local time is refused. Dismissing a daily
+alarm advances to the next valid future civil occurrence. Countdown and timer
+duration includes sleep and closed-application time during the same boot.
+After a system reboot they pause at the last saved checkpoint instead of
+guessing missing duration.
+
+Denote must be running to issue alerts. It catches up after sleep, throttling,
+or restart; it does not install a closed-application alarm service. Operating
+system notifications and sounds depend on system settings. **Repeat alarm
+sound** enables an in-app repeating tone after a gesture. After restart, use
+**Enable alarm sound** if needed. **Stop sound** mutes current occurrences only;
+their banners remain until dismissal or snooze. A later occurrence can sound
+again. Dispatch failures offer **Retry notification**; an interrupted dispatch
+may already have appeared, so retry only if needed.
+
+Global banners keep dismiss, snooze, and sound controls available while a vault
+is locked. Clock names and schedules are stored outside vault encryption;
+avoid secrets in names. Confirmed disablement pauses the standalone timer,
+cancels countdowns, and disables alarms. Re-enabling never resumes them
+automatically. **Delete saved data** removes all clocks and session history.
+
+### Note sessions
+
+Choose **Notes** with an active Markdown note, optionally enter a description,
+and choose
+**Start timer**. **Pause timer**, **Resume timer**, and **Stop timer** are also
+available as **Note tracking** commands in the command palette. The status bar
+returns to an active timer.
+
+One running or paused session exists across all vaults. Switching notes does
+not change its original note, tags, or project. Return to the original vault
+to control its timer; other vaults never show that note's metadata.
+
+Running time includes sleep and time while Denote is closed. An application
+restart during the same system boot recovers it using the native continuous
+clock. Changing the system clock does not change elapsed time. A system reboot
+pauses the timer at its last checkpoint and shows a recovery notice rather than
+guessing missing duration.
+
+Choose **Daily** or **Weekly**, a date, and a grouping by note, project, or tag.
+Weeks begin Monday in your current time zone. Running segments are split across
+period boundaries and paused time is excluded. Multi-tag sessions contribute to
+each tag, so tag subtotals can overlap.
+
+Stopped sessions offer **Correct session**. Change start/end time, elapsed
+minutes, description, or tags and enter a reason. **Save correction** retains
+the exact previous and new values in **Correction history**. A correction
+replaces pause details and attributes corrected duration from its corrected
+start. Note and project references retain their historical values.
+
+**Export CSV** and **Export JSON** save all sessions in the current vault,
+including audit history and active checkpoints, to a location you choose.
+CSV protects formula-like cells when opened in a spreadsheet; JSON retains
+original text. Neither format changes notes.
+
+Session metadata lives in local application data outside vault encryption.
+Exports are also unencrypted. Disabling, disabling all, or clearing this plugin
+asks for confirmation before stopping a timer, including in a locked vault.
+Cancelling leaves it running. Re-enabling does not count disabled time.
+Ordinary application shutdown, plugin updates, and settings reloads retain the
+running checkpoint instead.
+
+There are no plugin settings. History is bounded to 500 sessions across vaults,
+32 corrections and 512 running segments per session, plus normal plugin-storage
+limits. Export every vault's history before **Delete saved data**, which removes
+all stored sessions and corrections. Storage failures are visible and corrupt
+data is never silently reset.
+
+Try the [time tracking practice](<../plugins/Time tracking.md>).
+
 ## Code intelligence
 
 Code intelligence requires Denote 0.9.0 or newer.

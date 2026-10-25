@@ -53,7 +53,7 @@ pub struct PluginCloneVaultResponse {
     pub snapshot: Option<WorkspaceSnapshot>,
 }
 
-async fn run_blocking<T, F>(operation: F) -> AppResult<T>
+pub(super) async fn run_blocking<T, F>(operation: F) -> AppResult<T>
 where
     T: Send + 'static,
     F: FnOnce() -> AppResult<T> + Send + 'static,
@@ -783,6 +783,7 @@ pub fn plugin_show_notification(
     plugin_id: String,
     title: String,
     body: Option<String>,
+    sound: Option<bool>,
 ) -> AppResult<()> {
     state.enabled_permission(&plugin_id, "notifications")?;
     if title.is_empty() || title.len() > 120 || body.as_ref().is_some_and(|body| body.len() > 1024)
@@ -792,6 +793,17 @@ pub fn plugin_show_notification(
         ));
     }
     let mut notification = app.notification().builder().title(title);
+    if sound.unwrap_or(false) {
+        state.enabled_permission(&plugin_id, "clocks")?;
+        let name = if cfg!(target_os = "macos") {
+            "Glass"
+        } else if cfg!(target_os = "windows") {
+            "ms-winsoundevent:Notification.Default"
+        } else {
+            "alarm-clock-elapsed"
+        };
+        notification = notification.sound(name);
+    }
     if let Some(body) = body {
         notification = notification.body(body);
     }

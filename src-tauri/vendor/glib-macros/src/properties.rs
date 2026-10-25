@@ -708,7 +708,11 @@ pub fn impl_derive_props(input: PropsMacroInput) -> TokenStream {
             .iter()
             .chain(connect_prop_notify.iter())
             .chain(notify_prop.iter())
-            .map(|item| &item.sig);
+            .map(|item| {
+                let attrs = &item.attrs;
+                let signature = &item.sig;
+                quote! { #(#attrs)* #signature }
+            });
         let trait_def = quote! {
             pub trait #trait_ident {
                 #(#signatures;)*
@@ -720,6 +724,7 @@ pub fn impl_derive_props(input: PropsMacroInput) -> TokenStream {
             .chain(notify_prop)
             .map(|mut item| {
                 item.vis = syn::Visibility::Inherited;
+                item.attrs.retain(|attr| !attr.path().is_ident("must_use"));
                 item
             });
         quote! {

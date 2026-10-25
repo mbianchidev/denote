@@ -24,6 +24,7 @@ import {
   protectRichTextComparisonOperators,
   recoverMarkdownLinkTarget,
   restoreRichTextLiteralPunctuation,
+  restoreRichTextBoundarySpaces,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   restoreTocMarkers,
@@ -207,6 +208,39 @@ describe("markdown utilities", () => {
     expect(protectRichTextComparisonOperators("><=\n> quote")).toBe(
       "\\><=\n> quote",
     );
+  });
+
+  it("restores single Rich boundary spaces without changing code or Markdown meaning", () => {
+    expect(restoreRichTextBoundarySpaces("A &&#x20;")).toBe("A & ");
+    expect(restoreRichTextBoundarySpaces("&#32;&")).toBe(" &");
+    expect(restoreRichTextBoundarySpaces("A &&#x20;\n\nNext")).toBe("A & \n\nNext");
+    for (const source of [
+      "`&&#x20;`",
+      "```\n&&#x20;\n```",
+      String.raw`\&#x20;`,
+      "&#x20;# Not a heading",
+      "&#x20;> Not a quote",
+      "&#x20;1. Not a list",
+      "&#32;2) Not a list",
+      "1.&#x20;",
+      "*&#x20;",
+      "#&#x20;",
+      "Heading\n===&#x20;",
+      "| --- |&#x20;",
+      "&#x20;&#x20;&#x20;&#x20;Not code",
+      "A&#x20;&#x20;\nNext",
+      "**Bold&#x20;**",
+      "[Link](https://example.test/&#x20;)",
+    ]) {
+      expect(restoreRichTextBoundarySpaces(source)).toBe(source);
+    }
+  });
+
+  it("restores ordinary Rich spaces without parsing the document", () => {
+    const parse = vi.fn(() => { throw new Error("Ordinary typing must not parse the document."); });
+    expect(restoreRichTextBoundarySpaces("Synthetic everyday&#x20; \n\nA &&#x20;", parse))
+      .toBe("Synthetic everyday  \n\nA & ");
+    expect(parse).not.toHaveBeenCalled();
   });
 
   it("allows Markdown references and generated definition destinations in rich mode", () => {

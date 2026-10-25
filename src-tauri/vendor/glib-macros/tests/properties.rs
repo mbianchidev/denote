@@ -388,6 +388,7 @@ fn props() {
     );
 }
 
+#[deny(unused_attributes)]
 mod ext_trait {
     use glib::subclass::object::DerivedObjectProperties;
     use glib::ObjectExt;

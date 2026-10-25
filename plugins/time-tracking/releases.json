@@ -1,0 +1,24 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "2dff95f1105174197cfd4e638a08e8b779346b2b",
+    "kind": "source",
+    "sourcePath": "plugins/time-tracking",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.time-tracking-0.1.0.tgz",
+      "sha256": "556bb16dfd21e69f245d144d3ba436355e7ca3672f01ce744ceac40b877fbd5b",
+      "sizeBytes": 20355
+    }
+  },
+  {
+    "version": "0.2.0",
+    "sourceCommit": "e28773c0428d08877a1dca65e09cacc18eb24200",
+    "kind": "source",
+    "sourcePath": "plugins/time-tracking",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.time-tracking-0.2.0.tgz",
+      "sha256": "ca12c737f5d389e2479bc8c621873ea8b4881be0d371855cb9f44051f8eddaa0",
+      "sizeBytes": 26752
+    }
+  }
+]

@@ -1,4 +1,4 @@
-import { create, insertMultiple, search } from "zbsearch";
+import { create, insertMultiple, removeMultiple, search } from "zbsearch";
 import type { SearchDocument, SearchMatch, SearchResult } from "../types";
 import { findCaseInsensitiveMatches } from "./textMatch";
 
@@ -55,36 +55,73 @@ export function createEmptySearchFilters(): SearchFilters {
 
 export class VaultSearchIndex {
   private database: SearchDatabase = create({ schema: SEARCH_SCHEMA });
-  private documents: SearchDocument[] = [];
+  private documents = new Map<string, SearchDocument>();
+  private chunkIds = new Map<string, string[]>();
+  private chunkCount = 0;
 
   recordOpen(path: string, lastOpenedAt: string | null): void {
-    this.documents = this.documents.map((document) =>
-      document.path === path ? { ...document, lastOpenedAt } : document,
-    );
+    const document = this.documents.get(path);
+    if (document) this.documents.set(path, { ...document, lastOpenedAt });
   }
 
-  removePaths(remove: (path: string) => boolean): void {
-    this.documents = this.documents.filter(
-      (document) => !remove(document.path),
-    );
+  removePaths(remove: (path: string) => boolean): Promise<void> {
+    return this.update([], [...this.documents.keys()].filter(remove));
   }
 
   async rebuild(documents: SearchDocument[]): Promise<void> {
-    this.documents = documents;
-    this.database = create({ schema: SEARCH_SCHEMA });
-    for (const batch of searchInsertionBatches(documents)) {
-      await insertMultiple(
-        this.database,
-        batch.map((document) => ({
-          ...document,
-          lastOpenedAt: document.lastOpenedAt ?? "",
-        })),
-      );
-      await yieldToBrowser();
-    }
+    const paths = new Set(documents.map((document) => document.path));
+    await this.update(documents, [...this.documents.keys()].filter((path) => !paths.has(path)));
   }
 
-  async query(request: string | SearchRequest): Promise<SearchResult[]> {
+  async update(documents: SearchDocument[], removedPaths: string[]): Promise<void> {
+    const changed = documents.filter((document) => {
+      const previous = this.documents.get(document.path);
+      return !previous || !sameSearchContent(previous, document);
+    });
+    const obsolete = new Set([...removedPaths, ...changed.map((document) => document.path)]);
+    const ids: string[] = [];
+    for (const path of obsolete) {
+      ids.push(...(this.chunkIds.get(path) ?? []));
+      this.chunkIds.delete(path);
+      this.documents.delete(path);
+    }
+    if (ids.length) {
+      await removeMultiple(this.database, ids);
+      this.chunkCount -= ids.length;
+    }
+    const chunkPositions = new Map<string, number>();
+    for (const batch of searchInsertionBatches(changed)) {
+      const inserted = await insertMultiple(
+        this.database,
+        batch.map((document) => {
+          const position = chunkPositions.get(document.path) ?? 0;
+          chunkPositions.set(document.path, position + 1);
+          return {
+            ...document, id: JSON.stringify([document.path, position]),
+            lastOpenedAt: document.lastOpenedAt ?? "",
+          };
+        }),
+      );
+      inserted.forEach((id, position) => {
+        const path = batch[position].path;
+        const chunks = this.chunkIds.get(path) ?? [];
+        chunks.push(id);
+        this.chunkIds.set(path, chunks);
+      });
+      this.chunkCount += inserted.length;
+      await yieldToBrowser();
+    }
+    for (const document of documents) this.documents.set(document.path, document);
+  }
+
+  async query(
+    request: string | SearchRequest,
+    cancelled: () => boolean = () => false,
+  ): Promise<SearchResult[]> {
+    const check = () => {
+      if (cancelled()) throw new DOMException("Search request was superseded.", "AbortError");
+    };
+    check();
     const searchRequest: SearchRequest =
       typeof request === "string"
         ? {
@@ -97,7 +134,7 @@ export class VaultSearchIndex {
       parseSearchQuery(searchRequest.query),
       searchRequest.filters,
     );
-    const scopedDocuments = this.documents.filter((document) =>
+    const scopedDocuments = [...this.documents.values()].filter((document) =>
       matchesSearchLocation(document.path, searchRequest.location),
     );
     const scores = new Map<string, number>();
@@ -108,8 +145,9 @@ export class VaultSearchIndex {
         properties: ["title", "path", "content", "tags"],
         boost: { title: 3, path: 2, tags: 2 },
         tolerance: 1,
-        limit: Math.max(100, this.documents.length),
+        limit: Math.max(100, this.chunkCount),
       });
+      check();
       for (const hit of results.hits) {
         scores.set(
           hit.document.path,
@@ -126,9 +164,10 @@ export class VaultSearchIndex {
           scores.set(document.path, Math.max(scores.get(document.path) ?? 0, 0.1));
         }
         processedBytes += haystack.length;
-        if (processedBytes >= 512 * 1024) {
+        if (processedBytes >= 64 * 1024) {
           processedBytes = 0;
           await yieldToBrowser();
+          check();
         }
       }
 
@@ -149,10 +188,12 @@ export class VaultSearchIndex {
         (left, right) =>
           right.score - left.score ||
           compareRecent(right.document, left.document) ||
-          left.document.title.localeCompare(right.document.title),
+          left.document.title.localeCompare(right.document.title) ||
+          left.document.path.localeCompare(right.document.path),
       );
     const results: SearchResult[] = [];
     for (const result of rankedDocuments) {
+      check();
       const matches = findContentMatches(
         result.document.content,
         parsed,
@@ -176,59 +217,58 @@ export class VaultSearchIndex {
   }
 }
 
-function searchInsertionBatches(documents: SearchDocument[]): SearchDocument[][] {
-  const batches: SearchDocument[][] = [];
+function* searchInsertionBatches(documents: SearchDocument[]): Generator<SearchDocument[]> {
   let batch: SearchDocument[] = [];
   let bytes = 0;
-  for (const document of documents.flatMap(searchDocumentsForIndex)) {
-    const documentBytes =
-      document.path.length +
-      document.title.length +
-      document.content.length +
-      document.tags.join("").length;
-    if (batch.length > 0 && bytes + documentBytes > 512 * 1024) {
-      batches.push(batch);
-      batch = [];
-      bytes = 0;
+  for (const source of documents) {
+    for (const document of searchDocumentsForIndex(source)) {
+      const documentBytes =
+        document.path.length +
+        document.title.length +
+        document.content.length +
+        document.tags.join("").length;
+      if (batch.length > 0 && bytes + documentBytes > 64 * 1024) {
+        yield batch;
+        batch = [];
+        bytes = 0;
+      }
+      batch.push(document);
+      bytes += documentBytes;
     }
-    batch.push(document);
-    bytes += documentBytes;
   }
   if (batch.length > 0) {
-    batches.push(batch);
+    yield batch;
   }
-  return batches;
 }
 
-function searchDocumentsForIndex(document: SearchDocument): SearchDocument[] {
+function* searchDocumentsForIndex(document: SearchDocument): Generator<SearchDocument> {
   const metadataBytes =
     document.path.length +
     document.title.length +
     document.tags.join("").length;
-  const contentBytes = Math.max(64 * 1024, 512 * 1024 - metadataBytes);
+  const contentBytes = Math.max(8 * 1024, 64 * 1024 - metadataBytes);
   if (document.content.length <= contentBytes) {
-    return [document];
+    yield document;
+    return;
   }
-  const chunks: SearchDocument[] = [];
   const overlap = 256;
   const step = contentBytes - overlap;
   for (let start = 0; start < document.content.length; start += step) {
-    chunks.push({
+    yield {
       ...document,
       content: document.content.slice(start, start + contentBytes),
-    });
+    };
   }
-  return chunks;
 }
 
 function yieldToBrowser(): Promise<void> {
-  return new Promise((resolve) => {
-    if (typeof requestAnimationFrame === "function") {
-      requestAnimationFrame(() => resolve());
-    } else {
-      setTimeout(resolve, 0);
-    }
-  });
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+export function sameSearchContent(left: SearchDocument, right: SearchDocument): boolean {
+  return left.path === right.path && left.contentHash === right.contentHash &&
+    left.content === right.content && left.title === right.title &&
+    left.tags.length === right.tags.length && left.tags.every((tag, index) => tag === right.tags[index]);
 }
 
 export function parseSearchQuery(rawQuery: string): ParsedSearch {

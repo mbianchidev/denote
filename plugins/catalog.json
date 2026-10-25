@@ -43,7 +43,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.reference-0.1.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.reference-0.1.2.tgz",
       "sha256": "f8685b04180a2029d899c341ee0bd50ceb1ce4d44fe9d2c0bc069a57c77f38f9",
       "sizeBytes": 16084
     },
@@ -306,7 +306,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.git-0.10.1.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.git-0.10.1.tgz",
       "sha256": "d9d92733648e3b8313e8358f567127760bb13d459bce057ef9b5e2345204d730",
       "sizeBytes": 73558
     },
@@ -376,7 +376,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.emoji-picker-0.1.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.emoji-picker-0.1.3.tgz",
       "sha256": "442a2737c78f971db58a4fb6d8405a05bf997b5475496b7986ce579e682f95d0",
       "sizeBytes": 105664
     },
@@ -416,7 +416,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.json-yaml-viewer-0.1.3.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.json-yaml-viewer-0.1.3.tgz",
       "sha256": "19f6a7a74932a467e1dd88708ec4cc9b4cd61a4f0537cd65706ca94e4c715157",
       "sizeBytes": 66450
     },
@@ -432,7 +432,7 @@
       "schemaVersion": 1,
       "id": "denote.mermaid",
       "name": "Mermaid diagrams",
-      "version": "0.2.9",
+      "version": "0.2.10",
       "description": "Render local Mermaid fenced blocks in Markdown rich view with strict source and SVG safety boundaries.",
       "publisher": {
         "name": "Denote",
@@ -464,13 +464,13 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.mermaid-0.2.9.tgz",
-      "sha256": "47e75c91bffc7e8e9f81a3a70518fe6c9f67f234c044d1c9ce6e0cc3eafc6fe5",
-      "sizeBytes": 1647229
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.mermaid-0.2.10.tgz",
+      "sha256": "4a6ac4f97516adf3b49134d0c233ff6df30f491f7cc0ef6a890542354b88626f",
+      "sizeBytes": 1633741
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+      "sourceCommit": "e28773c0428d08877a1dca65e09cacc18eb24200",
       "trusted": true
     },
     "guide": "# Mermaid diagrams\n\n## Purpose\n\nRender a safe, local subset of fenced `mermaid` blocks inside Markdown Rich\nview while keeping the exact portable fence source available for editing.\n\n## Enablement and permissions\n\nThis version requires Denote 0.5.2 or newer and is disabled by default.\nEnabling it asks only for **Diagram\nrenderer**. Denote downloads and verifies the executable package after approval,\nruns its renderer in an opaque no-network sandbox, and independently sanitizes\nthe returned SVG before display, copy, or export.\n\n## Usage\n\nCreate a fenced block whose language is `mermaid`. The plugin accepts Mermaid\n12.0.0's C4, flowchart, swimlane, ER, Git graph, Gantt, pie, quadrant, XY\nchart, requirement, sequence, class, state, journey, timeline, mindmap, Kanban,\nSankey, packet, radar, block, tree-view, architecture, event-modeling,\nIshikawa, Venn, treemap, Wardley, Cynefin, and railroad detector families.\nUse **Show diagram source** to edit the exact fence, **Copy SVG** to copy\nsanitized SVG text, or **Export SVG** to choose a local file.\n\nAn optional first line such as `%% denote:title: Build flow` supplies the\nbounded accessible figure name. Without it, Denote uses **Mermaid diagram**.\nYAML frontmatter may instead contain a simple `title` and Gantt\n`displayMode: compact`. Other frontmatter keys, nested configuration, YAML\ntags/anchors/aliases, initialization directives, HTML labels, links, callbacks,\nimages, icons, external resources, and custom style directives are rejected.\n\nSource is limited to 32 KiB, 1,000 lines, 4 KiB per line, 500 statements, and\n300 edges. Sanitized SVG is limited to 10,000 elements and 2 MiB. Denote runs\none render at a time, queues at most 32, stops a render after five seconds,\ncaches at most 32 successful results or 16 MiB, and does not retry or cache\nfailures.\n\n## Settings\n\nThis plugin has no settings. Denote follows the live Light, Dark, high-contrast,\nand forced-colors environment automatically.\n\n## Disable behavior\n\nDisabling, removing, updating, or crashing the plugin restores ordinary fenced\ncode rendering. Denote unregisters the contribution, destroys render sandboxes,\nclears derived SVG and caches, and deletes downloaded package code without\nchanging Markdown.\n\n## Troubleshooting\n\nLocated parse errors appear beside only the affected block and keep its source\neditor available. Simplify diagrams that exceed the documented source,\nstatement, edge, time, element, or SVG limits. The plugin is unavailable while\nan encrypted vault is locked and resumes from verified package code after\nunlock.\n\n## Third-party licenses\n\nThe downloaded renderer bundles Mermaid 12.0.0 under the MIT License and\nDOMPurify 3.4.17 under its Apache License 2.0 option. Source notices and license\ntexts ship in the verified archive under `legal/`.\n"
@@ -504,7 +504,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.kanban-0.1.6.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.kanban-0.1.6.tgz",
       "sha256": "b9b26e6f8cccb970b274ee2c55bf877f402152fa52ec5abb8b1e4bae7888e5c1",
       "sizeBytes": 23748
     },
@@ -520,7 +520,7 @@
       "schemaVersion": 1,
       "id": "denote.note-graph",
       "name": "Note graph",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "description": "Explore bounded local connections between Markdown notes without changing vault content.",
       "publisher": {
         "name": "Denote",
@@ -544,13 +544,13 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.note-graph-0.1.6.tgz",
-      "sha256": "98f8cd7c762690bd55090a4393deda2899df003e526a88822fd1874edab22bf2",
-      "sizeBytes": 74353
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.note-graph-0.1.7.tgz",
+      "sha256": "e27afe2e39b9e9b1ac381f609695c92e7e142e53e6de2db67c3e49a9dc67ccf0",
+      "sizeBytes": 74958
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+      "sourceCommit": "e28773c0428d08877a1dca65e09cacc18eb24200",
       "trusted": true
     },
     "guide": "# Note graph\n\n## Purpose\n\nNote graph shows how Markdown notes in the current vault connect to one another.\nIt builds a local, in-memory graph from ordinary Markdown links and never adds\ngraph metadata to a note.\n\n## Enablement and permissions\n\nThe plugin requests only **Note graph** permission. Denote sends the isolated\nplugin worker bounded vault-relative paths, note titles, tags, and Markdown\nsource. The worker has no absolute vault path, DOM access, network access,\nprocess access, encryption key, or workspace write capability. All indexing and\nqueries stay on the device, and enabling the plugin does not change a file.\n\nThe host builds a snapshot of at most 5,000 notes and 8 MiB of Markdown source,\nwith at most 256 KiB from any one note. Denote sends that snapshot to the worker\nas ordered index requests containing at most 256 documents and 512 KiB of source\neach, with at most 512 removed paths in one request. If a vault exceeds a host\nbound, Denote prioritizes the active note and reports that the graph is\nincomplete.\n\n## Usage\n\nOpen **Note graph** from the activity rail after enabling the plugin.\n\nChoose **Open Note graph in a tab** in the graph header, or run that command\nfrom the command palette, to use the full editor pane. The temporary graph tab\ncan be reordered, grouped, moved between panes, and docked like other tabs, but\nit is never written into the vault or restored next launch. Choosing a node\nopens or focuses a separate note tab, keeps the graph available, and makes that\nnote the graph tab's later Local starting point. Switching between the compact\nsidebar and the full tab reuses the completed local index instead of rebuilding\nit.\n\n**Global** mode ranks all matching notes by their total incoming and outgoing\nconnections. **Local** mode starts at the active note and follows incoming and\noutgoing connections as an undirected neighborhood. Choose depth 1, 2, or 3 to\ncontrol how many connection steps are included.\n\nUse the folder, tag, and connection filters together:\n\n- **All folders** does not restrict paths. **Vault root** means only notes whose\n  path has no folder. Any other folder includes notes whose path starts with\n  that `folder/` prefix, including nested folders.\n- Tag matching is exact after case and a leading `#` are normalized.\n- **Orphans only** shows notes with no incoming or outgoing connection.\n  **Connected only** excludes those notes.\n\nChoose a node in the visual graph to open that note through Denote's normal\nnavigation. The full tab uses more pane space, a wider zoom range, and more\nvisible labels than the compact sidebar. The visual graph is pointer-operated.\nIts complete keyboard\nequivalent is **Show keyboard note list**: use the search field to filter the\nvisible result, Arrow Up and Arrow Down to move, Home and End to jump, and Enter\nor Space to open the focused note. The list also states each note's backlink and\noutgoing-link counts.\n\nDrag a visual node to rearrange the graph. The note stays under the pointer\nwhile connected notes follow and nearby notes make space, then the\nconstellation settles after release. A press without meaningful movement still\nopens the note. Layout positions are temporary host view state; the plugin does\nnot receive or save them, and Markdown never changes. With reduced motion,\ndragging remains direct but neighbor and final positions update without a\ncontinuing animation.\n\nThe worker reparses only documents supplied by Denote as changed. Removed paths\nare deleted from the in-memory index. Link targets are resolved against the\ncurrent path set at query time, so adding or removing a target can fix or remove\nan older note's connection without reparsing that unchanged source note. The\nresolved connections, degrees, and local-neighborhood index are cached until\nindexed document content or path membership changes, so changing view filters\ndoes not rebuild the vault graph.\n\nInline links and full, collapsed, or shortcut reference links are supported.\nRoot-relative and note-relative paths, percent-encoded paths, and extensionless\nlinks to `.md` or `.markdown` files are resolved. Exact path case wins; a\ncase-insensitive fallback is used only when it identifies one unique note.\nImages, web and protocol links, fragment-only links, self-links, malformed\npercent encoding, and paths that escape the vault are ignored. Legacy\ndestinations containing bare spaces are recognized outside code, HTML, and\nfrontmatter; prefer portable Markdown such as\n`[Plan](<Project Plan.md>)`.\n\nEach note contributes at most 128 local link occurrences. Repeated links between\nthe same pair of notes become one edge. Across the vault, the plugin analyzes\nthe first 100,000 local link occurrences in deterministic path and source order.\nThe host renders at most 500 nodes and 2,000 edges per query. Counts describe the\nbounded analyzed graph, and notices identify omitted content.\n\n## Settings\n\nThis plugin has no settings. Scope, presentation, folder, tag, orphan, and depth\ncontrols are temporary view filters.\n\n## Disable behavior\n\nDisabling removes the Note graph view, stops the worker, discards its in-memory\nindex, and deletes the downloaded plugin package. Markdown notes and their links\nremain untouched.\n\n## Troubleshooting\n\nIf a connection is missing, check that the destination stays inside the vault,\nuses valid percent encoding, and resolves to one uniquely cased path. When two\nnotes differ only by case, use the target's exact case. For a path with spaces,\nuse angle brackets or percent encoding.\n\nA notice reports notes that could not be parsed, links omitted after the\n128-link per-note or 100,000-link vault analysis bounds, host indexing limits,\nor the 500-node and 2,000-edge rendering limits. Simplify an unusually dense\nnote or narrow the folder, tag, or local-depth filters when the view is\ntruncated.\n\n`mdast-util-from-markdown` parses Markdown inside the worker. It is distributed\nunder the MIT license.\n\n## Licenses and notices\n\nThe Note graph plugin and its bundled `mdast-util-from-markdown` dependency are\navailable under the MIT license:\n\nCopyright (c) Titus Wormer <tituswormer@gmail.com>\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of\nthis software and associated documentation files (the \"Software\"), to deal in\nthe Software without restriction, including without limitation the rights to\nuse, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of\nthe Software, and to permit persons to whom the Software is furnished to do so,\nsubject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS\nFOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR\nCOPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER\nIN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN\nCONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n"
@@ -610,7 +610,7 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.calendar-0.2.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.calendar-0.2.2.tgz",
       "sha256": "e8b5339afa63aaa07aad261d42d66d99d60282e4bc56dfb6766dd71411e98329",
       "sizeBytes": 68438
     },
@@ -626,7 +626,7 @@
       "schemaVersion": 1,
       "id": "denote.task-lists",
       "name": "Advanced task lists",
-      "version": "0.1.3",
+      "version": "0.1.4",
       "description": "Query and safely update Markdown checkboxes across the current vault.",
       "publisher": {
         "name": "Denote",
@@ -650,13 +650,13 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.task-lists-0.1.3.tgz",
-      "sha256": "d08eca65f2247986702c20ccf854828374a34a394799a55427d0e61f3803511a",
-      "sizeBytes": 70002
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.task-lists-0.1.4.tgz",
+      "sha256": "cee4f007b311b4beb90ee398e3a4b821abca90859f7c9054b628c8528657e238",
+      "sizeBytes": 70590
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+      "sourceCommit": "e28773c0428d08877a1dca65e09cacc18eb24200",
       "trusted": true
     },
     "guide": "# Advanced task lists\n\n## Purpose\n\nCollect standard Markdown checkboxes from the current vault into one local task\nview. Tasks remain ordinary portable Markdown and continue to work when the\nplugin is disabled. Requires Denote 0.7.0 or newer.\n\n## Enablement and permissions\n\nDisabled by default. Enable **Advanced task lists** under\n**Settings -> Plugins -> Productivity** and approve **Task list**.\n\nThe permission supplies bounded vault-relative Markdown paths, note titles, and\nsource to an isolated local worker. The worker returns declarative task data and\nmay propose one checkbox-marker change after an explicit toggle. Denote verifies\nthat exactly one `[ ]`, `[x]`, or `[X]` marker changed and owns the save,\nrevision, conflict, encryption, and open-editor behavior. The plugin receives no\nabsolute vault path, raw encryption key, network, process, clipboard, or general\nworkspace-read/write capability.\n\n## Usage\n\nChoose **Advanced task lists** in the activity rail. Filter the consolidated\nlist by:\n\n- **Status:** open, completed, or all tasks.\n- **Tag:** a hashtag such as `#work` found in the task text.\n- **Path:** a case-insensitive vault-relative path fragment.\n- **Due:** overdue, today, upcoming, undated, or any due state.\n\nDue dates use the portable plain-text token `due:YYYY-MM-DD`:\n\n```markdown\n## Release\n\n- [ ] Ship the installer #work due:2026-10-01\n- [x] Publish the notes #docs\n```\n\nThe view shows the note path, one-based source line, and enclosing Markdown\nheading path. Choose the note title to open the source normally. Toggle the\nnative checkbox with a pointer or Space. If the note is already open, Denote\nchanges the current editor buffer and follows ordinary autosave behavior. If it\nis closed, Denote reads and saves it with the existing content hash, encoding,\nline endings, revision history, and vault-generation guards.\n\nTask identity never relies only on a line number. The plugin relocates the exact\ntask line under the same heading and checks the number and occurrence of\nidentical tasks. Nearby inserted or removed lines are safe. Changed, missing, or\nambiguous task content reports a conflict instead of overwriting the note.\n\nFilters, note links, and checkboxes follow normal Tab order. Checkboxes use\nnative keyboard behavior, focus remains visible, and when a completed toggle\nleaves the current filter Denote moves focus to the nearest remaining task.\n\nRecurring-task syntax is intentionally not interpreted in this version.\nRecurrence remains plain Markdown so notes stay portable and no task is\nrecreated unexpectedly.\n\n## Settings\n\nThis plugin has no settings.\n\n## Disable behavior\n\nDisabling stops the worker, withdraws the task view, clears its in-memory index,\nand deletes downloaded package code and cached archives. It never removes or\nrewrites task Markdown. Standard task lists remain editable in every Markdown\nmode.\n\n## Troubleshooting\n\nUse **Refresh current vault** after external file changes. If a toggle reports a\nconflict, open the named note, review the checkbox, and try again after the task\nview refreshes. Identical task lines under one heading remain toggleable while\ntheir count and order are unchanged; changing that group causes a safe conflict.\n\nOnly UTF-8 `.md` and `.markdown` files enter the index. YAML frontmatter, fenced\ncode, and indented code blocks are ignored. Each note is capped at 256 KiB, the\nindex at 5,000 notes and 8 MiB, and each query at 1,000 visible tasks. Bounds and\nskipped or malformed notes are reported instead of presented as a complete\nindex. Locked encrypted vaults expose no task content and stop the worker until\nunlock.\n"
@@ -666,7 +666,7 @@
       "schemaVersion": 1,
       "id": "denote.reminders",
       "name": "Reminders",
-      "version": "0.3.2",
+      "version": "0.3.3",
       "description": "Create editable standalone or linked reminders with optional recurring schedules.",
       "publisher": {
         "name": "Denote",
@@ -706,13 +706,13 @@
       }
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.reminders-0.3.2.tgz",
-      "sha256": "5c26a50ede8c10a11a4f843c88f27906bf71cd06a5fb6b60651d65bbdc3a5a7b",
-      "sizeBytes": 74003
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.reminders-0.3.3.tgz",
+      "sha256": "b6f6aaaa8cc03e0795432dad10a33c27812422a2e824e5f911582b12c9f3cc4a",
+      "sizeBytes": 74588
     },
     "provenance": {
       "publisherId": "denote",
-      "sourceCommit": "4e180efefe2801ac3b200c0b9915dc093990b4ff",
+      "sourceCommit": "e28773c0428d08877a1dca65e09cacc18eb24200",
       "trusted": true
     },
     "guide": "# Reminders\n\n## Purpose\n\nCreate editable standalone reminders or optionally link them to a Markdown note,\nheading, or task. Repeat them every N minutes, hours, days, weeks, months, or\nyears. Reminder records stay in Denote's local plugin data rather than changing\nnote content. Requires Denote 0.7.1 or newer.\n\n## Enablement and permissions\n\nReminders is disabled by default. Enable it under\n**Settings → Plugins → Productivity** and approve **Reminders** and\n**Notifications**. Denote asks for these permissions only when you choose to\nenable the plugin.\n\nThe Reminders permission can supply the active Markdown note to the isolated\nworker while the host-rendered form is open. A note is optional. The worker\nalways returns **No note**, plus bounded note, heading, and task targets when\nsource is available, and stores reminder metadata under an opaque vault scope.\nIt receives no absolute vault path, encryption key, DOM, Tauri API, network,\nprocess, clipboard, or general workspace-read/write access.\n\nNative desktop notifications are best effort. Desktop operating systems do not\noffer one portable action-button API through Tauri, so snooze, dismiss, retry,\nand open-note controls remain in Denote's Reminders panel. Operating-system\nnotification settings, Focus or Do Not Disturb modes, and lock-screen policy can\nstill suppress a notification after the host accepts it.\n\n## Usage\n\nChoose **Reminders** in the activity rail. Select **No note** for a standalone\nreminder. When a Markdown note is open, you can instead choose the whole note,\na heading, or a standard checkbox. Enter a name, date, and time, then choose\n**Create reminder**. Use **Edit** later to change every field.\n\nWall-clock reminders store the selected local civil time and IANA time zone.\nChanging the computer's current time zone does not rewrite that intent.\nAmbiguous daylight-saving times use the earlier occurrence. A local time that\ndoes not exist during a spring-forward transition is refused so it cannot move\nsilently.\n\nUse **Repeat** and **Every** to schedule every N minutes, hours, days, weeks,\nmonths, or years. Minutes and hours use elapsed time. Daily and longer schedules\nkeep civil time. Monthly and yearly reminders clamp to the last valid day of a\nshort month. A recurring civil-time occurrence whose local time is skipped by\ndaylight saving is skipped.\n\nWhen Denote is running, the host rechecks reminders against the wall clock at\nleast once per minute and whenever the window regains focus. After restart,\nreenablement, wake, or returning to a vault, overdue reminders appear in the\npanel and Denote requests a native notification. A large overdue set is\ncollapsed into one system notification while every reminder remains listed.\nEach due reminder also creates an in-app banner. The activity-rail bell shows a\nnumbered attention badge. The banner opens Reminders or can be dismissed without\nchanging the reminder.\n\nUse:\n\n- **Edit** to change the reminder.\n- **Open note** to navigate through Denote's ordinary file flow when the\n  reminder is linked.\n- **Snooze** to schedule the configured number of minutes from now.\n- **Complete** to move a one-time reminder to Completed, or record one recurring\n  occurrence and schedule the next.\n- **Next occurrence** to advance a recurring reminder without completing it.\n- **Dismiss** or **Dismiss series** to move it to Dismissed without deletion.\n- **Restore** to reactivate a dismissed reminder.\n- **Copy** to prefill a new reminder from any Active, Completed, or Dismissed\n  row.\n- **Delete** to permanently remove a Completed or Dismissed reminder.\n- **Retry notification** after a reported native notification error.\n\nSwitch between **Active**, **Completed**, and **Dismissed** above the list.\nArchived reminders do not contribute to the numbered badge or in-app banners.\n\nHeading and task text is used only to choose the target. Persisted links keep the\nvault-relative note path and source line, not copied note body text. Reminder\nnames and note paths are local application metadata and can appear in the\noperating system's notification history or lock screen according to system\nsettings.\n\n## Settings\n\n**Default snooze** controls the Snooze action from 1 minute through 24 hours.\nChanging it reloads the plugin without deleting reminders.\n\n## Disable behavior\n\nDisabling stops the isolated worker, removes the Reminders view, cancels every\nhost timer and in-flight delivery, and deletes downloaded package code and\ncaches. Stored reminder records remain local so reenabling can resume them.\nChoose **Clear data** in plugin settings to delete those records. Notes are\nnever edited or deleted.\n\n## Troubleshooting\n\nIf a notification request fails, the reminder stays visible with the error and\na **Retry notification** action. Check the operating system's notification\nsettings for Denote when no error appears but no banner is visible.\n\nOpen the linked note if a stored source line no longer identifies the same\nheading or task after edits; Reminders never rewrites note content to repair an\nanchor. A corrupt or over-quota plugin data record reports an explicit error.\nUse **Clear data** only when you intend to remove all reminder metadata.\n"
@@ -752,7 +752,7 @@
       "documentation": "guide.md"
     },
     "artifact": {
-      "url": "https://github.com/mbianchidev/denote/releases/download/v0.9.0/denote.code-intelligence-0.1.2.tgz",
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.code-intelligence-0.1.2.tgz",
       "sha256": "b5a2f08fcaa0049eb828907b72d65b2bcc447ad811d0dc75b8f98b40fcc437cc",
       "sizeBytes": 27285
     },
@@ -762,5 +762,51 @@
       "trusted": true
     },
     "guide": "# Code intelligence\n\n## Purpose\n\nUse installed local language servers for Rust, Go, Python, Java, C/C++, and\nJavaScript/TypeScript. Completion, hover, signatures, diagnostics, formatting,\nsymbols, definitions, declarations, implementations, type definitions, and\nreferences use the server's advertised capabilities. Debugging is an independent,\noptional Debug Adapter Protocol session.\n\n## Enablement and permissions\n\nCode intelligence requires Denote 0.9.0, the first release containing its\nhost and native contracts. Older applications refuse it before download.\n\nEnable **Code intelligence** in **Settings → Plugins**. The **Code intelligence**\npermission allows versioned source snapshots and the bounded native protocol\nbridge; **Project context** supplies opaque project identities and relative roots;\n**Sidebar** contributes the host-rendered controls. No downloaded plugin owns\nDOM, native filesystem APIs, executable paths, ports, or encryption keys.\n\nEnabling the plugin starts no native tool and changes no files. Denote never\ninstalls a server, debugger, adapter, runtime, or project dependency. Select each\ninstalled executable, review its arguments/options, enable that integration, and\nchoose **Save and approve**. Start it separately. Native tools and project\nconfiguration have your operating-system privileges, including filesystem and\nnetwork access: approve only trusted tools and projects.\n\nNative tools are unavailable in encrypted vaults, even while unlocked. Denote\nnever creates a plaintext project mirror.\n\n## Usage\n\nOpen **Code intelligence** from the activity rail or find **Code:** actions in\nthe command palette. Each language has separate server and debugger approval.\nThe closest active core project wins. Without one, Denote finds the nearest safe\nlanguage marker, such as Cargo.toml, go.mod, pyproject.toml, pom.xml,\ncompile_commands.json, or tsconfig.json; otherwise it uses the vault root.\n\n### Installed language-server adapters\n\n| Language | Executable and JSON arguments | Upstream |\n| --- | --- | --- |\n| Rust | rust-analyzer, `[]` | https://rust-analyzer.github.io/ |\n| Go | gopls, `[\"serve\"]` | https://go.dev/gopls/ |\n| Python | selected Python interpreter, `[\"-m\",\"pylsp\"]` | https://github.com/python-lsp/python-lsp-server |\n| Java | selected Java interpreter with the installed Eclipse JDT LS launcher jar, configuration directory, and private data directory | https://github.com/eclipse-jdtls/eclipse.jdt.ls |\n| C/C++ | clangd, usually `[]`; provide the project's compilation database | https://clangd.llvm.org/installation |\n| JavaScript/TypeScript | typescript-language-server, `[\"--stdio\"]`; TypeScript must also be installed | https://github.com/typescript-language-server/typescript-language-server |\n\nOn Windows choose the real node.exe, python.exe, or java.exe and put an installed\nscript or jar in its arguments. Batch and PowerShell wrappers are not executed.\nFor a Node-based server the argument array starts with its installed CLI\nentrypoint, followed by `--stdio`. Choose the correct interpreter/environment\nfor the project; no runtime is bundled or downloaded.\n\nStart the server, then use completion or hover in the source editor. Ctrl-Space\nrequests completion, F12 requests definition, Command/Ctrl-Shift-F12 requests\nreferences, Command/Ctrl-Shift-Space requests signatures, Alt/Option-Shift-F\nformats, and F8 visits diagnostics. Every action also has host-rendered controls.\nFormatting is an explicit, single-document, undoable edit checked against the\nsame source version; read mode forbids it. Unsolicited workspace edits are refused.\n\n**Current file**, **Active project**, and **Entire vault** choose symbol scope.\nVault scope has its own approvals and must be started explicitly. Results show\nsymbol/container, path, project, language, and line/column. Filter the bounded\nresult list or enter `path:line:column` to jump without a server. The existing\nBack/Forward controls restore source cursor positions, including same-file jumps\nand targets already open in another pane. History is transient, not Markdown.\nOnly files within the selected vault can be opened.\n\n### Optional debugger adapters\n\n| Language | Installed adapter | Transport and JSON arguments |\n| --- | --- | --- |\n| Rust | CodeLLDB or lldb-dap | CodeLLDB: Loopback TCP, `[\"--port\",\"%PORT%\"]`; lldb-dap: stdio, `[]` |\n| Go | Delve | Loopback TCP, `[\"dap\",\"--listen=127.0.0.1:%PORT%\"]` |\n| Python | debugpy | selected Python interpreter, stdio, `[\"-m\",\"debugpy.adapter\"]` |\n| Java | java-debug extension loaded by Eclipse JDT LS | Java language server transport; start the approved Java server first |\n| C/C++ | lldb-dap or DAP-capable GDB | stdio, `[]` or `[\"--interpreter=dap\"]` |\n| JavaScript/TypeScript | vscode-js-debug's standalone dapDebugServer.js | selected Node interpreter, Loopback TCP, `[\"/installed/path/dapDebugServer.js\",\"%PORT%\"]` |\n\nMaintained adapter sources: https://github.com/vadimcn/codelldb,\nhttps://github.com/go-delve/delve, https://github.com/microsoft/debugpy,\nhttps://github.com/microsoft/java-debug, https://lldb.llvm.org/use/dap.html,\nhttps://sourceware.org/gdb/current/onlinedocs/gdb.html/Debugger-Adapter-Protocol.html,\nand https://github.com/microsoft/vscode-js-debug.\n\nDenote allocates the loopback port and substitutes `%PORT%`. Remote adapter\nconnections and debugger-requested terminal/child-session launches are not\nsupported. Use the adapter's internal console. Java initialization options must\ninclude the installed java-debug jar in `bundles`; the approved Java debug\naction requests its loopback session through the Java server.\n\nSave separate **Launch configuration** and **Attach configuration** JSON for\neach project. `${workspaceFolder}` and `${file}` are expanded only by the host.\nFor example, an LLDB launch may use\n`{\"program\":\"${workspaceFolder}/target/debug/sample\",\"cwd\":\"${workspaceFolder}\"}`;\na Python launch may use\n`{\"program\":\"${file}\",\"cwd\":\"${workspaceFolder}\",\"console\":\"internalConsole\"}`.\nUse the maintained adapter's own launch/attach fields. Attach never asks the\nhost to terminate an independently launched target when disconnecting.\n\nChoose **Launch** or **Attach** explicitly. Add breakpoints by source line,\noptionally with a condition or log message. Unsupported conditional/logpoint\ncapabilities report an error instead of silently changing the breakpoint.\nContinue, Pause, Step over/into/out, Restart, and Stop use the adapter's\ncapabilities. A stop exposes threads and call stacks; select a frame, scope, or\nvariable to inspect it. Explicit watches are re-evaluated on later stops.\nException filter IDs follow the adapter's documentation. Console expressions\nare explicit evaluation actions. External library frames remain visible without\nexposing or navigating filesystem paths outside the vault.\n\n## Settings\n\nServer and debugger enablement, executable approval, arguments, initialization\noptions, and independent launch/attach JSON live in host-owned local plugin\nmetadata, separately for each vault/project/language. Marked projects retain\ntheir configuration when moved or renamed. Never put credentials in these\nfields; use the operating-system environment or the tool's secure credential\nsupport. Executable changes require reapproval.\n\nBreakpoints and watches are project/language-scoped in-memory debug metadata.\nSource snapshots, diagnostics, logs, symbols, and variable references are\nbounded and discarded across the relevant document/session lifecycle.\nSuccessful current-version autosaves and manual saves also notify the running\nlanguage server. Failed saves and stale saved versions never emit didSave.\n\n## Disable behavior\n\nStopping a language integration also stops its debugger. Stopping only debugging\nkeeps language intelligence available. Project/vault changes, plugin updates,\ndisablement, crashes, and application teardown cancel protocol requests and stop\nowned process groups/connections. Package code is removed on disablement; source\nfiles and user-installed tools are never removed. Approved configuration is\nretained for an explicit later start. **Clear plugin data** forgets it.\n\n## Troubleshooting\n\nMissing tools: install one yourself, select its real executable/interpreter,\nreview arguments, and save approval. A changed executable must be approved again.\nA server/adapter exit shows its bounded log and restart controls; a missing\ndebugger does not stop completion or navigation.\n\nUnsupported features remain unavailable rather than guessed. Snippet completion\nand additional cross-file completion edits are not executed. Diagnostics without\ndocument versions are ignored after edits unless the server provides a pull\ndiagnostic response. Requests/results are discarded when documents change or\nclose; cancellation does not require closing Denote.\n\nSource is limited to 4 MiB, results to 500, logs to 200 entries, native sessions\nto 12, and pending native requests to 32 per session. Protocol requests have a\n30-second native timeout; adapter connection and initialization are separately\nbounded. Narrow a query, close unused files, or restart after an exhausted limit.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.time-tracking",
+      "name": "Time tracking",
+      "version": "0.2.0",
+      "description": "Use a timer, countdowns, and alarms alongside note time tracking, summaries, and auditable session exports.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "productivity",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.10.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "time-tracking"
+        },
+        {
+          "capability": "clocks"
+        },
+        {
+          "capability": "notifications"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.10.0/denote.time-tracking-0.2.0.tgz",
+      "sha256": "ca12c737f5d389e2479bc8c621873ea8b4881be0d371855cb9f44051f8eddaa0",
+      "sizeBytes": 26752
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "e28773c0428d08877a1dca65e09cacc18eb24200",
+      "trusted": true
+    },
+    "guide": "# Time tracking\n\n## Purpose\n\nUse a standalone timer, countdowns, and alarms, or track time against Markdown\nnotes, their tags, and the active project. Clocks, sessions, daily and weekly\nsummaries, and correction history stay on this computer.\n\n## Enablement and permissions\n\nTime tracking 0.2.0 requires Denote 0.10.0. Enable **Time tracking** in\n**Settings → Plugins** and approve **Time tracking**, **Clocks**, and\n**Notifications**.\nIt receives only the active note's relative path, tags, and optional project\nidentity/root after you start a note session. It never receives note bodies, absolute\nvault paths, general filesystem access, network access, or process execution.\nThe host provides a continuous native clock and explicit export controls.\n\nClock names, schedules, and session metadata are stored in local application\ndata, outside vault encryption.\nDescriptions and exported CSV/JSON files are not encrypted. Do not put secrets\nin descriptions.\n\n## Usage\n\nOpen **Time tracking** in the activity rail and choose **Timer**,\n**Countdowns**, **Alarm**, or **Notes**.\n\n### Timer\n\nStart the standalone elapsed timer without opening a note. Pause and resume\nretain its elapsed time. **Reset timer** asks before clearing it. It is separate\nfrom note sessions and can run alongside countdowns and alarms.\n\n### Countdowns\n\nEnter a name and duration from one second to seven days, optionally select\n**Repeat alarm sound**, then choose **Start countdown**. Up to 32 countdowns can\nexist independently. Pause, resume, or restart a row; cancel it to stop without\ndeleting it. Expired rows stay visible until dismissed. Delete unused rows to\nmake room.\n\n### Alarm\n\nEnter a name, a future date and time, and optionally **Repeat daily** and\n**Repeat alarm sound**, then choose **Set alarm**. Each of up to 32 alarms\nkeeps the displayed IANA time zone. Editing requires a future schedule.\nRepeated daylight-saving times use the earlier occurrence; nonexistent local\ntimes are refused. Dismissing a daily alarm advances to the next valid future\ncivil occurrence, skipping daylight-saving gaps. **Snooze 5 min** overrides the\nnext occurrence with an instant five minutes from now.\n\nDenote must be running to issue alerts. It catches up after sleep, throttling,\nor restart; it does not install a closed-application alarm service. System\nnotifications and sounds depend on operating-system settings. Repeating in-app\nsound needs a gesture; after restart use **Enable alarm sound** if needed.\n**Stop sound** mutes current occurrences, not future ones, without dismissing\ntheir banners. Locked-vault banners retain dismiss, snooze, and sound controls.\n**Retry notification** is explicit; an interrupted dispatch may already have\nappeared, so retry only if needed.\n\nStandalone timer and countdown duration includes sleep and closed-application\ntime during the same boot, ignoring wall-clock changes. After a system reboot,\nthey pause at their last saved checkpoint. Resume only after reviewing the\nrecovery notice.\n\n### Notes\n\nOpen a Markdown note, choose **Notes**, optionally enter a description, and\nchoose **Start timer**. **Pause timer** excludes paused\ntime; **Resume timer** continues the same session; **Stop timer** finishes it.\nThe command palette exposes the same actions. A status-bar action returns to\nthe running or paused timer.\n\nOnly one note timer can be active, including a paused timer and across vaults.\nChanging notes does not retarget it. Return to its original vault to control it;\nother vaults do not reveal its note metadata. Note paths, tags, and project\nroots are snapshots from the start, not automatic rename tracking.\n\nRunning time includes sleep and time while Denote is closed. Restarting Denote\nduring the same system boot recovers the timer using the native continuous\nclock, not wall-clock subtraction. Clock changes keep elapsed time unchanged.\nAfter an operating-system reboot, the timer pauses at its last saved checkpoint\ninstead of guessing. Review or correct it, then resume or stop it.\n\nChoose **Daily** or **Weekly**, a summary date, and grouping by note, project,\nor tag. Weeks start on Monday in your current time zone. Running segments split\nat period boundaries; paused time is excluded. A session with multiple tags\ncounts toward each tag. The host checkpoints every 30 seconds and rechecks on\nfocus or wake.\n\nChoose **Correct session** on a stopped session to adjust start, end, elapsed\nminutes, description, or tags. A reason is required. **Save correction** retains\nthe exact previous and new values; **Correction history** exposes them.\nCorrections replace the pause breakdown and count corrected duration from the\ncorrected start. Note and project references remain historical snapshots.\n\n**Export CSV** and **Export JSON** refresh the timer first, then ask where to\nsave every session in the current vault, including correction history and\nrunning/paused checkpoints. CSV cells are quoted and formula-like text is\nneutralized for spreadsheets. JSON preserves original text exactly.\n\n## Settings\n\nThis plugin has no configurable settings. Clock state and session history are\ngenerated plugin data, separate from settings exports.\n\n## Disable behavior\n\nDisabling this plugin, disabling all plugins, or clearing its data asks you to\nconfirm stopping clocks and alarms first. Cancelling leaves it enabled and\nrunning. A confirmed native-clock cutoff also applies while its vault is locked;\nre-enabling never counts disabled time. The standalone timer pauses, countdowns\nare cancelled, and alarms are disabled. Resume, restart, or enable them explicitly.\nUpdates and settings reloads preserve running state rather than stopping it.\n\nDisabling removes downloaded code, commands, views, and host checkpoints. It\ndoes not change notes or delete session history. **Delete saved data** explicitly\ndeletes clocks, sessions, and correction history; export note history first.\n\n## Troubleshooting\n\nUse **Refresh** after a clock or wake event if the display has not caught up.\nClock, storage, export, and stale-scope failures appear in the panel. There is\nno wall-clock fallback when the native clock is unavailable.\n\nThe store holds at most 500 sessions across vaults, 32 corrections per session,\n512 running segments per session, and the normal bounded plugin-storage budget.\nSpace is reserved for stopping and recovery. Export history before clearing\nplugin data to begin a new history. Corrupt stored data is never silently reset.\nExports contain only the current vault; open other vaults to export their\nhistory before clearing all plugin data.\n\nAfter a system reboot, uncheckpointed time cannot be reconstructed safely.\nThe recovery notice identifies this case so you can make an auditable correction.\n"
   }
 ]

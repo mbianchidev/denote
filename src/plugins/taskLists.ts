@@ -9,11 +9,16 @@ import {
   type PluginTaskListIndexRequest,
   type PluginTaskListLocator,
 } from "@denote/plugin-sdk";
-import type { DocumentBatch } from "../types";
+import type { DocumentBatch, SearchDocument } from "../types";
+import { searchDocumentBytes } from "../lib/searchDocuments";
 
 const SAFE_TEXT =
   /^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]*$/u;
 const TASK_LINE = /^(\s*[-*+]\s+\[)([ xX])(\]\s+).+$/u;
+const projections = new WeakMap<SearchDocument, {
+  path: string; title: string; source: string; value: PluginTaskListDocument | null;
+}>();
+const sourceSizes = new WeakMap<PluginTaskListDocument, number>();
 
 export interface TaskListSnapshot {
   workspaceKey: string;
@@ -48,16 +53,23 @@ export function createTaskListSnapshot(
     ) {
       continue;
     }
-    const taskDocument = createTaskDocument(
-      document.path,
-      document.title,
-      document.content,
-    );
+    if (documents.length >= MAX_PLUGIN_TASK_LIST_DOCUMENTS || bytes >= MAX_PLUGIN_TASK_LIST_TOTAL_SOURCE_BYTES ||
+      document.content.length > MAX_PLUGIN_TASK_LIST_SOURCE_BYTES) {
+      hostSkipped += 1;
+      continue;
+    }
+    let cached = projections.get(document);
+    if (!cached || cached.path !== document.path || cached.title !== document.title || cached.source !== document.content) {
+      cached = { path: document.path, title: document.title, source: document.content,
+        value: createTaskDocument(document.path, document.title, document.content) };
+      projections.set(document, cached);
+    }
+    const taskDocument = cached.value;
     if (!taskDocument) {
       invalidSkipped += 1;
       continue;
     }
-    const sourceBytes = stringBytes(taskDocument.source);
+    const sourceBytes = searchDocumentBytes(document);
     if (
       sourceBytes > MAX_PLUGIN_TASK_LIST_SOURCE_BYTES ||
       documents.length >= MAX_PLUGIN_TASK_LIST_DOCUMENTS ||
@@ -67,6 +79,7 @@ export function createTaskListSnapshot(
       continue;
     }
     documents.push(taskDocument);
+    sourceSizes.set(taskDocument, sourceBytes);
     bytes += sourceBytes;
   }
   return {
@@ -99,6 +112,7 @@ export function taskListIndexRequests(
   );
   const changed = next.documents.filter((document) => {
     const prior = previousDocuments.get(document.path);
+    if (prior === document) return false;
     return (
       !prior ||
       prior.title !== document.title ||
@@ -207,7 +221,7 @@ function chunkIndexRequests(
   let chunk: PluginTaskListDocument[] = [];
   let bytes = 0;
   for (const document of documents) {
-    const sourceBytes = stringBytes(document.source);
+    const sourceBytes = sourceSizes.get(document) ?? stringBytes(document.source);
     if (
       chunk.length > 0 &&
       (chunk.length >= MAX_PLUGIN_TASK_LIST_INDEX_DOCUMENTS ||

@@ -120,6 +120,7 @@ import {
   recoverMarkdownLinkTarget,
   restoreRichTextTagSyntax,
   restoreRichTextLiteralPunctuation,
+  restoreRichTextBoundarySpaces,
   restoreMarkdownBoundaryWhitespace,
   restoreThematicBreaks,
 } from "../lib/markdown";
@@ -1169,6 +1170,9 @@ export const MarkdownEditor = forwardRef<
                     markerUpdate.markdown,
                     boundaryWhitespaceRef.current!,
                   );
+                if (activeViewModeRef.current === "rich-text") {
+                  output = restoreRichTextBoundarySpaces(output, parse);
+                }
                 if (sourceLineBreak !== "\n" && activeViewModeRef.current === "source") output = output.replace(/\r\n?/g, "\n").replace(/\n/g, sourceLineBreak);
                 if (activeViewModeRef.current === "source") {
                   boundaryWhitespaceRef.current = captureMarkdownBoundaryWhitespace(output);

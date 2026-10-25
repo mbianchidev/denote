@@ -10,6 +10,19 @@ import {
 } from "./noteGraphs";
 
 describe("note graph host snapshots", () => {
+  it("retains unchanged per-note projections when one source changes", () => {
+    const first = document("First.md", "# First");
+    const retained = document("Retained.md", "# Retained");
+    const batch = { documents: [first, retained], skippedCount: 0, truncated: false };
+    const before = createNoteGraphSnapshot("synthetic", batch, [])!;
+    const after = createNoteGraphSnapshot("synthetic", {
+      ...batch, documents: [{ ...first, content: "# Changed" }, retained],
+    }, [])!;
+    expect(after.documents[1]).toBe(before.documents[1]);
+    expect(after.documents[0]).not.toBe(before.documents[0]);
+    expect(noteGraphIndexRequests(before, after)[0].documents).toHaveLength(1);
+  });
+
   it("uses a stable non-vault path for a provider graph tab", () => {
     expect(
       noteGraphTabPath("denote.note-graph", "denote.note-graph.graph"),

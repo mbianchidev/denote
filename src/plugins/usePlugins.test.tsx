@@ -13,6 +13,7 @@ import type {
   PluginNoteGraphContribution,
   PluginReminderContribution,
   PluginTaskListContribution,
+  PluginClockContribution,
 } from "./workerRuntime";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
@@ -28,6 +29,8 @@ interface MockRuntimeInstance {
   onNoteGraphsChanged?: (graphs: PluginNoteGraphContribution[]) => void;
   onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void;
   onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void;
+  onClocksChanged?: (clocks: PluginClockContribution[]) => void;
+  requestClocks: ReturnType<typeof vi.fn>;
   queryCalendar: ReturnType<typeof vi.fn>;
   getEmojiPicker: ReturnType<typeof vi.fn>;
   start: ReturnType<typeof vi.fn>;
@@ -71,6 +74,9 @@ vi.mock("../lib/api", () => ({
     getPluginSettings: vi.fn(),
     importPluginSettings: vi.fn(),
     chooseDevelopmentPluginArchive: vi.fn(),
+    pluginTimeTrackingClock: vi.fn(),
+    pluginClockSample: vi.fn(),
+    pluginStorageSet: vi.fn(),
   },
   errorMessage: (error: unknown) =>
     error instanceof Error ? error.message : String(error),
@@ -175,6 +181,9 @@ vi.mock("./workerRuntime", () => {
     setProjectContext = vi.fn();
     setWorkspaceIdentity = vi.fn();
     invalidateActionLeases = vi.fn();
+    requestClocks = vi.fn(async () => ({
+      stopwatch: { status: "idle", elapsedMs: 0, recoveryNotice: null }, countdowns: [], alarms: [], notices: [],
+    }));
     getEmojiPicker = vi.fn();
 
     constructor(
@@ -194,6 +203,9 @@ vi.mock("./workerRuntime", () => {
       public onCalendarsChanged?: (calendars: PluginCalendarContribution[]) => void,
       public onRemindersChanged?: (reminders: PluginReminderContribution[]) => void,
       public onTaskListsChanged?: (taskLists: PluginTaskListContribution[]) => void,
+      public onCodeProvidersChanged?: unknown,
+      public onTimeTrackersChanged?: unknown,
+      public onClocksChanged?: (clocks: PluginClockContribution[]) => void,
     ) {
       runtimeInstances.push(this);
     }
@@ -261,6 +273,7 @@ async function mountReady(
   projectContext: PluginProjectContext | null = null,
   workspaceIdentity: string | null = "/synthetic/vault-alpha",
   contentAvailable = true,
+  confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ) {
   queueRecoverTransactions();
   queueListPlugins(initialPlugins);
@@ -282,6 +295,7 @@ async function mountReady(
         () => {},
         [],
         currentContentAvailable ?? true,
+        confirmTimeTrackingStop,
       ),
     {
       initialProps: {
@@ -466,7 +480,7 @@ describe("usePlugins", () => {
     },
   );
 
-  it.each(["note-graph", "calendar", "task-list"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
+  it.each(["note-graph", "calendar", "task-list", "time-tracking"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
     const enabled = makePlugin({
       enabled: true,
       approvedPermissions: [{ capability }],
@@ -492,6 +506,62 @@ describe("usePlugins", () => {
       expect(runtime.forceStop).toHaveBeenCalledWith(pluginId),
     );
     await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(enabled));
+  });
+
+  it.each([
+    ["disable", false], ["disableAll", false], ["clearData", false],
+    ["disable", true], ["disableAll", true], ["clearData", true],
+  ] as const)(
+      "confirms %s and checkpoints timers before removing code while locked (combined clocks: %s)",
+      async (operation, combined) => {
+        const enabled = makePlugin({ enabled: true, approvedPermissions: [
+          { capability: "time-tracking" },
+          ...(combined ? [{ capability: "clocks" as const }, { capability: "notifications" as const }] : []),
+        ] });
+        const confirmation = vi.fn().mockResolvedValue(false);
+        const { result } = await mountReady([enabled], null, "/synthetic/vault-alpha", false, confirmation);
+        const clock = { bootId: "synthetic-boot", wallTimeMs: 10_000, monotonicMs: 5_000 };
+        vi.mocked(api.pluginTimeTrackingClock).mockResolvedValue(clock);
+        vi.mocked(api.pluginClockSample).mockResolvedValue(clock);
+        vi.mocked(api.pluginStorageSet).mockImplementation(async () => { callOrder.push("checkpoint"); });
+        vi.mocked(api.disablePlugin).mockImplementation(async () => { callOrder.push("disable"); });
+        const run = () => operation === "disableAll" ? result.current.disableAll() : result.current[operation](pluginId);
+        await act(async () => { await run(); });
+        expect(confirmation).toHaveBeenCalledWith([enabled.catalog.manifest.name]);
+        expect(api.disablePlugin).not.toHaveBeenCalled();
+        expect(api.pluginStorageSet).not.toHaveBeenCalled();
+
+        confirmation.mockResolvedValue(true);
+        queueListPlugins([{ ...enabled, enabled: false }]);
+        await act(async () => { await run(); });
+        expect(api.pluginStorageSet).toHaveBeenCalledWith(pluginId, "host.time-tracking-stop.v1", clock);
+        if (combined) {
+          expect(api.pluginStorageSet).toHaveBeenCalledWith(pluginId, "host.clocks-stop.v1", clock);
+          expect(api.pluginClockSample).toHaveBeenCalledOnce();
+          expect(api.pluginTimeTrackingClock).not.toHaveBeenCalled();
+        }
+        expect(api.pluginStorageSet).toHaveBeenCalledTimes(combined ? 2 : 1);
+        expect(callOrder.lastIndexOf("checkpoint")).toBeLessThan(callOrder.indexOf("disable"));
+      },
+    );
+
+  it("keeps combined clock workers running across vault switches and locks", async () => {
+    const enabled = makePlugin({ enabled: true, approvedPermissions: [
+      { capability: "time-tracking" }, { capability: "clocks" }, { capability: "notifications" },
+    ] });
+    const rendered = await mountReady([enabled]);
+    const runtime = runtimeInstances[0];
+    const clocks = [{ pluginId, id: `${pluginId}.clocks`, title: "Clocks" }];
+    act(() => runtime.onClocksChanged?.(clocks));
+    runtime.stop.mockClear();
+    runtime.forceStop.mockClear();
+    rendered.rerender({
+      currentProjectContext: null, currentWorkspaceIdentity: "/synthetic/vault-beta", currentContentAvailable: false,
+    });
+    expect(rendered.result.current.clocks).toEqual(clocks);
+    await act(async () => { await Promise.resolve(); });
+    expect(runtime.stop).not.toHaveBeenCalled();
+    expect(runtime.forceStop).not.toHaveBeenCalled();
   });
 
   it("withdraws calendar models immediately on a vault switch or lock", async () => {

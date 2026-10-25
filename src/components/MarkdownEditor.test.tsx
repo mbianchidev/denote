@@ -132,6 +132,54 @@ describe("MarkdownEditor task lists", () => {
 });
 
 describe("MarkdownEditor literal punctuation", () => {
+  it.each([
+    { initial: "Edit here", typed: " &", expected: "Edit here &" },
+    { initial: "Edit here", typed: " & ", expected: "Edit here & " },
+    { initial: "Edit here", typed: " & next", expected: "Edit here & next" },
+    { initial: "Edit here", typed: " &copy;", expected: String.raw`Edit here \&copy;` },
+    { initial: "", typed: "&", expected: "&" },
+    { initial: "", typed: " &", expected: " &" },
+  ])(
+    "keeps typed ampersands and ordinary spaces readable in Source mode: $typed",
+    async ({ initial, typed, expected }) => {
+      const user = userEvent.setup();
+      const changed = vi.fn();
+      function Editor() {
+        const [markdown, setMarkdown] = useState(initial);
+        return (
+          <MarkdownEditor
+            notePath="synthetic.md"
+            markdown={markdown}
+            lineEnding="lf"
+            displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+            preferredViewMode="rich-text"
+            readOnly={false}
+            onChange={(value) => {
+              changed(value);
+              setMarkdown(value);
+            }}
+            onError={vi.fn()}
+            onLinkOpen={vi.fn()}
+            onViewModeChange={vi.fn()}
+            onImageUpload={vi.fn()}
+          />
+        );
+      }
+      const { container } = render(<Editor />);
+      for (const character of typed) {
+        await appendSyntheticRichText(character);
+      }
+
+      await waitFor(() => expect(changed).toHaveBeenLastCalledWith(expected));
+      await user.click(screen.getByRole("radio", { name: "Source mode" }));
+      await waitFor(() => {
+        const element = container.querySelector<HTMLElement>(".cm-sourceView .cm-editor");
+        expect(element).not.toBeNull();
+        expect(EditorView.findFromDOM(element!)?.state.doc.toString()).toBe(expected);
+      });
+    },
+  );
+
   it("does not escape safe literal tildes or ampersands typed in Rich mode", async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();

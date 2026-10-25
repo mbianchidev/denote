@@ -50,11 +50,19 @@ import type {
   PluginProcessRequest,
   PluginProcessResult,
   PluginTextDocument,
+  PluginTimeTrackingClock,
 } from "@denote/plugin-sdk";
 import { systemPathForDisplay } from "./systemPath";
 import type { CodeProtocolInvocation, CodeToolConfiguration, CodeToolEnvironment, CodeWorkspaceContext } from "./codeTools";
 
 export const api = {
+  pluginTimeTrackingClock: (pluginId: string) =>
+    invoke<PluginTimeTrackingClock>("plugin_time_tracking_clock", { pluginId }),
+  pluginClockSample: (pluginId: string) =>
+    invoke<PluginTimeTrackingClock>("plugin_clock_sample", { pluginId }),
+  exportTimeTracking: (
+    pluginId: string, workspaceScope: string, format: "csv" | "json", content: string,
+  ) => invoke<boolean>("export_time_tracking", { pluginId, workspaceScope, format, content }),
   codeToolEnvironment: (pluginId: string, context: CodeWorkspaceContext) =>
     invoke<CodeToolEnvironment>("code_tool_environment", { pluginId, context }),
   chooseCodeToolExecutable: (pluginId: string) =>
@@ -243,8 +251,10 @@ export const api = {
       path,
       revisionId,
     }),
-  listSearchDocuments: () =>
-    invoke<DocumentBatch>("list_search_documents"),
+  listSearchDocuments: (paths?: string[], maxBytes?: number) =>
+    paths
+      ? invoke<DocumentBatch>("list_search_documents", { paths, maxBytes })
+      : invoke<DocumentBatch>("list_search_documents"),
   listEditableDocuments: () =>
     invoke<DocumentBatch>("list_editable_documents"),
   listLinkRewriteDocuments: () =>
@@ -399,11 +409,13 @@ export const api = {
     pluginId: string,
     title: string,
     body?: string,
+    sound?: boolean,
   ) =>
     invoke<void>("plugin_show_notification", {
       pluginId,
       title,
       body: body ?? null,
+      sound: sound ?? false,
     }),
   pluginProcessRequest: (
     pluginId: string,
