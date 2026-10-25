@@ -991,6 +991,23 @@ npx vitest run scripts/frontend-bundle.test.ts \
 npx tsc --noEmit -p tsconfig.node.json
 ```
 
+## Dependency update boundaries
+
+Dependabot excludes `plugins/**` and `packages/plugin-sdk/**` from npm version
+updates, and `vendor/**` relative to `/src-tauri` from Cargo version updates.
+These are immutable plugin source inputs or reviewed compatibility backports,
+not independently upgradable manifests. The shared `mdast-util-from-markdown`
+dependency also requires explicitly approved new plugin versions before its
+resolved bytes change. Keep existing catalog entries, release ledgers, and
+archive digests unchanged when updating host-only dependencies.
+
+The npm `@tauri-apps/*` packages and Cargo Tauri, Tao, Wry, WebView2, and
+URLPattern families remain manual updates under **Re-evaluate the Windows
+runtime pin** below. Do not accept a partial npm or Cargo runtime upgrade.
+These automation boundaries do not replace the JavaScript and source-aware
+Rust audits; any security fix crossing them still requires the documented
+compatibility or plugin-release procedure.
+
 ## Rust dependency audits and Linux backports
 
 Run `node scripts/audit-rust-dependencies.mjs`. Windows releases temporarily pin
@@ -1059,6 +1076,13 @@ from the original Tauri plugin archives are omitted because Cargo ignores them
 inside this workspace and they retain unrelated, stale dependency graphs.
 The source-aware audit rejects reintroducing nested vendor lockfiles and
 continues to audit every resolved vendor package's original registry identity.
+
+Keep the vendored manifests on their reviewed dependency API lines. In
+particular, GLib/GTK macros use Syn 2, and the opener build script uses
+`schemars` 0.8 because pinned `tauri-plugin` 2.6.3 accepts its `RootSchema`,
+not the incompatible `Schema` returned by `schemars` 1. Updating these
+dependencies independently of their vendored source is not a compatibility
+backport.
 
 These backports and the maintained credential-store replacement remove all
 nine unmaintained dependencies from the GTK, URLPattern, and D-Bus graph.
@@ -1210,6 +1234,14 @@ macro fixtures can report unused application patches because they deliberately
 build smaller graphs. Those diagnostics are distinct from RustSec findings;
 the source-aware audit verifies the actual application resolver rather than
 those isolated fixtures.
+The full library suite also keeps ownership of the synthetic main context
+while its cross-thread `spawn_from_within` fixture runs, retains the caller's
+context reference, and joins the worker before teardown. It asserts that a
+non-`Send` future executes on the context-owning thread. This prevents a
+detached worker from creating or dropping thread-local futures on the wrong
+thread; no production executor code changes. The
+[GLib 0.22.10 fixture](https://github.com/gtk-rs/gtk-rs-core/blob/0.22.10/glib/src/main_context_futures.rs#L789-L808)
+likewise joins its worker and exercises a non-`Send` value.
 Keep backports limited to the documented fixes, retain upstream attribution,
 and remove them only when compatible upstream releases replace the patched
 sources. Do not replace source fixes with advisory suppression.
@@ -1226,7 +1258,8 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for time-tracking and Rich-editor development, including the
+were rechecked for Timer, Countdowns, and Alarm development and the
+Dependabot compatibility repairs, including the
 [official registry index](https://github.com/rust-lang/crates.io-index),
 because the crates.io API returned HTTP 403. Compatible and latest stable
 versions below are unchanged. The three plugins also publish 3.0.0-alpha.3,
@@ -1240,6 +1273,9 @@ unmaintained `basic-toml`
 ([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374));
 the local regression tooling uses maintained `trybuild` instead, with equivalent
 positive and negative fixtures rather than a warning suppression.
+GLib 0.22.10 also provides the worker-join/non-`Send` fixture pattern linked
+above; the local test retains explicit context ownership and teardown ordering
+without changing the pinned GLib runtime.
 
 [GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
 published compatible GLib release; the
@@ -1304,6 +1340,11 @@ Changing only Wry, only `tauri-utils`, or only the top-level Tauri crate is not 
 supported upgrade.
 
 Last upstream check: **2026-10-25**.
+
+The Dependabot repair rechecked the releases and Windows issue/PR trackers
+below. No published fix was identified for both the blank renderer and
+orphaned process. The npm API 2.11.1, CLI 2.11.5, and complete Cargo runtime
+family therefore stay at their verified versions.
 
 - [Tauri 2.12.5](https://github.com/tauri-apps/tauri/releases/tag/tauri-v2.12.5)
   is the current stable release. Its
