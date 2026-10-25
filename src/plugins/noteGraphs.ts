@@ -9,10 +9,15 @@ import {
   type PluginNoteGraphDocument,
   type PluginNoteGraphIndexRequest,
 } from "@denote/plugin-sdk";
-import type { DocumentBatch, EditorTab } from "../types";
+import type { DocumentBatch, EditorTab, SearchDocument } from "../types";
+import { searchDocumentBytes } from "../lib/searchDocuments";
 
 const SAFE_GRAPH_TEXT =
   /^[^\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]*$/u;
+const projections = new WeakMap<SearchDocument, {
+  path: string; title: string; source: string; tags: string[]; value: PluginNoteGraphDocument | null;
+}>();
+const sourceSizes = new WeakMap<PluginNoteGraphDocument, number>();
 
 export interface NoteGraphSnapshot {
   workspaceKey: string;
@@ -55,7 +60,7 @@ export function createNoteGraphSnapshot(
   if (!batch) {
     return null;
   }
-  const documents = new Map<string, PluginNoteGraphDocument>();
+  const documents = new Map<string, SearchDocument>();
   let invalidSkipped = 0;
   for (const document of batch.documents) {
     if (
@@ -65,17 +70,7 @@ export function createNoteGraphSnapshot(
     ) {
       continue;
     }
-    const graphDocument = createGraphDocument(
-      document.path,
-      document.title,
-      document.content,
-      document.tags,
-    );
-    if (graphDocument) {
-      documents.set(document.path, graphDocument);
-    } else {
-      invalidSkipped += 1;
-    }
+    documents.set(document.path, document);
   }
   const priorities = new Map(
     priorityPaths.map((path, index) => [path, index] as const),
@@ -91,8 +86,23 @@ export function createNoteGraphSnapshot(
   let bytes = 0;
   let hostSkipped = 0;
   let truncated = batch.truncated || invalidSkipped > 0;
-  for (const document of ordered) {
-    const sourceBytes = stringBytes(document.source);
+  for (const source of ordered) {
+    if (bounded.length >= MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS || bytes >= MAX_PLUGIN_NOTE_GRAPH_TOTAL_SOURCE_BYTES ||
+      source.content.length > MAX_PLUGIN_NOTE_GRAPH_SOURCE_BYTES) {
+      hostSkipped += 1;
+      truncated = true;
+      continue;
+    }
+    let cached = projections.get(source);
+    if (!cached || cached.path !== source.path || cached.title !== source.title || cached.source !== source.content ||
+      cached.tags.length !== source.tags.length || !cached.tags.every((tag, index) => tag === source.tags[index])) {
+      cached = { path: source.path, title: source.title, source: source.content, tags: [...source.tags],
+        value: createGraphDocument(source.path, source.title, source.content, source.tags) };
+      projections.set(source, cached);
+    }
+    const document = cached.value;
+    if (!document) { invalidSkipped += 1; truncated = true; continue; }
+    const sourceBytes = searchDocumentBytes(source);
     if (
       sourceBytes > MAX_PLUGIN_NOTE_GRAPH_SOURCE_BYTES ||
       bounded.length >= MAX_PLUGIN_NOTE_GRAPH_DOCUMENTS ||
@@ -103,6 +113,7 @@ export function createNoteGraphSnapshot(
       continue;
     }
     bounded.push(document);
+    sourceSizes.set(document, sourceBytes);
     bytes += sourceBytes;
   }
   return {
@@ -187,6 +198,7 @@ function sameDocument(
   left: PluginNoteGraphDocument,
   right: PluginNoteGraphDocument,
 ): boolean {
+  if (left === right) return true;
   return (
     left.title === right.title &&
     left.source === right.source &&
@@ -206,7 +218,7 @@ function chunkIndexDocuments(
   let chunk: PluginNoteGraphDocument[] = [];
   let bytes = 0;
   for (const document of documents) {
-    const sourceBytes = stringBytes(document.source);
+    const sourceBytes = sourceSizes.get(document) ?? stringBytes(document.source);
     if (
       chunk.length > 0 &&
       (chunk.length >= MAX_PLUGIN_NOTE_GRAPH_INDEX_DOCUMENTS ||

@@ -141,7 +141,14 @@ const mockAppWindow = vi.hoisted(() => ({
 }));
 
 vi.mock("./lib/api", () => ({
-  api: mockApi,
+  api: {
+    ...mockApi,
+    listSearchDocuments: async (paths?: string[], maxBytes?: number) => {
+      const batch = paths ? await mockApi.listSearchDocuments(paths, maxBytes) : await mockApi.listSearchDocuments();
+      return paths ? { ...batch, documents: batch.documents.filter((document: SearchDocument) =>
+        paths.some((path) => document.path === path || document.path.startsWith(`${path}/`))) } : batch;
+    },
+  },
   errorMessage: (value: unknown) =>
     value instanceof Error ? value.message : String(value),
 }));
@@ -366,6 +373,11 @@ vi.mock("./components/FileTree", () => ({
     );
   },
 }));
+
+vi.mock("./lib/searchWorker", async () => {
+  const { VaultSearchIndex } = await import("./lib/search");
+  return { VaultSearchWorker: class extends VaultSearchIndex { dispose() {} } };
+});
 
 import App from "./App";
 

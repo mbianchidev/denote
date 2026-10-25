@@ -8,6 +8,34 @@ function files(...paths: string[]) {
 }
 
 describe("calendar snapshot", () => {
+  it("does not refresh calendar queries for body-only edits with unchanged calendar metadata", () => {
+    const document: SearchDocument = {
+      path: "Synthetic.md", title: "Synthetic", kind: "markdown", content: "---\ndate: 2026-09-01\n---\nOld body",
+      contentHash: "old", tags: [], encoding: "utf8", lineEnding: "lf", bookmarked: false, lastOpenedAt: null,
+    };
+    const batch = { documents: [document], skippedCount: 0, truncated: false };
+    const before = createCalendarSnapshot(files(document.path), batch);
+    const after = createCalendarSnapshot(files(document.path), {
+      ...batch, documents: [{ ...document, content: document.content.replace("Old body", "New body"), contentHash: "new" }],
+    }, before);
+    expect(after).toBe(before);
+  });
+
+  it("reuses unchanged calendar metadata when another note changes", () => {
+    const first: SearchDocument = {
+      path: "First.md", title: "First", kind: "markdown", content: "---\ndate: 2026-09-01\n---\n",
+      contentHash: "first", tags: [], encoding: "utf8", lineEnding: "lf", bookmarked: false, lastOpenedAt: null,
+    };
+    const retained = { ...first, path: "Retained.md", title: "Retained" };
+    const batch = { documents: [first, retained], skippedCount: 0, truncated: false };
+    const before = createCalendarSnapshot(files(first.path, retained.path), batch);
+    const after = createCalendarSnapshot(files(first.path, retained.path), {
+      ...batch, documents: [{ ...first, content: "---\ndate: 2026-09-02\n---\n" }, retained],
+    });
+    expect(after.documents[1]).toBe(before.documents[1]);
+    expect(after.documents[0]).not.toBe(before.documents[0]);
+  });
+
   it("shares only bounded frontmatter and keeps daily filenames when metadata is unavailable", () => {
     const document: SearchDocument = {
       path: "notes/Alpha.md", title: "Alpha", kind: "markdown",

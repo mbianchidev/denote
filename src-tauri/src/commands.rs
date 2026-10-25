@@ -1121,45 +1121,62 @@ pub fn restore_revision(
 }
 
 #[tauri::command]
-pub async fn list_search_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
-    let (db_path, root, key) = {
-        let _vault_access = state.read_vault_access()?;
-        let root = state.active_vault()?;
-        let key = active_key(&state, &root)?;
-        (state.db_path.clone(), root, key)
-    };
-    run_blocking(move || {
-        vault::list_search_documents(&db_path, &root.to_string_lossy(), key.as_deref())
+pub async fn list_search_documents<R: Runtime>(
+    app: AppHandle<R>,
+    paths: Option<Vec<String>>,
+    max_bytes: Option<usize>,
+) -> AppResult<DocumentBatch> {
+    run_vault_scan(app, move |database, root, key| {
+        if let Some(paths) = paths {
+            vault::list_search_documents_at_paths(
+                database,
+                &root.to_string_lossy(),
+                &paths,
+                max_bytes.unwrap_or(64 * 1024 * 1024),
+                key,
+            )
+        } else {
+            vault::list_search_documents(database, &root.to_string_lossy(), key)
+        }
     })
     .await
 }
 
 #[tauri::command]
-pub async fn list_editable_documents(state: State<'_, AppState>) -> AppResult<DocumentBatch> {
-    let (db_path, root, key) = {
-        let _vault_access = state.read_vault_access()?;
-        let root = state.active_vault()?;
-        let key = active_key(&state, &root)?;
-        (state.db_path.clone(), root, key)
-    };
-    run_blocking(move || {
-        vault::list_editable_documents(&db_path, &root.to_string_lossy(), key.as_deref())
+pub async fn list_editable_documents<R: Runtime>(app: AppHandle<R>) -> AppResult<DocumentBatch> {
+    run_vault_scan(app, move |database, root, key| {
+        vault::list_editable_documents(database, &root.to_string_lossy(), key)
     })
     .await
 }
 
 #[tauri::command]
-pub async fn list_link_rewrite_documents(
-    state: State<'_, AppState>,
+pub async fn list_link_rewrite_documents<R: Runtime>(
+    app: AppHandle<R>,
 ) -> AppResult<LinkRewriteBatch> {
-    let (db_path, root, key) = {
-        let _vault_access = state.read_vault_access()?;
-        let root = state.active_vault()?;
-        let key = active_key(&state, &root)?;
-        (state.db_path.clone(), root, key)
-    };
+    run_vault_scan(app, move |database, root, key| {
+        vault::list_link_rewrite_documents(database, &root.to_string_lossy(), key)
+    })
+    .await
+}
+
+async fn run_vault_scan<R, T, F>(app: AppHandle<R>, operation: F) -> AppResult<T>
+where
+    R: Runtime,
+    T: Send + 'static,
+    F: FnOnce(&Path, &Path, Option<&[u8; 32]>) -> AppResult<T> + Send + 'static,
+{
+    let expected_vault = app.state::<AppState>().active_vault()?;
     run_blocking(move || {
-        vault::list_link_rewrite_documents(&db_path, &root.to_string_lossy(), key.as_deref())
+        let state = app.state::<AppState>();
+        let (database, root, key) = with_expected_vault_read(&state, &expected_vault, |root| {
+            Ok((
+                state.db_path.clone(),
+                root.to_path_buf(),
+                active_key(&state, root)?,
+            ))
+        })?;
+        operation(&database, &root, key.as_deref())
     })
     .await
 }

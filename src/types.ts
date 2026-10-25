@@ -284,6 +284,7 @@ export interface SearchDocument {
   title: string;
   content: string;
   contentHash: string;
+  contentBytes?: number;
   encoding: FileEncoding;
   lineEnding: FileLineEnding;
   tags: string[];
@@ -297,6 +298,7 @@ export interface SearchDocument {
 export interface DocumentBatch {
   documents: SearchDocument[];
   skippedCount: number;
+  skippedPaths?: string[];
   truncated: boolean;
 }
 

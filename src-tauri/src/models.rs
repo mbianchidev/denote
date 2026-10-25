@@ -413,6 +413,7 @@ pub struct SearchDocument {
     pub title: String,
     pub content: String,
     pub content_hash: String,
+    pub content_bytes: usize,
     pub encoding: FileEncoding,
     pub line_ending: FileLineEnding,
     pub tags: Vec<String>,
@@ -428,6 +429,7 @@ pub struct SearchDocument {
 pub struct DocumentBatch {
     pub documents: Vec<SearchDocument>,
     pub skipped_count: usize,
+    pub skipped_paths: Vec<String>,
     pub truncated: bool,
 }
 

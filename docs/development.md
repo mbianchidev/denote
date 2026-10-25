@@ -1309,8 +1309,8 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for vendored GTK compiler and isolated-fixture warning cleanup,
-following Timer, Countdowns, and Alarm development and the frontend CI repair in
+were rechecked for incremental large-vault indexing after the GTK compiler and
+isolated-fixture warning cleanup, following the frontend CI repair in
 [#138](https://github.com/mbianchidev/denote/pull/138), including the
 [official registry index](https://github.com/rust-lang/crates.io-index),
 because the crates.io API returned HTTP 403. Compatible and latest stable

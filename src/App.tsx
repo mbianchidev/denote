@@ -191,10 +191,11 @@ import {
 } from "./lib/markdownView";
 import {
   createEmptySearchFilters,
-  VaultSearchIndex,
   type SearchFilters,
   type SearchRequest,
 } from "./lib/search";
+import { VaultSearchWorker } from "./lib/searchWorker";
+import { readSearchSnapshot, VaultSearchDocuments } from "./lib/searchDocuments";
 import {
   resolveSourceLanguage,
   type SourceLanguageOverride,
@@ -1034,7 +1035,14 @@ function App() {
     path: string;
     title: string;
   } | null>(null);
-  const searchIndex = useRef(new VaultSearchIndex());
+  const searchIndex = useRef(new VaultSearchWorker((error) => showError(error)));
+  const searchDocuments = useRef(new VaultSearchDocuments());
+  const previousCalendarSnapshot = useRef<{
+    key: string; value: ReturnType<typeof createCalendarSnapshot>;
+  } | null>(null);
+  const indexWork = useRef<Promise<void>>(Promise.resolve());
+  const indexTree = useRef<FileNode[] | null>(null);
+  const pendingIndexPaths = useRef(new Set<string>());
   const searchIndexReady = useRef(false);
   const searchRequestRef = useRef<SearchRequest>({
     query: searchQuery,
@@ -1131,6 +1139,7 @@ function App() {
       }
       vaultGeneration.current += 1;
       rebuildRequest.current += 1;
+      searchIndex.current.dispose();
       if (indexTimer.current !== null) window.clearTimeout(indexTimer.current);
       if (tabSessionTimer.current !== null) window.clearTimeout(tabSessionTimer.current);
       for (const timer of saveTimers.current.values()) window.clearTimeout(timer);
@@ -1920,11 +1929,17 @@ function App() {
     [reminderScheduler, reminders],
   );
   const buildCalendarSnapshot = useCallback(
-    () => createCalendarSnapshot(
+    () => {
+      const key = `${workspace?.vaultPath}\u0000${vaultGeneration.current}`;
+      const value = createCalendarSnapshot(
       allFiles.filter((file) => file.kind === "markdown"),
       searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
-    ),
-    [allFiles, searchDocumentBatch],
+      previousCalendarSnapshot.current?.key === key ? previousCalendarSnapshot.current.value : null,
+      );
+      previousCalendarSnapshot.current = { key, value };
+      return value;
+    },
+    [allFiles, searchDocumentBatch, workspace?.vaultPath],
   );
   const calendarSnapshot = useMemo(
     () => workspace && activeCalendar ? buildCalendarSnapshot() : null,
@@ -2464,58 +2479,62 @@ function App() {
   );
 
   const rebuildSearchIndex = useCallback(
-    async (generation = vaultGeneration.current) => {
+    async (generation = vaultGeneration.current, paths?: string[], tree?: FileNode[]) => {
       if (!appMounted.current || generation !== vaultGeneration.current) return;
-      const request = ++rebuildRequest.current;
-      searchIndexReady.current = false;
-      setIndexing(true);
-      try {
-        const batch = await api.listSearchDocuments();
-        if (
-          generation !== vaultGeneration.current ||
-          request !== rebuildRequest.current
-        ) {
-          return;
-        }
-        const nextIndex = new VaultSearchIndex();
-        await nextIndex.rebuild(batch.documents);
-        if (
-          generation !== vaultGeneration.current ||
-          request !== rebuildRequest.current
-        ) {
-          return;
-        }
-        searchIndex.current = nextIndex;
-        searchIndexReady.current = true;
-        setSearchDocumentBatch({ generation, batch });
-        const searchRequest = searchRequestRef.current;
-        const results = await nextIndex.query(searchRequest);
-        if (
-          generation === vaultGeneration.current &&
-          request === rebuildRequest.current &&
-          searchRequest === searchRequestRef.current
-        ) {
-          setSearchResults(results);
-          if (batch.skippedCount > 0 || batch.truncated) {
-            setStatus(
-              `Search skipped ${batch.skippedCount} file${
-                batch.skippedCount === 1 ? "" : "s"
-              }${batch.truncated ? " and stopped at the 64 MB index limit" : ""}`,
-            );
+      const index = searchIndex.current;
+      const documents = searchDocuments.current;
+      const operation = indexWork.current.catch(() => undefined).then(async () => {
+        if (!appMounted.current || generation !== vaultGeneration.current || index !== searchIndex.current) return;
+        if (tree) indexTree.current = tree;
+        const request = ++rebuildRequest.current;
+        setIndexing(true);
+        try {
+          if (paths && searchIndexReady.current) {
+            for (let start = 0; start < paths.length; start += 256) {
+              const roots = paths.slice(start, start + 256);
+              const startedAt = documents.revision;
+              const batch = await api.listSearchDocuments(roots, documents.availableBytes(roots));
+              if (generation !== vaultGeneration.current || index !== searchIndex.current) return;
+              documents.update(roots, batch, startedAt);
+            }
+          } else {
+            const startedAt = documents.revision;
+            const inventory = tree ?? indexTree.current;
+            if (!inventory) throw new Error("The vault file listing is unavailable for indexing.");
+            const batch = await readSearchSnapshot(inventory, api.listSearchDocuments, () =>
+              appMounted.current && generation === vaultGeneration.current && index === searchIndex.current);
+            if (generation !== vaultGeneration.current || index !== searchIndex.current) return;
+            documents.replace(batch, startedAt);
           }
+          let batch = documents.snapshot;
+          while (true) {
+            await index.rebuild(batch.documents);
+            if (generation !== vaultGeneration.current || index !== searchIndex.current) return;
+            if (batch === documents.snapshot) break;
+            batch = documents.snapshot;
+          }
+          if (generation !== vaultGeneration.current || request !== rebuildRequest.current) return;
+          searchIndexReady.current = true;
+          setSearchDocumentBatch((current) => current?.generation === generation && current.batch === batch
+            ? current : { generation, batch });
+          const searchRequest = searchRequestRef.current;
+          const results = await index.query(searchRequest);
+          if (generation === vaultGeneration.current && request === rebuildRequest.current &&
+            searchRequest === searchRequestRef.current) {
+            setSearchResults(results);
+            if (batch.skippedCount > 0 || batch.truncated) {
+              setStatus(`Search skipped ${batch.skippedCount} file${batch.skippedCount === 1 ? "" : "s"}${
+                batch.truncated ? " and stopped at the 64 MB index limit" : ""}`);
+            }
+          }
+        } catch (caught) {
+          if (generation === vaultGeneration.current && !(caught instanceof Error && caught.name === "AbortError")) showError(caught);
+        } finally {
+          if (generation === vaultGeneration.current && request === rebuildRequest.current) setIndexing(false);
         }
-      } catch (caught) {
-        if (generation === vaultGeneration.current) {
-          showError(caught);
-        }
-      } finally {
-        if (
-          generation === vaultGeneration.current &&
-          request === rebuildRequest.current
-        ) {
-          setIndexing(false);
-        }
-      }
+      });
+      indexWork.current = operation;
+      await operation;
     },
     [showError],
   );
@@ -2547,7 +2566,7 @@ function App() {
             ),
           };
         });
-        await rebuildSearchIndex(generation);
+        await rebuildSearchIndex(generation, undefined, snapshot.tree);
       } catch (caught) {
         if (
           generation === vaultGeneration.current &&
@@ -2579,7 +2598,13 @@ function App() {
       workspaceRefreshRequest.current += 1;
       gitignoreSnapshotUpdates.current.clear();
       queryRequest.current += 1;
-      searchIndex.current = new VaultSearchIndex();
+      searchIndex.current.dispose();
+      searchIndex.current = new VaultSearchWorker((error) => showError(error));
+      searchDocuments.current = new VaultSearchDocuments();
+      previousCalendarSnapshot.current = null;
+      indexTree.current = snapshot.tree;
+      indexWork.current = Promise.resolve();
+      pendingIndexPaths.current.clear();
       searchIndexReady.current = false;
       setSearchDocumentBatch(null);
       setSearchResults([]);
@@ -2676,7 +2701,7 @@ function App() {
           setIndexing(true);
           void refreshCachedWorkspace(generation);
         } else {
-          void rebuildSearchIndex(generation);
+          void rebuildSearchIndex(generation, undefined, snapshot.tree);
         }
       }
     },
@@ -2691,7 +2716,7 @@ function App() {
   );
 
   const refreshWorkspace = useCallback(
-    async (reindex = false): Promise<WorkspaceSnapshot | null> => {
+    async (reindex: boolean | string[] = false): Promise<WorkspaceSnapshot | null> => {
       if (!workspace) {
         return null;
       }
@@ -2725,7 +2750,7 @@ function App() {
           // rather than from a state updater React may run later.
           applied = snapshot;
           if (reindex || !searchIndexReady.current) {
-            await rebuildSearchIndex(generation);
+            await rebuildSearchIndex(generation, Array.isArray(reindex) ? reindex : undefined, snapshot.tree);
           }
         }
       } catch (caught) {
@@ -2744,11 +2769,11 @@ function App() {
     [rebuildSearchIndex, showError, workspace],
   );
 
-  const refreshAndReindex = useCallback(async () => {
+  const refreshAndReindex = useCallback(async (paths?: string[]) => {
     if (!workspace) {
       return null;
     }
-    return refreshWorkspace(true);
+    return refreshWorkspace(paths ?? true);
   }, [refreshWorkspace, workspace]);
 
   const applyProjectConfiguration = useCallback(
@@ -3580,11 +3605,13 @@ function App() {
       ) {
         setSearchResults(results);
       }
-    })();
+    })().catch((error) => {
+      if (!cancelled && request === queryRequest.current && !(error instanceof Error && error.name === "AbortError")) showError(error);
+    });
     return () => {
       cancelled = true;
     };
-  }, [searchFilters, searchLocation, searchQuery]);
+  }, [searchFilters, searchLocation, searchQuery, showError]);
 
   const chooseVault = useCallback(async () => {
     setVaultSwitcherOpen(false);
@@ -3758,17 +3785,20 @@ function App() {
     }
   }, [applyEncryptionSnapshot, setWorkspaceLock, showError]);
 
-  const scheduleIndexRebuild = useCallback(() => {
+  const scheduleIndexRebuild = useCallback((paths: string[]) => {
     if (!workspace || !appMounted.current) {
       return;
     }
     if (indexTimer.current) {
       window.clearTimeout(indexTimer.current);
     }
+    for (const path of paths) pendingIndexPaths.current.add(path);
     const generation = vaultGeneration.current;
     indexTimer.current = window.setTimeout(() => {
       indexTimer.current = null;
-      void rebuildSearchIndex(generation);
+      const paths = [...pendingIndexPaths.current];
+      pendingIndexPaths.current.clear();
+      void rebuildSearchIndex(generation, paths);
     }, 900);
   }, [rebuildSearchIndex, workspace]);
 
@@ -3845,7 +3875,7 @@ function App() {
                 ));
               });
             }
-            scheduleIndexRebuild();
+            if (expectedVaultGeneration === vaultGeneration.current) scheduleIndexRebuild([path]);
             if (isGitignorePath(path)) {
               await refreshIgnoredStatus(
                 expectedVaultGeneration,
@@ -4510,6 +4540,9 @@ function App() {
           path,
           tab.stats?.lastOpenedAt ?? null,
         );
+        setSearchDocumentBatch((current) => current?.generation === vaultGeneration.current
+          ? { generation: current.generation, batch: searchDocuments.current.recordOpen(path, tab.stats?.lastOpenedAt ?? null) }
+          : current);
       } catch (caught) {
         if (generation === vaultGeneration.current) {
           const snapshot = await refreshAndReindex();
@@ -4999,6 +5032,9 @@ function App() {
             target.path,
             opened.stats?.lastOpenedAt ?? null,
           );
+          setSearchDocumentBatch((current) => current?.generation === vaultGeneration.current
+            ? { generation: current.generation, batch: searchDocuments.current.recordOpen(target.path, opened.stats?.lastOpenedAt ?? null) }
+            : current);
         } catch (caught) {
           if (generation === vaultGeneration.current) {
             showError(caught);
@@ -5421,7 +5457,7 @@ function App() {
         );
         assertCurrent();
         setStatus(outcome.changed ? "Task updated" : "No changes");
-        scheduleIndexRebuild();
+        scheduleIndexRebuild([task.path]);
       });
       const queue = operation.then(
         () => true,
@@ -6694,7 +6730,7 @@ function App() {
         }
       }
       if (createdNode) {
-        scheduleIndexRebuild();
+        scheduleIndexRebuild([createdNode.path]);
         if (!directory) {
           await openFile(createdNode.path);
         }
@@ -6737,7 +6773,7 @@ function App() {
         throw new Error("Calendar action expired after a vault or plugin change.");
       }
       await api.pluginCalendarOpenDailyNote(provider.pluginId, vaultPath, day.dailyNotePath, day.date);
-      if (!(await refreshWorkspace(true))) {
+      if (!(await refreshWorkspace([day.dailyNotePath]))) {
         throw new Error("The daily note is available, but the vault could not be refreshed. Refresh the vault before retrying.");
       }
     } finally {
@@ -6954,7 +6990,7 @@ function App() {
       for (const tab of affectedTabs) {
         cancelPendingPath(tab.path);
       }
-      const refreshed = await refreshAndReindex();
+      const refreshed = await refreshAndReindex([node.path, newPath, ...linkUpdates.keys()]);
       if (errorSequence.current !== initialErrorSequence) {
         setStatus("Action failed");
       } else if (refreshed && rewritten) {
@@ -7104,7 +7140,7 @@ function App() {
         if (targetParentPath) {
           setExpandedPaths((current) => new Set(current).add(targetParentPath));
         }
-        const refreshed = await refreshAndReindex();
+        const refreshed = await refreshAndReindex([node.path, newPath, ...linkUpdates.keys()]);
         if (errorSequence.current !== initialErrorSequence) {
           setStatus("Action failed");
         } else if (refreshed && rewritten) {
@@ -7267,7 +7303,11 @@ function App() {
           : current,
       );
       projectConfigurationRevision.current += 1;
-      searchIndex.current.removePaths(isAffected);
+      setSearchDocumentBatch({
+        generation: expectedGeneration,
+        batch: searchDocuments.current.removeRegions([node.path]),
+      });
+      await searchIndex.current.removePaths(isAffected);
       setSearchResults((current) =>
         current.filter((result) => !isAffected(result.document.path)),
       );
@@ -7288,7 +7328,7 @@ function App() {
       }
     }
     if (trashed) {
-      scheduleIndexRebuild();
+      scheduleIndexRebuild([]);
     }
   }, [
     beginEntryMutation,
@@ -7323,6 +7363,7 @@ function App() {
       const expectedVaultPath = workspace.vaultPath;
       let mutationStarted = false;
       let duplicated = false;
+      let duplicatedPath: string | null = null;
       try {
         if (
           !(await beginEntryMutation(
@@ -7334,6 +7375,7 @@ function App() {
         }
         mutationStarted = true;
         const duplicate = await api.duplicateFile(node.path);
+        duplicatedPath = duplicate.path;
         setWorkspace((current) =>
           current?.vaultPath === expectedVaultPath
             ? {
@@ -7366,8 +7408,8 @@ function App() {
           setWorkspaceLock(false);
         }
       }
-      if (duplicated) {
-        scheduleIndexRebuild();
+      if (duplicated && duplicatedPath) {
+        scheduleIndexRebuild([duplicatedPath]);
       }
     },
     [
@@ -7391,11 +7433,11 @@ function App() {
     }
     try {
       await api.setBookmark(node.path, !node.bookmarked);
-      await refreshAndReindex();
+      await refreshWorkspace([node.path]);
     } catch (caught) {
       showError(caught);
     }
-  }, [refreshAndReindex, showError, workspace]);
+  }, [refreshWorkspace, showError, workspace]);
 
   const setWelcomePageForNode = useCallback(
     async (node: FileNode | null) => {
@@ -7516,6 +7558,7 @@ function App() {
       const expectedVaultPath = workspace.vaultPath;
       let mutationStarted = false;
       let restored = false;
+      let restoredPath: string | null = null;
       try {
         if (
           !(await beginEntryMutation(expectedGeneration, () => false))
@@ -7524,6 +7567,7 @@ function App() {
         }
         mutationStarted = true;
         const restoredNode = await api.restoreTrashItem(itemId);
+        restoredPath = restoredNode.path;
         setWorkspace((current) =>
           current?.vaultPath === expectedVaultPath
             ? {
@@ -7565,8 +7609,8 @@ function App() {
           setWorkspaceLock(false);
         }
       }
-      if (restored) {
-        scheduleIndexRebuild();
+      if (restored && restoredPath) {
+        scheduleIndexRebuild([restoredPath]);
       }
     },
     [
@@ -7957,7 +8001,7 @@ function App() {
         );
       }
       setStatus("Reloaded from disk");
-      scheduleIndexRebuild();
+      scheduleIndexRebuild([path]);
     } catch (caught) {
       showError(caught);
     } finally {
@@ -8171,7 +8215,7 @@ function App() {
         setHistoryOpen(false);
         setHistoryTarget(null);
         setStatus("Revision restored");
-        scheduleIndexRebuild();
+        scheduleIndexRebuild([restorePath]);
       } catch (caught) {
         showError(caught);
       } finally {

@@ -20,6 +20,19 @@ const document = (path: string, content: string) => ({
 });
 
 describe("task list host helpers", () => {
+  it("retains unchanged task projections instead of normalizing every note again", () => {
+    const first = document("First.md", "- [ ] First");
+    const retained = document("Retained.md", "- [ ] Retained");
+    const batch = { documents: [first, retained], skippedCount: 0, truncated: false };
+    const before = createTaskListSnapshot("synthetic", batch, null)!;
+    const after = createTaskListSnapshot("synthetic", {
+      ...batch, documents: [{ ...first, content: "- [x] First" }, retained],
+    }, null)!;
+    expect(after.documents[1]).toBe(before.documents[1]);
+    expect(after.documents[0]).not.toBe(before.documents[0]);
+    expect(taskListIndexRequests(before, after)[0].documents).toHaveLength(1);
+  });
+
   it("builds bounded Markdown snapshots and incremental updates", () => {
     const firstBatch: DocumentBatch = {
       documents: [

@@ -251,8 +251,10 @@ export const api = {
       path,
       revisionId,
     }),
-  listSearchDocuments: () =>
-    invoke<DocumentBatch>("list_search_documents"),
+  listSearchDocuments: (paths?: string[], maxBytes?: number) =>
+    paths
+      ? invoke<DocumentBatch>("list_search_documents", { paths, maxBytes })
+      : invoke<DocumentBatch>("list_search_documents"),
   listEditableDocuments: () =>
     invoke<DocumentBatch>("list_editable_documents"),
   listLinkRewriteDocuments: () =>

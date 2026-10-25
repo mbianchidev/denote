@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { insertMultiple, removeMultiple } from "zbsearch";
 import type { SearchDocument } from "../types";
 import {
   createEmptySearchFilters,
@@ -6,6 +7,17 @@ import {
   parseSearchQuery,
   VaultSearchIndex,
 } from "./search";
+
+vi.mock("zbsearch", async (original) => {
+  const actual = await original<typeof import("zbsearch")>();
+  return {
+    ...actual,
+    insertMultiple: vi.fn(actual.insertMultiple),
+    removeMultiple: vi.fn(actual.removeMultiple),
+  };
+});
+
+beforeEach(() => { vi.clearAllMocks(); });
 
 const documents: SearchDocument[] = [
   {
@@ -47,6 +59,38 @@ const documents: SearchDocument[] = [
 ];
 
 describe("vault search", () => {
+  it("retokenizes only changed files and removes old chunks from the actual search database", async () => {
+    const index = new VaultSearchIndex();
+    const large = Array.from({ length: 2_000 }, (_, position) => ({
+      ...documents[0], path: `synthetic/${position}.md`, title: `Synthetic ${position}`,
+      content: `Original synthetic token${position}`, contentHash: `synthetic-${position}`,
+    }));
+    await index.rebuild(large);
+    vi.clearAllMocks();
+    const changed = { ...large[10], content: "Replacement marker", contentHash: "changed-synthetic" };
+    await index.update([changed], [large[11].path]);
+    expect(vi.mocked(insertMultiple).mock.calls.flatMap((call) => call[1])).toHaveLength(1);
+    expect(vi.mocked(removeMultiple).mock.calls.flatMap((call) => call[1])).toHaveLength(2);
+    expect((await index.query("replacement")).map((row) => row.document.path)).toEqual([changed.path]);
+    expect(await index.query({ query: "token10", location: changed.path, filters: createEmptySearchFilters() })).toEqual([]);
+    vi.clearAllMocks();
+    await index.update([{ ...changed, bookmarked: false, lastOpenedAt: null }], []);
+    expect(insertMultiple).not.toHaveBeenCalled();
+    expect(removeMultiple).not.toHaveBeenCalled();
+    expect(await index.query({ query: "", location: changed.path, filters: {
+      ...createEmptySearchFilters(), bookmarked: true,
+    } })).toEqual([]);
+  });
+
+  it("reconciles a refreshed snapshot without reinserting unchanged files", async () => {
+    const index = new VaultSearchIndex();
+    await index.rebuild(documents);
+    vi.clearAllMocks();
+    await index.rebuild(documents.map((document) => ({ ...document, tags: [...document.tags] })));
+    expect(insertMultiple).not.toHaveBeenCalled();
+    expect(removeMultiple).not.toHaveBeenCalled();
+  });
+
   it("parses advanced filters and quoted values", () => {
     expect(
       parseSearchQuery(
