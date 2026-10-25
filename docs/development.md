@@ -1188,8 +1188,12 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for the compiler-lint, registry-audit, and StrV-fixture
-maintenance. Compatible and latest versions below are unchanged. No compatible
+were rechecked for time-tracking and Rich-editor development, including the
+[official registry index](https://github.com/rust-lang/crates.io-index),
+because the crates.io API returned HTTP 403. Compatible and latest stable
+versions below are unchanged. The three plugins also publish 3.0.0-alpha.3,
+which requires Tauri 3 and still uses zbus 5, so it is not a compatible
+replacement. No compatible
 published replacement removes a local backport. The open
 [zbus 6 plugin update](https://github.com/tauri-apps/plugins-workspace/pull/3722)
 and [notify-rust update](https://github.com/hoodie/notify-rust/pull/294)
@@ -1218,6 +1222,13 @@ contain the
 [upstream ICU replacement](https://github.com/denoland/rust-urlpattern/pull/67),
 but the verified Tauri utils 2.9.3 graph requires
 [URLPattern 0.3.0](https://crates.io/crates/urlpattern/0.3.0).
+The direct
+[GTK3-macros advisory](https://rustsec.org/advisories/RUSTSEC-2024-0419)
+is withdrawn; the separate
+[macro-error advisory](https://rustsec.org/advisories/RUSTSEC-2024-0370)
+and [Unicode advisory](https://rustsec.org/advisories/RUSTSEC-2025-0100)
+remain applicable to the original dependency graphs. Neither withdrawal nor
+a newer incompatible release removes the need for these local replacements.
 
 Published
 [notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),

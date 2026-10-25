@@ -24,6 +24,7 @@ import {
   protectRichTextComparisonOperators,
   recoverMarkdownLinkTarget,
   restoreRichTextLiteralPunctuation,
+  restoreRichTextBoundarySpaces,
   restoreRichTextTagSyntax,
   restoreMarkdownBoundaryWhitespace,
   restoreTocMarkers,
@@ -207,6 +208,25 @@ describe("markdown utilities", () => {
     expect(protectRichTextComparisonOperators("><=\n> quote")).toBe(
       "\\><=\n> quote",
     );
+  });
+
+  it("restores single Rich boundary spaces without changing code or Markdown meaning", () => {
+    expect(restoreRichTextBoundarySpaces("A &&#x20;")).toBe("A & ");
+    expect(restoreRichTextBoundarySpaces("&#32;&")).toBe(" &");
+    expect(restoreRichTextBoundarySpaces("A &&#x20;\n\nNext")).toBe("A & \n\nNext");
+    for (const source of [
+      "`&&#x20;`",
+      "```\n&&#x20;\n```",
+      String.raw`\&#x20;`,
+      "&#x20;# Not a heading",
+      "&#x20;> Not a quote",
+      "&#x20;&#x20;&#x20;&#x20;Not code",
+      "A&#x20;&#x20;\nNext",
+      "**Bold&#x20;**",
+      "[Link](https://example.test/&#x20;)",
+    ]) {
+      expect(restoreRichTextBoundarySpaces(source)).toBe(source);
+    }
   });
 
   it("allows Markdown references and generated definition destinations in rich mode", () => {
