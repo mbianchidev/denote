@@ -127,11 +127,55 @@ npx vitest run \
 
 These checks enforce parser-call budgets and streaming word segmentation rather
 than hardware-dependent wall-clock thresholds. No optional plugin is required.
+Opening a document must share the original parse with its reference, TOC, and
+thematic-break snapshots. Ordinary paragraph edits must not rescan the entire
+page for headings, TOCs, tags, or image dimensions.
 Markdown coverage also checks that opening, focus, and Rich/Source switches do
 not publish edits or start autosave, including trailing spaces/tabs and LF, CRLF,
 and CR input. Explicit Source whitespace removal must survive later Rich edits.
 Keep `mailto:` destinations and query separators unescaped while preserving
 required directive/entity escapes and literal backslashes in code.
+
+Production-browser responsiveness has a separate measured regression gate:
+
+```bash
+npm exec --no -- playwright install chromium
+npm run benchmark:editor
+```
+
+The command type-checks the benchmark harness, builds the production application,
+and runs headless Chromium against that build. Fixtures contain only generated
+synthetic data: 3,000 file-tree entries, a 180-section typing note, a 500-section
+reading note, and a 2,500-line source file. Only native IPC is mocked; the real
+App, editors, save scheduling, lazy modules, and document worker still run.
+Typed characters must reach the saved document, and unexpected native commands
+or application error alerts fail the run.
+
+Rich, Markdown Source, and plain-source input-to-paint latency must remain below
+150 ms at the 95th percentile, with no sample reaching 500 ms. Large-page opening must remain
+below 2,500 ms cold and 1,200 ms warm. Each input sample waits for two animation
+frames. Tests run serially with no retries so competing benchmark browsers cannot
+contaminate timings or hide a regression. Results, failure screenshots, and
+traces stay in ignored `.performance-artifacts/`.
+
+CI runs the browser gate once on Linux, reusing its existing frontend build
+instead of building again, and uploads evidence on failure. After an existing
+local build, use `npx tsc --noEmit -p tsconfig.benchmarks.json` followed by
+`npm exec --no -- playwright test` to avoid a duplicate build.
+
+Native responsiveness is covered independently on every desktop platform:
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml --locked \
+  editor_file_ipc_dispatch_stays_responsive -- --nocapture
+```
+
+This regression invokes the real registered Tauri commands through MockRuntime
+IPC while another thread holds a synthetic vault access lock. Reads, PDF and
+image delivery, saves, edit tracking, refresh, and last-vault restoration must
+return control to the dispatcher within 100 ms, even when I/O cannot proceed.
+After releasing the lock, responses and saved bytes must still be correct.
+The budget measures UI dispatch, not total disk or encryption completion time.
 
 Validate plugin manifests, package structure, documentation, type safety, and
 editor/plugin import boundaries separately with:

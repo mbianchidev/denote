@@ -1854,6 +1854,16 @@ a per-vault generation in SQLite and updates the cache only if that generation
 is still current, preventing an older concurrent scan from replacing newer
 results.
 
+Individual note, PDF, and image reads, note saves, edit tracking, and last-vault
+restoration also use asynchronous commands backed by the blocking pool. A
+JavaScript invoke promise alone does not move a synchronous Rust handler off the
+UI dispatcher. File commands capture the expected vault identity before queueing,
+then acquire the workspace access guard inside the worker and reject a switched
+vault before touching its files. The guard and zeroizing key remain alive through
+the operation, preserving save, switch, and encryption boundaries. Last-vault
+restoration retains its exclusive guard on the worker. Real MockRuntime IPC tests
+hold that guard from another thread and enforce a dispatch-responsiveness budget.
+
 Rename, trash, and restore operations are recorded in a recovery journal before
 the filesystem move. Opening or refreshing a vault reconciles any operation
 interrupted between the move and metadata commit.
@@ -1947,6 +1957,17 @@ validation still uses the complete parser and existing safety rules.
 Each analysis or serialization operation shares parsed trees for identical
 source variants, including masked HTML and restored TOCs. Those caches live only
 for that operation, never globally or across an editor's history.
+
+Initial reference, TOC, and thematic-break snapshots share the opening analysis
+parser instead of parsing the same document independently. The parser itself is
+not retained; later reference snapshots remain lazy and discard their previous
+tree on source changes. Presentation observers inspect mutation targets and
+changed subtrees: ordinary body typing does not rebuild unrelated heading IDs or
+TOC decoration, and image normalization is limited to changed images/subtrees.
+Tag presentation tracks only styled final-line tags and walks backward from the
+last content block instead of copying every editor child. Code-copy controls
+rescan only when code-editor structure is added or removed, not for each syntax
+highlighting or body-text mutation.
 
 Rich/source eligibility is memoized by content, and stable callback bridges keep
 MDXEditor plugin configuration from being rebuilt when only parent callback

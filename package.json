@@ -22,6 +22,7 @@
     "prepare:bundled-tools": "node scripts/bundled-tools.mjs",
     "verify:bundled-tools": "node scripts/verify-bundled-tools.mjs",
     "test:bundled-tools": "node --test scripts/bundled-tools.node.mjs",
+    "benchmark:editor": "tsc --noEmit -p tsconfig.benchmarks.json && npm run build && playwright test",
     "create:plugin": "tsx scripts/create-plugin.ts",
     "package:plugin": "tsx scripts/package-plugin.ts",
     "package:plugins": "npm run build:plugins && tsx scripts/package-plugins.ts",
@@ -68,6 +69,7 @@
     "zbsearch": "^4.0.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tauri-apps/cli": "2.11.5",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",

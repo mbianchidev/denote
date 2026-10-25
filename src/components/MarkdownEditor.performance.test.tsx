@@ -12,12 +12,94 @@ import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
 import { MarkdownEditor } from "./MarkdownEditor";
 
+function renderSyntheticEditor(markdown: string, onChange = vi.fn()) {
+  return render(
+    <MarkdownEditor
+      notePath="synthetic.md"
+      markdown={markdown}
+      lineEnding="lf"
+      displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+      preferredViewMode="rich-text"
+      readOnly={false}
+      onChange={onChange}
+      onError={vi.fn()}
+      onLinkOpen={vi.fn()}
+      onViewModeChange={vi.fn()}
+      onImageUpload={vi.fn()}
+    />,
+  );
+}
+
 vi.mock("mdast-util-from-markdown", async (importOriginal) => {
   const actual = await importOriginal<typeof import("mdast-util-from-markdown")>();
   return { ...actual, fromMarkdown: vi.fn(actual.fromMarkdown) };
 });
 
 describe("MarkdownEditor typing work", () => {
+  it("shares the opening parse with reference, TOC, and thematic-break snapshots", async () => {
+    const source = [
+      "---",
+      "title: Synthetic document",
+      "---",
+      "",
+      "# Synthetic document",
+      "",
+      "<!-- toc -->",
+      "- [Synthetic document](#synthetic-document)",
+      "<!-- /toc -->",
+      "",
+      "Read [the guide][guide].\n\n".repeat(100),
+      "[guide]: https://example.test/guide",
+    ].join("\n");
+    vi.mocked(fromMarkdown).mockClear();
+    renderSyntheticEditor(source);
+    await screen.findByRole("textbox", { name: "editable markdown" });
+    await act(async () => {});
+
+    expect(
+      vi.mocked(fromMarkdown).mock.calls.filter(([value]) => value === source),
+      "Opening should not parse the original document again for independent snapshots",
+    ).toHaveLength(1);
+  });
+
+  it("does not rescan unrelated presentation across the entire page for ordinary text", async () => {
+    const changed = vi.fn();
+    renderSyntheticEditor(
+      "# Synthetic heading\n\n" +
+        "Ordinary synthetic paragraph.\n\n".repeat(100) +
+        "Edit here",
+      changed,
+    );
+    const root = await screen.findByRole("textbox", { name: "editable markdown" });
+    await act(async () => {});
+    const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor }).__lexicalEditor;
+    const queries = vi.spyOn(Element.prototype, "querySelectorAll");
+    try {
+      act(() => {
+        editor.update(() => {
+          $getRoot().getLastDescendant()?.selectEnd();
+          const selection = $getSelection();
+          if (!$isRangeSelection(selection)) throw new Error("Expected a synthetic caret");
+          selection.insertText("x");
+        }, { discrete: true });
+      });
+      await waitFor(() => expect(changed).toHaveBeenCalled());
+      await act(async () => {});
+      const wholePageScans = queries.mock.calls.filter(([selector]) =>
+        selector.includes(".denote-editor-content h1") ||
+        selector === ".denote-hashtag" ||
+        selector === "[data-denote-generated-toc]" ||
+        selector === 'img[width="inherit"], img[height="inherit"]',
+      );
+      expect(wholePageScans).toEqual([]);
+      expect(changed.mock.lastCall?.[0]).toContain("Edit herex");
+      expect(screen.getByRole("heading", { name: "Synthetic heading" }).id)
+        .toBe("synthetic-heading");
+    } finally {
+      queries.mockRestore();
+    }
+  });
+
   it.each(
     (["rich-text", "source"] as const).flatMap((mode) =>
       (["inline", "reference"] as const).map((kind) => ({ mode, kind })),
@@ -64,6 +146,7 @@ describe("MarkdownEditor typing work", () => {
         const root = await screen.findByRole("textbox", {
           name: "editable markdown",
         });
+
         const editor = (root as HTMLElement & { __lexicalEditor: LexicalEditor })
           .__lexicalEditor;
         type = () => {

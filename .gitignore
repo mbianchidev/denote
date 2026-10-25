@@ -15,6 +15,7 @@ dist-ssr
 .impeccable/hook.cache.json
 .plugin-dev/
 .plugin-artifacts/
+.performance-artifacts/
 plugins/*/releases.json.*.tmp
 plugins/catalog.json.*.tmp
 release-assets/
