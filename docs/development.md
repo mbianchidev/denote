@@ -3,7 +3,9 @@
 ## Prerequisites
 
 Install the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
-for your operating system, Node.js 24.15 or newer, and stable Rust.
+for your operating system, Node.js 26.12.1 (pinned in `.node-version`), and stable
+Rust. CI, Pages, and release jobs use the same Node pin. Other supported Node.js
+versions are declared in `package.json`.
 
 ## Run Denote
 

@@ -145,7 +145,7 @@ Important limits:
 
 Denote uses Tauri 2, React, TypeScript, and a Rust native core. Install:
 
-- Git, npm, and Node.js 24.15.0, the version pinned in
+- Git, npm, and Node.js 26.12.1, the version pinned in
   [`.node-version`](.node-version). Other supported Node versions are declared
   in [`package.json`](package.json).
 - Stable Rust and the [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
