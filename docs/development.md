@@ -1172,6 +1172,14 @@ macro fixtures can report unused application patches because they deliberately
 build smaller graphs. Those diagnostics are distinct from RustSec findings;
 the source-aware audit verifies the actual application resolver rather than
 those isolated fixtures.
+The full library suite also keeps ownership of the synthetic main context
+while its cross-thread `spawn_from_within` fixture runs, retains the caller's
+context reference, and joins the worker before teardown. It asserts that a
+non-`Send` future executes on the context-owning thread. This prevents a
+detached worker from creating or dropping thread-local futures on the wrong
+thread; no production executor code changes. The
+[GLib 0.22.10 fixture](https://github.com/gtk-rs/gtk-rs-core/blob/0.22.10/glib/src/main_context_futures.rs#L789-L808)
+likewise joins its worker and exercises a non-`Send` value.
 Keep backports limited to the documented fixes, retain upstream attribution,
 and remove them only when compatible upstream releases replace the patched
 sources. Do not replace source fixes with advisory suppression.
@@ -1198,6 +1206,9 @@ unmaintained `basic-toml`
 ([RUSTSEC-2026-0374](https://rustsec.org/advisories/RUSTSEC-2026-0374));
 the local regression tooling uses maintained `trybuild` instead, with equivalent
 positive and negative fixtures rather than a warning suppression.
+GLib 0.22.10 also provides the worker-join/non-`Send` fixture pattern linked
+above; the local test retains explicit context ownership and teardown ordering
+without changing the pinned GLib runtime.
 
 [GLib 0.18.5](https://crates.io/crates/glib/0.18.5) remains the last
 published compatible GLib release; the

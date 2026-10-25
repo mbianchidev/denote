@@ -746,18 +746,26 @@ mod tests {
     #[test]
     fn test_spawn_from_within() {
         let c = MainContext::new();
+        let _acquire = c.acquire().unwrap();
         let l = crate::MainLoop::new(Some(&c), false);
+        let context_thread = std::thread::current().id();
 
-        std::thread::spawn({
+        let worker = std::thread::spawn({
+            let c = c.clone();
             let l_clone = l.clone();
             move || {
                 c.spawn_from_within(move || async move {
+                    let rc = std::rc::Rc::new(123);
+                    futures_util::future::ready(()).await;
+                    assert_eq!(std::thread::current().id(), context_thread);
+                    assert_eq!(std::rc::Rc::strong_count(&rc), 1);
                     l_clone.quit();
                 });
             }
         });
 
         l.run();
+        worker.join().unwrap();
     }
 
     #[test]
