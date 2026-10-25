@@ -2,6 +2,14 @@ version: 2
 updates:
   - package-ecosystem: npm
     directory: /
+    exclude-paths:
+      - "plugins/**"
+      - "packages/plugin-sdk/**"
+    ignore:
+      # Runtime updates require the coordinated Windows compatibility gate.
+      - dependency-name: "@tauri-apps/*"
+      # Shared with immutable plugin archives; update with new plugin releases.
+      - dependency-name: "mdast-util-from-markdown"
     schedule:
       interval: weekly
     groups:
@@ -11,6 +19,15 @@ updates:
 
   - package-ecosystem: cargo
     directory: /src-tauri
+    exclude-paths:
+      - "vendor/**"
+    ignore:
+      # Keep the complete Windows-safe runtime family together.
+      - dependency-name: "tauri*"
+      - dependency-name: "tao"
+      - dependency-name: "wry"
+      - dependency-name: "webview2*"
+      - dependency-name: "urlpattern"
     schedule:
       interval: weekly
     groups:
