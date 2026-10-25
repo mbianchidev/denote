@@ -132,13 +132,20 @@ describe("MarkdownEditor task lists", () => {
 });
 
 describe("MarkdownEditor literal punctuation", () => {
-  it.each([" &", " & ", " & next", " &copy;"])(
-    "keeps typed ampersands and ordinary spaces readable in Source mode: %s",
-    async (typed) => {
+  it.each([
+    { initial: "Edit here", typed: " &", expected: "Edit here &" },
+    { initial: "Edit here", typed: " & ", expected: "Edit here & " },
+    { initial: "Edit here", typed: " & next", expected: "Edit here & next" },
+    { initial: "Edit here", typed: " &copy;", expected: String.raw`Edit here \&copy;` },
+    { initial: "", typed: "&", expected: "&" },
+    { initial: "", typed: " &", expected: " &" },
+  ])(
+    "keeps typed ampersands and ordinary spaces readable in Source mode: $typed",
+    async ({ initial, typed, expected }) => {
       const user = userEvent.setup();
       const changed = vi.fn();
       function Editor() {
-        const [markdown, setMarkdown] = useState("Edit here");
+        const [markdown, setMarkdown] = useState(initial);
         return (
           <MarkdownEditor
             notePath="synthetic.md"
@@ -163,9 +170,6 @@ describe("MarkdownEditor literal punctuation", () => {
         await appendSyntheticRichText(character);
       }
 
-      const expected = typed.endsWith("copy;")
-        ? String.raw`Edit here \&copy;`
-        : `Edit here${typed}`;
       await waitFor(() => expect(changed).toHaveBeenLastCalledWith(expected));
       await user.click(screen.getByRole("radio", { name: "Source mode" }));
       await waitFor(() => {

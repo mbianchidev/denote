@@ -316,13 +316,13 @@ export function restoreRichTextBoundarySpaces(
     if (first?.type === "text" && first.position?.start.offset !== undefined) {
       const start = first.position.start.offset;
       const source = markdown.slice(start, first.position.end.offset);
-      const match = /^&#(?:x20|32);(?!&#(?:x20|32);)(?=[\p{L}\p{N}&(])/iu.exec(source);
+      const match = /^&#(?:x20|32);(?!&#(?:x20|32);)(?=[\p{L}&(])/iu.exec(source);
       if (match) replacements.push({ start, end: start + match[0].length });
     }
     if (last?.type === "text" && last.position?.end.offset !== undefined) {
       const end = last.position.end.offset;
       const source = markdown.slice(last.position.start.offset, end);
-      const match = /(?<!\\|[ \t]|&#(?:x20|32);)&#(?:x20|32);$/iu.exec(source);
+      const match = /(?<=[\p{L}\p{N}\p{M}&])&#(?:x20|32);$/iu.exec(source);
       if (match) replacements.push({ start: end - match[0].length, end });
     }
   });
