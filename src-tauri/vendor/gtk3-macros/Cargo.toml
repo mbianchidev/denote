@@ -49,7 +49,7 @@ path = "src/lib.rs"
 proc-macro = true
 
 [dependencies.proc-macro-crate]
-version = "1.0"
+version = "2.0"
 
 [dependencies.proc-macro-error3]
 version = "3.1.1"
@@ -63,7 +63,7 @@ version = "1.0"
 version = "1.0"
 
 [dependencies.syn]
-version = "2.0"
+version = "3.0"
 features = ["full"]
 
 [dev-dependencies.gtk]
