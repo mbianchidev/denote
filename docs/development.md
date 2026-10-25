@@ -1333,12 +1333,11 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for incremental large-vault indexing after the GTK compiler and
-isolated-fixture warning cleanup, following the frontend CI repair in
-[#138](https://github.com/mbianchidev/denote/pull/138), including the
-[official registry index](https://github.com/rust-lang/crates.io-index),
-because the crates.io API returned HTTP 403. Compatible and latest stable
-versions below are unchanged. The three plugins also publish 3.0.0-alpha.3,
+were rechecked for the release-version ownership repair after incremental
+large-vault indexing and the GTK compiler/isolated-fixture warning cleanup.
+The [official registry index](https://github.com/rust-lang/crates.io-index)
+reconfirmed the compatible and latest stable versions below, which are
+unchanged. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
 replacement. No compatible
 published replacement removes a local backport. The open
@@ -1753,6 +1752,13 @@ cap the proportional code minimap at 500 strokes, and never force a complete
 CodeMirror parse for outline generation.
 
 ## Prepare a release
+
+Feature and dependency PRs retain the latest published application version.
+Only the release command below advances the root npm, Cargo, and Tauri
+application versions. Do not run `npm run release -- <next-version>` while
+preparing a feature PR: that makes the later release command produce no version
+changes. Preparing new plugin versions, source pins, or catalog URLs for the
+intended release does not require an application-version bump.
 
 From a clean `main` branch, run the release script with either an unprefixed
 semantic version or the matching `v`-prefixed tag:
