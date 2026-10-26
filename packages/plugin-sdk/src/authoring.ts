@@ -261,6 +261,8 @@ export function reorderedPresentationBody(source: string, model: PluginPresentat
     if (separator) {
       if (body && !/[\r\n]$/.test(body)) body += newline;
       const delimiter = source.slice(separator.from, separator.to);
+      // Keep an empty first slide's dash separator from becoming YAML frontmatter.
+      if (!body && position === 0 && model.bodyStart === 0 && delimiter.startsWith("---")) body = newline;
       body += delimiter + (/[\r\n]$/.test(delimiter) ? "" : newline);
     }
     return body;
@@ -285,7 +287,7 @@ function presentationModelMatchesSource(source: string, model: PluginPresentatio
     const separator = model.separators[index];
     if (!separator) return cursor === source.length;
     if (separator.from !== cursor || separator.to > source.length ||
-        !/^===(?:\r\n|\n|\r)?$/.test(source.slice(separator.from, separator.to)) ||
+        !/^(?:---|===)(?:\r\n|\n|\r)?$/.test(source.slice(separator.from, separator.to)) ||
         separator.from > 0 && !/[\r\n]/.test(source[separator.from - 1])) return false;
     cursor = separator.to;
     return true;

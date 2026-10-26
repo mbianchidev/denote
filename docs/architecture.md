@@ -1313,11 +1313,14 @@ included in enable/unlock/disable sweeps; no plaintext temporary file is made.
 It is user-authored vault data, not deletable plugin storage, and must be backed
 up separately from application SQLite history.
 
-Presentation workers return a complete source partition, literal `===`
+Presentation workers return a complete source partition, literal `---` or `===`
 separator ranges, slide titles, notices, and closed frontmatter defaults.
 The host verifies partition coverage, separator lines, and exact permutations
 before accepting a reorder; only required missing separator-boundary newlines
 may be added. Unknown YAML fields and raw preamble bytes remain unchanged.
+Opening YAML frontmatter and fenced code are never split. Reordering an empty
+slide to the start of a metadata-free deck adds a boundary newline when needed
+so its `---` delimiter cannot become frontmatter.
 Metadata uses the existing maintained YAML 1.2 core parser with aliases/custom
 tags refused and 64 KiB, 5,000-node, and 64-level bounds. Output is capped at
 256 slides and 32 notices. Ordinary note mode never applies the separator rule.

@@ -490,9 +490,10 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   conflict-checked, atomic, and encrypted with vault content. It is retained
   after disablement and must be included in vault backups. Exact relative paths
   own comments; rename/move recovery is explicit through Other notes.
-- Presentations split standalone `===` lines only in explicit presentation mode;
-  ordinary notes retain Setext headings. Source/preview, overview navigation
-  and reorder, full-screen keyboard controls, positive-interval autoplay,
+- Presentations split standalone `---` and `===` lines only in explicit
+  presentation mode; ordinary notes retain thematic breaks and Setext headings.
+  Opening YAML frontmatter and fenced code are not split. Source/preview,
+  overview navigation and reorder, full-screen keyboard controls, positive-interval autoplay,
   loop/restart/stop, and written countdown remain host-owned. YAML core
   frontmatter validates closed defaults, preserves unknown fields, and reports
   malformed metadata without rewriting it. Rendering reuses safe note behavior.

@@ -1,8 +1,30 @@
 import { describe, expect, it } from "vitest";
-import { isPluginAuthoringResultFor, verifiedAuthoringEdit } from "@denote/plugin-sdk";
+import { isPluginAuthoringResultFor, verifiedAuthoringEdit, type PluginAuthoringRequest } from "@denote/plugin-sdk";
 import { presentationRequest } from "../src/deck";
 
 describe("Markdown presentation decks", () => {
+  it("supports Markdown slides separated by standalone dash lines without frontmatter", () => {
+    const source = [
+      "# Presentations using Slides", "",
+      "A demo on how to build presentations using Slides.", "", "---", "",
+      "## Formatting", "",
+      "You can use regular Markdown formatting, like *emphasised* and **bold** text.", "", "---", "",
+      "## Slides", "", "Use `---` to separate slides.", "",
+    ].join("\n");
+    const request = { feature: "presentation", action: "parse", source } as const;
+    const result = presentationRequest(request);
+    expect(result).toMatchObject({
+      model: {
+        bodyStart: 0,
+        slides: [{ title: "Presentations using Slides" }, { title: "Formatting" }, { title: "Slides" }],
+        notices: [],
+      },
+    });
+    expect(isPluginAuthoringResultFor(request, result)).toBe(true);
+    if (result.feature !== "presentation" || result.action !== "parse") throw new Error("Expected deck");
+    expect(result.model.slides.map((slide) => source.slice(slide.from, slide.to))).toEqual(source.split("---\n"));
+  });
+
   it("keeps separators standalone when moving a final slide or final empty slide without a trailing newline", () => {
     for (const source of ["# First\n\n===\n# Last", "# First\r\n===\r\n==="]) {
       const initial = presentationRequest({ feature: "presentation", action: "parse", source });
@@ -15,6 +37,45 @@ describe("Markdown presentation decks", () => {
       expect(changed).toContain("# First");
       if (source.includes("# Last")) expect(changed).toContain("# Last\n===");
     }
+  });
+
+  it.each(["\n", "\r\n", "\r"])("preserves frontmatter, fenced separators, and mixed delimiter bytes with %j endings", (newline) => {
+    const source = [
+      "---", "title: Synthetic deck", "custom: keep", "---", "# First", "",
+      "```markdown", "---", "===", "```", "", "---", "", "# Second", "",
+      "~~~", "---", "===", "~~~", "", "===", "", "# Third", "",
+    ].join(newline);
+    const parsed = presentationRequest({ feature: "presentation", action: "parse", source });
+    if (parsed.feature !== "presentation" || parsed.action !== "parse") throw new Error("Expected deck");
+    expect(parsed.model.slides).toHaveLength(3);
+    const slices = parsed.model.slides.map((slide) => source.slice(slide.from, slide.to));
+    const request = { feature: "presentation", action: "reorder", source, order: [2, 0, 1] } satisfies PluginAuthoringRequest;
+    const changed = verifiedAuthoringEdit(request, presentationRequest(request));
+    const result = presentationRequest({ feature: "presentation", action: "parse", source: changed });
+    if (result.feature !== "presentation" || result.action !== "parse") throw new Error("Expected deck");
+    expect(isPluginAuthoringResultFor({ feature: "presentation", action: "parse", source: changed }, result)).toBe(true);
+    expect(changed.slice(0, result.model.bodyStart)).toBe(source.slice(0, parsed.model.bodyStart));
+    expect(result.model.slides.map((slide) => changed.slice(slide.from, slide.to))).toEqual([slices[2], slices[0], slices[1]]);
+    expect(result.model.separators.map((separator) => changed.slice(separator.from, separator.to))).toEqual([
+      `---${newline}`, `===${newline}`,
+    ]);
+  });
+
+  it.each(["\n", "\r\n", "\r"])("does not turn a moved empty first slide into YAML frontmatter with %j endings", (newline) => {
+    const source = ["# First", "", "---", "# Last", "---"].join(newline);
+    const request = { feature: "presentation", action: "reorder", source, order: [2, 0, 1] } satisfies PluginAuthoringRequest;
+    const changed = verifiedAuthoringEdit(request, presentationRequest(request));
+    const result = presentationRequest({ feature: "presentation", action: "parse", source: changed });
+    expect(result).toMatchObject({
+      model: { bodyStart: 0, slides: [{ title: "Slide 1" }, { title: "First" }, { title: "Last" }] },
+    });
+    expect(changed).toBe(["", "---", "# First", "", "---", "# Last", ""].join(newline));
+  });
+
+  it("does not split inline, escaped, indented, or non-exact dash lines", () => {
+    const source = ["# Example", "", "Use `---` here.", "\\---", " ---", "--- ", "----", "", "# Still one slide"].join("\n");
+    expect(presentationRequest({ feature: "presentation", action: "parse", source }))
+      .toMatchObject({ model: { bodyStart: 0, slides: [{ from: 0, to: source.length, title: "Example" }], notices: [] } });
   });
 
   it("accepts empty frontmatter and bounds Unicode titles without hiding the deck", () => {
@@ -66,6 +127,6 @@ describe("Markdown presentation decks", () => {
       expect(result.model.notices.length).toBeGreaterThan(0);
     }
     expect(presentationRequest({ feature: "presentation", action: "parse", source: "---\ntitle: unclosed\n# Content" }))
-      .toMatchObject({ model: { notices: [expect.stringMatching(/close|closing/i)] } });
+      .toMatchObject({ model: { slides: [{ from: 0, title: "Content" }], notices: [expect.stringMatching(/close|closing/i)] } });
   });
 });

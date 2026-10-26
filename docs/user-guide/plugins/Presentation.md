@@ -20,7 +20,7 @@ Enable **Markdown presentation slides**, then choose **Open as presentation**.
 - The complete deck remains one Markdown file.
 - Opening a sample never enables plugins or starts autoplay.
 
-===
+---
 
 # Local Markdown
 
@@ -36,7 +36,7 @@ Enable **Markdown presentation slides**, then choose **Open as presentation**.
 const synthetic = "No code executes in this slide.";
 ```
 
-===
+---
 
 # Present and return
 

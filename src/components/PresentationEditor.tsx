@@ -359,7 +359,7 @@ export function PresentationEditor(props: PresentationEditorProps) {
             <button type="button" className="secondary-button" disabled={!active || !model || !intervalValid} onClick={togglePlay}>{state.playing ? "Pause" : "Play"}</button>
             <button type="button" className="secondary-button" disabled={!model} onClick={() => { playback.current.restart(performance.now()); publish(); }}>Restart</button>
             <button type="button" className="secondary-button" disabled={!model} onClick={() => { pause(); navigate(0); }}>Stop</button>
-            <label>Advance seconds <input type="number" min={1} max={3600} step="any" value={intervalInput} aria-invalid={!intervalValid}
+            <label className="presentation-control"><span>Advance seconds</span><input type="number" min={1} max={3600} step="any" value={intervalInput} aria-invalid={!intervalValid}
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 setIntervalInput(value);
@@ -368,7 +368,8 @@ export function PresentationEditor(props: PresentationEditorProps) {
                   pause(); setError("Choose an advance interval from 1 to 3600 seconds.");
                 } else { setError(""); setSeconds(seconds); }
               }} /></label>
-            <label><input type="checkbox" checked={loop} onChange={(event) => setLoop(event.currentTarget.checked)} /> Loop</label>
+            <label className="presentation-control"><input type="checkbox" checked={loop}
+              onChange={(event) => setLoop(event.currentTarget.checked)} /><span>Loop</span></label>
             <span role="timer" aria-live="off">{state.playing ? `Next slide in ${Math.ceil(state.remainingMs / 1000)} s` : "Paused"}</span>
           </div>
           {fullscreen ? <button type="button" className="secondary-button" disabled={fullscreenBusy}

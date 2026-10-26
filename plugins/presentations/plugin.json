@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "denote.presentations",
   "name": "Markdown presentation slides",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Author and present ordinary Markdown decks with synchronized preview and local autoplay.",
   "publisher": {
     "name": "Denote",

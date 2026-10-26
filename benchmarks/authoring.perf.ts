@@ -155,6 +155,65 @@ test("native fullscreen fallback owns focus and restores the prior window state"
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.saves)).toEqual([]);
 });
 
+test("dash-separated slides keep Markdown formatting and aligned keyboard playback controls", async ({ page }, info) => {
+  await page.getByRole("button", { name: "Deck.md", exact: true }).click();
+  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await expect(page.getByText("Slide 1 of 2", { exact: true })).toBeVisible();
+  const source = [
+    "# Presentations using Slides", "", "A demo on how to build presentations using Slides.", "", "---", "",
+    "## Formatting", "", "You can use regular Markdown formatting, like *emphasised* and **bold** text.", "", "---", "",
+    "## Slides", "", "Use `---` to separate slides.", "",
+  ].join("\n");
+  await page.locator(".presentation-source .cm-content").focus();
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+a" : "Control+a");
+  await page.keyboard.insertText(source);
+  await expect(page.getByText(/Slide \d of 3/, { exact: true })).toBeVisible();
+  await page.evaluate(() => Object.defineProperty(document, "fullscreenEnabled", { configurable: true, get: () => false }));
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("ArrowRight");
+  await expect(page.locator(".presentation-slide em")).toHaveText("emphasised");
+  await expect(page.locator(".presentation-slide strong")).toHaveText("bold");
+  const loop = page.getByRole("checkbox", { name: "Loop", exact: true });
+  const geometry = await loop.evaluate((input) => {
+    const label = input.closest("label");
+    if (!label?.lastChild) throw new Error("Missing Loop label");
+    const bounds = input.getBoundingClientRect();
+    const range = document.createRange();
+    range.selectNodeContents(label.lastChild);
+    const text = range.getBoundingClientRect();
+    return {
+      padding: getComputedStyle(input).padding,
+      margin: getComputedStyle(input).margin,
+      width: bounds.width,
+      height: bounds.height,
+      labelHeight: label.getBoundingClientRect().height,
+      centerDifference: Math.abs(bounds.y + bounds.height / 2 - text.y - text.height / 2),
+    };
+  });
+  expect(geometry.padding).toBe("0px");
+  expect(geometry.margin).toBe("0px");
+  expect(geometry.width).toBe(15);
+  expect(geometry.height).toBe(15);
+  expect(geometry.labelHeight).toBeGreaterThanOrEqual(28);
+  expect(geometry.centerDifference).toBeLessThan(2);
+  await loop.focus();
+  await page.keyboard.press("Space");
+  await expect(loop).toBeChecked();
+  await page.screenshot({ path: info.outputPath("playback-dark-desktop.png") });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Switch to light mode", exact: true }).click();
+  const outlineToggle = page.getByRole("button", { name: /^(Hide|Show) outline$/ });
+  if (await outlineToggle.getAttribute("aria-pressed") === "true") await outlineToggle.click();
+  await page.setViewportSize({ width: 840, height: 700 });
+  await page.getByRole("button", { name: "Present", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Exit presentation", exact: true })).toBeInViewport();
+  await page.screenshot({ path: info.outputPath("playback-light-compact.png") });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Return to note", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"])).toBe(source);
+});
+
 test("authoring surfaces retain accessible dark, light, and compact layouts", async ({ page }, info) => {
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
   await expect(page.locator(".denote-text-style")).toBeVisible();

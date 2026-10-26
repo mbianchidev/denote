@@ -52,7 +52,7 @@ function parseDeck(source: string): PluginPresentationModel {
       if (closing && closing[1][0] === fence.character && closing[1].length >= fence.length) fence = null;
     } else if (opening && (opening[1][0] !== "`" || !opening[2].includes("`"))) {
       fence = { character: opening[1][0], length: opening[1].length };
-    } else if (raw === "===") {
+    } else if (raw === "===" || raw === "---" && offset > 0) {
       addSlide(offset);
       separators.push({ from: offset, to: offset + match[0].length });
       start = offset + match[0].length;

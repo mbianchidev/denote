@@ -202,15 +202,36 @@ Try [Note comments](<../plugins/Note comments.md>).
 ### Markdown presentation slides
 
 Choose **Open as presentation**, or `Command-Option-P` / `Ctrl-Alt-P`, on an
-ordinary Markdown file. Only this mode treats an exact standalone `===` line as
-a new slide. In ordinary note mode it keeps standard Setext-heading behavior.
-Separators inside fenced code are not split.
+ordinary Markdown file. Only this mode treats an exact standalone `---` or
+`===` line as a new slide. In ordinary note mode they remain thematic breaks
+and Setext headings. Separators inside fenced code or an opening YAML
+frontmatter block are not split.
+
+```markdown
+# Example deck
+
+A small Markdown presentation.
+
+---
+
+## Formatting
+
+Use *emphasis* and **bold** text.
+
+---
+
+## Last slide
+
+Use `---` to separate slides.
+```
 
 Source and preview share the same file. Moving the source caret selects its
 slide; navigation reveals the matching source. **Overview** selects slides and
 provides **Earlier** / **Later** reorder controls. Reordering preserves the
 original frontmatter, unknown fields, and slide content, adding a missing
 separator-boundary newline only when needed.
+
+Optional opening YAML frontmatter configures the presentation:
 
 ```markdown
 ---
@@ -228,7 +249,7 @@ presentation:
 ---
 # First slide
 
-===
+---
 
 # Second slide
 ```

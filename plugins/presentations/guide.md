@@ -3,8 +3,9 @@
 ## Purpose
 
 Author and present ordinary Markdown decks stored in one file. The optional
-plugin is off by default. Standalone `===` lines are slide separators only
-after you choose Open as presentation; ordinary notes keep Setext headings.
+plugin is off by default. Standalone `---` and `===` lines are slide separators
+only after you choose Open as presentation; ordinary notes keep thematic breaks
+and Setext headings.
 
 ## Enablement and permissions
 
@@ -22,6 +23,26 @@ reveals the matching source. Edits use ordinary autosave, revision history, and
 conflict checks.
 
 ```markdown
+# Example deck
+
+A small Markdown presentation.
+
+---
+
+## Formatting
+
+Use *emphasis* and **bold** text.
+
+---
+
+## Last slide
+
+Use `---` to separate slides.
+```
+
+Optional opening YAML frontmatter configures the presentation:
+
+```markdown
 ---
 title: Synthetic deck
 author: Example team
@@ -37,13 +58,14 @@ presentation:
 ---
 # First slide
 
-===
+---
 
 # Second slide
 ```
 
-Only a line containing exactly `===` is a separator. Fenced-code contents are
-not split. Empty slides and unclosed fences produce non-blocking feedback.
+Only a line containing exactly `---` or `===` is a separator. An opening
+`---` frontmatter block is metadata, not a slide; fenced-code contents are not
+split. Empty slides and unclosed fences produce non-blocking feedback.
 Overview navigates slides and offers Earlier/Later reorder actions by pointer
 or keyboard. Reordering preserves frontmatter, unknown fields, slide slices,
 and separator bytes, adding only a missing boundary newline when necessary.

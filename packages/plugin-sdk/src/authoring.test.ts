@@ -4,6 +4,7 @@ import {
   isPluginAuthoringResultFor,
   verifiedAuthoringEdit,
   type PluginAuthoringRequest,
+  type PluginPresentationModel,
 } from "./authoring";
 
 describe("bounded authoring contracts", () => {
@@ -47,5 +48,28 @@ describe("bounded authoring contracts", () => {
       ...result, edit: { from, to, text: "=red=replaced=red=" },
     })).toBe(false);
     expect(isPluginAuthoringResultFor(request, { feature: "presentation", action: "parse" })).toBe(false);
+  });
+
+  it.each(["---", "==="])("verifies exact standalone %s presentation separators independently", (delimiter) => {
+    const source = `# First\n${delimiter}\n# Second`;
+    const model: PluginPresentationModel = {
+      bodyStart: 0,
+      slides: [{ from: 0, to: 8, line: 1, title: "First" }, { from: 12, to: source.length, line: 3, title: "Second" }],
+      separators: [{ from: 8, to: 12 }],
+      options: {
+        title: "", author: "", theme: "system", aspectRatio: "16:9", alignment: "left",
+        slideNumbers: true, autoplay: false, advanceSeconds: 10, loop: false, transition: "none",
+      },
+      notices: [],
+    };
+    const result = { feature: "presentation", action: "parse", model } as const;
+    expect(isPluginAuthoringResultFor({ feature: "presentation", action: "parse", source }, result)).toBe(true);
+    for (const changed of [
+      source.replace(delimiter, "--- "),
+      source.replace(delimiter, "----"),
+      source.replace(`\n${delimiter}`, `x${delimiter}`),
+    ]) {
+      expect(isPluginAuthoringResultFor({ feature: "presentation", action: "parse", source: changed }, result)).toBe(false);
+    }
   });
 });

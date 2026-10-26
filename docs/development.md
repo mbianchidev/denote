@@ -998,7 +998,9 @@ stay unchanged.
 ### Advanced authoring plugin development
 
 Phase 5 adds independent `denote.text-styling`, `denote.note-comments`, and
-`denote.presentations` packages, each initially 0.1.0 targeting Denote 0.11.0.
+`denote.presentations` packages targeting Denote 0.11.0. Text styling and comments
+remain 0.1.0. Presentations 0.1.1 adds standard `---` slide separators alongside
+`===`; its earlier prepared 0.1.0 ledger entry stays immutable.
 The feature branch retains the latest published application version, 0.10.0;
 the approved authoring capabilities also gate compatibility in local previews.
 Use `npm run dev:plugin -- <id>` and the isolated development application.
@@ -1391,15 +1393,16 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-25**.
+Last vendored-library check: **2026-10-26**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-Phase 5 advanced authoring after the release-version ownership repair and its
-[official registry index](https://github.com/rust-lang/crates.io-index) check.
+the Markdown slide-separator and playback-control follow-up using the
+[official registry index](https://github.com/rust-lang/crates.io-index).
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
 fixes and backport requests, and each linked RustSec advisory were checked
-again. The API was available for this check; compatible and latest stable
-versions below are unchanged. The three plugins also publish 3.0.0-alpha.3,
+again. The API returned HTTP 403, so published versions were verified through
+the official registry index instead; compatible and latest stable versions
+below are unchanged. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
 replacement. No compatible
 published replacement removes a local backport. The open

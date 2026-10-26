@@ -525,7 +525,9 @@ clearing plugin-generated data never deletes this user-authored sidecar.
 Backups must include it and, when encrypted, `.denote/encryption.json`.
 
 Presentations parse ordinary Markdown into exact slide ranges only after
-Open as presentation. Normal notes retain Setext heading behavior. The host
+Open as presentation. Exact standalone `---` and `===` delimit slides outside
+opening YAML frontmatter and fenced code. Normal notes retain thematic breaks
+and Setext headings. The host
 owns source/preview, safe Markdown rendering, overview/reorder controls,
 full-screen keyboard handling, and autoplay. Reordering is a checked source
 permutation, not whole-document serialization. YAML core metadata validates

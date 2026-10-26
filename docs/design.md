@@ -913,6 +913,10 @@ overview grid, not a separate application shell. The preview reuses Denote's
 Markdown renderer and link/image controls. Full screen retains named native
 navigation, playback, interval, loop, and exit controls. Slide numbers and
 countdown remain written; only slide changes use a live status announcement.
+Playback buttons and labeled fields share a 32-pixel control row. Loop uses a
+15-pixel native checkbox with no text-input padding or default margin, centered
+beside its label in the same keyboard-operable row. Control groups wrap without
+separating labels from their fields, and fullscreen exit stays a compact action.
 The optional 140 ms fade is state motion and is disabled for reduced motion.
 
 ### Optional Mermaid diagrams

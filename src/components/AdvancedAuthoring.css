@@ -80,7 +80,7 @@
 .authoring-dialog input,
 .authoring-dialog select,
 .authoring-dialog textarea,
-.presentation-controls input {
+.presentation-controls input:not([type="checkbox"]) {
   min-width: 0;
   padding: 6px 8px;
   color: var(--text-primary);
@@ -264,21 +264,45 @@
 
 .presentation-controls input[type="number"] {
   width: 76px;
+  min-height: 32px;
+}
+
+.presentation-control {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 .presentation-controls input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  padding: 0;
   accent-color: var(--accent);
 }
 
-.presentation-controls .primary-button {
+.presentation-controls :is(.primary-button, .secondary-button) {
+  min-height: 32px;
+}
+
+.presentation-controls > :is(.primary-button, .secondary-button) {
   justify-self: start;
 }
 
-.presentation-stage:fullscreen {
+.presentation-controls :is([role="status"], [role="timer"]) {
+  font-variant-numeric: tabular-nums;
+}
+
+.presentation-stage:fullscreen,
+.presentation-stage-shell--fullscreen .presentation-stage {
   padding: 16px;
 }
 
-.presentation-stage:fullscreen .presentation-controls {
+.presentation-stage:fullscreen .presentation-controls,
+.presentation-stage-shell--fullscreen .presentation-controls {
   position: sticky;
   bottom: 0;
   padding: 8px;
