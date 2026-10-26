@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { PluginAuthoringRequest, PluginAuthoringResult } from "@denote/plugin-sdk";
 import { DEFAULT_EDITOR_DISPLAY_SETTINGS } from "../lib/editorDisplay";
@@ -10,7 +10,7 @@ import { AdvancedAuthoring } from "./AdvancedAuthoring";
 const original = "# Keep **this**.  \n\nColor me.\n";
 const provider = { pluginId: "denote.text-styling", id: "denote.text-styling.styles", title: "Styles", feature: "text-styling" as const };
 function SelectionFixture({ source, binding }: { source: string; binding: AuthoringEditorBinding }) {
-  useEffect(() => binding.registerSelection(() => {
+  useLayoutEffect(() => binding.registerSelection(() => {
     const from = source.indexOf("Color me");
     return { source, from, to: from + 8, restore: () => {} };
   }), [source, binding]);
