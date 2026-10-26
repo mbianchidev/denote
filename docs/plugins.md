@@ -523,6 +523,9 @@ Comments belong to exact relative paths; Other notes provides explicit
 rename/move recovery. Missing or ambiguous text stays orphaned. Disabling or
 clearing plugin-generated data never deletes this user-authored sidecar.
 Backups must include it and, when encrypted, `.denote/encryption.json`.
+The host also owns the neutral sidebar badge for the active note's open
+comments. It reuses the native sidecar boundary and existing dialog action;
+neither the count nor the badge requires a new worker capability or package pin.
 
 Presentations parse ordinary Markdown into exact slide ranges only after
 Open as presentation. Exact standalone `---` and `===` delimit slides outside

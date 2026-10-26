@@ -28,6 +28,7 @@ export interface AdvancedAuthoringProps {
   lineEnding: FileLineEnding;
   displaySettings: EditorDisplaySettings;
   nativeFullscreen?: EnterNativeFullscreen;
+  registerCommentsAction?: (open: () => void) => () => void;
   request: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   loadComments: (pluginId: string) => Promise<NoteCommentsSnapshot>;
   saveComments: (pluginId: string, hash: string, document: NoteCommentsDocument, source: string) => Promise<NoteCommentsSnapshot>;
@@ -147,6 +148,10 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
   const openRef = useRef(open);
   openRef.current = open;
   useEffect(() => {
+    if (!comments) return;
+    return callbacks.current.registerCommentsAction?.(() => openRef.current("comments"));
+  }, [comments?.pluginId, comments?.id, path]);
+  useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (!callbacks.current.active || event.isComposing || event.getModifierState("AltGraph") ||
           document.querySelector("dialog[open]:not(.presentation-stage-shell)") || presentation) return;
@@ -234,7 +239,7 @@ export function AdvancedAuthoring(props: AdvancedAuthoringProps) {
     if (editor) sourceView.current = EditorView.findFromDOM(editor);
     else if (target.closest('[contenteditable="true"]')) sourceView.current = null;
   }}>
-    {presentation && slides ? <PresentationEditor path={path} source={source} readOnly={readOnly} active={active}
+    {presentation && slides ? <PresentationEditor path={path} source={source} readOnly={readOnly} active={active && !dialog}
       nativeFullscreen={props.nativeFullscreen}
       lineEnding={lineEnding} displaySettings={displaySettings} request={(request) => run(slides, request)}
       renderPreview={(source, index) => renderPreview(source, index, binding)} onChange={onChange}

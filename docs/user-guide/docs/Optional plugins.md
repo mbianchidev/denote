@@ -157,6 +157,13 @@ comment**. Each row supports **Edit**, **Resolve**, **Reopen**, confirmed
 **Delete**, and **Show text** when attached. Tab, Shift-Tab, Enter, Space, and
 Escape operate the same native controls without a pointer.
 
+The **Note comments** icon in the sidebar opens the same dialog. Its grey badge
+counts open comments for the active Markdown note, including whole-note and
+orphaned comments. Resolved comments are excluded; zero has no badge. Navigating
+between notes refreshes the count, and adding, resolving, reopening, deleting,
+or reattaching comments updates it. Opening the dialog does not clear the count:
+it is an open-comment total, not an unread notification.
+
 An exact unique quote follows nearby source edits. Repeated quotes additionally
 need their original duplicate count and one exact prefix/suffix context.
 Missing text, a changed duplicate count, or indistinguishable matches become

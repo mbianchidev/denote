@@ -17,6 +17,7 @@ interface AuthoringFixtureState {
   unexpectedCommands: string[];
   terminatedWorkers: number;
   nativeFullscreen: boolean;
+  commentReads: number;
 }
 declare global { interface Window { __DENOTE_AUTHORING__: AuthoringFixtureState } }
 
@@ -32,7 +33,7 @@ const documents = {
 };
 const state: AuthoringFixtureState = {
   documents, comments: { contentHash: "0".repeat(64), document: { schemaVersion: 1, owner: "denote.note-comments", notes: {} } },
-  saves: [], unexpectedCommands: [], terminatedWorkers: 0, nativeFullscreen: false,
+  saves: [], unexpectedCommands: [], terminatedWorkers: 0, nativeFullscreen: false, commentReads: 0,
 };
 window.__DENOTE_AUTHORING__ = state;
 const NativeWorker = window.Worker;
@@ -131,7 +132,9 @@ mockIPC((command, payload) => {
       state.saves.push(path);
       return { path, changed: true, savedAt: "2026-01-01T00:00:00Z", contentHash: hash(path), historyCount: 1, stats };
     }
-    case "read_note_comments": return structuredClone(state.comments);
+    case "read_note_comments":
+      state.commentReads++;
+      return structuredClone(state.comments);
     case "save_note_comments": {
       const path = argument(payload, "notePath");
       if (argument(payload, "expectedNoteHash") !== hash(path) || argument(payload, "expectedHash") !== state.comments.contentHash) {

@@ -8,6 +8,39 @@ describe("ActivityRail", () => {
     localStorage.clear();
   });
 
+  it("shows an accessible neutral comment badge and opens comments by keyboard", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    const props = {
+      calendars: [], activeCalendar: null, onCalendarChange: vi.fn(),
+      activeView: "files" as const, activePluginView: null, activeSourceControlProvider: null,
+      activeNoteGraph: null, activeTaskList: null, pluginViews: [], sourceControlProviders: [],
+      noteGraphs: [], taskLists: [], theme: "dark" as const, onViewChange: vi.fn(),
+      onPluginViewChange: vi.fn(), onSourceControlProviderChange: vi.fn(),
+      onNoteGraphChange: vi.fn(), onTaskListChange: vi.fn(), onAbout: vi.fn(), onThemeToggle: vi.fn(),
+    };
+    const comments = {
+      provider: { pluginId: "denote.note-comments", id: "denote.note-comments.anchors", title: "Note comments", feature: "note-comments" as const },
+      count: 2, disabled: false, onOpen,
+    };
+    const view = render(<ActivityRail {...props} comments={comments} />);
+    const button = screen.getByRole("button", { name: "Note comments, 2 open comments" });
+    expect(button).toHaveAttribute("aria-haspopup", "dialog");
+    expect(button).not.toHaveAttribute("aria-pressed");
+    expect(within(button).getByText("2")).toHaveClass("activity-rail__badge--muted");
+    button.focus();
+    await user.keyboard("{Enter}");
+    expect(onOpen).toHaveBeenCalledOnce();
+    view.rerender(<ActivityRail {...props} comments={{ ...comments, count: 125 }} />);
+    expect(within(screen.getByRole("button", { name: "Note comments, 125 open comments" })).getByText("99+")).toBeInTheDocument();
+    view.rerender(<ActivityRail {...props} comments={{ ...comments, count: 0 }} />);
+    expect(within(screen.getByRole("button", { name: "Note comments" })).queryByText("0")).not.toBeInTheDocument();
+    view.rerender(<ActivityRail {...props} comments={{ ...comments, count: null, disabled: true }} />);
+    expect(screen.getByRole("button", { name: "Note comments" })).toBeDisabled();
+    view.rerender(<ActivityRail {...props} />);
+    expect(screen.queryByRole("button", { name: /Note comments/ })).not.toBeInTheDocument();
+  });
+
   it("opens About Denote from a named button", async () => {
     const user = userEvent.setup();
     const onAbout = vi.fn();

@@ -891,6 +891,14 @@ retain drafts after errors. Comment rows show written whole-note, source-line,
 resolved, missing-text, or ambiguous-text states. Reattachment and deletion are
 explicit keyboard-operable actions; color never represents comment state.
 
+The Note comments rail icon uses the existing compact count badge with neutral
+`--border-strong` background and `--text-primary` ink, never a red or accent
+notification color. It shows only the active note's open-comment count and hides
+zero. The accessible name includes the exact count; the visible badge follows
+the shared `99+` limit. It opens the existing dialog without switching sidebar
+views and participates in plugin ordering, grouping, and visibility controls.
+Forced colors use canvas/text colors rather than an alert highlight.
+
 The following content-only palette is an intentional exception to the one
 accent rule for application chrome. `src/lib/authoring.ts` owns these exact
 foreground/background pairs; executable plugins can select names, never CSS.

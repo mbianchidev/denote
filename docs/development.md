@@ -1395,7 +1395,7 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-26**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the Markdown slide-separator and playback-control follow-up using the
+the slide-separator, playback-control, and grey comment-count follow-ups using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream

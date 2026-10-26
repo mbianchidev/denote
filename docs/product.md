@@ -490,6 +490,9 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   conflict-checked, atomic, and encrypted with vault content. It is retained
   after disablement and must be included in vault backups. Exact relative paths
   own comments; rename/move recovery is explicit through Other notes.
+  A grey badge on the Note comments sidebar icon counts open comments for the
+  active Markdown note, excludes resolved comments, and hides zero. Navigation
+  and comment changes update it; viewing comments does not mark them read.
 - Presentations split standalone `---` and `===` lines only in explicit
   presentation mode; ordinary notes retain thematic breaks and Setext headings.
   Opening YAML frontmatter and fenced code are not split. Source/preview,

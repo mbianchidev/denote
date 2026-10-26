@@ -1302,6 +1302,16 @@ most 500 comments and 2 MiB; bodies/quotes are at most 4 KiB.
 Paths own records, not copied contents. Rename/move recovery is explicit through
 Other notes and reattachment; note deletion retains comments.
 
+The host-owned Note comments rail action reads the bounded sidecar when the
+active Markdown note changes and counts only unresolved records at that exact
+path. `useNoteCommentCount` retains only the count and error, rejects obsolete
+vault/plugin/note reads, and accepts newer dialog snapshots without allowing an
+older read to overwrite them. Errors are surfaced rather than treated as zero.
+Lock, vault switch, and provider withdrawal immediately hide the old count.
+This does not scan note contents, index a vault again, or send comment bodies to
+workers. The rail and command palette reuse the focused pane's registered
+comments action, including during presentation authoring.
+
 Native sidecar commands run on the blocking pool under active-vault access,
 recheck plugin approval and captured workspace scope, refuse links/reparse
 points and unsafe paths, and use per-sidecar/per-note locks. The renderer flushes

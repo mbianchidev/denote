@@ -265,6 +265,11 @@ button:disabled {
   line-height: 1;
 }
 
+.activity-rail__badge--muted {
+  color: var(--text-primary);
+  background: var(--border-strong);
+}
+
 .activity-rail__plugin-group {
   display: grid;
   width: 100%;
@@ -5799,6 +5804,12 @@ button.tag-chip:active,
     background: Highlight;
     border-color: Canvas;
     forced-color-adjust: none;
+  }
+
+  .activity-rail__badge--muted {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
   }
 
   .reminder-bumps li {

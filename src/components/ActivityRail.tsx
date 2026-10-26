@@ -15,6 +15,7 @@ import {
   GripVertical,
   Info,
   ListChecks,
+  MessageSquare,
   Moon,
   Network,
   Plug,
@@ -27,6 +28,7 @@ import { memo, useEffect, useMemo, useState } from "react";
 import type { SidebarView } from "../types";
 import type { Theme } from "../lib/theme";
 import type {
+  PluginAuthoringContribution,
   PluginCalendarContribution,
   PluginNoteGraphContribution,
   PluginReminderContribution,
@@ -66,6 +68,12 @@ interface ActivityRailProps {
   timeTrackers?: PluginTimeTrackingContribution[];
   clockAlertCounts?: Record<string, number>;
   reminderDueCounts?: Record<string, number>;
+  comments?: {
+    provider: PluginAuthoringContribution;
+    count: number | null;
+    disabled: boolean;
+    onOpen: () => void;
+  };
   theme: Theme;
   onViewChange: (view: SidebarView) => void;
   onPluginViewChange: (viewId: string) => void;
@@ -99,9 +107,11 @@ interface PluginRailItem {
     | "task-list"
     | "calendar"
     | "reminders"
-    | "time-tracking";
+    | "time-tracking"
+    | "note-comments";
   ariaLabel?: string;
   badgeCount?: number;
+  disabled?: boolean;
   onSelect: () => void;
 }
 
@@ -139,6 +149,7 @@ function ActivityRailComponent({
   timeTrackers = [],
   clockAlertCounts = {},
   reminderDueCounts = {},
+  comments,
   theme,
   onViewChange,
   onPluginViewChange,
@@ -241,6 +252,18 @@ function ActivityRailComponent({
       ...taskItems,
       ...calendarItems,
       ...reminderItems,
+      ...(comments ? [{
+        key: `comments:${comments.provider.pluginId}:${comments.provider.id}`,
+        title: comments.provider.title,
+        ariaLabel: comments.count
+          ? `${comments.provider.title}, ${comments.count} open comment${comments.count === 1 ? "" : "s"}`
+          : comments.provider.title,
+        selected: false,
+        kind: "note-comments" as const,
+        badgeCount: comments.count ?? 0,
+        disabled: comments.disabled,
+        onSelect: comments.onOpen,
+      }] : []),
       ...timeTrackers.map((provider) => ({
         key: `time-tracking:${provider.pluginId}:${provider.id}`,
         title: provider.title,
@@ -276,6 +299,7 @@ function ActivityRailComponent({
     timeTrackers,
     clockAlertCounts,
     reminderDueCounts,
+    comments,
     taskLists,
     onNoteGraphChange,
     onReminderChange,
@@ -388,7 +412,9 @@ function ActivityRailComponent({
                       draggable
                       key={item.key}
                       aria-label={item.ariaLabel ?? item.title}
-                      aria-pressed={item.selected}
+                      aria-pressed={item.kind === "note-comments" ? undefined : item.selected}
+                      aria-haspopup={item.kind === "note-comments" ? "dialog" : undefined}
+                      disabled={item.disabled}
                       title={`${item.title} · drag to reorder`}
                       onClick={item.onSelect}
                       onDragStart={() => setDragged(item.key)}
@@ -414,12 +440,14 @@ function ActivityRailComponent({
                         <Bell aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : item.kind === "time-tracking" ? (
                         <Timer aria-hidden="true" size={19} strokeWidth={1.8} />
+                      ) : item.kind === "note-comments" ? (
+                        <MessageSquare aria-hidden="true" size={19} strokeWidth={1.8} />
                       ) : (
                         <Plug aria-hidden="true" size={19} strokeWidth={1.8} />
                       )}
                       {item.badgeCount ? (
                         <span
-                          className="activity-rail__badge"
+                          className={`activity-rail__badge${item.kind === "note-comments" ? " activity-rail__badge--muted" : ""}`}
                           aria-hidden="true"
                         >
                           {item.badgeCount > 99 ? "99+" : item.badgeCount}

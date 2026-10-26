@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -36,6 +36,23 @@ function Harness({ changed, readOnly = false }: { changed: (source: string) => v
 }
 
 describe("optional authoring toolbar", () => {
+  it("registers the same comments dialog for host actions and removes the action on teardown", async () => {
+    const dispose = vi.fn();
+    const register = vi.fn((_open: () => void) => dispose);
+    const view = render(<AdvancedAuthoring path="Example.md" source={original} readOnly={false} active
+      providers={[{ pluginId: "denote.note-comments", id: "denote.note-comments.anchors", title: "Note comments", feature: "note-comments" }]}
+      registerCommentsAction={register} lineEnding="lf" displaySettings={DEFAULT_EDITOR_DISPLAY_SETTINGS}
+      request={async () => ({ feature: "note-comments", action: "locate", anchors: [] })}
+      loadComments={async () => ({ contentHash: "a".repeat(64), document: { schemaVersion: 1, owner: "denote.note-comments", notes: {} } })}
+      saveComments={async () => { throw new Error("Unexpected comment save"); }}
+      renderEditor={() => <p>A synthetic note.</p>} renderPreview={() => null} onChange={vi.fn()} />);
+    expect(register).toHaveBeenCalledOnce();
+    act(() => register.mock.calls[0][0]());
+    await screen.findByRole("dialog", { name: "Comments" });
+    view.unmount();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
+
   it("formats only the captured range through a keyboard-opened palette", async () => {
     const user = userEvent.setup();
     const changed = vi.fn();

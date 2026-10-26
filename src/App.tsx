@@ -93,6 +93,7 @@ import { HistoryDialog } from "./components/HistoryDialog";
 import type { MarkdownEditorDiagnostic } from "./components/MarkdownEditor";
 import type { AuthoringEditorBinding } from "./lib/authoring";
 import { useHighlightIndex } from "./plugins/useHighlightIndex";
+import { useNoteCommentCount } from "./plugins/useNoteCommentCount";
 import { NativeFullscreenHost } from "./lib/nativeFullscreen";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
@@ -1746,6 +1747,19 @@ function App() {
     pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
   [pluginController.authoringProviders, pluginController.busyPluginIds, pluginController.plugins]);
   const textStylingProvider = authoringProviders.find((provider) => provider.feature === "text-styling") ?? null;
+  const noteCommentsProvider = authoringProviders.find((provider) => provider.feature === "note-comments") ?? null;
+  const commentOpeners = useRef(new Map<string, { vault: string; path: string; open: () => void }>());
+  const readComments = useCallback(async (pluginId: string, vault: string) => {
+    const generation = vaultGeneration.current;
+    if (workspaceLockedRef.current || workspaceVaultPathRef.current !== vault) {
+      throw new Error("Comments request expired after a vault switch or lock.");
+    }
+    const result = await api.readNoteComments(pluginId, vault);
+    if (generation !== vaultGeneration.current || workspaceLockedRef.current || workspaceVaultPathRef.current !== vault) {
+      throw new Error("Comments request expired after a vault switch or lock.");
+    }
+    return result;
+  }, []);
   const highlightIndex = useHighlightIndex(
     workspace?.vaultPath ?? null, textStylingProvider, pluginController.requestAuthoring,
     searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
@@ -2106,6 +2120,23 @@ function App() {
     activeFileTab?.encoding === "utf8" && !activeFileTab.transient
       ? kanbanBoardForPath(kanbanBoards, activeFileTab.path, activeFileTab.content)
       : null;
+  const commentsPath = activeFileTab?.encoding === "utf8" &&
+    /\.(md|markdown)$/i.test(activeFileTab.path) && !activeKanbanBoard && !activeStructuredViewer
+    ? activeFileTab.path : null;
+  const commentCount = useNoteCommentCount(
+    workspace && (!workspace.encryption.enabled || workspace.encryption.unlocked) && !workspaceLocked
+      ? workspace.vaultPath : null,
+    noteCommentsProvider, commentsPath, readComments,
+  );
+  useEffect(() => { if (commentCount.error) showError(commentCount.error); }, [commentCount.error, showError]);
+  const openNoteComments = useCallback(() => {
+    const opener = commentOpeners.current.get(paneStateRef.current.focusedPaneId);
+    if (!opener || opener.path !== commentsPath || opener.vault !== workspaceVaultPathRef.current || workspaceLockedRef.current) {
+      showError("Return to an available Markdown note before opening comments.");
+      return;
+    }
+    opener.open();
+  }, [commentsPath, showError]);
   const effectiveOutlineAvailable =
     outlineAvailable &&
     (!activeStructuredViewer || (activeFileTab?.rawEditing ?? false)) &&
@@ -9691,6 +9722,7 @@ function App() {
         !/\.(md|markdown)$/i.test(activeFileTab.path) || Boolean(activeFileTab.transient) ||
         (feature === "text-styling" && Boolean(activeFileTab.readOnly)),
       run: () => {
+        if (feature === "note-comments") { openNoteComments(); return; }
         const pane = [...document.querySelectorAll<HTMLElement>("[data-pane-id]")].find((pane) =>
           pane.dataset.paneId === paneStateRef.current.focusedPaneId);
         const button = pane?.querySelector<HTMLButtonElement>(`[data-authoring-action="${feature}"]`);
@@ -10455,11 +10487,15 @@ function App() {
         path={paneTab.path} source={paneTab.content} readOnly={paneReadOnly} active={pane.id === focusedPaneId && !workspaceLocked}
         providers={authoringProviders} lineEnding={paneTab.lineEnding} displaySettings={paneDisplaySettings}
         nativeFullscreen={nativeFullscreenHost.enter}
+        registerCommentsAction={(open) => {
+          const entry = { vault: workspace.vaultPath, path: paneTab.path, open };
+          commentOpeners.current.set(pane.id, entry);
+          return () => { if (commentOpeners.current.get(pane.id) === entry) commentOpeners.current.delete(pane.id); };
+        }}
         request={pluginController.requestAuthoring}
         loadComments={async (pluginId) => {
-          const generation = vaultGeneration.current;
-          const result = await api.readNoteComments(pluginId, workspace.vaultPath);
-          if (generation !== vaultGeneration.current || workspaceLockedRef.current) throw new Error("Comments request expired after a vault switch or lock.");
+          const result = await readComments(pluginId, workspace.vaultPath);
+          commentCount.update(workspace.vaultPath, pluginId, result);
           return result;
         }}
         saveComments={async (pluginId, hash, document, source) => {
@@ -10477,6 +10513,7 @@ function App() {
           if (!tab.savedHash) throw new Error("The saved note version is unavailable. Reload the note before saving comments.");
           const result = await api.saveNoteComments(pluginId, workspace.vaultPath, paneTab.path, tab.savedHash, hash, document);
           if (generation !== vaultGeneration.current) throw new Error("Comments were saved in their original vault. Reopen it to review them.");
+          commentCount.update(workspace.vaultPath, pluginId, result);
           return result;
         }}
         renderEditor={(binding, navigation) => renderFileEditor(binding, navigation)}
@@ -10554,6 +10591,10 @@ function App() {
         timeTrackers={timeViews}
         clockAlertCounts={clockAlertCounts}
         reminderDueCounts={reminderDueCounts}
+        comments={noteCommentsProvider ? {
+          provider: noteCommentsProvider, count: commentCount.count,
+          disabled: !commentsPath || workspaceLocked, onOpen: openNoteComments,
+        } : undefined}
         theme={theme}
         onViewChange={(view) => {
           showSidebarView(view);

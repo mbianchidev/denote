@@ -112,6 +112,90 @@ test("presentation source, full-screen navigation, autoplay and return release r
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
+test("the grey sidebar badge follows only the active note's open comments", async ({ page }, info) => {
+  const rail = page.locator(".activity-rail");
+  const comments = rail.getByRole("button", { name: /^Note comments(?:,|$)/ });
+  const badge = rail.locator(".activity-rail__badge--muted");
+  await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  await expect(page.locator(".denote-text-style")).toBeVisible();
+  await expect(comments).toBeEnabled();
+  await expect(badge).toHaveCount(0);
+  const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"]);
+  await selectRichText(page, "short phrase");
+  await comments.click();
+  await page.getByRole("textbox", { name: "Comment", exact: true }).fill("Review this synthetic phrase.");
+  await page.getByRole("button", { name: "Add comment", exact: true }).click();
+  await expect(badge).toHaveText("1");
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.comments.document.notes["Authoring.md"][0].anchor?.quote)).toBe("short phrase");
+  await page.keyboard.press("Escape");
+  await expect(comments).toHaveAccessibleName("Note comments, 1 open comment");
+  await page.getByRole("button", { name: "Deck.md", exact: true }).click();
+  await expect(badge).toHaveCount(0);
+  await page.getByRole("button", { name: "Open as presentation", exact: true }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
+  await comments.click();
+  await expect(page.getByRole("dialog", { name: "Comments", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Return to note", exact: true }).click();
+  await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  await expect(comments).toHaveAccessibleName("Note comments, 1 open comment");
+  await comments.focus();
+  await page.keyboard.press("Enter");
+  await page.getByRole("button", { name: "Resolve comment", exact: true }).click();
+  await expect(badge).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Show comments", exact: true }).selectOption("resolved");
+  await page.getByRole("button", { name: "Reopen comment", exact: true }).click();
+  await expect(badge).toHaveText("1");
+  await page.getByRole("combobox", { name: "Show comments", exact: true }).selectOption("open");
+  await page.getByRole("button", { name: "Delete comment", exact: true }).click();
+  await page.getByRole("group", { name: "Delete this comment?", exact: true }).getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(badge).toHaveCount(0);
+  await page.getByRole("combobox", { name: "Attach to", exact: true }).selectOption("note");
+  for (const [index, body] of ["Check this invented example.", "Review the synthetic heading."].entries()) {
+    await page.getByRole("textbox", { name: "Comment", exact: true }).fill(body);
+    await page.getByRole("button", { name: "Add comment", exact: true }).click();
+    await expect(badge).toHaveText(String(index + 1));
+  }
+  await page.keyboard.press("Escape");
+  await expect(comments).toHaveAccessibleName("Note comments, 2 open comments");
+  const reads = await page.evaluate(() => window.__DENOTE_AUTHORING__.commentReads);
+  for (const theme of ["dark", "light"]) {
+    if (theme === "light") {
+      await page.getByRole("button", { name: "Switch to light mode", exact: true }).click();
+      await page.setViewportSize({ width: 840, height: 700 });
+    }
+    const colors = await badge.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const rgb = (color: string) => (color.match(/[\d.]+/g) ?? []).slice(0, 3).map(Number);
+      const background = rgb(style.backgroundColor);
+      const luminance = (channels: number[]) => channels.map((value) => {
+        const channel = value / 255;
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      }).reduce((total, value, index) => total + value * [0.2126, 0.7152, 0.0722][index], 0);
+      const light = luminance(rgb(style.color));
+      const dark = luminance(background);
+      return {
+        spread: Math.max(...background) - Math.min(...background),
+        contrast: (Math.max(light, dark) + 0.05) / (Math.min(light, dark) + 0.05),
+      };
+    });
+    expect(colors.spread).toBeLessThanOrEqual(20);
+    expect(colors.contrast).toBeGreaterThanOrEqual(4.5);
+    await page.screenshot({ path: info.outputPath(`comment-badge-${theme}.png`) });
+  }
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.commentReads)).toBe(reads);
+  await page.getByRole("button", { name: "Open settings", exact: true }).click();
+  await page.getByRole("button", { name: "Plugins", exact: true }).click();
+  const card = page.locator(".plugin-card").filter({ has: page.getByText("Note comments", { exact: true }) });
+  await card.locator("summary").first().click();
+  await card.getByRole("button", { name: "Disable and remove code", exact: true }).click();
+  await page.getByRole("button", { name: "Close settings", exact: true }).click();
+  await expect(comments).toHaveCount(0);
+  expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Authoring.md"])).toBe(original);
+});
+
 test("overview preserves unknown frontmatter and disabling a live provider releases its worker", async ({ page }) => {
   await page.getByRole("button", { name: "Deck.md", exact: true }).click();
   const original = await page.evaluate(() => window.__DENOTE_AUTHORING__.documents["Deck.md"]);
