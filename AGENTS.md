@@ -72,6 +72,14 @@ package-equivalent Windows renderer smoke test shows the Denote UI and confirms
 that closing the last window terminates the process. If no verified upstream
 fix exists or the smoke test fails, keep the exact known-good versions.
 
+## Release versions
+
+Keep the application version at the latest published release in feature and
+dependency PRs. `./scripts/release.sh <version>` owns the root npm, Cargo, and
+Tauri application-version bump and the release commit. Targeting a future
+release or pinning plugin packages for it does not authorize pre-bumping the
+application. Plugin versions and immutable source pins remain independent.
+
 ## Plugins
 
 Before changing plugin code or lifecycle behavior, read:

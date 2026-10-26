@@ -1386,7 +1386,9 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-Phase 5 advanced authoring. The official
+Phase 5 advanced authoring after the release-version ownership repair and its
+[official registry index](https://github.com/rust-lang/crates.io-index) check.
+The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
 fixes and backport requests, and each linked RustSec advisory were checked
 again. The API was available for this check; compatible and latest stable
@@ -1805,6 +1807,13 @@ cap the proportional code minimap at 500 strokes, and never force a complete
 CodeMirror parse for outline generation.
 
 ## Prepare a release
+
+Feature and dependency PRs retain the latest published application version.
+Only the release command below advances the root npm, Cargo, and Tauri
+application versions. Do not run `npm run release -- <next-version>` while
+preparing a feature PR: that makes the later release command produce no version
+changes. Preparing new plugin versions, source pins, or catalog URLs for the
+intended release does not require an application-version bump.
 
 From a clean `main` branch, run the release script with either an unprefixed
 semantic version or the matching `v`-prefixed tag:
