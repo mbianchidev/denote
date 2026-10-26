@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.note-comments",
+  "name": "Note comments",
+  "version": "0.1.0",
+  "description": "Keep local note and range comments in vault-owned sidecars without changing Markdown.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "collaboration",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.10.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [{ "capability": "note-comments" }],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

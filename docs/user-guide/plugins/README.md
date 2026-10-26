@@ -17,6 +17,9 @@ trying its view. Opening an example never installs or enables a plugin.
 | Reminders | [Reminder targets](<Reminders.md>) | Create standalone or linked reminders, edit them, and repeat them on a schedule |
 | Time tracking | [Time tracking practice](<Time tracking.md>) | Start, pause, resume, and stop a note timer; inspect totals, audit a correction, and export sessions |
 | Code intelligence | [Code intelligence exercise](<Code intelligence.md>) | Explicitly approve an installed language server; inspect source and navigate without installing tools automatically |
+| Text highlighting and coloring | [Text styling](<Text styling.md>) | Apply a named style, inspect literal Source, and find highlighted excerpts |
+| Note comments | [Note comments](<Note comments.md>) | Anchor, resolve, orphan, and explicitly reattach a local comment |
+| Markdown presentation slides | [Presentation deck](<Presentation.md>) | Edit Source beside preview, reorder slides, and present with keyboard playback |
 
 Disable a plugin at any time; the files remain. Time tracking asks for
 confirmation before stopping an active timer. Git is a written, opt-in

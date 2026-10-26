@@ -995,6 +995,59 @@ separately. The earlier prepared 0.1.0 reservation remains immutable, even
 though it was not published. Existing plugin source pins and archive identities
 stay unchanged.
 
+### Advanced authoring plugin development
+
+Phase 5 adds independent `denote.text-styling`, `denote.note-comments`, and
+`denote.presentations` packages, each initially 0.1.0 targeting Denote 0.11.0.
+The feature branch retains the latest published application version, 0.10.0;
+the approved authoring capabilities also gate compatibility in local previews.
+Use `npm run dev:plugin -- <id>` and the isolated development application.
+Their shared additive contract is `packages/plugin-sdk/src/authoring.ts`;
+downloaded implementations stay outside the renderer.
+
+```bash
+npx vitest run packages/plugin-sdk/src/authoring.test.ts \
+  plugins/text-styling/tests plugins/note-comments/tests plugins/presentations/tests \
+  src/components/AdvancedAuthoring.test.tsx src/components/AuthoringMarkdownEditor.test.tsx \
+  src/components/NoteCommentsPanel.test.tsx src/components/PresentationEditor.test.tsx \
+  src/plugins/useHighlightIndex.test.tsx src/lib/authoring.test.ts \
+  src/lib/presentationPlayback.test.ts src/lib/nativeFullscreen.test.ts src/lib/search.test.ts \
+  src/plugins/runtimeMessages.test.ts src/plugins/workerRuntime.test.ts src/plugins/usePlugins.test.tsx
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib note_comments
+cargo test --manifest-path src-tauri/Cargo.toml --locked --lib plugin_v6_
+npx tsc --noEmit -p tsconfig.benchmarks.json
+npm run build
+npm exec --no -- playwright test benchmarks/authoring.perf.ts
+```
+
+The production-browser gate builds the three real worker entrypoints and mocks
+only native IPC with invented notes. It exercises exact Rich formatting,
+sidecar anchoring and ambiguous-orphan recovery, source preservation, real
+full-screen keyboard navigation, autoplay, and return to ordinary notes.
+Unit checks measure every palette pair against 4.5:1, absolute late-tick
+deadlines, source/sidecar conflicts, malformed YAML, ownership, unknown fields,
+symlink refusal, encryption sweeps, and lock/switch disposal. Never send private
+selection bookmarks or editor functions across the worker boundary.
+
+The pinned Wry 0.55.1 enables WebKit element fullscreen only behind its optional
+[`fullscreen` feature](https://github.com/tauri-apps/wry/blob/wry-v0.55.1/src/wkwebview/mod.rs#L386-L388),
+which Denote's runtime graph does not enable. Presentation therefore uses DOM
+fullscreen where supported and a public Tauri window-fullscreen lease plus a
+native modal focus boundary otherwise. It restores the prior window state,
+serializes owners, ignores obsolete cleanup, and handles cancelled entry.
+`core:window:allow-set-fullscreen` applies only to the trusted main webview;
+no native API or lease reaches a plugin. No private WebKit API, runtime-family
+version, or Windows pin is changed.
+
+Welcome `plugins-v6` adds only `Text styling.md`, `Note comments.md`, and
+`Presentation.md`. Keep every earlier marker and inventory unchanged. Existing
+paths and user edits are preserved; deleted applied samples are never restored.
+Encrypted vaults receive only ciphertext after unlock.
+
+Commit reviewed source, SDK, docs, tests, and lockfile before pinning each new
+package for `v0.11.0`; commit catalog/ledger metadata separately. Do not repin
+unchanged existing versions or include archives in the installer.
+
 ## Frontend bundle limits
 
 `npm run build` uses entry-aware Rolldown groups and rejects main-thread
@@ -1332,12 +1385,11 @@ versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-25**.
-All seven crates, official release notes/trackers, and their RustSec baselines
-were rechecked for incremental large-vault indexing after the GTK compiler and
-isolated-fixture warning cleanup, following the frontend CI repair in
-[#138](https://github.com/mbianchidev/denote/pull/138), including the
-[official registry index](https://github.com/rust-lang/crates.io-index),
-because the crates.io API returned HTTP 403. Compatible and latest stable
+All seven vendor directories and `[patch.crates-io]` entries were rechecked for
+Phase 5 advanced authoring. The official
+[crates.io API](https://crates.io/data-access), release notes, linked upstream
+fixes and backport requests, and each linked RustSec advisory were checked
+again. The API was available for this check; compatible and latest stable
 versions below are unchanged. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
 replacement. No compatible

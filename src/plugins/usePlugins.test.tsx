@@ -438,6 +438,9 @@ describe("usePlugins", () => {
     "note-graph",
     "calendar",
     "diagram-renderer",
+    "text-styling",
+    "note-comments",
+    "presentation",
   ] as const)(
     "stops %s workers while content is unavailable and restarts them after unlock",
     async (capability) => {
@@ -470,7 +473,10 @@ describe("usePlugins", () => {
       if (
         capability === "note-graph" ||
         capability === "calendar" ||
-        capability === "task-list"
+        capability === "task-list" ||
+        capability === "text-styling" ||
+        capability === "note-comments" ||
+        capability === "presentation"
       ) {
         expect(runtime.forceStop).toHaveBeenCalledWith(pluginId);
       } else {
@@ -480,7 +486,7 @@ describe("usePlugins", () => {
     },
   );
 
-  it.each(["note-graph", "calendar", "task-list", "time-tracking"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
+  it.each(["note-graph", "calendar", "task-list", "time-tracking", "text-styling", "note-comments", "presentation"] as const)("restarts %s workers when the host switches vaults", async (capability) => {
     const enabled = makePlugin({
       enabled: true,
       approvedPermissions: [{ capability }],

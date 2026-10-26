@@ -9,10 +9,22 @@ import {
   DiagramRendererHost,
   DiagramRenderCache,
   diagramSandboxDocument,
+  currentDiagramTheme,
   sanitizeDiagramSvg,
 } from "./diagramRenderers";
 
 describe("diagram renderer host boundary", () => {
+  it("uses an explicit presentation theme without changing the document theme", () => {
+    const stage = document.createElement("section");
+    stage.dataset.slideTheme = "light";
+    const figure = stage.appendChild(document.createElement("div"));
+    const before = document.documentElement.dataset.theme;
+    expect(currentDiagramTheme(figure)).toBe("light");
+    stage.dataset.slideTheme = "dark";
+    expect(currentDiagramTheme(figure)).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe(before);
+  });
+
   it("sanitizes SVG with a static allowlist and removes active content", () => {
     const sanitized = sanitizeDiagramSvg(`
       <svg viewBox="0 0 20 20" onload="alert(1)">

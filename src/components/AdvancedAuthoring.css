@@ -1,0 +1,356 @@
+.advanced-authoring,
+.advanced-authoring__editor,
+.presentation-editor {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.authoring-toolbar,
+.authoring-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.authoring-toolbar {
+  min-height: 35px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.authoring-toolbar .secondary-button,
+.authoring-actions .secondary-button {
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.authoring-muted {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.authoring-error {
+  padding: 8px 12px;
+  color: var(--danger);
+  border: 1px solid currentColor;
+  overflow-wrap: anywhere;
+}
+
+.authoring-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 0;
+  overflow: auto;
+}
+
+.authoring-dialog .dialog-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 14px 16px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.authoring-dialog h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.authoring-dialog__body {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+}
+
+.authoring-dialog__body p {
+  margin: 0;
+}
+
+.authoring-dialog form,
+.authoring-dialog form > label {
+  display: grid;
+  gap: 8px;
+}
+
+.authoring-dialog input,
+.authoring-dialog select,
+.authoring-dialog textarea,
+.presentation-controls input {
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  font: inherit;
+}
+
+.authoring-dialog textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.authoring-dialog blockquote {
+  margin: 4px 0;
+  padding-left: 12px;
+  color: var(--text-secondary);
+  border-left: 2px solid var(--border-strong);
+  overflow-wrap: anywhere;
+}
+
+.note-comments,
+.text-style-excerpts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.note-comments > li,
+.text-style-excerpts > li {
+  display: grid;
+  gap: 8px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.note-comments__body {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.denote-text-style {
+  --style-bg: var(--style-dark-bg);
+  --style-ink: var(--style-dark-ink);
+  --style-foreground: var(--style-dark-foreground);
+  padding: 0 2px;
+  color: var(--style-ink);
+  background: var(--style-bg);
+  border-bottom: 1px solid currentColor;
+  border-radius: 3px;
+}
+
+:root[data-theme="light"] .denote-text-style,
+.presentation-stage[data-slide-theme="light"] .denote-text-style {
+  --style-bg: var(--style-light-bg);
+  --style-ink: var(--style-light-ink);
+  --style-foreground: var(--style-light-foreground);
+}
+
+.presentation-stage[data-slide-theme="dark"] .denote-text-style {
+  --style-bg: var(--style-dark-bg);
+  --style-ink: var(--style-dark-ink);
+  --style-foreground: var(--style-dark-foreground);
+}
+
+.denote-text-style[data-style-kind="color"] {
+  color: var(--style-foreground);
+  background: var(--editor-bg);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.presentation-authoring {
+  display: grid;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  grid-template-columns: minmax(260px, 1fr) minmax(300px, 1fr);
+}
+
+.presentation-source {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+
+.presentation-stage-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+}
+
+.presentation-stage-shell--fullscreen {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.presentation-stage-shell--fullscreen .presentation-stage {
+  height: 100%;
+}
+
+.presentation-stage {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+  color: var(--text-primary);
+  background: var(--editor-bg);
+}
+
+.presentation-slide-frame {
+  position: relative;
+  width: min(100%, calc((100dvh - 240px) * var(--slide-ratio-number, 1.77778)));
+  aspect-ratio: var(--slide-ratio, 16 / 9);
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  text-align: var(--slide-alignment, left);
+}
+
+.presentation-slide {
+  height: 100%;
+  padding: 16px;
+  overflow: auto;
+}
+
+.presentation-slide .mdxeditor-toolbar {
+  display: none;
+}
+
+.presentation-slide .denote-editor-content {
+  max-width: none;
+  padding: 8px 16px 32px;
+  font-size: 22px;
+  text-align: inherit;
+}
+
+.presentation-slide .denote-editor-content h1,
+.presentation-slide .denote-editor-content h2 {
+  font-size: 1.6em;
+}
+
+.presentation-slide img {
+  max-width: 100%;
+}
+
+.presentation-slide-number {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.presentation-controls {
+  display: grid;
+  width: 100%;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.presentation-controls input[type="number"] {
+  width: 76px;
+}
+
+.presentation-controls input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.presentation-controls .primary-button {
+  justify-self: start;
+}
+
+.presentation-stage:fullscreen {
+  padding: 16px;
+}
+
+.presentation-stage:fullscreen .presentation-controls {
+  position: sticky;
+  bottom: 0;
+  padding: 8px;
+  background: var(--editor-bg);
+}
+
+.presentation-overview {
+  display: grid;
+  max-height: 280px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  list-style: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.presentation-overview > li {
+  display: grid;
+  gap: 4px;
+}
+
+.presentation-notices {
+  max-height: 160px;
+  padding: 8px 12px;
+  overflow: auto;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.advanced-authoring :is(button, input, select, textarea):focus-visible,
+.authoring-dialog :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.presentation-slide--fade {
+  animation: presentation-reveal 140ms ease-out;
+}
+
+@keyframes presentation-reveal {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 1000px) {
+  .presentation-authoring {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+  .presentation-source {
+    min-height: 280px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .presentation-slide--fade { animation: none; }
+}
+
+@media (forced-colors: active) {
+  .denote-text-style,
+  .denote-text-style[data-style-kind="color"] {
+    color: CanvasText;
+    background: Canvas;
+    border: 1px solid CanvasText;
+  }
+  .presentation-slide-frame,
+  .note-comments > li {
+    border-color: CanvasText;
+  }
+  .advanced-authoring :is(button, input, select, textarea):focus-visible,
+  .authoring-dialog :is(button, input, select, textarea):focus-visible {
+    outline-color: Highlight;
+  }
+}

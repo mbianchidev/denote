@@ -1268,6 +1268,74 @@ conflicts leave the original row focused and unchanged. Disabling or removing
 the plugin clears code and the in-memory index but never edits, deletes, or
 reformats task Markdown. Recurring syntax is deliberately uninterpreted.
 
+### Advanced authoring
+
+`authoring.ts` adds three separately approved API version 1 features:
+`text-styling`, `note-comments`, and `presentation`. A namespaced registration
+selects one feature and one pure request handler. Registration, requests, and
+results are checked in the worker and host; request keys are closed so private
+selection bookmarks, DOM/editor functions, and workspace identities cannot
+cross accidentally. Sources are bounded at 4 MiB. Workers receive no general
+workspace service, absolute path, encryption key, executable UI, HTML, or CSS.
+Content providers cannot share a worker with global clocks. Lock and vault
+switch withdraw contributions synchronously and force-stop their workers.
+
+Text styling returns exact ordered source spans and named palette values.
+The host verifies every delimiter/text slice and every explicit formatting
+delta independently. Rich selections reuse the same conservative source
+projection and exact-source undo snapshots as emoji insertion. Source edits use
+ordinary CodeMirror transactions. Generic Lexical text nodes render owned
+palette tokens, retain portable delimiters on export, and never execute markup.
+All foreground/background pairs are checked at 4.5:1 in both themes.
+Highlight indexing shares saved bounded task-list/Markdown projections and
+reuses unchanged sources. Hash-bound excerpt ranges filter the existing search
+worker without rebuilding or retokenizing its database; stale hashes never
+match new contents.
+
+Comments use exact quotes, original duplicate counts, and bounded prefix/suffix
+contexts rather than a stale line number or nearest-text heuristic. Missing,
+changed-count, or indistinguishable matches stay orphaned. Display re-anchoring
+is read-only. Bodies never reach the worker. The host owns
+`.denote/note-comments.json`, a strict schema-version-1 document with fixed
+owner `denote.note-comments` and a relative-note-path mapping. It contains at
+most 500 comments and 2 MiB; bodies/quotes are at most 4 KiB.
+Paths own records, not copied contents. Rename/move recovery is explicit through
+Other notes and reattachment; note deletion retains comments.
+
+Native sidecar commands run on the blocking pool under active-vault access,
+recheck plugin approval and captured workspace scope, refuse links/reparse
+points and unsafe paths, and use per-sidecar/per-note locks. The renderer flushes
+the active buffer before a write. Native code checks both the current plaintext
+note hash and sidecar hash before atomic replacement. Corrupt data, unknown
+fields, foreign owners, and unsupported versions are errors, never empty-store
+fallbacks. The sidecar uses the existing authenticated file encryption and is
+included in enable/unlock/disable sweeps; no plaintext temporary file is made.
+It is user-authored vault data, not deletable plugin storage, and must be backed
+up separately from application SQLite history.
+
+Presentation workers return a complete source partition, literal `===`
+separator ranges, slide titles, notices, and closed frontmatter defaults.
+The host verifies partition coverage, separator lines, and exact permutations
+before accepting a reorder; only required missing separator-boundary newlines
+may be added. Unknown YAML fields and raw preamble bytes remain unchanged.
+Metadata uses the existing maintained YAML 1.2 core parser with aliases/custom
+tags refused and 64 KiB, 5,000-node, and 64-level bounds. Output is capped at
+256 slides and 32 notices. Ordinary note mode never applies the separator rule.
+
+`PresentationEditor` owns source/preview synchronization and uses the same
+read-only Markdown renderer, link review, images, code highlighting, callouts,
+and optional sandboxed Mermaid binding as notes. `PresentationPlayback` uses
+absolute monotonic deadlines, catches up late ticks without accumulated drift,
+and resets deadlines on manual navigation. Hidden/blurred windows, inactive
+panes, source edits, exit, unmount, or provider withdrawal pause playback.
+Full-screen promises, event handlers, timers, and preview resources are owned
+by the open deck and are released at teardown.
+Where element fullscreen is unavailable, the trusted host uses the public
+Tauri window API and a modal focus boundary. `NativeFullscreenHost` serializes
+opaque owners, preserves a pre-existing fullscreen window, ignores old-owner
+cleanup, cancels pending entry, and keeps failed restoration retryable. Workers
+never receive its callbacks or the native window object.
+
 ### Time tracking
 
 The additive API version 1 `time-tracking` contract lives in

@@ -53,9 +53,18 @@ import type {
   PluginTimeTrackingClock,
 } from "@denote/plugin-sdk";
 import { systemPathForDisplay } from "./systemPath";
+import type { NoteCommentsDocument, NoteCommentsSnapshot } from "./noteComments";
 import type { CodeProtocolInvocation, CodeToolConfiguration, CodeToolEnvironment, CodeWorkspaceContext } from "./codeTools";
 
 export const api = {
+  readNoteComments: (pluginId: string, workspaceScope: string) =>
+    invoke<NoteCommentsSnapshot>("read_note_comments", { pluginId, workspaceScope }),
+  saveNoteComments: (
+    pluginId: string, workspaceScope: string, notePath: string,
+    expectedNoteHash: string, expectedHash: string, document: NoteCommentsDocument,
+  ) => invoke<NoteCommentsSnapshot>("save_note_comments", {
+    pluginId, workspaceScope, notePath, expectedNoteHash, expectedHash, document,
+  }),
   pluginTimeTrackingClock: (pluginId: string) =>
     invoke<PluginTimeTrackingClock>("plugin_time_tracking_clock", { pluginId }),
   pluginClockSample: (pluginId: string) =>

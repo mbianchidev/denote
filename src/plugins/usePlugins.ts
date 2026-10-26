@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import type { PluginBundleMetadata, PluginView } from "../types";
 import type {
+  PluginAuthoringRequest,
+  PluginAuthoringResult,
   PluginCalendarModel,
   PluginCalendarRequest,
   PluginDiagramRenderRequest,
@@ -42,6 +44,7 @@ import { CLOCKS_STOP_KEY, TIME_TRACKING_STOP_KEY } from "@denote/plugin-sdk";
 import type { PluginCodeContribution } from "./codeIntelligence";
 import {
   PluginWorkerRuntime,
+  type PluginAuthoringContribution,
   type PluginCalendarContribution,
   type PluginActionLeaseScope,
   type PluginActionHostSecrets,
@@ -71,6 +74,7 @@ import {
 const EMPTY_PROJECT_REPOSITORIES: PluginProjectRepositoryContext[] = [];
 const EMPTY_CALENDARS: PluginCalendarContribution[] = [];
 const EMPTY_TASK_LISTS: PluginTaskListContribution[] = [];
+const EMPTY_AUTHORING: PluginAuthoringContribution[] = [];
 const EMPTY_TIME_TRACKERS: PluginTimeTrackingContribution[] = [];
 
 /**
@@ -115,6 +119,9 @@ function permissionRequestEqual(
     case "structured-viewer":
     case "kanban-board":
     case "task-list":
+    case "text-styling":
+    case "note-comments":
+    case "presentation":
     case "note-graph":
     case "calendar":
     case "reminders":
@@ -169,6 +176,8 @@ function permissionsUnchanged(
 }
 
 export interface PluginController {
+  authoringProviders: PluginAuthoringContribution[];
+  requestAuthoring: (pluginId: string, providerId: string, request: PluginAuthoringRequest) => Promise<PluginAuthoringResult>;
   codeProviders: PluginCodeContribution[];
   runCodeRequest: (pluginId: string, providerId: string, request: PluginCodeRequest, workspaceScope: string, signal?: AbortSignal) => Promise<PluginCodeResult>;
   plugins: PluginView[];
@@ -328,6 +337,12 @@ export function usePlugins(
   confirmTimeTrackingStop: (names: string[]) => Promise<boolean> = async () => false,
 ): PluginController {
   const [codeProviders, setCodeProviders] = useState<PluginCodeContribution[]>([]);
+  const [authoringState, setAuthoringState] = useState<{
+    workspaceIdentity: string | null;
+    contributions: PluginAuthoringContribution[];
+  }>({ workspaceIdentity, contributions: [] });
+  const authoringProviders = contentAvailable && authoringState.workspaceIdentity === workspaceIdentity
+    ? authoringState.contributions : EMPTY_AUTHORING;
   const [plugins, setPlugins] = useState<PluginView[]>([]);
   const pluginsRef = useRef(plugins);
   pluginsRef.current = plugins;
@@ -470,6 +485,10 @@ export function usePlugins(
         contributions,
       }),
       setClocks,
+      (contributions) => setAuthoringState({
+        workspaceIdentity: workspaceIdentityRef.current,
+        contributions,
+      }),
     );
     runtime.setWorkspaceIdentity(workspaceIdentity);
     runtime.setProjectContext(projectContext, projectRepositories);
@@ -567,7 +586,7 @@ export function usePlugins(
         try {
           const retainsWorkspaceContent = plugin.approvedPermissions.some(
             (permission) =>
-              ["note-graph", "calendar", "task-list", "time-tracking"].includes(
+              ["note-graph", "calendar", "task-list", "time-tracking", "text-styling", "note-comments", "presentation"].includes(
                 permission.capability,
               ),
           );
@@ -1294,6 +1313,18 @@ export function usePlugins(
     [],
   );
 
+  const requestAuthoring = useCallback(
+    async (pluginId: string, providerId: string, request: PluginAuthoringRequest) => {
+      const runtime = runtimeRef.current;
+      if (!runtime || !contentAvailableRef.current ||
+          contentRuntimeWorkspaceRef.current !== workspaceIdentityRef.current) {
+        throw new Error("Authoring is unavailable after a vault switch or lock.");
+      }
+      return runtime.requestAuthoring(pluginId, providerId, request);
+    },
+    [],
+  );
+
   const requestClocks = useCallback(
     async (pluginId: string, providerId: string, request: PluginClockRequest) => {
       const runtime = runtimeRef.current;
@@ -1403,6 +1434,8 @@ export function usePlugins(
   }, []);
 
   return {
+    authoringProviders,
+    requestAuthoring,
     codeProviders: contentAvailable ? codeProviders : [],
     runCodeRequest,
     plugins,
@@ -1468,7 +1501,7 @@ function requiresContent(plugin: PluginView): boolean {
   const hasClocks = plugin.approvedPermissions.some((permission) => permission.capability === "clocks");
   return plugin.approvedPermissions.some((permission) =>
     (permission.capability === "time-tracking" && !hasClocks) ||
-    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence"].includes(
+    ["structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence", "text-styling", "note-comments", "presentation"].includes(
       permission.capability,
     ),
   );

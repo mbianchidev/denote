@@ -16,3 +16,4 @@ export * from "./codeIntelligence";
 export * from "./timeTracking";
 export * from "./civilTime";
 export * from "./clocks";
+export * from "./authoring";

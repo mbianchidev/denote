@@ -17,6 +17,9 @@
 | Paste without formatting | `Command-Shift-V` | `Ctrl-Shift-V` |
 | Create or edit link | `Command-K` | `Ctrl-K` |
 | Insert emoji (optional Emoji picker plugin) | `Command-Shift-E` | `Ctrl-Shift-E` |
+| Text style (optional Text highlighting and coloring) | `Command-Shift-H` | `Ctrl-Shift-H` |
+| Note comments (optional Note comments) | `Command-Option-M` | `Ctrl-Alt-M` |
+| Open as presentation (optional Markdown presentation slides) | `Command-Option-P` | `Ctrl-Alt-P` |
 | Code completion (optional Code intelligence) | `Ctrl-Space` | `Ctrl-Space` |
 | Go to definition (optional Code intelligence) | `F12` | `F12` |
 | Find references (optional Code intelligence) | `Command-Shift-F12` | `Ctrl-Shift-F12` |
@@ -66,6 +69,13 @@ The outline divider uses Left/Right, Shift for a larger step, Home for its
 default width, and End for its maximum width.
 All toolbar and dialog actions are keyboard reachable and use visible focus
 indicators.
+
+In a full-screen presentation, arrows and Page Up/Down move slides, Home/End
+reach the first/last slide, Space on the slide plays or pauses, P pauses, and
+Escape exits. The visible playback buttons, positive interval field, and Loop
+checkbox remain available through Tab. Comments use native form controls,
+resolve/reopen actions, explicit reattachment, and confirmed deletion; Escape
+closes the dialog and returns focus to the note.
 
 With the optional JSON and YAML viewer, Tab reaches the Structured/Raw group,
 Collapse all, Expand all, and the tree. Inside the tree, Up/Down move through

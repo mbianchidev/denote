@@ -1,4 +1,7 @@
 import type {
+  PluginAuthoringRegistration,
+  PluginAuthoringRequest,
+  PluginAuthoringResult,
   PluginCalendarModel,
   PluginCalendarRequest,
   PluginCalendarView,
@@ -39,6 +42,9 @@ import type {
   PluginClockRequest,
 } from "@denote/plugin-sdk";
 import {
+  isPluginAuthoringRegistration,
+  isPluginAuthoringRequest,
+  isPluginAuthoringResult,
   PLUGIN_SOURCE_CONTROL_MAX_FILE_STATS,
   isPluginCalendarModel,
   isPluginCalendarRequest,
@@ -95,6 +101,10 @@ export interface PluginCommandContribution {
   pluginId: string;
   id: string;
   title: string;
+}
+
+export interface PluginAuthoringContribution extends PluginAuthoringRegistration {
+  pluginId: string;
 }
 
 export interface PluginSidebarContribution {
@@ -192,6 +202,7 @@ export interface PluginWorkerConnectMessage {
 }
 
 export type PluginHostMessage =
+  | { type: "authoring-request"; providerId: string; request: PluginAuthoringRequest; requestId: string }
   | { type: "clock-request"; providerId: string; request: PluginClockRequest; requestId: string }
   | { type: "time-tracking-request"; providerId: string; request: PluginTimeTrackingRequest; requestId: string }
   | { type: "code-request"; providerId: string; request: PluginCodeRequest; requestId: string }
@@ -294,6 +305,9 @@ export type PluginHostMessage =
     };
 
 export type PluginRuntimeMessage =
+  | ({ type: "register-authoring" } & PluginAuthoringRegistration)
+  | { type: "unregister-authoring"; id: string }
+  | { type: "authoring-result"; requestId: string; result?: PluginAuthoringResult; error?: string }
   | ({ type: "register-clocks" } & Omit<PluginClockContribution, "pluginId">)
   | { type: "unregister-clocks"; id: string }
   | { type: "clock-result"; requestId: string; model?: PluginClockModel; error?: string }
@@ -489,6 +503,14 @@ export function isPluginRuntimeMessage(
     return false;
   }
   switch (value.type) {
+    case "register-authoring":
+      return isPluginAuthoringRegistration(value);
+    case "unregister-authoring":
+      return typeof value.id === "string";
+    case "authoring-result":
+      return typeof value.requestId === "string" &&
+        (typeof value.error === "string" && value.result === undefined ||
+          value.error === undefined && isPluginAuthoringResult(value.result));
     case "register-code-intelligence":
       return isPluginCodeRegistration(value);
     case "unregister-code-intelligence":
@@ -697,6 +719,9 @@ export function isPluginHostMessage(value: unknown): value is PluginHostMessage 
     return false;
   }
   switch (value.type) {
+    case "authoring-request":
+      return typeof value.providerId === "string" && typeof value.requestId === "string" &&
+        isPluginAuthoringRequest(value.request);
     case "code-request":
       return typeof value.providerId === "string" && typeof value.requestId === "string" && isPluginCodeRequest(value.request);
     case "cancel-code-request":

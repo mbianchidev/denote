@@ -752,6 +752,57 @@ pub async fn read_note<R: Runtime>(app: AppHandle<R>, path: String) -> AppResult
 }
 
 #[tauri::command]
+pub async fn read_note_comments<R: Runtime>(
+    app: AppHandle<R>,
+    plugin_id: String,
+    workspace_scope: String,
+) -> AppResult<vault::NoteCommentsSnapshot> {
+    let manager = app.state::<crate::plugins::PluginManager>().inner().clone();
+    run_vault_read(app, move |state, root| {
+        manager.enabled_permission(&plugin_id, "note-comments")?;
+        if root != Path::new(&workspace_scope) {
+            return Err(AppError::State(
+                "Comments request expired after a vault switch".into(),
+            ));
+        }
+        let key = active_key(state, root)?;
+        vault::read_note_comments(&root.to_string_lossy(), key.as_deref())
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn save_note_comments<R: Runtime>(
+    app: AppHandle<R>,
+    plugin_id: String,
+    workspace_scope: String,
+    note_path: String,
+    expected_note_hash: String,
+    expected_hash: String,
+    document: vault::NoteCommentsDocument,
+) -> AppResult<vault::NoteCommentsSnapshot> {
+    let manager = app.state::<crate::plugins::PluginManager>().inner().clone();
+    run_vault_read(app, move |state, root| {
+        manager.enabled_permission(&plugin_id, "note-comments")?;
+        if root != Path::new(&workspace_scope) {
+            return Err(AppError::State(
+                "Comments action expired after a vault switch".into(),
+            ));
+        }
+        let key = active_key(state, root)?;
+        vault::save_note_comments(
+            &root.to_string_lossy(),
+            &note_path,
+            &expected_note_hash,
+            &expected_hash,
+            document,
+            key.as_deref(),
+        )
+    })
+    .await
+}
+
+#[tauri::command]
 pub async fn read_pdf<R: Runtime>(app: AppHandle<R>, path: String) -> AppResult<PdfDocument> {
     run_vault_read(app, move |state, root| {
         let key = active_key(state, root)?;

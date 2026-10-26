@@ -102,6 +102,181 @@ vaults. Existing files and earlier migration markers stay untouched; samples
 deleted after their set was applied are not restored on later launches.
 Opening an example never installs a plugin or initializes Git.
 
+## Advanced authoring
+
+Text highlighting and coloring, Note comments, and Markdown presentation slides
+are separate plugins targeting Denote 0.11.0 and are off by default. Development
+previews keep application version 0.10.0 and require these authoring capabilities.
+Enable only
+the capabilities you want. Their controls appear above an open Markdown note;
+Source remains the complete portable fallback.
+
+### Text highlighting and coloring
+
+Select plain text in Rich or Source and choose **Text style**, or press
+`Command-Shift-H` / `Ctrl-Shift-H`. Choose **Highlight** or **Text color**, a
+named color, and **Apply style**.
+
+The explicit Markdown extension is case-sensitive:
+
+```markdown
+=red=Highlighted text=red=
+=blue:text=Colored text=blue:text=
+```
+
+Available names are `yellow`, `red`, `green`, `blue`, and `purple`. Opening and
+switching views never changes the source. Formatting wraps only the selected
+plain-text range, on one line and at most 4 KiB. Code, frontmatter, nested
+styles, and ambiguous Rich selections are refused. Use Source for a more precise
+selection. **Styled excerpts** offers **Show** and **Clear**; clearing removes
+only that excerpt's delimiters.
+
+Every offered text/background pair meets WCAG AA contrast in dark and light
+mode. Colors have written names, inline tooltips, and an underline for
+foreground styles. Keep semantic meaning in words rather than color alone.
+Forced colors keep system text, backgrounds, and borders.
+
+**Search → Filters → Notes with highlights** filters saved Markdown notes.
+Leave Search text empty for one navigable result per highlighted excerpt.
+Ordinary text search also finds the underlying words. Foreground-only colors
+are not highlights. Highlight search processes at most 5,000 notes, 256 KiB per
+note, and 8 MiB total, with 128 excerpts per note and 10,000 overall; omissions
+are reported. Sources above 4 MiB remain available in the core editor.
+
+Disabling removes code, controls, and derived search metadata, not text or
+delimiters. Unsupported Markdown applications show the literal extension, with
+the underlying text still readable.
+
+Try [Text styling](<../plugins/Text styling.md>).
+
+### Note comments
+
+Choose **Comments**, or `Command-Option-M` / `Ctrl-Alt-M`. Select text first for
+a range comment, or choose **Whole note**. Enter a body and choose **Add
+comment**. Each row supports **Edit**, **Resolve**, **Reopen**, confirmed
+**Delete**, and **Show text** when attached. Tab, Shift-Tab, Enter, Space, and
+Escape operate the same native controls without a pointer.
+
+An exact unique quote follows nearby source edits. Repeated quotes additionally
+need their original duplicate count and one exact prefix/suffix context.
+Missing text, a changed duplicate count, or indistinguishable matches become
+written **Orphaned** states, never a silently guessed attachment.
+Display re-anchoring does not save anything.
+
+Use **Show comments → Orphaned** to find those ranges. To reattach, close
+Comments, select the intended text, reopen Comments, choose **Selected text**,
+and choose **Attach to selected text**. **Attach to whole note** explicitly
+removes the old range anchor. Resolved comments remain available in their
+separate view.
+
+Ownership is the exact vault-relative note path, not copied content. Renames
+and moves do not guess a new owner. In the destination note, choose **Other
+notes** and explicitly attach retained comments. Deleting a note does not
+delete its comments; reusing its old path exposes that path's retained records.
+Duplicated notes do not inherit comments.
+
+Comments live in hidden `.denote/note-comments.json`, not the Markdown body,
+SQLite note revisions, or disposable plugin-generated storage. **Back up this
+file with the vault.** The version-1 JSON has owner `denote.note-comments` and a
+`notes` mapping from relative paths to arrays. Records retain a UUID, body,
+optional source anchor, resolved state, and creation/update Unix milliseconds.
+An anchor stores exact quote/context, duplicate count, and UTF-16 offsets in
+the host's normalized source; disk line endings remain unchanged. Unknown
+versions, owners, fields, or corrupt data are refused without
+overwriting or resetting them.
+
+The host saves comments only after flushing the note and checking the current
+note and sidecar hashes. A conflict keeps the draft and error visible; **Reload
+comments** reads the current records without discarding the draft. Resolve a
+note save conflict before retrying. Limits are 500 comments per vault, a 2 MiB
+sidecar, 4 KiB per body/quote, and 4 MiB source.
+
+An encrypted vault keeps this sidecar as authenticated ciphertext, including
+during enable/unlock sweeps. Keep `.denote/encryption.json` with encrypted
+backups. No plaintext temporary sidecar is made. Lock/switch closes the view and
+stops its worker. Disabling or deleting plugin-generated data never deletes
+user-authored comments or notes.
+
+Try [Note comments](<../plugins/Note comments.md>).
+
+### Markdown presentation slides
+
+Choose **Open as presentation**, or `Command-Option-P` / `Ctrl-Alt-P`, on an
+ordinary Markdown file. Only this mode treats an exact standalone `===` line as
+a new slide. In ordinary note mode it keeps standard Setext-heading behavior.
+Separators inside fenced code are not split.
+
+Source and preview share the same file. Moving the source caret selects its
+slide; navigation reveals the matching source. **Overview** selects slides and
+provides **Earlier** / **Later** reorder controls. Reordering preserves the
+original frontmatter, unknown fields, and slide content, adding a missing
+separator-boundary newline only when needed.
+
+```markdown
+---
+title: Synthetic deck
+author: Example team
+presentation:
+  theme: dark
+  aspect-ratio: "16:9"
+  alignment: left
+  slide-numbers: true
+  autoplay: false
+  advance-seconds: 10
+  loop: false
+  transition: none
+---
+# First slide
+
+===
+
+# Second slide
+```
+
+`title` and `author` are single lines of at most 200 UTF-8 bytes. The
+`presentation` mapping accepts:
+
+| Field | Values | Default |
+| --- | --- | --- |
+| `theme` | `system`, `dark`, `light` | `system`, following Denote |
+| `aspect-ratio` | `"16:9"`, `"4:3"`, `"16:10"` | `"16:9"` |
+| `alignment` | `left`, `center`, `right` | `left` |
+| `slide-numbers` | `true`, `false` | `true` |
+| `autoplay` | `true`, `false` | `false` |
+| `advance-seconds` | Number from 1 to 3600 | 10 |
+| `loop` | `true`, `false` | `false` |
+| `transition` | `none`, `fade` | `none` |
+
+Invalid fields explain the correction and use safe defaults without rewriting
+YAML. Invalid YAML, duplicate keys, aliases, custom tags, or non-mapping
+metadata leave Source available. Limits are 4 MiB source, 256 slides, 64 KiB
+frontmatter, 5,000 YAML nodes, 64 levels, and 32 notices. Empty slides and unclosed
+code fences report non-blocking feedback.
+
+**Present** enters full screen. Arrows, Page Up/Down, Home, and End navigate;
+Space on the slide plays/pauses, P pauses, and Escape exits. Native **Play**,
+**Pause**, **Restart**, **Stop**, interval, **Loop**, and countdown controls stay
+available. A positive interval uses absolute monotonic deadlines, so late ticks
+do not accumulate drift. Manual navigation resets the deadline. Autoplay from
+frontmatter starts only after an explicit Present action, not on opening.
+If the webview lacks element fullscreen, Denote uses its native window and a
+modal focus boundary, then restores the prior window state on exit.
+
+Changing interval/loop, editing Source, hiding or blurring the window, leaving
+the active pane, exiting full screen, closing the deck, or losing the plugin
+pauses playback. It never resumes automatically. Reduced motion disables fade.
+
+Preview reuses Denote's note renderer for headings, lists, tasks, quotes,
+tables, links, images, highlighted code, and callouts. Enabled Mermaid can render
+its fences; it is not required. Unsafe HTML does not execute, links retain the
+normal external-domain review, and images follow the existing loading policy.
+
+**Return to note**, disablement, removal, crash, lock/switch, and close release
+the preview, renderer scopes, full-screen ownership, timers, and listeners.
+Markdown, separators, and metadata remain readable and unchanged.
+
+Try the [Presentation deck](<../plugins/Presentation.md>).
+
 ## Time tracking
 
 Time tracking 0.2.0 requires Denote 0.10.0 or newer and is off by default.

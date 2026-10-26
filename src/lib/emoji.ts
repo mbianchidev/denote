@@ -172,37 +172,63 @@ export function emojiSelectionPatch(source: string, from: number, to: number, un
 }
 
 export function emojiSourcePatch(source: string, displayed: string, from: number, to: number, unicode: string): string | null {
-  const normalized = source.replace(/\r\n?/g, "\n");
-  let start = from;
-  let end = to;
+  const range = markdownSourceSelection(source, displayed, from, to);
+  return range ? source.slice(0, range.from) + unicode + source.slice(range.to) : null;
+}
+
+export function markdownSourceSelection(source: string, displayed: string, from: number, to: number): { from: number; to: number } | null {
+  return createMarkdownSourceMapper(source, displayed)(from, to);
+}
+
+export function createMarkdownSourceMapper(source: string, displayed: string) {
+  const normalized = source === displayed ? source : source.replace(/\r\n?/g, "\n");
+  const extraNewlines: number[] = [];
+  if (source !== displayed) {
+    for (let raw = 0, offset = 0; raw < source.length; raw++, offset++) {
+      if (source[raw] === "\r" && source[raw + 1] === "\n") { extraNewlines.push(offset); raw++; }
+    }
+  }
+  const rawOffset = (offset: number) => {
+    let low = 0;
+    let high = extraNewlines.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (extraNewlines[middle] < offset) low = middle + 1;
+      else high = middle;
+    }
+    return offset + low;
+  };
+  const lines = new Map<string, number[]>();
+  const addLine = (line: string, offset: number) => {
+    const matches = lines.get(line);
+    if (matches) matches.push(offset);
+    else lines.set(line, [offset]);
+  };
   if (normalized !== displayed) {
-    // The MDX source view can contain translated callout syntax. Only map an
-    // unchanged, unambiguous source line; never guess inside translated syntax.
+    let offset = 0;
+    for (const originalLine of normalized.split("\n")) {
+      addLine(originalLine, offset);
+      const quote = /^(?: {0,3}>[ \t]?)+/.exec(originalLine)?.[0] ?? "";
+      if (quote) {
+        const text = originalLine.slice(quote.length);
+        addLine(text, offset + quote.length);
+      }
+      offset += originalLine.length + 1;
+    }
+  }
+  return (from: number, to: number): { from: number; to: number } | null => {
+    if (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) || from < 0 || to < from || to > displayed.length) return null;
+    if (source === displayed) return { from, to };
+    if (normalized === displayed) return { from: rawOffset(from), to: rawOffset(to) };
+    // Translated callouts may map only through an unchanged, unique source line.
     const lineStart = displayed.lastIndexOf("\n", from - 1) + 1;
     const lineEnd = displayed.indexOf("\n", to);
     const line = displayed.slice(lineStart, lineEnd < 0 ? displayed.length : lineEnd);
     if (!line || line.includes("\n") || /^:{3,}/.test(line)) return null;
-    const matches: number[] = [];
-    let offset = 0;
-    for (const originalLine of normalized.split("\n")) {
-      const quote = /^(?: {0,3}>[ \t]?)+/.exec(originalLine)?.[0] ?? "";
-      if (originalLine === line) matches.push(offset);
-      else if (originalLine.slice(quote.length) === line) matches.push(offset + quote.length);
-      offset += originalLine.length + 1;
-    }
-    if (matches.length !== 1) return null;
-    const found = matches[0];
-    start = found + from - lineStart;
-    end = found + to - lineStart;
-  }
-  const rawOffset = (offset: number) => {
-    let raw = 0;
-    for (let normalizedOffset = 0; normalizedOffset < offset; normalizedOffset++, raw++) {
-      if (source[raw] === "\r" && source[raw + 1] === "\n") raw++;
-    }
-    return raw;
+    const matches = lines.get(line);
+    if (matches?.length !== 1) return null;
+    return { from: rawOffset(matches[0] + from - lineStart), to: rawOffset(matches[0] + to - lineStart) };
   };
-  return source.slice(0, rawOffset(start)) + unicode + source.slice(rawOffset(end));
 }
 
 /** Preserve exact bytes for emoji undo/redo without retaining every ordinary edit. */

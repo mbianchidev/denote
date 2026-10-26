@@ -91,6 +91,9 @@ import { PaneResizer } from "./components/PaneResizer";
 import { SidebarResizer } from "./components/SidebarResizer";
 import { HistoryDialog } from "./components/HistoryDialog";
 import type { MarkdownEditorDiagnostic } from "./components/MarkdownEditor";
+import type { AuthoringEditorBinding } from "./lib/authoring";
+import { useHighlightIndex } from "./plugins/useHighlightIndex";
+import { NativeFullscreenHost } from "./lib/nativeFullscreen";
 import { PlainTextEditor } from "./components/PlainTextEditor";
 import { PdfReader } from "./components/PdfReader";
 import { StructuredDataViewer } from "./components/StructuredDataViewer";
@@ -402,6 +405,9 @@ const MarkdownEditor = lazy(() =>
 );
 const CodeToolPanel = lazy(() =>
   import("./components/CodeToolPanel").then((module) => ({ default: module.CodeToolPanel })),
+);
+const AdvancedAuthoring = lazy(() =>
+  import("./components/AdvancedAuthoring").then((module) => ({ default: module.AdvancedAuthoring })),
 );
 
 const DESIGN_CONTRACT = `<!--
@@ -1728,6 +1734,25 @@ function App() {
     }),
   );
   const [codeHost] = useState(() => new CodeIntelligenceHost(showError));
+  const [nativeFullscreenHost] = useState(() => new NativeFullscreenHost(getCurrentWindow()));
+  useEffect(() => {
+    nativeFullscreenHost.activate();
+    return () => {
+      void nativeFullscreenHost.dispose().catch((error) => console.error("Unable to restore presentation window:", error));
+    };
+  }, [nativeFullscreenHost]);
+  const authoringProviders = useMemo(() => (pluginController.authoringProviders ?? []).filter((provider) =>
+    !pluginController.busyPluginIds.has(provider.pluginId) &&
+    pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)),
+  [pluginController.authoringProviders, pluginController.busyPluginIds, pluginController.plugins]);
+  const textStylingProvider = authoringProviders.find((provider) => provider.feature === "text-styling") ?? null;
+  const highlightIndex = useHighlightIndex(
+    workspace?.vaultPath ?? null, textStylingProvider, pluginController.requestAuthoring,
+    searchDocumentBatch?.generation === vaultGeneration.current ? searchDocumentBatch.batch : null,
+  );
+  useEffect(() => {
+    if (!textStylingProvider) setSearchFilters((filters) => filters.highlights ? { ...filters, highlights: false } : filters);
+  }, [textStylingProvider]);
   const codeProvider = (pluginController.codeProviders ?? []).find((provider) =>
     !pluginController.busyPluginIds.has(provider.pluginId) &&
     pluginController.plugins.some((plugin) => plugin.enabled && plugin.catalog.manifest.id === provider.pluginId)) ?? null;
@@ -3593,6 +3618,7 @@ function App() {
       query: searchQuery,
       location: searchLocation,
       filters: searchFilters,
+      highlightMatches: searchFilters.highlights ? highlightIndex.matches : undefined,
     };
     searchRequestRef.current = searchRequest;
     void (async () => {
@@ -3612,7 +3638,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [searchFilters, searchLocation, searchQuery, showError]);
+  }, [searchFilters, searchLocation, searchQuery, highlightIndex.matches, showError]);
 
   const chooseVault = useCallback(async () => {
     setVaultSwitcherOpen(false);
@@ -8631,6 +8657,7 @@ function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (document.querySelector(".authoring-dialog[open]")) return;
       if (
         event.target instanceof Element &&
         event.target.closest(".pdf-reader__password-dialog")
@@ -9651,6 +9678,26 @@ function App() {
     },
   ];
   commandPaletteCommands.push(
+    ...(["text-styling", "note-comments", "presentation"] as const).filter((feature) =>
+      authoringProviders.some((provider) => provider.feature === feature)).map((feature) => ({
+      id: `host.authoring.${feature}`,
+      title: feature === "text-styling" ? "Text style" : feature === "note-comments" ? "Comments" : "Open as presentation",
+      description: feature === "text-styling" ? "Highlight or color selected Markdown text." :
+        feature === "note-comments" ? "Read and edit local note comments." : "Author and present this Markdown deck.",
+      category: "Editor",
+      shortcut: feature === "text-styling" ? macOS ? "⇧⌘H" : "Ctrl+Shift+H" :
+        feature === "note-comments" ? macOS ? "⌥⌘M" : "Ctrl+Alt+M" : macOS ? "⌥⌘P" : "Ctrl+Alt+P",
+      disabled: !workspaceReady || !activeFileTab || activeFileTab.encoding !== "utf8" ||
+        !/\.(md|markdown)$/i.test(activeFileTab.path) || Boolean(activeFileTab.transient) ||
+        (feature === "text-styling" && Boolean(activeFileTab.readOnly)),
+      run: () => {
+        const pane = [...document.querySelectorAll<HTMLElement>("[data-pane-id]")].find((pane) =>
+          pane.dataset.paneId === paneStateRef.current.focusedPaneId);
+        const button = pane?.querySelector<HTMLButtonElement>(`[data-authoring-action="${feature}"]`);
+        if (!button || button.disabled) throw new Error("Return to an available Markdown note before using this authoring action.");
+        button.click();
+      },
+    })),
     ...(codeProvider ? [
       {
         id: "code.tools", title: "Code: Open code intelligence", description: "Configure local language servers, navigation and optional debuggers.",
@@ -9707,7 +9754,7 @@ function App() {
         void getCurrentWindow().close().catch(showError);
         return;
       }
-      if (workspaceLockedRef.current || modalOpenRef.current) {
+      if (workspaceLockedRef.current || modalOpenRef.current || document.querySelector(".authoring-dialog[open]")) {
         return;
       }
       if (event.payload === "command-palette.open") {
@@ -10147,7 +10194,7 @@ function App() {
             paneTab.languageOverride ?? null,
           ).language
         : null;
-    return (
+    const renderFileEditor = (authoring?: AuthoringEditorBinding, authoringNavigation?: EditorSearchNavigation) => (
       <>
         {paneTab.encoding === "utf8" &&
         /\.(md|markdown)$/i.test(paneTab.path) &&
@@ -10260,16 +10307,17 @@ function App() {
                   }
                 : undefined
             }
+            authoring={authoring}
             preferredViewMode={markdownViewMode}
             readOnly={paneReadOnly}
             errorLocation={paneMarkdownError?.location}
             errorNavigationRequest={paneMarkdownError?.navigationRequest ?? 0}
-            searchNavigation={
+            searchNavigation={authoringNavigation ?? (
               pane.id === focusedPaneId &&
               searchNavigation?.path === paneTab.path
                 ? searchNavigation
                 : undefined
-            }
+            )}
             tagColors={tagColorMap}
             onChange={(content) => changeTabContent(paneTab.path, content)}
             onError={showError}
@@ -10328,12 +10376,12 @@ function App() {
                   : 0
               }
               pluginDecorations={pluginController.decorations}
-              searchNavigation={
+              searchNavigation={authoringNavigation ?? (
                 pane.id === focusedPaneId &&
                 searchNavigation?.path === paneTab.path
                   ? searchNavigation
                   : undefined
-              }
+              )}
               sourceNavigation={
                 pane.id === focusedPaneId &&
                 sourceNavigation?.path === paneTab.path
@@ -10401,6 +10449,50 @@ function App() {
         ) : null}
       </>
     );
+    if (authoringProviders.length && paneTab.encoding === "utf8" && /\.(md|markdown)$/i.test(paneTab.path) &&
+        !paneTab.transient && !paneKanbanBoard && !paneStructuredViewer) {
+      return <AdvancedAuthoring key={`${workspace.vaultPath}:${pane.id}:${paneTab.path}:${paneTab.editorRevision}`}
+        path={paneTab.path} source={paneTab.content} readOnly={paneReadOnly} active={pane.id === focusedPaneId && !workspaceLocked}
+        providers={authoringProviders} lineEnding={paneTab.lineEnding} displaySettings={paneDisplaySettings}
+        nativeFullscreen={nativeFullscreenHost.enter}
+        request={pluginController.requestAuthoring}
+        loadComments={async (pluginId) => {
+          const generation = vaultGeneration.current;
+          const result = await api.readNoteComments(pluginId, workspace.vaultPath);
+          if (generation !== vaultGeneration.current || workspaceLockedRef.current) throw new Error("Comments request expired after a vault switch or lock.");
+          return result;
+        }}
+        saveComments={async (pluginId, hash, document, source) => {
+          const generation = vaultGeneration.current;
+          const assertCurrent = () => {
+            const tab = tabsRef.current.find((tab) => tab.path === paneTab.path);
+            if (generation !== vaultGeneration.current || workspaceLockedRef.current || !tab || tab.readOnly || tab.content !== source) {
+              throw new Error("The note changed or became unavailable. No comments were overwritten.");
+            }
+            return tab;
+          };
+          assertCurrent();
+          if (!(await flushTab(paneTab.path))) throw new Error("Save the note successfully before saving comments.");
+          const tab = assertCurrent();
+          if (!tab.savedHash) throw new Error("The saved note version is unavailable. Reload the note before saving comments.");
+          const result = await api.saveNoteComments(pluginId, workspace.vaultPath, paneTab.path, tab.savedHash, hash, document);
+          if (generation !== vaultGeneration.current) throw new Error("Comments were saved in their original vault. Reopen it to review them.");
+          return result;
+        }}
+        renderEditor={(binding, navigation) => renderFileEditor(binding, navigation)}
+        renderPreview={(markdown, index, binding) => <MarkdownEditor
+          notePath={paneTab.path} markdown={markdown} lineEnding={paneTab.lineEnding}
+          displaySettings={{ ...paneDisplaySettings, showLineNumbers: false, showWhitespace: false, showLineEndings: false, highlightTrailingWhitespace: false }}
+          preferredViewMode="rich-text" readOnly authoring={binding}
+          diagrams={diagramRenderers.length ? {
+            scopeId: `${pane.id}:${paneTab.path}:presentation:${index}`, renderers: diagramRenderers,
+            renderDiagram: pluginController.renderDiagram, releaseScope: pluginController.releaseDiagramScope, exportSvg: api.exportDiagramSvg,
+          } : undefined}
+          onChange={() => {}} onError={showError} onViewModeChange={() => {}}
+          onLinkOpen={(href, text) => void openLinkFromTab(paneTab, href, text)} onImageUpload={uploadAttachment} />}
+        onChange={(content) => changeTabContent(paneTab.path, content)} />;
+    }
+    return renderFileEditor();
   };
 
   const noteTrackingPanel = activeTimeTrackingContribution ? (
@@ -10847,7 +10939,10 @@ function App() {
             filters={searchFilters}
             focusQueryRequest={searchQueryFocusRequest}
             results={searchResults}
-            searching={indexing}
+            searching={indexing || Boolean(searchFilters.highlights && highlightIndex.loading)}
+            highlightsAvailable={textStylingProvider !== null}
+            highlightNotice={textStylingProvider ? highlightIndex.loading ? "Indexing highlighted excerpts…" : highlightIndex.notice : ""}
+            highlightError={highlightIndex.error}
             tagColors={tagColorMap}
             onQueryChange={setSearchQuery}
             onLocationChange={setSearchLocation}

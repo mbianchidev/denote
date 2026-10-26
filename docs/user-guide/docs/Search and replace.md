@@ -54,6 +54,13 @@ calendar, graph, and task-list views reuse unchanged note metadata.
 
 Opening a search result clears errors that belonged to the previous file.
 
+With optional **Text highlighting and coloring**, **Filters → Notes with
+highlights** limits results to saved Markdown notes containing its documented
+highlight syntax. An empty query lists each indexed excerpt separately and
+opens its exact source range. Color-only text is not a highlight. The bounded
+highlight projection reports omissions separately; ordinary vault search
+continues to work without the plugin.
+
 ## Command palette and filename search
 
 Press `Command-P` on macOS or `Ctrl-P` on Windows and Linux. The command palette

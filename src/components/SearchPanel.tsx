@@ -15,6 +15,9 @@ interface SearchPanelProps {
   focusQueryRequest: number;
   results: SearchResult[];
   searching: boolean;
+  highlightsAvailable?: boolean;
+  highlightNotice?: string;
+  highlightError?: string;
   tagColors: TagColorMap;
   onQueryChange: (query: string) => void;
   onLocationChange: (location: string) => void;
@@ -36,6 +39,9 @@ export function SearchPanel({
   focusQueryRequest,
   results,
   searching,
+  highlightsAvailable = false,
+  highlightNotice = "",
+  highlightError = "",
   tagColors,
   onQueryChange,
   onLocationChange,
@@ -109,6 +115,11 @@ export function SearchPanel({
           className="search-filter-panel"
           hidden={!filtersOpen}
         >
+          {highlightsAvailable ? <label>
+            <input type="checkbox" checked={filters.highlights ?? false}
+              onChange={(event) => onFiltersChange({ ...filters, highlights: event.currentTarget.checked })} />
+            Notes with highlights
+          </label> : null}
           <label>
             <span>Tags</span>
             <input
@@ -238,6 +249,8 @@ export function SearchPanel({
             Clear filters
           </button>
         </div>
+        {highlightNotice ? <p role="status">{highlightNotice}</p> : null}
+        {highlightError ? <p role="alert">{highlightError}</p> : null}
       </div>
       <div className="sidebar-list" aria-live="polite" aria-busy={searching}>
         {searching ? (
@@ -304,5 +317,6 @@ function countSearchFilters(filters: SearchFilters): number {
     filters.kinds.length +
     (filters.bookmarked === undefined ? 0 : 1) +
     (filters.recentDays === undefined ? 0 : 1)
+    + (filters.highlights ? 1 : 0)
   );
 }

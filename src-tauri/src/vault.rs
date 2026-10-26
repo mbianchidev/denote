@@ -16,6 +16,11 @@ use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+mod note_comments;
+pub use note_comments::{
+    NoteCommentsDocument, NoteCommentsSnapshot, read_note_comments, save_note_comments,
+};
+
 use crate::{
     crypto, db,
     error::{AppError, AppResult},
