@@ -16,6 +16,7 @@ import {
   type PluginManifest,
 } from "@denote/plugin-sdk";
 import { containsPluginRuntimeImport } from "./plugin-runtime-imports";
+import { runtimeSourceImports } from "./plugin-source-imports";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const pluginsRoot = join(root, "plugins");
@@ -32,7 +33,7 @@ const pluginDirectories = readdirSync(pluginsRoot, { withFileTypes: true })
   .sort();
 
 for (const pluginDirectory of pluginDirectories) {
-  validatePlugin(pluginDirectory);
+  await validatePlugin(pluginDirectory);
 }
 for (const entry of catalog) {
   if (!validatedPluginIds.has(entry.manifest.id)) {
@@ -50,7 +51,7 @@ if (errors.length > 0) {
   console.log(`Validated ${pluginDirectories.length} plugin package(s).`);
 }
 
-function validatePlugin(pluginDirectory: string): void {
+async function validatePlugin(pluginDirectory: string): Promise<void> {
   const label = relative(root, pluginDirectory);
   const manifestPath = join(pluginDirectory, "plugin.json");
   const packagePath = join(pluginDirectory, "package.json");
@@ -205,7 +206,7 @@ function validatePlugin(pluginDirectory: string): void {
     ...dependencyNames(packageValue.dependencies),
     ...dependencyNames(packageValue.peerDependencies),
   ]);
-  validateSourceImports(
+  await validateSourceImports(
     join(pluginDirectory, "src"),
     pluginDirectory,
     label,
@@ -222,12 +223,12 @@ function validateGuide(path: string, label: string): void {
   }
 }
 
-function validateSourceImports(
+async function validateSourceImports(
   sourceRoot: string,
   pluginRoot: string,
   label: string,
   runtimeDependencies: ReadonlySet<string>,
-): void {
+): Promise<void> {
   if (!existsSync(sourceRoot)) {
     errors.push(`${label} is missing src/.`);
     return;
@@ -258,6 +259,9 @@ function validateSourceImports(
         );
         continue;
       }
+    }
+    for (const specifier of await runtimeSourceImports(source, path)) {
+      if (specifier.startsWith(".") || specifier === "@denote/plugin-sdk") continue;
       const packageName = dependencyName(specifier);
       if (!runtimeDependencies.has(packageName)) {
         errors.push(

@@ -1029,6 +1029,13 @@ deadlines, source/sidecar conflicts, malformed YAML, ownership, unknown fields,
 symlink refusal, encryption sweeps, and lock/switch disposal. Never send private
 selection bookmarks or editor functions across the worker boundary.
 
+Source dependency validation compiles TypeScript with the same Vite/Oxc
+toolchain before inspecting JavaScript imports. Erased type-only declarations
+do not become runtime dependencies. Folder, editor, Tauri, and cross-plugin
+boundaries are still checked on the original source, including type imports.
+Runtime imports, side effects, re-exports, dynamic imports, and `require` remain
+subject to dependency approval and the self-contained archive check.
+
 The pinned Wry 0.55.1 enables WebKit element fullscreen only behind its optional
 [`fullscreen` feature](https://github.com/tauri-apps/wry/blob/wry-v0.55.1/src/wkwebview/mod.rs#L386-L388),
 which Denote's runtime graph does not enable. Presentation therefore uses DOM

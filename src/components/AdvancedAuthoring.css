@@ -213,7 +213,10 @@
   position: relative;
   width: min(100%, calc((100dvh - 240px) * var(--slide-ratio-number, 1.77778)));
   aspect-ratio: var(--slide-ratio, 16 / 9);
+  min-height: 0;
+  max-height: calc(100dvh - 240px);
   flex: 0 0 auto;
+  overflow: hidden;
   border: 1px solid var(--border);
   text-align: var(--slide-alignment, left);
 }
