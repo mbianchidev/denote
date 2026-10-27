@@ -50,6 +50,15 @@ export function verifyResolvedBackports(metadata, root) {
     throw new Error("Only the Denote application may be a default workspace member.");
   }
   const approvedLocalIds = new Set([application.id]);
+  const helpers = metadata.packages.filter((entry) => entry.name === "denote-speech-worker");
+  if (helpers.length !== 1
+    || helpers[0].version !== "0.1.0"
+    || helpers[0].source !== null
+    || typeof helpers[0].manifest_path !== "string"
+    || resolve(helpers[0].manifest_path) !== join(root, "speech-worker", "Cargo.toml")) {
+    throw new Error("The speech helper must use its reviewed local 0.1.0 workspace source.");
+  }
+  approvedLocalIds.add(helpers[0].id);
   for (const [name, backport] of backports) {
     if (existsSync(join(root, "vendor", name, "Cargo.lock"))) {
       throw new Error(`Vendored ${name} must use the workspace Cargo.lock, not a stale nested lockfile.`);

@@ -1303,6 +1303,9 @@ Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
 exclusions. The separate `speech-worker` member is built explicitly by its
 preparation hook, not added to the default application test/build selection.
+The source-aware audit permits only its exact reviewed local `0.1.0` manifest
+alongside the application and named backports; it rejects a helper from a
+registry, Git URL, different path/version, or duplicate package.
 
 The workspace has one authoritative `src-tauri/Cargo.lock`. Redundant lockfiles
 from the original Tauri plugin archives are omitted because Cargo ignores them
