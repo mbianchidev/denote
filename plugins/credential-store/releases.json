@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "936caf02b854b2924332625dbf2b215cb69eec74",
+    "kind": "source",
+    "sourcePath": "plugins/credential-store",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.12.0/denote.credential-store-0.1.0.tgz",
+      "sha256": "e6080e13c99aab5f91e264c31d60ab1f9cb48fb6ad9d055707f722e3da744e9c",
+      "sizeBytes": 16559
+    }
+  }
+]
