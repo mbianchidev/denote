@@ -1100,25 +1100,46 @@ It normalizes a private temporary WAV, invokes the real native downloader and
 isolated helper, requires recognition of the generated word `synthetic` plus
 word timing data, and removes its generated audio afterward. Omit `--engine-dir`
 to remove the model/runtime cache too. `--executable <current-build>` reuses a
-freshly built desktop binary; otherwise the runner builds Denote with two Cargo
-workers. No test corpus or model weight is committed.
+freshly built **speech-helper** binary, not the desktop executable; otherwise
+the runner prepares a debug helper with two Cargo workers. No test corpus or
+model weight is committed.
 
 CI reuses its existing macOS/Windows/Linux matrix and runs this approximately
 750 MB-per-platform smoke only when native speech, its shared build inputs, or
 the workflow changes; incomplete/manual selection runs it conservatively.
-Windows reuses its package-equivalent release binary. Linux installs the offline
+Windows reuses its packaged release helper. Linux installs the offline
 generator only for this gate. Other changes retain normal checks without these
 downloads. Existing triggers, required checks, fail-fast, benchmark isolation,
 runtime pins, and release consumers are unchanged. Extra Linux/Windows runtime
 cost has not been measured locally; the approved macOS download/inference
 smoke completed successfully on 2026-10-27.
 
-`src-tauri/Info.plist` declares the microphone purpose. The CSP adds only
-same-origin/blob media, not remote audio connections. The native engine uses
-verified platform archives and `libloading`; Windows ZIP support uses maintained
+`src-tauri/Info.plist` declares the microphone purpose, and
+`src-tauri/Entitlements.plist` grants only audio-input access to a signed main
+app. The CSP adds only same-origin/blob media, not remote audio connections.
+The native engine uses verified platform archives and `libloading`; Windows ZIP support uses maintained
 `zip` 9 with only deflate enabled, not the updater's disabled legacy ZIP feature.
 No Tauri/Wry family member changes. A platform unable to load its optional
-library reports unavailable inference rather than weakening runtime security.
+library reports unavailable inference rather than weakening main-app runtime
+security.
+
+`npm run prepare:speech-helper -- --debug` builds the separate
+`denote-speech-worker` workspace package. Tauri's development/build hooks run
+this automatically with the matching target and profile. Generated helper
+binaries remain in ignored `src-tauri/resources/speech/`, never Git or a plugin
+archive. Windows/Linux bundle the helper as a host resource. macOS embeds its
+independently signed app under `Contents/Helpers/`; only this helper has the
+library-validation exception needed for NVIDIA's pinned libraries, and it has
+no microphone entitlement. The main/credential process keeps library validation.
+This is necessary: real inference failed in a hardened main executable without
+that exception, despite succeeding in an unsigned build.
+
+The helper's small Tauri bundle config reuses the configured Developer ID
+identity or certificate import. Local builds use ad-hoc hardened signing.
+The helper is not notarized separately, so its nested-code build emits Tauri's
+expected missing-notarization-credentials warning. Notarize the containing
+application once with the normal release credentials. Never fix a model-load
+failure by granting the library-validation exception to the main app.
 
 The SQLite `pending_speech_attachments` table contains only native operation
 identities, paths, and hashes, never audio or transcript text. Vault-supplied
@@ -1280,7 +1301,8 @@ desktop builds do not acquire a macOS or Windows GTK build requirement. Its
 `target` tree is excluded so staged bundled Git source remains an independent
 Cargo package. Do not list `.` in `workspace.members`: Cargo includes the root
 package automatically, and an explicit root member overrides descendant
-exclusions.
+exclusions. The separate `speech-worker` member is built explicitly by its
+preparation hook, not added to the default application test/build selection.
 
 The workspace has one authoritative `src-tauri/Cargo.lock`. Redundant lockfiles
 from the original Tauri plugin archives are omitted because Cargo ignores them

@@ -23,6 +23,7 @@
     "verify:bundled-tools": "node scripts/verify-bundled-tools.mjs",
     "test:bundled-tools": "node --test scripts/bundled-tools.node.mjs",
     "test:speech-model": "tsx scripts/test-speech-model.ts",
+    "prepare:speech-helper": "node scripts/prepare-speech-helper.mjs",
     "benchmark:editor": "tsc --noEmit -p tsconfig.benchmarks.json && npm run build && playwright test",
     "create:plugin": "tsx scripts/create-plugin.ts",
     "package:plugin": "tsx scripts/package-plugin.ts",

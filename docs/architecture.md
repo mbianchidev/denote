@@ -1377,7 +1377,13 @@ Approved immutable NeMo-Speech.cpp CPU archives and the Nemotron 3.5 GGUF are
 streamed, size/hash verified, and reverified before loading. Native libraries
 run only in a disposable Denote helper process with cleared environment,
 anonymous audio/result pipes, bounded I/O/deadlines, and Unix core dumps disabled.
-The helper starts before any GUI, database, plugin runtime, or keychain exists.
+The separate `denote-speech-worker` executable has no GUI startup path; the
+desktop executable cannot dispatch inference. macOS embeds an independently
+signed helper under `Contents/Helpers/`. Only that helper has the
+library-validation exception required for NVIDIA's verified native libraries.
+The main app and credential-store process retain library validation, and only
+the main app has the audio-input entitlement. Tauri signs the nested helper
+first; final application notarization covers the containing bundle.
 Cancellation kills and reaps its exact process. Disabled last-provider cleanup
 removes native code; public model weights have separate cleanup. Installed
 third-party code and OS services remain explicit trust dependencies, not a

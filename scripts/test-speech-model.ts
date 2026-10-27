@@ -15,7 +15,7 @@ for (let index = 0; index < args.length; index++) {
   if (argument === "--approve-download") approved = true;
   else if (argument === "--engine-dir" && args[index + 1]) engineDirectory = resolve(args[++index]);
   else if (argument === "--executable" && args[index + 1]) executable = resolve(args[++index]);
-  else throw new Error("Usage: npm run test:speech-model -- --approve-download [--engine-dir <private-cache>] [--executable <current-build>]");
+  else throw new Error("Usage: npm run test:speech-model -- --approve-download [--engine-dir <private-cache>] [--executable <current-speech-helper>]");
 }
 if (!approved) throw new Error("Explicit --approve-download is required for the 742 MB NVIDIA Nemotron model (OpenMDW 1.1: https://openmdw.ai/license/1-1/) and pinned Apache-2.0 runtime.");
 
@@ -87,8 +87,10 @@ try {
   const engine = engineDirectory ?? join(temporary, "engine");
   mkdirSync(engine, { recursive: true });
   if (!executable) {
-    run("cargo", ["build", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "--bin", "denote", "--jobs", "2"]);
-    executable = join(root, "src-tauri/target/debug", process.platform === "win32" ? "denote.exe" : "denote");
+    run(process.execPath, [join(root, "scripts/prepare-speech-helper.mjs"), "--debug"]);
+    executable = process.platform === "darwin"
+      ? join(root, "src-tauri/resources/speech/Denote Speech Helper.app/Contents/MacOS/denote-speech-worker")
+      : join(root, "src-tauri/resources/speech", process.platform === "win32" ? "denote-speech-worker.exe" : "denote-speech-worker");
   }
   run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "--lib", "--jobs", "2",
     "speech_real_approved_model", "--", "--ignored", "--nocapture", "--test-threads", "1"], {

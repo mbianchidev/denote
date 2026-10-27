@@ -121,8 +121,10 @@ jobs:
               BASE_SHA=$(git merge-base "$BASE_SHA" HEAD)
             fi
             if git diff --quiet "$BASE_SHA" HEAD -- \
-              .github/workflows/ci.yml scripts/test-speech-model.ts \
-              src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/main.rs src-tauri/src/lib.rs \
+              .github/workflows/ci.yml scripts/test-speech-model.ts scripts/prepare-speech-helper.mjs \
+              src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/build.rs src-tauri/src/main.rs src-tauri/src/lib.rs \
+              src-tauri/speech-worker src-tauri/Entitlements.plist src-tauri/SpeechHelper.entitlements.plist \
+              src-tauri/tauri.conf.json src-tauri/tauri.windows.conf.json src-tauri/tauri.linux.conf.json \
               src-tauri/src/sensitive/speech_engine.rs src-tauri/src/sensitive/speech_helper.rs \
               src/lib/speech.ts src/lib/speechCaptureProcessor.js; then
               echo "required=false" >> "$GITHUB_OUTPUT"
@@ -269,7 +271,7 @@ jobs:
         if: steps.speech-scope.outputs.required == 'true'
         shell: bash
         env:
-          DENOTE_SPEECH_TEST_EXECUTABLE: ${{ runner.os == 'Windows' && format('{0}/src-tauri/target/release/denote.exe', github.workspace) || '' }}
+          DENOTE_SPEECH_TEST_EXECUTABLE: ${{ runner.os == 'Windows' && format('{0}/src-tauri/resources/speech/denote-speech-worker.exe', github.workspace) || '' }}
         run: npm run test:speech-model -- --approve-download --engine-dir "${{ runner.temp }}/denote-synthetic-model"
 
       - name: Rust check

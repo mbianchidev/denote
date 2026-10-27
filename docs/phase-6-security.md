@@ -152,8 +152,20 @@ against the pinned archive before execution.
 
 The native engine receives local model paths and mono float32 audio through
 anonymous pipes in an isolated Denote helper process. No audio/transcript file
-or HTTP listener is needed. A private helper mode runs before GUI startup and
-does not open a vault database, plugin runtime, keychain, or application window.
+or HTTP listener is needed. A separate `denote-speech-worker` executable has no
+GUI startup path and does not open a vault database, plugin runtime, keychain, or
+application window. The desktop executable cannot dispatch inference.
+On macOS, only the separately signed nested helper has the
+`com.apple.security.cs.disable-library-validation` entitlement required to load
+NVIDIA's verified third-party libraries. The main app and credential-store
+process retain library validation. The helper has no microphone entitlement;
+the main app declares only audio-input access, still gated by an explicit
+recording action and OS consent. Helper signing reuses Tauri's configured
+identity/certificate handling, and final application notarization covers nested
+code. See Apple's [library-validation
+requirements](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.cs.disable-library-validation)
+and [audio-input
+entitlement](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.device.audio-input).
 Bound pipe input/output and inference duration. Cancel, withdrawal, and lock
 terminate and reap that exact helper process. Native errors are fixed
 categories; do not forward engine diagnostics, audio, or transcript text to

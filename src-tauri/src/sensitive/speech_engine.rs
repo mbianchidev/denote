@@ -969,8 +969,7 @@ pub(crate) async fn transcribe_speech(
                 .map_err(|_| failure("Invalid local audio bytes."))?,
         );
         let root = root(&handle)?;
-        let executable = std::env::current_exe()
-            .map_err(|_| failure("The local transcription helper is unavailable."))?;
+        let executable = helper_executable(&handle)?;
         let transcript = run_transcription(&root, bytes, &locale, &operation, &executable)?;
         Ok::<_, AppError>((transcript, operation))
     })
@@ -981,6 +980,53 @@ pub(crate) async fn transcribe_speech(
         Ok(transcript)
     })
     .await
+}
+
+fn packaged_helper(resources: &Path) -> AppResult<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        Ok(resources
+            .parent()
+            .ok_or_else(|| failure("The packaged speech helper is unavailable."))?
+            .join("Helpers/Denote Speech Helper.app/Contents/MacOS/denote-speech-worker"))
+    }
+    #[cfg(windows)]
+    {
+        Ok(resources.join("speech/denote-speech-worker.exe"))
+    }
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        Ok(resources.join("speech/denote-speech-worker"))
+    }
+}
+
+fn helper_executable(app: &AppHandle) -> AppResult<PathBuf> {
+    let resources = app
+        .path()
+        .resource_dir()
+        .map_err(|_| failure("The packaged speech helper is unavailable."))?;
+    let executable = packaged_helper(&resources)?;
+    if executable.is_file() {
+        safe_path(&executable)?;
+        return Ok(executable);
+    }
+    #[cfg(debug_assertions)]
+    {
+        let stage = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/speech");
+        #[cfg(target_os = "macos")]
+        let executable = stage.join("Denote Speech Helper.app/Contents/MacOS/denote-speech-worker");
+        #[cfg(windows)]
+        let executable = stage.join("denote-speech-worker.exe");
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let executable = stage.join("denote-speech-worker");
+        if executable.is_file() {
+            safe_path(&executable)?;
+            return Ok(executable);
+        }
+    }
+    Err(failure(
+        "The packaged speech helper is missing. Reinstall Denote to restore local transcription.",
+    ))
 }
 
 fn run_transcription(
@@ -1113,6 +1159,23 @@ fn validate_transcript(transcript: &Transcript) -> AppResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn speech_uses_a_dedicated_packaged_executable_not_the_desktop_process() {
+        let resources = Path::new("mock-install/Denote.app/Contents/Resources");
+        let helper = packaged_helper(resources).unwrap();
+        #[cfg(target_os = "macos")]
+        assert_eq!(
+            helper,
+            Path::new(
+                "mock-install/Denote.app/Contents/Helpers/Denote Speech Helper.app/Contents/MacOS/denote-speech-worker"
+            )
+        );
+        #[cfg(windows)]
+        assert_eq!(helper, resources.join("speech/denote-speech-worker.exe"));
+        #[cfg(not(any(target_os = "macos", windows)))]
+        assert_eq!(helper, resources.join("speech/denote-speech-worker"));
+    }
 
     #[test]
     fn speech_archives_reject_traversal_absolute_paths_and_special_names() {
