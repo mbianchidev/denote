@@ -963,6 +963,13 @@ pub(super) fn write_external(path: &Path, bytes: &[u8]) -> AppResult<()> {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_GENERIC_WRITE, WRITE_DAC};
+        // SetSecurityInfo needs WRITE_DAC before any plaintext can be written.
+        options.access_mode(FILE_GENERIC_WRITE | WRITE_DAC);
+    }
     let mut file = options.open(path).map_err(|_| {
         invalid("Unable to create the transfer file. Choose a new private filename.")
     })?;

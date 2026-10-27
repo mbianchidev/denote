@@ -94,8 +94,12 @@ master password again and an explicit confirmation for every export. Do not
 cache authorization or return exported contents to JavaScript. Revalidate
 scope, permission, session expiry, and current ciphertext after the native save
 picker closes. Export only to a newly created regular file outside all known
-vaults and application storage. Use restrictive permissions and no plaintext
-staging file. Remove a partial output on failure and report a cleanup failure
+vaults and application storage. Unix creates the file with mode `0600`.
+Windows opens the new file with `FILE_GENERIC_WRITE | WRITE_DAC`, then applies
+its protected owner-rights DACL through that same handle before writing bytes.
+An ordinary write-only handle cannot set a DACL. Do not retry with broader
+permissions or omit protection on failure. Use no plaintext staging file.
+Remove a partial output on failure and report a cleanup failure
 without including contents. The confirmed export is intentionally plaintext
 and outside subsequent Denote cleanup.
 
