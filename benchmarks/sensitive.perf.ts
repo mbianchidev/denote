@@ -41,6 +41,7 @@ async function tabTo(page: Page, target: Locator) {
   await target.waitFor({ state: "visible" });
   const visited = new Set<string>();
   for (let count = 0; count < 120; count++) {
+    if (!await target.count()) throw new Error("The keyboard target disappeared before focus could reach it.");
     if (await target.evaluate((element) => element === document.activeElement)) return;
     visited.add(await page.evaluate(() => {
       const active = document.activeElement;
@@ -94,10 +95,11 @@ test("keyboard-only capture uses the real audio worklet, saves a portable voice 
   await tabTo(page, seek); await page.keyboard.press("End");
   const volume = page.getByRole("slider", { name: "Audio volume: Recorded or imported audio", exact: true });
   await tabTo(page, volume); await page.keyboard.press("ArrowLeft");
-  await expect(volume).not.toHaveValue("1");
-  const speed = page.getByRole("combobox", { name: "Playback speed: Recorded or imported audio", exact: true });
-  await tabTo(page, speed); await page.keyboard.press("ArrowDown");
-  await expect(speed).toHaveValue("1.25");
+  await expect(volume).toHaveValue("0.95");
+  const speed = page.getByRole("slider", { name: "Playback speed: Recorded or imported audio", exact: true });
+  await tabTo(page, speed);
+  await page.keyboard.press("End");
+  await expect(speed).toHaveValue("2");
   await tabTo(page, save);
   await page.keyboard.press("Enter");
   await expect.poll(() => page.evaluate(() => window.__DENOTE_AUTHORING__.speechActions)).toContain("save");

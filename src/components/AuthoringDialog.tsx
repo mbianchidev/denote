@@ -22,7 +22,14 @@ export function AuthoringDialog({ title, onClose, onEscape, children }: {
       if (event.key !== "Tab") return;
       const controls = [...event.currentTarget.querySelectorAll<HTMLElement>(
         "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary, [tabindex='0']",
-      )].filter((element) => element.tabIndex >= 0 && element.getAttribute("aria-disabled") !== "true" && element.getClientRects().length > 0);
+      )].filter((element) => {
+        if (element.tabIndex < 0 || element.getAttribute("aria-disabled") === "true" ||
+            element.closest("[hidden], [inert]") || element.getClientRects().length === 0) return false;
+        for (let details = element.closest("details:not([open])"); details; details = details.parentElement?.closest("details:not([open])") ?? null) {
+          if (!details.querySelector(":scope > summary")?.contains(element)) return false;
+        }
+        return true;
+      });
       const first = controls[0];
       const last = controls[controls.length - 1];
       if (!first || !last) return;

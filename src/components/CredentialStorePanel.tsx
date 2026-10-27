@@ -87,9 +87,9 @@ export function CredentialStorePanel({ pluginId, workspaceScope, onClose }: {
       if (!isCredentialResult(result) || result.kind !== "status") throw new Error("The credential file status is unavailable.");
       setExists(result.exists);
     }).catch((caught) => { if (alive.current) setError(errorMessage(caught)); });
-    const blur = () => lockRef.current();
+    const blur = (event: Event) => { if (event.target === event.currentTarget) lockRef.current(); };
     window.addEventListener("blur", blur);
-    const stopLock = listen("denote://sensitive-locked", blur);
+    const stopLock = listen("denote://sensitive-locked", () => lockRef.current());
     const stopError = listen<string>("denote://sensitive-error", (event) => {
       if (alive.current) setError(event.payload);
     });

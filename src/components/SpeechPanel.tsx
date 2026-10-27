@@ -71,7 +71,7 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
     operation.current = null;
     if (id) await api.cancelSpeechOperation(pluginId, id);
   };
-  const clearSensitive = async () => {
+  const clearSensitive = async (reason = "Speech stopped. Unsaved audio and transcript drafts were discarded.") => {
     ++epoch.current;
     importController.current?.abort(); importController.current = null;
     stopSpeech();
@@ -80,6 +80,7 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
     clearAudio();
     if (alive.current) {
       setCaptureState(null); setTranscript(null); setDraft(""); setDraftEdited(false); setTimestamps(false); setLevel(0); setBusy(false); setProgress(null);
+      setStatus(reason);
     }
     if (transcriptInput.current) transcriptInput.current.value = "";
     await Promise.all([active?.cancel(), cancelOperation()]);
@@ -97,9 +98,11 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
     };
     changed();
     synth?.addEventListener("voiceschanged", changed);
-    const blur = () => {
+    const blur = (event?: Event) => {
+      if (event && event.target !== event.currentTarget) return;
       if (captureStateRef.current === "requesting" && !document.hidden) return;
-      void clearRef.current().catch(() => { if (alive.current) setError("Speech cleanup failed. Close the panel and check OS microphone state."); });
+      void clearRef.current("Speech stopped when this window became inactive. Unsaved audio and transcript drafts were discarded.")
+        .catch(() => { if (alive.current) setError("Speech cleanup failed. Close the panel and check OS microphone state."); });
     };
     window.addEventListener("blur", blur);
     const hidden = () => { if (document.hidden) blur(); };

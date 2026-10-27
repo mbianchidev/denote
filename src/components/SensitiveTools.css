@@ -19,7 +19,6 @@
 .audio-playback audio { display: none; }
 .audio-playback label { display: inline-flex; align-items: center; gap: 4px; }
 .audio-playback input[type="range"] { width: 100px; max-width: 100%; }
-.audio-playback select { font: inherit; color: var(--text-primary); background: var(--editor-bg); border: 1px solid var(--border-strong); border-radius: 5px; }
 @media (forced-colors: active) {
   .sensitive-tool input, .sensitive-tool select, .sensitive-tool textarea { background: Canvas; color: CanvasText; border-color: CanvasText; }
   .sensitive-tool :focus-visible { outline-color: Highlight; }

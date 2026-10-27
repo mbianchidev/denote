@@ -93,9 +93,10 @@ export function AudioPlayback({ label, load, onExport }: {
     <span role="timer" aria-live="off">{clock(time)} / {clock(duration)}</span>
     <label>Volume <input type="range" min={0} max={1} step={0.05} value={volume} aria-label={`Audio volume: ${label}`}
       onChange={(event) => { const next = Number(event.currentTarget.value); setVolume(next); if (audio.current) audio.current.volume = next; }} /></label>
-    <label>Playback speed <select value={rate} aria-label={`Playback speed: ${label}`} onChange={(event) => {
+    <label>Playback speed <input type="range" min={0.5} max={2} step={0.25} value={rate}
+      aria-label={`Playback speed: ${label}`} aria-valuetext={`${rate}x`} onChange={(event) => {
       const next = Number(event.currentTarget.value); setRate(next); if (audio.current) audio.current.playbackRate = next;
-    }}>{[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option key={rate} value={rate}>{rate}x</option>)}</select></label>
+    }} /><span>{rate}x</span></label>
     {onExport ? <button type="button" className="secondary-button" onClick={() => setConfirmExport(true)}>Download audio</button> : null}
     {confirmExport && onExport ? <span className="authoring-actions" role="group" aria-label="Export unencrypted audio?">
       <span>The exported file will not be encrypted by Denote.</span>
