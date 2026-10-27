@@ -51,13 +51,13 @@ function AuthoringSelectionBridge() {
       const selection = $getSelection();
       if ($isRangeSelection(selection)) saved = selection.clone();
     };
-    const unregister = context.binding.registerSelection(() => {
+    const unregister = context.binding.registerSelection((allowCollapsed = false) => {
       const root = editor.getRootElement();
       if (!root?.isConnected || editor.isComposing() ||
           root.closest<HTMLElement>(".mdxeditor-rich-text-editor")?.style.display === "none") return null;
       return editor.getEditorState().read(() => {
         remember();
-        if (!saved || saved.isCollapsed()) return null;
+        if (!saved || saved.isCollapsed() && !allowCollapsed) return null;
         const source = context.source();
         const range = richSourceSelection(source, saved, context.snapshot());
         const captured = saved.clone();

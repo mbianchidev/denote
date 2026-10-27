@@ -927,6 +927,19 @@ beside its label in the same keyboard-operable row. Control groups wrap without
 separating labels from their fields, and fullscreen exit stays a compact action.
 The optional 140 ms fade is state motion and is disabled for reduced motion.
 
+### Optional sensitive tools
+
+Speech and Credential store reuse native authoring dialogs and shared compact
+button/focus/forced-colors treatment. Tab order follows the visible controls;
+capture moves focus to finish/cancel, stopped audio to its next explicit action,
+and slide reordering follows the moved slide rather than a newly disabled button.
+Recording has written state, a timer, input meter, and measured-danger border,
+never a color-only indicator. Model/license/download approval is separate from
+enablement. Transcript insertion is a distinct primary action after review.
+Credential secrets remain masked, revealing is explicit and short-lived, and
+copy/exposure/export risks stay written next to their controls. Password fields
+are cleared immediately after use and views disappear on lock or scope loss.
+
 ### Optional Mermaid diagrams
 
 The Mermaid plugin contributes only a renderer registration and a separately

@@ -1,0 +1,27 @@
+.sensitive-tool { display: grid; gap: 12px; }
+.sensitive-tool form { display: grid; gap: 10px; }
+.sensitive-tool label:not(.sensitive-tool__check) { display: grid; gap: 4px; }
+.sensitive-tool input, .sensitive-tool select, .sensitive-tool textarea {
+  color: var(--text-primary); background: var(--editor-bg); border: 1px solid var(--border-strong);
+  border-radius: 5px; padding: 7px 9px; font: inherit; max-width: 100%; box-sizing: border-box;
+}
+.sensitive-tool__check { display: flex; align-items: center; gap: 7px; }
+.sensitive-tool__check input { width: 15px; height: 15px; margin: 0; padding: 0; flex: 0 0 auto; }
+.sensitive-tool__table { overflow: auto; }
+.sensitive-tool table { width: 100%; border-collapse: collapse; text-align: left; }
+.sensitive-tool th, .sensitive-tool td { padding: 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.sensitive-tool output { white-space: pre-wrap; user-select: text; }
+.sensitive-tool :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.speech-recording { border: 2px solid var(--danger); padding: 10px; border-radius: 5px; }
+.speech-recording strong { display: block; }
+.speech-audio { width: 100%; }
+.audio-playback { display: inline-flex; gap: 8px; align-items: center; flex-wrap: wrap; max-width: 100%; padding: 6px 0; font-size: 12px; }
+.audio-playback audio { display: none; }
+.audio-playback label { display: inline-flex; align-items: center; gap: 4px; }
+.audio-playback input[type="range"] { width: 100px; max-width: 100%; }
+.audio-playback select { font: inherit; color: var(--text-primary); background: var(--editor-bg); border: 1px solid var(--border-strong); border-radius: 5px; }
+@media (forced-colors: active) {
+  .sensitive-tool input, .sensitive-tool select, .sensitive-tool textarea { background: Canvas; color: CanvasText; border-color: CanvasText; }
+  .sensitive-tool :focus-visible { outline-color: Highlight; }
+  .speech-recording { border-color: CanvasText; }
+}

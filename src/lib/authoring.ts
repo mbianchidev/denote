@@ -11,7 +11,7 @@ export interface AuthoringSelection {
 
 export interface AuthoringEditorBinding {
   styles: () => { source: string; spans: PluginTextStyle[] } | null;
-  registerSelection: (capture: () => AuthoringSelection | null) => () => void;
+  registerSelection: (capture: (allowCollapsed?: boolean) => AuthoringSelection | null) => () => void;
   registerEdit: (apply: (edit: PluginSourceEdit, next: string) => boolean) => () => void;
   sourcePreparation: { current: ((source: string) => void) | null };
 }

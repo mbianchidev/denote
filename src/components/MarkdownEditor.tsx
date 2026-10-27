@@ -153,6 +153,8 @@ import {
 } from "../lib/richTextInputPlugin";
 import { EmojiToolbarActions } from "./EmojiPicker";
 import { AuthoringRichContext, styledLiteralRanges, styledMarkdownPlugin } from "./StyledMarkdownNode";
+import { AudioRenderContext, audioMarkdownPlugin } from "./AudioMarkdownNode";
+import type { SpeechAudioBinding } from "../lib/speech";
 import type { AuthoringEditorBinding } from "../lib/authoring";
 
 const viewModePreferencePlugin = realmPlugin<{
@@ -355,6 +357,7 @@ interface MarkdownEditorProps {
   emojiPickers?: EmojiContribution[];
   diagrams?: DiagramEditorBinding;
   authoring?: AuthoringEditorBinding;
+  audio?: SpeechAudioBinding;
   preferredViewMode: MarkdownViewMode;
   projectSourceMode?: boolean;
   readOnly: boolean;
@@ -394,6 +397,7 @@ export const MarkdownEditor = forwardRef<
     emojiPickers = EMPTY_EMOJI_PICKERS,
     diagrams,
     authoring,
+    audio,
     preferredViewMode,
     projectSourceMode = false,
     readOnly,
@@ -665,6 +669,7 @@ export const MarkdownEditor = forwardRef<
       denoteTaskListShortcutPlugin(),
       denoteHashtagPlugin(),
       ...(authoring ? [styledMarkdownPlugin({ binding: authoring, source: () => editorSourceRef.current })] : []),
+      ...(audio ? [audioMarkdownPlugin({ source: () => emojiSourceRef.current })] : []),
       emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
@@ -861,6 +866,7 @@ export const MarkdownEditor = forwardRef<
       emojiSourceExtensions,
       emojiSerialization,
       authoring,
+      Boolean(audio),
       preferredViewMode,
       projectSourceMode,
       readOnly,
@@ -1114,6 +1120,7 @@ export const MarkdownEditor = forwardRef<
       } : null}>
       <EmojiRichContext.Provider value={emojiRichBinding}>
       <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
+        <AudioRenderContext.Provider value={audio}>
         <DiagramCodeBlockSettingsProvider binding={diagrams}>
         <DenoteCodeBlockEditorSettingsProvider
           readOnly={readOnly}
@@ -1121,7 +1128,7 @@ export const MarkdownEditor = forwardRef<
           onError={onCodeBlockError}
         >
           <MDXEditor
-          key={`${htmlProcessing ? "details-html" : "standard-markdown"}:${diagrams?.renderers.map((renderer) => renderer.id).join(",") ?? "no-diagrams"}`}
+          key={`${htmlProcessing ? "details-html" : "standard-markdown"}:${diagrams?.renderers.map((renderer) => renderer.id).join(",") ?? "no-diagrams"}:${Boolean(audio)}`}
             ref={ref}
             markdown={editorSource}
             plugins={plugins}
@@ -1216,6 +1223,7 @@ export const MarkdownEditor = forwardRef<
           />
         </DenoteCodeBlockEditorSettingsProvider>
         </DiagramCodeBlockSettingsProvider>
+        </AudioRenderContext.Provider>
       </SafeRichHtmlRenderProvider>
       </EmojiRichContext.Provider>
       </AuthoringRichContext.Provider>

@@ -502,6 +502,23 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   malformed metadata without rewriting it. Rendering reuses safe note behavior.
   Absolute monotonic deadlines avoid timer drift; hidden/blurred/inactive,
   edited, closed, or withdrawn decks pause and release their resources.
+- Optional **Speech, voice notes, and transcription** uses installed local
+  voices, explicit microphone actions, visible recording state, accessible
+  playback, ordinary WAV/Markdown attachments, and review-before-insertion
+  transcripts. Separately approved pinned NVIDIA Nemotron 3.5 model/runtime
+  downloads enable local CPU inference. Audio stays in memory or authorized
+  vault files, never a transcription staging file or remote service.
+- The optional **Encrypted credential store** encrypts every entry field in
+  `.denote/credentials.dncred` behind an independent master password, including
+  in an unencrypted vault. Argon2id and authenticated XChaCha20-Poly1305 protect
+  it; unlock failure never resets data. Mask/reveal, native field copies,
+  inactivity/focus/scope locks, encrypted backup/import, and separately
+  reauthenticated/confirmed plaintext export remain host-owned.
+- Sensitive workers register declarative tools only and never receive text,
+  audio, entries, passwords, keys, or clipboard contents. Removing code preserves
+  notes, decks, audio, accepted transcripts, comments, and encrypted credentials.
+  OS memory dumps, clipboard history, screen capture, and compromised devices
+  remain explicit limits, not claims of leak-proof protection.
 - The independently installable **Time tracking** plugin is disabled by default
   and provides **Timer**, **Countdowns**, **Alarm**, and **Notes** modes. Clocks
   work without an open note: one standalone elapsed timer, up to 32 independent

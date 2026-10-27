@@ -106,6 +106,32 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Select native speech platform smoke
+        id: speech-scope
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]] || ! git cat-file -e "$BASE_SHA^{commit}"; then
+            echo "Baseline unavailable; running the complete speech platform smoke."
+            echo "required=true" >> "$GITHUB_OUTPUT"
+          else
+            if [[ "$EVENT_NAME" == "pull_request" ]]; then
+              BASE_SHA=$(git merge-base "$BASE_SHA" HEAD)
+            fi
+            if git diff --quiet "$BASE_SHA" HEAD -- \
+              .github/workflows/ci.yml scripts/test-speech-model.ts \
+              src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/src/main.rs src-tauri/src/lib.rs \
+              src-tauri/src/sensitive/speech_engine.rs src-tauri/src/sensitive/speech_helper.rs \
+              src/lib/speech.ts src/lib/speechCaptureProcessor.js; then
+              echo "required=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Native speech inputs changed or selection was incomplete."
+              echo "required=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
@@ -234,6 +260,17 @@ jobs:
 
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - name: Install offline synthetic speech generator
+        if: runner.os == 'Linux' && steps.speech-scope.outputs.required == 'true'
+        run: sudo apt-get install --yes espeak-ng
+
+      - name: Real local Nemotron platform smoke
+        if: steps.speech-scope.outputs.required == 'true'
+        shell: bash
+        env:
+          DENOTE_SPEECH_TEST_EXECUTABLE: ${{ runner.os == 'Windows' && format('{0}/src-tauri/target/release/denote.exe', github.workspace) || '' }}
+        run: npm run test:speech-model -- --approve-download --engine-dir "${{ runner.temp }}/denote-synthetic-model"
 
       - name: Rust check
         run: cargo check --manifest-path src-tauri/Cargo.toml

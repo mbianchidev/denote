@@ -311,6 +311,109 @@ fn disable_removes_package_but_retains_plugin_data_by_default() {
 }
 
 #[test]
+fn sensitive_plugin_removal_preserves_notes_decks_comments_audio_and_opaque_credentials() {
+    for clear_data in [false, true] {
+        let data = TempDir::new().unwrap();
+        let cache = TempDir::new().unwrap();
+        let vault = TempDir::new().unwrap();
+        let mut catalog = catalog();
+        catalog.manifest.id = "denote.synthetic-speech".into();
+        catalog.manifest.permissions = vec![PluginPermission {
+            capability: "speech".into(),
+            hosts: vec![],
+            executables: BTreeMap::new(),
+        }];
+        let bytes = package_bytes(&catalog);
+        catalog.artifact.size_bytes = bytes.len() as u64;
+        catalog.artifact.sha256 = hex::encode(Sha256::digest(&bytes));
+        let manager = manager(catalog.clone(), &data, &cache);
+        manager.install_package(&catalog, &bytes).unwrap();
+        {
+            let mut state = manager.state().unwrap();
+            state.enabled.insert(catalog.manifest.id.clone());
+            state.approved_permissions.insert(
+                catalog.manifest.id.clone(),
+                catalog.manifest.permissions.iter().cloned().collect(),
+            );
+        }
+        let assets: [(&str, &[u8]); 5] = [
+            (
+                "Synthetic.md",
+                b"Keep =red=these words=red= and [Voice](assets/synthetic.wav).\n",
+            ),
+            (
+                "Deck.md",
+                b"---\ncustom: retain\n---\n# First\n\n===\n# Second\n",
+            ),
+            (
+                ".denote/note-comments.json",
+                br#"{"schemaVersion":1,"owner":"denote.note-comments","notes":{}}"#,
+            ),
+            (
+                ".denote/credentials.dncred",
+                b"synthetic opaque credential backup bytes",
+            ),
+            ("assets/synthetic.wav", b"synthetic retained audio bytes"),
+        ];
+        for (path, bytes) in assets {
+            let path = vault.path().join(path);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(path, bytes).unwrap();
+        }
+        let speech = data.path().join("speech");
+        fs::create_dir_all(speech.join("runtime")).unwrap();
+        fs::write(
+            speech.join("runtime/synthetic-library"),
+            b"synthetic native code",
+        )
+        .unwrap();
+        fs::write(
+            speech.join("nemotron-3.5-asr-streaming-0.6b.q8_0.gguf"),
+            b"synthetic model data",
+        )
+        .unwrap();
+        manager
+            .disable(&catalog.manifest.id, clear_data, true)
+            .unwrap();
+        assert!(!manager.plugin_root(&catalog.manifest.id).exists());
+        assert!(!speech.join("runtime").exists());
+        assert_eq!(
+            speech
+                .join("nemotron-3.5-asr-streaming-0.6b.q8_0.gguf")
+                .exists(),
+            !clear_data
+        );
+        for (path, bytes) in assets {
+            assert_eq!(fs::read(vault.path().join(path)).unwrap(), bytes);
+        }
+    }
+}
+
+#[test]
+fn sensitive_permissions_are_isolated_at_the_native_catalog_boundary() {
+    for capability in ["speech", "credential-store"] {
+        let mut entry = catalog();
+        entry.manifest.permissions = vec![PluginPermission {
+            capability: capability.into(),
+            hosts: vec![],
+            executables: BTreeMap::new(),
+        }];
+        validate_catalog(&[entry.clone()]).unwrap();
+        entry.manifest.permissions.push(PluginPermission {
+            capability: "network".into(),
+            hosts: vec!["synthetic.invalid".into()],
+            executables: BTreeMap::new(),
+        });
+        assert!(
+            validate_catalog(&[entry])
+                .unwrap_err()
+                .to_string()
+                .contains("isolated")
+        );
+    }
+}
+
+#[test]
 fn catalog_version_change_keeps_the_enabled_plugin_until_update() {
     let data = TempDir::new().expect("data");
     let cache = TempDir::new().expect("cache");

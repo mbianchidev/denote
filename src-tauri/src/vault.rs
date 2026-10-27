@@ -16,7 +16,9 @@ use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
 use uuid::Uuid;
 use walkdir::WalkDir;
 
+pub(crate) mod credentials;
 mod note_comments;
+pub(crate) mod speech;
 pub use note_comments::{
     NoteCommentsDocument, NoteCommentsSnapshot, read_note_comments, save_note_comments,
 };

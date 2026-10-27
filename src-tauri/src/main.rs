@@ -2,6 +2,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
+    if let Some(code) = denote_lib::run_speech_helper_if_requested() {
+        std::process::exit(code);
+    }
     if let Some(code) = denote_lib::run_gpg_signer_if_requested() {
         std::process::exit(code);
     }

@@ -20,6 +20,8 @@ trying its view. Opening an example never installs or enables a plugin.
 | Text highlighting and coloring | [Text styling](<Text styling.md>) | Apply a named style, inspect literal Source, and find highlighted excerpts |
 | Note comments | [Note comments](<Note comments.md>) | Anchor, resolve, orphan, and explicitly reattach a local comment |
 | Markdown presentation slides | [Presentation deck](<Presentation.md>) | Edit Source beside preview, reorder slides, and present with keyboard playback |
+| Speech, voice notes, and transcription | [Speech practice](<Speech.md>) | Read synthetic text aloud, explicitly record a voice note, and review a local transcript |
+| Encrypted credential store | [Credential store practice](<Credential store.md>) | Store invented entries behind an independent master password and try authenticated export |
 
 Disable a plugin at any time; the files remain. Time tracking asks for
 confirmation before stopping an active timer. Git is a written, opt-in

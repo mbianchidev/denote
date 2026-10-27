@@ -55,8 +55,36 @@ import type {
 import { systemPathForDisplay } from "./systemPath";
 import type { NoteCommentsDocument, NoteCommentsSnapshot } from "./noteComments";
 import type { CodeProtocolInvocation, CodeToolConfiguration, CodeToolEnvironment, CodeWorkspaceContext } from "./codeTools";
+import type { CredentialRequest, CredentialResult } from "./credentials";
+import type { SpeechEngineStatus, SpeechProgress, SpeechTranscript } from "./speech";
 
 export const api = {
+  speechEngineStatus: (pluginId: string, workspaceScope: string) =>
+    invoke<SpeechEngineStatus>("speech_engine_status", { pluginId, workspaceScope }),
+  installSpeechEngine: (pluginId: string, workspaceScope: string, operationId: string, approved: boolean, onProgress: (progress: SpeechProgress) => void) => {
+    const progress = new Channel<SpeechProgress>();
+    progress.onmessage = onProgress;
+    return invoke<void>("install_speech_engine", { pluginId, workspaceScope, operationId, approved, progress });
+  },
+  cancelSpeechOperation: (pluginId: string, operationId: string) =>
+    invoke<void>("cancel_speech_operation", { pluginId, operationId }),
+  removeSpeechEngine: (pluginId: string, workspaceScope: string, confirmed: boolean) =>
+    invoke<void>("remove_speech_engine", { pluginId, workspaceScope, confirmed }),
+  transcribeSpeech: (pluginId: string, workspaceScope: string, operationId: string, wav: string, locale: string) =>
+    invoke<SpeechTranscript>("transcribe_speech", { pluginId, workspaceScope, operationId, wav, locale }),
+  saveVoiceNote: (pluginId: string, workspaceScope: string, notePath: string, expectedHash: string, from: number, to: number, wav: string) =>
+    invoke<NoteDocument>("save_voice_note", { pluginId, workspaceScope, notePath, expectedHash, from, to, wav }),
+  readSpeechAudio: (pluginId: string, workspaceScope: string, notePath: string, href: string) =>
+    invoke<{ base64: string; mime: string }>("read_speech_audio", { pluginId, workspaceScope, notePath, href }),
+  keepUnfinishedSpeechAudio: (pluginId: string, workspaceScope: string, confirmed: boolean) =>
+    invoke<void>("keep_unfinished_speech_audio", { pluginId, workspaceScope, confirmed }),
+  exportSpeechAudio: (pluginId: string, workspaceScope: string, notePath: string, href: string, confirmed: boolean) =>
+    invoke<boolean>("export_speech_audio", { pluginId, workspaceScope, notePath, href, confirmed }),
+  credentialStore: (pluginId: string, workspaceScope: string, request: CredentialRequest) =>
+    invoke<CredentialResult>("credential_store", { pluginId, workspaceScope, request }),
+  credentialTransfer: (pluginId: string, workspaceScope: string, kind: "backup" | "import" | "export", sessionId: string | null) =>
+    invoke<CredentialResult>("credential_transfer", { pluginId, workspaceScope, kind, sessionId }),
+  stopSensitiveTools: (pluginId: string) => invoke<void>("stop_sensitive_tools", { pluginId }),
   readNoteComments: (pluginId: string, workspaceScope: string) =>
     invoke<NoteCommentsSnapshot>("read_note_comments", { pluginId, workspaceScope }),
   saveNoteComments: (

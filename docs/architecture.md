@@ -1349,6 +1349,40 @@ opaque owners, preserves a pre-existing fullscreen window, ignores old-owner
 cleanup, cancels pending entry, and keeps failed restoration retryable. Workers
 never receive its callbacks or the native window object.
 
+### Sensitive tools
+
+The additive `speech` and `credential-store` permissions expose only closed
+declarative `sensitiveTools.register` contributions. SDK and native validation
+require an isolated single-permission worker; no workspace, network, process,
+clipboard, keychain, or note-event capability can be combined with either.
+Workers receive no user content. The trusted host owns all UI and native I/O.
+
+`src-tauri/src/sensitive/` fences operations by enabled permission, canonical
+active vault, unlock state, and opaque session/operation identity. Native
+credential keys use zeroizing ownership, monotonic and wall-clock expiry,
+generation invalidation, and owner-specific cleanup. The independently encrypted
+container in `vault/credentials.rs` never uses note/history/index writers.
+Its fixed-format authenticated header, Argon2id parameters, nonce generation,
+closed schema, padding, conflict checks, backup/import, and separately
+authenticated export are described in [the security design](phase-6-security.md).
+
+Speech capture is a same-origin audio worklet started only by an explicit
+microphone action. Private in-memory PCM becomes a canonical 16 kHz mono WAV.
+Native note/audio commits preserve source offsets and line endings, use ordinary
+vault encryption, and recover from host-private SQLite operation records rather
+than trusting vault-supplied deletion instructions. Uncertain recovery preserves
+files and exposes an explicit keep-files/clear-metadata action.
+
+Approved immutable NeMo-Speech.cpp CPU archives and the Nemotron 3.5 GGUF are
+streamed, size/hash verified, and reverified before loading. Native libraries
+run only in a disposable Denote helper process with cleared environment,
+anonymous audio/result pipes, bounded I/O/deadlines, and Unix core dumps disabled.
+The helper starts before any GUI, database, plugin runtime, or keychain exists.
+Cancellation kills and reaps its exact process. Disabled last-provider cleanup
+removes native code; public model weights have separate cleanup. Installed
+third-party code and OS services remain explicit trust dependencies, not a
+claim that process separation defeats a compromised OS.
+
 ### Time tracking
 
 The additive API version 1 `time-tracking` contract lives in

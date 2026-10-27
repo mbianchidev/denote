@@ -5,7 +5,7 @@ import { buildPlugin, pluginDirectories } from "../scripts/plugin-build";
 let fixture = "";
 let errors: string[] = [];
 test.beforeAll(async () => {
-  for (const id of ["denote.text-styling", "denote.note-comments", "denote.presentations"]) {
+  for (const id of ["denote.text-styling", "denote.note-comments", "denote.presentations", "denote.speech", "denote.credential-store"]) {
     await buildPlugin(pluginDirectories(id)[0]);
   }
   const result = await build({
