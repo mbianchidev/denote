@@ -470,6 +470,38 @@ or metadata, follow links, and recover earlier content after an unwanted edit.
   hash, encoding, line endings, revision history, and vault-generation guards.
   Changed, missing, or ambiguous tasks report conflicts. Recurrence stays plain
   uninterpreted Markdown.
+- The independent **Text highlighting and coloring**, **Note comments**, and
+  **Markdown presentation slides** plugins are disabled by default. They use
+  separately approved bounded authoring contracts, never executable host UI,
+  general filesystem access, or encryption keys. Lock/switch stops their workers
+  and withdraws source, selection, anchor, excerpt, slide, and playback state.
+- Text styling supports explicit portable `=red=text=red=` highlights and
+  `=blue:text=text=blue:text=` foreground colors from a five-name palette.
+  Every offered pair meets 4.5:1 in both themes, foreground styles are underlined,
+  and names/tooltips preserve non-color cues. Source remains literal.
+  Explicit formatting preserves unrelated Markdown and rejects code, metadata,
+  nesting, and ambiguous ranges. Highlight search filters saved notes and opens
+  exact hash-bound excerpts without retokenizing unchanged search documents.
+- Comments create, edit, resolve/reopen, delete, and manually reattach whole-note
+  or exact-range annotations without changing Markdown. Unique quotes re-anchor;
+  duplicate counts and exact context disambiguate repeated text. Missing or
+  ambiguous anchors stay visibly orphaned. All controls are keyboard operable.
+  The host-owned `.denote/note-comments.json` is bounded, versioned,
+  conflict-checked, atomic, and encrypted with vault content. It is retained
+  after disablement and must be included in vault backups. Exact relative paths
+  own comments; rename/move recovery is explicit through Other notes.
+  A grey badge on the Note comments sidebar icon counts open comments for the
+  active Markdown note, excludes resolved comments, and hides zero. Navigation
+  and comment changes update it; viewing comments does not mark them read.
+- Presentations split standalone `---` and `===` lines only in explicit
+  presentation mode; ordinary notes retain thematic breaks and Setext headings.
+  Opening YAML frontmatter and fenced code are not split. Source/preview,
+  overview navigation and reorder, full-screen keyboard controls, positive-interval autoplay,
+  loop/restart/stop, and written countdown remain host-owned. YAML core
+  frontmatter validates closed defaults, preserves unknown fields, and reports
+  malformed metadata without rewriting it. Rendering reuses safe note behavior.
+  Absolute monotonic deadlines avoid timer drift; hidden/blurred/inactive,
+  edited, closed, or withdrawn decks pause and release their resources.
 - The independently installable **Time tracking** plugin is disabled by default
   and provides **Timer**, **Countdowns**, **Alarm**, and **Notes** modes. Clocks
   work without an open note: one standalone elapsed timer, up to 32 independent

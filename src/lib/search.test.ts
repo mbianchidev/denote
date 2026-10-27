@@ -59,6 +59,28 @@ const documents: SearchDocument[] = [
 ];
 
 describe("vault search", () => {
+  it("filters verified highlight notes and navigates each exact excerpt without retokenizing", async () => {
+    const index = new VaultSearchIndex();
+    const source = "Before =red=First excerpt=red= and =blue=Second excerpt=blue=.";
+    const highlighted = { ...documents[0], content: source, contentHash: "highlight-source" };
+    await index.rebuild([highlighted, documents[1]]);
+    vi.clearAllMocks();
+    const matches = ["First excerpt", "Second excerpt"].map((text) => ({
+      from: source.indexOf(text), to: source.indexOf(text) + text.length,
+    }));
+    const request = {
+      query: "", location: "*", filters: { ...createEmptySearchFilters(), highlights: true },
+      highlightMatches: [{ path: highlighted.path, contentHash: highlighted.contentHash, matches }],
+    };
+    const results = await index.query(request);
+    expect(results.map((result) => result.match)).toEqual(matches);
+    expect(results.every((result) => result.document.path === highlighted.path)).toBe(true);
+    expect(insertMultiple).not.toHaveBeenCalled();
+    expect(removeMultiple).not.toHaveBeenCalled();
+    await index.update([{ ...highlighted, content: "Styles removed.", contentHash: "new-source" }], []);
+    expect(await index.query(request)).toEqual([]);
+  });
+
   it("reuses stable path/chunk identities across repeated edits", async () => {
     const index = new VaultSearchIndex();
     await index.rebuild([documents[0]]);

@@ -20,6 +20,36 @@ colors:
   light-tertiary-ink: "#585b53"
   light-warning: "#6f4a00"
   dialog-scrim: "rgba(8, 9, 10, 0.66)"
+  highlight-yellow-dark-bg: "#67562a"
+  highlight-yellow-dark-ink: "#fff4d0"
+  highlight-yellow-light-bg: "#fff0b3"
+  highlight-yellow-light-ink: "#3d2c00"
+  foreground-yellow-dark: "#f2d87c"
+  foreground-yellow-light: "#725600"
+  highlight-red-dark-bg: "#613c40"
+  highlight-red-dark-ink: "#ffe4e5"
+  highlight-red-light-bg: "#ffdce0"
+  highlight-red-light-ink: "#6e1830"
+  foreground-red-dark: "#ffb4bd"
+  foreground-red-light: "#9b2643"
+  highlight-green-dark-bg: "#2f5547"
+  highlight-green-dark-ink: "#e0fff0"
+  highlight-green-light-bg: "#d7f0df"
+  highlight-green-light-ink: "#174b31"
+  foreground-green-dark: "#add7bc"
+  foreground-green-light: "#276344"
+  highlight-blue-dark-bg: "#304b65"
+  highlight-blue-dark-ink: "#e2f1ff"
+  highlight-blue-light-bg: "#dcecff"
+  highlight-blue-light-ink: "#173e64"
+  foreground-blue-dark: "#a9cdf1"
+  foreground-blue-light: "#285f91"
+  highlight-purple-dark-bg: "#503f68"
+  highlight-purple-dark-ink: "#f4e7ff"
+  highlight-purple-light-bg: "#eedfff"
+  highlight-purple-light-ink: "#4a2666"
+  foreground-purple-dark: "#d7bcf1"
+  foreground-purple-light: "#6e3e91"
 typography:
   headline:
     fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, Noto Sans, sans-serif"
@@ -851,6 +881,51 @@ accessibility tree because the semantic list exposes the same nodes and actions.
 Forced colors use system canvas, text, highlight, and focus colors. Reduced
 motion keeps direct dragging but applies neighbor movement and the final layout
 without a continuing animation.
+
+### Optional advanced authoring
+
+Text styling, comments, and presentations reuse the compact native controls,
+shared button hierarchy, semantic theme tokens, and visible two-pixel focus
+ring. Text style and Comments open native dialogs, restore editor focus, and
+retain drafts after errors. Comment rows show written whole-note, source-line,
+resolved, missing-text, or ambiguous-text states. Reattachment and deletion are
+explicit keyboard-operable actions; color never represents comment state.
+
+The Note comments rail icon uses the existing compact count badge with neutral
+`--border-strong` background and `--text-primary` ink, never a red or accent
+notification color. It shows only the active note's open-comment count and hides
+zero. The accessible name includes the exact count; the visible badge follows
+the shared `99+` limit. It opens the existing dialog without switching sidebar
+views and participates in plugin ordering, grouping, and visibility controls.
+Forced colors use canvas/text colors rather than an alert highlight.
+
+The following content-only palette is an intentional exception to the one
+accent rule for application chrome. `src/lib/authoring.ts` owns these exact
+foreground/background pairs; executable plugins can select names, never CSS.
+Every pair has a measured contrast of at least 4.5:1. Foreground-only styles use
+an opaque editor background (`#181a1d` dark, `#f8f6f1` light), including inside
+callouts. All color controls have written names, inline styles have written
+tooltips, and foreground styles are underlined. Do not use color alone to
+express meaning in a note. Forced colors use system text, canvas, and borders.
+
+| Color | Dark highlight background / ink | Light highlight background / ink | Dark / light foreground |
+| --- | --- | --- | --- |
+| Yellow | `#67562a` / `#fff4d0` | `#fff0b3` / `#3d2c00` | `#f2d87c` / `#725600` |
+| Red | `#613c40` / `#ffe4e5` | `#ffdce0` / `#6e1830` | `#ffb4bd` / `#9b2643` |
+| Green | `#2f5547` / `#e0fff0` | `#d7f0df` / `#174b31` | `#add7bc` / `#276344` |
+| Blue | `#304b65` / `#e2f1ff` | `#dcecff` / `#173e64` | `#a9cdf1` / `#285f91` |
+| Purple | `#503f68` / `#f4e7ff` | `#eedfff` / `#4a2666` | `#d7bcf1` / `#6e3e91` |
+
+Presentation authoring uses a quiet Source/preview split with a bounded optional
+overview grid, not a separate application shell. The preview reuses Denote's
+Markdown renderer and link/image controls. Full screen retains named native
+navigation, playback, interval, loop, and exit controls. Slide numbers and
+countdown remain written; only slide changes use a live status announcement.
+Playback buttons and labeled fields share a 32-pixel control row. Loop uses a
+15-pixel native checkbox with no text-input padding or default margin, centered
+beside its label in the same keyboard-operable row. Control groups wrap without
+separating labels from their fields, and fullscreen exit stays a compact action.
+The optional 140 ms fade is state motion and is disabled for reduced motion.
 
 ### Optional Mermaid diagrams
 

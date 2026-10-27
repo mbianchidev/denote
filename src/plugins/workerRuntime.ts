@@ -1,6 +1,8 @@
 import { api, errorMessage } from "../lib/api";
 import type { PluginView } from "../types";
 import type {
+  PluginAuthoringRequest,
+  PluginAuthoringResult,
   PluginCalendarModel,
   PluginCalendarRequest,
   PluginDiagramRenderRequest,
@@ -38,6 +40,9 @@ import type {
   PluginClockRequest,
 } from "@denote/plugin-sdk";
 import {
+  isPluginAuthoringRegistration,
+  isPluginAuthoringRequest,
+  isPluginAuthoringResultFor,
   isPluginCalendarModel,
   isPluginCalendarRequest,
   isPluginCalendarRegistration,
@@ -78,6 +83,7 @@ import {
   type PluginActionLeaseScope,
 } from "./hostOperations";
 import {
+  type PluginAuthoringContribution,
   isPluginRuntimeMessage,
   type PluginCalendarContribution,
   type PluginAutomaticLocalCommitContribution,
@@ -101,6 +107,7 @@ import {
 import { DiagramRendererHost } from "./diagramRenderers";
 
 export type {
+  PluginAuthoringContribution,
   PluginCalendarContribution,
   PluginAutomaticLocalCommitContribution,
   PluginCommandContribution,
@@ -142,6 +149,7 @@ interface PendingRequest {
   reject: (error: Error) => void;
   timeout: number;
   expectedType:
+    | "authoring-result"
     | "code-result"
     | "command-result"
     | "source-control-action-result"
@@ -168,6 +176,8 @@ interface PendingHandshake {
 }
 
 interface Runtime {
+  authoringProviders: Map<string, PluginAuthoringContribution>;
+  stagedAuthoringProviders: Map<string, PluginAuthoringContribution>;
   codeProviders: Map<string, PluginCodeContribution>;
   stagedCodeProviders: Map<string, PluginCodeContribution>;
   cancelledCodeRequests: Map<string, number>;
@@ -290,7 +300,29 @@ export class PluginWorkerRuntime {
     private readonly onCodeProvidersChanged: (providers: PluginCodeContribution[]) => void = () => {},
     private readonly onTimeTrackersChanged: (providers: PluginTimeTrackingContribution[]) => void = () => {},
     private readonly onClocksChanged: (providers: PluginClockContribution[]) => void = () => {},
+    private readonly onAuthoringChanged: (providers: PluginAuthoringContribution[]) => void = () => {},
   ) {}
+
+  async requestAuthoring(pluginId: string, providerId: string, request: PluginAuthoringRequest): Promise<PluginAuthoringResult> {
+    const runtime = this.requireRuntime(pluginId);
+    const provider = runtime.authoringProviders.get(providerId);
+    const workspace = this.workspaceIdentity;
+    if (!isPluginAuthoringRequest(request)) throw new Error("Invalid authoring request. Use Markdown up to 4 MiB and a bounded source selection; private editor data is not accepted.");
+    if (runtime.phase !== "active" || runtime.workspaceIdentity !== workspace || !provider ||
+        provider.feature !== request.feature || !runtime.permissions.has(request.feature)) throw new Error("Authoring provider or request is unavailable.");
+    const requestId = crypto.randomUUID();
+    const pending = this.waitForRequest(runtime, requestId, 15_000, "authoring-result");
+    try {
+      runtime.port.postMessage({ type: "authoring-request", providerId, request, requestId });
+    } catch (error) {
+      this.settle(runtime, requestId, "authoring-result", `Unable to send authoring request: ${errorMessage(error)}`);
+    }
+    const result = await pending;
+    if (this.workspaceIdentity !== workspace || runtime.phase !== "active" ||
+        !runtime.authoringProviders.has(providerId)) throw new Error("The authoring request belongs to an inactive vault or plugin.");
+    if (!isPluginAuthoringResultFor(request, result)) throw new Error("The plugin returned an unsafe authoring result.");
+    return result;
+  }
 
   async start(plugin: PluginView): Promise<void> {
     const pluginId = plugin.catalog.manifest.id;
@@ -353,10 +385,12 @@ export class PluginWorkerRuntime {
       return;
     }
     runtime.phase = "deactivating";
+    this.publishAuthoring();
     this.publishEmojiPickers();
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishAuthoring();
     this.publishTaskLists();
     this.publishCalendars();
     this.publishReminders();
@@ -1159,6 +1193,8 @@ export class PluginWorkerRuntime {
     });
     const channel = new MessageChannel();
     const runtime: Runtime = {
+      authoringProviders: new Map(),
+      stagedAuthoringProviders: new Map(),
       codeProviders: new Map(),
       stagedCodeProviders: new Map(),
       cancelledCodeRequests: new Map(),
@@ -1274,6 +1310,9 @@ export class PluginWorkerRuntime {
       this.assertCurrent(pluginId, generation);
       runtime.activated = true;
       runtime.phase = "active";
+      for (const [id, provider] of runtime.stagedAuthoringProviders) runtime.authoringProviders.set(id, provider);
+      runtime.stagedAuthoringProviders.clear();
+      this.publishAuthoring();
       for (const [id, provider] of runtime.stagedCodeProviders) runtime.codeProviders.set(id, provider);
       runtime.stagedCodeProviders.clear();
       this.publishCodeProviders();
@@ -1349,6 +1388,7 @@ export class PluginWorkerRuntime {
       this.publishStructuredViewers();
       this.publishKanbanBoards();
       this.publishNoteGraphs();
+      this.publishAuthoring();
       this.publishTaskLists();
       this.publishCalendars();
       this.publishReminders();
@@ -1789,6 +1829,25 @@ export class PluginWorkerRuntime {
         runtime.stagedNoteGraphs.delete(message.id);
         this.publishNoteGraphs();
         return;
+      case "register-authoring": {
+        if ((runtime.phase !== "activating" && runtime.phase !== "active") ||
+            !isPluginAuthoringRegistration(message) || !message.id.startsWith(`${pluginId}.`) ||
+            !runtime.permissions.has(message.feature) ||
+            [...runtime.authoringProviders.values(), ...runtime.stagedAuthoringProviders.values()]
+              .some((provider) => provider.feature === message.feature)) {
+          void this.failRuntime(pluginId, new Error("Unauthorized or duplicate authoring registration."));
+          return;
+        }
+        const contributions = runtime.activated ? runtime.authoringProviders : runtime.stagedAuthoringProviders;
+        contributions.set(message.id, { pluginId, id: message.id, title: message.title, feature: message.feature });
+        if (runtime.activated) this.publishAuthoring();
+        return;
+      }
+      case "unregister-authoring":
+        runtime.authoringProviders.delete(message.id);
+        runtime.stagedAuthoringProviders.delete(message.id);
+        this.publishAuthoring();
+        return;
       case "register-task-list": {
         const registration = {
           id: message.id,
@@ -2021,6 +2080,7 @@ export class PluginWorkerRuntime {
           void request.finally(() => runtime.hostRequests.delete(request));
         }
         return;
+      case "authoring-result":
       case "command-result":
       case "source-control-action-result":
       case "structured-view-result":
@@ -2043,7 +2103,9 @@ export class PluginWorkerRuntime {
             message.requestId,
             message.type,
             message.error,
-            message.type === "structured-view-result"
+            message.type === "authoring-result"
+              ? message.result
+              : message.type === "structured-view-result"
               ? message.model
               : message.type === "kanban-board-result"
                 ? message.model
@@ -2344,6 +2406,7 @@ export class PluginWorkerRuntime {
     this.publishStructuredViewers();
     this.publishKanbanBoards();
     this.publishNoteGraphs();
+    this.publishAuthoring();
     this.publishTaskLists();
     this.publishCalendars();
     this.publishReminders();
@@ -2411,6 +2474,12 @@ export class PluginWorkerRuntime {
   private publishCodeProviders(): void {
     this.onCodeProvidersChanged([...this.runtimes.values()].flatMap((runtime) =>
       runtime.phase === "active" ? [...runtime.codeProviders.values()] : []));
+  }
+
+  private publishAuthoring(): void {
+    this.onAuthoringChanged([...this.runtimes.values()].flatMap((runtime) =>
+      runtime.phase === "active" && runtime.workspaceIdentity === this.workspaceIdentity
+        ? [...runtime.authoringProviders.values()] : []));
   }
 
   private stopNativeCodeTools(): void {

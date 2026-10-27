@@ -8,6 +8,7 @@ export const MAX_PLUGIN_COUNTDOWN_MS = 7 * 24 * 3_600_000;
 export const CLOCKS_STOP_KEY = "host.clocks-stop.v1";
 export const CLOCK_CONTENT_CAPABILITIES = [
   "structured-viewer", "kanban-board", "task-list", "note-graph", "calendar", "diagram-renderer", "code-intelligence",
+  "text-styling", "note-comments", "presentation",
 ] as const;
 
 export type PluginClockMode = "timer" | "countdowns" | "alarm" | "notes";

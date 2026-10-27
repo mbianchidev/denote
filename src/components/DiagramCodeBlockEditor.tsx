@@ -4,7 +4,9 @@ import {
   createContext,
   useContext,
   useEffect,
+  useRef,
   useState,
+  type RefObject,
   type ReactNode,
 } from "react";
 import { api, errorMessage } from "../lib/api";
@@ -50,7 +52,8 @@ export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
   const renderer = binding?.renderers.find((candidate) =>
     candidate.languages.includes(props.language.trim().toLocaleLowerCase()),
   );
-  const theme = useDiagramTheme();
+  const root = useRef<HTMLElement>(null);
+  const theme = useDiagramTheme(root);
   const [result, setResult] = useState<PluginDiagramRenderResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [showSource, setShowSource] = useState(false);
@@ -152,7 +155,7 @@ export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
   };
 
   return (
-    <section className="diagram-code-block" aria-label="Mermaid diagram block">
+    <section ref={root} className="diagram-code-block" aria-label="Mermaid diagram block">
       <div className="diagram-code-block__toolbar" role="toolbar" aria-label="Diagram actions">
         <button
           type="button"
@@ -239,15 +242,18 @@ export function DiagramCodeBlockEditor(props: CodeBlockEditorProps) {
   );
 }
 
-function useDiagramTheme(): PluginDiagramTheme {
-  const [theme, setTheme] = useState(currentDiagramTheme);
+function useDiagramTheme(root: RefObject<HTMLElement | null>): PluginDiagramTheme {
+  const [theme, setTheme] = useState(() => currentDiagramTheme());
   useEffect(() => {
-    const update = () => setTheme(currentDiagramTheme());
+    const update = () => setTheme(currentDiagramTheme(root.current));
+    update();
     const observer = new MutationObserver(update);
     observer.observe(document.documentElement, {
       attributes: true,
       attributeFilter: ["data-theme"],
     });
+    const scope = root.current?.closest("[data-slide-theme]");
+    if (scope) observer.observe(scope, { attributes: true, attributeFilter: ["data-slide-theme"] });
     const media = [
       window.matchMedia?.("(forced-colors: active)"),
       window.matchMedia?.("(prefers-contrast: more)"),
@@ -261,7 +267,7 @@ function useDiagramTheme(): PluginDiagramTheme {
         query.removeEventListener("change", update);
       }
     };
-  }, []);
+  }, [root]);
   return theme;
 }
 

@@ -360,7 +360,7 @@ export function validateDiagramRequest(
   return null;
 }
 
-export function currentDiagramTheme(): PluginDiagramTheme {
+export function currentDiagramTheme(scope?: HTMLElement | null): PluginDiagramTheme {
   if (
     typeof window.matchMedia === "function" &&
     (window.matchMedia("(forced-colors: active)").matches ||
@@ -368,6 +368,8 @@ export function currentDiagramTheme(): PluginDiagramTheme {
   ) {
     return "high-contrast";
   }
+  const scopedTheme = scope?.closest<HTMLElement>("[data-slide-theme]")?.dataset.slideTheme;
+  if (scopedTheme === "light" || scopedTheme === "dark") return scopedTheme;
   return document.documentElement.dataset.theme === "light"
     ? "light"
     : "dark";

@@ -12,6 +12,20 @@ import type {
   PluginTaskListModel,
 } from "@denote/plugin-sdk";
 
+describe("bounded authoring runtime messages", () => {
+  it("validates separate approvals and mutually exclusive request/result payloads", () => {
+    const request = { feature: "text-styling", action: "parse", source: "=red=Example=red=" };
+    const result = { feature: "text-styling", action: "parse", spans: [], notices: [] };
+    expect(isPluginRuntimeMessage({ type: "register-authoring", id: "denote.example.styles", title: "Styles", feature: "text-styling" })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "register-authoring", id: "denote.example.styles", title: "Styles", feature: "arbitrary-dom" })).toBe(false);
+    expect(isPluginHostMessage({ type: "authoring-request", providerId: "denote.example.styles", requestId: "parse", request })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "authoring-result", requestId: "parse", result })).toBe(true);
+    expect(isPluginRuntimeMessage({ type: "authoring-result", requestId: "parse", result, error: "Failed" })).toBe(false);
+    expect(isPluginHostMessage({ type: "authoring-request", providerId: "denote.example.styles", requestId: "parse",
+      request: { ...request, source: "x".repeat(4 * 1024 * 1024 + 1) } })).toBe(false);
+  });
+});
+
 describe("global clock runtime messages", () => {
   it("validates global requests, registrations, models, and error alternatives", () => {
     const request = {

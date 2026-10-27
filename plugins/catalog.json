@@ -808,5 +808,125 @@
       "trusted": true
     },
     "guide": "# Time tracking\n\n## Purpose\n\nUse a standalone timer, countdowns, and alarms, or track time against Markdown\nnotes, their tags, and the active project. Clocks, sessions, daily and weekly\nsummaries, and correction history stay on this computer.\n\n## Enablement and permissions\n\nTime tracking 0.2.0 requires Denote 0.10.0. Enable **Time tracking** in\n**Settings → Plugins** and approve **Time tracking**, **Clocks**, and\n**Notifications**.\nIt receives only the active note's relative path, tags, and optional project\nidentity/root after you start a note session. It never receives note bodies, absolute\nvault paths, general filesystem access, network access, or process execution.\nThe host provides a continuous native clock and explicit export controls.\n\nClock names, schedules, and session metadata are stored in local application\ndata, outside vault encryption.\nDescriptions and exported CSV/JSON files are not encrypted. Do not put secrets\nin descriptions.\n\n## Usage\n\nOpen **Time tracking** in the activity rail and choose **Timer**,\n**Countdowns**, **Alarm**, or **Notes**.\n\n### Timer\n\nStart the standalone elapsed timer without opening a note. Pause and resume\nretain its elapsed time. **Reset timer** asks before clearing it. It is separate\nfrom note sessions and can run alongside countdowns and alarms.\n\n### Countdowns\n\nEnter a name and duration from one second to seven days, optionally select\n**Repeat alarm sound**, then choose **Start countdown**. Up to 32 countdowns can\nexist independently. Pause, resume, or restart a row; cancel it to stop without\ndeleting it. Expired rows stay visible until dismissed. Delete unused rows to\nmake room.\n\n### Alarm\n\nEnter a name, a future date and time, and optionally **Repeat daily** and\n**Repeat alarm sound**, then choose **Set alarm**. Each of up to 32 alarms\nkeeps the displayed IANA time zone. Editing requires a future schedule.\nRepeated daylight-saving times use the earlier occurrence; nonexistent local\ntimes are refused. Dismissing a daily alarm advances to the next valid future\ncivil occurrence, skipping daylight-saving gaps. **Snooze 5 min** overrides the\nnext occurrence with an instant five minutes from now.\n\nDenote must be running to issue alerts. It catches up after sleep, throttling,\nor restart; it does not install a closed-application alarm service. System\nnotifications and sounds depend on operating-system settings. Repeating in-app\nsound needs a gesture; after restart use **Enable alarm sound** if needed.\n**Stop sound** mutes current occurrences, not future ones, without dismissing\ntheir banners. Locked-vault banners retain dismiss, snooze, and sound controls.\n**Retry notification** is explicit; an interrupted dispatch may already have\nappeared, so retry only if needed.\n\nStandalone timer and countdown duration includes sleep and closed-application\ntime during the same boot, ignoring wall-clock changes. After a system reboot,\nthey pause at their last saved checkpoint. Resume only after reviewing the\nrecovery notice.\n\n### Notes\n\nOpen a Markdown note, choose **Notes**, optionally enter a description, and\nchoose **Start timer**. **Pause timer** excludes paused\ntime; **Resume timer** continues the same session; **Stop timer** finishes it.\nThe command palette exposes the same actions. A status-bar action returns to\nthe running or paused timer.\n\nOnly one note timer can be active, including a paused timer and across vaults.\nChanging notes does not retarget it. Return to its original vault to control it;\nother vaults do not reveal its note metadata. Note paths, tags, and project\nroots are snapshots from the start, not automatic rename tracking.\n\nRunning time includes sleep and time while Denote is closed. Restarting Denote\nduring the same system boot recovers the timer using the native continuous\nclock, not wall-clock subtraction. Clock changes keep elapsed time unchanged.\nAfter an operating-system reboot, the timer pauses at its last saved checkpoint\ninstead of guessing. Review or correct it, then resume or stop it.\n\nChoose **Daily** or **Weekly**, a summary date, and grouping by note, project,\nor tag. Weeks start on Monday in your current time zone. Running segments split\nat period boundaries; paused time is excluded. A session with multiple tags\ncounts toward each tag. The host checkpoints every 30 seconds and rechecks on\nfocus or wake.\n\nChoose **Correct session** on a stopped session to adjust start, end, elapsed\nminutes, description, or tags. A reason is required. **Save correction** retains\nthe exact previous and new values; **Correction history** exposes them.\nCorrections replace the pause breakdown and count corrected duration from the\ncorrected start. Note and project references remain historical snapshots.\n\n**Export CSV** and **Export JSON** refresh the timer first, then ask where to\nsave every session in the current vault, including correction history and\nrunning/paused checkpoints. CSV cells are quoted and formula-like text is\nneutralized for spreadsheets. JSON preserves original text exactly.\n\n## Settings\n\nThis plugin has no configurable settings. Clock state and session history are\ngenerated plugin data, separate from settings exports.\n\n## Disable behavior\n\nDisabling this plugin, disabling all plugins, or clearing its data asks you to\nconfirm stopping clocks and alarms first. Cancelling leaves it enabled and\nrunning. A confirmed native-clock cutoff also applies while its vault is locked;\nre-enabling never counts disabled time. The standalone timer pauses, countdowns\nare cancelled, and alarms are disabled. Resume, restart, or enable them explicitly.\nUpdates and settings reloads preserve running state rather than stopping it.\n\nDisabling removes downloaded code, commands, views, and host checkpoints. It\ndoes not change notes or delete session history. **Delete saved data** explicitly\ndeletes clocks, sessions, and correction history; export note history first.\n\n## Troubleshooting\n\nUse **Refresh** after a clock or wake event if the display has not caught up.\nClock, storage, export, and stale-scope failures appear in the panel. There is\nno wall-clock fallback when the native clock is unavailable.\n\nThe store holds at most 500 sessions across vaults, 32 corrections per session,\n512 running segments per session, and the normal bounded plugin-storage budget.\nSpace is reserved for stopping and recovery. Export history before clearing\nplugin data to begin a new history. Corrupt stored data is never silently reset.\nExports contain only the current vault; open other vaults to export their\nhistory before clearing all plugin data.\n\nAfter a system reboot, uncheckpointed time cannot be reconstructed safely.\nThe recovery notice identifies this case so you can make an auditable correction.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.text-styling",
+      "name": "Text highlighting and coloring",
+      "version": "0.1.0",
+      "description": "Apply portable named highlights and text colors, and find highlighted excerpts.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "editor-writing",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.10.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "text-styling"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.text-styling-0.1.0.tgz",
+      "sha256": "b42ef8cec0d3d0096c994e87c2aa79f0130371e472d4708262184ebbc88ad12c",
+      "sizeBytes": 68463
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "e55285ada6f55cb1b7ead5b14cb1ce7a16911dea",
+      "trusted": true
+    },
+    "guide": "# Text highlighting and coloring\n\n## Purpose\n\nApply accessible named highlights and foreground colors without converting a\nnote to HTML or a proprietary format. The plugin is optional and off by default.\n\n## Enablement and permissions\n\nEnable Text highlighting and coloring in Settings → Plugins. Text styling\npermission allows bounded Markdown parsing and explicit selection formatting.\nThe host owns controls, rendering, saves, and search. The worker has no DOM,\nfilesystem, network, clipboard, or encryption-key access.\n\n## Usage\n\nSelect plain text in Markdown Rich or Source mode and choose Text style, or\npress Command-Shift-H on macOS / Ctrl-Shift-H on Windows and Linux. Choose\nHighlight or Text color, a named color, and Apply style.\n\nThe explicit, case-sensitive extension is:\n\n```markdown\n=red=Highlighted text=red=\n=blue:text=Colored text=blue:text=\n```\n\nYellow, red, green, blue, and purple are supported. Both delimiters must use the\nsame name and kind. Text remains readable as literal Markdown without this\nextension. A style covers plain text on one line, at most 4 KiB. Nesting, code,\nfrontmatter, and selections crossing Markdown structure are refused rather than\nrewritten. Use Source when a Rich selection cannot be mapped unambiguously.\n\nSource always shows complete delimiters. Styled excerpts offers Show and Clear\nfor existing spans. Clearing removes only that span's delimiters. Opening a\npalette or switching views never edits a note.\n\nSearch → Filters → Notes with highlights filters saved Markdown notes. With an\nempty query, every indexed highlighted excerpt has its own navigable result.\nForeground-only colors do not count as highlights. Ordinary full-text search\ncontinues to find the underlying text.\n\nEvery supplied foreground/background pair meets WCAG AA 4.5:1 in both themes.\nColor controls have written names, styles have tooltips, and foreground styles\nare underlined. Keep meaning in words, not color alone. Forced colors use system\ntext, canvas, and borders.\n\n## Settings\n\nThere are no persistent plugin settings. Palette choices are local to the open\neditor. Sources are limited to 4 MiB and render models to 2,000 spans.\nHighlight search shares bounded Markdown snapshots: 5,000 notes, 256 KiB per\nnote, and 8 MiB total, with 128 excerpts per note and 10,000 total. Omitted input\nand output are reported. Unchanged saved sources are reused.\n\n## Disable behavior\n\nDisabling stops the worker and removes downloaded code, controls, and derived\nsearch metadata. It never rewrites notes or removes delimiters or text. Vault\nlock/switch and application teardown release source snapshots and models.\n\n## Troubleshooting\n\nFor an ambiguous selection, select a smaller plain-text range in Source.\nFor unsupported or mismatched delimiters, correct the source explicitly; no\nautomatic repair occurs. Oversized notes remain available in the core editor.\nSearch uses saved notes, so finish saving before expecting a new excerpt.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.note-comments",
+      "name": "Note comments",
+      "version": "0.1.0",
+      "description": "Keep local note and range comments in vault-owned sidecars without changing Markdown.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "collaboration",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.10.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "note-comments"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.note-comments-0.1.0.tgz",
+      "sha256": "5946bcb873950a10ec3a0c39138f59f58cda6ba728ccaa9b5d0d07782adf10d9",
+      "sizeBytes": 18381
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "e55285ada6f55cb1b7ead5b14cb1ce7a16911dea",
+      "trusted": true
+    },
+    "guide": "# Note comments\n\n## Purpose\n\nKeep local whole-note and text-range comments without adding annotation markers\nto Markdown. This is not a hosted discussion or real-time collaboration\nservice. The plugin is optional and off by default.\n\n## Enablement and permissions\n\nEnable Note comments in Settings → Plugins. Note comments permission grants\nbounded source-anchor processing. The host alone reads and atomically saves the\nvault-owned sidecar after an explicit comment action. The worker receives\nsource and anchors, not comment bodies, a filesystem path, or encryption keys.\n\n## Usage\n\nOpen a Markdown note and choose Comments, or Command-Option-M on macOS /\nCtrl-Alt-M on Windows and Linux. Select text first to attach a range; otherwise\nchoose Whole note. Enter a comment and choose Add comment.\n\nEach row offers Edit, Resolve/Reopen, confirmed Delete, and Show text when its\nrange is still attached. Open and Resolved are separate views. Orphaned finds\nranges whose original text is missing or ambiguous. To reattach, close Comments,\nselect the intended text, reopen Comments, choose Selected text, then Attach to\nselected text. Attach to whole note explicitly removes the range anchor.\n\nRe-anchoring requires an exact quote and unchanged duplicate count. A unique\nquote can move after nearby edits. Repeated quotes additionally require one\nunambiguous original prefix/suffix context. Changed counts and indistinguishable\nmatches become orphans; the plugin never chooses a nearest-looking match.\nRe-anchoring for display does not write a note or the sidecar.\n\nComments belong to exact vault-relative paths, not copied note contents.\nRenaming or moving a note does not guess a new owner. Open Comments → Other\nnotes in the destination and explicitly attach its retained comments. Deleting\na note retains its comments for recovery; reusing the original path exposes\nthat path's retained records. Duplicating a note does not copy its comments.\n\n## Settings\n\nThere are no plugin settings. A vault can hold 500 comments in a 2 MiB sidecar.\nEach body and quoted selection is at most 4 KiB; source is at most 4 MiB.\n\n## Disable behavior\n\nDisabling removes downloaded code and derived anchors, not comments or notes.\nDelete saved plugin data does not delete this user-authored vault sidecar.\nDelete individual comments explicitly if needed.\n\nBack up the entire vault, including hidden `.denote/note-comments.json`.\nIts UTF-8 JSON format has schemaVersion 1, owner `denote.note-comments`, and a\nnotes mapping from relative Markdown paths to comment arrays. Records contain\nid, body, anchor or null, resolved, createdAt, and updatedAt. Anchors retain\nfrom/to UTF-16 offsets in the host's normalized source, quote, prefix, suffix,\nand matchCount; original disk line endings stay unchanged. Timestamps\nare Unix milliseconds. Unknown versions, owners, fields, or corrupt data are\nrefused without resetting or overwriting the file.\n\nIn encrypted vaults the sidecar is authenticated ciphertext under the existing\nvault key, including during initial encryption and unlock sweeps. Include\n`.denote/encryption.json` with encrypted backups. No decrypted temporary sidecar\nis created. Locking or switching vaults closes the view and stops its worker.\n\n## Troubleshooting\n\nA failed save keeps the draft and error visible. Reload comments after a sidecar\nconflict, then retry against the current records. A note conflict must be\nresolved before saving comments. The host flushes the current note and checks\nboth its saved hash and the sidecar hash, so neither external edit is silently\noverwritten. For corrupt or future-format sidecars, preserve the file and\nrestore a valid backup; enabling the plugin never replaces it with an empty one.\n"
+  },
+  {
+    "manifest": {
+      "schemaVersion": 1,
+      "id": "denote.presentations",
+      "name": "Markdown presentation slides",
+      "version": "0.1.1",
+      "description": "Author and present ordinary Markdown decks with synchronized preview and local autoplay.",
+      "publisher": {
+        "name": "Denote",
+        "url": "https://github.com/mbianchidev/denote"
+      },
+      "license": "MIT",
+      "repository": "https://github.com/mbianchidev/denote",
+      "icon": "icon.svg",
+      "category": "diagrams-visualization",
+      "compatibility": {
+        "apiVersion": 1,
+        "minimumDenoteVersion": "0.10.0",
+        "maximumDenoteVersion": "1.0.0"
+      },
+      "permissions": [
+        {
+          "capability": "presentation"
+        }
+      ],
+      "entrypoint": "dist/index.js",
+      "documentation": "guide.md"
+    },
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.presentations-0.1.1.tgz",
+      "sha256": "1d14fe9de0cb34a53f13a741328b6279fa32f35ad77f9087c3cec4ab68689caf",
+      "sizeBytes": 66557
+    },
+    "provenance": {
+      "publisherId": "denote",
+      "sourceCommit": "83659f6b88be95883a9d684cf50c3f02db40cdff",
+      "trusted": true
+    },
+    "guide": "# Markdown presentation slides\n\n## Purpose\n\nAuthor and present ordinary Markdown decks stored in one file. The optional\nplugin is off by default. Standalone `---` and `===` lines are slide separators\nonly after you choose Open as presentation; ordinary notes keep thematic breaks\nand Setext headings.\n\n## Enablement and permissions\n\nEnable Markdown presentation slides in Settings → Plugins. Presentation\npermission allows bounded source parsing and explicit slide reordering. The\nworker returns positions and validated defaults, not HTML, scripts, styles,\nfilesystem access, timers, or encryption keys.\n\n## Usage\n\nOpen a Markdown note and choose Open as presentation, or Command-Option-P on\nmacOS / Ctrl-Alt-P on Windows and Linux. Source and preview share the same\nin-memory file. Moving the source caret selects its slide; preview navigation\nreveals the matching source. Edits use ordinary autosave, revision history, and\nconflict checks.\n\n```markdown\n# Example deck\n\nA small Markdown presentation.\n\n---\n\n## Formatting\n\nUse *emphasis* and **bold** text.\n\n---\n\n## Last slide\n\nUse `---` to separate slides.\n```\n\nOptional opening YAML frontmatter configures the presentation:\n\n```markdown\n---\ntitle: Synthetic deck\nauthor: Example team\npresentation:\n  theme: dark\n  aspect-ratio: \"16:9\"\n  alignment: left\n  slide-numbers: true\n  autoplay: false\n  advance-seconds: 10\n  loop: false\n  transition: none\n---\n# First slide\n\n---\n\n# Second slide\n```\n\nOnly a line containing exactly `---` or `===` is a separator. An opening\n`---` frontmatter block is metadata, not a slide; fenced-code contents are not\nsplit. Empty slides and unclosed fences produce non-blocking feedback.\nOverview navigates slides and offers Earlier/Later reorder actions by pointer\nor keyboard. Reordering preserves frontmatter, unknown fields, slide slices,\nand separator bytes, adding only a missing boundary newline when necessary.\n\nPresent enters full screen. Arrows, Page Up/Down, Home, and End navigate.\nSpace on the slide toggles playback, P pauses, and Escape exits. Native buttons\nremain keyboard operable. Play, Pause, Restart, Stop, Advance seconds, Loop,\nand a visible countdown remain available. Frontmatter autoplay starts only\nafter an explicit Present action; opening authoring mode never starts it.\nWhere the webview lacks element fullscreen, the trusted host uses its native\nwindow with a modal focus boundary and restores the previous window state.\n\nPlayback uses absolute monotonic deadlines instead of chained relative delays.\nLate ticks catch up without accumulating drift. Manual navigation resets the\ndeadline. Changing interval or loop pauses playback. Hidden windows, lost\nfocus, inactive panes, source edits, exiting full screen, closing the deck,\nand plugin withdrawal pause it; no automatic resume occurs.\n\n## Settings\n\nFrontmatter accepts title and author as single lines of at most 200 UTF-8 bytes.\nThe presentation mapping accepts theme system/dark/light, aspect-ratio 16:9,\n4:3, or 16:10, alignment left/center/right, boolean slide-numbers/autoplay/loop,\nadvance-seconds from 1 to 3600, and transition none/fade. Defaults are system,\n16:9, left, true/false/false, 10 seconds, and none. Invalid fields identify the\ncorrection and use safe defaults. Invalid YAML, aliases, custom tags, duplicate\nkeys, or non-mapping metadata leave Source available and use safe defaults.\nMetadata is never rewritten to apply defaults.\n\nLimits are 4 MiB source, 256 slides, 64 KiB frontmatter, 5,000 YAML nodes,\n64 levels, and 32 notices. The ordinary host renderer provides headings, lists,\ntasks, quotes, tables, links, local/remote image policy, code highlighting, and\ncallouts. Enabled Mermaid renderers may render their own fences; no plugin is\nrequired for ordinary code. Unsafe HTML is not executed. Links keep Denote's\nexisting review flow. Themes remain accessible, forced colors use system\ncolors, and reduced motion disables the optional fade.\n\n## Disable behavior\n\nReturn to note restores ordinary Markdown without rewriting it. Disabling or\nremoving the plugin stops its worker, exits presentation, clears timers,\nlisteners and derived previews, and removes downloaded code. The original\nMarkdown, separators, frontmatter, and unknown fields stay on disk. Locked\nvaults expose no deck content; unlock uses the normal host read boundary.\n\n## Troubleshooting\n\nCorrect frontmatter in Source when a notice names an invalid field. Split an\noversized deck into smaller Markdown files. Full-screen failures are reported;\nthe authoring preview remains available. Correct the source or retry after a\nstale reorder rather than applying an old slide order to a changed deck.\n"
   }
 ]

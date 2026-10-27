@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "e55285ada6f55cb1b7ead5b14cb1ce7a16911dea",
+    "kind": "source",
+    "sourcePath": "plugins/note-comments",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.note-comments-0.1.0.tgz",
+      "sha256": "5946bcb873950a10ec3a0c39138f59f58cda6ba728ccaa9b5d0d07782adf10d9",
+      "sizeBytes": 18381
+    }
+  }
+]

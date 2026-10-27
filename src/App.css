@@ -1,5 +1,4 @@
 :root {
-  color-scheme: dark;
   font-family:
     -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
   color: var(--text-primary);
@@ -8,6 +7,11 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+:root,
+.presentation-stage[data-slide-theme="dark"] {
+  color-scheme: dark;
   --app-bg: #121315;
   --rail-bg: #17191c;
   --sidebar-bg: #1b1d20;
@@ -44,7 +48,8 @@
   --pane-gap: 5px;
 }
 
-:root[data-theme="light"] {
+:root[data-theme="light"],
+.presentation-stage[data-slide-theme="light"] {
   color-scheme: light;
   --app-bg: #e9e6df;
   --rail-bg: #dfdcd4;
@@ -258,6 +263,11 @@ button:disabled {
   font-size: 8px;
   font-weight: 700;
   line-height: 1;
+}
+
+.activity-rail__badge--muted {
+  color: var(--text-primary);
+  background: var(--border-strong);
 }
 
 .activity-rail__plugin-group {
@@ -5794,6 +5804,12 @@ button.tag-chip:active,
     background: Highlight;
     border-color: Canvas;
     forced-color-adjust: none;
+  }
+
+  .activity-rail__badge--muted {
+    color: CanvasText;
+    background: Canvas;
+    border-color: CanvasText;
   }
 
   .reminder-bumps li {

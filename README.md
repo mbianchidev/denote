@@ -117,6 +117,10 @@ approval; it is not included in the desktop installer or enabled by default.
   and Kanban boards. Existing Obsidian Kanban boards, including escaped exports,
   open read-only without changing their source; explicit migration makes them
   editable while retaining the original source for recovery.
+- **Advanced authoring:** accessible text highlighting and coloring, local
+  source-anchored note comments, and Markdown presentation decks with
+  synchronized preview and full-screen playback. All remain optional;
+  [usage and portable formats](docs/user-guide/docs/Optional%20plugins.md#advanced-authoring).
 
 Disabling a plugin stops its worker and removes its downloaded code, not your
 notes. Read the [plugin guide](docs/user-guide/docs/Optional%20plugins.md) for

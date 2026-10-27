@@ -263,7 +263,7 @@ concurrent.
 API version 1 supports commands, static sidebar views, status items, literal
 source-editor decorations, note lifecycle events, settings/state, and optional
 secure storage. It also supports bounded declarative emoji, structured-viewer,
-`kanban-board`, task-list, calendar, reminders, time-tracking, clocks, note-graph, and diagram-renderer
+`kanban-board`, task-list, text-styling, note-comments, presentation, calendar, reminders, time-tracking, clocks, note-graph, and diagram-renderer
 registrations. Approved plugins
 may also observe `project-context`. Sensitive
 workspace, network, clipboard, notification, and process operations otherwise
@@ -493,6 +493,56 @@ the same 4 MiB source limit; settings are never executed or applied as preferenc
 Native imported checkboxes use optional card-marker completion attributes.
 The host owns migration confirmation, read-only expansion, stale/read-mode result
 rejection, and lossless Markdown fallback after disablement.
+
+### Advanced authoring
+
+Three independent optional packages use the additive API version 1 authoring
+contract: `denote.text-styling`, `denote.note-comments`, and
+`denote.presentations`. Each requests only its matching `text-styling`,
+`note-comments`, or `presentation` permission. `capabilities.authoring.register`
+accepts namespaced metadata, a feature, and a pure request callback, never
+executable UI or general filesystem access. A registration cannot claim a
+different permission or share a content worker with global clocks.
+Closed request keys and bounded validated results prevent private host editor
+bookmarks from being sent to downloaded code.
+
+Text styling parses portable `=red=text=red=` highlights and
+`=blue:text=text=blue:text=` foreground extensions, using only five named
+colors. The host owns palettes, Rich/Source controls, exact selection updates,
+source visibility, undo, search filtering, and excerpt navigation. Formatting
+must change only the explicit range; every other source byte is independently
+preserved. Highlight search uses saved bounded snapshots and content-hash-bound
+ranges, not another full-text index.
+
+Comments request quote anchors or read-only re-anchoring, never note edits.
+The host owns create/edit/resolve/delete/reattach workflows and the encrypted
+vault sidecar `.denote/note-comments.json`. Bodies are not sent to workers.
+Strict schema version/owner, bounded records, note and sidecar hash checks,
+atomic replacement, and source-generation guards preserve concurrent edits.
+Comments belong to exact relative paths; Other notes provides explicit
+rename/move recovery. Missing or ambiguous text stays orphaned. Disabling or
+clearing plugin-generated data never deletes this user-authored sidecar.
+Backups must include it and, when encrypted, `.denote/encryption.json`.
+The host also owns the neutral sidebar badge for the active note's open
+comments. It reuses the native sidecar boundary and existing dialog action;
+neither the count nor the badge requires a new worker capability or package pin.
+
+Presentations parse ordinary Markdown into exact slide ranges only after
+Open as presentation. Exact standalone `---` and `===` delimit slides outside
+opening YAML frontmatter and fenced code. Normal notes retain thematic breaks
+and Setext headings. The host
+owns source/preview, safe Markdown rendering, overview/reorder controls,
+full-screen keyboard handling, and autoplay. Reordering is a checked source
+permutation, not whole-document serialization. YAML core metadata validates
+known values while retaining unknown fields unchanged. Host timers use absolute
+deadlines, pause on hidden/inactive/closed content, and never enter workers.
+Source, renderer scopes, full-screen ownership, timers, listeners, and derived
+models are released on close, lock/switch, disable/update/crash, and shutdown.
+
+See [the user guide](user-guide/docs/Optional%20plugins.md#advanced-authoring)
+for exact syntax, frontmatter fields, limits, ownership, and backup behavior,
+and [development](development.md#advanced-authoring-plugin-development) for
+real-worker and native regression commands.
 
 ### Calendar and daily notes
 

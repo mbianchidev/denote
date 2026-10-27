@@ -1,0 +1,13 @@
+[
+  {
+    "version": "0.1.0",
+    "sourceCommit": "e55285ada6f55cb1b7ead5b14cb1ce7a16911dea",
+    "kind": "source",
+    "sourcePath": "plugins/text-styling",
+    "artifact": {
+      "url": "https://github.com/mbianchidev/denote/releases/download/v0.11.0/denote.text-styling-0.1.0.tgz",
+      "sha256": "b42ef8cec0d3d0096c994e87c2aa79f0130371e472d4708262184ebbc88ad12c",
+      "sizeBytes": 68463
+    }
+  }
+]

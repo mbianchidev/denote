@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import type {
+  PluginAuthoringProvider,
   PluginCalendarProvider,
   DenotePlugin,
   PluginActivationContext,
@@ -52,6 +53,10 @@ import {
 import { normalizeAutomaticLocalCommitSchedule } from "./automaticCommits";
 import { createGitCapability } from "./gitCapability";
 import {
+  AUTHORING_FEATURES,
+  isPluginAuthoringRegistration,
+  isPluginAuthoringRequest,
+  isPluginAuthoringResultFor,
   isPluginCalendarModel,
   isPluginCalendarRequest,
   isPluginCalendarRegistration,
@@ -102,6 +107,7 @@ interface PendingRequest {
 const CANCEL_SOURCE_CONTROL_ACTION = "cancel-operation";
 
 const commandHandlers = new Map<string, PluginCommand["run"]>();
+const authoringProviders = new Map<string, PluginAuthoringProvider>();
 const codeHandlers = new Map<string, PluginCodeProvider["run"]>();
 const codeAbortControllers = new Map<string, AbortController>();
 const sourceControlHandlers = new Map<
@@ -653,6 +659,24 @@ function runtimeContext(): PluginActivationContext {
       },
     };
   }
+  if (AUTHORING_FEATURES.some((feature) => permissions.has(feature))) {
+    capabilities.authoring = {
+      register(provider) {
+        const registration = { id: provider?.id, title: provider?.title, feature: provider?.feature };
+        if (cleaned || !isPluginAuthoringRegistration(registration) ||
+            !permissions.has(registration.feature) || typeof provider.request !== "function" ||
+            [...authoringProviders.values()].some((item) => item.feature === registration.feature)) {
+          throw new Error("Invalid, unauthorized, or duplicate authoring registration.");
+        }
+        validateContributionId(provider.id, "authoring provider");
+        authoringProviders.set(provider.id, provider);
+        send({ type: "register-authoring", ...registration });
+        return disposable(() => {
+          if (authoringProviders.delete(provider.id)) send({ type: "unregister-authoring", id: provider.id });
+        });
+      },
+    };
+  }
   if (permissions.has("task-list")) {
     capabilities.taskList = {
       register(provider) {
@@ -1000,6 +1024,7 @@ async function cleanup(): Promise<unknown[]> {
   taskListIndexHandlers.clear();
   taskListQueryHandlers.clear();
   taskListToggleHandlers.clear();
+  authoringProviders.clear();
   calendarHandlers.clear();
   timeTrackingHandlers.clear();
   clockHandlers.clear();
@@ -1386,6 +1411,19 @@ async function handleMessage(message: PluginHostMessage): Promise<void> {
         requestId: message.requestId,
         error: errorMessage(error),
       });
+    }
+    return;
+  }
+  if (message.type === "authoring-request") {
+    try {
+      const provider = authoringProviders.get(message.providerId);
+      if (!provider || !isPluginAuthoringRequest(message.request) || provider.feature !== message.request.feature ||
+          !permissions.has(provider.feature)) throw new Error("Authoring provider or request is unavailable.");
+      const result = await provider.request(message.request);
+      if (!isPluginAuthoringResultFor(message.request, result)) throw new Error("Authoring provider returned an unsafe result.");
+      send({ type: "authoring-result", requestId: message.requestId, result });
+    } catch (error) {
+      send({ type: "authoring-result", requestId: message.requestId, error: errorMessage(error) });
     }
     return;
   }

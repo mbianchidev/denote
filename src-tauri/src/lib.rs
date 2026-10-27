@@ -323,6 +323,8 @@ pub fn run() {
             commands::read_note,
             commands::read_pdf,
             commands::save_note,
+            commands::read_note_comments,
+            commands::save_note_comments,
             commands::create_entry,
             commands::duplicate_file,
             commands::rename_entry,

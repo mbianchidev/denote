@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "id": "denote.text-styling",
+  "name": "Text highlighting and coloring",
+  "version": "0.1.0",
+  "description": "Apply portable named highlights and text colors, and find highlighted excerpts.",
+  "publisher": {
+    "name": "Denote",
+    "url": "https://github.com/mbianchidev/denote"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/mbianchidev/denote",
+  "icon": "icon.svg",
+  "category": "editor-writing",
+  "compatibility": {
+    "apiVersion": 1,
+    "minimumDenoteVersion": "0.10.0",
+    "maximumDenoteVersion": "1.0.0"
+  },
+  "permissions": [{ "capability": "text-styling" }],
+  "entrypoint": "dist/index.js",
+  "documentation": "guide.md"
+}

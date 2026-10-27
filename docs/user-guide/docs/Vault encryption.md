@@ -30,6 +30,13 @@ until unlock. Closing the tab, switching vaults, disabling or updating the
 plugin, a plugin crash, or closing Denote clears the same derived state without
 changing the encrypted file.
 
+Optional text styling, comments, and presentation workers also stop on lock or
+vault switch. Their source snapshots, anchors, search excerpts, slide previews,
+timers, and handlers are released. Note comments' hidden
+`.denote/note-comments.json` participates in encryption and decryption with
+ordinary vault files and is never written as a plaintext temporary file. Back
+up it and `.denote/encryption.json` together.
+
 ## Disable encryption
 
 Denote must decrypt every file and saved revision successfully before it removes

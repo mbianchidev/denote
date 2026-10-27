@@ -35,12 +35,20 @@ export interface SearchFilters {
   kinds: string[];
   bookmarked?: boolean;
   recentDays?: number;
+  highlights?: boolean;
+}
+
+export interface HighlightSearchMatches {
+  path: string;
+  contentHash: string;
+  matches: SearchMatch[];
 }
 
 export interface SearchRequest {
   query: string;
   location: string;
   filters: SearchFilters;
+  highlightMatches?: HighlightSearchMatches[];
 }
 
 export function createEmptySearchFilters(): SearchFilters {
@@ -134,8 +142,11 @@ export class VaultSearchIndex {
       parseSearchQuery(searchRequest.query),
       searchRequest.filters,
     );
+    const highlights = new Map((searchRequest.highlightMatches ?? []).map((entry) => [entry.path, entry]));
     const scopedDocuments = [...this.documents.values()].filter((document) =>
-      matchesSearchLocation(document.path, searchRequest.location),
+      matchesSearchLocation(document.path, searchRequest.location) &&
+      (!searchRequest.filters.highlights || highlights.get(document.path)?.contentHash === document.contentHash &&
+        (highlights.get(document.path)?.matches.length ?? 0) > 0),
     );
     const scores = new Map<string, number>();
 
@@ -194,11 +205,16 @@ export class VaultSearchIndex {
     const results: SearchResult[] = [];
     for (const result of rankedDocuments) {
       check();
-      const matches = findContentMatches(
+      const contentMatches = findContentMatches(
         result.document.content,
         parsed,
         MAX_SEARCH_RESULTS - results.length,
       );
+      const matches = searchRequest.filters.highlights && !parsed.term && !parsed.content.length
+        ? (highlights.get(result.document.path)?.matches ?? []).filter((match) =>
+            Number.isSafeInteger(match.from) && Number.isSafeInteger(match.to) && match.from >= 0 &&
+            match.to > match.from && match.to <= result.document.content.length).slice(0, MAX_SEARCH_RESULTS - results.length)
+        : contentMatches;
       const resultMatches: Array<SearchMatch | null> =
         matches.length > 0 ? matches : [null];
       for (const [matchIndex, match] of resultMatches.entries()) {

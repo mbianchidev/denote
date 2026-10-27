@@ -16,6 +16,7 @@ import {
   type PluginStructuredViewModel,
   type PluginTaskListModel,
   type PluginTaskListToggleResult,
+  type PluginAuthoringRegistration,
 } from "@denote/plugin-sdk";
 import type { PluginView } from "../types";
 import { api } from "../lib/api";
@@ -264,6 +265,8 @@ class FakeMessageChannel {
 }
 
 class FakeWorker extends EventTarget {
+  static authoringOnActivate: PluginAuthoringRegistration | null = null;
+  static authoringResult: unknown = { feature: "text-styling", action: "parse", spans: [], notices: [] };
   static instances: FakeWorker[] = [];
   static completeCommands = true;
   static commandIdOnActivate = "denote.reference.ping";
@@ -344,6 +347,7 @@ class FakeWorker extends EventTarget {
         return;
       }
       if (data.type === "activate") {
+        if (FakeWorker.authoringOnActivate) port.postMessage({ type: "register-authoring", ...FakeWorker.authoringOnActivate });
         port.postMessage({
           type: "register-command",
           id: FakeWorker.commandIdOnActivate,
@@ -410,6 +414,8 @@ class FakeWorker extends EventTarget {
           return;
         }
         port.postMessage({ type: "activated" });
+      } else if (data.type === "authoring-request" && typeof data.requestId === "string") {
+        port.postMessage({ type: "authoring-result", requestId: data.requestId, result: FakeWorker.authoringResult });
       } else if (
         data.type === "run-command" &&
         typeof data.requestId === "string" &&
@@ -910,6 +916,8 @@ describe("PluginWorkerRuntime", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    FakeWorker.authoringOnActivate = null;
+    FakeWorker.authoringResult = { feature: "text-styling", action: "parse", spans: [], notices: [] };
     FakeWorker.instances = [];
     BridgedWorker.instances = [];
     BridgedWorker.scope = null;
@@ -952,6 +960,28 @@ describe("PluginWorkerRuntime", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("requires authoring permission, validates correlated output, and rejects another vault", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    runtime.setWorkspaceIdentity(VAULT_ALPHA);
+    FakeWorker.authoringOnActivate = { id: "denote.reference.styles", title: "Styles", feature: "text-styling" };
+    const source = { ...plugin(), approvedPermissions: [...plugin().approvedPermissions, { capability: "text-styling" as const }] };
+    await runtime.start(source);
+    const request = { feature: "text-styling", action: "parse", source: "Synthetic note" } as const;
+    await expect(runtime.requestAuthoring("denote.reference", "denote.reference.styles", request))
+      .resolves.toMatchObject({ feature: "text-styling" });
+    FakeWorker.authoringResult = { feature: "note-comments", action: "anchor", anchor: null };
+    await expect(runtime.requestAuthoring("denote.reference", "denote.reference.styles", request)).rejects.toThrow(/unsafe/i);
+    runtime.setWorkspaceIdentity(VAULT_BETA);
+    await expect(runtime.requestAuthoring("denote.reference", "denote.reference.styles", request)).rejects.toThrow(/unavailable/i);
+    await runtime.forceStop("denote.reference");
+  });
+
+  it("rejects unauthorized authoring registrations rather than granting an editor surface", async () => {
+    const runtime = new PluginWorkerRuntime(vi.fn(), vi.fn());
+    FakeWorker.authoringOnActivate = { id: "denote.reference.styles", title: "Styles", feature: "text-styling" };
+    await expect(runtime.start(plugin())).rejects.toThrow();
   });
 
   it("registers, runs, and removes a bounded structured viewer", async () => {

@@ -9,6 +9,7 @@ import {
 import { createContext, useContext, useEffect } from "react";
 import { emojiCandidate, emojiSelectionPatch, emojiSourceProjection, type EmojiCandidate, type EmojiSourceSnapshot } from "./emoji";
 import type { EmojiBookmark, EmojiEditorAdapter, EmojiEditorBinding } from "./emojiHost";
+import { richSourceTextMap } from "./richSourceSelection";
 
 export interface EmojiRichBinding extends EmojiEditorBinding {
   source(): string;
@@ -205,19 +206,10 @@ function EmojiRichBridge() {
 }
 
 function sourcePatch(source: string, selection: RangeSelection, unicode: string, snapshot?: EmojiSourceSnapshot): string | null {
-  const projection = emojiSourceProjection(source, snapshot);
-  const positions = new Map<string, { start: number; length: number }>();
-  const nodes = $getRoot().getAllTextNodes().filter((node) => node.getTextContent() !== "");
-  let cursor = 0;
-  for (const node of nodes) {
-    const text = node.getTextContent();
-    if (!text) continue;
-    const start = projection.text.indexOf(text, cursor);
-    if (start < 0) return null;
-    positions.set(node.getKey(), { start, length: text.length });
-    cursor = start + text.length;
-  }
-  cursor = projection.text.length;
+  const mapped = richSourceTextMap(source, snapshot);
+  if (!mapped) return null;
+  const { projection, positions, nodes } = mapped;
+  let cursor = projection.text.length;
   for (const node of [...nodes].reverse()) {
     const text = node.getTextContent();
     const start = projection.text.lastIndexOf(text, cursor - text.length);

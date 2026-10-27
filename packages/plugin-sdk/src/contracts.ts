@@ -1,3 +1,5 @@
+import type { PluginAuthoringCapability } from "./authoring";
+
 export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1 as const;
 export const PLUGIN_API_VERSION = 1 as const;
 
@@ -24,6 +26,9 @@ export const PLUGIN_CAPABILITIES = [
   "structured-viewer",
   "kanban-board",
   "task-list",
+  "text-styling",
+  "note-comments",
+  "presentation",
   "note-graph",
   "calendar",
   "reminders",
@@ -2117,6 +2122,7 @@ export interface PluginProcessCapability {
 }
 
 export interface PluginCapabilities {
+  authoring?: PluginAuthoringCapability;
   commands?: PluginCommandCapability;
   sidebar?: PluginSidebarCapability;
   status?: PluginStatusCapability;

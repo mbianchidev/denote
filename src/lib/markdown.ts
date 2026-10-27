@@ -279,7 +279,10 @@ export function restoreRichTextTagSyntax(markdown: string): string {
   );
 }
 
-export function restoreRichTextLiteralPunctuation(markdown: string): string {
+export function restoreRichTextLiteralPunctuation(
+  markdown: string,
+  protectedLiterals?: (line: string) => Array<{ from: number; to: number }>,
+): string {
   return markdown
     .split("\n")
     .map((line) => {
@@ -290,9 +293,11 @@ export function restoreRichTextLiteralPunctuation(markdown: string): string {
       restored = restored
         .replace(/(^|[^\\])\\>(?=[<=>])/gu, "$1>")
         .replace(/([<>])\\=/gu, "$1=");
+      const protectedRanges = protectedLiterals?.(restored) ?? [];
       return restored.replace(
         /(?:&#x26;|&#38;|&amp;)/giu,
         (entity, offset: number, source: string) => {
+          if (protectedRanges.some((range) => offset >= range.from && offset + entity.length <= range.to)) return entity;
           const following = source.slice(offset + entity.length);
           return /^(?:#\d+|#x[\da-f]+|[a-z][a-z\d]+);/iu.test(following)
             ? entity

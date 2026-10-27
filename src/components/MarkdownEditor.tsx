@@ -152,6 +152,8 @@ import {
   denoteThematicBreakShortcutPlugin,
 } from "../lib/richTextInputPlugin";
 import { EmojiToolbarActions } from "./EmojiPicker";
+import { AuthoringRichContext, styledLiteralRanges, styledMarkdownPlugin } from "./StyledMarkdownNode";
+import type { AuthoringEditorBinding } from "../lib/authoring";
 
 const viewModePreferencePlugin = realmPlugin<{
   mode: MarkdownViewMode;
@@ -352,6 +354,7 @@ interface MarkdownEditorProps {
   emoji?: EmojiEditorBinding;
   emojiPickers?: EmojiContribution[];
   diagrams?: DiagramEditorBinding;
+  authoring?: AuthoringEditorBinding;
   preferredViewMode: MarkdownViewMode;
   projectSourceMode?: boolean;
   readOnly: boolean;
@@ -390,6 +393,7 @@ export const MarkdownEditor = forwardRef<
     emoji,
     emojiPickers = EMPTY_EMOJI_PICKERS,
     diagrams,
+    authoring,
     preferredViewMode,
     projectSourceMode = false,
     readOnly,
@@ -468,6 +472,14 @@ export const MarkdownEditor = forwardRef<
     onChange(output);
   };
   const [emojiSerialization] = useState(() => new EmojiSourceHistory());
+  useEffect(() => {
+    if (!authoring) return;
+    const prepare = (source: string) => emojiSerialization.prepare(source);
+    authoring.sourcePreparation.current = prepare;
+    return () => {
+      if (authoring.sourcePreparation.current === prepare) authoring.sourcePreparation.current = null;
+    };
+  }, [authoring, emojiSerialization]);
   const sourceChangePendingRef = useRef(false);
   const synchronizingSourceRef = useRef(false);
   const emojiCompartment = useRef(new Compartment()).current;
@@ -652,6 +664,7 @@ export const MarkdownEditor = forwardRef<
       }),
       denoteTaskListShortcutPlugin(),
       denoteHashtagPlugin(),
+      ...(authoring ? [styledMarkdownPlugin({ binding: authoring, source: () => editorSourceRef.current })] : []),
       emojiRichPlugin({ beforeChange: (history) => emojiSerialization.beforeChange(history) }),
       markdownShortcutPlugin(),
       linkPlugin({ disableAutoLink: false }),
@@ -847,6 +860,7 @@ export const MarkdownEditor = forwardRef<
       emojiPickers,
       emojiSourceExtensions,
       emojiSerialization,
+      authoring,
       preferredViewMode,
       projectSourceMode,
       readOnly,
@@ -1093,6 +1107,11 @@ export const MarkdownEditor = forwardRef<
         onLinkOpen(link.href, link.text);
       }}
     >
+      <AuthoringRichContext.Provider value={authoring ? {
+        binding: authoring, source: () => emojiSourceRef.current,
+        snapshot: () => referenceSnapshotRef.current,
+        prepare: (source) => emojiSerialization.prepare(source),
+      } : null}>
       <EmojiRichContext.Provider value={emojiRichBinding}>
       <SafeRichHtmlRenderProvider notePath={notePath} onError={onError}>
         <DiagramCodeBlockSettingsProvider binding={diagrams}>
@@ -1155,6 +1174,7 @@ export const MarkdownEditor = forwardRef<
                           markdown,
                           parse,
                         ),
+                        authoring?.styles() ? styledLiteralRanges : undefined,
                       )
                     : restoredMarkdown;
                 const markerUpdate = applyTocMarkerViewChange(
@@ -1198,6 +1218,7 @@ export const MarkdownEditor = forwardRef<
         </DiagramCodeBlockSettingsProvider>
       </SafeRichHtmlRenderProvider>
       </EmojiRichContext.Provider>
+      </AuthoringRichContext.Provider>
       <RichCodeBlockCopyButtons rootRef={shellRef} onError={onError} />
     </div>
   );
