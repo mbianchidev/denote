@@ -18,6 +18,12 @@ fn failed() -> AppError {
     )
 }
 
+fn failed_at(stage: &'static str) -> AppError {
+    AppError::Plugin(format!(
+        "Local Nemotron {stage} failed. No text was inserted."
+    ))
+}
+
 pub(super) fn validate_pcm_wav(wav: &[u8]) -> AppResult<()> {
     if wav.len() < 46
         || wav.len() > MAX_WAV_BYTES
@@ -115,10 +121,10 @@ fn infer(root: &Path, samples: &[f32], locale: &str) -> AppResult<Transcript> {
     // Only the pinned, fully reverified archive may supply code to this helper.
     unsafe {
         #[cfg(not(windows))]
-        let library = Library::new(&path).map_err(|_| failed())?;
+        let library = Library::new(&path).map_err(|_| failed_at("library loading"))?;
         #[cfg(windows)]
         let library: Library = libloading::os::windows::Library::load_with_flags(&path, 0x00001100)
-            .map_err(|_| failed())?
+            .map_err(|_| failed_at("library loading"))?
             .into();
         let create = library
             .get::<unsafe extern "C" fn(*const RecognizerConfig, *mut *mut c_void) -> i32>(
@@ -195,12 +201,15 @@ fn infer(root: &Path, samples: &[f32], locale: &str) -> AppResult<Transcript> {
             pointer: ptr::null_mut(),
             destroy,
         };
-        if create(&config, &mut recognizer.pointer) != 0 || recognizer.pointer.is_null() {
-            return Err(failed());
+        let status = create(&config, &mut recognizer.pointer);
+        if status != 0 || recognizer.pointer.is_null() {
+            return Err(AppError::Plugin(format!(
+                "Local Nemotron model initialization failed with native status {status}. No text was inserted."
+            )));
         }
         let mut options = defaults();
         if options.size != size_of::<Options>() {
-            return Err(failed());
+            return Err(failed_at("recognition ABI validation"));
         }
         options.language = locale.as_ptr();
         options.word_offsets = true;
@@ -209,18 +218,18 @@ fn infer(root: &Path, samples: &[f32], locale: &str) -> AppResult<Transcript> {
             pointer: ptr::null_mut(),
             destroy: destroy_result,
         };
-        if recognize(
+        let status = recognize(
             recognizer.pointer,
             &options,
             samples.as_ptr(),
             samples.len(),
             16000,
             &mut result.pointer,
-        ) != 0
-            || result.pointer.is_null()
-            || alternatives(result.pointer) == 0
-        {
-            return Err(failed());
+        );
+        if status != 0 || result.pointer.is_null() || alternatives(result.pointer) == 0 {
+            return Err(AppError::Plugin(format!(
+                "Local Nemotron recognition failed with native status {status}. No text was inserted."
+            )));
         }
         let text = bounded_string(transcript(result.pointer, 0), 1024 * 1024)?;
         let count = word_count(result.pointer, 0);
@@ -292,7 +301,13 @@ pub fn run_if_requested() -> Option<i32> {
         std::io::stdout().write_all(&output).map_err(|_| failed())?;
         Ok::<_, AppError>(())
     })();
-    Some(if result.is_ok() { 0 } else { 1 })
+    Some(match result {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
+    })
 }
 
 #[cfg(test)]

@@ -1037,19 +1037,24 @@ fn run_transcription(
     executable: &Path,
 ) -> AppResult<Transcript> {
     super::speech_helper::validate_pcm_wav(&bytes)?;
-    verified_library(root, true)?;
+    let library = verified_library(root, true)?;
+    let directory = library
+        .parent()
+        .ok_or_else(|| failure("The verified native runtime directory is unavailable."))?;
     operation.check()?;
     let mut command = Command::new(executable);
     command
         .arg("--denote-speech-worker")
         .arg(&root)
         .arg(&locale)
-        .current_dir(&root)
+        .current_dir(directory)
         .env_clear()
         .env("OMP_NUM_THREADS", "2")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    #[cfg(test)]
+    command.stderr(Stdio::inherit());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -1129,7 +1134,12 @@ fn run_transcription(
         .map_err(|_| failure("Local transcription output failed."))?
         .map_err(|_| failure("Unable to read local transcription results."))?;
     operation.check()?;
-    if !status.success() || !input_ok || output.len() > MAX_RESULT_BYTES {
+    if !status.success() {
+        return Err(failure(&format!(
+            "The local transcription helper exited with {status}. No transcript was inserted."
+        )));
+    }
+    if !input_ok || output.len() > MAX_RESULT_BYTES {
         return Err(failure(
             "Local transcription failed or timed out. No transcript was inserted.",
         ));

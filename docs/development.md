@@ -1141,6 +1141,15 @@ expected missing-notarization-credentials warning. Notarize the containing
 application once with the normal release credentials. Never fix a model-load
 failure by granting the library-validation exception to the main app.
 
+The helper's working directory is its reverified runtime library directory,
+not the model cache or a vault. The pinned GGML loader searches the executable
+directory and current directory for backend libraries; changing `PATH` or
+trusting an arbitrary DLL directory is not a substitute. Application failure
+messages use fixed stages and numeric native status codes. The desktop reports
+the child exit status and always discards engine stderr. Only Rust test builds
+inherit helper stderr for the explicitly generated, synthetic-audio platform
+smoke.
+
 The SQLite `pending_speech_attachments` table contains only native operation
 identities, paths, and hashes, never audio or transcript text. Vault-supplied
 JSON is not recovery authority. Interrupted uncertain saves keep files; the
