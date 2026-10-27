@@ -42,6 +42,7 @@ const PLUGIN_EXAMPLE_V6_PATHS: &[&str] = &[
     "plugins/Note comments.md",
     "plugins/Presentation.md",
 ];
+const PLUGIN_EXAMPLE_V7_PATHS: &[&str] = &["plugins/Speech.md", "plugins/Credential store.md"];
 const SEED_FILES: &[(&str, &[u8])] = &[
     (
         "plugins/Speech.md",
@@ -703,7 +704,7 @@ fn add_missing_plugin_examples_once(root: &Path, vault_key: Option<&[u8; 32]>) -
         root,
         vault_key,
         PLUGIN_EXAMPLE_V7_FIXTURE_MARKER,
-        |path| ["plugins/Speech.md", "plugins/Credential store.md"].contains(&path),
+        |path| PLUGIN_EXAMPLE_V7_PATHS.contains(&path),
         "plugin example v7",
     )
 }
@@ -1145,6 +1146,7 @@ mod tests {
                 - PLUGIN_EXAMPLE_V4_PATHS.len()
                 - PLUGIN_EXAMPLE_V5_PATHS.len()
                 - PLUGIN_EXAMPLE_V6_PATHS.len()
+                - PLUGIN_EXAMPLE_V7_PATHS.len()
         );
         assert_eq!(
             PLUGIN_EXAMPLE_V2_PATHS
@@ -1159,6 +1161,7 @@ mod tests {
                         && !PLUGIN_EXAMPLE_V4_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V5_PATHS.contains(path)
                         && !PLUGIN_EXAMPLE_V6_PATHS.contains(path)
+                        && !PLUGIN_EXAMPLE_V7_PATHS.contains(path)
                 })
                 .collect::<BTreeSet<_>>()
         );

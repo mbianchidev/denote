@@ -63,6 +63,7 @@ async function command(page: Page, text: string) {
 
 async function sourceCaret(page: Page) {
   await command(page, "Authoring.md");
+  await expect(page.getByRole("button", { name: "Speech", exact: true })).toBeVisible();
   await expect(page.locator(".denote-text-style")).toBeVisible();
   await tabTo(page, page.getByRole("radio", { name: "Bold", exact: true }));
   const source = page.getByRole("radio", { name: "Source mode", exact: true });
