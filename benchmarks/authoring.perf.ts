@@ -96,6 +96,8 @@ test("presentation source, full-screen navigation, autoplay and return release r
   await expect(page.locator(".presentation-slide")).toContainText("First slide");
   await page.getByRole("button", { name: "Present", exact: true }).click();
   await expect.poll(() => page.evaluate(() => document.fullscreenElement !== null)).toBe(true);
+  await expect(page.getByRole("button", { name: "Exit presentation", exact: true })).toBeEnabled();
+  await expect(page.getByRole("region", { name: "Presentation", exact: true })).toBeFocused();
   await page.keyboard.press("End");
   await expect(page.getByText("Slide 2 of 2", { exact: true })).toBeVisible();
   await expect(page.locator(".presentation-slide")).toContainText("const example = 1;");
