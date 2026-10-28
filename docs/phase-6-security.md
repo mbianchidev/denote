@@ -95,10 +95,14 @@ cache authorization or return exported contents to JavaScript. Revalidate
 scope, permission, session expiry, and current ciphertext after the native save
 picker closes. Export only to a newly created regular file outside all known
 vaults and application storage. Unix creates the file with mode `0600`.
-Windows opens the new file with `FILE_GENERIC_WRITE | WRITE_DAC`, then applies
-its protected owner-rights DACL through that same handle before writing bytes.
-An ordinary write-only handle cannot set a DACL. Do not retry with broader
-permissions or omit protection on failure. Use no plaintext staging file.
+Windows supplies the protected owner-rights DACL in `SECURITY_ATTRIBUTES` to
+`CreateFileW` with `CREATE_NEW` and zero sharing. There is no inherited-permission
+window in which another account can retain a read handle; readers remain denied
+until writing finishes, and the private DACL persists after close. The writer
+does not request `WRITE_DAC`. Do not retry with broader permissions or omit
+protection on failure. Verify Unix mode bits and Windows persistent-ACL support
+before writing; unsupported filesystems/platforms reject private transfers and
+remove the empty output. Use no plaintext staging file.
 Remove a partial output on failure and report a cleanup failure
 without including contents. The confirmed export is intentionally plaintext
 and outside subsequent Denote cleanup.

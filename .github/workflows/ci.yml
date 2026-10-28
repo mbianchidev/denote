@@ -263,6 +263,50 @@ jobs:
       - name: Rust tests
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
+      - name: Windows private export access control
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $id = [Guid]::NewGuid().ToString('N')
+          $username = "denote-acl-$($id.Substring(0, 8))"
+          $password = "$([Guid]::NewGuid().ToString('N'))aA1!"
+          $fixture = Join-Path $env:PUBLIC "Documents\denote-acl-$id"
+          $accountCreated = $false
+          $fixtureCreated = $false
+          try {
+            $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+            $account = New-LocalUser -Name $username -Password $securePassword -AccountNeverExpires -PasswordNeverExpires
+            $accountCreated = $true
+            $members = Get-LocalGroupMember -SID 'S-1-5-32-545'
+            if ($account.SID -notin $members.SID) {
+              Add-LocalGroupMember -SID 'S-1-5-32-545' -Member $username
+            }
+            New-Item -ItemType Directory -Path $fixture | Out-Null
+            $fixtureCreated = $true
+            $acl = Get-Acl -LiteralPath $fixture
+            $everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+            $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+              $everyone, 'ReadAndExecute', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
+            $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $fixture -AclObject $acl
+            $env:DENOTE_EXPORT_TEST_USER = $username
+            $env:DENOTE_EXPORT_TEST_PASSWORD = $password
+            $env:DENOTE_EXPORT_TEST_DIRECTORY = $fixture
+            cargo test --manifest-path src-tauri/Cargo.toml --locked --lib `
+              windows_private_exports_deny_non_owner_before_and_after_write -- --ignored --nocapture
+            if ($LASTEXITCODE -ne 0) { throw 'Windows private export access-control regression failed.' }
+          } finally {
+            [Environment]::SetEnvironmentVariable('DENOTE_EXPORT_TEST_USER', $null, 'Process')
+            [Environment]::SetEnvironmentVariable('DENOTE_EXPORT_TEST_PASSWORD', $null, 'Process')
+            [Environment]::SetEnvironmentVariable('DENOTE_EXPORT_TEST_DIRECTORY', $null, 'Process')
+            try {
+              if ($fixtureCreated) { Remove-Item -LiteralPath $fixture -Recurse -Force }
+            } finally {
+              if ($accountCreated) { Remove-LocalUser -Name $username }
+            }
+          }
+
       - name: Install offline synthetic speech generator
         if: runner.os == 'Linux' && steps.speech-scope.outputs.required == 'true'
         run: sudo apt-get install --yes espeak-ng

@@ -1088,6 +1088,16 @@ and tampering, private file permissions, locks/conflicts, whole-vault sweeps,
 recovery ownership, and preservation of notes/decks/comments/audio/credentials.
 Canary scans use invented values and include generated database/temp files.
 
+Windows CI additionally provisions a disposable, unprivileged synthetic account
+and an explicitly readable fixture under Public Documents. A readable control
+file proves the second identity can access that location; the private export
+must reject it while empty, during writing, and after close. Owner read handles
+are also denied until the write handle closes. The dedicated native account
+test is explicitly ignored in ordinary local runs and invoked by CI with its
+fixture environment. Account, files, and environment values are removed in
+`finally`; desktop builds never provision accounts. Private transfers fail
+closed when the filesystem cannot enforce private mode bits or persistent ACLs.
+
 Run actual model inference only with explicit download approval:
 
 ```bash
@@ -1526,7 +1536,7 @@ release can replace the local source. Report a compatible fix explicitly.
 
 Last vendored-library check: **2026-10-28**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the test-output follow-up using the
+the test-output and sensitive-boundary follow-ups using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream

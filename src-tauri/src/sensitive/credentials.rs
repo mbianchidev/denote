@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::{
@@ -956,34 +956,24 @@ pub(super) fn validate_export_destination(app: &AppHandle, path: &Path) -> AppRe
 
 pub(super) fn write_external(path: &Path, bytes: &[u8]) -> AppResult<()> {
     reject_links(path)?;
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::OpenOptionsExt;
-        use windows_sys::Win32::Storage::FileSystem::{FILE_GENERIC_WRITE, WRITE_DAC};
-        // SetSecurityInfo needs WRITE_DAC before any plaintext can be written.
-        options.access_mode(FILE_GENERIC_WRITE | WRITE_DAC);
-    }
-    let mut file = options.open(path).map_err(|_| {
-        invalid("Unable to create the transfer file. Choose a new private filename.")
+    let mut file = super::private_file::create_new(path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::Unsupported {
+            invalid(&error.to_string())
+        } else {
+            invalid("Unable to create the private transfer file. Choose a new private filename.")
+        }
     })?;
-    let result = super::private_file::restrict(&file).and_then(|_| {
-        file.write_all(bytes)
-            .and_then(|_| file.sync_all())
-            .map_err(AppError::Io)
-    });
-    if result.is_err() {
+    let result = super::private_file::verify(&file)
+        .and_then(|_| file.write_all(bytes).and_then(|_| file.sync_all()));
+    if let Err(error) = result {
         drop(file);
         if fs::remove_file(path).is_err() {
             return Err(invalid(
                 "Credential transfer failed and its partial output could not be removed. Remove the selected file manually.",
             ));
+        }
+        if error.kind() == std::io::ErrorKind::Unsupported {
+            return Err(invalid(&format!("{error} The partial output was removed.")));
         }
         return Err(invalid(
             "Credential transfer failed. The partial output was removed.",
