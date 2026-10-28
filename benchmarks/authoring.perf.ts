@@ -117,6 +117,7 @@ test("the grey sidebar badge follows only the active note's open comments", asyn
   const comments = rail.getByRole("button", { name: /^Note comments(?:,|$)/ });
   const badge = rail.locator(".activity-rail__badge--muted");
   await page.getByRole("button", { name: "Authoring.md", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Speech", exact: true })).toBeVisible();
   await expect(page.locator(".denote-text-style")).toBeVisible();
   await expect(comments).toBeEnabled();
   await expect(badge).toHaveCount(0);
