@@ -1149,6 +1149,12 @@ messages use fixed stages and numeric native status codes. The desktop reports
 the child exit status and always discards engine stderr. Only Rust test builds
 inherit helper stderr for the explicitly generated, synthetic-audio platform
 smoke.
+If the Windows synthetic smoke fails, the runner compares the same generated
+WAV with the already verified NVIDIA CLI in offline and streaming mode, using
+explicit local model paths. It prints only selected crash-event module/code/
+offset fields and preserves the original failing status. These test-only
+reference probes neither enable a production CLI fallback nor download another
+model or capture a microphone.
 
 The SQLite `pending_speech_attachments` table contains only native operation
 identities, paths, and hashes, never audio or transcript text. Vault-supplied

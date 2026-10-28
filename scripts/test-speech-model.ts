@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { encodeSpeechWav, SPEECH_SAMPLE_RATE } from "../src/lib/speech";
 
@@ -92,11 +92,47 @@ try {
       ? join(root, "src-tauri/resources/speech/Denote Speech Helper.app/Contents/MacOS/denote-speech-worker")
       : join(root, "src-tauri/resources/speech", process.platform === "win32" ? "denote-speech-worker.exe" : "denote-speech-worker");
   }
-  run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "--lib", "--jobs", "2",
-    "speech_real_approved_model", "--", "--ignored", "--nocapture", "--test-threads", "1"], {
-    ...process.env, DENOTE_SPEECH_TEST_DOWNLOAD: "approved", DENOTE_SPEECH_TEST_ROOT: engine,
-    DENOTE_SPEECH_TEST_EXECUTABLE: executable, DENOTE_SPEECH_TEST_WAV: wav,
-  });
+  try {
+    run("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "--lib", "--jobs", "2",
+      "speech_real_approved_model", "--", "--ignored", "--nocapture", "--test-threads", "1"], {
+      ...process.env, DENOTE_SPEECH_TEST_DOWNLOAD: "approved", DENOTE_SPEECH_TEST_ROOT: engine,
+      DENOTE_SPEECH_TEST_EXECUTABLE: executable, DENOTE_SPEECH_TEST_WAV: wav,
+    });
+  } catch (failure) {
+    if (process.platform === "win32") {
+      try {
+        const runtime = join(engine, "runtime");
+        const binaries = readdirSync(runtime, { recursive: true, encoding: "utf8" })
+          .filter((entry) => basename(entry) === "nemo-speech.exe");
+        if (binaries.length !== 1) throw new Error("The verified reference CLI is not uniquely available.");
+        const reference = join(runtime, binaries[0]);
+        const env = { SystemRoot: process.env.SystemRoot, OMP_NUM_THREADS: "2" };
+        for (const stream of [false, true]) {
+          console.error(`Synthetic-only reference CLI diagnostic (${stream ? "streaming" : "offline"}).`);
+          const result = spawnSync(reference, ["transcribe", wav, "--model",
+            join(engine, "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf"), "--device", "cpu",
+            "--json", ...(stream ? ["--stream"] : [])], {
+            cwd: dirname(reference), env, stdio: "inherit", timeout: 120_000,
+          });
+          console.error(`Reference CLI outcome: ${result.error?.message ?? result.status ?? result.signal}.`);
+        }
+        const events = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", [
+          "$ErrorActionPreference='Stop';",
+          "Get-WinEvent -FilterHashtable @{LogName='Application';Id=1000;StartTime=(Get-Date).AddMinutes(-10)} | ForEach-Object {",
+          "$fields=@{}; ([xml]$_.ToXml()).Event.EventData.Data | ForEach-Object { $fields[$_.Name]=$_.InnerText };",
+          "if ($fields.AppName -match '^(denote-speech-worker|nemo-speech)\\.exe$') {",
+          "@{AppName=$fields.AppName;ModuleName=$fields.ModuleName;ExceptionCode=$fields.ExceptionCode;FaultingOffset=$fields.FaultingOffset} | ConvertTo-Json -Compress",
+          "}}",
+        ].join(" ")], { cwd: root, stdio: "inherit", timeout: 30_000 });
+        if (events.error || events.status !== 0) {
+          console.error(`Synthetic crash-event diagnostic failed: ${events.error?.message ?? events.status ?? events.signal}.`);
+        }
+      } catch (diagnostic) {
+        console.error("Synthetic Windows diagnostics could not complete:", diagnostic);
+      }
+    }
+    throw failure;
+  }
 } finally {
   rmSync(temporary, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
 }
