@@ -1576,40 +1576,50 @@ describe("App initial file-tree expansion", () => {
       mockComputeLinkRewriteUpdates.mockResolvedValue([
         { path: "index.md", content: `[Note](${fixture.newPath}/note.txt)` },
       ]);
-      mockApi.saveNote.mockRejectedValueOnce(new Error("Synthetic link-save conflict"));
+      const failure = new Error("Synthetic link-save conflict");
+      mockApi.saveNote.mockRejectedValueOnce(failure);
       mockApi.listSearchDocuments.mockResolvedValue({
         documents: [],
         skippedCount: 1,
         truncated: false,
       });
 
-      render(<App />);
-      fireEvent.click(
-        await screen.findByRole("button", { name: "Open note.txt" }),
-      );
-      await screen.findByLabelText("Content of Edit note.txt");
-      await submitSyntheticEntryMutation(operation);
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        render(<App />);
+        fireEvent.click(
+          await screen.findByRole("button", { name: "Open note.txt" }),
+        );
+        await screen.findByLabelText("Content of Edit note.txt");
+        await submitSyntheticEntryMutation(operation);
 
-      await waitFor(() => {
-        expect(screen.getByRole("alert")).toHaveTextContent(
-          `${fixture.verb} drafts, but links in 1 file could not be updated.`,
+        await waitFor(() => {
+          expect(screen.getByRole("alert")).toHaveTextContent(
+            `${fixture.verb} drafts, but links in 1 file could not be updated.`,
+          );
+          expectAppStatus("Action failed");
+        });
+        expect(mockApi.finishLinkRewrite).toHaveBeenCalledExactlyOnceWith(
+          fixture.rewriteToken,
         );
-        expectAppStatus("Action failed");
-      });
-      expect(mockApi.finishLinkRewrite).toHaveBeenCalledExactlyOnceWith(
-        fixture.rewriteToken,
-      );
-      fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
-      await waitFor(() => {
-        expect(mockApi.saveNote).toHaveBeenCalledWith(
-          `${fixture.newPath}/note.txt`,
-          "drafts/note.txt content changed",
-          "utf8",
-          "lf",
-          "autosave",
-          "drafts/note.txt-hash",
+        fireEvent.click(screen.getByRole("button", { name: "Change Edit note.txt" }));
+        await waitFor(() => {
+          expect(mockApi.saveNote).toHaveBeenCalledWith(
+            `${fixture.newPath}/note.txt`,
+            "drafts/note.txt content changed",
+            "utf8",
+            "lf",
+            "autosave",
+            "drafts/note.txt-hash",
+          );
+        });
+        expect(consoleError).toHaveBeenCalledExactlyOnceWith(
+          "Unable to update links in index.md:",
+          failure,
         );
-      });
+      } finally {
+        consoleError.mockRestore();
+      }
     });
 
     it.each(["batch", "worker", "cleanup"] as const)(

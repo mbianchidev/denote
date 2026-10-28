@@ -1524,17 +1524,17 @@ notes and issue/PR trackers, and RustSec for each package. Record the date,
 versions examined, exact evidence links, and whether a compatible upstream
 release can replace the local source. Report a compatible fix explicitly.
 
-Last vendored-library check: **2026-10-27**.
+Last vendored-library check: **2026-10-28**.
 All seven vendor directories and `[patch.crates-io]` entries were rechecked for
-the Phase 6 work using the
+the test-output follow-up using the
 [official registry index](https://github.com/rust-lang/crates.io-index).
 The official
 [crates.io API](https://crates.io/data-access), release notes, linked upstream
 fixes and backport requests, and each linked RustSec advisory were checked
 again. Published versions and dependency requirements were read directly from
-the official sparse registry index; compatible and latest stable versions
-below are unchanged. RustSec's package pages have no direct entries for
-GLib macros, URLPattern, or the three Tauri plugins, so their affected
+the official sparse registry index. Compatible versions are unchanged; current
+stable releases are listed below. RustSec's package pages have no direct entries
+for GLib macros, URLPattern, or the three Tauri plugins, so their affected
 macro-error, Unicode, and D-Bus dependencies were checked explicitly against
 the advisories below. The three plugins also publish 3.0.0-alpha.3,
 which requires Tauri 3 and still uses zbus 5, so it is not a compatible
@@ -1584,13 +1584,13 @@ remain applicable to the original dependency graphs. Neither withdrawal nor
 a newer incompatible release removes the need for these local replacements.
 
 Published
-[notification 2.7.0](https://crates.io/crates/tauri-plugin-notification/2.7.0),
+[notification 2.8.0](https://crates.io/crates/tauri-plugin-notification/2.8.0),
 [opener 2.7.2](https://crates.io/crates/tauri-plugin-opener/2.7.2), and
-[single-instance 2.5.4](https://crates.io/crates/tauri-plugin-single-instance/2.5.4)
+[single-instance 2.5.5](https://crates.io/crates/tauri-plugin-single-instance/2.5.5)
 require Tauri 2.12 and still use zbus 5. The
-[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.7.0),
+[notification release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/notification-v2.8.0),
 [opener release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/opener-v2.7.2),
-and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.4)
+and [single-instance release notes](https://github.com/tauri-apps/plugins-workspace/releases/tag/single-instance-v2.5.5)
 do not provide compatible releases removing the D-Bus backports. The
 [upstream migration issue](https://github.com/tauri-apps/plugins-workspace/issues/3716)
 is open; no compatible published plugin removes the local adapters.
