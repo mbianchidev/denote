@@ -1,7 +1,7 @@
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     io::{Read, Write},
-    mem::size_of,
+    mem::{ManuallyDrop, size_of},
     path::{Path, PathBuf},
     ptr,
 };
@@ -126,6 +126,9 @@ fn infer(root: &Path, samples: &[f32], locale: &str) -> AppResult<Transcript> {
         let library: Library = libloading::os::windows::Library::load_with_flags(&path, 0x00001100)
             .map_err(|_| failed_at("library loading"))?
             .into();
+        // GGML cannot safely unload backend code while its threads/TLS still exist.
+        // The bounded, one-shot helper lets process exit reclaim this library.
+        let library = ManuallyDrop::new(library);
         let create = library
             .get::<unsafe extern "C" fn(*const RecognizerConfig, *mut *mut c_void) -> i32>(
                 b"nemo_speech_asr_create\0",
@@ -226,6 +229,7 @@ fn infer(root: &Path, samples: &[f32], locale: &str) -> AppResult<Transcript> {
             16000,
             &mut result.pointer,
         );
+        eprintln!("Local ASR recognition returned native status {status}.");
         if status != 0 || result.pointer.is_null() || alternatives(result.pointer) == 0 {
             return Err(AppError::Plugin(format!(
                 "Local Nemotron recognition failed with native status {status}. No text was inserted."
@@ -249,7 +253,13 @@ fn infer(root: &Path, samples: &[f32], locale: &str) -> AppResult<Transcript> {
                 end_ms: end as u32,
             });
         }
-        Ok(Transcript { text, words })
+        let transcript = Transcript { text, words };
+        eprintln!("Local ASR result validated.");
+        drop(result);
+        eprintln!("Local ASR result resources released.");
+        drop(recognizer);
+        eprintln!("Local ASR recognizer resources released.");
+        Ok(transcript)
     }
 }
 

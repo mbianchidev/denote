@@ -1149,6 +1149,13 @@ messages use fixed stages and numeric native status codes. The desktop reports
 the child exit status and always discards engine stderr. Only Rust test builds
 inherit helper stderr for the explicitly generated, synthetic-audio platform
 smoke.
+The verified library stays loaded until its bounded one-shot helper exits.
+The pinned [GGML backend
+registry](https://github.com/ggml-org/llama.cpp/blob/bd4f514db14d87fded667787a7a963bfbaa98e89/ggml/src/ggml-backend-reg.cpp)
+explicitly warns that backend code cannot be safely unloaded while backend
+threads/resources remain. Release recognizer/result handles normally, but do
+not call `FreeLibrary`/`dlclose` on that code mid-process. The OS reclaims it on
+helper exit, including cancellation.
 If the Windows synthetic smoke fails, the runner compares the same generated
 WAV with the already verified NVIDIA CLI in offline and streaming mode, using
 explicit local model paths. It prints only selected crash-event module/code/
