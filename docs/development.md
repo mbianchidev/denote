@@ -1761,8 +1761,8 @@ published. To test a staged plugin without publishing or changing the production
 downloader, build the separate development application:
 
 ```bash
-CI=true NODE_ENV=development CARGO_BUILD_JOBS=2 \
-  npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles dmg
+CI=true APPLE_SIGNING_IDENTITY=- NODE_ENV=development CARGO_BUILD_JOBS=2 \
+  npm run tauri build -- --debug --config src-tauri/tauri.dev.conf.json --bundles app,dmg
 npm run dev:plugin -- denote.calendar --once
 ```
 
@@ -1775,6 +1775,21 @@ Both development flags matter: `NODE_ENV=development` retains the frontend's
 local-archive control, while `--debug` includes the native development-only
 adapter. This bundle is a local preview, not a production release artifact.
 The plugin archive remains separate from either DMG.
+
+The explicit `-` identity signs the entire local app ad hoc, binds its
+Info.plist/resources, applies the microphone entitlement, and enables the
+hardened runtime. Signing the helper alone is insufficient: without a main-app
+identity, the CLI can leave only the executable's linker signature, with no
+resource seal or microphone entitlement. Verify the retained `.app` with
+`codesign --verify --deep --strict`; the main app must have audio-input but
+never disable-library-validation, while the helper has only the latter.
+Ad-hoc signing is not notarization; use the configured Developer ID workflow
+for public release.
+
+To repackage already built matching-profile binaries without recompiling, stage
+the helper for that same profile, then run:
+`CI=true APPLE_SIGNING_IDENTITY=- npm run tauri -- bundle --debug --config src-tauri/tauri.dev.conf.json --bundles app dmg`.
+Omit `--debug` and the development config for a release-profile local bundle.
 
 Validate sensitive browser journeys against this mode too:
 `NODE_ENV=development npm run build`, then
