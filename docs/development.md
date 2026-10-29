@@ -1776,6 +1776,14 @@ local-archive control, while `--debug` includes the native development-only
 adapter. This bundle is a local preview, not a production release artifact.
 The plugin archive remains separate from either DMG.
 
+Validate sensitive browser journeys against this mode too:
+`NODE_ENV=development npm run build`, then
+`npm exec --no -- playwright test benchmarks/sensitive.perf.ts`.
+Development StrictMode replays effect setup/cleanup. An explicit first dictation
+request must survive that harmless replay without duplicating microphone access;
+actual cancellation, scope changes, and unmount still fence late results and
+release resources.
+
 ### Provision signed application updates
 
 Application updater signatures are independent from Apple Developer ID

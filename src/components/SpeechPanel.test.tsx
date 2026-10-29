@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { StrictMode } from "react";
 import { encodeSpeechWav } from "../lib/speech";
 import { SpeechPanel } from "./SpeechPanel";
 
@@ -47,6 +48,24 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe("speech privacy and explicit actions", () => {
+  it("starts the first explicit shortcut once under Development StrictMode and still releases it on unmount", async () => {
+    const view = render(<StrictMode><SpeechPanel {...props} dictationRequest={1} /></StrictMode>);
+    await screen.findByText("Recording microphone audio");
+    expect(microphone.start).toHaveBeenCalledOnce();
+    view.unmount();
+    expect(microphone.cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not carry a pending shortcut into another note scope", async () => {
+    let ready: ((value: typeof localEngine) => void) | undefined;
+    native.status.mockImplementation(() => new Promise<typeof localEngine>((resolve) => { ready = resolve; }));
+    const view = render(<SpeechPanel {...props} dictationRequest={1} />);
+    await screen.findByText("Checking the local model before dictation…");
+    view.rerender(<SpeechPanel {...props} path="Other invented note.md" dictationRequest={1} />);
+    await act(async () => { ready?.(localEngine); });
+    expect(microphone.start).not.toHaveBeenCalled();
+  });
+
   it("reads a live sidebar selection and never reuses stale source offsets for speech", async () => {
     const user = userEvent.setup();
     const captureSelection = vi.fn(() => ({ source, from: 7, to: 18, restore: () => {} }));

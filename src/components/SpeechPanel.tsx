@@ -58,6 +58,7 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
   const queuedDictationRequest = useRef<number | null>(null);
   const currentDictationRequest = useRef(dictationRequest);
   currentDictationRequest.current = dictationRequest;
+  const lifecycleScope = useRef({ pluginId, workspaceScope, path });
   const importController = useRef<AbortController | null>(null);
   const finishRef = useRef<(transcribe?: boolean) => Promise<void>>(async () => {});
   const transcriptInput = useRef<HTMLTextAreaElement>(null);
@@ -79,9 +80,9 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
     operation.current = null;
     if (id) await api.cancelSpeechOperation(pluginId, id);
   };
-  const clearSensitive = async (reason = "Speech stopped. Unsaved audio and transcript drafts were discarded.") => {
+  const clearSensitive = async (reason = "Speech stopped. Unsaved audio and transcript drafts were discarded.", consumeRequest = true) => {
     ++epoch.current;
-    handledDictationRequest.current = currentDictationRequest.current;
+    if (consumeRequest) handledDictationRequest.current = currentDictationRequest.current;
     queuedDictationRequest.current = null;
     importController.current?.abort(); importController.current = null;
     stopSpeech();
@@ -105,6 +106,13 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
   }, [suspended, dictationRequest]);
   useEffect(() => {
     alive.current = true;
+    const previousScope = lifecycleScope.current;
+    if (previousScope.pluginId !== pluginId || previousScope.workspaceScope !== workspaceScope || previousScope.path !== path) {
+      void clearRef.current("Speech stopped when its note or vault changed.")
+        .catch(() => { if (alive.current) setError("Speech cleanup failed. Close the panel and check OS microphone state."); });
+    }
+    lifecycleScope.current = { pluginId, workspaceScope, path };
+    const cleanup = clearRef.current;
     const synth = window.speechSynthesis;
     const changed = () => {
       if (!synth || !alive.current) return;
@@ -141,9 +149,10 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
       window.removeEventListener("keydown", escape, true);
       document.removeEventListener("visibilitychange", hidden);
       window.clearInterval(timer);
-      void clearRef.current().catch(() => console.error("Speech resource cleanup failed."));
+      // StrictMode replays setup; preserve an explicit request that has not started yet.
+      void cleanup(undefined, false).catch(() => console.error("Speech resource cleanup failed."));
     };
-  }, [pluginId, workspaceScope]);
+  }, [pluginId, workspaceScope, path]);
   const refreshEngine = async () => {
     const result = await api.speechEngineStatus(pluginId, workspaceScope);
     if (alive.current) setEngine(result);
