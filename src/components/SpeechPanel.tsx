@@ -301,21 +301,33 @@ export function SpeechPanel({ pluginId, workspaceScope, path, source, selection,
   };
   useEffect(() => {
     if (!dictationRequest || dictationRequest === handledDictationRequest.current) return;
-    if (engine === null) {
-      if (queuedDictationRequest.current !== null && queuedDictationRequest.current !== dictationRequest) {
-        handledDictationRequest.current = dictationRequest;
-        queuedDictationRequest.current = null;
-        setStatus("Dictation cancelled before microphone access.");
-      } else {
-        queuedDictationRequest.current = dictationRequest;
-        setStatus("Checking the local model before dictation…");
-      }
+    if (readOnly || suspended) {
+      handledDictationRequest.current = dictationRequest;
+      queuedDictationRequest.current = null;
       return;
     }
-    queuedDictationRequest.current = null;
-    handledDictationRequest.current = dictationRequest;
-    dictationAction.current();
-  }, [dictationRequest, engine]);
+    if (queuedDictationRequest.current !== null && queuedDictationRequest.current !== dictationRequest) {
+      handledDictationRequest.current = dictationRequest;
+      queuedDictationRequest.current = null;
+      setStatus("Dictation cancelled before microphone access.");
+      return;
+    }
+    if (engine === null) {
+      queuedDictationRequest.current = dictationRequest;
+      setStatus("Checking the local model before dictation…");
+      return;
+    }
+    queuedDictationRequest.current = dictationRequest;
+    // Let StrictMode replay finish before an explicit request can acquire a microphone.
+    const timer = window.setTimeout(() => {
+      if (!alive.current || queuedDictationRequest.current !== dictationRequest ||
+          handledDictationRequest.current === dictationRequest) return;
+      queuedDictationRequest.current = null;
+      handledDictationRequest.current = dictationRequest;
+      dictationAction.current();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [dictationRequest, engine, readOnly, suspended]);
 
   return <SensitiveToolPanel title="Speech" feature="speech" onClose={onClose} onEscape={() => {
     if (captureStateRef.current === "requesting") void clearSensitive().catch((caught) => setError(errorMessage(caught)));

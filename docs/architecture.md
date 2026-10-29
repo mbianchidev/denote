@@ -1374,6 +1374,10 @@ sidebar copy, and command-palette metadata. Configuration descendants are never
 dictation targets, focusing them consumes queued consent, and changes are
 disabled during capture. Storage/validation failures are visible and do not
 silently replace an active binding. No shortcut or key event goes to workers.
+Ready-model requests acquire the microphone in a cancellable next-task action,
+after Development StrictMode finishes replaying effects. A second request,
+configuration focus, read mode, suspension, or teardown consumes/cancels pending
+intent before acquisition; cleanup never automatically restarts a recording.
 The host snapshots an exact current selection at capture/import. Missing,
 ambiguous, or changed snapshots append at the current note's end instead of
 guessing a replacement; the review states that destination. Paragraph separation

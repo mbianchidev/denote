@@ -98,6 +98,32 @@ describe("speech privacy and explicit actions", () => {
     expect(microphone.cancel).toHaveBeenCalledOnce();
   });
 
+  it.each(["second shortcut", "configuration focus", "read mode", "suspension", "unmount"] as const)(
+    "cancels a ready-model request before microphone acquisition on %s",
+    async (cancellation) => {
+      vi.useFakeTimers();
+      const view = render(<SpeechPanel {...props} onShortcutChange={(value) => value} />);
+      try {
+        await act(async () => {});
+        expect(screen.getByRole("button", { name: "Start dictation" })).toBeEnabled();
+        view.rerender(<SpeechPanel {...props} dictationRequest={1} onShortcutChange={(value) => value} />);
+        if (cancellation === "second shortcut") view.rerender(<SpeechPanel {...props} dictationRequest={2} />);
+        else if (cancellation === "configuration focus") {
+          act(() => screen.getByText("Dictation shortcut", { selector: "summary" }).focus());
+        } else if (cancellation === "read mode") {
+          view.rerender(<SpeechPanel {...props} dictationRequest={1} readOnly />);
+        } else if (cancellation === "suspension") {
+          view.rerender(<SpeechPanel {...props} dictationRequest={1} suspended />);
+        } else view.unmount();
+        await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+        expect(microphone.start).not.toHaveBeenCalled();
+      } finally {
+        view.unmount();
+        vi.useRealTimers();
+      }
+    },
+  );
+
   it("does not carry a pending shortcut into another note scope", async () => {
     let ready: ((value: typeof localEngine) => void) | undefined;
     native.status.mockImplementation(() => new Promise<typeof localEngine>((resolve) => { ready = resolve; }));

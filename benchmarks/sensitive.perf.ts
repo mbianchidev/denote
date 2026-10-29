@@ -309,6 +309,7 @@ test("the configured speech shortcut persists, updates the palette, and cannot r
   await palette.fill("Start dictation");
   await expect(page.getByRole("option").filter({ hasText: "Start dictation" }).first()).toContainText("Ctrl+Shift+D");
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Command palette", exact: true })).toHaveCount(0);
   await page.getByRole("tab", { name: "Authoring.md", exact: true }).focus();
   await page.keyboard.press("Control+Space");
   expect(await page.evaluate(() => window.__DENOTE_AUTHORING__.microphoneRequests)).toBe(0);
